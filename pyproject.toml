@@ -5,11 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "aiosqlite>=0.22.1",
     "html2text>=2025.4.15",
     "httpx>=0.28.1",
     "langchain-core>=1.2.9",
     "langchain-openai>=1.1.7",
     "langgraph>=1.0.7",
+    "langgraph-checkpoint-sqlite>=3.0.3",
     "loguru>=0.7.3",
     "pydantic-settings>=2.12.0",
     "python-frontmatter>=1.1.0",
