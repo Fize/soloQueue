@@ -31,28 +31,31 @@ def create_delegate_tool(allowed_targets: List[str]) -> BaseTool:
     delegate_to.description = description
     return delegate_to
 
-def resolve_tools_for_agent(tools_list: List[str], sub_agents: List[str]) -> List[BaseTool]:
+from soloqueue.core.schema import AgentConfig
+
+def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
     """
     Combine built-in primitives and delegation tools for an agent.
-    
-    Args:
-        tools_list: List of primitive names (e.g. ["read_file", "bash"])
-        sub_agents: List of allowed sub-agent names.
     """
     all_primitives = {t.name: t for t in get_all_primitives()}
     
     final_tools = []
     
-    # 1. Add Primitives
-    for name in tools_list:
+    # 1. Add Configured Skills (Primitives)
+    for name in config.skills:
         if name in all_primitives:
             final_tools.append(all_primitives[name])
         else:
-            # Check custom skills later? For MVP just warn/skip
+            # Check custom skills later?
             pass
             
-    # 2. Add Delegation Tool if applicable
-    if sub_agents:
-        final_tools.append(create_delegate_tool(sub_agents))
+    # 2. Add Delegation Tool if applicable (Leader only)
+    if config.is_leader:
+        # Leader can delegate to anyone. 
+        # We don't restrict targets in the tool definition (enum) anymore to allow dynamic graph scaling.
+        # We use a generic list or description.
+        # Ideally, we should inject the list of available targets into the Prompt, not the Tool Schema, 
+        # to avoid schema bloat.
+        final_tools.append(create_delegate_tool(allowed_targets=["ANY_AGENT"]))
         
     return final_tools

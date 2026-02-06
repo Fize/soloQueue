@@ -1,66 +1,100 @@
 import asyncio
 import sys
+import os
 
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage
 from soloqueue.core.logger import setup_logger, logger
 from soloqueue.orchestration.graph.builder import build_dynamic_graph
-
-def print_stream(event: dict):
-    """
-    Pretty print graph events.
-    Key is node name, value is state update.
-    """
-    for node_name, update in event.items():
-        if "messages" in update:
-            last_msg = update["messages"][-1]
-            if isinstance(last_msg, AIMessage):
-                content = last_msg.content
-                tool_calls = last_msg.tool_calls
-                
-                print(f"\n\033[94m[{node_name}]\033[0m") # Blue
-                if content:
-                    print(f"{content}")
-                if tool_calls:
-                    for tc in tool_calls:
-                        print(f"\033[93m🛠️  Tool Call: {tc['name']}({tc['args']})\033[0m")
-                        
-            elif isinstance(last_msg, ToolMessage):
-                print(f"\n\033[90m[{node_name} Output]\033[0m") # Grey
-                print(f"{last_msg.content[:200]}..." if len(last_msg.content) > 200 else last_msg.content)
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 async def main():
     print("🚀 Initializing SoloQueue...")
     setup_logger()
     
+    # Ensure persistence directory
+    os.makedirs(".soloqueue", exist_ok=True)
+    
     try:
-        graph = build_dynamic_graph()
-        print("✅ Graph constructed successfully.")
-        
-        # Initial greeting
-        print("\n\033[1;32mSoloQueue Ready. Type 'exit' to quit.\033[0m")
-        
-        while True:
-            try:
-                user_input = input("\n\033[1mUSER > \033[0m").strip()
-                if not user_input:
-                    continue
-                if user_input.lower() in ["exit", "quit"]:
+        # Initialize Checkpointer
+        async with AsyncSqliteSaver.from_conn_string(".soloqueue/state.db") as checkpointer:
+            graph = build_dynamic_graph(checkpointer=checkpointer)
+            print("✅ Graph constructed successfully.")
+            print("\n\033[1;32mSoloQueue Ready. Type 'exit' to quit.\033[0m")
+            
+            # Use a fixed thread ID for the CLI session 
+            # (In a real app, user might switch threads, but here we keep context)
+            config = {"configurable": {"thread_id": "cli_session_1"}}
+            
+            while True:
+                try:
+                    user_input = input("\n\033[1mUSER > \033[0m").strip()
+                    if not user_input:
+                        continue
+                    if user_input.lower() in ["exit", "quit"]:
+                        break
+                        
+                    input_state = {"messages": [HumanMessage(content=user_input)]}
+                    
+                    # Streaming State
+                    current_node = None
+                    is_thinking = False
+                    
+                    async for event in graph.astream_events(input_state, config=config, version="v1"):
+                        kind = event["event"]
+                        
+                        if kind == "on_chain_start":
+                            pass
+
+                        # 1. Node Entry Detection
+                        tags = event.get("tags", [])
+                        if "langgraph:node" in tags:
+                            meta = event.get("metadata", {})
+                            node = meta.get("langgraph_node", "")
+                            if node and node != current_node:
+                                current_node = node
+                                print(f"\n\033[94m[{current_node}]\033[0m") # Blue
+
+                        # 2. LLM Streaming
+                        if kind == "on_chat_model_stream":
+                            chunk = event["data"]["chunk"]
+                            content = chunk.content
+                            if content:
+                                to_print = content
+                                
+                                if "<think>" in to_print:
+                                    print("\n\033[90m", end="", flush=True) # Start Grey
+                                    is_thinking = True
+                                    to_print = to_print.replace("<think>", "💭 [Thinking] ")
+                                
+                                if "</think>" in to_print:
+                                    parts = to_print.split("</think>")
+                                    print(parts[0], end="", flush=True)
+                                    print("\033[0m\n", end="", flush=True)
+                                    is_thinking = False
+                                    if len(parts) > 1:
+                                        print(parts[1], end="", flush=True)
+                                    continue
+
+                                print(to_print, end="", flush=True)
+
+                        # 3. Tool Execution
+                        elif kind == "on_tool_start":
+                            print(f"\n\033[93m🛠️  Tool Call: {event['name']}...\033[0m", end="")
+                        
+                        elif kind == "on_tool_end":
+                            output = str(event['data'].get('output'))
+                            preview = output[:100] + "..." if len(output) > 100 else output
+                            print(f" \033[90m-> {preview}\033[0m")
+
+                except KeyboardInterrupt:
+                    print("\nInterrupted.")
                     break
-                    
-                # Stream the graph execution
-                # We inject the HumanMessage as input
-                input_state = {"messages": [HumanMessage(content=user_input)]}
-                
-                async for event in graph.astream(input_state):
-                    print_stream(event)
-                    
-            except KeyboardInterrupt:
-                print("\nInterrupted.")
-                break
-            except Exception as e:
-                logger.error(f"Runtime Error: {e}")
-                print(f"\033[91mError: {e}\033[0m")
-                
+                except Exception as e:
+                    logger.error(f"Runtime Error: {e}")
+                    print(f"\033[91mError: {e}\033[0m")
+                    # import traceback
+                    # traceback.print_exc()
+
     except Exception as e:
         logger.critical(f"Startup Failed: {e}")
         print(f"Startup Failed: {e}")
