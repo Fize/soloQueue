@@ -4,11 +4,11 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from soloqueue.core.logger import logger
 from langchain_core.tools import BaseTool
 
-from soloqueue.core.loaders import AgentSchema
+from soloqueue.core.schema import AgentConfig
 from soloqueue.core.llm import LLMFactory
 from soloqueue.orchestration.state import AgentState
 
-def create_agent_runner(config: AgentSchema, tools: List[BaseTool]):
+def create_agent_runner(config: AgentConfig, tools: List[BaseTool]):
     """
     Factory that returns the executable node function for a specific agent.
     """
@@ -59,7 +59,7 @@ def create_agent_runner(config: AgentSchema, tools: List[BaseTool]):
         # LangGraph's reducer will append it to state["messages"].
         return {
             "messages": [response],
-            "active_agent": config.name,
+            "active_agent": config.node_id,
         }
         
     return agent_node

@@ -1,0 +1,39 @@
+[32m18:01:09[0m | [1mINFO    [0m | [36msoloqueue.core.workspace[0m:[36m__init__[0m:[36m33[0m - [1mWorkspace initialized at: /home/malzahar/github.com/soloQueue[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.loaders.agent_loader[0m:[36mload[0m:[36m41[0m - [34m[1mLoaded agent: leader[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.loaders.agent_loader[0m:[36mload[0m:[36m41[0m - [34m[1mLoaded agent: trader[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.loaders.agent_loader[0m:[36mload[0m:[36m41[0m - [34m[1mLoaded agent: technical_analyst[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.loaders.agent_loader[0m:[36mload[0m:[36m41[0m - [34m[1mLoaded agent: fundamental_analyst[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.llm[0m:[36mget_llm[0m:[36m28[0m - [34m[1mCreating LLM: model=deepseek-chat, base_url=https://api.deepseek.com/v1[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.llm[0m:[36mget_llm[0m:[36m28[0m - [34m[1mCreating LLM: model=deepseek-chat, base_url=https://api.deepseek.com/v1[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.llm[0m:[36mget_llm[0m:[36m28[0m - [34m[1mCreating LLM: model=deepseek-chat, base_url=https://api.deepseek.com/v1[0m | {}
+[32m18:01:09[0m | [34m[1mDEBUG   [0m | [36msoloqueue.core.llm[0m:[36mget_llm[0m:[36m28[0m - [34m[1mCreating LLM: model=deepseek-chat, base_url=https://api.deepseek.com/v1[0m | {}
+🚀 Starting Memory Verification...
+
+--- Running Agent ---
+Traceback (most recent call last):
+  File "/home/malzahar/github.com/soloQueue/tests/verify_memory.py", line 67, in <module>
+    asyncio.run(verify_memory())
+  File "/home/malzahar/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/home/malzahar/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/malzahar/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/malzahar/github.com/soloQueue/tests/verify_memory.py", line 35, in verify_memory
+    async for event in graph.astream(input_state, config={"configurable": {"thread_id": "mem_test"}}):
+  File "/home/malzahar/github.com/soloQueue/.venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 2891, in astream
+    async with AsyncPregelLoop(
+  File "/home/malzahar/github.com/soloQueue/.venv/lib/python3.11/site-packages/langgraph/pregel/_loop.py", line 1264, in __aenter__
+    saved = await self.checkpointer.aget_tuple(self.checkpoint_config)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/malzahar/github.com/soloQueue/.venv/lib/python3.11/site-packages/langgraph/checkpoint/sqlite/__init__.py", line 503, in aget_tuple
+    raise NotImplementedError(_AIO_ERROR_MSG)
+NotImplementedError: The SqliteSaver does not support async methods. Consider using AsyncSqliteSaver instead.
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+Note: AsyncSqliteSaver requires the aiosqlite package to use.
+Install with:
+`pip install aiosqlite`
+See https://langchain-ai.github.io/langgraph/reference/checkpoints/#langgraph.checkpoint.sqlite.aio.AsyncSqliteSaverfor more information.
