@@ -31,7 +31,7 @@ def create_delegate_tool(allowed_targets: List[str]) -> BaseTool:
     delegate_to.description = description
     return delegate_to
 
-from soloqueue.core.schema import AgentConfig
+from soloqueue.core.loaders import AgentConfig
 
 def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
     """
@@ -41,8 +41,8 @@ def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
     
     final_tools = []
     
-    # 1. Add Configured Skills (Primitives)
-    for name in config.skills:
+    # 1. Add Configured Tools (Primitives)
+    for name in config.tools:
         if name in all_primitives:
             final_tools.append(all_primitives[name])
         else:

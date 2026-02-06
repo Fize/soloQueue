@@ -1,6 +1,8 @@
 ---
 name: fundamental_analyst
 description: Fundamental Analyst - Company financials, valuation, industry research
+group: investment
+model: deepseek-reasoner
 tools:
   - read_file
   - web_fetch
