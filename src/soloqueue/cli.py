@@ -57,10 +57,28 @@ async def main():
                         # 2. LLM Streaming
                         if kind == "on_chat_model_stream":
                             chunk = event["data"]["chunk"]
+                            
+                            # DeepSeek Native Reasoning Support
+                            reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                             content = chunk.content
+                            
+                            # Logic for native reasoning field
+                            if reasoning:
+                                if not is_thinking:
+                                    print("\n\033[90m💭 [Thinking] ", end="", flush=True)
+                                    is_thinking = True
+                                print(reasoning, end="", flush=True)
+                                continue # Skip content processing if this is a purely reasoning chunk
+
+                            # If we were thinking (native) and now get content (and no reasoning), close it
+                            if is_thinking and content:
+                                print("\033[0m\n", end="", flush=True)
+                                is_thinking = False
+
                             if content:
                                 to_print = content
                                 
+                                # Fallback: Check for embedded <think> tags (Ollama/Proxies)
                                 if "<think>" in to_print:
                                     print("\n\033[90m", end="", flush=True) # Start Grey
                                     is_thinking = True
