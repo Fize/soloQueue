@@ -1,5 +1,6 @@
 name: "analyst"
 group: "investment"
+model: "deepseek-reasoner"
 is_leader: false
 system_prompt: |
   You are an expert Data Analyst in the Investment Team.

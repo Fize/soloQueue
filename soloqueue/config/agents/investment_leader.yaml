@@ -1,5 +1,6 @@
 name: "leader"
 group: "investment"
+model: "deepseek-chat"
 is_leader: true
 system_prompt: |
   You are the Leader of the Investment Analysis Team.
