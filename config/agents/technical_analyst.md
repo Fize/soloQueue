@@ -1,6 +1,8 @@
 ---
 name: technical_analyst
 description: Technical Analyst - Chart patterns, indicators, trend analysis
+group: investment
+model: deepseek-reasoner
 tools:
   - read_file
   - web_fetch

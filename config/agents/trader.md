@@ -1,6 +1,8 @@
 ---
 name: trader
 description: Trader - Execute trades and maintain trading logs
+group: investment
+model: deepseek-chat
 tools:
   - read_file
   - write_file
