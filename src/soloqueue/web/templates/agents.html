@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Agents | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3><i class="bi bi-robot me-2"></i> Agents</h3>
+    <a href="/agents/new" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> New Agent</a>
+</div>
+
+{% if not agents %}
+<div class="alert alert-info py-4 text-center">
+    <i class="bi bi-info-circle fs-4 d-block mb-2"></i>
+    No agents found. Create your first agent configuration.
+</div>
+{% else %}
+<div class="card shadow-sm border-0">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-3 border-0">Name</th>
+                        <th class="border-0">Group</th>
+                        <th class="border-0">Model</th>
+                        <th class="border-0">Role</th>
+                        <th class="border-0">Tools</th>
+                        <th class="pe-3 border-0 text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for agent in agents %}
+                    <tr class="transition-row">
+                        <td class="ps-3">
+                            <div class="d-flex align-items-center">
+                                <div class="bg-primary bg-opacity-10 text-primary rounded-circle p-2 me-3 d-flex align-items-center justify-content-center"
+                                    style="width: 36px; height: 36px;">
+                                    <i class="bi bi-robot"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-bold text-dark">{{ agent.name }}</div>
+                                    <small class="text-muted d-block text-truncate" style="max-width: 250px;">{{
+                                        agent.description }}</small>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark border fw-normal">{{ agent.group }}</span>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center small">
+                                <i class="bi bi-cpu me-1 text-muted"></i>
+                                <code>{{ agent.model }}</code>
+                                {% if agent.reasoning %}
+                                <span class="ms-2 badge bg-warning text-dark border" title="Reasoning Enabled">R</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            {% if agent.is_leader %}
+                            <span
+                                class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">Leader</span>
+                            {% else %}
+                            <span class="badge bg-secondary bg-opacity-10 text-secondary border">Member</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for tool in agent.tools %}
+                                <span class="badge bg-light text-muted border fw-normal small">{{ tool }}</span>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td class="pe-3 text-end">
+                            <div class="btn-group">
+                                <a href="/agents/{{ agent.name }}" class="btn btn-sm btn-outline-secondary"
+                                    title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <button type="button" class="btn btn-sm btn-outline-danger" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

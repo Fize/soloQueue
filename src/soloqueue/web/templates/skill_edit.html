@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ skill.name }} | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/skills">Skills</a></li>
+            <li class="breadcrumb-item"><a href="/skills/{{ skill.name }}">{{ skill.name }}</a></li>
+            <li class="breadcrumb-item active">Edit</li>
+        </ol>
+    </nav>
+</div>
+
+<div class="card shadow-sm border-0" x-data="skillEditor({{ skill | tojson }})">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="mb-0 fw-bold">Edit Skill</h5>
+        <div>
+            <a href="/skills/{{ skill.name }}" class="btn btn-outline-secondary btn-sm me-2">Cancel</a>
+            <button @click="save" class="btn btn-primary btn-sm" :disabled="saving">
+                <span x-show="saving" class="spinner-border spinner-border-sm me-1" role="status"
+                    aria-hidden="true"></span>
+                <span x-text="saving ? 'Saving...' : 'Save Changes'"></span>
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <form @submit.prevent="save">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Name</label>
+                    <input type="text" class="form-control bg-light" x-model="skill.name" disabled readonly>
+                </div>
+
+                <div class="col-6">
+                    <label class="form-label fw-bold">Description</label>
+                    <input type="text" class="form-control" x-model="skill.description">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Configuration</label>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" id="disableModel"
+                            x-model="skill.disable_model_invocation">
+                        <label class="form-check-label" for="disableModel">Disable Model Invocation (Manual
+                            Only)</label>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Subagent (Optional)</label>
+                    <input type="text" class="form-control" x-model="skill.subagent" placeholder="e.g. fork">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Allowed Tools (comma separated)</label>
+                    <input type="text" class="form-control"
+                        :value="skill.allowed_tools ? skill.allowed_tools.join(', ') : ''"
+                        @input="skill.allowed_tools = $event.target.value.split(',').map(s => s.trim()).filter(s => s)">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Arguments Hint</label>
+                    <input type="text" class="form-control" x-model="skill.arguments"
+                        placeholder="e.g. [path] [message]">
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label fw-bold">Prompt Content (Markdown)</label>
+                    <textarea class="form-control font-monospace small bg-light" rows="15" x-model="skill.content"
+                        style="font-size: 0.85rem;"></textarea>
+                    <div class="form-text">Markdown Prompt Template for this skill.</div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('skillEditor', (initialData) => ({
+            skill: initialData,
+            saving: false,
+
+            async save() {
+                this.saving = true;
+                try {
+                    // Ensure arrays
+                    if (!this.skill.allowed_tools) this.skill.allowed_tools = [];
+
+                    const res = await fetch(`/api/skills/${this.skill.name}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.skill)
+                    });
+
+                    if (res.ok) {
+                        window.location.href = `/skills/${this.skill.name}`;
+                    } else {
+                        const err = await res.json();
+                        alert('Error saving: ' + (err.message || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Network error: ' + e);
+                } finally {
+                    this.saving = false;
+                }
+            }
+        }))
+    })
+</script>
+{% endblock %}

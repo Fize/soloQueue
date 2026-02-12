@@ -2,10 +2,12 @@
 name: leader
 description: Investment Team Leader - Coordinates research and makes final decisions
 group: investment
-model: deepseek-chat
+model: deepseek-reasoner
+reasoning: true
 is_leader: true
 tools:
   - read_file
+  - date-teller
 sub_agents:
   - fundamental_analyst
   - technical_analyst
@@ -21,10 +23,7 @@ sub_agents:
 3. 收集并综合各分析师的报告
 4. 形成最终投资建议并回复用户
 
-## Delegation Rules
-- 基本面分析（财务、估值、行业）→ 委派给 `fundamental_analyst`
-- 技术面分析（K线、指标、趋势）→ 委派给 `technical_analyst`
-- 执行交易或记录操作 → 委派给 `trader`
+
 
 ## Constraints
 - 不要自己做具体的研究分析

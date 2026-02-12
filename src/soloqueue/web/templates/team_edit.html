@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ team.name }} | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/teams">Teams</a></li>
+            <li class="breadcrumb-item"><a href="/teams/{{ team.name }}">{{ team.name }}</a></li>
+            <li class="breadcrumb-item active">Edit</li>
+        </ol>
+    </nav>
+</div>
+
+<div class="card shadow-sm border-0" x-data="teamEditor({{ team | tojson }})">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="mb-0 fw-bold">Edit Team Configuration</h5>
+        <div>
+            <a href="/teams/{{ team.name }}" class="btn btn-outline-secondary btn-sm me-2">Cancel</a>
+            <button @click="save" class="btn btn-primary btn-sm" :disabled="saving">
+                <span x-show="saving" class="spinner-border spinner-border-sm me-1" role="status"
+                    aria-hidden="true"></span>
+                <span x-text="saving ? 'Saving...' : 'Save Changes'"></span>
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <form @submit.prevent="save">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Name</label>
+                    <input type="text" class="form-control bg-light" x-model="team.name" disabled readonly>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label fw-bold">Description</label>
+                    <input type="text" class="form-control" x-model="team.description">
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label fw-bold">Shared Context (Path or Content)</label>
+                    <textarea class="form-control font-monospace small bg-light" rows="5" x-model="team.shared_context"
+                        style="font-size: 0.85rem;" placeholder="e.g. context/team_knowledge.md"></textarea>
+                    <div class="form-text">Currently interpreted as a file path or direct string content depending on
+                        implementation.</div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('teamEditor', (initialData) => ({
+            team: initialData,
+            saving: false,
+
+            async save() {
+                this.saving = true;
+                try {
+                    const res = await fetch(`/api/teams/${this.team.name}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.team)
+                    });
+
+                    if (res.ok) {
+                        window.location.href = `/teams/${this.team.name}`; // Redirect to detail page (assuming implemented or lists)
+                    } else {
+                        const err = await res.json();
+                        alert('Error saving: ' + (err.message || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Network error: ' + e);
+                } finally {
+                    this.saving = false;
+                }
+            }
+        }))
+    })
+</script>
+{% endblock %}

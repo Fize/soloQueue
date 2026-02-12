@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}{{ team.name }} | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1 small">
+                <li class="breadcrumb-item"><a href="/teams">Teams</a></li>
+                <li class="breadcrumb-item active">{{ team.name }}</li>
+            </ol>
+        </nav>
+        <h3 class="mb-0">{{ team.name }}</h3>
+        <p class="text-muted small mb-0">{{ team.description }}</p>
+    </div>
+
+    <div class="btn-group">
+        <a href="/api/teams/{{ team.name }}" target="_blank" class="btn btn-outline-secondary btn-sm" title="View JSON">
+            <i class="bi bi-code-slash"></i> JSON
+        </a>
+        <a href="/teams/{{ team.name }}/edit" class="btn btn-primary btn-sm">
+            <i class="bi bi-pencil me-1"></i> Edit Configuration
+        </a>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Team Members -->
+    <div class="col-md-5 col-lg-4">
+        <div class="card shadow-sm border-0 mb-4 h-100">
+            <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-people me-2"></i> Members</span>
+                <span class="badge bg-primary rounded-pill">{{ members | length }}</span>
+            </div>
+            <div class="list-group list-group-flush overflow-auto" style="max-height: 400px;">
+                {% for member in members %}
+                <a href="/agents/{{ member.name }}"
+                    class="list-group-item list-group-item-action d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center">
+                        <div class="bg-light text-secondary rounded-circle p-2 me-2 d-flex align-items-center justify-content-center"
+                            style="width: 32px; height: 32px;">
+                            {% if member.is_leader %}
+                            <i class="bi bi-star-fill text-warning"></i>
+                            {% else %}
+                            <i class="bi bi-person"></i>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <span class="fw-bold d-block">{{ member.name }}</span>
+                            <small class="text-muted">{{ member.model }}</small>
+                        </div>
+                    </div>
+                    {% if member.reasoning %}
+                    <i class="bi bi-lightbulb-fill text-warning" title="Reasoning Enabled"></i>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </div>
+            <div class="card-footer bg-white text-center border-top-0 py-3">
+                <a href="/agents/new?group={{ team.name }}" class="btn btn-outline-primary btn-sm w-100"><i
+                        class="bi bi-plus-lg me-1"></i> Add Member</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared Context -->
+    <div class="col-md-7 col-lg-8">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white fw-bold d-flex justify-content-between">
+                <span><i class="bi bi-file-text me-2"></i> Shared Context</span>
+                <span class="badge bg-light text-muted border">{{ team.shared_context|length if team.shared_context else
+                    0 }} chars</span>
+            </div>
+            <div class="card-body bg-light p-0 position-relative">
+                <pre class="m-0 p-3"
+                    style="white-space: pre-wrap; font-family: 'Consolas', monospace; font-size: 0.9rem; max-height: 600px; overflow-y: auto;">{{ team.shared_context }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- Debug Chat Console -->
+<div class="row mt-4" x-data="teamChat">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-terminal me-2"></i> Team Debug Console (@{{ leader_name }})</h5>
+                <div>
+                    <select class="form-select form-select-sm d-inline-block w-auto me-2" x-model="targetAgent">
+                        {% for member in members %}
+                        <option value="{{ member.name }}">{{ member.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <span class="badge" :class="connected ? 'bg-success' : 'bg-danger'"
+                        x-text="connected ? 'Connected' : 'Disconnected'"></span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="team-messages" class="p-3 bg-light font-monospace"
+                    style="height: 400px; overflow-y: auto; font-size: 0.9rem;">
+                    <template x-for="msg in messages" :key="msg.id">
+                        <div class="mb-2">
+                            <div x-show="msg.type === 'user'" class="text-end">
+                                <span class="badge bg-primary text-wrap text-start" style="max-width: 80%;">
+                                    <i class="bi bi-person-fill me-1"></i> <span x-text="msg.content"></span>
+                                </span>
+                            </div>
+                            <div x-show="msg.type === 'agent'" class="text-start">
+                                <span class="badge bg-success text-wrap text-start" style="max-width: 80%;">
+                                    <i class="bi bi-robot me-1"></i> <span x-text="msg.content"></span>
+                                </span>
+                            </div>
+                            <div x-show="msg.type === 'thought'" class="text-start ms-4">
+                                <small class="text-muted fst-italic">
+                                    <i class="bi bi-gear me-1"></i> <span x-text="msg.content"></span>
+                                </small>
+                            </div>
+                            <div x-show="msg.type === 'error'" class="text-center">
+                                <small class="text-danger fw-bold" x-text="msg.content"></small>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="thinking" class="text-start ms-4">
+                        <small class="text-muted"><span class="spinner-grow spinner-grow-sm me-1"></span>
+                            Thinking...</small>
+                    </div>
+                </div>
+                <div class="p-3 border-top bg-white">
+                    <form @submit.prevent="sendMessage" class="d-flex gap-2">
+                        <input type="text" class="form-control" x-model="input" placeholder="Message team leader..."
+                            :disabled="!connected || thinking">
+                        <button type="submit" class="btn btn-primary" :disabled="!input.trim() || !connected"
+                            x-show="!thinking">Send</button>
+                        <button type="button" class="btn btn-danger" @click="stopGeneration"
+                            x-show="thinking">Stop</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('teamChat', () => ({
+            connected: false,
+            socket: null,
+            messages: [],
+            input: '',
+            thinking: false,
+            targetAgent: '{{ leader_name }}',
+
+            init() {
+                this.connect();
+            },
+            connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                this.socket = new WebSocket(`${protocol}//${window.location.host}/ws/chat`);
+
+                this.socket.onopen = () => { this.connected = true; };
+                this.socket.onclose = () => {
+                    this.connected = false;
+                    setTimeout(() => this.connect(), 3000);
+                };
+                this.socket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    this.handleMessage(data);
+                };
+            },
+            handleMessage(data) {
+                if (data.type === 'thought') {
+                    // Update last thought or append
+                    // Simple append for now
+                    this.messages.push({ id: Date.now(), type: 'thought', content: data.content });
+                } else if (data.type === 'chat') {
+                    // Streaming content? 
+                    // For simplicity, append chunks as separate bubbles or accumulate?
+                    // Given previous impl, let's just push. 
+                    // Better: Check if last message is agent and append
+                    const last = this.messages[this.messages.length - 1];
+                    if (last && last.type === 'agent') {
+                        last.content += data.content;
+                    } else {
+                        this.messages.push({ id: Date.now(), type: 'agent', content: data.content });
+                    }
+                    this.thinking = false;
+                } else if (data.type === 'error') {
+                    this.messages.push({ id: Date.now(), type: 'error', content: data.content });
+                    this.thinking = false;
+                } else if (data.type === 'response') {
+                    // Final response (if not already streamed)
+                    // If we were streaming, the content is already in the last agent bubble.
+                    // But we MUST ensure thinking is false.
+                    this.thinking = false;
+
+                    // If no recent agent chunk was displayed (streaming failed?), append content
+                    const last = this.messages[this.messages.length - 1];
+                    if (data.content && data.content.trim()) {
+                        if (!last || last.type !== 'agent') {
+                            this.messages.push({ id: Date.now(), type: 'agent', content: data.content });
+                        }
+                    }
+                    console.log('Final response received:', data.content);
+                }
+                this.scrollToBottom();
+            },
+            sendMessage() {
+                if (!this.input.trim()) return;
+
+                this.messages.push({ id: Date.now(), type: 'user', content: this.input });
+                this.socket.send(JSON.stringify({
+                    type: 'chat',
+                    content: this.input,
+                    target_agent: this.targetAgent
+                }));
+                this.input = '';
+                this.thinking = true;
+                this.scrollToBottom();
+            },
+            stopGeneration() {
+                if (this.socket) this.socket.close();
+                this.thinking = false;
+                this.messages.push({ id: Date.now(), type: 'error', content: 'Stopped by user.' });
+            },
+            scrollToBottom() {
+                this.$nextTick(() => {
+                    const el = document.getElementById('team-messages');
+                    if (el) el.scrollTop = el.scrollHeight;
+                });
+            }
+        }))
+    })
+</script>
+{% endblock %}

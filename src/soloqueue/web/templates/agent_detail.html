@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}{{ agent.name }} | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1 small">
+                <li class="breadcrumb-item"><a href="/agents">Agents</a></li>
+                <li class="breadcrumb-item active">{{ agent.name }}</li>
+            </ol>
+        </nav>
+        <h3 class="mb-0">{{ agent.name }}</h3>
+    </div>
+    <div class="btn-group">
+        <a href="/api/agents/{{ agent.name }}" target="_blank" class="btn btn-outline-secondary btn-sm"
+            title="View JSON">
+            <i class="bi bi-code-slash"></i> JSON
+        </a>
+        <a href="/agents/{{ agent.name }}/edit" class="btn btn-primary btn-sm"><i class="bi bi-pencil me-1"></i> Edit
+            Configuration</a>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Configuration Panel -->
+    <div class="col-md-5 col-lg-4">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white fw-bold">
+                <i class="bi bi-sliders me-2"></i> Configuration
+            </div>
+            <div class="list-group list-group-flush">
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="text-muted">Group</span>
+                    <a href="/teams/{{ agent.group or '' }}"
+                        class="badge bg-light text-dark text-decoration-none border">{{ agent.group }}</a>
+                </div>
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="text-muted">Model</span>
+                    <code>{{ agent.model }}</code>
+                </div>
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="text-muted">Role</span>
+                    {% if agent.is_leader %}
+                    <span class="badge bg-primary">Leader</span>
+                    {% else %}
+                    <span class="badge bg-secondary">Member</span>
+                    {% endif %}
+                </div>
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="text-muted">Reasoning</span>
+                    {% if agent.reasoning %}
+                    <i class="bi bi-check-circle-fill text-success"></i>
+                    {% else %}
+                    <i class="bi bi-dash-circle text-muted"></i>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white fw-bold">
+                <i class="bi bi-tools me-2"></i> Capabilities
+            </div>
+            <div class="card-body">
+                <h6 class="text-uppercase text-muted small fw-bold mb-2">Tools</h6>
+                <div class="d-flex flex-wrap gap-1 mb-3">
+                    {% if agent.tools %}
+                    {% for tool in agent.tools %}
+                    <span class="badge bg-light text-dark border fw-normal">{{ tool }}</span>
+                    {% endfor %}
+                    {% else %}
+                    <span class="text-muted small fst-italic">None</span>
+                    {% endif %}
+                </div>
+
+                <h6 class="text-uppercase text-muted small fw-bold mb-2">Sub-Agents</h6>
+                <div class="d-flex flex-wrap gap-1">
+                    {% if agent.sub_agents %}
+                    {% for sub in agent.sub_agents %}
+                    <a href="/agents/{{ sub }}"
+                        class="badge bg-light text-primary border text-decoration-none fw-normal">{{ sub }}</a>
+                    {% endfor %}
+                    {% else %}
+                    <span class="text-muted small fst-italic">None</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Prompt -->
+    <div class="col-md-7 col-lg-8">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white fw-bold d-flex justify-content-between">
+                <span><i class="bi bi-chat-quote me-2"></i> System Prompt</span>
+                <span class="badge bg-light text-muted border">{{ agent.system_prompt|length if agent.system_prompt else
+                    0 }} chars</span>
+            </div>
+            <div class="card-body bg-light p-0 position-relative">
+                <pre class="m-0 p-3"
+                    style="white-space: pre-wrap; font-family: 'Consolas', monospace; font-size: 0.9rem; max-height: 600px; overflow-y: auto;">{{ agent.system_prompt }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

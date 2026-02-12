@@ -57,3 +57,25 @@ class GroupLoader:
                 continue
                 
         return groups
+
+    def save(self, group: GroupSchema):
+        """
+        Save GroupSchema back to Markdown file.
+        """
+        # Convert schema to dict (exclude shared_context which is content)
+        data = group.model_dump(exclude={"shared_context"}, exclude_none=True)
+        
+        # Create Post
+        content = group.shared_context or ""
+        post = frontmatter.Post(content, **data)
+        
+        # Write file
+        file_path = self.config_root / f"{group.name}.md"
+        
+        # Ensure directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_path, "wb") as f:
+            frontmatter.dump(post, f)
+            
+        logger.info(f"Saved group config: {file_path}")

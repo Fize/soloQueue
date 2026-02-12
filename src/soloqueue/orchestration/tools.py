@@ -1,9 +1,12 @@
-from typing import List
+from typing import List, Type, Dict, Any, Union
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
+from soloqueue.core.logger import logger
 from soloqueue.core.primitives import get_all_primitives
+from soloqueue.core.loaders.schema import AgentSchema
+from soloqueue.core.loaders.skill_loader import SkillLoader
 
 class DelegateInput(BaseModel):
     """Input for delegating a task to another agent."""
@@ -33,29 +36,70 @@ def create_delegate_tool(allowed_targets: List[str]) -> BaseTool:
 
 from soloqueue.core.loaders import AgentConfig
 
+
 def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
     """
     Combine built-in primitives and delegation tools for an agent.
+    Primitives are auto-included for ALL agents.
     """
-    all_primitives = {t.name: t for t in get_all_primitives()}
+    # 0. Start with ALL Primitives (Built-in skills)
+    # The user specification states that all agents have these by default.
+    final_tools = get_all_primitives()
     
-    final_tools = []
+    # Track names to avoid duplicates if user still lists them in YAML
+    existing_tool_names = {t.name for t in final_tools}
     
-    # 1. Add Configured Tools (Primitives)
-    for name in config.tools:
-        if name in all_primitives:
-            final_tools.append(all_primitives[name])
-        else:
-            # Check custom skills later?
-            pass
+    # 1. Add Configured Skills
+    from soloqueue.core.loaders.skill_loader import SkillLoader
+    skill_loader = SkillLoader()
+    
+    # Dynamic Proxy Tool Factory
+    def create_skill_proxy(skill_name: str, description: str):
+        """Creates a tool that just signals the desire to use a skill."""
+        
+        class SkillInput(BaseModel):
+            arguments: str = Field(description="Arguments for the skill (e.g. CLI flags or natural language input)")
             
+        @tool(args_schema=SkillInput)
+        def proxy_tool(arguments: str) -> str:
+            """Executes the skill."""
+            # Signal string for Runner to intercept
+            return f"__USE_SKILL__: {skill_name} | {arguments}"
+            
+        proxy_tool.name = skill_name
+        proxy_tool.description = description
+        return proxy_tool
+
+    for name in config.tools:
+        if name in existing_tool_names:
+            # Already added as a primitive, skip to avoid duplication
+            continue
+        else:
+            # Try loading as a Skill
+            try:
+                skill_schema = skill_loader.load(name)
+                # Success! active the skill as a Tool
+                proxy = create_skill_proxy(skill_schema.name, skill_schema.description)
+                final_tools.append(proxy)
+                existing_tool_names.add(skill_schema.name)
+                logger.debug(f"Attached Skill Proxy: {skill_schema.name} for {config.node_id}")
+            except Exception:
+                # It might be an invalid tool name, or a primitive not in get_all_primitives?
+                logger.warning(f"Skill '{name}' not found in Skill Registry.")
+                
     # 2. Add Delegation Tool if applicable (Leader only)
     if config.is_leader:
-        # Leader can delegate to anyone. 
-        # We don't restrict targets in the tool definition (enum) anymore to allow dynamic graph scaling.
-        # We use a generic list or description.
-        # Ideally, we should inject the list of available targets into the Prompt, not the Tool Schema, 
-        # to avoid schema bloat.
-        final_tools.append(create_delegate_tool(allowed_targets=["ANY_AGENT"]))
+        # Leader can delegate.
+        # If sub_agents are defined, we restrict to those (Whitelist).
+        # If empty but is_leader is True, we might allow ANY_AGENT (Wildcard) 
+        # or just fail. For now, strict whitelist if list is present.
+        
+        targets = config.sub_agents
+        if not targets:
+            # Fallback to ANY_AGENT if no sub-agents defined but is_leader=True
+            # This maintains backward compatibility or "Super Leader" mode
+            targets = ["ANY_AGENT"]
+            
+        final_tools.append(create_delegate_tool(allowed_targets=targets))
         
     return final_tools
