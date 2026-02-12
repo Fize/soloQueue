@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Teams | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3><i class="bi bi-people me-2"></i> Teams</h3>
+    <a href="/teams/new" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> New Team</a>
+</div>
+
+{% if not teams %}
+<div class="alert alert-info py-4 text-center">
+    <i class="bi bi-info-circle fs-4 d-block mb-2"></i>
+    No teams found. Create your first team configuration.
+</div>
+{% else %}
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+    {% for team in teams %}
+    <div class="col">
+        <div class="card h-100 shadow-sm border-0 hover-card transition-all">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <h5 class="card-title fw-bold mb-0">
+                        <a href="/teams/{{ team.name }}" class="text-decoration-none text-dark stretched-link">
+                            {{ team.name }}
+                        </a>
+                    </h5>
+                    <span class="badge bg-success bg-opacity-10 text-success rounded-pill">Active</span>
+                </div>
+                <p class="card-text text-muted small mb-3">
+                    {{ team.description }}
+                </p>
+                <div class="d-flex align-items-center text-muted small">
+                    <i class="bi bi-person me-1"></i>
+                    <span>Leader: {{ team.name }}__leader</span>
+                </div>
+            </div>
+            <div class="card-footer bg-transparent border-top-0 pt-0 pb-3">
+                <hr class="my-2 opacity-10">
+                <div class="d-flex justify-content-between align-items-center small">
+                    <span class="text-muted"><i class="bi bi-files me-1"></i> Context: {{ team.shared_context|length if
+                        team.shared_context else 0 }} chars</span>
+                    <i class="bi bi-arrow-right text-primary"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

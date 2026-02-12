@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="row g-4 mb-4">
+    <!-- Status Cards -->
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center">
+                <div class="bg-primary bg-opacity-10 p-3 rounded-circle me-3">
+                    <i class="bi bi-people-fill text-primary fs-3"></i>
+                </div>
+                <div>
+                    <h6 class="card-subtitle text-muted mb-1">Teams</h6>
+                    <h3 class="card-title fw-bold">{{ stats.teams }}</h3>
+                    <small class="text-success fw-bold"><i class="bi bi-arrow-up"></i> 1 Active</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center">
+                <div class="bg-success bg-opacity-10 p-3 rounded-circle me-3">
+                    <i class="bi bi-person-badge-fill text-success fs-3"></i>
+                </div>
+                <div>
+                    <h6 class="card-subtitle text-muted mb-1">Agents</h6>
+                    <h3 class="card-title fw-bold">{{ stats.agents }}</h3>
+                    <small class="text-secondary"><i class="bi bi-check-circle"></i> 12 Configured</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center">
+                <div class="bg-warning bg-opacity-10 p-3 rounded-circle me-3">
+                    <i class="bi bi-hammer text-warning fs-3"></i>
+                </div>
+                <div>
+                    <h6 class="card-subtitle text-muted mb-1">Skills</h6>
+                    <h3 class="card-title fw-bold">{{ stats.skills }}</h3>
+                    <small class="text-warning fw-bold"><i class="bi bi-plus"></i> 2 New</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center">
+                <div class="bg-info bg-opacity-10 p-3 rounded-circle me-3">
+                    <i class="bi bi-cpu text-info fs-3"></i>
+                </div>
+                <div>
+                    <h6 class="card-subtitle text-muted mb-1">System Health</h6>
+                    <h3 class="card-title fw-bold">{{ health.cpu }}% CPU</h3>
+                    <small class="text-muted"><i class="bi bi-memory"></i> {{ health.memory }}% Mem</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Active Tasks / Logs -->
+    <div class="col-12 col-lg-8">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0"><i class="bi bi-activity me-2"></i> Recent Activity</h5>
+            </div>
+            <div class="list-group list-group-flush">
+                {% if logs %}
+                {% for log in logs %}
+                <div class="list-group-item d-flex justify-content-between align-items-center py-3">
+                    <div class="d-flex align-items-center">
+                        <span class="badge bg-secondary me-3">{{ log.level }}</span>
+                        <div>
+                            <strong class="d-block text-dark text-truncate" style="max-width: 500px;">{{ log.message
+                                }}</strong>
+                        </div>
+                    </div>
+                    <small class="text-muted">{{ log.time }}</small>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="list-group-item text-center py-4 text-muted">
+                    <i class="bi bi-info-circle me-2"></i>No recent activity logs found.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="col-12 col-lg-4">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0"><i class="bi bi-lightning-charge me-2"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="/teams" class="btn btn-outline-primary text-start">
+                        <i class="bi bi-chat-dots me-2"></i> Start Chat Session
+                    </a>
+                    <a href="/agents" class="btn btn-outline-secondary text-start">
+                        <i class="bi bi-plus-circle me-2"></i> Create New Agent
+                    </a>
+                    <a href="/skills" class="btn btn-outline-success text-start">
+                        <i class="bi bi-tools me-2"></i> Browse Skills
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Health -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0"><i class="bi bi-server me-2"></i> System Health</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>CPU Usage</span>
+                        <span class="text-success">12%</span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <div class="progress-bar bg-success" role="progressbar" style="width: 12%"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Memory</span>
+                        <span class="text-warning">45%</span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <div class="progress-bar bg-warning" role="progressbar" style="width: 45%"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Background Tasks</span>
+                        <span class="text-info">{{ stats.teams }} Active</span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <div class="progress-bar bg-info progress-bar-striped progress-bar-animated" role="progressbar"
+                            style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

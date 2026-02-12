@@ -1,12 +1,14 @@
 ---
 name: fundamental_analyst
-description: Fundamental Analyst - Company financials, valuation, industry research
+description: Fundamental Analyst - Investigates company financials, valuation models (PE/DCF), and industry trends. Provides investment rationale based on data.
 group: investment
 model: deepseek-reasoner
+reasoning: true
 tools:
   - read_file
   - web_fetch
   - bash
+  - date-teller
 sub_agents: []
 ---
 

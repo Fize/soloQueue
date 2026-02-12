@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ agent.name }} | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/agents">Agents</a></li>
+            <li class="breadcrumb-item"><a href="/agents/{{ agent.name }}">{{ agent.name }}</a></li>
+            <li class="breadcrumb-item active">Edit</li>
+        </ol>
+    </nav>
+</div>
+
+<div class="card shadow-sm border-0" x-data="agentEditor({{ agent_json | tojson }})">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="mb-0 fw-bold">Edit Configuration</h5>
+        <div>
+            <a href="/agents/{{ agent.name }}" class="btn btn-outline-secondary btn-sm me-2">Cancel</a>
+            <button @click="save" class="btn btn-primary btn-sm" :disabled="saving">
+                <span x-show="saving" class="spinner-border spinner-border-sm me-1" role="status"
+                    aria-hidden="true"></span>
+                <span x-text="saving ? 'Saving...' : 'Save Changes'"></span>
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <form @submit.prevent="save">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Name</label>
+                    <input type="text" class="form-control bg-light" x-model="agent.name" disabled readonly
+                        title="Rename not supported yet">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Group</label>
+                    <input type="text" class="form-control" x-model="agent.group">
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label fw-bold">Description</label>
+                    <input type="text" class="form-control" x-model="agent.description">
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Model</label>
+                    <input type="text" class="form-control" x-model="agent.model">
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Role</label>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" id="isLeader" x-model="agent.is_leader">
+                        <label class="form-check-label" for="isLeader">Is Leader?</label>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Reasoning</label>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" id="reasoning" x-model="agent.reasoning">
+                        <label class="form-check-label" for="reasoning">Enable Reasoning</label>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label fw-bold">System Prompt</label>
+                    <textarea class="form-control font-monospace small bg-light" rows="15" x-model="agent.system_prompt"
+                        style="font-size: 0.85rem;"></textarea>
+                    <div class="form-text">Markdown supported.</div>
+                </div>
+            </div>
+
+            <!-- Tools & SubAgents (Simple List Input for now) -->
+            <div class="row g-3 mt-2">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Tools (comma separated)</label>
+                    <input type="text" class="form-control" :value="agent.tools ? agent.tools.join(', ') : ''"
+                        @input="agent.tools = $event.target.value.split(',').map(s => s.trim()).filter(s => s)">
+                    <div class="form-text">Example: read_file, web_fetch, date-teller</div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Sub-Agents (comma separated)</label>
+                    <input type="text" class="form-control" :value="agent.sub_agents ? agent.sub_agents.join(', ') : ''"
+                        @input="agent.sub_agents = $event.target.value.split(',').map(s => s.trim()).filter(s => s)">
+                </div>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('agentEditor', (initialData) => ({
+            agent: initialData,
+            saving: false,
+
+            async save() {
+                this.saving = true;
+                try {
+                    // Ensure array fields are arrays not null
+                    if (!this.agent.tools) this.agent.tools = [];
+                    if (!this.agent.sub_agents) this.agent.sub_agents = [];
+
+                    const res = await fetch(`/api/agents/${this.agent.name}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.agent)
+                    });
+
+                    if (res.ok) {
+                        window.location.href = `/agents/${this.agent.name}`;
+                    } else {
+                        const err = await res.json();
+                        alert('Error saving: ' + (err.message || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Network error: ' + e);
+                } finally {
+                    this.saving = false;
+                }
+            }
+        }))
+    })
+</script>
+{% endblock %}

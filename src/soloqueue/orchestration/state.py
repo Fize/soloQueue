@@ -9,6 +9,14 @@ def merge_artifacts(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, 
         existing = {}
     return {**existing, **new}
 
+def merge_dicts(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge two dictionaries."""
+    if not a:
+        a = {}
+    if not b:
+        b = {}
+    return {**a, **b}
+
 class AgentState(TypedDict):
     """
     Control flow and memory state for the Agent Graph.
@@ -34,6 +42,15 @@ class AgentState(TypedDict):
     # Using a custom reducer or just replacing the list works for LangGraph
     # if we manage it carefully in nodes. Replacing is simpler for MVP.
     call_stack: List[str]
+    
+    # Execution Stack for sub-agents (Isolated Environments)
+    # Key: execution_id (e.g., "task_123")
+    # Value: List of messages for that specific execution context
+    scratchpad: Annotated[Dict[str, List[AnyMessage]], merge_dicts]
+
+    # Active Execution Path (Stack trace)
+    # Tracks the current execution lineage.
+    execution_stack: List[str] 
     
     # --- Structured Context ---
     # A persistent blackboard for structured data exchange (not just chat).

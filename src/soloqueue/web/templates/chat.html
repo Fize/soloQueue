@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Chat Debug | SoloQueue{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column h-100" style="min-height: calc(100vh - 150px);" x-data="chatStore">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0"><i class="bi bi-terminal me-2"></i> Debug Console</h3>
+        <div class="d-flex gap-2 align-items-center">
+            <select class="form-select form-select-sm w-auto" x-model="selectedAgent" aria-label="Select Target Agent">
+                <option value="" disabled>Select Target Agent</option>
+                {% for agent in agents %}
+                <option value="{{ agent.name }}">{{ agent.name }} ({{ agent.group }})</option>
+                {% endfor %}
+            </select>
+            <span class="badge" :class="connected ? 'bg-success' : 'bg-danger'"
+                x-text="connected ? 'Connected' : 'Disconnected'"></span>
+        </div>
+    </div>
+
+    <!-- Messages Area -->
+    <div class="flex-grow-1 card shadow-sm border-0 mb-3 overflow-hidden">
+        <div class="card-body bg-light p-0 position-relative">
+            <div id="messages" class="h-100 overflow-auto p-3"
+                style="font-family: 'Consolas', monospace; font-size: 0.95rem;">
+                <template x-for="msg in messages" :key="msg.id">
+                    <div class="mb-2 w-100">
+                        <!-- Thought / System Log -->
+                        <div x-show="msg.role === 'thought'" class="text-muted small fst-italic ms-3 mb-1"
+                            style="font-size: 0.8rem; border-left: 2px solid #dee2e6; padding-left: 8px;">
+                            <i class="bi bi-cpu me-1"></i> <span x-text="msg.content"></span>
+                        </div>
+
+                        <!-- Error Message -->
+                        <div x-show="msg.role === 'error'" class="alert alert-danger py-1 px-2 mb-2"
+                            style="font-size: 0.9rem;">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i> <span x-text="msg.content"></span>
+                        </div>
+
+                        <!-- User / Assistant Message -->
+                        <div x-show="['user', 'assistant'].includes(msg.role)" class="d-flex mb-3"
+                            :class="msg.role === 'user' ? 'justify-content-end' : 'justify-content-start'">
+                            <div class="card shadow-sm border-0"
+                                :class="msg.role === 'user' ? 'bg-primary text-white' : 'bg-white'"
+                                style="max-width: 80%;">
+                                <div class="card-body py-2 px-3">
+                                    <small class="fw-bold d-block mb-1"
+                                        :class="msg.role === 'user' ? 'text-white-50' : 'text-muted'"
+                                        x-text="msg.role.toUpperCase()"></small>
+                                    <div style="white-space: pre-wrap;" x-text="msg.content"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="thinking" class="text-muted fst-italic ms-2">
+                    <span class="spinner-grow spinner-grow-sm me-1" role="status"></span> Thinking...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <form @submit.prevent="sendMessage" class="card shadow-sm border-0">
+        <div class="card-body p-2 d-flex gap-2">
+            <textarea x-model="input" @keydown.enter.prevent="if(!$event.shiftKey) sendMessage()"
+                class="form-control border-0 bg-light" rows="1"
+                placeholder="Type a message to start debugging... (Shift+Enter for newline)"
+                :disabled="!connected || thinking" style="resize: none;"></textarea>
+            <button type="submit" class="btn btn-primary px-4" x-show="!thinking"
+                :disabled="!input.trim() || !connected">
+                <i class="bi bi-send-fill"></i>
+            </button>
+            <button type="button" class="btn btn-danger px-4" @click="stopGeneration" x-show="thinking">
+                <i class="bi bi-stop-circle-fill"></i> Stop
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('chatStore', () => ({
+            connected: false,
+            socket: null,
+            messages: [],
+            input: '',
+            selectedAgent: 'leader',
+            thinking: false,
+
+            init() {
+                this.connect();
+            },
+
+            connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                this.socket = new WebSocket(`${protocol}//${window.location.host}/ws/chat`);
+
+                this.socket.onopen = () => {
+                    this.connected = true;
+                    this.messages.push({ id: Date.now(), role: 'system', content: 'Connection established. Ready to debug.' });
+                };
+
+                this.socket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'response') {
+                        this.messages.push({
+                            id: Date.now(),
+                            role: 'assistant',
+                            content: data.content
+                        });
+                        this.thinking = false;
+                    } else if (data.type === 'thought') {
+                        this.messages.push({
+                            id: Date.now(),
+                            role: 'thought',
+                            content: data.content
+                        });
+                    } else if (data.type === 'error') {
+                        this.messages.push({
+                            id: Date.now(),
+                            role: 'error',
+                            content: data.content
+                        });
+                        this.thinking = false;
+                    } else if (data.type === 'tool_call') {
+                        this.messages.push({
+                            id: Date.now(),
+                            role: 'tool',
+                            content: `Tool Call: ${data.tool_name}(${JSON.stringify(data.args)})`
+                        });
+                    }
+
+                    this.$nextTick(() => {
+                        const el = document.getElementById('messages');
+                        el.scrollTop = el.scrollHeight;
+                    });
+                };
+
+                this.socket.onclose = () => {
+                    this.connected = false;
+                    setTimeout(() => this.connect(), 3000);
+                };
+            },
+
+            sendMessage() {
+                if (!this.input.trim()) return;
+
+                const content = this.input.trim();
+                this.messages.push({ id: Date.now(), role: 'user', content: content });
+                this.socket.send(JSON.stringify({
+                    type: 'chat',
+                    content: content,
+                    target_agent: this.selectedAgent
+                }));
+
+                this.input = '';
+                this.thinking = true;
+
+                this.$nextTick(() => {
+                    const el = document.getElementById('messages');
+                    el.scrollTop = el.scrollHeight;
+                });
+            }
+        }))
+    })
+</script>
+{% endblock %}

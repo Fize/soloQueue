@@ -61,3 +61,31 @@ class AgentLoader:
                 continue
                 
         return agents
+
+    def save(self, agent: AgentSchema):
+        """
+        Save AgentSchema back to Markdown file.
+        """
+        # Convert schema to dict (exclude system_prompt which is content)
+        data = agent.model_dump(exclude={"system_prompt"}, exclude_none=True)
+        
+        # Clean up empty lists to keep YAML clean
+        if 'tools' in data and not data['tools']:
+            del data['tools']
+        if 'sub_agents' in data and not data['sub_agents']:
+            del data['sub_agents']
+        
+        # Create Post
+        content = agent.system_prompt or ""
+        post = frontmatter.Post(content, **data)
+        
+        # Write file
+        file_path = self.config_root / f"{agent.name}.md"
+        
+        # Ensure directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_path, "wb") as f:
+            frontmatter.dump(post, f)
+            
+        logger.info(f"Saved agent config: {file_path}")
