@@ -1,0 +1,66 @@
+/* Custom CSS for SoloQueue Web UI */
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #495057;
+}
+
+.hover-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+}
+
+.transition-all {
+    transition: all 0.3s ease;
+}
+
+.transition-row {
+    transition: background-color 0.2s ease;
+}
+
+.transition-row:hover {
+    background-color: #f8f9fa;
+}
+
+.text-truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Sidebar Specific (if used) */
+.sidebar-link {
+    transition: color 0.2s ease;
+}
+.sidebar-link:hover {
+    color: var(--bs-primary) !important;
+}
+
+/* Icon backgrounds */
+.icon-shape {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.icon-shape-primary {
+    background: rgba(13, 110, 253, 0.1);
+    color: #0d6efd;
+}
+
+/* Agent List Table specific */
+.table td {
+    vertical-align: middle;
+}
+
+.badge {
+    font-weight: 500;
+}

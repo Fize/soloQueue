@@ -27,7 +27,7 @@ graph TD
     
     subgraph "Part 2: Orchestration (The Matchmaker)"
         Orchestration[Recursive Task Dispatcher]
-        LangGraph[State & Message Bus]
+        Stack[Stack-Based Event Loop]
     end
     
     subgraph "Part 3: One Champion (Agent Implementation)"
@@ -69,7 +69,7 @@ graph TD
 
 > 🚧 **Detailed Design:** (Planning...)
 
-调度层负责 Agent 之间的通信、任务流转与状态管理。我们采用 **LangGraph** 实现。
+调度层负责 Agent 之间的通信、任务流转与状态管理。我们采用 **Custom Orchestrator** 实现（替代了早期的 LangGraph 方案）。
 
 **Core Logic:**
 1.  **Recursive Dispatching:**
@@ -116,7 +116,7 @@ soloQueue/
 │   │   ├── primitives/   # [Part 1] Infrastructure
 │   │   ├── loaders/      # [Part 1] Infrastructure
 │   │   └── security/     # [Part 1] Infrastructure
-│   ├── orchestration/    # [Part 2] Dispatcher / LangGraph
+│   ├── orchestration/    # [Part 2] Dispatcher / Custom Orchestrator
 │   └── agent/            # [Part 3] Executor Loop
 └── doc/
     ├── design.md         # Master Plan

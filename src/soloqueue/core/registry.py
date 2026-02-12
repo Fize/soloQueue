@@ -2,8 +2,8 @@
 Registry: Central configuration management using MVP loaders.
 """
 from typing import Dict, List, Optional
-
-from soloqueue.core.loaders import AgentLoader, AgentConfig, GroupLoader, GroupConfig
+    
+from soloqueue.core.loaders import AgentLoader, AgentConfig, GroupLoader, GroupConfig, SkillLoader, SkillConfig
 from soloqueue.core.logger import logger
 
 
@@ -17,6 +17,7 @@ class Registry:
     def __init__(self):
         self.agents: Dict[str, AgentConfig] = {}
         self.groups: Dict[str, GroupConfig] = {}
+        self.skills: Dict[str, SkillConfig] = {}
         self.agents_by_node: Dict[str, AgentConfig] = {}
         self._initialized = False
     
@@ -46,6 +47,13 @@ class Registry:
         
         for name, config in self.groups.items():
             logger.info(f"Registered Group: {name}")
+            
+        # Load skills using MVP loader
+        skill_loader = SkillLoader()
+        self.skills = skill_loader.load_all()
+        
+        for name, _ in self.skills.items():
+            logger.info(f"Registered Skill: {name}")
         
         # Validate: Each group should have exactly one leader
         self._validate_leaders()
@@ -66,18 +74,25 @@ class Registry:
             if len(leaders) > 1:
                 logger.warning(f"Group '{group}' has multiple leaders: {leaders}. Using first: {leaders[0]}")
     
-    def get_agent_by_name(self, name: str) -> Optional[AgentConfig]:
+    def get_agent_by_name(self, name: str, current_group: Optional[str] = None) -> Optional[AgentConfig]:
         """
         Get agent by name. Supports:
-        - Short name: 'leader' (searches all agents)
+        - Short name: 'leader' (with current_group for resolution)
         - Full name: 'investment.leader' (group.name format)
         """
+        # Full name format: group.name
         if "." in name:
             group, short_name = name.split(".", 1)
             for agent in self.agents.values():
                 if agent.group == group and agent.name == short_name:
                     return agent
         else:
+            # Short name: first try current_group, then global search
+            if current_group:
+                for agent in self.agents.values():
+                    if agent.group == current_group and agent.name == name:
+                        return agent
+            # Fallback: global search
             for agent in self.agents.values():
                 if agent.name == name:
                     return agent
@@ -86,3 +101,7 @@ class Registry:
     def get_agents_by_group(self, group: str) -> List[AgentConfig]:
         """Get all agents in a group."""
         return [a for a in self.agents.values() if a.group == group]
+    
+    def get_agent_by_node_id(self, node_id: str) -> Optional[AgentConfig]:
+        """Get agent by node_id (e.g., 'investment__leader')."""
+        return self.agents_by_node.get(node_id)

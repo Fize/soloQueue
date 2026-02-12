@@ -127,13 +127,37 @@ def check_permission(source_agent, target_agent):
 3.  Loader 从 `SkillRegistry` 中查找对应的 Skill 实现，并绑定到 Agent。
 4.  最终 Agent 的工具集 = `BuiltInTools + ConfiguredSkills`。
 
-## 6. 实施路线
-1.  **Phase 1: 基础重构** - 实现配置文件加载和内存构建。
-2.  **Phase 2: 图构建适配** - 更新 `builder.py` 适配分组架构。
-3.  **Phase 3: 路由实现** - 升级路由逻辑，支持组权限校验。
-4.  **Phase 4: 记忆持久化** - 实施分层记忆和工件存储。
+## 6. Implementation Status (2026-02-07)
+1.  **Phase 1: Configuration** - Implemented `AgentConfig` and `GroupConfig` loading.
+2.  **Phase 2: Orchestration** - Implemented `Orchestrator` to handle recursive routing and stack management.
+3.  **Phase 3: State Isolation** - Implemented `TaskFrame` for isolated context.
+4.  **Phase 4: Routing** - Enforced Leader-only inter-group communication rules via `Orchestrator` logic.
+5.  **Phase 5: Skill System (Claude Code Style)** - Implemented dynamic skill loading, `!command` execution, and "Skill as Sub-Agent" architecture.
 
-## 6. 实施路线
-1.  **Phase 1: 基础重构** - 修改 `AgentLoader` 和 `agents.yaml` 结构。
-2.  **Phase 2: 路由适配** - 更新 `builder.py` 支持双下划线节点名和组内路由。
-3.  **Phase 3: 记忆适配** - 实施新的分层存储架构。
+## 7. Skill System Architecture (New)
+
+The Skill System treats skills as **Ephemeral Agents** (Contexts) rather than just functions.
+
+### 7.1 Skill Structure
+Located in `.claude/skills/<skill_name>/SKILL.md`:
+```markdown
+---
+name: git-commit
+description: Automate git commit with checks
+allowed_tools: ["git_diff", "git_add"]
+disable_model_invocation: false
+---
+You are a Git Expert.
+Your goal is to commit changes with a conventional commit message.
+User arguments: $ARGUMENTS
+
+!git status
+```
+
+### 7.2 Execution Flow
+1.  **Discovery**: `SkillLoader` scans `~/.claude/skills` and `./.claude/skills`.
+2.  **Activation**: Agent calls logic tool `use_skill(name, args)` (or proxy tool).
+3.  **Preprocessing**: `SkillPreprocessor` executes `!command` lines and injects output into the prompt. Substitutes `$ARGUMENTS`.
+4.  **Context Creation**: `Orchestrator` creates a dynamic `TaskFrame` with the preprocessed prompt as System Prompt.
+5.  **Execution**: A temporary agent (`skill__<name>`) runs within this frame, with access only to `allowed_tools`.
+6.  **Return**: Result returns to the caller agent.

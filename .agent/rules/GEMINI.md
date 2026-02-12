@@ -1,4 +1,6 @@
-# AGENT.md - Project Governance & AI Rules
+# AGENT.md - Project Governance & AI Rules (Production)
+
+**Vision:** SoloQueue is a production-ready, multi-agent swarm system designed to enable the "One-Person Company." Similar to OpenClaw but architected as a decentralized swarm, it empowers a single user to orchestrate complex software development and operational tasks through autonomous agent collaboration.
 
 This file defines the strict protocols, coding standards, and architectural constraints that ALL AI Agents (including Gemini/Claude) must follow when contributing to **SoloQueue**.
 
@@ -6,10 +8,13 @@ This file defines the strict protocols, coding standards, and architectural cons
 
 ## 1. Core Philosophy
 
-1.  **Unix Philosophy:** Functions should do one thing and do it well. Everything is a file.
-2.  **No-DB First:** Avoid SQLite/Postgres unless absolutely necessary for concurrency or huge datasets. Use JSONL/Filesystem for state.
-3.  **Security by Design:** All file operations MUST go through `WorkspaceManager`. All dangerous shell commands MUST pass `ApprovalManager`.
-4.  **Configuration as Code:** All agent behaviors and skills must be defined in Markdown/YAML files, not hardcoded in Python.
+1.  **One-Person Company:** The system must maximize leverage for a single operator. Automation is not just a feature; it is the primary directive.
+2.  **Swarm Intelligence:** Agents are specialized, autonomous units that collaborate. Avoid monolithic logic; favor distributed, role-based orchestration.
+3.  **Production First:** Code is not a prototype. It must be robust, error-tolerant, and observable. "It works on my machine" is not acceptable.
+4.  **Unix Philosophy:** Functions should do one thing and do it well. Everything is a file.
+5.  **No-DB First:** Avoid SQLite/Postgres unless absolutely necessary for concurrency or huge datasets. Use JSONL/Filesystem for state.
+6.  **Security by Design:** All file operations MUST go through `WorkspaceManager`. All dangerous shell commands MUST pass `ApprovalManager`.
+7.  **Configuration as Code:** All agent behaviors and skills must be defined in Markdown/YAML files, not hardcoded in Python.
 
 ---
 
@@ -59,6 +64,7 @@ This file defines the strict protocols, coding standards, and architectural cons
 2.  **Verify:** Always run the test after writing code.
 3.  **Incremental:** Implement one module (e.g., `logging`) at a time. Do not scaffold empty files.
 4.  **Doc Update:** If implementation diverges from `doc/*.md`, UPDATE THE DOC immediately.
+5.  **User Confirmation:** Do not implement any code changes until the user confirms the design meets requirements.
 
 ---
 

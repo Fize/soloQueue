@@ -7,7 +7,7 @@
 
 ### 1.1 混合记忆架构 (Hybrid Memory Architecture)
 *   **状态持久化 (State Persistence)**:
-    *   使用 `SQLite` + `LangGraph Checkpointer`。
+    *   使用 `SQLite` + `Custom Checkpointer`。
     *   **功能**：保存精确的程序状态（调用栈、变量、下一步操作）。
     *   **效果**：实现“硬中断恢复”，进程崩溃后可无损重启。
 *   **情景记忆 (Episodic Memory)**:
@@ -64,7 +64,7 @@
 *   使用 **Streamlit** 或 **Next.js** 构建 Web 界面。
 *   **功能**：
     *   聊天窗口：与 Leader 对话。
-    *   拓扑视图：实时可视化 Agent 之间的委派关系（类似 LangGraph Studio）。
+    *   拓扑视图：实时可视化 Agent 之间的委派关系（类似 Agent Dashboard）。
     *   状态监控：查看当前运行的 Agent、调用栈和 Token 消耗。
 
 ### 4.2 人在回路 (Human-in-the-Loop) 增强

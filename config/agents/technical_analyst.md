@@ -1,8 +1,9 @@
 ---
 name: technical_analyst
-description: Technical Analyst - Chart patterns, indicators, trend analysis
+description: Technical Analyst - Analyzes price charts, trends, levels (support/resistance), and indicators (MACD/RSI). Determines timing and market sentiment.
 group: investment
 model: deepseek-reasoner
+reasoning: true
 tools:
   - read_file
   - web_fetch
