@@ -10,3 +10,6 @@ wheels/
 .venv
 .env
 .soloqueue
+logs/*
+*.log
+.agent/*
