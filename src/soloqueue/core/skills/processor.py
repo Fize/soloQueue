@@ -1,8 +1,4 @@
-import re
 import subprocess
-import shlex
-import os
-from typing import Optional
 from soloqueue.core.logger import logger
 
 class SkillPreprocessor:

@@ -1,4 +1,4 @@
-from typing import List, Optional, Any, Dict
+from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator
 
 class AgentSchema(BaseModel):
@@ -22,7 +22,10 @@ class AgentSchema(BaseModel):
     
     # Memory / Context
     memory: Optional[str] = Field(None, description="Path to context file (relative to context/)")
-    
+
+    # UI Customization
+    color: Optional[str] = Field(None, description="CSS color value for UI output blocks (hex, named, or rgb)")
+
     # Runtime (not in yaml)
     system_prompt: Optional[str] = None
     

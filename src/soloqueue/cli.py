@@ -1,6 +1,5 @@
 """SoloQueue CLI - Web Server Entry Point."""
 
-import sys
 import uvicorn
 from soloqueue.web.config import web_config
 
@@ -10,7 +9,7 @@ def main():
     # Future arguments can simply override web_config.
     
     print(f"🚀 Starting SoloQueue Web UI on http://{web_config.HOST}:{web_config.PORT}...")
-    print(f"   (Press Ctrl+C to stop)")
+    print("   (Press Ctrl+C to stop)")
     
     uvicorn.run(
         "soloqueue.web.app:app", 

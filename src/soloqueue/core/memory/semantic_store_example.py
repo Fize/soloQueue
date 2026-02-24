@@ -10,7 +10,7 @@ Design Principles:
 4. Incremental updates: Add knowledge without full re-indexing
 """
 
-from typing import Any, TypedDict, Optional
+from typing import Any, TypedDict
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer

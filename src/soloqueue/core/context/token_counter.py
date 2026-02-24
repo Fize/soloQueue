@@ -5,7 +5,7 @@ Uses tiktoken to count tokens for OpenAI-compatible models.
 """
 
 import tiktoken
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
 
 from soloqueue.core.logger import logger
 
