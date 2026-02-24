@@ -1,0 +1,158 @@
+<!-- Write-Action Confirmation Dialog -->
+<div id="write-action-confirmation-modal" class="modal fade" tabindex="-1" aria-labelledby="write-action-modal-label" aria-hidden="true"
+     x-data="writeActionConfirmation">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="write-action-modal-label">
+                    <i class="bi bi-shield-check text-primary me-2"></i>
+                    <span x-text="title"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <strong>Security Notice:</strong> An agent is attempting to modify files.
+                </div>
+
+                <table class="table table-sm">
+                    <tbody>
+                        <tr>
+                            <th scope="row" class="text-nowrap">Agent:</th>
+                            <td>
+                                <span class="badge rounded-pill" x-bind:style="{ backgroundColor: agentColor }" x-text="agentId"></span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row" class="text-nowrap">Operation:</th>
+                            <td>
+                                <span class="badge" x-bind:class="operationClass" x-text="operationLabel"></span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row" class="text-nowrap">File Path:</th>
+                            <td>
+                                <code x-text="filePath" class="text-break"></code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row" class="text-nowrap">Request ID:</th>
+                            <td>
+                                <small class="text-muted" x-text="requestId"></small>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row" class="text-nowrap">Time:</th>
+                            <td x-text="timestamp"></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="rememberChoice" x-model="rememberChoice">
+                    <label class="form-check-label" for="rememberChoice">
+                        Remember my choice for this session
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle me-1"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-danger" x-on:click="reject()" data-bs-dismiss="modal">
+                    <i class="bi bi-x-octagon me-1"></i> Reject
+                </button>
+                <button type="button" class="btn btn-success" x-on:click="approve()" data-bs-dismiss="modal">
+                    <i class="bi bi-check-circle me-1"></i> Approve
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Inline script for Alpine.js component -->
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('writeActionConfirmation', () => ({
+        // Request data
+        requestId: '',
+        agentId: '',
+        agentColor: '#6c757d', // default gray
+        operation: '',
+        filePath: '',
+        timestamp: '',
+
+        // UI state
+        rememberChoice: false,
+        title: 'Write Action Confirmation',
+
+        // Computed properties
+        get operationLabel() {
+            const ops = { create: 'Create', update: 'Update', delete: 'Delete' };
+            return ops[this.operation] || this.operation;
+        },
+
+        get operationClass() {
+            const classes = {
+                create: 'bg-success text-white',
+                update: 'bg-warning text-dark',
+                delete: 'bg-danger text-white'
+            };
+            return classes[this.operation] || 'bg-secondary text-white';
+        },
+
+        // Show modal with request data
+        show(requestData) {
+            this.requestId = requestData.id;
+            this.agentId = requestData.agent_id;
+            this.operation = requestData.operation;
+            this.filePath = requestData.file_path;
+            this.timestamp = new Date(requestData.timestamp).toLocaleString();
+
+            // Set agent color if provided in request
+            if (requestData.agent_color) {
+                this.agentColor = requestData.agent_color;
+            }
+
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('write-action-confirmation-modal'));
+            modal.show();
+        },
+
+        // Send approval response
+        approve() {
+            this.sendResponse(true);
+        },
+
+        // Send rejection response
+        reject() {
+            this.sendResponse(false);
+        },
+
+        // Send response via WebSocket
+        sendResponse(approved) {
+            if (!window.writeActionWebSocket || window.writeActionWebSocket.readyState !== WebSocket.OPEN) {
+                console.error('WebSocket not connected');
+                alert('Cannot send response: WebSocket disconnected. Please refresh the page.');
+                return;
+            }
+
+            const response = {
+                type: 'write_action_response',
+                id: this.requestId,
+                approved: approved,
+                timestamp: new Date().toISOString()
+            };
+
+            window.writeActionWebSocket.send(JSON.stringify(response));
+            console.log('Sent write-action response:', response);
+
+            // If remember choice is checked, store preference
+            if (this.rememberChoice) {
+                localStorage.setItem(`write-action-preference-${this.agentId}-${this.operation}`, approved);
+            }
+        }
+    }));
+});
+</script>

@@ -9,7 +9,6 @@ from typing import Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-import json
 
 from loguru import logger
 import chromadb

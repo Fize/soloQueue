@@ -13,7 +13,7 @@ import json
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun, AsyncCallbackManagerForLLMRun
-from langchain_core.messages import BaseMessage, AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.messages import BaseMessage, AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 
@@ -93,7 +93,7 @@ class ReasoningChatOpenAI(ChatOpenAI):
                     # CRITICAL: DeepSeek R1 requires reasoning_content on ALL AIMessages
                     # Provide a placeholder for messages missing it
                     msg_dict["reasoning_content"] = REASONING_PLACEHOLDER
-                    logger.debug(f"Injecting reasoning_content placeholder [MISSING]")
+                    logger.debug("Injecting reasoning_content placeholder [MISSING]")
             
             # CRITICAL FIX: Ensure tool_calls are preserved
             # Sometimes _convert_message_to_dict might miss tool_calls if they are in additional_kwargs vs property

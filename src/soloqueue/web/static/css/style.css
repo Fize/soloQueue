@@ -1,8 +1,13 @@
 /* Custom CSS for SoloQueue Web UI */
 
+:root {
+    --base-font-size: 14px;
+}
+
 body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     color: #495057;
+    font-size: var(--base-font-size);
 }
 
 .hover-card {

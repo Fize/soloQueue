@@ -1,3 +1,5 @@
+import os
+from datetime import datetime
 from soloqueue.core.workspace import workspace, PermissionDenied as WorkspacePermissionDenied
 from soloqueue.core.primitives.base import ToolResult, success, failure
 from soloqueue.core.config import settings
@@ -55,3 +57,47 @@ def write_file(path: str, content: str, require_approval: bool = True) -> ToolRe
         return failure(str(e))
     except Exception as e:
         return failure(f"Write error: {str(e)}")
+
+
+def write_artifact(agent_id: str, filename: str, content: str) -> ToolResult:
+    """
+    Write an artifact file to the agent's artifact storage directory.
+
+    Artifacts are stored at: .soloqueue/memory/{agent_id}/artifacts/{timestamp}_{filename}
+
+    Args:
+        agent_id: Agent identifier (e.g., "investment__leader")
+        filename: Desired filename (will be sanitized)
+        content: Text content to write
+
+    Returns:
+        ToolResult indicating success or failure
+    """
+    try:
+        # Sanitize filename: keep only alphanumeric, dots, dashes, underscores
+        import re
+        safe_filename = re.sub(r'[^\w\.\-]', '_', filename)
+
+        # Add timestamp prefix to avoid collisions
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_filename = f"{timestamp}_{safe_filename}"
+
+        # Build artifact path
+        artifact_dir = os.path.join(".soloqueue", "memory", agent_id, "artifacts")
+        artifact_path = os.path.join(artifact_dir, unique_filename)
+
+        # Use workspace to resolve path and write
+        file_path = workspace.resolve_path(artifact_path)
+
+        # Ensure parent directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write content
+        file_path.write_text(content, encoding="utf-8")
+
+        return success(f"Artifact saved to {artifact_path}")
+
+    except WorkspacePermissionDenied as e:
+        return failure(str(e))
+    except Exception as e:
+        return failure(f"Artifact write error: {str(e)}")

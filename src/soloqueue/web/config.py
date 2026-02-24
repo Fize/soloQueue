@@ -9,5 +9,7 @@ class WebConfig(BaseSettings):
     
     class Config:
         env_prefix = "SOLOQUEUE_WEB_"
+        env_file = ".env"
+        extra = "allow"
 
 web_config = WebConfig()

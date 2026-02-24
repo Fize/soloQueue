@@ -1,5 +1,4 @@
 
-from typing import Any
 from langchain_core.tools import tool, BaseTool
 from soloqueue.core.memory.manager import MemoryManager
 

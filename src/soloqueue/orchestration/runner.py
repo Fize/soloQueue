@@ -1,24 +1,23 @@
 """AgentRunner - 执行单个 Agent 的一步操作。"""
 
-from typing import Any, Optional, Callable, Dict
+from typing import Any, Optional, Callable
 
 from langchain_core.messages import (
     AIMessage,
-    ToolMessage,
-    BaseMessage,
-    AnyMessage
+    ToolMessage
 )
 
+from datetime import datetime
 from soloqueue.core.adapters.factory import ModelAdapterFactory
 from soloqueue.core.logger import logger
 from soloqueue.core.loaders.schema import AgentSchema
 from soloqueue.orchestration.frame import TaskFrame
 from soloqueue.orchestration.signals import ControlSignal, SignalType
-from soloqueue.orchestration.tools import resolve_tools_for_agent
 from soloqueue.core.memory.manager import MemoryManager
 from soloqueue.core.context.token_counter import TokenCounter
 from soloqueue.core.context.builder import ContextBuilder
 from soloqueue.core.state import StateManager
+from soloqueue.web.utils.colors import get_agent_color
 
 
 class AgentRunner:
@@ -76,6 +75,10 @@ class AgentRunner:
         Returns:
             ControlSignal 指示下一步操作
         """
+        # 0. 计算Agent颜色用于UI输出
+        agent_color = get_agent_color(self.config.name, self.config.color)
+        agent_id = self.config.node_id
+
         # 1. 构建消息（System Prompt + Frame Memory）
         system_content = self.config.system_prompt
         
@@ -149,12 +152,30 @@ class AgentRunner:
                         print("\n\033[90mThinking: ", end="", flush=True)
                         has_reasoning_started = True
                         if step_callback:
-                             step_callback({"type": "thought", "content": "Thinking: "})
+                             step_callback({
+                                 "type": "thinking",
+                                 "agent_id": agent_id,
+                                 "content": "Thinking: ",
+                                 "agent_color": agent_color,
+                                 "preview_snippet": "Thinking...",
+                                 "collapsible": True,
+                                 "collapsed_by_default": True,
+                                 "timestamp": datetime.now().isoformat()
+                             })
 
                     print(reasoning, end="", flush=True)
                     reasoning_buffer += reasoning
                     if step_callback:
-                        step_callback({"type": "thought", "content": reasoning})
+                        step_callback({
+                            "type": "thinking",
+                            "agent_id": agent_id,
+                            "content": reasoning,
+                            "agent_color": agent_color,
+                            "preview_snippet": reasoning[:200] + ("..." if len(reasoning) > 200 else ""),
+                            "collapsible": True,
+                            "collapsed_by_default": True,
+                            "timestamp": datetime.now().isoformat()
+                        })
                     
                     if len(reasoning_buffer) > 50000:
                          raise ValueError("Reasoning limit (50k chars) exceeded. Terminating to prevent loop.")
@@ -168,7 +189,16 @@ class AgentRunner:
                         has_content_started = True
                     print(chunk.content, end="", flush=True)
                     if step_callback:
-                        step_callback({"type": "chat", "content": chunk.content})
+                        step_callback({
+                            "type": "final_result",
+                            "agent_id": agent_id,
+                            "content": chunk.content,
+                            "agent_color": agent_color,
+                            "preview_snippet": chunk.content[:200] + ("..." if len(chunk.content) > 200 else ""),
+                            "collapsible": False,
+                            "collapsed_by_default": False,
+                            "timestamp": datetime.now().isoformat()
+                        })
             
             # End of stream cleanup
             if has_content_started or has_reasoning_started:
@@ -241,7 +271,7 @@ class AgentRunner:
                 )
             
             # 普通工具调用
-            tool_results = self._execute_tools(response.tool_calls)
+            tool_results = self._execute_tools(response.tool_calls, step_callback)
             # Check for Skill Signals and Filter Memory
             final_results = []
             skill_signal = None
@@ -284,10 +314,28 @@ class AgentRunner:
                 return call
         return None
     
-    def _execute_tools(self, tool_calls: list) -> list[ToolMessage]:
+    def _execute_tools(self, tool_calls: list, step_callback: Optional[Callable[[dict[str, Any]], None]] = None) -> list[ToolMessage]:
         """执行工具，返回 ToolMessage 列表。"""
         results = []
+
+        # Calculate agent color and ID for UI events
+        agent_id = self.config.node_id
+        agent_color = get_agent_color(self.config.name, self.config.color)
+
         for call in tool_calls:
+            # Send tool_call event before execution
+            if step_callback:
+                step_callback({
+                    "type": "tool_call",
+                    "agent_id": agent_id,
+                    "content": f"Calling tool '{call['name']}' with args: {call['args']}",
+                    "agent_color": agent_color,
+                    "preview_snippet": f"Tool: {call['name']}",
+                    "collapsible": False,
+                    "collapsed_by_default": False,
+                    "timestamp": datetime.now().isoformat()
+                })
+
             tool = self.tools_by_name.get(call["name"])
             
             output = ""
@@ -302,6 +350,24 @@ class AgentRunner:
                     if self.memory and self.session_id:
                         self.memory.save_error(self.session_id, f"Tool {call['name']} execution failed: {e}")
             
+            # Send tool_result event after execution
+            if step_callback:
+                # Create preview snippet (first 200 chars)
+                preview = str(output)[:200]
+                if len(str(output)) > 200:
+                    preview += "..."
+
+                step_callback({
+                    "type": "tool_result",
+                    "agent_id": agent_id,
+                    "content": str(output),
+                    "agent_color": agent_color,
+                    "preview_snippet": preview,
+                    "collapsible": False,
+                    "collapsed_by_default": False,
+                    "timestamp": datetime.now().isoformat()
+                })
+
             # LOGGING: Save Tool Output
             if self.memory and self.session_id:
                 self.memory.save_tool_output(

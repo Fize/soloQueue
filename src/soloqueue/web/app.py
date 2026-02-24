@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
-from fastapi import FastAPI, Request
+import contextlib
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
@@ -11,6 +12,16 @@ from soloqueue.core.loaders import (
     AgentSchema, GroupSchema, SkillSchema
 )
 from soloqueue.web.config import web_config
+from soloqueue.core.security.approval import set_webui_connected, get_webui_approval
+from soloqueue.web.websocket.schemas import WriteActionResponse, parse_websocket_message
+from soloqueue.web.websocket.handlers import (
+    set_write_action_websocket,
+    add_connection,
+    remove_connection,
+    get_active_connection_count,
+)
+from soloqueue.web.api.artifacts import router as artifacts_router
+from soloqueue.orchestration.orchestrator import Orchestrator
 import glob
 import json
 
@@ -35,7 +46,7 @@ def get_recent_logs(limit=5):
                     time = time_struct.get("repr", "")[:19] # Truncate if too long
                     
                     logs.append({"level": level, "message": msg, "time": time})
-                except:
+                except Exception:
                     continue
         return list(reversed(logs))
     except Exception:
@@ -57,14 +68,28 @@ def get_system_health():
              mem = 0
              
         return {"cpu": cpu, "memory": mem}
-    except:
+    except Exception:
         return {"cpu": 0, "memory": 0}
+
+# Global Registry Instance
+registry = Registry()
+
+# Lifespan context manager for startup/shutdown events
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print(f"Starting SoloQueue Web on {web_config.HOST}:{web_config.PORT}")
+    registry.initialize()
+    yield
+    # Shutdown would go here if needed
+    # print("Shutting down SoloQueue Web...")
 
 # Initialize FastAPI App
 app = FastAPI(
     title="SoloQueue Web",
     description="Web Interface for SoloQueue Agent Swarm",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan
 )
 
 # Setup Paths
@@ -80,14 +105,12 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Setup Templates
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Global Registry Instance
-registry = Registry()
+# Include API routers
+app.include_router(artifacts_router)
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the Registry on startup."""
-    print(f"Starting SoloQueue Web on {web_config.HOST}:{web_config.PORT}")
-    registry.initialize()
+# Global Registry Instance (already defined above)
+
+
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
@@ -359,10 +382,6 @@ async def update_agent(name: str, update_data: AgentSchema):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-from fastapi import WebSocket, WebSocketDisconnect
-from soloqueue.orchestration.orchestrator import Orchestrator
-
-# ... (existing imports)
 
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_page(request: Request):
@@ -439,7 +458,8 @@ async def chat_endpoint(websocket: WebSocket):
                         # Forward event to frontend
                         await websocket.send_json(event)
                     except queue.Empty:
-                        if future.done(): break
+                        if future.done():
+                            break
                         await asyncio.sleep(0.05)
                 
                 # 5. Final Result
@@ -458,5 +478,70 @@ async def chat_endpoint(websocket: WebSocket):
                     
     except WebSocketDisconnect:
         print("Client disconnected")
+
+
+@app.websocket("/ws/write-action")
+async def write_action_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for write-action confirmations."""
+    await websocket.accept()
+
+    # Update connection tracking
+    add_connection(websocket)
+    set_write_action_websocket(websocket)
+    set_webui_connected(True)
+
+    try:
+        while True:
+            # Receive JSON message
+            data = await websocket.receive_json()
+
+            # Parse and validate message
+            try:
+                message = parse_websocket_message(data)
+            except ValueError as e:
+                await websocket.send_json({
+                    "type": "error",
+                    "content": f"Invalid message: {str(e)}"
+                })
+                continue
+
+            # Handle write_action_response messages
+            if isinstance(message, WriteActionResponse):
+                # Forward to WebUIApproval instance
+                webui_approval = get_webui_approval()
+                if webui_approval:
+                    success = webui_approval.submit_webui_response(message.id, message.approved)
+                    if not success:
+                        await websocket.send_json({
+                            "type": "error",
+                            "content": f"No pending request with id: {message.id}"
+                        })
+                else:
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": "WebUI approval not available"
+                    })
+            else:
+                # Ignore other message types (could be heartbeats, etc.)
+                pass
+
+    except WebSocketDisconnect:
+        print("Write-action WebSocket client disconnected")
+    finally:
+        # Clean up connection tracking
+        remove_connection(websocket)
+        if get_active_connection_count() == 0:
+            set_webui_connected(False)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "soloqueue.web.app:app",
+        host=web_config.HOST,
+        port=web_config.PORT,
+        reload=web_config.DEBUG,
+        log_level="info" if web_config.DEBUG else "warning"
+    )
 
 

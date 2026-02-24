@@ -2,13 +2,14 @@
 name: trader
 description: Trader - Executes approved trade orders and maintains accurate trading logs/records. Calculates costs and P&L.
 group: investment
-model: deepseek-reasoner
-reasoning: true
+model: deepseek-chat
+reasoning: false
 tools:
   - read_file
   - write_file
   - bash
 sub_agents: []
+color: "#dc2626"
 ---
 
 ## Identity
