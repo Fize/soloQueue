@@ -2,8 +2,8 @@
 name: leader
 description: Investment Team Leader - Coordinates research and makes final decisions
 group: investment
-model: deepseek-reasoner
-reasoning: true
+model: deepseek-chat
+reasoning: false
 is_leader: true
 tools:
   - read_file
@@ -12,6 +12,7 @@ sub_agents:
   - fundamental_analyst
   - technical_analyst
   - trader
+color: "#2563eb"
 ---
 
 ## Identity

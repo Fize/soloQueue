@@ -1,11 +1,10 @@
-from typing import List, Type, Dict, Any, Union
+from typing import List
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from soloqueue.core.logger import logger
 from soloqueue.core.primitives import get_all_primitives
-from soloqueue.core.loaders.schema import AgentSchema
 from soloqueue.core.loaders.skill_loader import SkillLoader
 
 class DelegateInput(BaseModel):
@@ -50,7 +49,6 @@ def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
     existing_tool_names = {t.name for t in final_tools}
     
     # 1. Add Configured Skills
-    from soloqueue.core.loaders.skill_loader import SkillLoader
     skill_loader = SkillLoader()
     
     # Dynamic Proxy Tool Factory

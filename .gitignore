@@ -13,3 +13,36 @@ wheels/
 logs/*
 *.log
 .agent/*
+
+# Additional Python patterns
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.dylib
+*.db
+.coverage
+.tox/
+.nox/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env.*
+!.env.example
+
+# Development tool directories
+.claude/
+.specify/
+
+# Large binary files
+chrome-headless-shell-linux64.zip

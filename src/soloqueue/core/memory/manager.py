@@ -1,6 +1,5 @@
 import os
 from typing import Optional, Any
-from pathlib import Path
 
 from loguru import logger
 

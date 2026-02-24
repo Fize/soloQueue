@@ -39,7 +39,7 @@ class DeepSeekReasonerAdapter(ModelAdapter):
         # DeepSeek R1 models always operate in reasoning mode
         # Use ReasoningChatOpenAI to ensure reasoning_content is properly
         # preserved during multi-turn tool calling
-        logger.debug(f"DeepSeek Reasoner: Using ReasoningChatOpenAI")
+        logger.debug("DeepSeek Reasoner: Using ReasoningChatOpenAI")
         return ReasoningChatOpenAI(
             model=model,
             api_key=api_key,
