@@ -2,14 +2,15 @@
 name: fundamental_analyst
 description: Fundamental Analyst - Investigates company financials, valuation models (PE/DCF), and industry trends. Provides investment rationale based on data.
 group: investment
-model: deepseek-reasoner
-reasoning: true
+model: deepseek-chat
+reasoning: false
 tools:
   - read_file
   - web_fetch
   - bash
   - date-teller
 sub_agents: []
+color: "#16a34a"
 ---
 
 ## Identity

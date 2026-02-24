@@ -1,0 +1,29 @@
+<div class="agent-block"
+     data-agent-id="{{ agent_id }}"
+     data-type="{{ type }}"
+     style="--agent-color: {{ agent_color }}">
+    <div class="agent-block-header {% if collapsible and collapsed_by_default %}collapsed{% endif %}"
+         {% if collapsible %}onclick="toggleBlock(this)"{% endif %}>
+        <div class="agent-block-title">
+            <div class="agent-color-indicator"></div>
+            <span class="agent-name">{{ agent_id }}</span>
+            <span class="agent-block-type">{{ type }}</span>
+        </div>
+
+        {% if collapsible %}
+            <div class="agent-block-toggle {% if collapsed_by_default %}collapsed{% endif %}">
+                ▼
+            </div>
+        {% endif %}
+
+        {% if preview_snippet %}
+            <div class="agent-block-preview" title="{{ preview_snippet }}">
+                {{ preview_snippet }}
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="agent-block-content {% if collapsible and collapsed_by_default %}collapsed{% endif %}">
+        {{ content|safe }}
+    </div>
+</div>

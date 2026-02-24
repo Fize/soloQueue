@@ -3,6 +3,9 @@
 {% block title %}Chat Debug | SoloQueue{% endblock %}
 
 {% block content %}
+<!-- Agent block styles -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/blocks.css') }}">
+
 <div class="d-flex flex-column h-100" style="min-height: calc(100vh - 150px);" x-data="chatStore">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3 class="mb-0"><i class="bi bi-terminal me-2"></i> Debug Console</h3>
@@ -22,9 +25,42 @@
     <div class="flex-grow-1 card shadow-sm border-0 mb-3 overflow-hidden">
         <div class="card-body bg-light p-0 position-relative">
             <div id="messages" class="h-100 overflow-auto p-3"
-                style="font-family: 'Consolas', monospace; font-size: 0.95rem;">
+                style="font-family: 'Consolas', monospace; font-size: 1rem;">
                 <template x-for="msg in messages" :key="msg.id">
                     <div class="mb-2 w-100">
+                        <!-- Agent Block Output -->
+                        <div x-show="msg.role === 'agent_block'" class="agent-block-container">
+                            <div class="agent-block"
+                                 :data-agent-id="msg.agent_id"
+                                 :data-type="msg.type"
+                                 :style="'--agent-color: ' + msg.agent_color">
+                                <div class="agent-block-header"
+                                     :class="{'collapsed': msg.collapsible && msg.collapsed_by_default}"
+                                     :onclick="msg.collapsible ? 'toggleBlock(this)' : null">
+                                    <div class="agent-block-title">
+                                        <div class="agent-color-indicator"></div>
+                                        <span class="agent-name" x-text="msg.agent_id"></span>
+                                        <span class="agent-block-type" x-text="msg.type"></span>
+                                    </div>
+
+                                    <div x-show="msg.collapsible" class="agent-block-toggle"
+                                         :class="{'collapsed': msg.collapsed_by_default}">
+                                        ▼
+                                    </div>
+
+                                    <div x-show="msg.preview_snippet" class="agent-block-preview"
+                                         :title="msg.preview_snippet">
+                                        <span x-text="msg.preview_snippet"></span>
+                                    </div>
+                                </div>
+
+                                <div class="agent-block-content"
+                                     :class="{'collapsed': msg.collapsible && msg.collapsed_by_default}">
+                                    <pre style="white-space: pre-wrap; margin: 0; font-family: inherit;" x-text="msg.content"></pre>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Thought / System Log -->
                         <div x-show="msg.role === 'thought'" class="text-muted small fst-italic ms-3 mb-1"
                             style="font-size: 0.8rem; border-left: 2px solid #dee2e6; padding-left: 8px;">
@@ -104,7 +140,23 @@
                 this.socket.onmessage = (event) => {
                     const data = JSON.parse(event.data);
 
-                    if (data.type === 'response') {
+                    // Handle agent output events with enhanced UI
+                    if (data.type === 'thinking' || data.type === 'tool_call' || data.type === 'tool_result' || data.type === 'final_result') {
+                        this.messages.push({
+                            id: Date.now(),
+                            role: 'agent_block',
+                            type: data.type,
+                            agent_id: data.agent_id || 'unknown',
+                            agent_color: data.agent_color || '#6b7280',
+                            content: data.content || '',
+                            preview_snippet: data.preview_snippet || '',
+                            collapsible: data.collapsible || false,
+                            collapsed_by_default: data.collapsed_by_default || false,
+                            timestamp: data.timestamp || new Date().toISOString()
+                        });
+                        this.thinking = false;
+                    }
+                    else if (data.type === 'response') {
                         this.messages.push({
                             id: Date.now(),
                             role: 'assistant',
@@ -166,4 +218,8 @@
         }))
     })
 </script>
+
+<!-- Agent block JavaScript -->
+<script src="{{ url_for('static', filename='js/collapsible_blocks.js') }}"></script>
+
 {% endblock %}

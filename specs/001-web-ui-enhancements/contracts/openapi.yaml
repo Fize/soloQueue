@@ -1,0 +1,221 @@
+openapi: 3.0.0
+info:
+  title: SoloQueue Web UI Enhancements API
+  version: 0.1.0
+  description: API contracts for Web UI enhancements (write‑action confirmations, artifact storage, agent output differentiation).
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /api/agents/{agent_id}/artifacts:
+    get:
+      summary: List artifacts for an agent
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent identifier (matches agent configuration `name` field)
+      responses:
+        '200':
+          description: List of artifacts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactList'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/agents/{agent_id}/artifacts/{filename}:
+    get:
+      summary: Download an artifact file
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifact file content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Artifact not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /ws/write-action:
+    # WebSocket endpoint for write‑action confirmations (extends existing /ws/chat)
+    # This is a WebSocket path; OpenAPI 3.0 does not support WebSocket formally.
+    # Described here for documentation.
+    description: |
+      WebSocket endpoint for real‑time write‑action confirmations.
+      Client connects to this endpoint and receives `write_action_request` messages.
+      Client responds with `write_action_response` messages.
+
+      Message format (JSON):
+      - Request: { "type": "write_action_request", "id": "uuid", "agent_id": "agent_name", "file_path": "/path/to/file", "operation": "create|update|delete", "timestamp": "ISO8601" }
+      - Response: { "type": "write_action_response", "id": "uuid", "approved": true|false, "timestamp": "ISO8601" }
+
+components:
+  schemas:
+    Artifact:
+      type: object
+      required:
+        - filename
+        - stored_path
+        - agent_id
+        - created_at
+        - size_bytes
+      properties:
+        filename:
+          type: string
+          description: Original base name of the artifact
+          example: "report_20260213T142030.md"
+        stored_path:
+          type: string
+          description: Full filesystem path where artifact is saved (relative to project root)
+          example: ".soloqueue/memory/analyst/artifacts/report_20260213T142030.md"
+        agent_id:
+          type: string
+          description: ID of the agent that created the artifact
+          example: "analyst"
+        created_at:
+          type: string
+          format: date-time
+          description: ISO‑8601 timestamp of creation
+          example: "2026-02-13T14:20:30Z"
+        size_bytes:
+          type: integer
+          minimum: 0
+          description: File size in bytes
+          example: 2048
+
+    ArtifactList:
+      type: object
+      properties:
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Artifact'
+
+    Error:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "error"
+        message:
+          type: string
+          example: "Agent not found"
+
+    WriteActionRequest:
+      type: object
+      required:
+        - type
+        - id
+        - agent_id
+        - file_path
+        - operation
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum: [write_action_request]
+          example: write_action_request
+        id:
+          type: string
+          format: uuid
+          description: Unique request identifier for matching response
+        agent_id:
+          type: string
+          description: Agent requesting the write action
+        file_path:
+          type: string
+          description: Absolute or relative path (validated by sandbox)
+        operation:
+          type: string
+          enum: [create, update, delete]
+          description: Type of file operation
+        timestamp:
+          type: string
+          format: date-time
+
+    WriteActionResponse:
+      type: object
+      required:
+        - type
+        - id
+        - approved
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum: [write_action_response]
+          example: write_action_response
+        id:
+          type: string
+          format: uuid
+          description: Matches the request ID
+        approved:
+          type: boolean
+          description: Whether the user approved the operation
+        timestamp:
+          type: string
+          format: date-time
+
+    AgentOutputEvent:
+      type: object
+      required:
+        - type
+        - agent_id
+        - content
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum: [thinking, tool_call, tool_result, final_result]
+          description: Type of output block
+        agent_id:
+          type: string
+          description: Agent that produced this output
+        agent_color:
+          type: string
+          nullable: true
+          description: CSS color value for this agent (optional, from configuration)
+        content:
+          type: string
+          description: The output text
+        preview_snippet:
+          type: string
+          nullable: true
+          description: First 200 characters of content (for collapsed thinking blocks)
+        collapsible:
+          type: boolean
+          default: false
+          description: Whether this block can be collapsed (true for thinking content)
+        collapsed_by_default:
+          type: boolean
+          default: false
+          description: Whether this block should be collapsed when first displayed (true for thinking content)
+        timestamp:
+          type: string
+          format: date-time
