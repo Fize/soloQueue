@@ -14,6 +14,7 @@
     No agents found. Create your first agent configuration.
 </div>
 {% else %}
+<div x-data="deleteHandler()">
 <div class="card shadow-sm border-0">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -30,7 +31,7 @@
                 </thead>
                 <tbody>
                     {% for agent in agents %}
-                    <tr class="transition-row">
+                    <tr class="transition-row" x-show="!deletedItems.includes('{{ agent.name }}')">
                         <td class="ps-3">
                             <div class="d-flex align-items-center">
                                 <div class="bg-primary bg-opacity-10 text-primary rounded-circle p-2 me-3 d-flex align-items-center justify-content-center"
@@ -74,10 +75,15 @@
                         <td class="pe-3 text-end">
                             <div class="btn-group">
                                 <a href="/agents/{{ agent.name }}" class="btn btn-sm btn-outline-secondary"
+                                    title="View">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="/agents/{{ agent.name }}/edit" class="btn btn-sm btn-outline-secondary"
                                     title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </a>
-                                <button type="button" class="btn btn-sm btn-outline-danger" title="Delete">
+                                <button type="button" class="btn btn-sm btn-outline-danger" title="Delete"
+                                    @click="confirmDelete('{{ agent.name }}', 'agents')">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>
@@ -89,5 +95,68 @@
         </div>
     </div>
 </div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" x-ref="deleteModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete agent <strong x-text="targetName"></strong>?</p>
+                <p class="text-muted small">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger btn-sm" @click="doDelete" :disabled="deleting">
+                    <span x-show="deleting" class="spinner-border spinner-border-sm me-1"></span>
+                    <span x-text="deleting ? 'Deleting...' : 'Delete'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
 {% endif %}
+
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('deleteHandler', () => ({
+            targetName: '',
+            targetType: '',
+            deleting: false,
+            deletedItems: [],
+            modal: null,
+
+            confirmDelete(name, type) {
+                this.targetName = name;
+                this.targetType = type;
+                if (!this.modal) {
+                    this.modal = new bootstrap.Modal(this.$refs.deleteModal);
+                }
+                this.modal.show();
+            },
+
+            async doDelete() {
+                this.deleting = true;
+                try {
+                    const res = await fetch(`/api/${this.targetType}/${this.targetName}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        this.deletedItems.push(this.targetName);
+                        this.modal.hide();
+                    } else {
+                        alert('Error: ' + (data.message || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Network error: ' + e);
+                } finally {
+                    this.deleting = false;
+                }
+            }
+        }))
+    })
+</script>
 {% endblock %}

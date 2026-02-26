@@ -1,17 +1,21 @@
 import os
+import re
+import asyncio
 from pathlib import Path
 import contextlib
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
+from soloqueue.core.logger import logger
 from soloqueue.core.registry import Registry
 from soloqueue.core.loaders import (
     AgentLoader, GroupLoader, SkillLoader,
     AgentSchema, GroupSchema, SkillSchema
 )
 from soloqueue.web.config import web_config
+from soloqueue.web.utils.colors import get_agent_color
 from soloqueue.core.security.approval import set_webui_connected, get_webui_approval
 from soloqueue.web.websocket.schemas import WriteActionResponse, parse_websocket_message
 from soloqueue.web.websocket.handlers import (
@@ -24,6 +28,9 @@ from soloqueue.web.api.artifacts import router as artifacts_router
 from soloqueue.orchestration.orchestrator import Orchestrator
 import glob
 import json
+
+# Name validation pattern
+NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 # --- Helpers ---
 def get_recent_logs(limit=5):
@@ -52,37 +59,28 @@ def get_recent_logs(limit=5):
     except Exception:
         return []
 
-def get_system_health():
-    try:
-        load = os.getloadavg()[0] # 1 min load
-        cpu = min(int(load * 50), 100)
-        
-        if os.path.exists('/proc/meminfo'):
-             with open('/proc/meminfo', 'r') as f:
-                lines = f.readlines()
-                total = int(lines[0].split()[1])
-                avail = int(lines[2].split()[1])
-                used = total - avail
-                mem = int((used / total) * 100)
-        else:
-             mem = 0
-             
-        return {"cpu": cpu, "memory": mem}
-    except Exception:
-        return {"cpu": 0, "memory": 0}
 
 # Global Registry Instance
 registry = Registry()
 
+# Main event loop reference (for cross-thread async calls)
+_main_loop = None
+
+def get_main_loop():
+    """Get the main asyncio event loop for cross-thread coroutine submission."""
+    return _main_loop
+
 # Lifespan context manager for startup/shutdown events
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
     # Startup
-    print(f"Starting SoloQueue Web on {web_config.HOST}:{web_config.PORT}")
+    logger.info(f"Starting SoloQueue Web on {web_config.HOST}:{web_config.PORT}")
     registry.initialize()
     yield
-    # Shutdown would go here if needed
-    # print("Shutting down SoloQueue Web...")
+    # Shutdown
+    _main_loop = None
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -121,7 +119,6 @@ async def dashboard(request: Request):
     skill_count = len(registry.skills)
     
     logs = get_recent_logs()
-    health = get_system_health()
     
     return templates.TemplateResponse(
         "dashboard.html", 
@@ -132,10 +129,8 @@ async def dashboard(request: Request):
                 "teams": team_count,
                 "agents": agent_count,
                 "skills": skill_count,
-                "tokens": "0" # Placeholder
             },
             "logs": logs,
-            "health": health
         }
     )
 
@@ -168,7 +163,6 @@ async def list_agents(request: Request):
 @app.get("/skills", response_class=HTMLResponse)
 async def list_skills(request: Request):
     """Render the skills list page."""
-    # Skills might be loaded on demand or preloaded.
     skills = list(registry.skills.values()) if hasattr(registry, 'skills') else []
     
     return templates.TemplateResponse(
@@ -179,6 +173,33 @@ async def list_skills(request: Request):
             "skills": skills
         }
     )
+
+# --- NEW routes (must be before /{name} routes) ---
+
+@app.get("/teams/new", response_class=HTMLResponse)
+async def new_team_page(request: Request):
+    return templates.TemplateResponse(
+        "team_new.html",
+        {"request": request, "active_page": "teams"}
+    )
+
+@app.get("/agents/new", response_class=HTMLResponse)
+async def new_agent_page(request: Request):
+    group = request.query_params.get("group", "")
+    groups = list(registry.groups.keys())
+    return templates.TemplateResponse(
+        "agent_new.html",
+        {"request": request, "active_page": "agents", "default_group": group, "groups": groups}
+    )
+
+@app.get("/skills/new", response_class=HTMLResponse)
+async def new_skill_page(request: Request):
+    return templates.TemplateResponse(
+        "skill_new.html",
+        {"request": request, "active_page": "skills"}
+    )
+
+# --- Detail and Edit routes ---
 
 @app.get("/skills/{name}", response_class=HTMLResponse)
 async def skill_detail(request: Request, name: str):
@@ -201,10 +222,10 @@ async def edit_skill_page(request: Request, name: str):
     skill = registry.skills.get(name)
     if not skill:
          return HTMLResponse(content="Skill not found", status_code=404)
-         
+    skill_dict = skill.model_dump()
     return templates.TemplateResponse(
         "skill_edit.html", 
-        {"request": request, "skill": skill.model_dump(), "active_page": "skills"}
+        {"request": request, "skill": skill, "skill_json": skill_dict, "active_page": "skills"}
     )
 
 @app.put("/api/skills/{name}")
@@ -299,6 +320,9 @@ async def team_detail(request: Request, name: str):
     if not leader_name and members:
         leader_name = members[0].name
     
+    # Build agent color mapping for frontend
+    agent_colors = {m.name: get_agent_color(m.name, getattr(m, 'color', None)) for m in members}
+
     return templates.TemplateResponse(
         "team_detail.html", 
         {
@@ -306,6 +330,7 @@ async def team_detail(request: Request, name: str):
             "team": team,
             "members": members,
             "leader_name": leader_name,
+            "agent_colors": agent_colors,
             "active_page": "teams"
         }
     )
@@ -315,18 +340,11 @@ async def edit_team_page(request: Request, name: str):
     team = registry.groups.get(name)
     if not team:
          return HTMLResponse("Team not found", status_code=404)
+    team_dict = team.model_dump()
     return templates.TemplateResponse(
         "team_edit.html", 
-        {"request": request, "team": team.model_dump(), "active_page": "teams"}
+        {"request": request, "team": team, "team_json": team_dict, "active_page": "teams"}
     )
-
-@app.get("/api/teams/{name}")
-async def get_team_api(name: str):
-    """Get team configuration as JSON."""
-    team = registry.groups.get(name)
-    if not team:
-         return {"status": "error", "message": "Team not found"}
-    return team
 
 @app.put("/api/teams/{name}")
 async def update_team(name: str, group_data: GroupSchema):
@@ -363,7 +381,6 @@ def user_error_page(request: Request, title: str, message: str):
 async def update_agent(name: str, update_data: AgentSchema):
     """Update an agent configuration."""
     if update_data.name != name:
-        # Validation: Name change not supported in this endpoint
         pass
         
     loader = AgentLoader()
@@ -373,7 +390,6 @@ async def update_agent(name: str, update_data: AgentSchema):
         # Update Memory Registry
         if name in registry.agents:
             registry.agents[name] = update_data
-        # Update node_id mapping (group__name)
         node_id = f"{update_data.group}__{update_data.name}"
         registry.agents_by_node[node_id] = update_data
         
@@ -383,21 +399,152 @@ async def update_agent(name: str, update_data: AgentSchema):
         return {"status": "error", "message": str(e)}
 
 
-@app.get("/chat", response_class=HTMLResponse)
-async def chat_page(request: Request):
-    """Render the chat/debug page."""
-    agents = []
-    if hasattr(registry, 'agents'):
-        agents = list(registry.agents.values())
+# === CREATE APIs ===
+
+@app.post("/api/teams")
+async def create_team(request: Request):
+    """Create a new team."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    
+    if not name or not NAME_PATTERN.match(name):
+        return JSONResponse({"status": "error", "message": "Invalid name. Use only letters, numbers, hyphens, underscores."}, status_code=400)
+    if name in registry.groups:
+        return JSONResponse({"status": "error", "message": f"Team '{name}' already exists."}, status_code=400)
+    
+    try:
+        group = GroupSchema(
+            name=name,
+            description=body.get("description", ""),
+            shared_context=body.get("shared_context", ""),
+        )
+        loader = GroupLoader()
+        loader.save(group)
+        registry.groups[name] = group
+        return {"status": "success", "name": name}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.post("/api/agents")
+async def create_agent(request: Request):
+    """Create a new agent."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    
+    if not name or not NAME_PATTERN.match(name):
+        return JSONResponse({"status": "error", "message": "Invalid name. Use only letters, numbers, hyphens, underscores."}, status_code=400)
+    if name in registry.agents:
+        return JSONResponse({"status": "error", "message": f"Agent '{name}' already exists."}, status_code=400)
+    
+    try:
+        agent = AgentSchema(
+            name=name,
+            description=body.get("description", ""),
+            model=body.get("model") or None,
+            reasoning=body.get("reasoning", False),
+            group=body.get("group") or None,
+            is_leader=body.get("is_leader", False),
+            tools=body.get("tools", []),
+            sub_agents=body.get("sub_agents", []),
+            memory=body.get("memory") or None,
+            color=body.get("color") or None,
+        )
+        agent.system_prompt = body.get("system_prompt", "")
         
-    return templates.TemplateResponse(
-        "chat.html", 
-        {
-            "request": request, 
-            "active_page": "chat",
-            "agents": agents
-        }
-    )
+        loader = AgentLoader()
+        loader.save(agent)
+        registry.agents[name] = agent
+        if agent.group:
+            registry.agents_by_node[f"{agent.group}__{name}"] = agent
+        return {"status": "success", "name": name}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.post("/api/skills")
+async def create_skill(request: Request):
+    """Create a new skill."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    
+    if not name or not NAME_PATTERN.match(name):
+        return JSONResponse({"status": "error", "message": "Invalid name. Use only letters, numbers, hyphens, underscores."}, status_code=400)
+    if name in registry.skills:
+        return JSONResponse({"status": "error", "message": f"Skill '{name}' already exists."}, status_code=400)
+    
+    try:
+        skill = SkillSchema(
+            name=name,
+            description=body.get("description", ""),
+            allowed_tools=body.get("allowed_tools", []),
+            disable_model_invocation=body.get("disable_model_invocation", False),
+            subagent=body.get("subagent") or None,
+            arguments=body.get("arguments") or None,
+        )
+        skill.content = body.get("content", "")
+        
+        loader = SkillLoader()
+        loader.save(skill)
+        registry.skills[name] = skill
+        return {"status": "success", "name": name}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+# === DELETE APIs ===
+
+@app.delete("/api/teams/{name}")
+async def delete_team(name: str):
+    """Delete a team."""
+    if name not in registry.groups:
+        return JSONResponse({"status": "error", "message": f"Team '{name}' not found."}, status_code=404)
+    
+    try:
+        loader = GroupLoader()
+        loader.delete(name)
+        del registry.groups[name]
+        return {"status": "success"}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.delete("/api/agents/{name}")
+async def delete_agent(name: str):
+    """Delete an agent."""
+    if name not in registry.agents:
+        return JSONResponse({"status": "error", "message": f"Agent '{name}' not found."}, status_code=404)
+    
+    try:
+        agent = registry.agents[name]
+        loader = AgentLoader()
+        loader.delete(name)
+        
+        # Clean up registry
+        del registry.agents[name]
+        node_id = f"{agent.group}__{agent.name}" if agent.group else agent.name
+        registry.agents_by_node.pop(node_id, None)
+        
+        return {"status": "success"}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.delete("/api/skills/{name}")
+async def delete_skill(name: str):
+    """Delete a skill."""
+    if name not in registry.skills:
+        return JSONResponse({"status": "error", "message": f"Skill '{name}' not found."}, status_code=404)
+    
+    try:
+        loader = SkillLoader()
+        loader.delete(name)
+        del registry.skills[name]
+        return {"status": "success"}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 
 @app.websocket("/ws/chat")
 async def chat_endpoint(websocket: WebSocket):
@@ -450,26 +597,35 @@ async def chat_endpoint(websocket: WebSocket):
                     lambda: orch.run(entry_agent, user_msg, step_callback=step_callback)
                 )
                 
-                # 4. Stream Results
-                while not future.done() or not msg_queue.empty():
-                    try:
-                        # Non-blocking get
-                        event = msg_queue.get_nowait()
-                        # Forward event to frontend
-                        await websocket.send_json(event)
-                    except queue.Empty:
-                        if future.done():
+                # 4. Stream Results (batch drain for reliability)
+                while True:
+                    # Drain all available events from queue
+                    events_sent = 0
+                    while True:
+                        try:
+                            event = msg_queue.get_nowait()
+                            await websocket.send_json(event)
+                            events_sent += 1
+                        except queue.Empty:
                             break
+                    
+                    # If no events were sent and future is done, exit
+                    if events_sent == 0 and future.done():
+                        # Final drain to catch any last-moment events
+                        while not msg_queue.empty():
+                            try:
+                                event = msg_queue.get_nowait()
+                                await websocket.send_json(event)
+                            except queue.Empty:
+                                break
+                        break
+                    
+                    if events_sent == 0:
                         await asyncio.sleep(0.05)
                 
-                # 5. Final Result
+                # 5. Wait for completion (completed status is emitted from orchestrator RETURN event)
                 try:
-                    result = await future
-                    # Send final response if not already covered by events
-                    await websocket.send_json({
-                        "type": "response",
-                        "content": str(result)
-                    })
+                    await future
                 except Exception as e:
                      await websocket.send_json({
                         "type": "error",
@@ -477,7 +633,7 @@ async def chat_endpoint(websocket: WebSocket):
                     })
                     
     except WebSocketDisconnect:
-        print("Client disconnected")
+        logger.info("Chat WebSocket client disconnected")
 
 
 @app.websocket("/ws/write-action")
@@ -526,7 +682,7 @@ async def write_action_endpoint(websocket: WebSocket):
                 pass
 
     except WebSocketDisconnect:
-        print("Write-action WebSocket client disconnected")
+        logger.info("Write-action WebSocket client disconnected")
     finally:
         # Clean up connection tracking
         remove_connection(websocket)

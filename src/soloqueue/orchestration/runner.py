@@ -13,6 +13,7 @@ from soloqueue.core.logger import logger
 from soloqueue.core.loaders.schema import AgentSchema
 from soloqueue.orchestration.frame import TaskFrame
 from soloqueue.orchestration.signals import ControlSignal, SignalType
+from soloqueue.orchestration.tools import is_skill_tool
 from soloqueue.core.memory.manager import MemoryManager
 from soloqueue.core.context.token_counter import TokenCounter
 from soloqueue.core.context.builder import ContextBuilder
@@ -78,6 +79,8 @@ class AgentRunner:
         # 0. 计算Agent颜色用于UI输出
         agent_color = get_agent_color(self.config.name, self.config.color)
         agent_id = self.config.node_id
+        agent_group = self.config.group or "default"
+        agent_actor = self.config.node_id
 
         # 1. 构建消息（System Prompt + Frame Memory）
         system_content = self.config.system_prompt
@@ -130,7 +133,17 @@ class AgentRunner:
         logger.debug(f"AgentRunner.step: {self.config.name}, memory_len={len(frame.memory)}")
         
         # 2. 调用 LLM (Streaming)
-        print(f"\n\033[1m[{self.config.name}]\033[0m Starting...", flush=True)
+        if step_callback:
+            step_callback({
+                "type": "agent_status",
+                "agent_id": agent_id,
+                "status": "starting",
+                "message": f"Agent [{self.config.name}] starting...",
+                "agent_color": agent_color,
+                "timestamp": datetime.now().isoformat(),
+                "group": agent_group,
+                "from_actor": agent_actor,
+            })
         
         full_response = None
         has_reasoning_started = False
@@ -149,32 +162,20 @@ class AgentRunner:
                 reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                 if reasoning:
                     if not has_reasoning_started:
-                        print("\n\033[90mThinking: ", end="", flush=True)
                         has_reasoning_started = True
-                        if step_callback:
-                             step_callback({
-                                 "type": "thinking",
-                                 "agent_id": agent_id,
-                                 "content": "Thinking: ",
-                                 "agent_color": agent_color,
-                                 "preview_snippet": "Thinking...",
-                                 "collapsible": True,
-                                 "collapsed_by_default": True,
-                                 "timestamp": datetime.now().isoformat()
-                             })
 
-                    print(reasoning, end="", flush=True)
                     reasoning_buffer += reasoning
-                    if step_callback:
+                    # Only show thinking bubble for explicit reasoning models
+                    if self.config.reasoning and step_callback:
                         step_callback({
-                            "type": "thinking",
+                            "type": "stream",
                             "agent_id": agent_id,
                             "content": reasoning,
                             "agent_color": agent_color,
-                            "preview_snippet": reasoning[:200] + ("..." if len(reasoning) > 200 else ""),
-                            "collapsible": True,
-                            "collapsed_by_default": True,
-                            "timestamp": datetime.now().isoformat()
+                            "stream_type": "thinking",
+                            "timestamp": datetime.now().isoformat(),
+                            "group": agent_group,
+                            "from_actor": agent_actor,
                         })
                     
                     if len(reasoning_buffer) > 50000:
@@ -183,26 +184,18 @@ class AgentRunner:
                 # Handle Actual Content
                 if chunk.content:
                     if not has_content_started:
-                        if has_reasoning_started:
-                            print("\033[0m\n", flush=True) # Reset color after thinking
-                        print("\n\033[92mAssistant: ", end="", flush=True)
                         has_content_started = True
-                    print(chunk.content, end="", flush=True)
                     if step_callback:
                         step_callback({
-                            "type": "final_result",
+                            "type": "stream",
                             "agent_id": agent_id,
                             "content": chunk.content,
                             "agent_color": agent_color,
-                            "preview_snippet": chunk.content[:200] + ("..." if len(chunk.content) > 200 else ""),
-                            "collapsible": False,
-                            "collapsed_by_default": False,
-                            "timestamp": datetime.now().isoformat()
+                            "stream_type": "answer",
+                            "timestamp": datetime.now().isoformat(),
+                            "group": agent_group,
+                            "from_actor": agent_actor,
                         })
-            
-            # End of stream cleanup
-            if has_content_started or has_reasoning_started:
-                print("\033[0m\n", flush=True)
             
             # Ensure full_response is an AIMessage
             if full_response is None:
@@ -243,6 +236,15 @@ class AgentRunner:
         
         # 3. 解析响应
         if response.tool_calls:
+            # Clear streamed answer bubbles — narration text is redundant with tool_call events
+            if step_callback:
+                step_callback({
+                    "type": "clear_agent_answer",
+                    "agent_id": agent_id,
+                    "group": agent_group,
+                    "from_actor": agent_actor,
+                })
+
             # 检查是否是 delegate_to 调用
             delegate_call = self._find_delegate_call(response.tool_calls)
             
@@ -321,21 +323,26 @@ class AgentRunner:
         # Calculate agent color and ID for UI events
         agent_id = self.config.node_id
         agent_color = get_agent_color(self.config.name, self.config.color)
+        agent_group = self.config.group or "default"
+        agent_actor = self.config.node_id
 
         for call in tool_calls:
-            # Send tool_call event before execution
-            if step_callback:
-                step_callback({
-                    "type": "tool_call",
-                    "agent_id": agent_id,
-                    "content": f"Calling tool '{call['name']}' with args: {call['args']}",
-                    "agent_color": agent_color,
-                    "preview_snippet": f"Tool: {call['name']}",
-                    "collapsible": False,
-                    "collapsed_by_default": False,
-                    "timestamp": datetime.now().isoformat()
-                })
+            # Terminal log for tool call
+            logger.info(f"🔧 Tool Call: <cyan>{call['name']}</cyan>({call['args']})")
 
+            # 判断 action_type 和 to_actor
+            action_type = "normal"
+            to_actor = None
+            
+            if call["name"] == "delegate_to":
+                action_type = "delegate"
+                to_actor = call["args"].get("target", "")
+            elif is_skill_tool(call["name"]):
+                # skill proxy 工具通过 is_skill_tool 函数判断
+                action_type = "skill"
+                to_actor = f"skill__{call['name']}"
+
+            # Execute tool first
             tool = self.tools_by_name.get(call["name"])
             
             output = ""
@@ -350,22 +357,62 @@ class AgentRunner:
                     if self.memory and self.session_id:
                         self.memory.save_error(self.session_id, f"Tool {call['name']} execution failed: {e}")
             
-            # Send tool_result event after execution
+            # Terminal log for tool result
+            result_preview = str(output)[:200]
+            if len(str(output)) > 200:
+                result_preview += "..."
+            logger.info(f"📋 Tool Result: <cyan>{call['name']}</cyan> → {result_preview}")
+
+            # 判断是否为 skill proxy
+            is_skill_proxy = str(output).startswith("__USE_SKILL__")
+            
+            # 根据输出判断 action_type
+            if is_skill_proxy:
+                action_type = "skill"
+                to_actor = f"skill__{call['name']}"
+
             if step_callback:
-                # Create preview snippet (first 200 chars)
+                # Send tool_call event
+                step_callback({
+                    "type": "tool_call",
+                    "agent_id": agent_id,
+                    "content": f"Calling tool '{call['name']}' with args: {call['args']}",
+                    "tool_name": call["name"],
+                    "tool_args": str(call["args"]),
+                    "agent_color": agent_color,
+                    "preview_snippet": f"Tool: {call['name']}",
+                    "collapsible": False,
+                    "collapsed_by_default": False,
+                    "timestamp": datetime.now().isoformat(),
+                    "group": agent_group,
+                    "from_actor": agent_actor,
+                    "to_actor": to_actor,
+                    "action_type": action_type,
+                    "parent_tool_call_id": call["id"],
+                })
+
+                # Send tool_result event
                 preview = str(output)[:200]
                 if len(str(output)) > 200:
                     preview += "..."
+                
+                # skill proxy 显示简短提示
+                result_content = "[Skill invoked and queued]" if is_skill_proxy else str(output)
 
                 step_callback({
                     "type": "tool_result",
                     "agent_id": agent_id,
-                    "content": str(output),
+                    "content": result_content,
+                    "tool_name": call["name"],
                     "agent_color": agent_color,
                     "preview_snippet": preview,
                     "collapsible": False,
                     "collapsed_by_default": False,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "group": agent_group,
+                    "from_actor": agent_actor,
+                    "to_actor": to_actor,
+                    "action_type": action_type,
                 })
 
             # LOGGING: Save Tool Output

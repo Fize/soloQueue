@@ -3,7 +3,7 @@
 {% block title %}Teams | SoloQueue{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4" x-data="{ deleteTarget: '' }">
     <h3><i class="bi bi-people me-2"></i> Teams</h3>
     <a href="/teams/new" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> New Team</a>
 </div>
@@ -14,14 +14,14 @@
     No teams found. Create your first team configuration.
 </div>
 {% else %}
-<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4" x-data="deleteHandler()">
     {% for team in teams %}
-    <div class="col">
+    <div class="col" x-show="!deletedItems.includes('{{ team.name }}')">
         <div class="card h-100 shadow-sm border-0 hover-card transition-all">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start mb-3">
                     <h5 class="card-title fw-bold mb-0">
-                        <a href="/teams/{{ team.name }}" class="text-decoration-none text-dark stretched-link">
+                        <a href="/teams/{{ team.name }}" class="text-decoration-none text-dark">
                             {{ team.name }}
                         </a>
                     </h5>
@@ -31,21 +31,87 @@
                     {{ team.description }}
                 </p>
                 <div class="d-flex align-items-center text-muted small">
-                    <i class="bi bi-person me-1"></i>
-                    <span>Leader: {{ team.name }}__leader</span>
+                    <i class="bi bi-files me-1"></i>
+                    <span>Context: {{ team.shared_context|length if team.shared_context else 0 }} chars</span>
                 </div>
             </div>
             <div class="card-footer bg-transparent border-top-0 pt-0 pb-3">
                 <hr class="my-2 opacity-10">
-                <div class="d-flex justify-content-between align-items-center small">
-                    <span class="text-muted"><i class="bi bi-files me-1"></i> Context: {{ team.shared_context|length if
-                        team.shared_context else 0 }} chars</span>
-                    <i class="bi bi-arrow-right text-primary"></i>
+                <div class="d-flex justify-content-between align-items-center">
+                    <a href="/teams/{{ team.name }}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-right me-1"></i> View
+                    </a>
+                    <button type="button" class="btn btn-outline-danger btn-sm"
+                        @click="confirmDelete('{{ team.name }}', 'teams')">
+                        <i class="bi bi-trash"></i>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
     {% endfor %}
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="deleteModal" tabindex="-1" x-ref="deleteModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong x-text="targetName"></strong>?</p>
+                    <p class="text-muted small">This action cannot be undone. Associated agents will NOT be automatically deleted.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger btn-sm" @click="doDelete" :disabled="deleting">
+                        <span x-show="deleting" class="spinner-border spinner-border-sm me-1"></span>
+                        <span x-text="deleting ? 'Deleting...' : 'Delete'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endif %}
+
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('deleteHandler', () => ({
+            targetName: '',
+            targetType: '',
+            deleting: false,
+            deletedItems: [],
+            modal: null,
+
+            confirmDelete(name, type) {
+                this.targetName = name;
+                this.targetType = type;
+                if (!this.modal) {
+                    this.modal = new bootstrap.Modal(this.$refs.deleteModal);
+                }
+                this.modal.show();
+            },
+
+            async doDelete() {
+                this.deleting = true;
+                try {
+                    const res = await fetch(`/api/${this.targetType}/${this.targetName}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        this.deletedItems.push(this.targetName);
+                        this.modal.hide();
+                    } else {
+                        alert('Error: ' + (data.message || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Network error: ' + e);
+                } finally {
+                    this.deleting = false;
+                }
+            }
+        }))
+    })
+</script>
 {% endblock %}

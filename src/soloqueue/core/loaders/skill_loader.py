@@ -1,4 +1,5 @@
 import frontmatter
+import shutil
 from typing import Dict
 import pathlib
 
@@ -105,4 +106,14 @@ class SkillLoader:
             frontmatter.dump(post, f)
             
         logger.info(f"Saved skill {skill.name} to {file_path}")
+
+    def delete(self, name: str) -> None:
+        """Delete skill directory. Raises FileNotFoundError if not found."""
+        for base_path in self.scan_paths:
+            skill_dir = base_path / name
+            if skill_dir.exists() and (skill_dir / "SKILL.md").exists():
+                shutil.rmtree(skill_dir)
+                logger.info(f"Deleted skill directory: {skill_dir}")
+                return
+        raise FileNotFoundError(f"Skill '{name}' not found in {self.scan_paths}")
 
