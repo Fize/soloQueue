@@ -79,3 +79,11 @@ class GroupLoader:
             frontmatter.dump(post, f)
             
         logger.info(f"Saved group config: {file_path}")
+
+    def delete(self, name: str) -> None:
+        """Delete group config file. Raises FileNotFoundError if not found."""
+        file_path = self.config_root / f"{name}.md"
+        if not file_path.exists():
+            raise FileNotFoundError(f"Group config not found: {file_path}")
+        file_path.unlink()
+        logger.info(f"Deleted group config: {file_path}")

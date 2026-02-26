@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Set
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 from soloqueue.core.logger import logger
 from soloqueue.core.primitives import get_all_primitives
 from soloqueue.core.loaders.skill_loader import SkillLoader
+
+# Global set to track skill tool names
+_skill_tool_names: Set[str] = set()
 
 class DelegateInput(BaseModel):
     """Input for delegating a task to another agent."""
@@ -66,6 +69,7 @@ def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
             
         proxy_tool.name = skill_name
         proxy_tool.description = description
+        _skill_tool_names.add(skill_name)  # Track skill tool name
         return proxy_tool
 
     for name in config.tools:
@@ -81,9 +85,9 @@ def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
                 final_tools.append(proxy)
                 existing_tool_names.add(skill_schema.name)
                 logger.debug(f"Attached Skill Proxy: {skill_schema.name} for {config.node_id}")
-            except Exception:
+            except Exception as e:
                 # It might be an invalid tool name, or a primitive not in get_all_primitives?
-                logger.warning(f"Skill '{name}' not found in Skill Registry.")
+                logger.warning(f"Skill '{name}' not found in Skill Registry. Error: {e}")
                 
     # 2. Add Delegation Tool if applicable (Leader only)
     if config.is_leader:
@@ -101,3 +105,8 @@ def resolve_tools_for_agent(config: AgentConfig) -> List[BaseTool]:
         final_tools.append(create_delegate_tool(allowed_targets=targets))
         
     return final_tools
+
+
+def is_skill_tool(tool_name: str) -> bool:
+    """Check if a tool name is a skill proxy."""
+    return tool_name in _skill_tool_names

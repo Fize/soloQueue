@@ -13,13 +13,19 @@
         </nav>
         <h3 class="mb-0">{{ agent.name }}</h3>
     </div>
-    <div class="btn-group">
-        <a href="/api/agents/{{ agent.name }}" target="_blank" class="btn btn-outline-secondary btn-sm"
-            title="View JSON">
-            <i class="bi bi-code-slash"></i> JSON
-        </a>
+    <div class="btn-group" x-data="{ deleting: false }">
         <a href="/agents/{{ agent.name }}/edit" class="btn btn-primary btn-sm"><i class="bi bi-pencil me-1"></i> Edit
             Configuration</a>
+        <button type="button" class="btn btn-outline-danger btn-sm" :disabled="deleting"
+            @click="if(confirm('Are you sure you want to delete agent \'{{ agent.name }}\'? This action cannot be undone.')) {
+                deleting = true;
+                fetch('/api/agents/{{ agent.name }}', { method: 'DELETE' })
+                    .then(r => r.json())
+                    .then(d => { if(d.status === 'success') window.location.href = '/agents'; else { alert(d.message); deleting = false; } })
+                    .catch(e => { alert('Error: ' + e); deleting = false; });
+            }">
+            <i class="bi bi-trash me-1"></i> Delete
+        </button>
     </div>
 </div>
 

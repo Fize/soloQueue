@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     """
     Core settings for SoloQueue.
     Loads from .env file and environment variables.
+    .env file values take precedence over system environment variables.
     """
     # System
     PROJECT_ROOT: str | None = None
@@ -28,6 +29,11 @@ class Settings(BaseSettings):
         # Allow extra fields for future compatibility
         extra="ignore"
     )
+
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings):
+        """Override source priority: .env file takes precedence over system environment variables."""
+        return (init_settings, dotenv_settings, env_settings, file_secret_settings)
 
 
 # Global settings instance

@@ -8,6 +8,7 @@ write-action requests to connected web UI clients.
 from typing import Optional
 from fastapi import WebSocket
 
+from soloqueue.core.logger import logger
 from soloqueue.web.websocket.schemas import WriteActionRequest
 
 
@@ -63,6 +64,6 @@ async def send_write_action_request(request: WriteActionRequest) -> bool:
         return True
     except Exception as e:
         # Connection may be broken; clear the reference
-        print(f"Failed to send write-action request: {e}")
+        logger.error(f"Failed to send write-action request: {e}")
         set_write_action_websocket(None)
         return False

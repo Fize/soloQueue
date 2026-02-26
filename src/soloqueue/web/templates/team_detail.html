@@ -15,128 +15,291 @@
         <p class="text-muted small mb-0">{{ team.description }}</p>
     </div>
 
-    <div class="btn-group">
-        <a href="/api/teams/{{ team.name }}" target="_blank" class="btn btn-outline-secondary btn-sm" title="View JSON">
-            <i class="bi bi-code-slash"></i> JSON
+    <div class="btn-group" x-data="{ deleting: false }">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#sharedContextModal">
+            <i class="bi bi-file-text me-1"></i> Shared Context
+            <span class="badge bg-light text-dark border">{{ team.shared_context|length if team.shared_context else 0 }}</span>
+        </button>
+        <a href="/agents/new?group={{ team.name }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i> Add Member
         </a>
         <a href="/teams/{{ team.name }}/edit" class="btn btn-primary btn-sm">
-            <i class="bi bi-pencil me-1"></i> Edit Configuration
+            <i class="bi bi-pencil me-1"></i> Edit
         </a>
+        <button type="button" class="btn btn-outline-danger btn-sm" :disabled="deleting"
+            @click="if(confirm('Are you sure you want to delete team \'{{ team.name }}\'? Associated agents will NOT be deleted.')) {
+                deleting = true;
+                fetch('/api/teams/{{ team.name }}', { method: 'DELETE' })
+                    .then(r => r.json())
+                    .then(d => { if(d.status === 'success') window.location.href = '/teams'; else { alert(d.message); deleting = false; } })
+                    .catch(e => { alert('Error: ' + e); deleting = false; });
+            }">
+            <i class="bi bi-trash me-1"></i> Delete
+        </button>
     </div>
 </div>
 
-<div class="row g-4">
-    <!-- Team Members -->
-    <div class="col-md-5 col-lg-4">
-        <div class="card shadow-sm border-0 mb-4 h-100">
-            <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-people me-2"></i> Members</span>
-                <span class="badge bg-primary rounded-pill">{{ members | length }}</span>
-            </div>
-            <div class="list-group list-group-flush overflow-auto" style="max-height: 400px;">
-                {% for member in members %}
-                <a href="/agents/{{ member.name }}"
-                    class="list-group-item list-group-item-action d-flex align-items-center justify-content-between">
-                    <div class="d-flex align-items-center">
-                        <div class="bg-light text-secondary rounded-circle p-2 me-2 d-flex align-items-center justify-content-center"
-                            style="width: 32px; height: 32px;">
-                            {% if member.is_leader %}
-                            <i class="bi bi-star-fill text-warning"></i>
-                            {% else %}
-                            <i class="bi bi-person"></i>
-                            {% endif %}
-                        </div>
-                        <div>
-                            <span class="fw-bold d-block">{{ member.name }}</span>
-                            <small class="text-muted">{{ member.model }}</small>
-                        </div>
-                    </div>
-                    {% if member.reasoning %}
-                    <i class="bi bi-lightbulb-fill text-warning" title="Reasoning Enabled"></i>
-                    {% endif %}
-                </a>
-                {% endfor %}
-            </div>
-            <div class="card-footer bg-white text-center border-top-0 py-3">
-                <a href="/agents/new?group={{ team.name }}" class="btn btn-outline-primary btn-sm w-100"><i
-                        class="bi bi-plus-lg me-1"></i> Add Member</a>
-            </div>
-        </div>
-    </div>
-
-    <!-- Shared Context -->
-    <div class="col-md-7 col-lg-8">
-        <div class="card shadow-sm border-0 h-100">
-            <div class="card-header bg-white fw-bold d-flex justify-content-between">
-                <span><i class="bi bi-file-text me-2"></i> Shared Context</span>
-                <span class="badge bg-light text-muted border">{{ team.shared_context|length if team.shared_context else
-                    0 }} chars</span>
-            </div>
-            <div class="card-body bg-light p-0 position-relative">
-                <pre class="m-0 p-3"
-                    style="white-space: pre-wrap; font-family: 'Consolas', monospace; font-size: 0.9rem; max-height: 600px; overflow-y: auto;">{{ team.shared_context }}</pre>
-            </div>
-        </div>
-    </div>
-</div>
-</div>
 
 <!-- Debug Chat Console -->
 <div class="row mt-4" x-data="teamChat">
     <div class="col-12">
         <div class="card shadow-sm border-0">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-terminal me-2"></i> Team Debug Console (@{{ leader_name }})</h5>
-                <div>
-                    <select class="form-select form-select-sm d-inline-block w-auto me-2" x-model="targetAgent">
+            <!-- Header -->
+            <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fs-6"><i class="bi bi-terminal me-2"></i> Team Debug Console</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <select class="form-select form-select-sm w-auto" x-model="targetAgent" style="max-width: 160px;">
                         {% for member in members %}
                         <option value="{{ member.name }}">{{ member.name }}</option>
                         {% endfor %}
                     </select>
                     <span class="badge" :class="connected ? 'bg-success' : 'bg-danger'"
-                        x-text="connected ? 'Connected' : 'Disconnected'"></span>
+                          x-text="connected ? 'Connected' : 'Disconnected'"></span>
                 </div>
             </div>
-            <div class="card-body p-0">
-                <div id="team-messages" class="p-3 bg-light font-monospace"
-                    style="height: 400px; overflow-y: auto; font-size: 0.9rem;">
-                    <template x-for="msg in messages" :key="msg.id">
-                        <div class="mb-2">
-                            <div x-show="msg.type === 'user'" class="text-end">
-                                <span class="badge bg-primary text-wrap text-start" style="max-width: 80%;">
-                                    <i class="bi bi-person-fill me-1"></i> <span x-text="msg.content"></span>
-                                </span>
+
+            <!-- Body: 左右分栏 -->
+            <div class="card-body p-0 debug-console">
+
+                <!-- 左侧：消息区 -->
+                <div class="debug-messages-panel">
+                    <div id="team-messages" class="debug-messages-scroll">
+                        <template x-for="msg in messages" :key="msg.id">
+                            <div>
+                                <!-- User message -->
+                                <template x-if="msg.type === 'user'">
+                                    <div class="chat-msg chat-msg-user">
+                                        <div class="chat-bubble">
+                                            <span x-text="msg.content"></span>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- Streaming agent output - Thinking (collapsible) -->
+                                <template x-if="msg.type === 'agent_stream' && msg.streamType === 'thinking'">
+                                    <div class="chat-msg chat-msg-agent"
+                                         :style="'--agent-color:' + (msg.agentColor || '#6c757d')">
+                                        <details :open="!msg.collapsed">
+                                            <summary class="chat-agent-name text-muted" style="cursor: pointer;"
+                                                     :style="'color:' + (msg.agentColor || '#6c757d')">
+                                                <i class="bi bi-lightbulb me-1"></i>Thinking
+                                                <template x-if="msg.collapsed">
+                                                    <small class="text-muted ms-1" style="font-weight:400;">(click to expand)</small>
+                                                </template>
+                                            </summary>
+                                            <div class="chat-bubble-agent mt-1 bg-light">
+                                                <div class="markdown-body" style="font-size: 0.85rem;" x-html="renderMarkdown(msg.content)"></div>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </template>
+
+                                <!-- Streaming agent output - Answer (main content) -->
+                                <template x-if="msg.type === 'agent_stream' && (!msg.streamType || msg.streamType === 'answer') && !msg.collapsed">
+                                    <div class="chat-msg chat-msg-agent"
+                                         :style="'--agent-color:' + (msg.agentColor || '#6c757d')">
+                                        <div class="chat-agent-name" :style="'color:' + (msg.agentColor || '#6c757d')">
+                                            <i class="bi bi-robot me-1"></i><span x-text="msg.agentId"></span>
+                                        </div>
+                                        <div class="chat-bubble-agent">
+                                            <div class="markdown-body" style="font-size: 0.85rem;" x-html="renderMarkdown(msg.content)"></div>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- Streaming agent output - Answer (collapsed by clear_agent_answer) -->
+                                <template x-if="msg.type === 'agent_stream' && (!msg.streamType || msg.streamType === 'answer') && msg.collapsed">
+                                    <div class="chat-msg chat-msg-agent"
+                                         :style="'--agent-color:' + (msg.agentColor || '#6c757d')">
+                                        <details>
+                                            <summary class="chat-agent-name text-muted" style="cursor: pointer;"
+                                                     :style="'color:' + (msg.agentColor || '#6c757d')">
+                                                <i class="bi bi-robot me-1"></i><span x-text="msg.agentId"></span>
+                                                <small class="text-muted ms-1" style="font-weight:400;">(click to expand)</small>
+                                            </summary>
+                                            <div class="chat-bubble-agent mt-1">
+                                                <div class="markdown-body" style="font-size: 0.85rem;" x-html="renderMarkdown(msg.content)"></div>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </template>
+
+                                <!-- Skill hint -->
+                                <template x-if="msg.type === 'skill_hint'">
+                                    <div class="chat-msg chat-msg-agent chat-msg-tool"
+                                         :style="'--agent-color:' + (msg.agentColor || '#6c757d')">
+                                        <span class="text-info" style="font-size: 0.85rem;">
+                                            <i class="bi bi-lightning me-1"></i>
+                                            <span x-text="msg.content"></span>
+                                        </span>
+                                    </div>
+                                </template>
+
+                                <!-- Tool call -->
+                                <template x-if="msg.type === 'tool_call'">
+                                    <div class="chat-msg chat-msg-agent chat-msg-tool"
+                                         :style="'--agent-color:' + (msg.agentColor || '#6c757d')">
+                                        <details>
+                                            <summary class="text-info" style="cursor: pointer;">
+                                                <i class="bi bi-wrench me-1"></i>
+                                                <span x-text="msg.actorLabel || msg.toolName || 'Tool'"></span>
+                                                <template x-if="msg.actionType === 'delegate'">
+                                                    <span class="badge bg-primary ms-1" style="font-size: 0.65rem;">委托</span>
+                                                </template>
+                                                <template x-if="msg.actionType === 'skill'">
+                                                    <span class="badge bg-info ms-1" style="font-size: 0.65rem;">技能</span>
+                                                </template>
+                                            </summary>
+                                            <pre class="bg-light border rounded p-2 mt-1 mb-0"
+                                                 style="white-space: pre-wrap; font-size: 0.75rem; max-height: 150px; overflow-y: auto;"
+                                                 x-text="msg.toolArgs || msg.content"></pre>
+                                        </details>
+                                    </div>
+                                </template>
+
+                                <!-- Tool result -->
+                                <template x-if="msg.type === 'tool_result'">
+                                    <div class="chat-msg chat-msg-agent chat-msg-tool"
+                                         :style="'--agent-color:' + (msg.agentColor || '#6c757d')">
+                                        <details>
+                                            <summary class="text-secondary" style="cursor: pointer;">
+                                                <i class="bi bi-box-arrow-in-down me-1"></i>
+                                                <span x-text="msg.actorLabel || msg.toolName || 'Result'"></span>
+                                                <template x-if="msg.actionType === 'delegate'">
+                                                    <span class="badge bg-primary ms-1" style="font-size: 0.65rem;">委托</span>
+                                                </template>
+                                                (<span x-text="(msg.content || '').length"></span> chars)
+                                            </summary>
+                                            <pre class="bg-white border rounded p-2 mt-1 mb-0"
+                                                 style="white-space: pre-wrap; font-size: 0.75rem; max-height: 200px; overflow-y: auto;"
+                                                 x-text="msg.content"></pre>
+                                        </details>
+                                    </div>
+                                </template>
+
+                                <!-- Action return (sub-agent returns to parent) -->
+                                <template x-if="msg.type === 'action_return'">
+                                    <div class="chat-msg chat-msg-agent chat-msg-tool"
+                                         :style="'--agent-color:' + (msg.agentColor || '#6c757d')">
+                                        <details>
+                                            <summary class="text-success" style="cursor: pointer;">
+                                                <i class="bi bi-arrow-return-left me-1"></i>
+                                                <span x-text="msg.actorLabel"></span>
+                                                <template x-if="msg.actionType === 'delegate'">
+                                                    <span class="badge bg-success ms-1" style="font-size: 0.65rem;">委托返回</span>
+                                                </template>
+                                                <template x-if="msg.actionType === 'skill'">
+                                                    <span class="badge bg-info ms-1" style="font-size: 0.65rem;">技能返回</span>
+                                                </template>
+                                            </summary>
+                                            <pre class="bg-light-success border rounded p-2 mt-1 mb-0"
+                                                 style="white-space: pre-wrap; font-size: 0.75rem; max-height: 200px; overflow-y: auto; background-color: #f8fff8;"
+                                                 x-text="msg.content"></pre>
+                                        </details>
+                                    </div>
+                                </template>
+
+                                <!-- Thought -->
+                                <template x-if="msg.type === 'thought'">
+                                    <div class="chat-msg chat-msg-thought">
+                                        <i class="bi bi-lightbulb me-1"></i> <span x-text="msg.content"></span>
+                                    </div>
+                                </template>
+
+                                <!-- Error -->
+                                <template x-if="msg.type === 'error'">
+                                    <div class="chat-msg chat-msg-error">
+                                        <i class="bi bi-exclamation-triangle me-1"></i> <span x-text="msg.content"></span>
+                                    </div>
+                                </template>
                             </div>
-                            <div x-show="msg.type === 'agent'" class="text-start">
-                                <span class="badge bg-success text-wrap text-start" style="max-width: 80%;">
-                                    <i class="bi bi-robot me-1"></i> <span x-text="msg.content"></span>
-                                </span>
-                            </div>
-                            <div x-show="msg.type === 'thought'" class="text-start ms-4">
-                                <small class="text-muted fst-italic">
-                                    <i class="bi bi-gear me-1"></i> <span x-text="msg.content"></span>
-                                </small>
-                            </div>
-                            <div x-show="msg.type === 'error'" class="text-center">
-                                <small class="text-danger fw-bold" x-text="msg.content"></small>
-                            </div>
+                        </template>
+
+                        <!-- Thinking indicator -->
+                        <div x-show="thinking" class="chat-msg chat-msg-thought">
+                            <span class="spinner-grow spinner-grow-sm me-1"></span> Thinking...
                         </div>
-                    </template>
-                    <div x-show="thinking" class="text-start ms-4">
-                        <small class="text-muted"><span class="spinner-grow spinner-grow-sm me-1"></span>
-                            Thinking...</small>
+                    </div>
+
+                    <!-- 输入栏 -->
+                    <div class="debug-input-bar">
+                        <form @submit.prevent="sendMessage" class="d-flex gap-2">
+                            <input type="text" class="form-control form-control-sm" x-model="input"
+                                   placeholder="Message team leader..." :disabled="!connected || thinking">
+                            <button type="submit" class="btn btn-primary btn-sm px-3" :disabled="!input.trim() || !connected"
+                                    x-show="!thinking">Send</button>
+                            <button type="button" class="btn btn-danger btn-sm px-3" @click="stopGeneration"
+                                    x-show="thinking">Stop</button>
+                        </form>
                     </div>
                 </div>
-                <div class="p-3 border-top bg-white">
-                    <form @submit.prevent="sendMessage" class="d-flex gap-2">
-                        <input type="text" class="form-control" x-model="input" placeholder="Message team leader..."
-                            :disabled="!connected || thinking">
-                        <button type="submit" class="btn btn-primary" :disabled="!input.trim() || !connected"
-                            x-show="!thinking">Send</button>
-                        <button type="button" class="btn btn-danger" @click="stopGeneration"
-                            x-show="thinking">Stop</button>
-                    </form>
+
+                <!-- 右侧：Agent 状态面板 -->
+                <div class="debug-agent-panel">
+                    <h6 class="text-muted mb-3" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                        Agents <span class="badge bg-light text-dark border">{{ members|length }}</span>
+                    </h6>
+                    {% for member in members %}
+                    <div class="agent-status-card"
+                         style="border-left-color: {{ agent_colors[member.name] }};">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <span class="fw-bold" style="font-size: 0.85rem; color: {{ agent_colors[member.name] }};">
+                                    {% if member.is_leader %}
+                                    <i class="bi bi-star-fill text-warning me-1" style="font-size: 0.7rem;"></i>
+                                    {% endif %}
+                                    {{ member.name }}
+                                </span>
+                                <div class="text-muted" style="font-size: 0.72rem;">{{ member.model }}</div>
+                            </div>
+                            <div>
+                                <span class="agent-status-indicator"
+                                      :class="{
+                                          'agent-status-idle': !agentStates['{{ member.name }}'] || agentStates['{{ member.name }}'] === 'idle',
+                                          'agent-status-thinking': agentStates['{{ member.name }}'] === 'thinking',
+                                          'agent-status-tool': agentStates['{{ member.name }}'] === 'tool'
+                                      }"></span>
+                                <small class="text-muted" style="font-size: 0.7rem;"
+                                       x-text="agentStateLabel('{{ member.name }}')"></small>
+                            </div>
+                        </div>
+                        {% if member.description %}
+                        <div class="text-muted mt-1" style="font-size: 0.7rem; line-height: 1.3;">
+                            {{ member.description[:80] }}{% if member.description|length > 80 %}...{% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
                 </div>
+
+            </div><!-- /debug-console -->
+        </div>
+    </div>
+</div>
+
+<!-- Shared Context Modal -->
+<div class="modal fade" id="sharedContextModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-file-text me-2"></i> Shared Context</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body bg-light p-0">
+                {% if team.shared_context %}
+                <pre class="m-0 p-3" style="white-space: pre-wrap; font-family: 'Consolas', monospace; font-size: 0.85rem;">{{ team.shared_context }}</pre>
+                {% else %}
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-file-earmark-text display-4"></i>
+                    <p class="mt-2">No shared context defined</p>
+                </div>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <a href="/teams/{{ team.name }}/edit" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-pencil me-1"></i> Edit
+                </a>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -154,10 +317,25 @@
             input: '',
             thinking: false,
             targetAgent: '{{ leader_name }}',
+            leaderName: '{{ leader_name }}',
+
+            // Agent 颜色映射（Jinja2 注入）
+            agentColors: {{ agent_colors | tojson }},
+
+            // Agent 实时状态: { agentName: 'idle' | 'thinking' | 'tool' }
+            agentStates: {},
+
+            // 去重缓存（有界）
+            recentEventKeys: [],
+            recentEventKeySet: new Set(),
 
             init() {
+                {% for member in members %}
+                this.agentStates['{{ member.name }}'] = 'idle';
+                {% endfor %}
                 this.connect();
             },
+
             connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 this.socket = new WebSocket(`${protocol}//${window.location.host}/ws/chat`);
@@ -172,46 +350,323 @@
                     this.handleMessage(data);
                 };
             },
-            handleMessage(data) {
-                if (data.type === 'thought') {
-                    // Update last thought or append
-                    // Simple append for now
-                    this.messages.push({ id: Date.now(), type: 'thought', content: data.content });
-                } else if (data.type === 'chat') {
-                    // Streaming content? 
-                    // For simplicity, append chunks as separate bubbles or accumulate?
-                    // Given previous impl, let's just push. 
-                    // Better: Check if last message is agent and append
-                    const last = this.messages[this.messages.length - 1];
-                    if (last && last.type === 'agent') {
-                        last.content += data.content;
-                    } else {
-                        this.messages.push({ id: Date.now(), type: 'agent', content: data.content });
+
+            renderMarkdown(text) {
+                if (!text) return '';
+                try {
+                    const raw = marked.parse(text);
+                    return DOMPurify.sanitize(raw);
+                } catch (e) {
+                    return text;
+                }
+            },
+
+            extractAgentName(agentId) {
+                if (!agentId) return '';
+                const parts = agentId.split('__');
+                return parts.length > 1 ? parts[parts.length - 1] : agentId;
+            },
+
+            // 从 node_id 提取 team/group（格式: group__agent_name）
+            extractTeam(actorId) {
+                if (!actorId) return '';
+                const parts = actorId.split('__');
+                return parts.length > 1 ? parts[0] : '';
+            },
+
+            // 格式化 actor 显示名（处理 skill__ 前缀等）
+            formatActorDisplay(actorId) {
+                if (!actorId) return '';
+                // 处理 skill__ 前缀
+                if (actorId.startsWith('skill__')) {
+                    return actorId.replace('skill__', '⚡ ');
+                }
+                // 处理普通 agent：只显示最后一部分
+                const parts = actorId.split('__');
+                return parts.length > 1 ? parts[parts.length - 1] : actorId;
+            },
+
+            // 获取执行者标签（用于 tool_call 等事件）
+            getActorLabel(data) {
+                const from = data.from_actor ? this.formatActorDisplay(data.from_actor) : null;
+                const to = data.to_actor ? this.formatActorDisplay(data.to_actor) : null;
+                const actionType = data.action_type || 'normal';
+
+                if (actionType === 'delegate' && from && to) {
+                    return `${from} → ${to}`;
+                } else if (actionType === 'skill' && from && to) {
+                    return `${from} → ${to}`;
+                } else if (from) {
+                    return from;
+                }
+                return this.extractAgentName(data.agent_id || '');
+            },
+
+            getAgentColor(data) {
+                if (data.agent_color) return data.agent_color;
+                const name = this.extractAgentName(data.agent_id);
+                return this.agentColors[name] || '#6c757d';
+            },
+
+            updateAgentState(agentId, state) {
+                const name = this.extractAgentName(agentId);
+                if (name && this.agentStates.hasOwnProperty(name)) {
+                    this.agentStates[name] = state;
+                }
+            },
+
+            agentStateLabel(agentName) {
+                const s = this.agentStates[agentName];
+                if (s === 'thinking') return 'Thinking...';
+                if (s === 'tool') return 'Tool call...';
+                return 'Idle';
+            },
+
+            collapseAgentMessages(agentId, streamType = null) {
+                for (let i = this.messages.length - 1; i >= 0; i--) {
+                    const msg = this.messages[i];
+                    if (msg.type === 'agent_stream' && msg.agentId === agentId && !msg.collapsed) {
+                        if (streamType === null || msg.streamType === streamType) {
+                            this.messages.splice(i, 1, { ...msg, collapsed: true });
+                            // 不 break，折叠该 agent 所有匹配的消息
+                        }
                     }
-                    this.thinking = false;
+                }
+            },
+
+            buildEventKey(data) {
+                const type = data.type || '';
+                const agentId = data.agent_id || '';
+                const status = data.status || '';
+                const streamType = data.stream_type || '';
+                const timestamp = data.timestamp || '';
+
+                // agent_status 事件不去重（同一 agent 可多次 starting/completed）
+                if (type === 'agent_status') {
+                    return `${type}|${agentId}|${status}|${Date.now()}|${Math.random()}`;
+                }
+
+                if (type === 'stream') {
+                    // stream 按 timestamp + chunk 内容去重，避免误伤正常分片
+                    return `${type}|${agentId}|${streamType}|${timestamp}|${data.content || ''}`;
+                }
+
+                return `${type}|${agentId}|${status}|${streamType}|${data.tool_name || ''}|${data.message || ''}|${data.content || ''}|${timestamp}`;
+            },
+
+            rememberEventKey(key) {
+                if (this.recentEventKeySet.has(key)) {
+                    return false;
+                }
+                this.recentEventKeySet.add(key);
+                this.recentEventKeys.push(key);
+
+                // 有界清理，避免长期会话内存增长
+                if (this.recentEventKeys.length > 800) {
+                    const stale = this.recentEventKeys.splice(0, 300);
+                    stale.forEach(k => this.recentEventKeySet.delete(k));
+                }
+
+                return true;
+            },
+
+            handleMessage(data) {
+                const eventKey = this.buildEventKey(data);
+                if (!this.rememberEventKey(eventKey)) {
+                    return;
+                }
+
+                const color = this.getAgentColor(data);
+
+                if (data.type === 'agent_status') {
+                    // Agent status notification
+                    if (data.status === 'starting') {
+                        this.updateAgentState(data.agent_id, 'thinking');
+                        // skill agent 显示简短提示
+                        const startFromActor = data.from_actor || data.agent_id || '';
+                        if (startFromActor.includes('skill__')) {
+                            const skillName = this.extractAgentName(data.agent_id);
+                            this.messages.push({
+                                id: Date.now() + Math.random(),
+                                type: 'skill_hint',
+                                content: `正在使用技能: ${skillName}...`,
+                                agentColor: color
+                            });
+                        }
+                    } else if (data.status === 'completed') {
+                        this.updateAgentState(data.agent_id, 'idle');
+                        const agentName = this.extractAgentName(data.agent_id);
+
+                        // skill 完成时更新提示文本
+                        const completedFromActor = data.from_actor || data.agent_id || '';
+                        if (completedFromActor.includes('skill__')) {
+                            const hintIdx = this.messages.findIndex(
+                                m => m.type === 'skill_hint' && m.content.includes(agentName)
+                            );
+                            if (hintIdx !== -1) {
+                                this.messages.splice(hintIdx, 1, {
+                                    ...this.messages[hintIdx],
+                                    content: `已使用技能: ${agentName}`
+                                });
+                            }
+                            this.thinking = false;
+                            Object.keys(this.agentStates).forEach(k => this.agentStates[k] = 'idle');
+                            this.scrollToBottom();
+                            return;
+                        }
+                        
+                        // 去重：如果 thinking 和 answer 内容相似，删除 thinking
+                        const thinkingMsg = this.messages.find(
+                            msg => msg.type === 'agent_stream' && msg.agentId === agentName && msg.streamType === 'thinking'
+                        );
+                        const answerMsg = this.messages.find(
+                            msg => msg.type === 'agent_stream' && msg.agentId === agentName && msg.streamType === 'answer'
+                        );
+                        if (thinkingMsg && answerMsg) {
+                            const thinkingContent = (thinkingMsg.content || '').trim();
+                            const answerContent = (answerMsg.content || '').trim();
+                            // 如果 thinking 和 answer 内容高度相似，删除 thinking
+                            const isSimilar = thinkingContent.includes(answerContent.substring(0, 30)) ||
+                                              answerContent.includes(thinkingContent.substring(0, 30)) ||
+                                              thinkingContent === answerContent;
+                            if (isSimilar) {
+                                const thinkingIdx = this.messages.indexOf(thinkingMsg);
+                                if (thinkingIdx !== -1) {
+                                    this.messages.splice(thinkingIdx, 1);
+                                }
+                            }
+                        }
+                        
+                        this.collapseAgentMessages(agentName, 'thinking');
+                        this.thinking = false;
+                        Object.keys(this.agentStates).forEach(k => this.agentStates[k] = 'idle');
+                    } else if (data.status === 'error') {
+                        this.updateAgentState(data.agent_id, 'idle');
+                    }
+
+                } else if (data.type === 'stream') {
+                    // skill agent 的流式输出不显示
+                    const streamFromActor = data.from_actor || data.agent_id || '';
+                    if (streamFromActor.includes('skill__')) {
+                        return;
+                    }
+                    this.updateAgentState(data.agent_id, 'thinking');
+                    const agentId = this.extractAgentName(data.agent_id);
+                    const streamType = data.stream_type || 'answer';
+
+                    // Find if there's a message with same agent and streamType to accumulate
+                    const last = this.messages[this.messages.length - 1];
+                    if (last && last.type === 'agent_stream' && last.agentId === agentId && last.streamType === streamType) {
+                        const idx = this.messages.length - 1;
+                        this.messages.splice(idx, 1, {
+                            ...last,
+                            content: last.content + (data.content || '')
+                        });
+                    } else {
+                        this.messages.push({
+                            id: Date.now() + Math.random(),
+                            type: 'agent_stream',
+                            agentId: agentId,
+                            agentColor: color,
+                            streamType: streamType,
+                            collapsed: false,
+                            content: data.content || ''
+                        });
+                    }
+
+                } else if (data.type === 'tool_call') {
+                    this.updateAgentState(data.agent_id, 'tool');
+
+                    // skill 调用不显示 tool_call（skill 与 tool 无关）
+                    const actionType = data.action_type || 'normal';
+                    const fromActor = data.from_actor || data.agent_id || '';
+                    const isSkillInternal = fromActor.includes('skill__');
+                    if (actionType !== 'skill' && !isSkillInternal) {
+                        this.messages.push({
+                            id: Date.now() + Math.random(),
+                            type: 'tool_call',
+                            toolName: data.tool_name || 'unknown',
+                            toolArgs: data.tool_args || '',
+                            content: data.content || '',
+                            agentColor: color,
+                            actorLabel: this.getActorLabel(data),
+                            actionType: actionType,
+                            fromActor: data.from_actor,
+                            toActor: data.to_actor
+                        });
+                    }
+
+                } else if (data.type === 'tool_result') {
+                    this.updateAgentState(data.agent_id, 'thinking');
+
+                    // skill 调用不显示 tool_result（skill 与 tool 无关）
+                    const actionType = data.action_type || 'normal';
+                    const fromActorResult = data.from_actor || data.agent_id || '';
+                    const isSkillInternalResult = fromActorResult.includes('skill__');
+                    if (actionType !== 'skill' && !isSkillInternalResult) {
+                        const toActor = data.to_actor ? this.formatActorDisplay(data.to_actor) : null;
+                        const fromActor = data.from_actor ? this.formatActorDisplay(data.from_actor) : this.extractAgentName(data.agent_id);
+
+                        this.messages.push({
+                            id: Date.now() + Math.random(),
+                            type: 'tool_result',
+                            toolName: data.tool_name || '',
+                            content: data.content || '',
+                            agentColor: color,
+                            actorLabel: toActor ? `${toActor} → ${fromActor}` : fromActor,
+                            actionType: actionType,
+                            fromActor: data.from_actor,
+                            toActor: data.to_actor,
+                            parentToolCallId: data.parent_tool_call_id
+                        });
+                    }
+
+                } else if (data.type === 'action_return') {
+                    // 子 agent 返回结果给父 agent
+                    this.messages.push({
+                        id: Date.now() + Math.random(),
+                        type: 'action_return',
+                        content: data.content || '',
+                        agentColor: color,
+                        actorLabel: data.from_actor && data.to_actor
+                            ? `${this.formatActorDisplay(data.from_actor)} → ${this.formatActorDisplay(data.to_actor)}`
+                            : '',
+                        actionType: data.action_type || 'delegate',
+                        fromActor: data.from_actor,
+                        toActor: data.to_actor,
+                        parentToolCallId: data.parent_tool_call_id
+                    });
+
                 } else if (data.type === 'error') {
                     this.messages.push({ id: Date.now(), type: 'error', content: data.content });
                     this.thinking = false;
-                } else if (data.type === 'response') {
-                    // Final response (if not already streamed)
-                    // If we were streaming, the content is already in the last agent bubble.
-                    // But we MUST ensure thinking is false.
-                    this.thinking = false;
+                    Object.keys(this.agentStates).forEach(k => this.agentStates[k] = 'idle');
 
-                    // If no recent agent chunk was displayed (streaming failed?), append content
-                    const last = this.messages[this.messages.length - 1];
-                    if (data.content && data.content.trim()) {
-                        if (!last || last.type !== 'agent') {
-                            this.messages.push({ id: Date.now(), type: 'agent', content: data.content });
+                } else if (data.type === 'clear_agent_answer') {
+                    // Remove streamed answer bubbles for this agent
+                    // (narration text is redundant with tool_call events)
+                    // 保留 thinking 消息（折叠），只清除 answer 消息
+                    const agentId = this.extractAgentName(data.agent_id);
+                    for (let i = this.messages.length - 1; i >= 0; i--) {
+                        const msg = this.messages[i];
+                        if (msg.type === 'agent_stream' && msg.agentId === agentId) {
+                            if (!msg.collapsed) {
+                                // 折叠 thinking 和 answer 而非删除
+                                this.messages.splice(i, 1, { ...msg, collapsed: true });
+                            }
                         }
                     }
-                    console.log('Final response received:', data.content);
+
+                } else if (data.type === 'response') {
+                    // Legacy support: response type from older backend
+                    this.thinking = false;
+                    Object.keys(this.agentStates).forEach(k => this.agentStates[k] = 'idle');
                 }
                 this.scrollToBottom();
             },
+
             sendMessage() {
                 if (!this.input.trim()) return;
-
                 this.messages.push({ id: Date.now(), type: 'user', content: this.input });
                 this.socket.send(JSON.stringify({
                     type: 'chat',
@@ -222,11 +677,14 @@
                 this.thinking = true;
                 this.scrollToBottom();
             },
+
             stopGeneration() {
                 if (this.socket) this.socket.close();
                 this.thinking = false;
+                Object.keys(this.agentStates).forEach(k => this.agentStates[k] = 'idle');
                 this.messages.push({ id: Date.now(), type: 'error', content: 'Stopped by user.' });
             },
+
             scrollToBottom() {
                 this.$nextTick(() => {
                     const el = document.getElementById('team-messages');

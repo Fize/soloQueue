@@ -13,7 +13,7 @@
     </nav>
 </div>
 
-<div class="card shadow-sm border-0" x-data="teamEditor({{ team | tojson }})">
+<div class="card shadow-sm border-0" x-data="teamEditor()">
     <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
         <h5 class="mb-0 fw-bold">Edit Team Configuration</h5>
         <div>
@@ -39,11 +39,10 @@
                 </div>
 
                 <div class="col-12">
-                    <label class="form-label fw-bold">Shared Context (Path or Content)</label>
-                    <textarea class="form-control font-monospace small bg-light" rows="5" x-model="team.shared_context"
-                        style="font-size: 0.85rem;" placeholder="e.g. context/team_knowledge.md"></textarea>
-                    <div class="form-text">Currently interpreted as a file path or direct string content depending on
-                        implementation.</div>
+                    <label class="form-label fw-bold">Content (Markdown)</label>
+                    <textarea class="form-control font-monospace small" rows="12" x-model="team.shared_context"
+                        style="font-size: 0.85rem;" placeholder="Team configuration content in Markdown format..."></textarea>
+                    <div class="form-text">The Markdown body content of the team configuration file.</div>
                 </div>
             </div>
         </form>
@@ -52,8 +51,8 @@
 
 <script>
     document.addEventListener('alpine:init', () => {
-        Alpine.data('teamEditor', (initialData) => ({
-            team: initialData,
+        Alpine.data('teamEditor', () => ({
+            team: {{ team_json | tojson }},
             saving: false,
 
             async save() {
@@ -66,7 +65,7 @@
                     });
 
                     if (res.ok) {
-                        window.location.href = `/teams/${this.team.name}`; // Redirect to detail page (assuming implemented or lists)
+                        window.location.href = `/teams/${this.team.name}`;
                     } else {
                         const err = await res.json();
                         alert('Error saving: ' + (err.message || 'Unknown error'));
