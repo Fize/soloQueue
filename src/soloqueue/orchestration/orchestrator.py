@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Callable, Optional, Dict, Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -52,11 +53,6 @@ class Orchestrator:
         session_id = str(uuid.uuid4())
         logger.info(f"Orchestrator started: session={session_id}, agent={initial_agent}, group={primary_group}")
 
-        if step_callback:
-            step_callback({
-                "type": "thought", 
-                "content": f"Session {session_id} started. Agent: {initial_agent} (Group: {primary_group})"
-            })
         
         # Start session logging for primary group
         primary_memory = self._get_memory_manager(primary_group)
@@ -149,9 +145,36 @@ class Orchestrator:
                         completed_frame = self.stack.pop()
                         logger.info(f"Returned from {completed_frame.agent_name}")
                         
+                        # 获取 completed_frame 的 group 信息
+                        completed_config = self.registry.get_agent_by_node_id(completed_frame.agent_name)
+                        completed_group = completed_config.group if completed_config else "default"
+                        
+                        if step_callback:
+                            step_callback({
+                                "type": "agent_status",
+                                "agent_id": completed_frame.agent_name,
+                                "status": "completed",
+                                "message": f"Agent {completed_frame.agent_name} completed",
+                                "group": completed_group,
+                                "from_actor": completed_frame.agent_name,
+                            })
+                        
                         if self.stack:
                             parent = self.stack[-1]
                             if completed_frame.parent_tool_call_id:
+                                # 发送 action_return 事件，明确表示子 agent 返回结果给父 agent
+                                if step_callback:
+                                    action_type = "skill" if "skill__" in completed_frame.agent_name else "delegate"
+                                    step_callback({
+                                        "type": "action_return",
+                                        "action_type": action_type,
+                                        "from_actor": completed_frame.agent_name,
+                                        "to_actor": parent.agent_name,
+                                        "group": completed_group,
+                                        "parent_tool_call_id": completed_frame.parent_tool_call_id,
+                                        "content": signal.result,
+                                        "timestamp": datetime.now().isoformat()
+                                })
                                 parent.memory.append(
                                     ToolMessage(
                                         tool_call_id=completed_frame.parent_tool_call_id,

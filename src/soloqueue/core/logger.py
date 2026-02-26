@@ -9,7 +9,13 @@ from soloqueue.core.config import settings
 def setup_logger():
     """
     Configure structured logging for SoloQueue.
-    Outputs friendly format to stderr and JSONL to file.
+    
+    Two sinks:
+    1. Console (stderr) — structured logs with timestamps
+    2. File (JSONL) — machine-friendly structured logs (all AI interactions)
+    
+    Usage:
+        logger.info("structured log")              # → stderr with timestamp
     """
     # Remove default handler
     _base_logger.remove()

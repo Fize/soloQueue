@@ -10,9 +10,19 @@
             <li class="breadcrumb-item active">{{ skill.name }}</li>
         </ol>
     </nav>
-    <div>
+    <div class="btn-group" x-data="{ deleting: false }">
         <a href="/skills/{{ skill.name }}/edit" class="btn btn-primary btn-sm"><i class="bi bi-pencil me-1"></i>
             Edit</a>
+        <button type="button" class="btn btn-outline-danger btn-sm" :disabled="deleting"
+            @click="if(confirm('Are you sure you want to delete skill \'{{ skill.name }}\'? This will remove the entire skill directory.')) {
+                deleting = true;
+                fetch('/api/skills/{{ skill.name }}', { method: 'DELETE' })
+                    .then(r => r.json())
+                    .then(d => { if(d.status === 'success') window.location.href = '/skills'; else { alert(d.message); deleting = false; } })
+                    .catch(e => { alert('Error: ' + e); deleting = false; });
+            }">
+            <i class="bi bi-trash me-1"></i> Delete
+        </button>
     </div>
 </div>
 

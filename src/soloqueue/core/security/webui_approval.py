@@ -59,8 +59,8 @@ class WebUIApproval(ApprovalBackend):
             logger.debug("WebUI not connected, falling back to terminal")
             return False
 
-        # Create future for this request
-        loop = asyncio.get_event_loop()
+        # Create future on the running event loop
+        loop = asyncio.get_running_loop()
         future = loop.create_future()
         self._pending_requests[request_id] = future
 
@@ -117,8 +117,9 @@ class WebUIApproval(ApprovalBackend):
         Request user approval for a dangerous operation.
 
         Implementation of ApprovalBackend abstract method.
-        This synchronous method uses asyncio to wait for web UI response.
-        If web UI is not connected, returns False (operation denied).
+        This synchronous method submits the coroutine to the main FastAPI
+        event loop via run_coroutine_threadsafe, which is safe to call from
+        worker threads (e.g. ThreadPoolExecutor).
 
         Args:
             operation: Name of the operation (e.g., "WRITE").
@@ -127,23 +128,23 @@ class WebUIApproval(ApprovalBackend):
         Returns:
             True if user approves, False otherwise.
         """
-        # Try to use async version with WebUI
         try:
-            # Get or create event loop
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # No event loop in this thread, create new one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            from soloqueue.web.app import get_main_loop
 
-            # Run async version
-            return loop.run_until_complete(
-                self.request_approval_async(operation, details)
+            main_loop = get_main_loop()
+            if main_loop is None or main_loop.is_closed():
+                logger.warning("Main event loop not available, operation denied")
+                return False
+
+            # Submit coroutine to the main event loop from this worker thread
+            future = asyncio.run_coroutine_threadsafe(
+                self.request_approval_async(operation, details),
+                main_loop,
             )
+            # Block until result, with extra margin over the internal WebSocket timeout
+            return future.result(timeout=self._webui_timeout + 5)
         except Exception as e:
             logger.error(f"WebUI approval failed: {e}")
-            # Web UI not available - operation denied
             return False
 
     async def request_approval_async(self, operation: str, details: str, request_id: Optional[str] = None, agent_id: Optional[str] = None) -> bool:

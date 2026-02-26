@@ -1,52 +1,63 @@
 {% extends "base.html" %}
 
-{% block title %}Edit {{ agent.name }} | SoloQueue{% endblock %}
+{% block title %}New Agent | SoloQueue{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb mb-0 small">
             <li class="breadcrumb-item"><a href="/agents">Agents</a></li>
-            <li class="breadcrumb-item"><a href="/agents/{{ agent.name }}">{{ agent.name }}</a></li>
-            <li class="breadcrumb-item active">Edit</li>
+            <li class="breadcrumb-item active">New</li>
         </ol>
     </nav>
 </div>
 
-<div class="card shadow-sm border-0" x-data="agentEditor()">
+<div class="card shadow-sm border-0" x-data="agentCreator()">
     <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-        <h5 class="mb-0 fw-bold">Edit Configuration</h5>
+        <h5 class="mb-0 fw-bold">Create New Agent</h5>
         <div>
-            <a href="/agents/{{ agent.name }}" class="btn btn-outline-secondary btn-sm me-2">Cancel</a>
-            <button @click="save" class="btn btn-primary btn-sm" :disabled="saving">
+            <a href="/agents" class="btn btn-outline-secondary btn-sm me-2">Cancel</a>
+            <button @click="create" class="btn btn-primary btn-sm" :disabled="saving">
                 <span x-show="saving" class="spinner-border spinner-border-sm me-1" role="status"
                     aria-hidden="true"></span>
-                <span x-text="saving ? 'Saving...' : 'Save Changes'"></span>
+                <span x-text="saving ? 'Creating...' : 'Create Agent'"></span>
             </button>
         </div>
     </div>
     <div class="card-body">
-        <form @submit.prevent="save">
+        <div x-show="error" class="alert alert-danger alert-dismissible fade show" role="alert">
+            <span x-text="error"></span>
+            <button type="button" class="btn-close" @click="error = ''"></button>
+        </div>
+        <form @submit.prevent="create">
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Name</label>
-                    <input type="text" class="form-control bg-light" x-model="agent.name" disabled readonly
-                        title="Rename not supported yet">
+                    <label class="form-label fw-bold">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" x-model="agent.name" required
+                        pattern="[a-zA-Z0-9_-]+" placeholder="e.g. my-agent">
+                    <div class="form-text">Letters, numbers, hyphens, underscores only.</div>
                 </div>
 
                 <div class="col-md-6">
                     <label class="form-label fw-bold">Group</label>
-                    <input type="text" class="form-control" x-model="agent.group">
+                    <select class="form-select" x-model="agent.group">
+                        <option value="">-- No Group --</option>
+                        {% for g in groups %}
+                        <option value="{{ g }}">{{ g }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="col-12">
-                    <label class="form-label fw-bold">Description</label>
-                    <input type="text" class="form-control" x-model="agent.description">
+                    <label class="form-label fw-bold">Description <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" x-model="agent.description" required
+                        placeholder="Brief description of this agent's role">
                 </div>
 
                 <div class="col-md-4">
                     <label class="form-label fw-bold">Model</label>
-                    <input type="text" class="form-control" x-model="agent.model">
+                    <input type="text" class="form-control" x-model="agent.model"
+                        placeholder="e.g. claude-sonnet-4-20250514">
                 </div>
 
                 <div class="col-md-4">
@@ -84,7 +95,7 @@
                 <div class="col-12">
                     <label class="form-label fw-bold">System Prompt</label>
                     <textarea class="form-control font-monospace small" rows="15" x-model="agent.system_prompt"
-                        style="font-size: 0.85rem;"></textarea>
+                        style="font-size: 0.85rem;" placeholder="Agent system prompt in Markdown..."></textarea>
                     <div class="form-text">Markdown supported.</div>
                 </div>
             </div>
@@ -92,14 +103,15 @@
             <div class="row g-3 mt-2">
                 <div class="col-md-6">
                     <label class="form-label fw-bold">Tools (comma separated)</label>
-                    <input type="text" class="form-control" :value="agent.tools ? agent.tools.join(', ') : ''"
-                        @input="agent.tools = $event.target.value.split(',').map(s => s.trim()).filter(s => s)">
-                    <div class="form-text">Example: read_file, web_fetch, date-teller</div>
+                    <input type="text" class="form-control" x-model="toolsStr"
+                        @input="agent.tools = $event.target.value.split(',').map(s => s.trim()).filter(s => s)"
+                        placeholder="read_file, web_fetch, date-teller">
                 </div>
                 <div class="col-md-6">
                     <label class="form-label fw-bold">Sub-Agents (comma separated)</label>
-                    <input type="text" class="form-control" :value="agent.sub_agents ? agent.sub_agents.join(', ') : ''"
-                        @input="agent.sub_agents = $event.target.value.split(',').map(s => s.trim()).filter(s => s)">
+                    <input type="text" class="form-control" x-model="subAgentsStr"
+                        @input="agent.sub_agents = $event.target.value.split(',').map(s => s.trim()).filter(s => s)"
+                        placeholder="analyst, trader">
                 </div>
             </div>
 
@@ -109,30 +121,48 @@
 
 <script>
     document.addEventListener('alpine:init', () => {
-        Alpine.data('agentEditor', () => ({
-            agent: {{ agent_json | tojson }},
+        Alpine.data('agentCreator', () => ({
+            agent: {
+                name: '',
+                description: '',
+                group: '{{ default_group }}',
+                model: '',
+                is_leader: false,
+                reasoning: false,
+                system_prompt: '',
+                tools: [],
+                sub_agents: [],
+                memory: '',
+                color: '#2563eb'
+            },
+            toolsStr: '',
+            subAgentsStr: '',
             saving: false,
+            error: '',
 
-            async save() {
+            async create() {
+                this.error = '';
+                if (!this.agent.name.trim() || !this.agent.description.trim()) {
+                    this.error = 'Name and Description are required.';
+                    return;
+                }
+
                 this.saving = true;
                 try {
-                    if (!this.agent.tools) this.agent.tools = [];
-                    if (!this.agent.sub_agents) this.agent.sub_agents = [];
-
-                    const res = await fetch(`/api/agents/${this.agent.name}`, {
-                        method: 'PUT',
+                    const res = await fetch('/api/agents', {
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.agent)
                     });
+                    const data = await res.json();
 
-                    if (res.ok) {
-                        window.location.href = `/agents/${this.agent.name}`;
+                    if (res.ok && data.status === 'success') {
+                        window.location.href = `/agents/${data.name}`;
                     } else {
-                        const err = await res.json();
-                        alert('Error saving: ' + (err.message || 'Unknown error'));
+                        this.error = data.message || 'Unknown error';
                     }
                 } catch (e) {
-                    alert('Network error: ' + e);
+                    this.error = 'Network error: ' + e;
                 } finally {
                     this.saving = false;
                 }
