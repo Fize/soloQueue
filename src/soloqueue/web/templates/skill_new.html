@@ -1,41 +1,47 @@
 {% extends "base.html" %}
 
-{% block title %}Edit {{ skill.name }} | SoloQueue{% endblock %}
+{% block title %}New Skill | SoloQueue{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb mb-0 small">
             <li class="breadcrumb-item"><a href="/skills">Skills</a></li>
-            <li class="breadcrumb-item"><a href="/skills/{{ skill.name }}">{{ skill.name }}</a></li>
-            <li class="breadcrumb-item active">Edit</li>
+            <li class="breadcrumb-item active">New</li>
         </ol>
     </nav>
 </div>
 
-<div class="card shadow-sm border-0" x-data="skillEditor()">
+<div class="card shadow-sm border-0" x-data="skillCreator()">
     <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-        <h5 class="mb-0 fw-bold">Edit Skill</h5>
+        <h5 class="mb-0 fw-bold">Create New Skill</h5>
         <div>
-            <a href="/skills/{{ skill.name }}" class="btn btn-outline-secondary btn-sm me-2">Cancel</a>
-            <button @click="save" class="btn btn-primary btn-sm" :disabled="saving">
+            <a href="/skills" class="btn btn-outline-secondary btn-sm me-2">Cancel</a>
+            <button @click="create" class="btn btn-primary btn-sm" :disabled="saving">
                 <span x-show="saving" class="spinner-border spinner-border-sm me-1" role="status"
                     aria-hidden="true"></span>
-                <span x-text="saving ? 'Saving...' : 'Save Changes'"></span>
+                <span x-text="saving ? 'Creating...' : 'Create Skill'"></span>
             </button>
         </div>
     </div>
     <div class="card-body">
-        <form @submit.prevent="save">
+        <div x-show="error" class="alert alert-danger alert-dismissible fade show" role="alert">
+            <span x-text="error"></span>
+            <button type="button" class="btn-close" @click="error = ''"></button>
+        </div>
+        <form @submit.prevent="create">
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Name</label>
-                    <input type="text" class="form-control bg-light" x-model="skill.name" disabled readonly>
+                    <label class="form-label fw-bold">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" x-model="skill.name" required
+                        pattern="[a-zA-Z0-9_-]+" placeholder="e.g. my-skill">
+                    <div class="form-text">Letters, numbers, hyphens, underscores only.</div>
                 </div>
 
                 <div class="col-6">
-                    <label class="form-label fw-bold">Description</label>
-                    <input type="text" class="form-control" x-model="skill.description">
+                    <label class="form-label fw-bold">Description <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" x-model="skill.description" required
+                        placeholder="Brief description of this skill">
                 </div>
 
                 <div class="col-md-6">
@@ -55,8 +61,7 @@
 
                 <div class="col-md-6">
                     <label class="form-label fw-bold">Allowed Tools (comma separated)</label>
-                    <input type="text" class="form-control"
-                        :value="skill.allowed_tools ? skill.allowed_tools.join(', ') : ''"
+                    <input type="text" class="form-control" x-model="allowedToolsStr"
                         @input="skill.allowed_tools = $event.target.value.split(',').map(s => s.trim()).filter(s => s)">
                 </div>
 
@@ -69,7 +74,7 @@
                 <div class="col-12">
                     <label class="form-label fw-bold">Prompt Content (Markdown)</label>
                     <textarea class="form-control font-monospace small" rows="15" x-model="skill.content"
-                        style="font-size: 0.85rem;"></textarea>
+                        style="font-size: 0.85rem;" placeholder="Skill prompt template in Markdown..."></textarea>
                     <div class="form-text">Markdown Prompt Template for this skill.</div>
                 </div>
             </div>
@@ -79,29 +84,43 @@
 
 <script>
     document.addEventListener('alpine:init', () => {
-        Alpine.data('skillEditor', () => ({
-            skill: {{ skill_json | tojson }},
+        Alpine.data('skillCreator', () => ({
+            skill: {
+                name: '',
+                description: '',
+                allowed_tools: [],
+                disable_model_invocation: false,
+                subagent: '',
+                arguments: '',
+                content: ''
+            },
+            allowedToolsStr: '',
             saving: false,
+            error: '',
 
-            async save() {
+            async create() {
+                this.error = '';
+                if (!this.skill.name.trim() || !this.skill.description.trim()) {
+                    this.error = 'Name and Description are required.';
+                    return;
+                }
+
                 this.saving = true;
                 try {
-                    if (!this.skill.allowed_tools) this.skill.allowed_tools = [];
-
-                    const res = await fetch(`/api/skills/${this.skill.name}`, {
-                        method: 'PUT',
+                    const res = await fetch('/api/skills', {
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.skill)
                     });
+                    const data = await res.json();
 
-                    if (res.ok) {
-                        window.location.href = `/skills/${this.skill.name}`;
+                    if (res.ok && data.status === 'success') {
+                        window.location.href = `/skills/${data.name}`;
                     } else {
-                        const err = await res.json();
-                        alert('Error saving: ' + (err.message || 'Unknown error'));
+                        this.error = data.message || 'Unknown error';
                     }
                 } catch (e) {
-                    alert('Network error: ' + e);
+                    this.error = 'Network error: ' + e;
                 } finally {
                     this.saving = false;
                 }

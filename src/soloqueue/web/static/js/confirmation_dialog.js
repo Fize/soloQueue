@@ -177,12 +177,12 @@ document.addEventListener('alpine:init', () => {
 
         // Send response via WebSocket
         sendResponse(approved) {
-            sendWriteActionResponse(this.requestId, approved);
-
-            // If remember choice is checked, store preference
+            // Save preference first (before potential early return in send)
             if (this.rememberChoice) {
                 localStorage.setItem(`write-action-preference-${this.agentId}-${this.operation}`, approved);
             }
+
+            sendWriteActionResponse(this.requestId, approved);
         }
     }));
 });
