@@ -1,2 +1,6 @@
 from .manager import MemoryManager
-from .session_logger import SessionLogger
+from .semantic_store import MemoryEntry
+from .session_manager import SessionManager
+from .user_memory import UserMemoryStore
+
+__all__ = ["MemoryManager", "MemoryEntry", "SessionManager", "UserMemoryStore"]

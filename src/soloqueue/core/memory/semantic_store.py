@@ -105,7 +105,8 @@ class SemanticStore:
         self,
         content: str,
         metadata: dict[str, Any],
-        entry_id: Optional[str] = None
+        entry_id: Optional[str] = None,
+        agent_id: Optional[str] = None
     ) -> str:
         """
         Add a knowledge entry to semantic memory.
@@ -114,6 +115,7 @@ class SemanticStore:
             content: Text content to store
             metadata: Associated metadata (type, topic, outcome, etc.)
             entry_id: Optional custom ID (auto-generated if not provided)
+            agent_id: Optional agent identifier for memory isolation
         
         Returns:
             Entry ID
@@ -123,12 +125,14 @@ class SemanticStore:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             entry_id = f"entry_{timestamp}"
         
-        # Add timestamp to metadata
+        # Add timestamp and agent_id to metadata
         metadata_with_timestamp = {
             **metadata,
             "timestamp": datetime.now().isoformat(),
             "content_length": len(content)
         }
+        if agent_id:
+            metadata_with_timestamp["agent_id"] = agent_id
         
         # Generate embedding
         embedding = embed_text(content)
@@ -143,18 +147,20 @@ class SemanticStore:
             metadatas=[metadata_with_timestamp]
         )
         
-        logger.debug(f"Added entry {entry_id} to semantic store")
+        logger.debug(f"Added entry {entry_id} to semantic store (agent_id={agent_id})")
         return entry_id
     
     def add_batch(
         self,
-        entries: list[tuple[str, dict[str, Any]]]
+        entries: list[tuple[str, dict[str, Any]]],
+        agent_id: Optional[str] = None
     ) -> list[str]:
         """
         Add multiple entries in batch (more efficient).
         
         Args:
             entries: List of (content, metadata) tuples
+            agent_id: Optional agent identifier for memory isolation
         
         Returns:
             List of entry IDs
@@ -172,7 +178,8 @@ class SemanticStore:
             {
                 **meta,
                 "timestamp": datetime.now().isoformat(),
-                "content_length": len(content)
+                "content_length": len(content),
+                **({"agent_id": agent_id} if agent_id else {})
             }
             for content, meta in entries
         ]
@@ -190,14 +197,15 @@ class SemanticStore:
             metadatas=metadatas
         )
         
-        logger.debug(f"Added {len(entries)} entries to semantic store")
+        logger.debug(f"Added {len(entries)} entries to semantic store (agent_id={agent_id})")
         return entry_ids
     
     def search(
         self,
         query: str,
         top_k: int = 5,
-        filter_metadata: Optional[dict[str, Any]] = None
+        filter_metadata: Optional[dict[str, Any]] = None,
+        agent_id: Optional[str] = None
     ) -> list[MemoryEntry]:
         """
         Search for similar knowledge entries.
@@ -206,6 +214,7 @@ class SemanticStore:
             query: Search query text
             top_k: Number of results to return
             filter_metadata: Optional metadata filters (e.g., {"type": "lesson"})
+            agent_id: Optional agent identifier for memory isolation
         
         Returns:
             List of matching MemoryEntry objects, sorted by relevance
@@ -216,11 +225,25 @@ class SemanticStore:
             logger.warning("Failed to generate query embedding")
             return []
         
+        # Build where clause with agent_id filter
+        where = None
+        if agent_id and filter_metadata:
+            # Check for agent_id conflict in filter_metadata
+            if "agent_id" in filter_metadata:
+                logger.warning(
+                    f"filter_metadata 中的 agent_id 将被参数 agent_id={agent_id} 覆盖"
+                )
+            where = {"$and": [{"agent_id": agent_id}, filter_metadata]}
+        elif agent_id:
+            where = {"agent_id": agent_id}
+        elif filter_metadata:
+            where = filter_metadata
+        
         # Search collection
         results = self.collection.query(
             query_embeddings=[query_embedding[0]],
             n_results=top_k,
-            where=filter_metadata
+            where=where
         )
         
         # Parse results
@@ -240,7 +263,7 @@ class SemanticStore:
                     timestamp=results['metadatas'][0][i].get('timestamp', '')
                 ))
         
-        logger.debug(f"Search returned {len(entries)} results for query: {query[:50]}...")
+        logger.debug(f"Search returned {len(entries)} results for query: {query[:50]}... (agent_id={agent_id})")
         return entries
     
     def get_by_id(self, entry_id: str) -> Optional[MemoryEntry]:
@@ -312,6 +335,128 @@ class SemanticStore:
             }
         )
         logger.warning(f"Reset semantic store collection: {self.collection_name}")
+
+    # ==================== Historical Compaction ====================
+
+    def get_old_entries(self, days: int = 30) -> list[MemoryEntry]:
+        """
+        Get entries older than specified days.
+
+        Args:
+            days: Number of days threshold (default: 30)
+
+        Returns:
+            List of MemoryEntry older than threshold
+        """
+        from datetime import datetime, timedelta
+
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+        try:
+            results = self.collection.get()
+            old_entries = []
+
+            if results['ids']:
+                for i, entry_id in enumerate(results['ids']):
+                    metadata = results['metadatas'][i]
+                    timestamp = metadata.get('timestamp', '')
+                    if timestamp and timestamp < cutoff:
+                        old_entries.append(MemoryEntry(
+                            id=entry_id,
+                            content=results['documents'][i],
+                            score=1.0,
+                            metadata=metadata,
+                            timestamp=timestamp
+                        ))
+
+            logger.info(f"Found {len(old_entries)} entries older than {days} days")
+            return old_entries
+
+        except Exception as e:
+            logger.error(f"Failed to get old entries: {e}")
+            return []
+
+    def summarize_entries(
+        self,
+        llm,
+        days: int = 30,
+        batch_size: int = 5
+    ) -> dict[str, Any]:
+        """
+        Summarize and compact old entries using LLM.
+
+        This implements the historical compaction feature:
+        - Get entries older than specified days
+        - Use LLM to summarize each entry
+        - Delete original entries and add summarized versions
+
+        Args:
+            llm: LangChain LLM instance for summarization
+            days: Age threshold in days (default: 30)
+            batch_size: Number of entries to process in one batch
+
+        Returns:
+            Statistics dict: {summarized_count, failed_count, skipped_count}
+        """
+        from langchain_core.messages import HumanMessage
+
+        stats = {"summarized_count": 0, "failed_count": 0, "skipped_count": 0}
+
+        old_entries = self.get_old_entries(days)
+        if not old_entries:
+            logger.info("No old entries to summarize")
+            return stats
+
+        logger.info(f"Starting summarization of {len(old_entries)} old entries")
+
+        for entry in old_entries:
+            try:
+                # Build summarization prompt
+                prompt = f"""请总结以下知识条目，保留关键信息，压缩到 200 字以内：
+
+标题: {entry.metadata.get('title', 'N/A')}
+类型: {entry.metadata.get('type', 'N/A')}
+
+内容:
+{entry.content}
+
+请直接输出总结后的内容，不要有额外解释："""
+
+                # Call LLM
+                response = llm.invoke([HumanMessage(content=prompt)])
+                summary = response.content.strip()
+
+                if not summary:
+                    logger.warning(f"Empty summary for entry {entry.id}, skipping")
+                    stats["skipped_count"] += 1
+                    continue
+
+                # Delete original entry
+                self.delete(entry.id)
+
+                # Add summarized entry with updated metadata
+                new_metadata = {
+                    **entry.metadata,
+                    "original_timestamp": entry.timestamp,
+                    "summarized": "true",
+                    "original_length": len(entry.content)
+                }
+                self.add_entry(
+                    content=summary,
+                    metadata=new_metadata,
+                    entry_id=f"summarized_{entry.id}"
+                )
+
+                stats["summarized_count"] += 1
+                logger.debug(f"Summarized entry {entry.id}")
+
+            except Exception as e:
+                logger.error(f"Failed to summarize entry {entry.id}: {e}")
+                stats["failed_count"] += 1
+                continue
+
+        logger.info(f"Compaction complete: {stats}")
+        return stats
 
 
 # Convenience function for quick testing
