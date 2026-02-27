@@ -1,6 +1,6 @@
 # soloQueue Development Guidelines
 
-递归式多智能体协作平台，采用 "SRE + Unix Philosophy" 设计理念。通过文件驱动配置，支持 Agent 间递归任务委派与协作。
+递归式多智能体协作平台，采用 "SRE + Unix Philosophy" 设计理念。通过文件驱动配置，支持 Agent 间递归任务委派（串行/并行）与协作。
 
 ## Tech Stack
 
@@ -8,7 +8,6 @@
 - **Web**: FastAPI + Uvicorn + Jinja2 + WebSocket
 - **LLM**: LangChain/LangGraph + OpenAI API (支持 DeepSeek/Kimi 适配器)
 - **向量存储**: ChromaDB (语义记忆)
-- **数据库**: aiosqlite (瞬态状态, Artifact 存储)
 - **配置验证**: Pydantic / Pydantic Settings
 - **日志**: Loguru (结构化 JSONL)
 - **Lint/Format**: Ruff
@@ -26,13 +25,20 @@ src/soloqueue/
 │   ├── memory/                    # 4层记忆系统 (L1-Working/L2-Episodic/L3-Semantic/L4-Artifact)
 │   ├── primitives/                # 内置工具 (bash/read_file/write_file/grep/glob/web_fetch)
 │   ├── security/                  # 安全审批 (WebUI/Terminal 审批门控)
-│   └── state/                     # 状态管理
+│   ├── skills/                    # Skill 加载
+│   ├── state/                     # 状态管理
+│   ├── tools/                     # 制品工具 (artifact CRUD)
+│   ├── config.py                  # Pydantic Settings 配置
+│   ├── embedding.py               # 嵌入模型 (OpenAI/Ollama/OpenAI-compatible)
+│   ├── logger.py                  # 双通道日志 (Console + JSONL)
+│   ├── registry.py                # 全局单例注册表 (Agent/Group/Skill)
+│   └── workspace.py               # 文件系统沙箱
 ├── orchestration/                 # 编排引擎层
-│   ├── orchestrator.py            # 核心: TaskFrame 栈 + 信号驱动事件循环
+│   ├── orchestrator.py            # 核心: async run() + TaskFrame 栈 + 信号驱动事件循环
 │   ├── runner.py                  # Agent 单步执行: 上下文构建 → LLM 调用 → 信号解析
 │   ├── frame.py                   # 栈帧抽象 (隔离的消息历史/任务状态)
-│   ├── signals.py                 # 控制信号 (CONTINUE/DELEGATE/RETURN/ERROR/USE_SKILL)
-│   └── tools.py                   # 工具解析 (原语 + Skill代理 + delegate_to)
+│   ├── signals.py                 # 控制信号 (CONTINUE/DELEGATE/DELEGATE_PARALLEL/RETURN/ERROR/USE_SKILL)
+│   └── tools.py                   # 工具解析 (原语 + Skill代理 + delegate_to + delegate_parallel)
 └── web/                           # Web 层
     ├── app.py                     # FastAPI 应用 (WebSocket /ws/chat, REST API)
     ├── templates/                 # Jinja2 模板
@@ -55,32 +61,24 @@ tests/                             # 测试 (pythonpath=src, testpaths=tests)
 ## Commands
 
 ```bash
-# 启动 Web 服务
-uv run python -m soloqueue.web.app
-
-# 运行测试
-uv run pytest
-
-# Lint 检查
-uv run ruff check .
-
-# 格式化
-uv run ruff format .
-
-# 安装依赖
-uv sync
+uv sync                              # 安装依赖
+uv run python main.py                # 启动 Web 服务
+uv run pytest                        # 运行测试
+uv run ruff check .                  # Lint 检查
+uv run ruff format .                 # 格式化
 ```
 
 ## Key Architecture Patterns
 
 - **递归调用栈**: Orchestrator 维护 TaskFrame 栈，Agent 委派时 push，完成时 pop
 - **信号驱动事件循环**: AgentRunner.step() 返回 ControlSignal，Orchestrator 据此决定下一步
+- **并行委派**: DELEGATE_PARALLEL 信号通过 asyncio.gather + run_in_executor 并发执行多个子 Agent
 - **适配器工厂**: ModelAdapterFactory 根据模型名前缀自动匹配 LLM 适配器
 - **单例注册表**: Registry 全局管理所有 Agent/Group/Skill 配置
 - **Skill 代理工具**: Skill 生成代理工具，返回 `__USE_SKILL__:` 信号触发临时子 Agent
 - **上下文预算**: ContextBuilder 基于 token 预算优先级截断 (95% 安全边际 + 4096 响应缓冲)
 - **大输出卸载**: 工具输出超 2000 字符自动存为 L4 Artifact，替换为摘要 + 引用
-- **同步-异步桥接**: Orchestrator 同步代码通过 run_in_executor + Queue 实现异步 WebSocket 流式输出
+- **异步编排**: Orchestrator.run() 为 async，通过 asyncio.create_task 驱动 WebSocket 流式输出
 
 ## Code Style
 
