@@ -1,6 +1,8 @@
 import os
 import re
 import asyncio
+import threading
+import uuid
 from pathlib import Path
 import contextlib
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -29,13 +31,73 @@ from soloqueue.orchestration.orchestrator import Orchestrator
 import glob
 import json
 
+# Import schedule for background tasks
+try:
+    import schedule
+except ImportError:
+    logger.warning("schedule not installed, background tasks disabled")
+    schedule = None
+
+
+# --- Background Tasks: RAG History Compaction ---
+def run_rag_compaction():
+    """Execute RAG historical data compaction."""
+    if schedule is None:
+        logger.warning("Schedule not available, skipping RAG compaction")
+        return
+
+    try:
+        from soloqueue.core.memory import MemoryManager
+        from soloqueue.core.adapters.factory import ModelAdapterFactory
+
+        logger.info("Starting RAG history compaction...")
+
+        # Create memory manager
+        memory_mgr = MemoryManager(".", enable_semantic=True)
+
+        # Create LLM for summarization
+        llm = ModelAdapterFactory.create()
+
+        # Run compaction (summarize entries older than 30 days)
+        stats = memory_mgr.summarize_knowledge(llm, days=30)
+
+        logger.info(f"RAG compaction completed: {stats}")
+
+    except Exception as e:
+        logger.error(f"RAG compaction failed: {e}")
+
+
+def schedule_background_tasks():
+    """Run in a background thread to execute scheduled tasks."""
+    if schedule is None:
+        logger.info("Schedule not available, skipping background tasks")
+        return
+
+    # Schedule daily compaction at 3 AM
+    schedule.every().day.at("03:00").do(run_rag_compaction)
+    logger.info("Scheduled daily RAG compaction at 03:00")
+
+    while True:
+        schedule.run_pending()
+        import time
+        time.sleep(60)  # Check every minute
+
+
+# Start background scheduler in a separate thread
+_scheduler_thread = None
+if schedule is not None:
+    _scheduler_thread = threading.Thread(target=schedule_background_tasks, daemon=True)
+    _scheduler_thread.start()
+    logger.info("Background scheduler started")
+
+
 # Name validation pattern
 NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 # --- Helpers ---
 def get_recent_logs(limit=5):
     try:
-        log_files = glob.glob("logs/*.jsonl")
+        log_files = glob.glob(".soloqueue/logs/*.jsonl")
         if not log_files:
             return []
         latest_log = max(log_files, key=os.path.getmtime)
@@ -78,6 +140,11 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting SoloQueue Web on {web_config.HOST}:{web_config.PORT}")
     registry.initialize()
+
+    # Run RAG compaction on startup
+    logger.info("Running RAG history compaction on startup...")
+    run_rag_compaction()
+
     yield
     # Shutdown
     _main_loop = None
@@ -549,54 +616,50 @@ async def delete_skill(name: str):
 @app.websocket("/ws/chat")
 async def chat_endpoint(websocket: WebSocket):
     await websocket.accept()
+
+    # Web 调试端使用固定 user_id
+    user_id = "web_debug"
+    logger.info(f"WebSocket connected: user_id={user_id}")
+
+    orch = Orchestrator(registry)
+
     try:
-        # Create a fresh orchestrator for this session (or reuse if stateful)
-        # For now, stateless per request is safer.
-        # But we want memory persistence across messages?
-        # Orchestrator handles memory via MemoryManager(disk). So recreating it is fine, 
-        # as long as session ID is consistent.
-        # Currently Orchestrator.run() starts a NEW session every time?
-        # Let's check orchestrator.py:52 -> primary_memory.start_session()
-        # Yes, it resets session.
-        # So multi-turn chat is NOT supported by current Orchestrator implementation.
-        # It's one-shot. That matches "SoloQueue" CLI behavior.
-        
-        orch = Orchestrator(registry)
-        
         while True:
             data = await websocket.receive_json()
             if data.get("type") == "chat":
                 user_msg = data.get("content", "")
-                
+
                 import asyncio
                 import queue
-                
+
                 target_agent = data.get("target_agent", "")
-                
+
                 # 1. Determine Entry Agent
                 if target_agent:
                     entry_agent = target_agent
                 else:
-                    entry_agent = "leader" # Default fallback
+                    entry_agent = "leader"  # Default fallback
                     for name, agent in registry.agents.items():
                         if agent.is_leader:
                             entry_agent = name
                             break
-                
+
                 # 2. Setup Streaming Queue
                 msg_queue = queue.Queue()
-                
+
                 def step_callback(event):
                     msg_queue.put(event)
-                
-                loop = asyncio.get_event_loop()
-                
-                # 3. Run Orchestrator in Thread (Sync -> Async Bridge)
-                future = loop.run_in_executor(
-                    None, 
-                    lambda: orch.run(entry_agent, user_msg, step_callback=step_callback)
+
+                # 3. Run Orchestrator (async, uses run_in_executor internally for blocking LLM calls)
+                run_task = asyncio.create_task(
+                    orch.run(
+                        entry_agent,
+                        user_msg,
+                        step_callback=step_callback,
+                        user_id=user_id,
+                    )
                 )
-                
+
                 # 4. Stream Results (batch drain for reliability)
                 while True:
                     # Drain all available events from queue
@@ -608,9 +671,9 @@ async def chat_endpoint(websocket: WebSocket):
                             events_sent += 1
                         except queue.Empty:
                             break
-                    
-                    # If no events were sent and future is done, exit
-                    if events_sent == 0 and future.done():
+
+                    # If no events were sent and task is done, exit
+                    if events_sent == 0 and run_task.done():
                         # Final drain to catch any last-moment events
                         while not msg_queue.empty():
                             try:
@@ -619,21 +682,23 @@ async def chat_endpoint(websocket: WebSocket):
                             except queue.Empty:
                                 break
                         break
-                    
+
                     if events_sent == 0:
                         await asyncio.sleep(0.05)
-                
-                # 5. Wait for completion (completed status is emitted from orchestrator RETURN event)
+
+                # 5. Wait for completion
                 try:
-                    await future
+                    await run_task
                 except Exception as e:
-                     await websocket.send_json({
+                    await websocket.send_json({
                         "type": "error",
-                        "content": f"Execution Error: {str(e)}"
+                        "content": f"Execution Error: {str(e)}",
                     })
-                    
+
     except WebSocketDisconnect:
-        logger.info("Chat WebSocket client disconnected")
+        logger.info(f"Chat WebSocket client disconnected: user_id={user_id}")
+    finally:
+        orch.cleanup()
 
 
 @app.websocket("/ws/write-action")
