@@ -12,9 +12,10 @@ from soloqueue.core.adapters.factory import ModelAdapterFactory
 from soloqueue.core.logger import logger
 from soloqueue.core.loaders.schema import AgentSchema
 from soloqueue.orchestration.frame import TaskFrame
-from soloqueue.orchestration.signals import ControlSignal, SignalType
+from soloqueue.orchestration.signals import ControlSignal, SignalType, ParallelDelegateTarget
 from soloqueue.orchestration.tools import is_skill_tool
 from soloqueue.core.memory.manager import MemoryManager
+from soloqueue.core.memory import UserMemoryStore
 from soloqueue.core.context.token_counter import TokenCounter
 from soloqueue.core.context.builder import ContextBuilder
 from soloqueue.core.state import StateManager
@@ -65,6 +66,9 @@ class AgentRunner:
                 group_id=config.group,
                 capabilities=config.skills or []
             )
+
+        # User Memory (只读的用户画像)
+        self.user_memory = UserMemoryStore(workspace_root=".")
     
     def step(self, frame: TaskFrame, step_callback: Optional[Callable[[dict[str, Any]], None]] = None) -> ControlSignal:
         """
@@ -97,23 +101,28 @@ class AgentRunner:
                     sub_agent_info.append(f"- {sa_name}: (Description not found)")
             
             if sub_agent_info:
-                injection = "\n\n## Available Sub-Agents\nYou have access to the following sub-agents. You can delegate tasks to them using the `delegate_to` tool.\n" + "\n".join(sub_agent_info)
+                injection = "\n\n## Available Sub-Agents\nYou have access to the following sub-agents. You can delegate tasks to them using the `delegate_to` tool (one at a time) or `delegate_parallel` tool (multiple agents concurrently).\n" + "\n".join(sub_agent_info)
                 system_content = str(system_content or "") + injection
 
         # 1.2 Group Shared Context Injection (Production)
         if hasattr(self, 'registry') and self.registry and self.config.group:
-             # Find the group config
-             group_config = self.registry.groups.get(self.config.group)
-             
-             if group_config and group_config.shared_context:
-                 context_text = group_config.shared_context
-                 
-                 # Length Warning (Token Budget Management)
-                 if len(context_text) > 1000:
-                     logger.warning(f"Group '{self.config.group}' shared_context is too long ({len(context_text)} chars). Context efficiency impacted. Consider moving to Memory/Artifacts.")
-                 
-                 # Append to System Prompt (Priority 0)
-                 system_content = str(system_content or "") + f"\n\n## Group Shared Context ({self.config.group})\n{context_text}"
+            # Find the group config
+            group_config = self.registry.groups.get(self.config.group)
+            
+            if group_config and group_config.shared_context:
+                context_text = group_config.shared_context
+                
+                # Length Warning (Token Budget Management)
+                if len(context_text) > 1000:
+                    logger.warning(f"Group '{self.config.group}' shared_context is too long ({len(context_text)} chars). Context efficiency impacted. Consider moving to Memory/Artifacts.")
+                
+                # Append to System Prompt (Priority 0)
+                system_content = str(system_content or "") + f"\n\n## Group Shared Context ({self.config.group})\n{context_text}"
+
+        # 1.4 User Profile Injection (Priority 0)
+        user_profile = self.user_memory.read()
+        if user_profile:
+            system_content = str(system_content or "") + f"\n\n## User Profile\n{user_profile}"
 
         # 1.3 Optimized Context Construction (Priority 0 & 1)
         history = frame.memory
@@ -211,27 +220,15 @@ class AgentRunner:
             response = full_response
                 
         except Exception as e:
-            logger.error(f"LLM streaming failed: {e}")
-            if self.memory and self.session_id:
-                self.memory.save_error(self.session_id, f"LLM streaming failed: {e}", {"agent": self.config.name})
+            logger.bind(session_id=self.session_id).error(f"LLM streaming failed: {e}")
             return ControlSignal(type=SignalType.ERROR, error_msg=str(e))
         
         frame.memory.append(response)
         
-        # LOGGING: Save Interaction
-        if self.memory and self.session_id:
-            # We log the raw interaction (Input -> Response)
-            # Tools will be logged separately
-            tool_calls_log = []
-            if response.tool_calls:
-                tool_calls_log = response.tool_calls
-            
-            self.memory.save_interaction(
-                session_id=self.session_id,
-                agent_name=self.config.name,
-                input_msg=input_msg_content,
-                output_msg=str(response.content),
-                tools=tool_calls_log
+        # LOGGING: Log interaction via logger
+        if self.session_id:
+            logger.bind(session_id=self.session_id, agent=self.config.name).info(
+                f"Agent interaction: input={input_msg_content[:100]}..., output={str(response.content)[:100]}..."
             )
         
         # 3. 解析响应
@@ -245,7 +242,54 @@ class AgentRunner:
                     "from_actor": agent_actor,
                 })
 
-            # 检查是否是 delegate_to 调用
+            # 检查是否是 delegate_to 或 delegate_parallel 调用
+            parallel_call = self._find_delegate_parallel_call(response.tool_calls)
+            
+            if parallel_call:
+                # 并行委派优先于串行委派
+                import json
+                try:
+                    tasks_data = json.loads(parallel_call["args"]["tasks"])
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.error(f"Failed to parse delegate_parallel tasks: {e}")
+                    return ControlSignal(type=SignalType.ERROR, error_msg=f"Invalid delegate_parallel tasks format: {e}")
+                
+                if not isinstance(tasks_data, list) or not tasks_data:
+                    return ControlSignal(type=SignalType.ERROR, error_msg="delegate_parallel tasks must be a non-empty JSON array")
+                
+                # 构建 ParallelDelegateTarget 列表
+                parallel_targets = []
+                for task_item in tasks_data:
+                    target = task_item.get("target")
+                    instruction = task_item.get("instruction")
+                    if not target or not instruction:
+                        return ControlSignal(type=SignalType.ERROR, error_msg=f"Each parallel task must have 'target' and 'instruction': {task_item}")
+                    parallel_targets.append(ParallelDelegateTarget(
+                        target_agent=target,
+                        instruction=instruction,
+                        tool_call_id=parallel_call["id"]
+                    ))
+                
+                # 序列化：只保留 delegate_parallel 调用
+                if len(response.tool_calls) > 1:
+                    logger.warning(f"Detected multiple tool calls ({len(response.tool_calls)}). Serializing to delegate_parallel only.")
+                    target_tool_call = next(tc for tc in response.tool_calls if tc["id"] == parallel_call["id"])
+                    new_kwargs = {}
+                    if hasattr(response, 'additional_kwargs') and response.additional_kwargs and "reasoning_content" in response.additional_kwargs:
+                        new_kwargs["reasoning_content"] = response.additional_kwargs["reasoning_content"]
+                    serialized_response = AIMessage(
+                        content=str(response.content),
+                        tool_calls=[target_tool_call],
+                        additional_kwargs=new_kwargs
+                    )
+                    frame.memory[-1] = serialized_response
+                
+                return ControlSignal(
+                    type=SignalType.DELEGATE_PARALLEL,
+                    tool_call_id=parallel_call["id"],
+                    parallel_delegates=parallel_targets
+                )
+            
             delegate_call = self._find_delegate_call(response.tool_calls)
             
             if delegate_call:
@@ -316,6 +360,13 @@ class AgentRunner:
                 return call
         return None
     
+    def _find_delegate_parallel_call(self, tool_calls: list) -> dict | None:
+        """查找 delegate_parallel 工具调用。"""
+        for call in tool_calls:
+            if call["name"] == "delegate_parallel":
+                return call
+        return None
+    
     def _execute_tools(self, tool_calls: list, step_callback: Optional[Callable[[dict[str, Any]], None]] = None) -> list[ToolMessage]:
         """执行工具，返回 ToolMessage 列表。"""
         results = []
@@ -337,6 +388,9 @@ class AgentRunner:
             if call["name"] == "delegate_to":
                 action_type = "delegate"
                 to_actor = call["args"].get("target", "")
+            elif call["name"] == "delegate_parallel":
+                action_type = "delegate"
+                to_actor = "parallel"
             elif is_skill_tool(call["name"]):
                 # skill proxy 工具通过 is_skill_tool 函数判断
                 action_type = "skill"
@@ -353,9 +407,7 @@ class AgentRunner:
                     output = tool.invoke(call["args"])
                 except Exception as e:
                     output = f"Tool execution failed: {e}"
-                    logger.warning(f"Tool {call['name']} failed: {e}")
-                    if self.memory and self.session_id:
-                        self.memory.save_error(self.session_id, f"Tool {call['name']} execution failed: {e}")
+                    logger.bind(session_id=self.session_id).warning(f"Tool {call['name']} failed: {e}")
             
             # Terminal log for tool result
             result_preview = str(output)[:200]
@@ -415,13 +467,10 @@ class AgentRunner:
                     "action_type": action_type,
                 })
 
-            # LOGGING: Save Tool Output
-            if self.memory and self.session_id:
-                self.memory.save_tool_output(
-                    session_id=self.session_id,
-                    tool_name=call["name"],
-                    tool_input=str(call["args"]),
-                    tool_output=str(output)
+            # LOGGING: Log tool output via logger
+            if self.session_id:
+                logger.bind(session_id=self.session_id, tool=call["name"]).info(
+                    f"Tool execution: {call['name']}"
                 )
 
             # CONTEXT OFFLOADING (Production)
