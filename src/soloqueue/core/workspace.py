@@ -63,7 +63,11 @@ class WorkspaceManager:
             target = (self.root / rel_path).resolve()
         
         # Security Check: Ensure target is within root
-        if not str(target).startswith(str(self.root)):
+        # Use os.path.commonpath or check with trailing separator to avoid
+        # prefix false positives (e.g. /root-evil matching /root)
+        try:
+            target.relative_to(self.root)
+        except ValueError:
             logger.warning(f"Security Alert: Path traversal attempt to {target}")
             raise PermissionDenied(f"Access denied: {rel_path} escapes workspace sandbox.")
             
