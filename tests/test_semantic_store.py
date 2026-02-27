@@ -335,5 +335,108 @@ def test_search_respects_top_k(temp_storage, mock_embedding, top_k):
     assert len(results) <= top_k
 
 
+# ==================== Agent ID Isolation Tests ====================
+
+def test_add_entry_with_agent_id(temp_storage, mock_embedding):
+    """Test adding entry with agent_id."""
+    from soloqueue.core.memory.semantic_store import SemanticStore
+    
+    store = SemanticStore(temp_storage)
+    
+    entry_id = store.add_entry(
+        content="Agent-specific knowledge",
+        metadata={"type": "test"},
+        agent_id="developer__coder"
+    )
+    
+    entry = store.get_by_id(entry_id)
+    assert entry is not None
+    assert entry.metadata["agent_id"] == "developer__coder"
+
+
+def test_search_with_agent_id_filter(temp_storage, mock_embedding):
+    """Test that search with agent_id only returns matching entries."""
+    from soloqueue.core.memory.semantic_store import SemanticStore
+    
+    store = SemanticStore(temp_storage)
+    
+    # Add entries for different agents
+    store.add_entry("Agent A knowledge", {"type": "test"}, agent_id="agent_a")
+    store.add_entry("Agent B knowledge", {"type": "test"}, agent_id="agent_b")
+    store.add_entry("No agent knowledge", {"type": "test"})
+    
+    # Search for agent_a
+    results_a = store.search("knowledge", top_k=10, agent_id="agent_a")
+    assert len(results_a) == 1
+    assert results_a[0].content == "Agent A knowledge"
+    
+    # Search for agent_b
+    results_b = store.search("knowledge", top_k=10, agent_id="agent_b")
+    assert len(results_b) == 1
+    assert results_b[0].content == "Agent B knowledge"
+
+
+def test_agent_isolation(temp_storage, mock_embedding):
+    """Test that agents cannot see each other's memories."""
+    from soloqueue.core.memory.semantic_store import SemanticStore
+    
+    store = SemanticStore(temp_storage)
+    
+    # Add many entries for agent_a
+    for i in range(5):
+        store.add_entry(f"Agent A memory {i}", {"type": "test"}, agent_id="agent_a")
+    
+    # Add entries for agent_b
+    for i in range(3):
+        store.add_entry(f"Agent B memory {i}", {"type": "test"}, agent_id="agent_b")
+    
+    # Agent A should only see 5 results
+    results_a = store.search("memory", top_k=10, agent_id="agent_a")
+    assert len(results_a) == 5
+    assert all("Agent A" in r.content for r in results_a)
+    
+    # Agent B should only see 3 results
+    results_b = store.search("memory", top_k=10, agent_id="agent_b")
+    assert len(results_b) == 3
+    assert all("Agent B" in r.content for r in results_b)
+
+
+def test_search_with_agent_id_and_filter_metadata(temp_storage, mock_embedding):
+    """Test that agent_id is combined with filter_metadata using $and."""
+    from soloqueue.core.memory.semantic_store import SemanticStore
+    
+    store = SemanticStore(temp_storage)
+    
+    # Add entries with different agent_id and type
+    store.add_entry("A lesson", {"type": "lesson"}, agent_id="agent_a")
+    store.add_entry("A error", {"type": "error"}, agent_id="agent_a")
+    store.add_entry("B lesson", {"type": "lesson"}, agent_id="agent_b")
+    
+    # Search for agent_a's lessons only
+    results = store.search("lesson", top_k=10, agent_id="agent_a", filter_metadata={"type": "lesson"})
+    
+    assert len(results) == 1
+    assert results[0].content == "A lesson"
+
+
+def test_add_batch_with_agent_id(temp_storage, mock_embedding):
+    """Test adding batch entries with agent_id."""
+    from soloqueue.core.memory.semantic_store import SemanticStore
+    
+    store = SemanticStore(temp_storage)
+    
+    entries = [
+        ("Entry 1", {"type": "test"}),
+        ("Entry 2", {"type": "test"}),
+    ]
+    
+    entry_ids = store.add_batch(entries, agent_id="batch_agent")
+    
+    # Verify all entries have agent_id
+    for entry_id in entry_ids:
+        entry = store.get_by_id(entry_id)
+        assert entry.metadata["agent_id"] == "batch_agent"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

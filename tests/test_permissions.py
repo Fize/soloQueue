@@ -1,4 +1,5 @@
 
+import asyncio
 import sys
 from unittest.mock import MagicMock
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -71,7 +72,7 @@ def test_permissions():
         orchestrator._execute_frame = MagicMock(side_effect=[signal, StopIteration])
         
         try:
-            orchestrator.run(source, "initial input")
+            asyncio.run(orchestrator.run(source, "initial input"))
         except StopIteration:
             pass # Loop broken as expected
         except Exception as e:
