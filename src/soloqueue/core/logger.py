@@ -29,8 +29,8 @@ def setup_logger():
     )
     
     # 2. File Handler (Machine Friendly / Structured)
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    log_dir = Path(".soloqueue/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
     
     _base_logger.add(
         log_dir / "soloqueue.jsonl",
