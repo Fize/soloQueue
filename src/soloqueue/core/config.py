@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     FEISHU_APP_ID: str | None = None
     FEISHU_APP_SECRET: str | None = None
 
+    # Embedding
+    SOLOQUEUE_EMBEDDING_ENABLED: bool = False
+    SOLOQUEUE_EMBEDDING_PROVIDER: str | None = None
+    SOLOQUEUE_EMBEDDING_MODEL: str | None = None
+    SOLOQUEUE_EMBEDDING_API_BASE: str | None = None
+    SOLOQUEUE_EMBEDDING_API_KEY: str | None = None
+    SOLOQUEUE_EMBEDDING_DIMENSION: int | None = None
+
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
