@@ -203,21 +203,17 @@ def get_embedding_model() -> Optional[EmbeddingModel]:
 def _load_from_config() -> Optional[EmbeddingModel]:
     """Load embedding model from system configuration."""
     try:
-        # Try to load from system config if available
-        try:
-            from soloqueue.core.config import get_system_config
-            config = get_system_config()
-            embedding_cfg = config.get("embedding", {})
-        except (ImportError, ModuleNotFoundError):
-            # Fallback to environment variables
-            embedding_cfg = {
-                "enabled": os.getenv("SOLOQUEUE_EMBEDDING_ENABLED", "false").lower() == "true",
-                "provider": os.getenv("SOLOQUEUE_EMBEDDING_PROVIDER", "openai"),
-                "model": os.getenv("SOLOQUEUE_EMBEDDING_MODEL"),
-                "api_base": os.getenv("SOLOQUEUE_EMBEDDING_API_BASE"),
-                "api_key": os.getenv("SOLOQUEUE_EMBEDDING_API_KEY"),
-                "dimension": int(os.getenv("SOLOQUEUE_EMBEDDING_DIMENSION", "0")) or None
-            }
+        # Load from Settings (which loads from .env file)
+        from soloqueue.core.config import settings
+        
+        embedding_cfg = {
+            "enabled": settings.SOLOQUEUE_EMBEDDING_ENABLED,
+            "provider": settings.SOLOQUEUE_EMBEDDING_PROVIDER,
+            "model": settings.SOLOQUEUE_EMBEDDING_MODEL,
+            "api_base": settings.SOLOQUEUE_EMBEDDING_API_BASE,
+            "api_key": settings.SOLOQUEUE_EMBEDDING_API_KEY,
+            "dimension": settings.SOLOQUEUE_EMBEDDING_DIMENSION
+        }
         
         # Check if enabled
         if not embedding_cfg.get("enabled", False):
