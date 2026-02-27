@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import asyncio
+
 from soloqueue.orchestration.orchestrator import Orchestrator
 from soloqueue.orchestration.signals import ControlSignal, SignalType
 
@@ -61,7 +63,7 @@ def test_run_no_initial_starting_status_event():
         result="ok",
     )
 
-    result = orch.run("leader", "hello", step_callback=events.append)
+    result = asyncio.run(orch.run("leader", "hello", step_callback=events.append))
 
     assert result == "ok"
     starting = [e for e in events if e.get("type") == "agent_status" and e.get("status") == "starting"]
@@ -94,7 +96,7 @@ def test_delegate_path_no_duplicate_starting_status_event():
     orch._resolve_agent = lambda *_args, **_kwargs: orch.registry.get_agent_by_name("worker")  # type: ignore[method-assign]
     orch._check_permission = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
 
-    result = orch.run("leader", "hello", step_callback=events.append)
+    result = asyncio.run(orch.run("leader", "hello", step_callback=events.append))
 
     assert result == "leader done"
     starting = [e for e in events if e.get("type") == "agent_status" and e.get("status") == "starting"]
