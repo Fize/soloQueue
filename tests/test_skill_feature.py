@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 from soloqueue.orchestration.orchestrator import Orchestrator
@@ -72,7 +73,7 @@ class TestSkillFeature(unittest.TestCase):
         
         # Run
         print("Starting Orchestrator Run...")
-        result = orchestrator.run("base_agent", "Please use the test skill")
+        result = asyncio.run(orchestrator.run("base_agent", "Please use the test skill"))
         
         self.assertEqual(result, "Final Task Complete")
         self.assertEqual(mock_instance.step.call_count, 3)
