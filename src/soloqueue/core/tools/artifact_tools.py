@@ -2,10 +2,16 @@
 from langchain_core.tools import tool, BaseTool
 from soloqueue.core.memory.manager import MemoryManager
 
-def create_artifact_tools(memory: MemoryManager) -> list[BaseTool]:
+def create_artifact_tools(memory: MemoryManager, agent_id: str = None) -> list[BaseTool]:
     """
     Create tools bound to a specific MemoryManager instance.
+    
+    Args:
+        memory: MemoryManager instance
+        agent_id: Agent identifier used as author when saving artifacts.
+                  Falls back to "unknown" if not provided.
     """
+    _author = agent_id or "unknown"
     
     @tool("save_artifact")
     def save_artifact(content: str, title: str, 
@@ -28,7 +34,7 @@ def create_artifact_tools(memory: MemoryManager) -> list[BaseTool]:
             title=title,
             tags=tag_list,
             artifact_type=artifact_type,
-            author="agent" # we could pass actual agent name if we bind it later, but 'agent' is fine
+            author=_author
         )
         return f"Artifact saved successfully. ID: {art_id}"
 
@@ -43,7 +49,7 @@ def create_artifact_tools(memory: MemoryManager) -> list[BaseTool]:
         
         metadata = art.get("metadata", {})
         content = art.get("content", "")
-        return f"Title: {metadata.get('title')}\nType: {metadata.get('type')}\nContent:\n{content}"
+        return f"Title: {metadata.get('title')}\nAuthor: {metadata.get('author', 'unknown')}\nType: {metadata.get('type')}\nContent:\n{content}"
 
     @tool("list_artifacts")
     def list_artifacts(tag: str = "") -> str:
@@ -59,7 +65,8 @@ def create_artifact_tools(memory: MemoryManager) -> list[BaseTool]:
         result = "Available Artifacts:\n"
         for art in artifacts:
             tags_str = ", ".join(art.get('tags', []))
-            result += f"- [{art.get('id')}] {art.get('title')} (Type: {art.get('artifact_type', 'text')}, Tags: {tags_str})\n"
+            author = art.get('author', 'unknown')
+            result += f"- [{art.get('id')}] {art.get('title')} by {author} (Type: {art.get('artifact_type', 'text')}, Tags: {tags_str})\n"
         return result
 
     @tool("delete_artifact")
