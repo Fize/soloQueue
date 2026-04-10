@@ -3,7 +3,7 @@
  */
 
 // 数据库
-export { initDb, closeDb, getDb, getDbPath } from './db.js';
+export { initDb, closeDb, saveDb, getDb, getDbPath, isDbInitialized, setMemoryDb, resetDb } from './db.js';
 
 // 类型
 export * from './types.js';
