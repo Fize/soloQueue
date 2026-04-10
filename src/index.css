@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Cyberpunk Dark Theme */
+@theme {
+  --color-background: #0a0a0f;
+  --color-foreground: #e4e4e7;
+  --color-primary: #6366f1;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1e1e2e;
+  --color-secondary-foreground: #a1a1aa;
+  --color-accent: #22d3ee;
+  --color-accent-foreground: #0a0a0f;
+  --color-muted: #27272a;
+  --color-muted-foreground: #71717a;
+  --color-card: #18181b;
+  --color-card-foreground: #e4e4e7;
+  --color-border: #27272a;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-ring: #6366f1;
+}
