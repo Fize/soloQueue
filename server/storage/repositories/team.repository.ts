@@ -2,10 +2,8 @@
  * Team Repository
  */
 
-import { eq, and } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db.js';
-import { teams } from '../schema.js';
 import type { Team, CreateTeamInput, UpdateTeamInput, TeamStatus } from '../types.js';
 import type { Repository } from './base.repository.js';
 
@@ -15,10 +13,10 @@ export class TeamRepository implements Repository<Team> {
    */
   async findById(id: string): Promise<Team | null> {
     const db = getDb();
-    const result = await db.select().from(teams).where(eq(teams.id, id)).limit(1);
+    const result = db.exec(`SELECT * FROM teams WHERE id = ?`, [id]);
 
-    if (result.length === 0) return null;
-    return this.mapRow(result[0]);
+    if (result.length === 0 || result[0].values.length === 0) return null;
+    return this.mapRow(result[0].columns, result[0].values[0]);
   }
 
   /**
@@ -26,8 +24,10 @@ export class TeamRepository implements Repository<Team> {
    */
   async findAll(): Promise<Team[]> {
     const db = getDb();
-    const result = await db.select().from(teams);
-    return result.map((row) => this.mapRow(row));
+    const result = db.exec(`SELECT * FROM teams`);
+
+    if (result.length === 0) return [];
+    return result[0].values.map((row) => this.mapRow(result[0].columns, row));
   }
 
   /**
@@ -35,8 +35,10 @@ export class TeamRepository implements Repository<Team> {
    */
   async findByStatus(status: TeamStatus): Promise<Team[]> {
     const db = getDb();
-    const result = await db.select().from(teams).where(eq(teams.status, status));
-    return result.map((row) => this.mapRow(row));
+    const result = db.exec(`SELECT * FROM teams WHERE status = ?`, [status]);
+
+    if (result.length === 0) return [];
+    return result[0].values.map((row) => this.mapRow(result[0].columns, row));
   }
 
   /**
@@ -56,15 +58,19 @@ export class TeamRepository implements Repository<Team> {
       updatedAt: now,
     };
 
-    await db.insert(teams).values({
-      id: team.id,
-      name: team.name,
-      description: team.description,
-      status: team.status,
-      config: JSON.stringify(team.config),
-      createdAt: team.createdAt,
-      updatedAt: team.updatedAt,
-    });
+    db.run(
+      `INSERT INTO teams (id, name, description, status, config, created_at, updated_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        team.id,
+        team.name,
+        team.description,
+        team.status,
+        JSON.stringify(team.config),
+        team.createdAt,
+        team.updatedAt,
+      ]
+    );
 
     return team;
   }
@@ -76,23 +82,33 @@ export class TeamRepository implements Repository<Team> {
     const existing = await this.findById(id);
     if (!existing) return null;
 
-    const updates: Partial<{
-      name: string;
-      description: string | null;
-      status: string;
-      config: string;
-      updatedAt: string;
-    }> = {
-      updatedAt: new Date().toISOString(),
-    };
+    const updates: string[] = [];
+    const values: (string | null)[] = [];
 
-    if (input.name !== undefined) updates.name = input.name;
-    if (input.description !== undefined) updates.description = input.description || null;
-    if (input.status !== undefined) updates.status = input.status;
-    if (input.config !== undefined) updates.config = JSON.stringify(input.config);
+    if (input.name !== undefined) {
+      updates.push('name = ?');
+      values.push(input.name);
+    }
+    if (input.description !== undefined) {
+      updates.push('description = ?');
+      values.push(input.description);
+    }
+    if (input.status !== undefined) {
+      updates.push('status = ?');
+      values.push(input.status);
+    }
+    if (input.config !== undefined) {
+      updates.push('config = ?');
+      values.push(JSON.stringify(input.config));
+    }
+
+    updates.push('updated_at = ?');
+    values.push(new Date().toISOString());
+
+    values.push(id);
 
     const db = getDb();
-    await db.update(teams).set(updates).where(eq(teams.id, id));
+    db.run(`UPDATE teams SET ${updates.join(', ')} WHERE id = ?`, values);
 
     return this.findById(id);
   }
@@ -102,7 +118,7 @@ export class TeamRepository implements Repository<Team> {
    */
   async delete(id: string): Promise<boolean> {
     const db = getDb();
-    await db.delete(teams).where(eq(teams.id, id));
+    db.run(`DELETE FROM teams WHERE id = ?`, [id]);
     return true;
   }
 
@@ -123,15 +139,20 @@ export class TeamRepository implements Repository<Team> {
   /**
    * 映射数据库行到实体
    */
-  private mapRow(row: typeof teams.$inferSelect): Team {
+  private mapRow(columns: string[], values: (string | number | null | Uint8Array)[]): Team {
+    const row: Record<string, string | null> = {};
+    columns.forEach((col, i) => {
+      row[col] = values[i] as string | null;
+    });
+
     return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      status: row.status as TeamStatus,
-      config: JSON.parse(row.config),
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      id: row['id']!,
+      name: row['name']!,
+      description: row['description'],
+      status: row['status'] as TeamStatus,
+      config: JSON.parse(row['config'] || '{}'),
+      createdAt: row['created_at']!,
+      updatedAt: row['updated_at']!,
     };
   }
 }
