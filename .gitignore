@@ -1,6 +1,9 @@
 # Logs
 logs
 *.log
+
+# Test coverage
+coverage
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
