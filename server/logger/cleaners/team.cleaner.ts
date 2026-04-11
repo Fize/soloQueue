@@ -8,6 +8,7 @@ import { Cleaner } from './cleaner.interface.js';
 import { LOG_DIR, ROTATE_CONFIG } from '../config.js';
 import { deleteExpiredFiles } from '../utils/file.js';
 import { deleteTeamMetadata } from '../utils/metadata.js';
+import { safeLogSync } from '../safe-log.js';
 
 export class TeamCleaner implements Cleaner {
   private readonly teamsDir: string;
@@ -40,7 +41,15 @@ export class TeamCleaner implements Cleaner {
         }
       }
     } catch (err) {
-      console.error('[TeamCleaner] Error:', err);
+      safeLogSync(
+        'error',
+        'logger',
+        'TeamCleaner error',
+        undefined,
+        err instanceof Error
+          ? { name: err.name, message: err.message, stack: err.stack }
+          : { name: 'Unknown', message: String(err) }
+      );
     }
 
     return deleted;

@@ -107,7 +107,11 @@ export async function initDb(): Promise<void> {
 
   _initialized = true;
   _isMemoryMode = false;
-  console.log(`[DB] Initialized at ${DB_PATH}`);
+  logger.info({
+    category: 'db',
+    message: 'Database initialized',
+    context: { path: DB_PATH, mode: 'file' },
+  });
 }
 
 /**
