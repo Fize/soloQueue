@@ -93,7 +93,8 @@ const DEFAULT_PRIORITY = 5;
 
 // ============== Logger ==============
 
-const logger = Logger.contextualize('[Task Machine]');
+// 使用 Logger.system() 创建日志实例
+const logger = Logger.system({ enableConsole: false, enableFile: false });
 
 // ============== Guards ==============
 
@@ -204,23 +205,23 @@ export const taskMachine = setup({
   initial: 'pending',
   createdAt: new Date().toISOString(),
 
-  context: {
-    taskId: '',
-    type: 'chat',
-    content: '',
+  context: ({ input }) => ({
+    taskId: input?.taskId || '',
+    type: input?.type || 'chat',
+    content: input?.content || '',
     assignee: null,
     startTime: null,
     endTime: null,
     duration: null,
     result: null,
     error: null,
-    priority: DEFAULT_PRIORITY,
+    priority: input?.priority ?? DEFAULT_PRIORITY,
     retries: 0,
-    maxRetries: DEFAULT_MAX_RETRIES,
-    timeout: DEFAULT_TIMEOUT,
-    dependencies: [],
+    maxRetries: input?.maxRetries || DEFAULT_MAX_RETRIES,
+    timeout: input?.timeout || DEFAULT_TIMEOUT,
+    dependencies: input?.dependencies || [],
     blockingTasks: [],
-  },
+  }),
 
   states: {
     // ========== pending ==========
@@ -254,7 +255,11 @@ export const taskMachine = setup({
       on: {
         complete: {
           target: 'completed',
-          actions: assign({ result: ({ event }: { event: any }) => event.result }),
+          actions: assign(({ context, event }: { context: TaskContext; event: any }) => ({
+            result: event.result,
+            endTime: Date.now(),
+            duration: context.startTime ? Date.now() - context.startTime : null,
+          })),
         },
         fail: {
           target: 'failed',
