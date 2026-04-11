@@ -59,7 +59,7 @@
 import { EventEmitter } from 'events';
 import { Logger } from '../logger/index.js';
 import { configRepository } from './repositories/config.repository.js';
-import { DEFAULT_CONFIGS } from './seeds.js';
+import { DEFAULT_CONFIGS, DEFAULT_LLM_CONFIGS } from './seeds.js';
 import type { Config, ConfigType } from './types.js';
 
 export interface ConfigChangeEvent {
@@ -90,8 +90,11 @@ class ConfigService extends EventEmitter {
       message: 'Initializing config service',
     });
 
-    // 初始化种子数据
+    // 初始化基础配置
     await configRepository.seedIfEmpty(DEFAULT_CONFIGS);
+
+    // 初始化 LLM 配置
+    await configRepository.seedIfEmpty(DEFAULT_LLM_CONFIGS);
 
     // 加载所有配置到缓存
     const configs = await configRepository.findAll();
