@@ -166,7 +166,8 @@ const MAX_ERROR_COUNT = 3;
 
 // ============== Logger ==============
 
-const logger = Logger.contextualize('[Agent Machine]');
+// 使用 Logger.system() 创建日志实例
+const logger = Logger.system({ enableConsole: false, enableFile: false });
 
 // ============== Guards ==============
 
@@ -258,6 +259,11 @@ const actions = {
   // 清除错误
   clearError: assign({
     errorCount: () => 0,
+    lastError: () => null,
+  }),
+
+  // 清除错误消息（保留计数）
+  clearLastError: assign({
     lastError: () => null,
   }),
 
@@ -514,23 +520,23 @@ export const agentMachine = setup({
   initial: 'idle',
   createdAt: new Date().toISOString(),
 
-  context: {
-    agentId: '',
-    teamId: '',
-    messages: [],
+  context: ({ input }) => ({
+    agentId: input?.agentId || '',
+    teamId: input?.teamId || '',
+    messages: input?.initialMessages || [],
     currentTask: null,
     pendingTasks: [],
     children: new Map(),
     pendingChildResults: new Map(),
     currentLLMCall: null,
     llmHistory: [],
-    model: DEFAULT_MODEL,
-    temperature: DEFAULT_TEMPERATURE,
-    maxTokens: DEFAULT_MAX_TOKENS,
-    systemPrompt: '',
+    model: input?.model || DEFAULT_MODEL,
+    temperature: input?.temperature ?? DEFAULT_TEMPERATURE,
+    maxTokens: input?.maxTokens || DEFAULT_MAX_TOKENS,
+    systemPrompt: input?.systemPrompt || '',
     errorCount: 0,
     lastError: null,
-  },
+  }),
 
   states: {
     // ========== idle ==========
@@ -538,7 +544,7 @@ export const agentMachine = setup({
       on: {
         task: {
           target: 'processing',
-          actions: ['addUserMessage', 'setCurrentTask', 'clearError', 'logTask'],
+          actions: ['addUserMessage', 'setCurrentTask', 'clearLastError', 'logTask'],
         },
       },
     },
