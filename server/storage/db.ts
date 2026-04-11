@@ -1,12 +1,36 @@
 /**
- * 数据库连接 - 使用 sql.js (纯 JavaScript SQLite)
- * 适用于 Tauri 桌面应用，无需编译原生模块
+ * ============================================
+ * 数据库连接层 (Database Connection)
+ * ============================================
+ *
+ * 【职责】
+ * - 管理 SQLite 数据库连接 (使用 sql.js 纯 JavaScript 实现)
+ * - 提供数据库初始化、持久化、关闭等基础操作
+ * - 支持 Tauri 桌面应用 (无需编译原生模块)
+ *
+ * 【存储位置】
+ * - 数据库路径: ~/.soloqueue/data/soloqueue.db
+ * - 日志目录: ~/.soloqueue/logs/
+ *
+ * 【连接模式】
+ * - 文件模式 (默认): 数据持久化到磁盘
+ * - 内存模式: 用于测试，数据不持久化
+ *
+ * 【生命周期】
+ *
+ *   initDb() → getDb() → saveDb() → closeDb()
+ *      ↑           ↑          ↓
+ *      └───────────┴──────────┘
+ *           (持久化)
+ *
+ * ============================================
  */
 
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import { runMigrations } from './migrations.js';
 
 // 数据库路径
 const DB_DIR = path.join(os.homedir(), '.soloqueue', 'data');
@@ -15,6 +39,7 @@ const DB_PATH = path.join(DB_DIR, 'soloqueue.db');
 // 数据库实例（单例）
 let _db: SqlJsDatabase | null = null;
 let _initialized = false;
+let _isMemoryMode = false;
 
 /**
  * 获取数据库实例
@@ -31,6 +56,13 @@ export function getDb(): SqlJsDatabase {
  */
 export function isDbInitialized(): boolean {
   return _initialized;
+}
+
+/**
+ * 检查是否为内存模式
+ */
+export function isMemoryMode(): boolean {
+  return _isMemoryMode;
 }
 
 /**
@@ -54,23 +86,27 @@ export async function initDb(): Promise<void> {
     _db = new SQL.Database();
   }
 
-  // 创建表（如果不存在）
+  // 创建基础表结构
   _db.run(`
     CREATE TABLE IF NOT EXISTS teams (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      config TEXT NOT NULL DEFAULT '{}',
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
+      workspaces TEXT NOT NULL DEFAULT '["~/.soloqueue"]',
+      is_default INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
 
-  // 保存数据库到文件
+  // 保存数据库
   saveDb();
 
+  // 运行迁移（添加新列和新表）
+  runMigrations();
+
   _initialized = true;
+  _isMemoryMode = false;
   console.log(`[DB] Initialized at ${DB_PATH}`);
 }
 
@@ -78,7 +114,7 @@ export async function initDb(): Promise<void> {
  * 保存数据库到文件
  */
 export function saveDb(): void {
-  if (!_db) return;
+  if (!_db || _isMemoryMode) return;
 
   const data = _db.export();
   const buffer = Buffer.from(data);
@@ -94,6 +130,7 @@ export async function closeDb(): Promise<void> {
     _db.close();
     _db = null;
     _initialized = false;
+    _isMemoryMode = false;
     console.log('[DB] Closed');
   }
 }
@@ -114,6 +151,7 @@ export function resetDb(): void {
   }
   _db = null;
   _initialized = false;
+  _isMemoryMode = false;
 }
 
 /**
@@ -122,4 +160,5 @@ export function resetDb(): void {
 export function setMemoryDb(db: SqlJsDatabase): void {
   _db = db;
   _initialized = true;
+  _isMemoryMode = true;
 }
