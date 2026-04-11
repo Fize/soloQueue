@@ -4,6 +4,8 @@
 
 import cron from 'node-cron';
 import { systemCleaner, teamCleaner, sessionCleaner } from '../cleaners/index.js';
+import { Logger } from '../core.js';
+import { safeLogSync } from '../safe-log.js';
 
 export interface CleanerTaskStats {
   lastRun: Date | null;
@@ -18,6 +20,11 @@ class CleanerTask {
     lastDeleted: [],
     lastError: null,
   };
+  private logger: Logger;
+
+  constructor() {
+    this.logger = Logger.system({ enableConsole: true, enableFile: true });
+  }
 
   /**
    * 启动定时清理任务
@@ -25,7 +32,10 @@ class CleanerTask {
    */
   start(cronExpression: string = '0 3 * * *'): void {
     if (this.job) {
-      console.log('[CleanerTask] Already running');
+      this.logger.info({
+        category: 'logger',
+        message: 'CleanerTask already running',
+      });
       return;
     }
 
@@ -33,7 +43,11 @@ class CleanerTask {
       await this.run();
     });
 
-    console.log(`[CleanerTask] Started with schedule: ${cronExpression}`);
+    this.logger.info({
+      category: 'logger',
+      message: 'CleanerTask started',
+      context: { schedule: cronExpression },
+    });
   }
 
   /**
@@ -43,7 +57,10 @@ class CleanerTask {
     if (this.job) {
       this.job.stop();
       this.job = null;
-      console.log('[CleanerTask] Stopped');
+      this.logger.info({
+        category: 'logger',
+        message: 'CleanerTask stopped',
+      });
     }
   }
 
@@ -51,34 +68,60 @@ class CleanerTask {
    * 手动执行清理
    */
   async run(): Promise<string[]> {
-    console.log('[CleanerTask] Starting cleanup...');
+    this.logger.info({
+      category: 'logger',
+      message: 'CleanerTask starting cleanup',
+    });
+    
     const allDeleted: string[] = [];
 
     try {
       // 清理 System 层
       const systemDeleted = await systemCleaner.clean();
       allDeleted.push(...systemDeleted);
-      console.log(`[CleanerTask] System: deleted ${systemDeleted.length} files`);
+      this.logger.debug({
+        category: 'logger',
+        message: 'System cleanup complete',
+        context: { deleted: systemDeleted.length },
+      });
 
       // 清理 Team 层
       const teamDeleted = await teamCleaner.clean();
       allDeleted.push(...teamDeleted);
-      console.log(`[CleanerTask] Team: deleted ${teamDeleted.length} files`);
+      this.logger.debug({
+        category: 'logger',
+        message: 'Team cleanup complete',
+        context: { deleted: teamDeleted.length },
+      });
 
       // 清理 Session 层
       const sessionDeleted = await sessionCleaner.clean();
       allDeleted.push(...sessionDeleted);
-      console.log(`[CleanerTask] Session: deleted ${sessionDeleted.length} files`);
+      this.logger.debug({
+        category: 'logger',
+        message: 'Session cleanup complete',
+        context: { deleted: sessionDeleted.length },
+      });
 
       this.stats.lastRun = new Date();
       this.stats.lastDeleted = allDeleted;
       this.stats.lastError = null;
 
-      console.log(`[CleanerTask] Cleanup complete: ${allDeleted.length} files deleted`);
+      this.logger.info({
+        category: 'logger',
+        message: 'Cleanup complete',
+        context: { totalDeleted: allDeleted.length },
+      });
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       this.stats.lastError = error;
-      console.error('[CleanerTask] Cleanup failed:', error);
+      this.logger.error({
+        category: 'logger',
+        message: 'Cleanup failed',
+        error: err instanceof Error
+          ? { name: err.name, message: err.message, stack: err.stack }
+          : { name: 'Unknown', message: String(err) },
+      });
     }
 
     return allDeleted;
