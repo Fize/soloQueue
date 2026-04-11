@@ -89,7 +89,7 @@ const DEFAULT_MAX_TOKENS = 2000;
 // ============== Logger ==============
 
 // 使用 Logger.system() 创建日志实例
-const logger = Logger.system({ enableConsole: false, enableFile: false });
+const logger = Logger.system({ enableConsole: true, enableFile: true, minLevel: 'debug' });
 
 // ============== Actors ==============
 
@@ -142,7 +142,11 @@ const actors = {
         throw new Error(`LLM call timeout after ${timeout || DEFAULT_TIMEOUT}ms`);
       }
 
-      logger.error('LLM call failed', { error: error.message });
+      logger.error({
+        category: 'llm',
+        message: 'LLM call failed',
+        error: { name: error.name, message: error.message, stack: error.stack },
+      });
       throw error;
     }
   }),

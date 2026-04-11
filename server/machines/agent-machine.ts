@@ -167,7 +167,7 @@ const MAX_ERROR_COUNT = 3;
 // ============== Logger ==============
 
 // 使用 Logger.system() 创建日志实例
-const logger = Logger.system({ enableConsole: false, enableFile: false });
+const logger = Logger.system({ enableConsole: true, enableFile: true, minLevel: 'debug' });
 
 // ============== Guards ==============
 
@@ -429,6 +429,24 @@ const actions = {
       messageCount: context.messages.length,
     });
   },
+
+  logChildResult: ({ context, event }: { context: AgentContext; event: any }) => {
+    logger.info('Child task result received', {
+      agentId: context.agentId,
+      taskId: event.taskId,
+      hasError: !!event.error,
+      contentLength: event.content?.length || 0,
+    });
+  },
+
+  logAgentStart: ({ context }: { context: AgentContext }) => {
+    logger.info('Agent started', {
+      agentId: context.agentId,
+      teamId: context.teamId,
+      model: context.model,
+      initialMessages: context.messages.length,
+    });
+  },
 };
 
 // ============== Actors ==============
@@ -440,10 +458,15 @@ const actors = {
   callLLM: fromPromise(async ({ input }: { input: { prompt: string; context: AgentContext } }) => {
     const { prompt, context } = input;
 
-    logger.info('Calling LLM', {
-      agentId: context.agentId,
-      model: context.model,
-      messageCount: context.messages.length,
+    logger.info({
+      category: 'actor',
+      message: 'Calling LLM',
+      actorId: context.agentId,
+      context: {
+        agentId: context.agentId,
+        model: context.model,
+        messageCount: context.messages.length,
+      },
     });
 
     // 构建消息历史
@@ -490,10 +513,15 @@ const actors = {
     // 2. 发送任务
     // 3. 返回子任务 ID
 
-    logger.info('Delegating task', {
-      parentAgentId: input.parentAgentId,
-      taskId: input.taskId,
-      instructionLength: input.instruction.length,
+    logger.info({
+      category: 'actor',
+      message: 'Delegating task',
+      actorId: input.parentAgentId,
+      context: {
+        parentAgentId: input.parentAgentId,
+        taskId: input.taskId,
+        instructionLength: input.instruction.length,
+      },
     });
 
     // 模拟委托
@@ -541,6 +569,7 @@ export const agentMachine = setup({
   states: {
     // ========== idle ==========
     idle: {
+      entry: 'logAgentStart',
       on: {
         task: {
           target: 'processing',
@@ -679,7 +708,12 @@ export function createAgentActor(options: CreateAgentOptions) {
     initialMessages = [],
   } = options;
 
-  logger.info('Creating agent actor', { agentId, teamId, model });
+  logger.info({
+    category: 'actor',
+    message: 'Creating agent actor',
+    actorId: agentId,
+    context: { agentId, teamId, model },
+  });
 
   return createActor(agentMachine, {
     input: {

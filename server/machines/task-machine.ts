@@ -94,7 +94,7 @@ const DEFAULT_PRIORITY = 5;
 // ============== Logger ==============
 
 // 使用 Logger.system() 创建日志实例
-const logger = Logger.system({ enableConsole: false, enableFile: false });
+const logger = Logger.system({ enableConsole: true, enableFile: true, minLevel: 'debug' });
 
 // ============== Guards ==============
 
