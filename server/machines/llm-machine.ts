@@ -88,7 +88,8 @@ const DEFAULT_MAX_TOKENS = 2000;
 
 // ============== Logger ==============
 
-const logger = Logger.contextualize('[LLM Machine]');
+// 使用 Logger.system() 创建日志实例
+const logger = Logger.system({ enableConsole: false, enableFile: false });
 
 // ============== Actors ==============
 
@@ -271,23 +272,23 @@ export const llmMachine = setup({
   initial: 'idle',
   createdAt: new Date().toISOString(),
 
-  context: {
+  context: ({ input }) => ({
     callId: '',
-    model: DEFAULT_MODEL,
-    messages: [],
-    temperature: DEFAULT_TEMPERATURE,
-    maxTokens: DEFAULT_MAX_TOKENS,
+    model: input?.model || DEFAULT_MODEL,
+    messages: input?.messages || [],
+    temperature: input?.temperature ?? DEFAULT_TEMPERATURE,
+    maxTokens: input?.maxTokens || DEFAULT_MAX_TOKENS,
     fullResponse: '',
     currentChunk: '',
     startTime: null,
     endTime: null,
     tokensUsed: null,
     duration: null,
-    timeout: DEFAULT_TIMEOUT,           // 5 分钟
-    maxRetries: DEFAULT_MAX_RETRIES,
+    timeout: input?.timeout || DEFAULT_TIMEOUT,
+    maxRetries: input?.maxRetries || DEFAULT_MAX_RETRIES,
     retryCount: 0,
     error: null,
-  },
+  }),
 
   states: {
     // ========== idle ==========
