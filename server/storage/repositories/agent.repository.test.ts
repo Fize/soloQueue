@@ -38,7 +38,8 @@ describe('AgentRepository', () => {
         id TEXT PRIMARY KEY,
         team_id TEXT NOT NULL REFERENCES teams(id),
         name TEXT NOT NULL,
-        model TEXT NOT NULL DEFAULT 'deepseek-chat',
+        model_id TEXT NOT NULL DEFAULT 'deepseek-chat',
+        provider_id TEXT NOT NULL DEFAULT 'deepseek',
         system_prompt TEXT NOT NULL DEFAULT '',
         temperature REAL NOT NULL DEFAULT 0.7,
         max_tokens INTEGER NOT NULL DEFAULT 2000,
@@ -72,7 +73,7 @@ describe('AgentRepository', () => {
 
       expect(agent.id).toBeDefined();
       expect(agent.name).toBe('Test Agent');
-      expect(agent.model).toBe('deepseek-chat');
+      expect(agent.modelId).toBe('deepseek-chat');
       expect(agent.systemPrompt).toBe('You are helpful.');
     });
 
@@ -82,7 +83,7 @@ describe('AgentRepository', () => {
         name: 'Default Model Agent',
       });
 
-      expect(agent.model).toBe('deepseek-chat');
+      expect(agent.modelId).toBe('deepseek-chat');
     });
 
     it('应该使用指定团队', async () => {
@@ -181,13 +182,13 @@ describe('AgentRepository', () => {
       
       const updated = await repository.update(agent.id, {
         name: 'Updated Name',
-        model: 'deepseek-v3',
+        modelId: 'deepseek-v3',
         temperature: 0.5,
       });
 
       expect(updated).not.toBeNull();
       expect(updated!.name).toBe('Updated Name');
-      expect(updated!.model).toBe('deepseek-v3');
+      expect(updated!.modelId).toBe('deepseek-v3');
       expect(updated!.temperature).toBe(0.5);
     });
 

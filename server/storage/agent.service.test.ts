@@ -49,7 +49,8 @@ describe('AgentService', () => {
         id TEXT PRIMARY KEY,
         team_id TEXT NOT NULL REFERENCES teams(id),
         name TEXT NOT NULL,
-        model TEXT NOT NULL DEFAULT 'deepseek-chat',
+        model_id TEXT NOT NULL DEFAULT 'deepseek-chat',
+        provider_id TEXT NOT NULL DEFAULT 'deepseek',
         system_prompt TEXT NOT NULL DEFAULT '',
         temperature REAL NOT NULL DEFAULT 0.7,
         max_tokens INTEGER NOT NULL DEFAULT 2000,
@@ -86,13 +87,13 @@ describe('AgentService', () => {
     it('应该创建 Agent', async () => {
       const agent = await agentService.create({
         name: 'Test Agent',
-        model: 'deepseek-chat',
+        modelId: 'deepseek-chat',
         systemPrompt: 'You are a helpful assistant.',
       });
 
       expect(agent.id).toBeDefined();
       expect(agent.name).toBe('Test Agent');
-      expect(agent.model).toBe('deepseek-chat');
+      expect(agent.modelId).toBe('deepseek-chat');
       expect(agent.systemPrompt).toBe('You are a helpful assistant.');
       expect(agent.temperature).toBe(0.7);
       expect(agent.maxTokens).toBe(2000);
@@ -105,7 +106,7 @@ describe('AgentService', () => {
         name: 'Test Agent',
       });
 
-      expect(agent.model).toBe('deepseek-chat');
+      expect(agent.modelId).toBe('deepseek-chat');
     });
 
     it('应该触发 agent:created 事件', async () => {

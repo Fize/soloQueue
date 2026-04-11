@@ -30,6 +30,19 @@
  *   │   └── session.autoSave     (boolean) true│
  *   └─────────────────────────────────────────┘
  *
+ *   DEFAULT_LLM_CONFIGS (LLM 配置)
+ *   ┌─────────────────────────────────────────┐
+ *   │ Category: llm                          │
+ *   │   ├── llm.providers   (json) Provider[] │
+ *   │   └── llm.models     (json) Model[]    │
+ *   │                                         │
+ *   │ Category: agent                        │
+ *   │   └── agent.defaults (json) AgentDefaults│
+ *   │                                         │
+ *   │ Category: supervisor                   │
+ *   │   └── supervisor.defaults (json)       │
+ *   └─────────────────────────────────────────┘
+ *
  * 【初始化时机】
  *
  *   initDb() → runMigrations() → configService.initialize()
@@ -42,11 +55,63 @@
  *   - 字符串: '"dark"' (带引号)
  *   - 数字: '3600' (不带引号)
  *   - 布尔: 'true' (小写)
+ *   - JSON: '{"providers": [...]}' (对象序列化)
  *
  * ============================================
  */
 
 import type { CreateConfigInput } from '../types.js';
+
+// ============== LLM 配置种子数据 ==============
+
+import {
+  DEFAULT_PROVIDERS,
+  DEFAULT_MODELS,
+  DEFAULT_AGENT_DEFAULTS,
+  DEFAULT_SUPERVISOR_DEFAULTS,
+} from '../llm/defaults.js';
+
+export const DEFAULT_LLM_CONFIGS: Omit<CreateConfigInput, 'createdAt' | 'updatedAt'>[] = [
+  // LLM Providers
+  {
+    key: 'llm.providers',
+    value: JSON.stringify({ providers: DEFAULT_PROVIDERS }),
+    type: 'json',
+    category: 'llm',
+    description: 'LLM Provider 配置列表',
+    editable: true,
+  },
+
+  // LLM Models
+  {
+    key: 'llm.models',
+    value: JSON.stringify({ models: DEFAULT_MODELS }),
+    type: 'json',
+    category: 'llm',
+    description: 'LLM Model 配置列表',
+    editable: true,
+  },
+
+  // Agent Defaults
+  {
+    key: 'agent.defaults',
+    value: JSON.stringify({ agent: DEFAULT_AGENT_DEFAULTS }),
+    type: 'json',
+    category: 'agent',
+    description: 'Agent 默认配置',
+    editable: true,
+  },
+
+  // Supervisor Defaults
+  {
+    key: 'supervisor.defaults',
+    value: JSON.stringify({ supervisor: DEFAULT_SUPERVISOR_DEFAULTS }),
+    type: 'json',
+    category: 'supervisor',
+    description: 'Supervisor 默认监督配置',
+    editable: true,
+  },
+];
 
 export const DEFAULT_TEAM = {
   name: 'default',
