@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import { Cleaner } from './cleaner.interface.js';
 import { LOG_DIR, ROTATE_CONFIG } from '../config.js';
 import { deleteExpiredFiles, isFileExpired } from '../utils/file.js';
+import { safeLogSync } from '../safe-log.js';
 
 export class SessionCleaner implements Cleaner {
   private readonly sessionsDir: string;
@@ -39,7 +40,15 @@ export class SessionCleaner implements Cleaner {
         }
       }
     } catch (err) {
-      console.error('[SessionCleaner] Error:', err);
+      safeLogSync(
+        'error',
+        'logger',
+        'SessionCleaner error',
+        undefined,
+        err instanceof Error
+          ? { name: err.name, message: err.message, stack: err.stack }
+          : { name: 'Unknown', message: String(err) }
+      );
     }
 
     return deleted;

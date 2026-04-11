@@ -5,6 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { LOG_DIR, ROTATE_CONFIG } from '../config.js';
+import { safeLogSync } from '../safe-log.js';
 
 /**
  * 确保目录存在
@@ -85,7 +86,15 @@ export async function deleteExpiredFiles(
       }
     }
   } catch (err) {
-    console.error(`[file.utils] Error deleting expired files in ${dirPath}:`, err);
+    safeLogSync(
+      'error',
+      'logger',
+      'Error deleting expired files',
+      { dirPath },
+      err instanceof Error
+        ? { name: err.name, message: err.message, stack: err.stack }
+        : { name: 'Unknown', message: String(err) }
+    );
   }
 
   return deleted;

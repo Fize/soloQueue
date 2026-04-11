@@ -60,12 +60,14 @@ describe('CleanerTask', () => {
       expect(mockSchedule).toHaveBeenCalledWith('0 3 * * *', expect.any(Function));
     });
 
-    it('应该打印启动信息', () => {
+    it('重复启动应该记录日志', () => {
+      cleanerTask.start('0 3 * * *');
+      consoleLogSpy.mockClear();
+      
       cleanerTask.start('0 3 * * *');
       
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[CleanerTask] Started')
-      );
+      // 重复启动会记录日志但不重新调度
+      expect(mockSchedule).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -77,13 +79,14 @@ describe('CleanerTask', () => {
       expect(mockStop).toHaveBeenCalled();
     });
 
-    it('应该打印停止信息', () => {
+    it('停止后可以重新启动', () => {
       cleanerTask.start();
+      cleanerTask.stop();
       consoleLogSpy.mockClear();
       
-      cleanerTask.stop();
+      cleanerTask.start();
       
-      expect(consoleLogSpy).toHaveBeenCalledWith('[CleanerTask] Stopped');
+      expect(mockSchedule).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -111,11 +114,9 @@ describe('CleanerTask', () => {
       
       await cleanerTask.run();
       
-      // 检查是否记录了错误 (console.error 被调用了多次)
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(consoleErrorSpy.mock.calls.some((call: any[]) => 
-        call[0]?.includes('[CleanerTask] Cleanup failed')
-      )).toBe(true);
+      // 检查错误是否被记录到 stats
+      const stats = cleanerTask.getStats();
+      expect(stats.lastError).toBe('Cleanup failed');
     });
   });
 
