@@ -129,9 +129,12 @@ export async function closeDb(): Promise<void> {
     saveDb();
     _db.close();
     _db = null;
-    _initialized = false;
-    _isMemoryMode = false;
-    console.log('[DB] Closed');
+      _initialized = false;
+  _isMemoryMode = false;
+  logger.info({
+    category: 'db',
+    message: 'Database closed',
+  });
   }
 }
 

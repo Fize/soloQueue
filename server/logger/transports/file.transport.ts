@@ -36,7 +36,12 @@ export class FileTransport implements Transport {
       });
 
       transport.on('error', (err) => {
-        console.error(`[FileTransport] Error on ${key}:`, err);
+        this.errorLogger.error({
+          category: 'logger',
+          message: 'FileTransport error',
+          context: { transportKey: key },
+          error: { name: err.name, message: err.message, stack: err.stack },
+        });
       });
 
       this.transports.set(key, transport);
