@@ -18,7 +18,8 @@
  *
  *   ┌─────────────────────────────────────────┐
  *   │ LLM 配置                                │
- *   │   model          → 模型名称              │
+ *   │   modelId        → 模型名称              │
+ *   │   providerId     → 提供商 ID             │
  *   │   systemPrompt   → 系统提示词            │
  *   │   temperature    → 温度参数              │
  *   │   maxTokens      → 最大令牌数            │
@@ -153,7 +154,8 @@ export class AgentRepository implements Repository<Agent> {
       id,
       teamId: input.teamId,
       name: input.name,
-      model: input.model || 'deepseek-chat',
+      modelId: input.modelId || 'deepseek-chat',
+      providerId: input.providerId || 'deepseek',
       systemPrompt: input.systemPrompt || '',
       temperature: input.temperature ?? 0.7,
       maxTokens: input.maxTokens ?? 2000,
@@ -166,13 +168,14 @@ export class AgentRepository implements Repository<Agent> {
     };
 
     db.run(
-      `INSERT INTO agents (id, team_id, name, model, system_prompt, temperature, max_tokens, context_window, skills, mcp, hooks, created_at, updated_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agents (id, team_id, name, model_id, provider_id, system_prompt, temperature, max_tokens, context_window, skills, mcp, hooks, created_at, updated_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agent.id,
         agent.teamId,
         agent.name,
-        agent.model,
+        agent.modelId,
+        agent.providerId,
         agent.systemPrompt,
         agent.temperature,
         agent.maxTokens,
@@ -217,9 +220,13 @@ export class AgentRepository implements Repository<Agent> {
       updates.push('name = ?');
       values.push(input.name);
     }
-    if (input.model !== undefined) {
-      updates.push('model = ?');
-      values.push(input.model);
+    if (input.modelId !== undefined) {
+      updates.push('model_id = ?');
+      values.push(input.modelId);
+    }
+    if (input.providerId !== undefined) {
+      updates.push('provider_id = ?');
+      values.push(input.providerId);
     }
     if (input.systemPrompt !== undefined) {
       updates.push('system_prompt = ?');
@@ -310,7 +317,8 @@ export class AgentRepository implements Repository<Agent> {
       id: row['id'] as string,
       teamId: row['team_id'] as string,
       name: row['name'] as string,
-      model: row['model'] as string,
+      modelId: row['model_id'] as string,
+      providerId: row['provider_id'] as string,
       systemPrompt: row['system_prompt'] as string,
       temperature: row['temperature'] as number,
       maxTokens: row['max_tokens'] as number,

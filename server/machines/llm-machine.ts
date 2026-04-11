@@ -30,6 +30,8 @@
 import { setup, assign, fromPromise } from 'xstate';
 import { createActor } from 'xstate';
 import { Logger } from '../logger/index.js';
+import { llmConfigService } from '../llm/index.js';
+import { DEFAULT_MODELS, DEFAULT_AGENT_DEFAULTS } from '../llm/defaults.js';
 
 // ============== Types ==============
 
@@ -395,11 +397,15 @@ export interface CreateLLMOptions {
  * 创建 LLM Machine Actor
  */
 export function createLLMActor(options: CreateLLMOptions = {}) {
+  // 从配置服务获取默认值
+  const agentDefaults = llmConfigService.getAgentDefaults?.() || DEFAULT_AGENT_DEFAULTS;
+  const defaultChatConfig = agentDefaults.roleDefaults?.chat || { modelId: 'deepseek-chat', temperature: 0.7, maxTokens: 4096 };
+
   return createActor(llmMachine, {
     input: {
-      model: options.model || DEFAULT_MODEL,
-      temperature: options.temperature || DEFAULT_TEMPERATURE,
-      maxTokens: options.maxTokens || DEFAULT_MAX_TOKENS,
+      model: options.model || defaultChatConfig.modelId,
+      temperature: options.temperature ?? defaultChatConfig.temperature,
+      maxTokens: options.maxTokens || defaultChatConfig.maxTokens,
       timeout: options.timeout || DEFAULT_TIMEOUT,
       maxRetries: options.maxRetries || DEFAULT_MAX_RETRIES,
     },
