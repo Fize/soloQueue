@@ -95,7 +95,8 @@ export interface Agent {
   id: string;
   teamId: string;
   name: string;
-  model: string;
+  modelId: string;
+  providerId: string;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
@@ -110,7 +111,8 @@ export interface Agent {
 export interface CreateAgentInput {
   teamId?: string;
   name: string;
-  model?: string;
+  modelId?: string;
+  providerId?: string;
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
@@ -122,7 +124,8 @@ export interface CreateAgentInput {
 
 export interface UpdateAgentInput {
   name?: string;
-  model?: string;
+  modelId?: string;
+  providerId?: string;
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;

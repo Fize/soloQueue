@@ -38,7 +38,8 @@
  *
  *   创建 Agent 时:
  *   - 如未指定 teamId，自动使用默认团队 ID
- *   - model 默认为 'deepseek-chat'
+ *   - modelId 默认为 'deepseek-chat'
+ *   - providerId 默认为 'deepseek'
  *   - temperature 默认为 0.7
  *
  * 【日志分类】

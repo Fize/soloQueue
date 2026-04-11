@@ -58,6 +58,8 @@
 import { setup, assign, fromPromise } from 'xstate';
 import { createActor, type ActorRefFrom } from 'xstate';
 import { Logger } from '../logger/index.js';
+import { llmConfigService } from '../llm/index.js';
+import { DEFAULT_AGENT_DEFAULTS } from '../llm/defaults.js';
 
 // ============== Types ==============
 
@@ -269,10 +271,10 @@ const actions = {
 
   // 记录 LLM 调用
   setLLMCall: assign({
-    currentLLMCall: ({ event }: { event: any }) => ({
+    currentLLMCall: ({ context }: { context: AgentContext }) => ({
       id: crypto.randomUUID(),
-      prompt: event.prompt || '',
-      model: 'deepseek-chat',
+      prompt: '',
+      model: context.model,
       startTime: Date.now(),
       status: 'pending' as const,
       content: '',
@@ -698,12 +700,16 @@ export interface CreateAgentOptions {
  * 创建 Agent Actor
  */
 export function createAgentActor(options: CreateAgentOptions) {
+  // 从配置服务获取默认值
+  const agentDefaults = llmConfigService.getAgentDefaults?.() || DEFAULT_AGENT_DEFAULTS;
+  const defaultChatConfig = agentDefaults.roleDefaults?.chat || { modelId: 'deepseek-chat', temperature: 0.7, maxTokens: 4096 };
+
   const {
     agentId,
     teamId,
-    model = DEFAULT_MODEL,
-    temperature = DEFAULT_TEMPERATURE,
-    maxTokens = DEFAULT_MAX_TOKENS,
+    model = defaultChatConfig.modelId,
+    temperature = defaultChatConfig.temperature,
+    maxTokens = defaultChatConfig.maxTokens,
     systemPrompt = '',
     initialMessages = [],
   } = options;

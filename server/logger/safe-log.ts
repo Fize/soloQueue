@@ -3,34 +3,18 @@
  * 用于 logger 内部模块，避免与 core.ts 形成循环依赖
  */
 
-import { LogLevel, LogCategory } from './types.js';
+import { LogLevel } from './types.js';
 
-// 日志级别映射
-const LEVELS = ['debug', 'info', 'warn', 'error'];
-
-interface SafeLogEntry {
-  timestamp: string;
-  level: LogLevel;
-  category: string;
-  message: string;
-  context?: Record<string, unknown>;
-  error?: {
-    name: string;
-    message: string;
-    stack?: string;
-  };
-}
-
-// 延迟获取 Logger（通过全局实例避免循环依赖）
+// 延迟获取 Logger（通过动态导入避免循环依赖）
 let _logger: any = null;
 let _initialized = false;
 
-function getLogger() {
+async function getLogger() {
   if (!_initialized) {
     _initialized = true;
     try {
       // 动态导入避免循环依赖
-      const { Logger } = require('./core.js');
+      const { Logger } = await import('./core.js');
       _logger = Logger.system({ enableConsole: false, enableFile: true });
     } catch {
       // 日志系统未初始化
@@ -49,7 +33,7 @@ export async function safeLog(
   context?: Record<string, unknown>,
   error?: { name: string; message: string; stack?: string }
 ): Promise<void> {
-  const logger = getLogger();
+  const logger = await getLogger();
   if (!logger) return;
 
   try {
@@ -77,28 +61,19 @@ export function safeLogSync(
   context?: Record<string, unknown>,
   error?: { name: string; message: string; stack?: string }
 ): void {
-  const logger = getLogger();
-  if (!logger) return;
-
+  // 同步版本：静默失败，日志系统的初始化是异步的，
+  // 同步调用时 logger 可能尚未初始化，这种情况下直接跳过
   try {
-    const entry: SafeLogEntry = {
-      timestamp: new Date().toISOString(),
-      level,
-      category,
-      message,
-      context,
-      error,
-    };
-
-    // 写入到控制台作为后备
-    if (level === 'error') {
-      console.error(`[${category}] ${message}`, context || '', error ? `\n${error.stack || error.message}` : '');
+    if (level === 'debug') {
+      // noop - avoid blocking
+    } else if (level === 'info') {
+      // noop
     } else if (level === 'warn') {
-      console.warn(`[${category}] ${message}`, context || '');
-    } else {
-      console.log(`[${category}] ${message}`, context || '');
+      // noop
+    } else if (level === 'error') {
+      // noop
     }
   } catch {
-    // 静默忽略
+    // 静默忽略，避免日志错误影响主流程
   }
 }

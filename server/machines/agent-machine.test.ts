@@ -14,6 +14,14 @@ import {
   DEFAULT_MAX_TOKENS,
   MAX_ERROR_COUNT,
 } from './agent-machine.js';
+import { DEFAULT_AGENT_DEFAULTS } from '../llm/defaults.js';
+
+// Mock llmConfigService
+vi.mock('../llm/index.js', () => ({
+  llmConfigService: {
+    getAgentDefaults: vi.fn(() => DEFAULT_AGENT_DEFAULTS),
+  },
+}));
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -257,7 +265,7 @@ describe('Agent Machine', () => {
       actor.stop();
     });
 
-    it('createAgentActor 应该使用默认值', () => {
+    it('createAgentActor 应该使用配置服务提供的默认值', () => {
       const actor = createAgentActor({
         agentId: 'agent-1',
         teamId: 'team-1',
@@ -266,9 +274,11 @@ describe('Agent Machine', () => {
       actor.start();
       const ctx = actor.getSnapshot().context;
 
-      expect(ctx.model).toBe(DEFAULT_MODEL);
-      expect(ctx.temperature).toBe(DEFAULT_TEMPERATURE);
-      expect(ctx.maxTokens).toBe(DEFAULT_MAX_TOKENS);
+      // 从配置服务获取的 chat 默认值
+      const defaultChatConfig = DEFAULT_AGENT_DEFAULTS.roleDefaults.chat;
+      expect(ctx.model).toBe(defaultChatConfig.modelId);
+      expect(ctx.temperature).toBe(defaultChatConfig.temperature);
+      expect(ctx.maxTokens).toBe(defaultChatConfig.maxTokens);
 
       actor.stop();
     });
