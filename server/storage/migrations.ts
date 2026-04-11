@@ -28,6 +28,10 @@
  *   - 创建 configs 表 (如不存在)
  *   - 创建 agents 表 (如不存在)
  *
+ *   v1.2 → v1.3
+ *   - agents 表: 添加 model_id, provider_id 列
+ *   - 迁移 model 列数据到 model_id
+ *
  * 【注意事项】
  *
  *   ⚠️ SQLite 不支持 DROP COLUMN
@@ -96,7 +100,8 @@ export async function runMigrations(): Promise<void> {
         id TEXT PRIMARY KEY,
         team_id TEXT NOT NULL REFERENCES teams(id),
         name TEXT NOT NULL,
-        model TEXT NOT NULL DEFAULT 'deepseek-chat',
+        model_id TEXT NOT NULL DEFAULT 'deepseek-chat',
+        provider_id TEXT NOT NULL DEFAULT 'deepseek',
         system_prompt TEXT NOT NULL DEFAULT '',
         temperature REAL NOT NULL DEFAULT 0.7,
         max_tokens INTEGER NOT NULL DEFAULT 2000,
@@ -108,6 +113,24 @@ export async function runMigrations(): Promise<void> {
         updated_at TEXT NOT NULL
       )
     `);
+  }
+
+  // 4. agents 表: 从 model 列迁移到 model_id + provider_id
+  const agentColumns = db.exec("PRAGMA table_info(agents)");
+  const agentColumnNames = agentColumns.length > 0
+    ? agentColumns[0].values.map(v => v[1] as string)
+    : [];
+
+  // 如果有旧的 model 列但没有 model_id，需要迁移
+  if (agentColumnNames.includes('model') && !agentColumnNames.includes('model_id')) {
+    // 添加新列
+    db.run(`ALTER TABLE agents ADD COLUMN model_id TEXT NOT NULL DEFAULT 'deepseek-chat'`);
+    db.run(`ALTER TABLE agents ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'deepseek'`);
+
+    // 迁移数据
+    db.run(`UPDATE agents SET model_id = model WHERE model IS NOT NULL`);
+
+    // 注意：SQLite 不支持 DROP COLUMN，旧 model 列保留但不再使用
   }
 
   saveDb();
