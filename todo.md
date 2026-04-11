@@ -314,25 +314,40 @@ export class ActorSystem {
 
 ## Phase 2: 日志系统 [MVP]
 
-- [ ] T010 设计日志架构（Console + File 双通道）
-- [ ] T011 定义日志级别（DEBUG/INFO/WARN/ERROR）
-- [ ] T012 配置 Loguru + 结构化 JSONL 格式
-- [ ] T013 实现 Actor 消息追踪日志
-- [ ] T014 实现 LLM 调用日志
-- [ ] T015 WebSocket 通信日志
-- [ ] T016 日志轮转配置
+- [x] T010 设计日志架构（Console + File 双通道）
+- [x] T011 定义日志级别（DEBUG/INFO/WARN/ERROR）
+- [x] T012 配置 Loguru + 结构化 JSONL 格式
+- [x] T013 实现 Actor 消息追踪日志
+- [x] T014 实现 LLM 调用日志
+- [x] T015 WebSocket 通信日志
+- [x] T016 日志轮转配置
 
 ## Phase 3: 存储层 (DAO) [MVP]
 
-- [ ] T020 SQLite 数据库初始化 (`server/storage/sqlite.ts`)
-- [ ] T021 设计数据库 schema 框架（预留扩展表）
-- [ ] T022 实现基础 DAO 基类 (`server/storage/base-dao.ts`)
-- [ ] T023 实现 Actor 状态 DAO (`server/storage/actor-dao.ts`)
-- [ ] T024 实现配置 DAO (`server/storage/config-dao.ts`)
-- [ ] T025 实现 Team 关系 DAO (`server/storage/team-dao.ts`)
-- [ ] T026 数据库迁移机制（预留）
+- [x] T020 SQLite 数据库初始化 (`server/storage/db.ts`)
+- [x] T021 设计数据库 schema 框架（预留扩展表）
+- [x] T022 实现基础 Repository 模式 (`server/storage/repositories/base.repository.ts`)
+- [x] T023 实现 Team Repository (`server/storage/repositories/team.repository.ts`)
+- [x] T024 实现 Config Repository (`server/storage/repositories/config.repository.ts`)
+- [x] T025 实现 Agent Repository (`server/storage/repositories/agent.repository.ts`)
+- [x] T026 数据库迁移机制 (`server/storage/migrations.ts`)
 
 > **说明**: 日志文件由日志系统管理，不走 DAO 层
+
+## Phase 4: 配置系统
+
+- [x] T030 设计配置系统架构
+- [x] T031 实现 ConfigService (`server/storage/config.service.ts`)
+- [x] T032 实现 AgentService (`server/storage/agent.service.ts`)
+- [x] T033 配置热加载和变更通知
+- [x] T034 预留 Agent 扩展字段 (skills, mcp, hooks)
+
+## Phase 5: 默认配置
+
+- [x] T040 App 配置 (`app.theme`, `app.language`)
+- [x] T041 Session 配置 (`session.timeout`, `session.maxHistory`, `session.autoSave`)
+- [x] T042 默认团队初始化 (`teams` 表)
+- [x] T043 默认 Agent 模型配置
 
 ## Phase 6: 状态机
 
