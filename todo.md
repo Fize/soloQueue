@@ -351,9 +351,9 @@ export class ActorSystem {
 
 ## Phase 6: 状态机
 
-- [ ] T050 创建 Agent 状态机 (`server/machines/agent-machine.ts`)
-- [ ] T051 创建 LLM 调用状态机 (`server/machines/llm-machine.ts`)
-- [ ] T052 创建任务处理状态机 (`server/machines/task-machine.ts`)
+- [x] T050 创建 Agent 状态机 (`server/machines/agent-machine.ts`)
+- [x] T051 创建 LLM 调用状态机 (`server/machines/llm-machine.ts`)
+- [x] T052 创建任务处理状态机 (`server/machines/task-machine.ts`)
 
 ## Phase 7: Actor 系统核心
 
