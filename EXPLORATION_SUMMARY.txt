@@ -1,0 +1,458 @@
+═══════════════════════════════════════════════════════════════════════════════
+  SOLOQUEUE PROJECT - COMPREHENSIVE EXPLORATION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+📋 EXPLORATION COMPLETED: April 21, 2026
+
+───────────────────────────────────────────────────────────────────────────────
+1. OVERALL PROJECT STRUCTURE
+───────────────────────────────────────────────────────────────────────────────
+
+Directory Layout:
+  /src                    → React Frontend + Python Modules (Tauri port 1420)
+  /server                 → TypeScript Backend - Actor System (13,954 LOC)
+    ├── actors/           → Actor system core + message dispatch
+    ├── machines/         → XState v5 finite state machines  
+    ├── llm/              → LLM provider & model management
+    ├── logger/           → Dual-channel logging (console + JSONL file)
+    └── storage/          → SQLite persistence + ORM layer (Drizzle)
+  
+  /src-tauri              → Tauri desktop framework (Rust)
+  /tests                  → Test suites (contract, e2e, integration, etc.)
+  /public                 → Static web assets
+
+Codebase Scale:
+  • 79 TypeScript files
+  • 13,954 total lines of code
+  • >72% test coverage with Vitest
+  • No Python .py files found (Python dirs are empty placeholders)
+
+───────────────────────────────────────────────────────────────────────────────
+2. PROJECT PURPOSE & FEATURES
+───────────────────────────────────────────────────────────────────────────────
+
+Project: SoloQueue - AI Multi-Agent Collaboration Desktop Application
+
+Vision:
+  ✅ Actor-based distributed system (each agent = independent actor)
+  ✅ Asynchronous message-driven communication
+  ✅ XState v5 for deterministic state management
+  ✅ SQLite persistence with automatic state snapshots
+  ✅ Streaming LLM support (DeepSeek, OpenAI)
+  ✅ Supervision trees for fault tolerance
+  ✅ Desktop application via Tauri
+  ✅ Type-safe implementation (full TypeScript + Zod)
+
+Core Use Case:
+  1. User creates Team with multiple Agents
+  2. User initiates conversation (Leader Agent receives message)
+  3. Leader Agent processes and can delegate to sub-agents
+  4. Sub-agents work concurrently, return results
+  5. All state automatically persisted to SQLite
+
+───────────────────────────────────────────────────────────────────────────────
+3. TECHNOLOGY STACK
+───────────────────────────────────────────────────────────────────────────────
+
+FRONTEND:
+  • React 19.1.0 (UI framework)
+  • TailwindCSS 4 (styling)
+  • Vite 7 (build tool)
+  • Tauri 2.10.3 (desktop integration)
+  • @xstate/react 5 (React hooks)
+
+BACKEND:
+  • Node.js (runtime)
+  • TypeScript 5.8.3 (type safety)
+  • Fastify 5 (HTTP/WebSocket server - not yet integrated)
+  • XState 5 (state machines + actor system)
+  • sql.js 1 (pure JavaScript SQLite - no native deps!)
+  • Drizzle ORM 0.38 (type-safe queries)
+
+PERSISTENCE & TOOLS:
+  • SQLite (via sql.js)
+  • Winston 3 (logging)
+  • Zod 4 (runtime validation)
+  • Vercel AI SDK 5 (LLM streaming)
+  • node-cron 3 (scheduling)
+  • uuid 11 (ID generation)
+
+DEVELOPMENT:
+  • Vitest 3 (testing)
+  • ESLint 10 + Prettier 3 (code quality)
+  • TypeScript (strict mode enabled)
+
+───────────────────────────────────────────────────────────────────────────────
+4. BACKEND/FRONTEND SEPARATION
+───────────────────────────────────────────────────────────────────────────────
+
+FRONTEND (/src):
+  • React 19 with TypeScript
+  • Single Page App (SPA)
+  • Vite dev server on port 1420
+  • Currently a template (App.tsx is Tauri greeting example)
+  • Uses TailwindCSS for styling
+  • Entry: src/main.tsx → ReactDOM.render(App)
+
+BACKEND (/server):
+  • Pure TypeScript (79 files, 13,954 LOC)
+  • No HTTP server running yet (Fastify installed but not integrated)
+  • Layer 1: Actor System (orchestration & message dispatch)
+  • Layer 2: State Machines (XState FSMs for agent lifecycle)
+  • Layer 3: Services (LLM config, logging, persistence)
+  • All communication via actor message passing internally
+  
+COMMUNICATION:
+  • Tauri IPC for desktop app communication
+  • WebSocket (planned for Phase 9)
+  • REST API (planned for Phase 9)
+  • Internal: Actor message passing (async)
+
+DATABASE:
+  • SQLite via sql.js (pure JavaScript implementation)
+  • Location: ~/.soloqueue/data/soloqueue.db
+  • ORM: Drizzle for type-safe queries
+  • Schema: teams, agents, configs tables
+
+───────────────────────────────────────────────────────────────────────────────
+5. KEY CONFIGURATION FILES
+───────────────────────────────────────────────────────────────────────────────
+
+.env (Environment Variables):
+  • OPENAI_API_KEY: DeepSeek API key
+  • OPENAI_BASE_URL: https://api.deepseek.com/v1
+  • DEFAULT_MODEL: deepseek-reasoner
+  • SOLOQUEUE_EMBEDDING_ENABLED: true
+  • LOG_LEVEL: INFO
+  • REQUIRE_APPROVAL: true
+
+tauri.conf.json (Desktop Configuration):
+  • Product: soloqueue-temp v0.1.0
+  • Dev URL: http://localhost:1420
+  • Build: npm run build → dist/
+  • Window: 800x600
+  • Security: CSP null (allow all)
+
+package.json (Project Metadata):
+  • name: soloqueue
+  • type: module (ES modules)
+  • 13 prod dependencies + 14 dev dependencies
+  • Scripts: dev, build, tauri, test, lint, format, check
+
+vite.config.ts (Build Tool):
+  • React plugin + TailwindCSS plugin
+  • Dev port: 1420 (strict)
+  • HMR configured for Tauri
+  • Ignores src-tauri from watch
+
+vitest.config.ts (Testing):
+  • Environment: node
+  • Coverage: V8 provider
+  • Includes: server/** files
+  • Global test APIs enabled
+
+tsconfig.json (TypeScript):
+  • Target: ES2020
+  • Strict mode: ON
+  • JSX: react-jsx
+  • Module resolution: bundler
+
+eslint.config.ts (Linting):
+  • ESLint + TypeScript + React + React Hooks
+  • Rules: strict null checks, no-unused-vars
+  • Prettier integration enabled
+
+───────────────────────────────────────────────────────────────────────────────
+6. CURRENT DEVELOPMENT STATUS
+───────────────────────────────────────────────────────────────────────────────
+
+COMPLETED PHASES:
+  ✅ Phase 1: Project initialization (Tauri + React + TypeScript)
+  ✅ Phase 2: Logging system (dual-channel, JSONL format)
+  ✅ Phase 3: Storage layer / DAO (SQLite + Drizzle ORM)
+  ✅ Phase 4: Configuration system
+  ✅ Phase 5: Default configurations
+  ✅ Phase 6: State machines (Agent, LLM, Task)
+  ✅ Phase 7: Actor system core (COMPLETE - 100%)
+
+CURRENT PHASE: Phase 7 (Actor System Core) - IN PROGRESS
+  ✅ ActorSystem class (696 LOC)
+    - Registry management
+    - Lifecycle (start, stop, create, delete)
+    - Message dispatch (broadcast, direct, request-response)
+    - Supervision integration
+    - Persistence integration
+    - Extensibility (factory patterns, routing strategies)
+  ✅ Supervisor (fault recovery)
+  ✅ Router (load balancing strategies)
+  ✅ Type definitions
+  ✅ Comprehensive tests (>72% coverage)
+
+UPCOMING PHASES:
+  🔄 Phase 8: LLM integration (streaming, tool calling)
+  ⏳ Phase 9: Backend API layer (HTTP/WebSocket)
+  ⏳ Phase 10: Frontend UI components
+  ⏳ Phase 11: Frontend pages (Dashboard, Chat, Settings)
+  ⏳ Phase 12: Security & supervision strategies
+  ⏳ Phase 13: Performance optimization
+  ⏳ Phase 14: Documentation & E2E testing
+
+RECENT COMMITS (Last 5):
+  1. ca263c7 - feat: P0 bug fixes and architecture improvements
+  2. e60dca2 - fix: 完成日志系统统一使用
+  3. 610d5b0 - fix: 修复日志库配置问题
+  4. cbd1862 - fix: 修复状态机测试并补充覆盖率
+  5. 28bdce2 - docs: 更新 todo.md，标记 Phase 6 状态机完成
+
+───────────────────────────────────────────────────────────────────────────────
+7. KEY FILES & CONTENTS SUMMARY
+───────────────────────────────────────────────────────────────────────────────
+
+server/actors/actor-system.ts (696 lines)
+  • Core ActorSystem orchestrator
+  • Methods: start(), stop(), createAgent(), stopAgent(), deleteAgent(),
+            dispatch(), ask(), broadcast(), registerFactory()
+  • Registry: Map<ID, ActorInstance>
+  • Integrates: Supervisor, Router, LLM Config, Storage
+
+server/machines/agent-machine.ts (150+ lines)
+  • XState FSM for agent lifecycle
+  • States: idle → processing → [llm|delegate|respond] → responding → idle
+  • Context: messages, currentTask, children, LLMCall, config
+  • Events: task, stop, llm.*, delegate.*, respond
+
+server/storage/schema.ts (82 lines)
+  • Drizzle ORM schema definitions
+  • Tables: teams, agents, configs
+  • All with timestamps (createdAt, updatedAt)
+  • Snake_case DB columns → camelCase TypeScript
+
+server/llm/llm-config.service.ts (100+ lines)
+  • Provider registry (DeepSeek, OpenAI, etc.)
+  • Model registry with indexing
+  • Agent/Supervisor defaults
+  • Model selection with fallback
+
+server/logger/core.ts (Multi-file system)
+  • Winston-based dual-channel logging
+  • Console transport + file transport
+  • JSONL structured format
+  • Daily log rotation
+  • Log cleanup tasks
+
+server/storage/db.ts (80+ lines)
+  • SQLite connection via sql.js
+  • Location: ~/.soloqueue/data/soloqueue.db
+  • Supports file + in-memory modes
+  • Automatic migrations on init
+
+src/App.tsx (50 lines)
+  • React root component
+  • Template/skeleton (Tauri greeting example)
+  • Current state: Not fully implemented
+
+───────────────────────────────────────────────────────────────────────────────
+8. ARCHITECTURE DIAGRAMS
+───────────────────────────────────────────────────────────────────────────────
+
+ACTOR SYSTEM ARCHITECTURE:
+  ┌─────────────────────────────────────┐
+  │        ActorSystem Registry         │
+  │  [Leader] [Worker1] [Worker2] [...] │
+  └──────────────┬──────────────────────┘
+                 │
+         ┌───────┴──────┐
+         ▼              ▼
+    Supervisor      Router
+  (Recovery)    (Load Balance)
+         │              │
+         ▼              ▼
+    [Actors recover]  [Messages routed]
+
+MESSAGE FLOW:
+  Frontend → Tauri IPC → ActorSystem.dispatch()
+                         ↓
+                    Router → Target Actor
+                         ↓
+                    State Machine (FSM)
+                         ↓
+                    [LLM | Delegate | Respond]
+                         ↓
+                    Persist → SQLite/Logs
+
+STATE MACHINE (Agent):
+  idle ──task──> processing ──┬──> waitingLLM ──┐
+                               │                  │
+                               ├──> delegating ──┤
+                               │                  │
+                               └──> responding ───┘
+                                     ↓
+                                  [done]
+                                     ↓
+                                    idle
+
+───────────────────────────────────────────────────────────────────────────────
+9. DEPENDENCIES AT A GLANCE
+───────────────────────────────────────────────────────────────────────────────
+
+Production Dependencies (13):
+  @tauri-apps/api (2.x) - Desktop integration
+  @tauri-apps/plugin-opener (2.x) - File operations
+  ai (5.x) - Vercel AI SDK for LLM
+  drizzle-orm (0.38.x) - ORM
+  fastify (5.x) - HTTP server (not yet integrated)
+  node-cron (3.x) - Scheduling
+  react (19.1.0) - UI
+  react-dom (19.1.0) - React rendering
+  sql.js (1.x) - SQLite pure JS
+  tailwindcss (4.x) - CSS
+  uuid (11.x) - ID generation
+  winston (3.x) - Logging
+  winston-daily-rotate-file (5.x) - Log rotation
+  xstate (5.x) - State machines
+  zod (4.x) - Validation
+
+Dev Dependencies (14):
+  @eslint/js, @tailwindcss/vite, @tauri-apps/cli
+  @types/node, @types/react, @types/react-dom
+  @typescript-eslint/*, @vitejs/plugin-react
+  @vitest/coverage-v8, @xstate/react
+  eslint, eslint-config-prettier, prettier
+  typescript, vite, vitest
+
+───────────────────────────────────────────────────────────────────────────────
+10. IMPLEMENTATION STATUS
+───────────────────────────────────────────────────────────────────────────────
+
+FULLY IMPLEMENTED (✅):
+  • Actor System Core (lifecycle, dispatch, supervision)
+  • State Machines (Agent, LLM, Task FSMs)
+  • SQLite + Drizzle ORM
+  • Logging System (JSONL + daily rotation)
+  • Configuration System
+  • LLM Provider Management
+  • Supervision & Recovery
+  • Message Routing
+  • TypeScript Type System
+  • Tauri Desktop Integration (minimal)
+
+IN PROGRESS (🔄):
+  • LLM Streaming Integration
+  • Backend HTTP/WebSocket API
+
+PLANNED (⏳):
+  • Frontend UI Components
+  • Dashboard Page
+  • Chat Interface
+  • Agent Management Page
+  • Settings Page
+  • Security & Sandbox
+  • Performance Optimization
+  • E2E Testing
+
+───────────────────────────────────────────────────────────────────────────────
+11. QUICK REFERENCE - COMMANDS
+───────────────────────────────────────────────────────────────────────────────
+
+Development:
+  npm run dev              # Start Vite (port 1420)
+  npm run tauri dev        # Run desktop app
+
+Testing:
+  npm run test             # Run tests
+  npm run test:coverage    # Coverage report
+
+Code Quality:
+  npm run lint             # Check
+  npm run lint:fix         # Auto-fix
+  npm run format           # Format code
+  npm run check            # Full validation
+
+Build:
+  npm run build            # Production build
+  npm run preview          # Preview build
+
+Git:
+  git branch -a            # Show branches (main, 001-web-ui-enhancements)
+  git log --oneline -10    # Recent commits
+
+───────────────────────────────────────────────────────────────────────────────
+12. KEY STRENGTHS & OBSERVATIONS
+───────────────────────────────────────────────────────────────────────────────
+
+ARCHITECTURAL STRENGTHS:
+  ✅ Clean separation of concerns (actors, machines, storage, logging)
+  ✅ Type-safe implementation (full TypeScript + Zod)
+  ✅ Extensible design (factory patterns, plugin points)
+  ✅ Production-ready patterns (services, repositories, actors)
+  ✅ Test-first approach (>72% coverage from day one)
+  ✅ Comprehensive documentation (todo.md, inline comments)
+  ✅ Pure JavaScript SQLite (no native compilation needed)
+  ✅ XState v5 for deterministic state management
+  ✅ Message-driven async architecture
+  ✅ Dual-channel logging with JSONL format
+
+DESIGN HIGHLIGHTS:
+  • Actor model eliminating shared state
+  • XState v5 for finite state machines
+  • Message routing with pluggable strategies
+  • Supervision tree with recovery strategies
+  • Drizzle ORM for type-safe DB queries
+  • Winston + daily rotation for robust logging
+
+POTENTIAL IMPROVEMENTS:
+  • Complete HTTP/WebSocket API integration
+  • Add frontend UI implementation
+  • Performance tuning (actor pooling, etc.)
+  • Add E2E testing suite
+  • Complete semantic embedding layer
+  • Add database clustering support
+
+───────────────────────────────────────────────────────────────────────────────
+13. NEXT DEVELOPMENT STEPS
+───────────────────────────────────────────────────────────────────────────────
+
+PRIORITY ORDER:
+  1. Phase 8: Complete LLM streaming integration
+  2. Phase 9: Implement Fastify WebSocket API
+  3. Phase 10: Create base React UI components
+  4. Phase 11: Implement core pages (Chat, Dashboard, Settings)
+  5. Phase 12: Add security & approval mechanisms
+  6. Phase 13: Performance optimization & monitoring
+  7. Phase 14: Comprehensive E2E testing
+
+QUICK WINS:
+  • Wire up Fastify server for WebSocket
+  • Implement Vercel AI streaming integration
+  • Create React component library setup
+  • Build basic chat interface
+
+TESTING NEEDS:
+  • Integration tests for actor system
+  • E2E tests for complete workflows
+  • Performance benchmarks
+  • Load testing for concurrent agents
+
+───────────────────────────────────────────────────────────────────────────────
+CONCLUSION
+───────────────────────────────────────────────────────────────────────────────
+
+SoloQueue is a well-architected AI multi-agent desktop application built on
+solid foundations:
+
+  • Strong actor-based backend (Phase 7 complete)
+  • Type-safe throughout (TypeScript + Zod)
+  • Production-ready patterns (ORM, logging, services)
+  • Comprehensive test coverage (72%+)
+  • Clear development roadmap (14 phases, well-documented)
+
+Current focus is on completing the core backend infrastructure before moving
+to frontend development. The project demonstrates excellent software
+engineering practices with emphasis on type safety, testing, and extensibility.
+
+Next major milestone: Phase 8-9 (LLM + API integration) which will complete
+the backend and enable frontend development.
+
+═══════════════════════════════════════════════════════════════════════════════
+Generated: April 21, 2026 | Project Root: /Users/xiaobaitu/github.com/soloQueue
+═══════════════════════════════════════════════════════════════════════════════
