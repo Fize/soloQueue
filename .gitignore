@@ -25,3 +25,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+__pycache__
+.codebuddy/*
+.soloqueue/*
+.specify/*
+.env
