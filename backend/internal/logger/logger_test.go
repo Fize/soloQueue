@@ -406,7 +406,7 @@ func TestLogError_IncludesErrField(t *testing.T) {
 	dir := t.TempDir()
 	log, _ := System(dir, WithConsole(false))
 
-	log.LogError(CatApp, "operation failed", errors.New("something went wrong"),
+	log.LogError(context.Background(), CatApp, "operation failed", errors.New("something went wrong"),
 		slog.String("op", "create"))
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
@@ -433,7 +433,7 @@ func TestLogDuration_Success(t *testing.T) {
 	dir := t.TempDir()
 	log, _ := System(dir, WithConsole(false))
 
-	err := log.LogDuration(CatApp, "timed op", func() error {
+	err := log.LogDuration(context.Background(), CatApp, "timed op", func(_ context.Context) error {
 		time.Sleep(10 * time.Millisecond)
 		return nil
 	})
@@ -458,7 +458,7 @@ func TestLogDuration_Error_RecordsBoth(t *testing.T) {
 	log, _ := System(dir, WithConsole(false))
 
 	expectedErr := errors.New("boom")
-	err := log.LogDuration(CatApp, "failing op", func() error {
+	err := log.LogDuration(context.Background(), CatApp, "failing op", func(_ context.Context) error {
 		time.Sleep(5 * time.Millisecond)
 		return expectedErr
 	})
