@@ -1,0 +1,327 @@
+// Package session 提供"对话会话"抽象，封装 agent + 历史消息
+//
+// 设计原则：
+//
+//   - 一个 Session 对应"一次独立的对话"：绑定一个 *agent.Agent，持有累积
+//     的 history（user / assistant 文本对）。
+//   - Session 的生命周期独立于网络连接：REST 显式 Create/Delete，WebSocket
+//     断开后 Session 仍活着（REST 才是 owner）。
+//   - 同一 Session 内 Ask/AskStream **串行**：上一轮未结束时新 Ask 直接返回
+//     ErrSessionBusy（避免 history 错序）。agent 本身也串行，双重保护。
+//   - SessionManager 维护 id→Session 映射；提供 idle 清理。
+//
+// tool-call 的中间消息（assistant(tool_calls) / tool(result)）**不进** history，
+// 保持"对话视角"；若需 debug tool 链路，查 tool.jsonl 日志（trace_id 串联）。
+package session
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
+)
+
+// ─── Errors ────────────────────────────────────────────────────────────────
+
+var (
+	// ErrSessionNotFound SessionManager.Get 找不到 id
+	ErrSessionNotFound = errors.New("session: not found")
+
+	// ErrSessionBusy Session 内已有 Ask 在跑，新 Ask 被拒绝
+	ErrSessionBusy = errors.New("session: busy (another Ask in flight)")
+
+	// ErrSessionClosed Session 已被 Delete / Shutdown
+	ErrSessionClosed = errors.New("session: closed")
+)
+
+// ─── Session ──────────────────────────────────────────────────────────────
+
+// Session 是一个对话会话
+type Session struct {
+	ID       string
+	TeamID   string
+	Agent    *agent.Agent
+	Created  time.Time
+
+	mu       sync.Mutex
+	history  []agent.LLMMessage
+
+	// inFlight 并发 Ask 的 CAS 锁：0 → 1 入场；失败返回 ErrSessionBusy
+	inFlight atomic.Int32
+
+	// closed 标志 Session 是否已 Delete
+	closed atomic.Bool
+
+	// lastActive 供 reaper 清理；每次 Ask 更新
+	lastActive atomic.Int64 // unix nanos
+}
+
+// NewSession 构造并启动一个 session（agent 已应 Start）
+func NewSession(id, teamID string, a *agent.Agent) *Session {
+	s := &Session{
+		ID:      id,
+		TeamID:  teamID,
+		Agent:   a,
+		Created: time.Now(),
+	}
+	s.lastActive.Store(time.Now().UnixNano())
+	return s
+}
+
+// History 返回 history 的深拷贝快照
+func (s *Session) History() []agent.LLMMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]agent.LLMMessage, len(s.history))
+	copy(out, s.history)
+	return out
+}
+
+// Ask 发送一轮 prompt，返回最终 content
+//
+// 语义（P3-1 决策）：
+//   - 同一 session 内 Ask 串行（inFlight CAS 0→1，否则 ErrSessionBusy）
+//   - 成功 / 失败时都更新 lastActive；
+//   - 成功时把 (user, prompt) 和 (assistant, final) 追加到 history；
+//     失败时 history 不追加。
+//   - ctx 取消透传到 agent；Session 不代管超时。
+func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
+	if s.closed.Load() {
+		return "", ErrSessionClosed
+	}
+	if !s.inFlight.CompareAndSwap(0, 1) {
+		return "", ErrSessionBusy
+	}
+	defer s.inFlight.Store(0)
+	defer s.touch()
+
+	reply, err := s.Agent.Ask(ctx, prompt)
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	s.history = append(s.history,
+		agent.LLMMessage{Role: "user", Content: prompt},
+		agent.LLMMessage{Role: "assistant", Content: reply},
+	)
+	s.mu.Unlock()
+	return reply, nil
+}
+
+// AskStream 流式版本；caller 必须 range 返回的通道直到关闭
+//
+// history 在收到 DoneEvent 时追加 (user, prompt) + (assistant, final)；
+// 收到 ErrorEvent 时不追加。caller 放弃 range 必须 cancel ctx。
+func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.AgentEvent, error) {
+	if s.closed.Load() {
+		return nil, ErrSessionClosed
+	}
+	if !s.inFlight.CompareAndSwap(0, 1) {
+		return nil, ErrSessionBusy
+	}
+	// 注意：inFlight 的释放由下面的 forwarder goroutine 负责
+	s.touch()
+
+	srcCh, err := s.Agent.AskStream(ctx, prompt)
+	if err != nil {
+		s.inFlight.Store(0)
+		return nil, err
+	}
+
+	out := make(chan agent.AgentEvent, 64)
+	go func() {
+		defer close(out)
+		defer s.inFlight.Store(0)
+		defer s.touch()
+
+		var finalContent string
+		var gotDone bool
+		for ev := range srcCh {
+			// re-emit first so UI can receive; history update happens on Done
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				return
+			}
+			switch e := ev.(type) {
+			case agent.DoneEvent:
+				finalContent = e.Content
+				gotDone = true
+			}
+		}
+		if gotDone {
+			s.mu.Lock()
+			s.history = append(s.history,
+				agent.LLMMessage{Role: "user", Content: prompt},
+				agent.LLMMessage{Role: "assistant", Content: finalContent},
+			)
+			s.mu.Unlock()
+		}
+	}()
+	return out, nil
+}
+
+// Close 标记 session 为 closed，阻止新 Ask；不停 agent
+//
+// SessionManager.Delete 会在调用 Close 之后主动 Stop agent。
+func (s *Session) Close() {
+	s.closed.Store(true)
+}
+
+func (s *Session) touch() {
+	s.lastActive.Store(time.Now().UnixNano())
+}
+
+// ─── SessionManager ──────────────────────────────────────────────────────
+
+// AgentFactory 给定 teamID 构造并 Start 一个新 agent
+//
+// **重要**：传入的 ctx **不应**被直接传给 agent.Start —— agent 生命周期独立于
+// 单次 Create 调用。factory 应使用 context.Background() 或 SessionManager
+// 持有的"根 ctx"（未来若有）作为 agent 的 parent ctx。
+// 这里 ctx 仅供 factory 内部短暂使用（比如网络配置加载、超时检查）。
+type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, error)
+
+// SessionManager 管理所有活跃 session
+type SessionManager struct {
+	factory  AgentFactory
+	idleTTL  time.Duration
+
+	mu       sync.RWMutex
+	sessions map[string]*Session
+	closed   atomic.Bool
+}
+
+// NewSessionManager 构造 manager；idleTTL<=0 禁用自动 reap
+func NewSessionManager(factory AgentFactory, idleTTL time.Duration) *SessionManager {
+	return &SessionManager{
+		factory:  factory,
+		idleTTL:  idleTTL,
+		sessions: make(map[string]*Session),
+	}
+}
+
+// Create 创建新 session；factory 启动 agent
+func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, error) {
+	if m.closed.Load() {
+		return nil, ErrSessionClosed
+	}
+	a, err := m.factory(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("agent factory: %w", err)
+	}
+	id := newSessionID()
+	s := NewSession(id, teamID, a)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed.Load() {
+		// race: shutdown between check and lock
+		_ = a.Stop(time.Second)
+		return nil, ErrSessionClosed
+	}
+	m.sessions[id] = s
+	return s, nil
+}
+
+// Get 按 id 查找
+func (m *SessionManager) Get(id string) (*Session, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s, ok := m.sessions[id]
+	return s, ok
+}
+
+// Delete 删除 session：Close → agent.Stop → 从 map 摘除
+func (m *SessionManager) Delete(id string, stopTimeout time.Duration) error {
+	m.mu.Lock()
+	s, ok := m.sessions[id]
+	if ok {
+		delete(m.sessions, id)
+	}
+	m.mu.Unlock()
+
+	if !ok {
+		return ErrSessionNotFound
+	}
+	s.Close()
+	return s.Agent.Stop(stopTimeout)
+}
+
+// Count 返回活跃 session 数量
+func (m *SessionManager) Count() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.sessions)
+}
+
+// ReapIdle 清理 idle 超过 idleTTL 的 session；返回清理数
+func (m *SessionManager) ReapIdle(stopTimeout time.Duration) int {
+	if m.idleTTL <= 0 {
+		return 0
+	}
+	cutoff := time.Now().Add(-m.idleTTL).UnixNano()
+	m.mu.Lock()
+	var victims []*Session
+	for id, s := range m.sessions {
+		if s.lastActive.Load() < cutoff && s.inFlight.Load() == 0 {
+			victims = append(victims, s)
+			delete(m.sessions, id)
+		}
+	}
+	m.mu.Unlock()
+
+	for _, s := range victims {
+		s.Close()
+		_ = s.Agent.Stop(stopTimeout)
+	}
+	return len(victims)
+}
+
+// ReapLoop 定期调 ReapIdle，直到 ctx 取消
+func (m *SessionManager) ReapLoop(ctx context.Context, interval, stopTimeout time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.ReapIdle(stopTimeout)
+		}
+	}
+}
+
+// Shutdown 停所有 session；阻止新 Create
+func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
+	m.closed.Store(true)
+	m.mu.Lock()
+	all := make([]*Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		all = append(all, s)
+	}
+	m.sessions = nil
+	m.mu.Unlock()
+
+	for _, s := range all {
+		s.Close()
+		_ = s.Agent.Stop(stopTimeout)
+	}
+}
+
+// newSessionID returns a 32-char hex id (16 random bytes).
+func newSessionID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return strings.ToLower(hex.EncodeToString(b[:]))
+}
