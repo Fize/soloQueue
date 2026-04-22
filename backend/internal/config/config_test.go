@@ -20,19 +20,19 @@ import (
 
 func TestMergeJSON_PartialOverride(t *testing.T) {
 	base := Settings{
-		App:     AppConfig{Theme: "dark", Language: "zh-CN"},
 		Session: SessionConfig{TimeoutSecs: 3600, MaxHistory: 1000, AutoSave: true},
+		Log:     LogConfig{Level: "info", Console: true},
 	}
-	patch := []byte(`{"app":{"theme":"light"}}`)
+	patch := []byte(`{"log":{"level":"debug"}}`)
 	result, err := MergeJSON(base, patch)
 	if err != nil {
 		t.Fatalf("MergeJSON: %v", err)
 	}
-	if result.App.Theme != "light" {
-		t.Errorf("app.theme = %q, want light", result.App.Theme)
+	if result.Log.Level != "debug" {
+		t.Errorf("log.level = %q, want debug", result.Log.Level)
 	}
-	if result.App.Language != "zh-CN" {
-		t.Errorf("app.language = %q, want zh-CN (preserved)", result.App.Language)
+	if !result.Log.Console {
+		t.Errorf("log.console = false, want true (preserved)")
 	}
 	if result.Session.TimeoutSecs != 3600 {
 		t.Errorf("session.timeoutSecs = %d, want 3600 (preserved)", result.Session.TimeoutSecs)
@@ -108,14 +108,14 @@ func TestMergeJSON_ArrayReplacement(t *testing.T) {
 }
 
 func TestMergeJSON_NullPreservesValue(t *testing.T) {
-	base := Settings{App: AppConfig{Theme: "dark"}}
-	patch := []byte(`{"app":{"theme":null}}`)
+	base := Settings{Log: LogConfig{Level: "info"}}
+	patch := []byte(`{"log":{"level":null}}`)
 	result, err := MergeJSON(base, patch)
 	if err != nil {
 		t.Fatalf("MergeJSON: %v", err)
 	}
-	if result.App.Theme != "dark" {
-		t.Errorf("null should preserve, got %q", result.App.Theme)
+	if result.Log.Level != "info" {
+		t.Errorf("null should preserve, got %q", result.Log.Level)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestMergeJSON_EmptyPatch_NoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MergeJSON: %v", err)
 	}
-	if result.App.Theme != base.App.Theme {
+	if result.Log.Level != base.Log.Level {
 		t.Errorf("empty patch should preserve defaults")
 	}
 }
@@ -139,15 +139,15 @@ func TestMergeJSON_InvalidJSON_Errors(t *testing.T) {
 }
 
 func TestMergeJSON_UnknownFields_Ignored(t *testing.T) {
-	base := Settings{App: AppConfig{Theme: "dark"}}
+	base := Settings{Log: LogConfig{Level: "info"}}
 	// 未知字段应被忽略（反序列化时丢弃）
-	patch := []byte(`{"app":{"theme":"light"},"unknownField":"xxx"}`)
+	patch := []byte(`{"log":{"level":"debug"},"unknownField":"xxx"}`)
 	result, err := MergeJSON(base, patch)
 	if err != nil {
 		t.Fatalf("MergeJSON: %v", err)
 	}
-	if result.App.Theme != "light" {
-		t.Errorf("theme = %q, want light", result.App.Theme)
+	if result.Log.Level != "debug" {
+		t.Errorf("level = %q, want debug", result.Log.Level)
 	}
 }
 
@@ -186,26 +186,26 @@ func TestLoader_Load_NoFile_UsesDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	got := loader.Get()
-	if got.App.Theme != "dark" {
-		t.Errorf("app.theme = %q, want dark", got.App.Theme)
+	if got.Log.Level != "info" {
+		t.Errorf("log.level = %q, want info", got.Log.Level)
 	}
 }
 
 func TestLoader_Load_FromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	writeJSON(t, path, map[string]any{"app": map[string]any{"theme": "light"}})
+	writeJSON(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
 
 	loader, _ := NewLoader(DefaultSettings(), path)
 	if err := loader.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	got := loader.Get()
-	if got.App.Theme != "light" {
-		t.Errorf("theme = %q, want light", got.App.Theme)
+	if got.Log.Level != "debug" {
+		t.Errorf("level = %q, want debug", got.Log.Level)
 	}
-	if got.App.Language != "zh-CN" {
-		t.Errorf("language should be preserved from defaults")
+	if !got.Log.Console {
+		t.Errorf("log.console should be preserved from defaults (true)")
 	}
 }
 
@@ -251,8 +251,8 @@ func TestLoader_Load_MultiLayer(t *testing.T) {
 	main := filepath.Join(dir, "settings.json")
 	local := filepath.Join(dir, "settings.local.json")
 
-	writeJSON(t, main, map[string]any{"app": map[string]any{"theme": "light"}})
-	writeJSON(t, local, map[string]any{"app": map[string]any{"language": "en-US"}})
+	writeJSON(t, main, map[string]any{"log": map[string]any{"level": "debug"}})
+	writeJSON(t, local, map[string]any{"log": map[string]any{"maxDays": 7}})
 
 	loader, _ := NewLoader(DefaultSettings(), main, local)
 	if err := loader.Load(); err != nil {
@@ -260,11 +260,11 @@ func TestLoader_Load_MultiLayer(t *testing.T) {
 	}
 
 	got := loader.Get()
-	if got.App.Theme != "light" {
-		t.Errorf("theme = %q, want light (from main)", got.App.Theme)
+	if got.Log.Level != "debug" {
+		t.Errorf("level = %q, want debug (from main)", got.Log.Level)
 	}
-	if got.App.Language != "en-US" {
-		t.Errorf("language = %q, want en-US (from local)", got.App.Language)
+	if got.Log.MaxDays != 7 {
+		t.Errorf("maxDays = %d, want 7 (from local)", got.Log.MaxDays)
 	}
 }
 
@@ -273,14 +273,14 @@ func TestLoader_Load_LocalOverridesMain(t *testing.T) {
 	main := filepath.Join(dir, "settings.json")
 	local := filepath.Join(dir, "settings.local.json")
 
-	writeJSON(t, main, map[string]any{"app": map[string]any{"theme": "light"}})
-	writeJSON(t, local, map[string]any{"app": map[string]any{"theme": "dark"}})
+	writeJSON(t, main, map[string]any{"log": map[string]any{"level": "debug"}})
+	writeJSON(t, local, map[string]any{"log": map[string]any{"level": "warn"}})
 
 	loader, _ := NewLoader(DefaultSettings(), main, local)
 	_ = loader.Load()
 
-	if loader.Get().App.Theme != "dark" {
-		t.Errorf("local should override main, got %q", loader.Get().App.Theme)
+	if loader.Get().Log.Level != "warn" {
+		t.Errorf("local should override main, got %q", loader.Get().Log.Level)
 	}
 }
 
@@ -288,14 +288,14 @@ func TestLoader_Load_MissingLocalFile_OK(t *testing.T) {
 	dir := t.TempDir()
 	main := filepath.Join(dir, "settings.json")
 	local := filepath.Join(dir, "settings.local.json")
-	writeJSON(t, main, map[string]any{"app": map[string]any{"theme": "light"}})
+	writeJSON(t, main, map[string]any{"log": map[string]any{"level": "debug"}})
 
 	loader, _ := NewLoader(DefaultSettings(), main, local)
 	if err := loader.Load(); err != nil {
 		t.Fatalf("missing local should not error, got: %v", err)
 	}
-	if loader.Get().App.Theme != "light" {
-		t.Errorf("main theme not applied")
+	if loader.Get().Log.Level != "debug" {
+		t.Errorf("main level not applied")
 	}
 }
 
@@ -307,7 +307,7 @@ func TestLoader_Set_WritesFile(t *testing.T) {
 	loader, _ := NewLoader(DefaultSettings(), path)
 	_ = loader.Load()
 
-	if err := loader.Set(func(s *Settings) { s.App.Theme = "light" }); err != nil {
+	if err := loader.Set(func(s *Settings) { s.Log.Level = "debug" }); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -317,8 +317,8 @@ func TestLoader_Set_WritesFile(t *testing.T) {
 	}
 	var saved Settings
 	_ = json.Unmarshal(data, &saved)
-	if saved.App.Theme != "light" {
-		t.Errorf("saved theme = %q", saved.App.Theme)
+	if saved.Log.Level != "debug" {
+		t.Errorf("saved level = %q", saved.Log.Level)
 	}
 }
 
@@ -328,7 +328,7 @@ func TestLoader_Set_AtomicWrite_NoTmpLeftBehind(t *testing.T) {
 	loader, _ := NewLoader(DefaultSettings(), path)
 	_ = loader.Load()
 
-	_ = loader.Set(func(s *Settings) { s.App.Theme = "light" })
+	_ = loader.Set(func(s *Settings) { s.Log.Level = "debug" })
 
 	tmp := path + ".tmp"
 	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
@@ -359,17 +359,17 @@ func TestLoader_Set_WriteFails_RollsBack(t *testing.T) {
 	loader, _ := NewLoader(DefaultSettings(), path)
 	_ = loader.Load()
 
-	originalTheme := loader.Get().App.Theme
+	originalLevel := loader.Get().Log.Level
 
-	err := loader.Set(func(s *Settings) { s.App.Theme = "light" })
+	err := loader.Set(func(s *Settings) { s.Log.Level = "debug" })
 	if err == nil {
 		t.Fatal("Set should fail in readonly dir")
 	}
 
 	// current 应已回滚
-	if loader.Get().App.Theme != originalTheme {
+	if loader.Get().Log.Level != originalLevel {
 		t.Errorf("after failed Set, current = %q, want %q (rollback)",
-			loader.Get().App.Theme, originalTheme)
+			loader.Get().Log.Level, originalLevel)
 	}
 }
 
@@ -403,9 +403,9 @@ func TestLoader_Save_Atomic_OverridesExistingTmp(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// 主文件是新内容
+	// 主文件是新内容（包含默认 log level "info"）
 	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), "dark") {
+	if !strings.Contains(string(data), `"level": "info"`) {
 		t.Errorf("main file should have new content, got: %s", data)
 	}
 	// .tmp 被成功 rename，不应残留
@@ -434,26 +434,26 @@ func TestLoader_OnChange_CalledOnLoad(t *testing.T) {
 	var received []string
 	loader.OnChange(func(old, new Settings) {
 		mu.Lock()
-		received = append(received, new.App.Theme)
+		received = append(received, new.Log.Level)
 		mu.Unlock()
 	})
 
-	writeJSON(t, path, map[string]any{"app": map[string]any{"theme": "light"}})
+	writeJSON(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
 	_ = loader.Load()
 
 	mu.Lock()
 	got := len(received)
-	var theme string
+	var level string
 	if got > 0 {
-		theme = received[0]
+		level = received[0]
 	}
 	mu.Unlock()
 
 	if got == 0 {
 		t.Fatal("OnChange not called")
 	}
-	if theme != "light" {
-		t.Errorf("received theme = %q, want light", theme)
+	if level != "debug" {
+		t.Errorf("received level = %q, want debug", level)
 	}
 }
 
@@ -471,7 +471,7 @@ func TestLoader_OnChange_MultipleCallbacks_AllInvoked(t *testing.T) {
 		})
 	}
 
-	_ = loader.Set(func(s *Settings) { s.App.Theme = "light" })
+	_ = loader.Set(func(s *Settings) { s.Log.Level = "debug" })
 
 	for i, c := range counts {
 		if atomic.LoadInt32(&c) != 1 {
@@ -491,13 +491,13 @@ func TestLoader_OnChange_CallbackCanCallGet_NoDeadlock(t *testing.T) {
 		done <- loader.Get()
 	})
 
-	writeJSON(t, path, map[string]any{"app": map[string]any{"theme": "light"}})
+	writeJSON(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
 	_ = loader.Load()
 
 	select {
 	case s := <-done:
-		if s.App.Theme != "light" {
-			t.Errorf("Get from callback returned theme = %q", s.App.Theme)
+		if s.Log.Level != "debug" {
+			t.Errorf("Get from callback returned level = %q", s.Log.Level)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("deadlock: callback calling Get() timed out")
@@ -516,7 +516,7 @@ func TestLoader_OnChange_CallbackCanCallSet_NoDeadlock(t *testing.T) {
 	loader.OnChange(func(old, new Settings) {
 		// 回调内部调用 Set（会再次触发 OnChange，用计数保护避免无限递归）
 		if atomic.AddInt32(&callCount, 1) == 1 {
-			_ = loader.Set(func(s *Settings) { s.App.Language = "en-US" })
+			_ = loader.Set(func(s *Settings) { s.Log.MaxDays = 7 })
 			select {
 			case done <- struct{}{}:
 			default:
@@ -524,7 +524,7 @@ func TestLoader_OnChange_CallbackCanCallSet_NoDeadlock(t *testing.T) {
 		}
 	})
 
-	_ = loader.Set(func(s *Settings) { s.App.Theme = "light" })
+	_ = loader.Set(func(s *Settings) { s.Log.Level = "debug" })
 
 	select {
 	case <-done:
@@ -586,15 +586,15 @@ func TestLoader_Watch_HotReload_OnWrite(t *testing.T) {
 
 	ch := make(chan string, 10)
 	loader.OnChange(func(old, new Settings) {
-		ch <- new.App.Theme
+		ch <- new.Log.Level
 	})
 
-	writeJSON(t, path, map[string]any{"app": map[string]any{"theme": "light"}})
+	writeJSON(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
 
 	select {
-	case theme := <-ch:
-		if theme != "light" {
-			t.Errorf("hot reload theme = %q, want light", theme)
+	case level := <-ch:
+		if level != "debug" {
+			t.Errorf("hot reload level = %q, want debug", level)
 		}
 	case <-time.After(1500 * time.Millisecond):
 		t.Fatal("Watch didn't fire within 1.5s")
@@ -620,7 +620,7 @@ func TestLoader_Watch_Debounce_CoalescesRapidWrites(t *testing.T) {
 
 	// 在 150ms 内快速写 5 次
 	for i := 0; i < 5; i++ {
-		writeJSON(t, path, map[string]any{"app": map[string]any{"theme": "light"}})
+		writeJSON(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
 		time.Sleep(30 * time.Millisecond)
 	}
 
@@ -651,12 +651,12 @@ func TestLoader_Watch_DetectsRenameCreate(t *testing.T) {
 
 	ch := make(chan string, 2)
 	loader.OnChange(func(old, new Settings) {
-		ch <- new.App.Theme
+		ch <- new.Log.Level
 	})
 
 	// 模拟 rename 保存
 	tmp := filepath.Join(dir, "settings.json.editor-tmp")
-	data, _ := json.Marshal(map[string]any{"app": map[string]any{"theme": "light"}})
+	data, _ := json.Marshal(map[string]any{"log": map[string]any{"level": "debug"}})
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		t.Fatalf("write tmp: %v", err)
 	}
@@ -665,9 +665,9 @@ func TestLoader_Watch_DetectsRenameCreate(t *testing.T) {
 	}
 
 	select {
-	case theme := <-ch:
-		if theme != "light" {
-			t.Errorf("theme = %q, want light", theme)
+	case level := <-ch:
+		if level != "debug" {
+			t.Errorf("level = %q, want debug", level)
 		}
 	case <-time.After(1500 * time.Millisecond):
 		t.Fatal("rename event not detected within 1.5s")
@@ -718,7 +718,7 @@ func TestLoader_ConcurrentGet(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			s := loader.Get()
-			_ = s.App.Theme
+			_ = s.Log.Level
 		}()
 	}
 	wg.Wait()
@@ -749,7 +749,7 @@ func TestLoader_ConcurrentGetAndSet(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
 				_ = loader.Set(func(s *Settings) {
-					s.App.Language = "en-US"
+					s.Log.MaxDays = 14
 				})
 			}
 		}(i)
@@ -760,7 +760,7 @@ func TestLoader_ConcurrentGetAndSet(t *testing.T) {
 func TestLoader_ConcurrentLoadAndGet(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	writeJSON(t, path, map[string]any{"app": map[string]any{"theme": "light"}})
+	writeJSON(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
 	loader, _ := NewLoader(DefaultSettings(), path)
 
 	var wg sync.WaitGroup
@@ -1018,13 +1018,13 @@ func TestGlobalService_Set_Persists(t *testing.T) {
 func TestGlobalService_LocalOverride(t *testing.T) {
 	dir := t.TempDir()
 	writeJSON(t, filepath.Join(dir, "settings.local.json"),
-		map[string]any{"app": map[string]any{"theme": "light"}})
+		map[string]any{"log": map[string]any{"level": "debug"}})
 
 	svc, _ := New(dir)
 	_ = svc.Load()
 
-	if svc.Get().App.Theme != "light" {
-		t.Errorf("local override not applied, got %q", svc.Get().App.Theme)
+	if svc.Get().Log.Level != "debug" {
+		t.Errorf("local override not applied, got %q", svc.Get().Log.Level)
 	}
 }
 
@@ -1075,13 +1075,13 @@ func TestGlobalService_EmbedsLoader(t *testing.T) {
 		t.Fatalf("Load (via embed): %v", err)
 	}
 	settings := svc.Get()
-	if settings.App.Theme != "dark" {
-		t.Errorf("embedded Get().App.Theme = %q, want dark", settings.App.Theme)
+	if settings.Log.Level != "info" {
+		t.Errorf("embedded Get().Log.Level = %q, want info", settings.Log.Level)
 	}
-	if err := svc.Set(func(s *Settings) { s.App.Theme = "light" }); err != nil {
+	if err := svc.Set(func(s *Settings) { s.Log.Level = "debug" }); err != nil {
 		t.Fatalf("Set (via embed): %v", err)
 	}
-	if svc.Get().App.Theme != "light" {
+	if svc.Get().Log.Level != "debug" {
 		t.Error("Set via embed did not persist in-memory")
 	}
 	if err := svc.Save(); err != nil {
@@ -1172,14 +1172,14 @@ func TestLoader_OnChange_Unregister(t *testing.T) {
 	})
 
 	// 第一次 Load 触发一次
-	_ = loader.Set(func(s *Settings) { s.App.Theme = "light" })
+	_ = loader.Set(func(s *Settings) { s.Log.Level = "debug" })
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Errorf("before cancel: count = %d, want 1", got)
 	}
 
 	// 取消后不再触发
 	cancel()
-	_ = loader.Set(func(s *Settings) { s.App.Theme = "dark" })
+	_ = loader.Set(func(s *Settings) { s.Log.Level = "warn" })
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Errorf("after cancel: count = %d, want still 1", got)
 	}
@@ -1236,7 +1236,7 @@ func TestLoader_OnChange_UnregisterConcurrent(t *testing.T) {
 	// 验证所有回调都被清除
 	var called int32
 	loader.OnChange(func(old, new Settings) { atomic.AddInt32(&called, 1) })
-	_ = loader.Set(func(s *Settings) { s.App.Theme = "light" })
+	_ = loader.Set(func(s *Settings) { s.Log.Level = "debug" })
 	if got := atomic.LoadInt32(&called); got != 1 {
 		t.Errorf("after unregistering all 100, only newly-added callback should fire; got %d", got)
 	}

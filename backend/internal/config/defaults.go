@@ -4,10 +4,6 @@ package config
 // 对应 TypeScript 端 seeds.ts 中的 DEFAULT_CONFIGS 和 DEFAULT_LLM_CONFIGS
 func DefaultSettings() Settings {
 	return Settings{
-		App: AppConfig{
-			Theme:    "dark",
-			Language: "zh-CN",
-		},
 		Session: SessionConfig{
 			TimeoutSecs: 3600,
 			MaxHistory:  1000,
@@ -19,6 +15,30 @@ func DefaultSettings() Settings {
 			File:          true,
 			MaxDays:       30,
 			MaxFileSizeMB: 50,
+		},
+		Tools: ToolsConfig{
+			// AllowedDirs 默认空：serveCmd 启动时注入 workDir/cwd
+			MaxFileSize:        1 << 20,  // 1 MiB
+			MaxMatches:         100,
+			MaxLineLen:         500,
+			MaxGlobItems:       1000,
+			MaxWriteSize:       1 << 20,  // 1 MiB
+			MaxMultiWriteBytes: 10 << 20, // 10 MiB
+			MaxMultiWriteFiles: 50,
+			MaxReplaceEdits:    50,
+
+			HTTPMaxBody:      5 << 20, // 5 MiB
+			HTTPTimeoutMs:    10000,
+			HTTPBlockPrivate: true,
+
+			// ShellAllowRegexes 默认空 = 拒绝所有命令；
+			// 使用者必须显式在 settings.json 启用特定命令（安全默认）
+			ShellTimeoutMs: 30000,
+			ShellMaxOutput: 256 << 10,
+
+			TavilyAPIKeyEnv: "TAVILY_API_KEY",
+			TavilyEndpoint:  "https://api.tavily.com/search",
+			TavilyTimeoutMs: 15000,
 		},
 		Providers: []LLMProvider{
 			{
