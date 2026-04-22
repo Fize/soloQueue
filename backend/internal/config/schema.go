@@ -4,20 +4,17 @@ package config
 
 // Settings 是全局配置的完整结构体
 // 对应 ~/.soloqueue/settings.json
+//
+// 注意：UI 专属状态（theme / language 等）由前端自行持久化（localStorage /
+// Tauri Store），不进 backend settings.json —— backend 不做 i18n，日志
+// 统一英文输出，没必要帮前端代管存储。
 type Settings struct {
-	App       AppConfig       `json:"app"`
 	Session   SessionConfig   `json:"session"`
 	Log       LogConfig       `json:"log"`
+	Tools     ToolsConfig     `json:"tools"`
 	Providers []LLMProvider   `json:"providers"`
 	Models    []LLMModel      `json:"models"`
 	Embedding EmbeddingConfig `json:"embedding"`
-}
-
-// ─── App ──────────────────────────────────────────────────────────────────────
-
-type AppConfig struct {
-	Theme    string `json:"theme"`    // "dark" | "light"
-	Language string `json:"language"` // "zh-CN" | "en-US"
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -36,6 +33,48 @@ type LogConfig struct {
 	File          bool   `json:"file"`
 	MaxDays       int    `json:"maxDays"`
 	MaxFileSizeMB int    `json:"maxFileSizeMB"`
+}
+
+// ─── Tools ────────────────────────────────────────────────────────────────────
+
+// ToolsConfig 是 agent 内置工具的运行时配置
+//
+// 文件系统上限 / 写入上限 / 外部工具（http / shell / Tavily）的策略都在这里。
+// main.go 会用这些字段构造 internal/tools.Config 并调用 tools.Build(cfg)。
+type ToolsConfig struct {
+	// AllowedDirs 沙箱白名单（empty = 禁止所有文件操作）
+	AllowedDirs []string `json:"allowedDirs"`
+
+	// 读类限制（0 = 使用编译内置默认）
+	MaxFileSize  int64 `json:"maxFileSize"`
+	MaxMatches   int   `json:"maxMatches"`
+	MaxLineLen   int   `json:"maxLineLen"`
+	MaxGlobItems int   `json:"maxGlobItems"`
+
+	// 写类限制
+	MaxWriteSize       int64 `json:"maxWriteSize"`
+	MaxMultiWriteBytes int64 `json:"maxMultiWriteBytes"`
+	MaxMultiWriteFiles int   `json:"maxMultiWriteFiles"`
+	MaxReplaceEdits    int   `json:"maxReplaceEdits"`
+
+	// http_fetch
+	HTTPAllowedHosts []string `json:"httpAllowedHosts,omitempty"`
+	HTTPMaxBody      int64    `json:"httpMaxBody"`
+	HTTPTimeoutMs    int      `json:"httpTimeoutMs"`
+	HTTPBlockPrivate bool     `json:"httpBlockPrivate"`
+
+	// shell_exec
+	ShellAllowRegexes []string `json:"shellAllowRegexes"`
+	ShellTimeoutMs    int      `json:"shellTimeoutMs"`
+	ShellMaxOutput    int64    `json:"shellMaxOutput"`
+
+	// web_search (Tavily)
+	//
+	// TavilyAPIKeyEnv 指定读哪个环境变量的值作为 API key（与 provider 对齐）；
+	// 空 env 或 env 为空值 → Build 跳过 web_search 注册
+	TavilyAPIKeyEnv string `json:"tavilyApiKeyEnv"`
+	TavilyEndpoint  string `json:"tavilyEndpoint"`
+	TavilyTimeoutMs int    `json:"tavilyTimeoutMs"`
 }
 
 // ─── LLM Provider ─────────────────────────────────────────────────────────────
