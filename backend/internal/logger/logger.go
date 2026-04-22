@@ -177,24 +177,29 @@ func (l *Logger) ErrorContext(ctx context.Context, cat Category, msg string, arg
 }
 
 // LogError 记录 error 级别日志，自动将 err 序列化到 "err" 字段
-func (l *Logger) LogError(cat Category, msg string, err error, args ...any) {
+//
+// 接受 ctx，从中自动提取 trace_id / actor_id 等标准字段。
+func (l *Logger) LogError(ctx context.Context, cat Category, msg string, err error, args ...any) {
 	errAttr := slog.Any("err", map[string]string{
 		"message": err.Error(),
 	})
 	allArgs := append([]any{errAttr}, args...)
-	l.logCtx(context.Background(), slog.LevelError, cat, msg, allArgs...)
+	l.logCtx(ctx, slog.LevelError, cat, msg, allArgs...)
 }
 
 // LogDuration 执行 fn 并记录耗时到 "duration_ms" 字段
-func (l *Logger) LogDuration(cat Category, msg string, fn func() error) error {
+//
+// 接受 ctx，会传给 fn 并用于日志（从中提取 trace_id / actor_id）。
+// 成功时写 info 级日志；失败时写 error 级日志（含 err 字段）。
+func (l *Logger) LogDuration(ctx context.Context, cat Category, msg string, fn func(ctx context.Context) error) error {
 	start := time.Now()
-	err := fn()
+	err := fn(ctx)
 	ms := time.Since(start).Milliseconds()
 
 	if err != nil {
-		l.LogError(cat, msg, err, slog.Int64("duration_ms", ms))
+		l.LogError(ctx, cat, msg, err, slog.Int64("duration_ms", ms))
 	} else {
-		l.logCtx(context.Background(), slog.LevelInfo, cat, msg, slog.Int64("duration_ms", ms))
+		l.logCtx(ctx, slog.LevelInfo, cat, msg, slog.Int64("duration_ms", ms))
 	}
 	return err
 }
