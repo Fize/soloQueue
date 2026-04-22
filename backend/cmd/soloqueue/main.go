@@ -1,15 +1,28 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/server"
+	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 const version = "0.1.0"
@@ -121,10 +134,131 @@ func serveCmd() *cobra.Command {
 				"version", version,
 			)
 
-			// TODO: 启动 Fastify/HTTP 服务器（后续 Phase 实现）
-			fmt.Printf("soloqueue serve listening on %s:%d\n", host, port)
-			fmt.Println("(server not yet implemented)")
+			settings := cfg.Get()
 
+			// ── Tools：沙箱根目录默认落在 workDir + CWD；用户在 settings.json
+			// 通过 tools.allowedDirs 追加 ────────────────────────────────────
+			cwd, _ := os.Getwd()
+			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
+			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
+			toolList := tools.Build(toolsCfg)
+
+			// ── LLM 工厂：从 default provider + default model 构造 DeepSeek
+			//    客户端（目前仅 DeepSeek；未来可按 Provider.ID 分派）─────────
+			provider := cfg.DefaultProvider()
+			if provider == nil {
+				return errors.New("no default provider configured")
+			}
+			defaultModel := cfg.DefaultModel("")
+			if defaultModel == nil {
+				return errors.New("no default model configured")
+			}
+			apiKey := os.Getenv(provider.APIKeyEnv)
+			if apiKey == "" {
+				log.Warn(logger.CatApp, "LLM API key not set in env",
+					"env", provider.APIKeyEnv,
+				)
+			}
+
+			llmClient, err := deepseek.NewClient(deepseek.Config{
+				BaseURL:   provider.BaseURL,
+				APIKey:    apiKey,
+				Headers:   provider.Headers,
+				TimeoutMs: provider.TimeoutMs,
+				Retry: llm.RetryPolicy{
+					MaxRetries:   provider.Retry.MaxRetries,
+					InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
+					MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
+					Multiplier:   provider.Retry.BackoffMultiplier,
+				},
+				Log: log,
+			})
+			if err != nil {
+				return fmt.Errorf("build deepseek client: %w", err)
+			}
+
+			// ── Agent factory ───────────────────────────────────────────────
+			factory := func(ctx context.Context, teamID string) (*agent.Agent, error) {
+				agentID := newAgentID()
+				def := agent.Definition{
+					ID:            agentID,
+					TeamID:        teamID,
+					Kind:          agent.KindChat,
+					ModelID:       defaultModel.ID,
+					Temperature:   defaultModel.Generation.Temperature,
+					MaxTokens:     defaultModel.Generation.MaxTokens,
+					MaxIterations: 10,
+				}
+
+				// agent 使用 session-layer logger（CatActor / CatLLM / CatTool）
+				// teamID 可为空（demo 场景）；Session 层要求非空 id，退化到 "default"
+				effectiveTeam := teamID
+				if effectiveTeam == "" {
+					effectiveTeam = "default"
+				}
+				sessLog, err := logger.Session(workDir, effectiveTeam, agentID,
+					logger.WithLevel(parseLogLevel(settings.Log.Level)),
+					logger.WithConsole(settings.Log.Console),
+					logger.WithFile(settings.Log.File),
+				)
+				if err != nil {
+					log.Error(logger.CatApp, "failed to build session logger; falling back to system log",
+						"err", err,
+					)
+					sessLog = log // fallback
+				}
+
+				a := agent.NewAgent(def, llmClient, sessLog,
+					agent.WithTools(toolList...),
+					agent.WithParallelTools(true),
+					agent.WithToolTimeout("shell_exec", 30*time.Second),
+					agent.WithToolTimeout("http_fetch", 10*time.Second),
+					agent.WithToolTimeout("web_search", 15*time.Second),
+				)
+				// agent 生命周期由 SessionManager 管理，parent 用 Background
+				if err := a.Start(context.Background()); err != nil {
+					return nil, err
+				}
+				return a, nil
+			}
+
+			// ── Session manager + reap loop ─────────────────────────────────
+			mgr := session.NewSessionManager(factory, 30*time.Minute)
+
+			// 根 ctx + SIGINT/SIGTERM 处理
+			rootCtx, stop := signal.NotifyContext(context.Background(),
+				os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
+
+			// ── HTTP server ─────────────────────────────────────────────────
+			mux := server.NewMux(mgr, log)
+			srv := &http.Server{
+				Addr:    fmt.Sprintf("%s:%d", host, port),
+				Handler: mux,
+			}
+
+			// Graceful shutdown
+			go func() {
+				<-rootCtx.Done()
+				log.Info(logger.CatApp, "shutdown signal received")
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = srv.Shutdown(shutdownCtx)
+				mgr.Shutdown(5 * time.Second)
+			}()
+
+			log.Info(logger.CatApp, "server listening",
+				"addr", srv.Addr,
+				"tools", len(toolList),
+			)
+			fmt.Printf("soloqueue serve listening on %s:%d\n", host, port)
+
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("http listen: %w", err)
+			}
+			log.Info(logger.CatApp, "soloqueue serve stopped")
 			return nil
 		},
 	}
@@ -133,6 +267,74 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
 
 	return cmd
+}
+
+// toolsConfigFromSettings 把 settings.ToolsConfig 转换为 tools.Config
+//
+// 关键转换：
+//   - allowedDirs 由 caller 拼接（workDir + cwd + settings）后传入
+//   - *Ms 字段 → time.Duration
+//   - TavilyAPIKeyEnv → os.Getenv（为空时 Build 跳过 web_search）
+func toolsConfigFromSettings(s config.ToolsConfig, allowedDirs []string) tools.Config {
+	tavilyKey := ""
+	if s.TavilyAPIKeyEnv != "" {
+		tavilyKey = os.Getenv(s.TavilyAPIKeyEnv)
+	}
+	return tools.Config{
+		AllowedDirs:        allowedDirs,
+		MaxFileSize:        defaultInt64(s.MaxFileSize, 1<<20),
+		MaxMatches:         defaultInt(s.MaxMatches, 100),
+		MaxLineLen:         defaultInt(s.MaxLineLen, 500),
+		MaxGlobItems:       defaultInt(s.MaxGlobItems, 1000),
+		MaxWriteSize:       defaultInt64(s.MaxWriteSize, 1<<20),
+		MaxMultiWriteBytes: defaultInt64(s.MaxMultiWriteBytes, 10<<20),
+		MaxMultiWriteFiles: defaultInt(s.MaxMultiWriteFiles, 50),
+		MaxReplaceEdits:    defaultInt(s.MaxReplaceEdits, 50),
+
+		HTTPAllowedHosts: s.HTTPAllowedHosts,
+		HTTPMaxBody:      defaultInt64(s.HTTPMaxBody, 5<<20),
+		HTTPTimeout:      msToDuration(s.HTTPTimeoutMs, 10*time.Second),
+		HTTPBlockPrivate: s.HTTPBlockPrivate,
+
+		ShellAllowRegexes: s.ShellAllowRegexes,
+		ShellTimeout:      msToDuration(s.ShellTimeoutMs, 30*time.Second),
+		ShellMaxOutput:    defaultInt64(s.ShellMaxOutput, 256<<10),
+
+		TavilyAPIKey:   tavilyKey,
+		TavilyEndpoint: defaultString(s.TavilyEndpoint, "https://api.tavily.com/search"),
+		TavilyTimeout:  msToDuration(s.TavilyTimeoutMs, 15*time.Second),
+	}
+}
+
+func defaultInt(v, def int) int {
+	if v <= 0 {
+		return def
+	}
+	return v
+}
+func defaultInt64(v, def int64) int64 {
+	if v <= 0 {
+		return def
+	}
+	return v
+}
+func defaultString(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+func msToDuration(ms int, def time.Duration) time.Duration {
+	if ms <= 0 {
+		return def
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// newAgentID returns a short random ID for an agent instance
+func newAgentID() string {
+	// timestamp + short random suffix (good enough for local dev)
+	return fmt.Sprintf("agent-%d", time.Now().UnixNano())
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
