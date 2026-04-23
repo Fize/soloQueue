@@ -64,9 +64,10 @@ type ToolsConfig struct {
 	HTTPBlockPrivate bool     `json:"httpBlockPrivate"`
 
 	// shell_exec
-	ShellAllowRegexes []string `json:"shellAllowRegexes"`
-	ShellTimeoutMs    int      `json:"shellTimeoutMs"`
-	ShellMaxOutput    int64    `json:"shellMaxOutput"`
+	ShellBlockRegexes   []string `json:"shellBlockRegexes"`
+	ShellConfirmRegexes []string `json:"shellConfirmRegexes"`
+	ShellTimeoutMs      int      `json:"shellTimeoutMs"`
+	ShellMaxOutput      int64    `json:"shellMaxOutput"`
 
 	// web_search (Tavily)
 	//
