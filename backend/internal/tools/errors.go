@@ -56,8 +56,11 @@ var (
 	// ErrSchemeNotAllowed http_fetch 的 scheme 不是 http/https
 	ErrSchemeNotAllowed = errors.New("tools: scheme not allowed")
 
-	// ErrCommandNotAllowed shell_exec 的 command 未匹配白名单
+	// ErrCommandNotAllowed shell_exec 的 command 未匹配白名单（已废弃，保留兼容）
 	ErrCommandNotAllowed = errors.New("tools: command not allowed")
+
+	// ErrCommandBlocked shell_exec 的 command 命中黑名单
+	ErrCommandBlocked = errors.New("tools: command blocked by security policy")
 
 	// ErrTavilyDisabled web_search 的 APIKey 未配置
 	ErrTavilyDisabled = errors.New("tools: web_search disabled (APIKey empty)")

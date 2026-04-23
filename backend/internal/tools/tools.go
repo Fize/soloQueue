@@ -92,8 +92,11 @@ type Config struct {
 
 	// ── shell_exec ────────────────────────────────────────────────
 
-	// ShellAllowRegexes 命令白名单正则（命令必须匹配其中之一）
-	ShellAllowRegexes []string
+	// ShellBlockRegexes 命令黑名单正则（命中即拒绝）
+	ShellBlockRegexes []string
+
+	// ShellConfirmRegexes 命令确认名单正则（命中后需用户确认）
+	ShellConfirmRegexes []string
 
 	// ShellTimeout 子进程超时
 	ShellTimeout time.Duration

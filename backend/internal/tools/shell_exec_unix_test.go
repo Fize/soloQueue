@@ -8,20 +8,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
-func mkShellTool(t *testing.T, allow []string, timeout time.Duration, maxOut int64) *shellExecTool {
+func mkShellTool(t *testing.T, confirm []string, timeout time.Duration, maxOut int64) *shellExecTool {
 	t.Helper()
 	cfg := Config{
-		ShellAllowRegexes: allow,
-		ShellTimeout:      timeout,
-		ShellMaxOutput:    maxOut,
+		ShellConfirmRegexes: confirm,
+		ShellTimeout:        timeout,
+		ShellMaxOutput:      maxOut,
 	}
 	return newShellExecTool(cfg)
 }
 
 func TestShell_HappyEcho(t *testing.T) {
-	tool := mkShellTool(t, []string{`^echo\s`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "echo ok"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -38,7 +40,7 @@ func TestShell_HappyEcho(t *testing.T) {
 }
 
 func TestShell_NonZeroExit(t *testing.T) {
-	tool := mkShellTool(t, []string{`^exit\s`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "exit 7"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -52,7 +54,7 @@ func TestShell_NonZeroExit(t *testing.T) {
 }
 
 func TestShell_Stderr(t *testing.T) {
-	tool := mkShellTool(t, []string{`^echo .+>&2$`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: `echo err>&2`})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -65,26 +67,19 @@ func TestShell_Stderr(t *testing.T) {
 	}
 }
 
-func TestShell_Whitelist_EmptyListRejectsAll(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
-	raw, _ := json.Marshal(shellExecArgs{Command: "echo hi"})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "not allowed") {
-		t.Errorf("err = %v, want not allowed", err)
-	}
-}
-
-func TestShell_Whitelist_Mismatch(t *testing.T) {
-	tool := mkShellTool(t, []string{`^echo\s`}, 5*time.Second, 1<<20)
+func TestShell_BlockList(t *testing.T) {
+	tool := newShellExecTool(Config{
+		ShellBlockRegexes: []string{`^rm\b`},
+	})
 	raw, _ := json.Marshal(shellExecArgs{Command: "rm -rf /"})
 	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "not allowed") {
-		t.Errorf("err = %v, want not allowed", err)
+	if err == nil || !strings.Contains(err.Error(), "blocked") {
+		t.Errorf("err = %v, want blocked", err)
 	}
 }
 
 func TestShell_Timeout(t *testing.T) {
-	tool := mkShellTool(t, []string{`^sleep\s`}, 50*time.Millisecond, 1<<20)
+	tool := mkShellTool(t, nil, 50*time.Millisecond, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "sleep 5"})
 	start := time.Now()
 	_, err := tool.Execute(context.Background(), string(raw))
@@ -98,7 +93,7 @@ func TestShell_Timeout(t *testing.T) {
 }
 
 func TestShell_CtxCancel(t *testing.T) {
-	tool := mkShellTool(t, []string{`^sleep\s`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -112,7 +107,7 @@ func TestShell_CtxCancel(t *testing.T) {
 }
 
 func TestShell_Stdin(t *testing.T) {
-	tool := mkShellTool(t, []string{`^cat\s*$`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "cat", Stdin: "piped input"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -126,7 +121,7 @@ func TestShell_Stdin(t *testing.T) {
 }
 
 func TestShell_OutputTruncation(t *testing.T) {
-	tool := mkShellTool(t, []string{`^yes`}, 500*time.Millisecond, 100)
+	tool := mkShellTool(t, nil, 500*time.Millisecond, 100)
 	// "yes" prints "y\n" forever; timeout kicks it, but truncation should fire first
 	raw, _ := json.Marshal(shellExecArgs{Command: "yes"})
 	out, err := tool.Execute(context.Background(), string(raw))
@@ -144,7 +139,7 @@ func TestShell_OutputTruncation(t *testing.T) {
 }
 
 func TestShell_EmptyCommand(t *testing.T) {
-	tool := mkShellTool(t, []string{`.*`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: ""})
 	_, err := tool.Execute(context.Background(), string(raw))
 	if err == nil {
@@ -154,7 +149,7 @@ func TestShell_EmptyCommand(t *testing.T) {
 
 func TestShell_InvalidRegex(t *testing.T) {
 	tool := newShellExecTool(Config{
-		ShellAllowRegexes: []string{"[unclosed"},
+		ShellBlockRegexes: []string{"[unclosed"},
 	})
 	raw, _ := json.Marshal(shellExecArgs{Command: "echo hi"})
 	_, err := tool.Execute(context.Background(), string(raw))
@@ -164,7 +159,7 @@ func TestShell_InvalidRegex(t *testing.T) {
 }
 
 func TestShell_InvalidJSON(t *testing.T) {
-	tool := mkShellTool(t, []string{`.*`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	_, err := tool.Execute(context.Background(), `{not json`)
 	if err == nil {
 		t.Error("invalid JSON should error")
@@ -172,7 +167,7 @@ func TestShell_InvalidJSON(t *testing.T) {
 }
 
 func TestShell_MetadataInterface(t *testing.T) {
-	tool := mkShellTool(t, []string{`.*`}, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
 	if tool.Name() != "shell_exec" {
 		t.Errorf("Name = %q", tool.Name())
 	}
@@ -180,4 +175,56 @@ func TestShell_MetadataInterface(t *testing.T) {
 	if err := json.Unmarshal(tool.Parameters(), &m); err != nil {
 		t.Errorf("Parameters not valid JSON: %v", err)
 	}
+}
+
+// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+
+func TestShell_CheckConfirmation_NeedsConfirm(t *testing.T) {
+	tool := newShellExecTool(Config{
+		ShellConfirmRegexes: []string{`^rm\b`},
+	})
+	needs, prompt := tool.CheckConfirmation(`{"command":"rm -rf /"}`)
+	if !needs {
+		t.Error("expected needsConfirm=true for rm")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty prompt")
+	}
+}
+
+func TestShell_CheckConfirmation_AlreadyConfirmed(t *testing.T) {
+	tool := newShellExecTool(Config{
+		ShellConfirmRegexes: []string{`^rm\b`},
+	})
+	needs, _ := tool.CheckConfirmation(`{"command":"rm -rf /","confirmed":true}`)
+	if needs {
+		t.Error("confirmed=true should not need confirm")
+	}
+}
+
+func TestShell_CheckConfirmation_NotInList(t *testing.T) {
+	tool := newShellExecTool(Config{
+		ShellConfirmRegexes: []string{`^rm\b`},
+	})
+	needs, _ := tool.CheckConfirmation(`{"command":"ls -la"}`)
+	if needs {
+		t.Error("ls should not need confirm")
+	}
+}
+
+func TestShell_ConfirmArgs(t *testing.T) {
+	tool := newShellExecTool(Config{})
+	out := tool.ConfirmArgs(`{"command":"rm -rf /"}`)
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["confirmed"] != true {
+		t.Errorf("confirmed = %v, want true", m["confirmed"])
+	}
+}
+
+func TestShell_Confirmable_CompileTimeCheck(t *testing.T) {
+	// 编译时检查：shellExecTool 实现了 agent.Confirmable
+	var _ agent.Confirmable = (*shellExecTool)(nil)
 }
