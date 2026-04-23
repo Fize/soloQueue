@@ -16,14 +16,15 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
-// shellExecTool 执行 shell 命令（白名单校验 + 跨平台 shim）
+// shellExecTool 执行 shell 命令（黑名单/确认名单校验 + 跨平台 shim）
 //
 // Schema:
 //
-//	{"command":"ls -la", "stdin":"optional stdin text"}
+//	{"command":"ls -la", "stdin":"optional stdin text", "confirmed":false}
 //
 // 安全：
-//   - Command 必须匹配 ShellAllowRegexes 中至少一个；空列表 = 全拒绝
+//   - Command 命中 ShellBlockRegexes → 直接拒绝
+//   - Command 命中 ShellConfirmRegexes + confirmed=false → 需要用户确认
 //   - macOS / Linux: /bin/sh -c <command>
 //   - Windows:       powershell.exe -NoProfile -Command <command>
 //   - ShellTimeout 通过 exec.CommandContext；超时子进程收到 SIGKILL
@@ -32,21 +33,29 @@ import (
 //
 // 返回：{"exit_code":0,"stdout":"...","stderr":"...","truncated":false}
 type shellExecTool struct {
-	cfg     Config
-	regexes []*regexp.Regexp
-	regErr  error // 编译失败时的错误（Execute 时返回）
+	cfg           Config
+	blockRegexes  []*regexp.Regexp
+	confirmRegexes []*regexp.Regexp
+	regErr        error // 编译失败时的错误（Execute 时返回）
 }
 
 func newShellExecTool(cfg Config) *shellExecTool {
 	t := &shellExecTool{cfg: cfg}
-	t.regexes = make([]*regexp.Regexp, 0, len(cfg.ShellAllowRegexes))
-	for _, r := range cfg.ShellAllowRegexes {
+	for _, r := range cfg.ShellBlockRegexes {
 		re, err := regexp.Compile(r)
 		if err != nil {
-			t.regErr = fmt.Errorf("invalid ShellAllowRegex %q: %w", r, err)
+			t.regErr = fmt.Errorf("invalid ShellBlockRegex %q: %w", r, err)
 			return t
 		}
-		t.regexes = append(t.regexes, re)
+		t.blockRegexes = append(t.blockRegexes, re)
+	}
+	for _, r := range cfg.ShellConfirmRegexes {
+		re, err := regexp.Compile(r)
+		if err != nil {
+			t.regErr = fmt.Errorf("invalid ShellConfirmRegex %q: %w", r, err)
+			return t
+		}
+		t.confirmRegexes = append(t.confirmRegexes, re)
 	}
 	return t
 }
@@ -54,7 +63,7 @@ func newShellExecTool(cfg Config) *shellExecTool {
 func (shellExecTool) Name() string { return "shell_exec" }
 
 func (shellExecTool) Description() string {
-	return "Run a shell command that matches one of the configured allow-regexes. " +
+	return "Run a shell command. Dangerous commands (rm, dd, mkfs, etc.) require user confirmation. " +
 		"On Unix: /bin/sh -c <cmd>; on Windows: powershell -NoProfile -Command <cmd>. " +
 		"Returns {exit_code,stdout,stderr,truncated}."
 }
@@ -64,15 +73,17 @@ func (shellExecTool) Parameters() json.RawMessage {
   "type":"object",
   "properties":{
     "command":{"type":"string","description":"Shell command to execute"},
-    "stdin":{"type":"string","description":"Optional stdin for the subprocess"}
+    "stdin":{"type":"string","description":"Optional stdin for the subprocess"},
+    "confirmed":{"type":"boolean","description":"Set to true after user confirms a dangerous command"}
   },
   "required":["command"]
 }`)
 }
 
 type shellExecArgs struct {
-	Command string `json:"command"`
-	Stdin   string `json:"stdin,omitempty"`
+	Command   string `json:"command"`
+	Stdin     string `json:"stdin,omitempty"`
+	Confirmed bool   `json:"confirmed,omitempty"`
 }
 
 type shellExecResult struct {
@@ -80,6 +91,37 @@ type shellExecResult struct {
 	Stdout    string `json:"stdout"`
 	Stderr    string `json:"stderr"`
 	Truncated bool   `json:"truncated"`
+}
+
+// CheckConfirmation 实现 agent.Confirmable。
+// 黑名单命中 → 不确认（让 Execute 直接拒绝）；
+// 已 confirmed → 不确认；
+// 确认名单命中 → 需要确认；
+// 其他 → 不确认。
+func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
+	var a shellExecArgs
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return false, ""
+	}
+	if a.Confirmed {
+		return false, ""
+	}
+	// 黑名单由 Execute 处理；这里只需判断是否命中确认名单
+	if matchesAny(a.Command, t.confirmRegexes) {
+		return true, fmt.Sprintf("The command %q may be dangerous. Do you want to execute it?", a.Command)
+	}
+	return false, ""
+}
+
+// ConfirmArgs 实现 agent.Confirmable：注入 confirmed=true。
+func (shellExecTool) ConfirmArgs(original string) string {
+	var a map[string]any
+	if err := json.Unmarshal([]byte(original), &a); err != nil {
+		return original
+	}
+	a["confirmed"] = true
+	b, _ := json.Marshal(a)
+	return string(b)
 }
 
 func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error) {
@@ -98,16 +140,9 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", err
 	}
 
-	// 白名单匹配
-	matched := false
-	for _, re := range t.regexes {
-		if re.MatchString(a.Command) {
-			matched = true
-			break
-		}
-	}
-	if !matched {
-		return "", fmt.Errorf("%w: %s", ErrCommandNotAllowed, a.Command)
+	// 黑名单检查
+	if matchesAny(a.Command, t.blockRegexes) {
+		return "", fmt.Errorf("%w: %s", ErrCommandBlocked, a.Command)
 	}
 
 	// Timeout ctx
@@ -206,5 +241,16 @@ func (lw *limitedWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// Compile-time check
+// matchesAny 检查 s 是否命中 regexes 中任一正则
+func matchesAny(s string, regexes []*regexp.Regexp) bool {
+	for _, re := range regexes {
+		if re.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// Compile-time checks
 var _ agent.Tool = (*shellExecTool)(nil)
+var _ agent.Confirmable = (*shellExecTool)(nil)

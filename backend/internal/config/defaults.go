@@ -11,7 +11,7 @@ func DefaultSettings() Settings {
 		},
 		Log: LogConfig{
 			Level:         "info",
-			Console:       false,
+			Console:       true,
 			File:          true,
 			MaxDays:       30,
 			MaxFileSizeMB: 50,
@@ -31,8 +31,17 @@ func DefaultSettings() Settings {
 			HTTPTimeoutMs:    10000,
 			HTTPBlockPrivate: true,
 
-			// ShellAllowRegexes 默认空 = 拒绝所有命令；
-			// 使用者必须显式在 settings.json 启用特定命令（安全默认）
+			// ShellBlockRegexes 默认空 = 无黑名单限制
+			// ShellConfirmRegexes 默认包含常见危险命令
+			ShellConfirmRegexes: []string{
+				`^\s*rm\b`,
+				`^\s*dd\b`,
+				`^\s*mkfs\b`,
+				`^\s*bash\b`,
+				`^\s*sh\b`,
+				`^\s*format\b`,
+				`^\s*diskpart\b`,
+			},
 			ShellTimeoutMs: 30000,
 			ShellMaxOutput: 256 << 10,
 

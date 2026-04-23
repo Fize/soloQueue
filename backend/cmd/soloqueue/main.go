@@ -419,9 +419,10 @@ func toolsConfigFromSettings(s config.ToolsConfig, allowedDirs []string) tools.C
 		HTTPTimeout:      msToDuration(s.HTTPTimeoutMs, 10*time.Second),
 		HTTPBlockPrivate: s.HTTPBlockPrivate,
 
-		ShellAllowRegexes: s.ShellAllowRegexes,
-		ShellTimeout:      msToDuration(s.ShellTimeoutMs, 30*time.Second),
-		ShellMaxOutput:    defaultInt64(s.ShellMaxOutput, 256<<10),
+		ShellBlockRegexes:   s.ShellBlockRegexes,
+		ShellConfirmRegexes: s.ShellConfirmRegexes,
+		ShellTimeout:        msToDuration(s.ShellTimeoutMs, 30*time.Second),
+		ShellMaxOutput:      defaultInt64(s.ShellMaxOutput, 256<<10),
 
 		TavilyAPIKey:   tavilyKey,
 		TavilyEndpoint: defaultString(s.TavilyEndpoint, "https://api.tavily.com/search"),
