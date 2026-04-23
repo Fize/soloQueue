@@ -160,14 +160,17 @@ func (m *Mux) handleHistory(w http.ResponseWriter, r *http.Request) {
 // ─── WebSocket ────────────────────────────────────────────────────────────
 
 type wsInFrame struct {
-	Type   string `json:"type"`
-	Prompt string `json:"prompt,omitempty"`
+	Type     string `json:"type"`
+	Prompt   string `json:"prompt,omitempty"`
+	CallID   string `json:"call_id,omitempty"`
+	Approved bool   `json:"approved,omitempty"`
 }
 
 const (
-	frameAsk    = "ask"
-	frameCancel = "cancel"
-	framePing   = "ping"
+	frameAsk     = "ask"
+	frameCancel  = "cancel"
+	framePing    = "ping"
+	frameConfirm = "confirm"
 )
 
 // handleStream accepts WS upgrade and runs read+write loops.
@@ -226,12 +229,14 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 			if askCancel != nil {
 				askCancel()
 				askCancel = nil
+				_ = writeWSFrame(connCtx, c, map[string]string{"type": "error", "err": "cancelled"})
 			}
 
 		case frameAsk:
 			// stop any in-flight ask
 			if askCancel != nil {
 				askCancel()
+				askCancel = nil
 			}
 			askCtx, ac := context.WithCancel(connCtx)
 			askCancel = ac
@@ -247,15 +252,20 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// re-emit events on THIS goroutine so frames stay ordered.
-			// Each Ask is serialized inside the Session (ErrSessionBusy), so this
-			// is correct; the read goroutine can still handle new 'cancel' frames
-			// because websocket.Accept's Read is cooperative — but we block on
-			// events until the stream closes. That matches "one Ask at a time"
-			// semantics.
-			m.forwardEvents(connCtx, c, events)
-			ac()
-			askCancel = nil
+			// 在独立 goroutine 中转发事件，主循环继续读消息（处理 confirm / cancel）
+			go func() {
+				defer ac()
+				m.forwardEvents(connCtx, c, events)
+			}()
+
+		case frameConfirm:
+			if err := s.Agent.Confirm(in.CallID, in.Approved); err != nil {
+				m.logError(connCtx, "confirm failed", err,
+					slog.String("session_id", id),
+					slog.String("call_id", in.CallID),
+					slog.Bool("approved", in.Approved),
+				)
+			}
 
 		default:
 			_ = writeWSFrame(connCtx, c, map[string]string{
@@ -299,6 +309,11 @@ func agentEventToFrame(ev agent.AgentEvent) map[string]any {
 		return map[string]any{
 			"type": "tool_exec_start", "iter": e.Iter,
 			"call_id": e.CallID, "name": e.Name, "args": e.Args,
+		}
+	case agent.ToolNeedsConfirmEvent:
+		return map[string]any{
+			"type": "tool_needs_confirm", "iter": e.Iter,
+			"call_id": e.CallID, "name": e.Name, "args": e.Args, "prompt": e.Prompt,
 		}
 	case agent.ToolExecDoneEvent:
 		errStr := ""
