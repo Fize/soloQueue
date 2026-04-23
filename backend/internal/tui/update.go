@@ -26,16 +26,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sess = msg.sess
 		m.ready = true
 		m.addScrollLine("session ready — type your question or /help", styleDim)
-
-		// Inline 模式下用空行推光标到底部，使输入框出现在终端最下方
-		if !m.useAltScreen && m.height > 2 {
-			pushLines := m.height - 2 // 减去固定区占用的行数
-			var cmds []tea.Cmd
-			for i := 0; i < pushLines; i++ {
-				cmds = append(cmds, tea.Println(""))
-			}
-			return m, tea.Batch(cmds...)
-		}
 		return m, nil
 
 	case spinnerTickMsg:
