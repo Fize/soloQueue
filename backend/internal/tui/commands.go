@@ -18,6 +18,14 @@ func (m *model) handleBuiltin(input string) (quit bool, cmds []tea.Cmd) {
 
 	case "/help", "/?":
 		m.addScrollLine("Commands: /help /clear /history /version /quit", styleDim)
+		m.addScrollLine("Shortcuts: Ctrl+C (exit) · Ctrl+T (toggle think) · Ctrl+O (expand)", styleDim)
+		m.addScrollLine("", lipgloss.NewStyle())
+		if !m.useAltScreen {
+			m.addScrollLine("Mode: inline (scrollback preserved)", styleDim)
+		} else {
+			m.addScrollLine("Mode: fullscreen (alt-screen)", styleDim)
+		}
+		m.addScrollLine("  Toggle: ALT_SCREEN=1 go run main.go", styleDim)
 		m.addScrollLine("", lipgloss.NewStyle())
 
 	case "/clear":

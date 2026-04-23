@@ -47,7 +47,10 @@ func rootCmd() *cobra.Command {
 		Long: `SoloQueue is an AI multi-agent collaboration tool built on the Actor model.
 
 Run without subcommands for interactive TUI mode.
-Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
+Use 'soloqueue serve' to start the local HTTP/WebSocket server.
+
+Environment:
+  ALT_SCREEN=1    Enable fullscreen TUI with fixed bottom input (default: inline mode)`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workDir, err := defaultWorkDir()
