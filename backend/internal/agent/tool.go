@@ -44,6 +44,24 @@ type Tool interface {
 	Execute(ctx context.Context, args string) (result string, err error)
 }
 
+// Confirmable 是可选接口；工具可实现它以支持"执行前需用户确认"流程。
+//
+// 不实现该接口的工具保持原行为（直接 Execute）。
+// 实现该接口的工具在 CheckConfirmation 返回 true 时，agent 会：
+//   1. 发送 ToolNeedsConfirmEvent
+//   2. 阻塞等待外部调用 Agent.Confirm(callID, approved)
+//   3. approved=true 时：调用 ConfirmArgs 修改 args，然后 Execute
+//   4. approved=false 时：返回 "error: user denied execution"
+type Confirmable interface {
+	Tool
+	// CheckConfirmation 检查给定 args 是否需要用户确认。
+	// 返回 (needsConfirm bool, prompt string)：prompt 用于展示给用户。
+	CheckConfirmation(args string) (needsConfirm bool, prompt string)
+	// ConfirmArgs 在确认通过后修改原始 args（例如注入 confirmed=true 标记）。
+	// 修改后的 args 将传入 Execute。
+	ConfirmArgs(originalArgs string) string
+}
+
 // ─── ToolRegistry ────────────────────────────────────────────────────────────
 
 // tool 相关错误

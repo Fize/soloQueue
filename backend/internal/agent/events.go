@@ -83,6 +83,17 @@ type DoneEvent struct {
 	Content string
 }
 
+// ToolNeedsConfirmEvent 某个 tool 需要用户确认才能继续执行
+//
+// UI/TUI/Web 收到后应向用户展示 Prompt，用户确认后调用 Agent.Confirm(callID, true)。
+type ToolNeedsConfirmEvent struct {
+	Iter   int
+	CallID string
+	Name   string
+	Args   string
+	Prompt string
+}
+
 // ErrorEvent AskStream 因错误终止（ctx cancel / LLM 错误 / 超出 MaxIterations）
 //
 // ErrorEvent 总是最后一条事件；产出后 channel 立即关闭。
@@ -91,11 +102,12 @@ type ErrorEvent struct {
 }
 
 // marker impls —— 每个类型实现 AgentEvent
-func (ContentDeltaEvent) agentEvent()   {}
-func (ReasoningDeltaEvent) agentEvent() {}
-func (ToolCallDeltaEvent) agentEvent()  {}
-func (ToolExecStartEvent) agentEvent()  {}
-func (ToolExecDoneEvent) agentEvent()   {}
-func (IterationDoneEvent) agentEvent()  {}
-func (DoneEvent) agentEvent()           {}
-func (ErrorEvent) agentEvent()          {}
+func (ContentDeltaEvent) agentEvent()     {}
+func (ReasoningDeltaEvent) agentEvent()   {}
+func (ToolCallDeltaEvent) agentEvent()    {}
+func (ToolExecStartEvent) agentEvent()    {}
+func (ToolExecDoneEvent) agentEvent()     {}
+func (ToolNeedsConfirmEvent) agentEvent() {}
+func (IterationDoneEvent) agentEvent()    {}
+func (DoneEvent) agentEvent()             {}
+func (ErrorEvent) agentEvent()            {}
