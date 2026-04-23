@@ -11,7 +11,7 @@ func DefaultSettings() Settings {
 		},
 		Log: LogConfig{
 			Level:         "info",
-			Console:       true,
+			Console:       false,
 			File:          true,
 			MaxDays:       30,
 			MaxFileSizeMB: 50,
