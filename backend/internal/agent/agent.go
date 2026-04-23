@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -66,9 +67,19 @@ type Agent struct {
 	mailbox chan job
 	done    chan struct{}
 
+	// 确认状态机：execToolStream 阻塞等待，外部通过 Confirm 注入结果
+	confirmMu      sync.RWMutex
+	pendingConfirm map[string]*confirmSlot
+
 	// 观察（无锁）
 	state   atomic.Int32 // State
 	exitErr atomic.Value // errHolder
+}
+
+// confirmSlot 是单次 tool_call 的待确认槽位
+type confirmSlot struct {
+	done atomic.Bool
+	ch   chan bool // approved
 }
 
 // Option 是 NewAgent 的 functional option
@@ -166,10 +177,11 @@ func WithToolTimeout(name string, d time.Duration) Option {
 // 必须调用 Start 才能开始接收 Ask / Submit。
 func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option) *Agent {
 	a := &Agent{
-		Def:        def,
-		LLM:        llm,
-		Log:        log,
-		mailboxCap: DefaultMailboxCap,
+		Def:            def,
+		LLM:            llm,
+		Log:            log,
+		mailboxCap:     DefaultMailboxCap,
+		pendingConfirm: make(map[string]*confirmSlot),
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -303,6 +315,28 @@ func (a *Agent) Err() error {
 // State 返回当前观察状态（并发安全）
 func (a *Agent) State() State {
 	return State(a.state.Load())
+}
+
+// Confirm 向 agent 注入用户对某个待确认 tool_call 的响应。
+//
+// 由外部系统（UI / TUI / WebSocket）在用户点击"确认"/"拒绝"后调用。
+// 若 callID 不存在或已响应，返回错误。
+func (a *Agent) Confirm(callID string, approved bool) error {
+	a.confirmMu.RLock()
+	slot, ok := a.pendingConfirm[callID]
+	a.confirmMu.RUnlock()
+	if !ok {
+		return fmt.Errorf("agent: no pending confirmation for %s", callID)
+	}
+	if !slot.done.CompareAndSwap(false, true) {
+		return fmt.Errorf("agent: confirmation %s already resolved", callID)
+	}
+	select {
+	case slot.ch <- approved:
+		return nil
+	default:
+		return fmt.Errorf("agent: confirmation %s channel blocked", callID)
+	}
 }
 
 // ToolSpecs 返回当前 agent 注册的所有 tool 的 llm.ToolDef 快照
@@ -743,18 +777,24 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 //   - buffer 满时 select { ch <- ev; <-ctx.Done() } —— 任一就绪都退出
 //   - 返回 false 表示 ctx 取消；调用方应立刻 return（通常配合 defer close(out)）
 func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) bool {
-	// 非阻塞快速路径
+	// 非阻塞快速路径（不检查 ctx，优先把事件发出去）
 	select {
 	case out <- ev:
 		return true
 	default:
 	}
-	// 阻塞路径 + ctx 兜底
+	// 阻塞路径：优先发送事件，ctx 取消作为兜底
 	select {
 	case out <- ev:
 		return true
 	case <-ctx.Done():
-		return false
+		// ctx 已取消，但仍尝试最后一次非阻塞发送
+		select {
+		case out <- ev:
+			return true
+		default:
+			return false
+		}
 	}
 }
 
@@ -885,6 +925,56 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	a.emit(ctx, out, ToolExecStartEvent{
 		Iter: iter, CallID: tc.ID, Name: name, Args: args,
 	})
+
+	// ── Confirmable 检查 ───────────────────────────────────────────────
+	// 若工具实现了 Confirmable 且 CheckConfirmation 返回 true，
+	// 发送 ToolNeedsConfirmEvent 并阻塞等待外部 Confirm 调用。
+	if c, ok := tool.(Confirmable); ok {
+		needsConfirm, prompt := c.CheckConfirmation(args)
+		if needsConfirm {
+			if !a.emit(ctx, out, ToolNeedsConfirmEvent{
+				Iter:   iter,
+				CallID: tc.ID,
+				Name:   name,
+				Args:   args,
+				Prompt: prompt,
+			}) {
+				return "error: " + ctx.Err().Error()
+			}
+
+			slot := &confirmSlot{ch: make(chan bool, 1)}
+			a.confirmMu.Lock()
+			a.pendingConfirm[tc.ID] = slot
+			a.confirmMu.Unlock()
+
+			var approved bool
+			select {
+			case approved = <-slot.ch:
+			case <-ctx.Done():
+				a.confirmMu.Lock()
+				delete(a.pendingConfirm, tc.ID)
+				a.confirmMu.Unlock()
+				return "error: " + ctx.Err().Error()
+			}
+
+			a.confirmMu.Lock()
+			delete(a.pendingConfirm, tc.ID)
+			a.confirmMu.Unlock()
+
+			if !approved {
+				result := "error: user denied execution"
+				a.emit(ctx, out, ToolExecDoneEvent{
+					Iter:   iter,
+					CallID: tc.ID,
+					Name:   name,
+					Result: result,
+					Err:    errors.New("user denied"),
+				})
+				return result
+			}
+			args = c.ConfirmArgs(args)
+		}
+	}
 
 	// 按 tool name 叠加超时（WithToolTimeout 注入）
 	// 父 ctx 取消仍优先生效（WithTimeout 是附加 deadline）
