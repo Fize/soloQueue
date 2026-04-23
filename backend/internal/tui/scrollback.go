@@ -1,0 +1,40 @@
+package tui
+
+import "github.com/charmbracelet/lipgloss"
+
+// ─── Scrollback management ────────────────────────────────────────────────────
+
+func (m *model) addScrollLine(content string, style lipgloss.Style) {
+	m.scrollback = append(m.scrollback, scrollLine{content: content, style: style})
+	m.lastLineEmpty = (content == "")
+}
+
+// toggleLastExpandable 切换最近一个可展开块的展开/折叠状态
+func (m *model) toggleLastExpandable() {
+	for i := len(m.scrollback) - 1; i >= 0; i-- {
+		if m.scrollback[i].expandable {
+			m.scrollback[i].expanded = !m.scrollback[i].expanded
+			return
+		}
+	}
+}
+
+func (m *model) getScrollLines(maxLines int) []scrollLine {
+	if len(m.scrollback) <= maxLines {
+		return m.scrollback
+	}
+	return m.scrollback[len(m.scrollback)-maxLines:]
+}
+
+func (sl scrollLine) render(width int) string {
+	if sl.content == "" {
+		return ""
+	}
+	// Wrap content if needed
+	lines := wrapLine(sl.content, width)
+	if len(lines) == 0 {
+		return ""
+	}
+	// For simplicity, render first line with style
+	return sl.style.Render(lines[0])
+}
