@@ -341,6 +341,9 @@ func TestWS_Cancel(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	writeFrame(t, c, map[string]any{"type": "cancel"})
 
+	// 给服务器一点时间处理 cancel 并发送 terminal frame
+	time.Sleep(200 * time.Millisecond)
+
 	// drain frames until we see done or error
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
