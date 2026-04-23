@@ -23,7 +23,13 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/tui"
 )
+
+// resolveAPIKey 读取 provider.APIKeyEnv 指定的环境变量
+func resolveAPIKey(primary string) string {
+	return os.Getenv(primary)
+}
 
 const version = "0.1.0"
 
@@ -44,8 +50,116 @@ Run without subcommands for interactive TUI mode.
 Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: 启动 TUI 交互模式（claude code 风格）
-			return cmd.Help()
+			workDir, err := defaultWorkDir()
+			if err != nil {
+				return err
+			}
+			cfg, err := initConfig(workDir)
+			if err != nil {
+				return fmt.Errorf("init config: %w", err)
+			}
+			defer cfg.Close()
+
+			log, err := initLogger(workDir, cfg, false)
+			if err != nil {
+				return fmt.Errorf("init logger: %w", err)
+			}
+			defer log.Close()
+
+			settings := cfg.Get()
+			provider := cfg.DefaultProvider()
+			if provider == nil {
+				return errors.New("no default provider configured")
+			}
+			defaultModel := cfg.DefaultModel("")
+			if defaultModel == nil {
+				return errors.New("no default model configured")
+			}
+
+			apiKey := resolveAPIKey(provider.APIKeyEnv)
+			if apiKey == "" {
+				log.Warn(logger.CatApp, "LLM API key not set", "env", provider.APIKeyEnv)
+			}
+
+			baseURL := provider.BaseURL
+			if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" && baseURL == "" {
+				baseURL = v
+			}
+
+			llmClient, err := deepseek.NewClient(deepseek.Config{
+				BaseURL:   baseURL,
+				APIKey:    apiKey,
+				Headers:   provider.Headers,
+				TimeoutMs: provider.TimeoutMs,
+				Retry: llm.RetryPolicy{
+					MaxRetries:   provider.Retry.MaxRetries,
+					InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
+					MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
+					Multiplier:   provider.Retry.BackoffMultiplier,
+				},
+				Log: log,
+			})
+			if err != nil {
+				return fmt.Errorf("build llm client: %w", err)
+			}
+
+			cwd, _ := os.Getwd()
+			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
+			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
+			toolList := tools.Build(toolsCfg)
+
+			factory := func(ctx context.Context, teamID string) (*agent.Agent, error) {
+				agentID := newAgentID()
+				def := agent.Definition{
+					ID:            agentID,
+					TeamID:        teamID,
+					Kind:          agent.KindChat,
+					ModelID:       defaultModel.ID,
+					Temperature:   defaultModel.Generation.Temperature,
+					MaxTokens:     defaultModel.Generation.MaxTokens,
+					MaxIterations: 10,
+				}
+				effectiveTeam := teamID
+				if effectiveTeam == "" {
+					effectiveTeam = "default"
+				}
+				sessLog, err := logger.Session(workDir, effectiveTeam, agentID,
+					logger.WithLevel(parseLogLevel(settings.Log.Level)),
+					logger.WithConsole(false), // TUI 模式不在 stderr 输出日志
+					logger.WithFile(settings.Log.File),
+				)
+				if err != nil {
+					sessLog = log
+				}
+				a := agent.NewAgent(def, llmClient, sessLog,
+					agent.WithTools(toolList...),
+					agent.WithParallelTools(true),
+					agent.WithToolTimeout("shell_exec", 30*time.Second),
+					agent.WithToolTimeout("http_fetch", 10*time.Second),
+					agent.WithToolTimeout("web_search", 15*time.Second),
+				)
+				if err := a.Start(context.Background()); err != nil {
+					return nil, err
+				}
+				return a, nil
+			}
+
+			mgr := session.NewSessionManager(factory, 30*time.Minute)
+
+			rootCtx, stop := signal.NotifyContext(context.Background(),
+				os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
+			defer mgr.Shutdown(5 * time.Second)
+
+			log.Info(logger.CatApp, "soloqueue tui starting",
+				"version", version, "model", defaultModel.ID)
+
+			return tui.Run(tui.Config{
+				SessionMgr: mgr,
+				ModelID:    defaultModel.ID,
+				Version:    version,
+			})
 		},
 	}
 
@@ -72,8 +186,8 @@ func versionCmd() *cobra.Command {
 			}
 			defer cfg.Close()
 
-			// 初始化 logger
-			log, err := initLogger(workDir, cfg)
+			// 初始化 logger（version 命令为非交互模式，console 默认关闭）
+			log, err := initLogger(workDir, cfg, false)
 			if err != nil {
 				return fmt.Errorf("init logger: %w", err)
 			}
@@ -106,6 +220,7 @@ func versionCmd() *cobra.Command {
 func serveCmd() *cobra.Command {
 	var port int
 	var host string
+	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -122,7 +237,7 @@ func serveCmd() *cobra.Command {
 			}
 			defer cfg.Close()
 
-			log, err := initLogger(workDir, cfg)
+			log, err := initLogger(workDir, cfg, verbose)
 			if err != nil {
 				return fmt.Errorf("init logger: %w", err)
 			}
@@ -153,15 +268,19 @@ func serveCmd() *cobra.Command {
 			if defaultModel == nil {
 				return errors.New("no default model configured")
 			}
-			apiKey := os.Getenv(provider.APIKeyEnv)
+			apiKey := resolveAPIKey(provider.APIKeyEnv)
 			if apiKey == "" {
 				log.Warn(logger.CatApp, "LLM API key not set in env",
 					"env", provider.APIKeyEnv,
 				)
 			}
+			baseURL := provider.BaseURL
+			if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" && baseURL == "" {
+				baseURL = v
+			}
 
 			llmClient, err := deepseek.NewClient(deepseek.Config{
-				BaseURL:   provider.BaseURL,
+				BaseURL:   baseURL,
 				APIKey:    apiKey,
 				Headers:   provider.Headers,
 				TimeoutMs: provider.TimeoutMs,
@@ -265,6 +384,7 @@ func serveCmd() *cobra.Command {
 
 	cmd.Flags().IntVarP(&port, "port", "p", 8765, "HTTP server port")
 	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
 
 	return cmd
 }
@@ -379,14 +499,16 @@ func initConfig(workDir string) (*config.GlobalService, error) {
 	return cfg, nil
 }
 
-// initLogger 根据当前配置创建 system 层 Logger
-func initLogger(workDir string, cfg *config.GlobalService) (*logger.Logger, error) {
+// initLogger 根据当前配置创建 system 层 Logger。
+// console 参数明确控制是否向 stderr 输出日志；调用方通过 --verbose 标志传入，
+// 不再依赖 settings.Log.Console（默认 false，确保 TUI 模式下日志不污染终端）。
+func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logger.Logger, error) {
 	settings := cfg.Get()
 
 	level := parseLogLevel(settings.Log.Level)
 	log, err := logger.System(workDir,
 		logger.WithLevel(level),
-		logger.WithConsole(settings.Log.Console),
+		logger.WithConsole(console),
 		logger.WithFile(settings.Log.File),
 	)
 	if err != nil {

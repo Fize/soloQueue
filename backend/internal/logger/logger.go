@@ -38,7 +38,7 @@ func WithFile(enabled bool) Option {
 func defaultOptions() options {
 	return options{
 		level:     slog.LevelInfo,
-		console:   true,
+		console:   false,
 		file:      true,
 		maxSizeMB: 50,
 		maxDays:   30,

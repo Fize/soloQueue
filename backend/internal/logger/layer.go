@@ -31,8 +31,10 @@ const (
 )
 
 // layerCategories 约束合法的 layer+category 组合
+//
+// CatLLM 同时属于 system 层（deepseek client 内部日志）和 session 层（agent 内部日志）
 var layerCategories = map[Layer][]Category{
-	LayerSystem:  {CatApp, CatConfig, CatHTTP, CatWS},
+	LayerSystem:  {CatApp, CatConfig, CatHTTP, CatWS, CatLLM},
 	LayerTeam:    {CatTeam, CatAgent},
 	LayerSession: {CatLLM, CatActor, CatTool, CatMessages},
 }
