@@ -16,9 +16,7 @@ import (
 //   3. 状态行（streaming 时显示 spinner + 阶段信息）
 //   4. 空行（状态行与输入框的分隔）
 //   5. 输入框（固定底部）
-//
-// bubbletea 非 alt-screen 模式下自己管理光标覆写，
-// 我们只需要：不填充空行、不手动干预光标。
+
 func (m *model) View() string {
 	if m.fatalErr != nil {
 		return styleError.Render("fatal: "+m.fatalErr.Error()) + "\n"
@@ -42,7 +40,7 @@ func (m *model) View() string {
 		maxScroll = 2
 	}
 
-	// 1. 滚动区：取最后 maxScroll 行，自然渲染（不做填充/清屏）
+	// 1. 滚动区：取最后 maxScroll 行，自然渲染
 	scrollLines := m.getScrollLines(maxScroll)
 	for _, line := range scrollLines {
 		rendered := line.render(m.width)
