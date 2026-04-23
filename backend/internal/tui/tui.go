@@ -1,6 +1,6 @@
 // Package tui 提供 SoloQueue 的终端交互界面（bubbletea 框架）
 //
-// UI 布局（alt-screen 模式，终端底部固定输入框）：
+// UI 布局（默认 inline 模式，内容与终端滚动历史共存）：
 //
 //   [滚动区 —— 历史内容自然追加]
 //     > 用户输入                              ← 用户消息（绿色加粗）
@@ -12,20 +12,18 @@
 //     ▸ search(...)                           ← 工具开始（灰色加粗）
 //       ✓ search 4 lines (ctrl+o to expand)   ← 工具结果（柔和绿色）
 //
-//   [底部留白 3 行]
 //   [空行分隔]
 //   [状态行] * Generating... (2s) · esc to interrupt   ← 活跃时显示
 //   [空行分隔]
-//   [输入框] > │                              ← 始终固定底部
+//   [输入框] > │                              ← 输入区
 //
 // 关键设计：
-//   - 自动检测终端环境，选择 alt-screen 或 inline 模式
-//   - Alt-screen 模式：精确控制布局，输入框固定终端底部
-//   - Inline 降级模式：tmux/SSH 环境下使用，保留终端滚动历史
+//   - 默认 inline 模式：内容追加到主终端，退出后可滚动回看（与 Claude Code 一致）
+//   - Alt-screen 可选模式：设置 ALT_SCREEN=1 启用，输入框固定底部、无闪烁
 //   - 滚动区：所有历史内容统一滚动（用户输入、LLM 输出、工具、代码、表格）
 //   - Scrollback 上限保留：防止超长对话内存增长
 //   - 状态行：独立固定，活跃时显示在空行分隔之间
-//   - 输入框：独立固定在底部
+//   - 输入框：独立固定在底部（alt-screen 下）或跟随内容（inline 下）
 //   - 工具块：前后自动插入空行，与输出内容隔离
 package tui
 
@@ -64,13 +62,10 @@ var (
 	styleThinkTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 	// Tool block — 使用中性色阶，清晰区分层级
-	styleToolIcon    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	styleToolName    = lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Bold(true)
-	styleToolArgs    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	styleToolSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	styleToolError   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleToolResult  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	styleToolDur     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 	// Status bar (fixed, above input)
 	styleSpinner    = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
@@ -269,13 +264,6 @@ func truncate(s string, max int) string {
 	}
 	runes := []rune(s)
 	return string(runes[:max]) + "…"
-}
-
-func (m *model) terminalWidth() int {
-	if m.width > 0 {
-		return m.width
-	}
-	return 80
 }
 
 func wrapLine(line string, width int) []string {
