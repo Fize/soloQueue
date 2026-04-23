@@ -1,6 +1,6 @@
 // Package tui 提供 SoloQueue 的终端交互界面（bubbletea 框架）
 //
-// UI 布局（非全屏 inline 模式，保留终端历史）：
+// UI 布局（alt-screen 模式，终端底部固定输入框）：
 //
 //   [滚动区 —— 历史内容自然追加]
 //     > 用户输入                              ← 用户消息（绿色加粗）
@@ -12,14 +12,18 @@
 //     ▸ search(...)                           ← 工具开始（灰色加粗）
 //       ✓ search 4 lines (ctrl+o to expand)   ← 工具结果（柔和绿色）
 //
+//   [底部留白 3 行]
 //   [空行分隔]
 //   [状态行] * Generating... (2s) · esc to interrupt   ← 活跃时显示
 //   [空行分隔]
 //   [输入框] > │                              ← 始终固定底部
 //
 // 关键设计：
-//   - 不使用 alt-screen 全屏模式，保留终端历史
+//   - 自动检测终端环境，选择 alt-screen 或 inline 模式
+//   - Alt-screen 模式：精确控制布局，输入框固定终端底部
+//   - Inline 降级模式：tmux/SSH 环境下使用，保留终端滚动历史
 //   - 滚动区：所有历史内容统一滚动（用户输入、LLM 输出、工具、代码、表格）
+//   - Scrollback 上限保留：防止超长对话内存增长
 //   - 状态行：独立固定，活跃时显示在空行分隔之间
 //   - 输入框：独立固定在底部
 //   - 工具块：前后自动插入空行，与输出内容隔离
@@ -73,6 +77,9 @@ var (
 	styleStatusText = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 	styleError = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+
+	// Scrollback buffer 上限：超过此行数时截断旧数据
+	maxScrollbackLines = 10000
 )
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -167,6 +174,9 @@ type model struct {
 	// 双击 Ctrl+C 退出
 	pendingExit bool
 
+	// TUI 模式
+	useAltScreen bool // 是否使用 alt-screen 全屏模式
+
 	ready    bool
 	fatalErr error
 }
@@ -194,6 +204,8 @@ func New(cfg Config) *tea.Program {
 	ti.Focus()
 	ti.CharLimit = 4096
 
+	useAlt := shouldUseAltScreen()
+
 	m := &model{
 		cfg:          cfg,
 		ctx:          ctx,
@@ -204,10 +216,16 @@ func New(cfg Config) *tea.Program {
 		toolExecMap:  make(map[string]*toolExecInfo),
 		spinnerChars: []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'},
 		streamPhase:  "",
+		useAltScreen: useAlt,
 	}
 
-	// 不使用 alt-screen，保留终端滚动历史
-	return tea.NewProgram(m)
+	// Alt-screen 模式：精确控制布局，输入框固定终端底部
+	// Inline 降级模式：tmux/SSH 环境，保留终端滚动历史
+	opts := []tea.ProgramOption{}
+	if useAlt {
+		opts = append(opts, tea.WithAltScreen())
+	}
+	return tea.NewProgram(m, opts...)
 }
 
 func (m *model) Init() tea.Cmd {

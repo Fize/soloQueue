@@ -26,6 +26,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sess = msg.sess
 		m.ready = true
 		m.addScrollLine("session ready — type your question or /help", styleDim)
+
+		// Inline 模式下用空行推光标到底部，使输入框出现在终端最下方
+		if !m.useAltScreen && m.height > 2 {
+			pushLines := m.height - 2 // 减去固定区占用的行数
+			var cmds []tea.Cmd
+			for i := 0; i < pushLines; i++ {
+				cmds = append(cmds, tea.Println(""))
+			}
+			return m, tea.Batch(cmds...)
+		}
 		return m, nil
 
 	case spinnerTickMsg:
@@ -49,7 +59,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.pendingExit {
 				m.cancelFn()
-				return m, tea.Quit
+				return m, m.quitWithHistory()
 			}
 			m.pendingExit = true
 			return m, nil
@@ -57,7 +67,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlD:
 			if m.input.Value() == "" && !m.streaming {
 				m.cancelFn()
-				return m, tea.Quit
+				return m, m.quitWithHistory()
 			}
 
 		case tea.KeyEsc:
@@ -152,4 +162,21 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// quitWithHistory 退出时将对话历史输出到终端（仅 alt-screen 模式）。
+// Alt-screen 退出后终端清空，用户无法回看对话，
+// 通过 tea.Println 将 scrollback 内容持久化到终端滚动缓冲区。
+func (m *model) quitWithHistory() tea.Cmd {
+	if !m.useAltScreen || len(m.scrollback) == 0 {
+		return tea.Quit
+	}
+
+	var cmds []tea.Cmd
+	for _, line := range m.scrollback {
+		rendered := line.render(m.width)
+		cmds = append(cmds, tea.Println(rendered))
+	}
+	cmds = append(cmds, tea.Quit)
+	return tea.Sequence(cmds...)
 }
