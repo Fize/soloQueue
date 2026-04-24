@@ -12,7 +12,16 @@ import (
 
 // ─── Update ───────────────────────────────────────────────────────────────────
 
-func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (_ tea.Model, cmd tea.Cmd) {
+	// 将 Update 期间累积的 pendingPrintLines 通过 tea.Println Cmd 异步发送。
+	// tea.Println 返回一个 Cmd，由 handleCommands goroutine 执行并发送到 p.msgs，
+	// 避免了在 Update 内直接写 p.msgs 导致的死锁。
+	defer func() {
+		if flush := m.flushPrintCmds(); flush != nil {
+			cmd = tea.Batch(cmd, flush)
+		}
+	}()
+
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -38,10 +47,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if !(msg.Key().Code == 'c' && (msg.Key().Mod & tea.ModCtrl != 0)) {
-			m.pendingExit = false
-		}
-
 		// 确认弹窗激活时劫持键盘输入
 		if m.confirm.active {
 			choice, ok := m.resolveConfirmChoice(msg)
@@ -50,18 +55,45 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addScrollLine("✗ confirm error: "+err.Error(), styleError)
 				}
 				m.confirm.active = false
+				// 重置 pendingExit 以允许正常操作
+				m.pendingExit = false
 				// 恢复事件轮询
 				return m, tea.Batch(m.pollEvent())
 			}
-			// 非预期按键忽略，不传给输入框
-			return m, nil
+			// 对于 Ctrl+C，即使在弹窗状态也允许强制退出
+			if msg.Key().Code == 'c' && (msg.Key().Mod&tea.ModCtrl != 0) {
+				if m.pendingExit {
+					m.cancelFn()
+					m.confirm.active = false
+					return m, m.quitWithHistory()
+				}
+				m.pendingExit = true
+				return m, nil
+			}
+			// Ctrl+D：弹窗状态下也允许空输入时退出
+			if msg.Key().Code == 'd' && (msg.Key().Mod&tea.ModCtrl != 0) {
+				if m.input.Value() == "" && !m.streaming {
+					m.cancelFn()
+					m.confirm.active = false
+					return m, m.quitWithHistory()
+				}
+				return m, nil
+			}
+		// 其他非预期按键忽略，不传给输入框
+		return m, nil
+		}
+
+		// 重置 pendingExit 只在非 Ctrl+C 时处理
+		if !(msg.Key().Code == 'c' && (msg.Key().Mod&tea.ModCtrl != 0)) {
+			m.pendingExit = false
 		}
 
 		switch {
 
-		case msg.Key().Code == 'c' && (msg.Key().Mod & tea.ModCtrl != 0):
+		case msg.Key().Code == 'c' && (msg.Key().Mod&tea.ModCtrl != 0):
 			if m.streaming && m.streamCancel != nil {
 				m.streamCancel()
+				m.pendingExit = true
 				return m, nil
 			}
 			if m.pendingExit {
@@ -71,11 +103,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingExit = true
 			return m, nil
 
-		case msg.Key().Code == 'd' && (msg.Key().Mod & tea.ModCtrl != 0):
+		case msg.Key().Code == 'd' && (msg.Key().Mod&tea.ModCtrl != 0):
 			if m.input.Value() == "" && !m.streaming {
 				m.cancelFn()
 				return m, m.quitWithHistory()
 			}
+			return m, nil
 
 		case msg.Key().Code == tea.KeyEsc:
 			if m.streaming && m.streamCancel != nil {
@@ -119,11 +152,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case msg.Key().Code == 't' && (msg.Key().Mod & tea.ModCtrl != 0):
+		case msg.Key().Code == 't' && (msg.Key().Mod&tea.ModCtrl != 0):
 			m.toggleLastThinkBlock()
 			return m, nil
 
-		case msg.Key().Code == 'o' && (msg.Key().Mod & tea.ModCtrl != 0):
+		case msg.Key().Code == 'o' && (msg.Key().Mod&tea.ModCtrl != 0):
 			m.toggleLastExpandable()
 			return m, nil
 		}
@@ -140,7 +173,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 流结束：flush 最后一段未完成的半行到 scrollback
 		if tail := m.contentBuf.String(); tail != "" {
 			m.addScrollLine(tail, styleAI)
-			m.p.Println(styleAI.Render(tail))
 		}
 		m.finalizeCurrentThink()
 		if msg.err != nil && msg.err != context.Canceled {
@@ -206,6 +238,13 @@ func (m *model) resolveConfirmChoice(msg tea.KeyMsg) (string, bool) {
 					return string(agent.ChoiceAllowInSession), true
 				}
 			}
+		}
+		// 允许 Enter 键在二元确认模式下直接确认
+		if msg.Key().Code == tea.KeyEnter || msg.Key().Code == tea.KeyReturn {
+			if m.confirm.allowInSession {
+				return string(agent.ChoiceAllowInSession), true
+			}
+			return string(agent.ChoiceApprove), true
 		}
 	}
 	return "", false
