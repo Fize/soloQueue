@@ -212,15 +212,14 @@ func New(cfg Config) *tea.Program {
 	var inputStyles textinput.Styles
 	inputStyles.Focused.Text = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 	inputStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236"))
-	// 使用虚拟光标获取光标位置（通过 m.input.Cursor()）。
-	// 不再调用 m.input.View()，因此不会触发 placeholderView 输出虚假首字符的问题。
-	inputStyles.Cursor = textinput.CursorStyle{
-		Color: lipgloss.Color("10"),
-		Shape: tea.CursorBlock,
-		Blink: true,
-	}
+	// 输入框光标策略：不在 View() 中使用 v.Cursor / m.input.Cursor()，
+	// 而是直接在输入文本中内联渲染反色光标字符（见 view.go）。
+	// 这避免了 inline 模式下 renderer 裁剪导致的坐标系错位问题。
+	// 设 SetVirtualCursor(false) 避免 virtualCursor 无谓的 blink tick 开销。
+	inputStyles.Focused.Text = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+	inputStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236"))
 	ti.SetStyles(inputStyles)
-	ti.SetVirtualCursor(true)
+	ti.SetVirtualCursor(false)
 	ti.Focus()
 	ti.CharLimit = 4096
 
