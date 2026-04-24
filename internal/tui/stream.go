@@ -171,6 +171,10 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) []tea.Cmd {
 			allowInSession: e.AllowInSession,
 		}
 		m.renderConfirmPrompt()
+		// 重置 pendingExit 以允许正常操作
+		m.pendingExit = false
+		// 暂停事件轮询，等待用户确认
+		return cmds
 
 	case agent.ErrorEvent:
 		m.addScrollLine("✗ "+e.Err.Error(), styleError)

@@ -1,6 +1,9 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
 
 // ─── Scrollback management ────────────────────────────────────────────────────
 
@@ -8,8 +11,8 @@ func (m *model) addScrollLine(content string, style lipgloss.Style) {
 	m.scrollback = append(m.scrollback, scrollLine{content: content, style: style})
 	m.lastLineEmpty = (content == "")
 
-	if !m.useAltScreen && m.p != nil {
-		m.p.Println(style.Render(content))
+	if !m.useAltScreen {
+		m.pendingPrintLines = append(m.pendingPrintLines, content)
 	}
 
 	if len(m.scrollback) > maxScrollbackLines {
@@ -34,6 +37,22 @@ func (m *model) getScrollLines(maxLines int) []scrollLine {
 		return m.scrollback
 	}
 	return m.scrollback[len(m.scrollback)-maxLines:]
+}
+
+// flushPrintCmds 将 pendingPrintLines 转换为 tea.Println Cmd 并清空缓冲区。
+// 在 Update 的 defer 中调用，确保 Update 内对 pendingPrintLines 的写入被安全地
+// 通过 handleCommands goroutine 发送到 p.msgs，避免直接写无缓冲通道导致的死锁。
+func (m *model) flushPrintCmds() tea.Cmd {
+	if len(m.pendingPrintLines) == 0 {
+		return nil
+	}
+	lines := m.pendingPrintLines
+	m.pendingPrintLines = nil
+	var cmds []tea.Cmd
+	for _, line := range lines {
+		cmds = append(cmds, tea.Println(line))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (sl scrollLine) render(width int) string {

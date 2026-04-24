@@ -58,7 +58,6 @@ var (
 	stylePromptBg = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true).Background(lipgloss.Color("236"))
 
 	// Thinking block
-	styleThinkIcon  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	styleThinkText  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	styleThinkTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
@@ -181,7 +180,8 @@ type model struct {
 
 	ready    bool
 	fatalErr error
-p *tea.Program
+	// pendingPrintLines 暂存待通过 tea.Println 输出的行（Update 结束时 flush）
+	pendingPrintLines []string
 }
 
 // confirmState 管理工具确认弹窗状态
@@ -240,10 +240,9 @@ func New(cfg Config) *tea.Program {
 	// Inline 降级模式：tmux/SSH 环境，保留终端滚动历史
 	opts := []tea.ProgramOption{}
 	if useAlt {
-		
+
 	}
 	p := tea.NewProgram(m, opts...)
-	m.p = p
 	return p
 }
 

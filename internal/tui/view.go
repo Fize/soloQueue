@@ -30,9 +30,10 @@ func (m *model) View() tea.View {
 
 	var sb strings.Builder
 
-	// Logo 区域：仅在启动后首次渲染时显示
+	// Logo 区域：仅在启动后首次渲染时显示（两种模式均需要）
 	if m.logoVersion != "" {
 		sb.WriteString(m.renderLogo())
+		m.logoVersion = ""
 	}
 
 	// 固定底部区域占用的行数（始终包含输入框及上下空行）
@@ -41,48 +42,62 @@ func (m *model) View() tea.View {
 		fixedLines = 4 // 空行 + 状态行 + 空行 + 输入框
 	}
 
-	// 滚动区最多显示的行数（留出空间给固定区）
-	maxScroll := m.height - fixedLines
-	if maxScroll < 2 {
-		maxScroll = 2
-	}
+	if m.useAltScreen {
+		// 滚动区最多显示的行数（留出空间给固定区）
+		maxScroll := m.height - fixedLines
+		maxScroll = max(maxScroll, 2)
 
-	// 1. 滚动区：取最后 maxScroll 行，自然渲染
-	scrollLines := m.getScrollLines(maxScroll)
-	for _, line := range scrollLines {
-		rendered := line.render(m.width)
-		sb.WriteString(rendered)
-		sb.WriteString("\n")
-		// 展开内容：超过 10 行时截断显示
-		if line.expanded && len(line.fullLines) > 0 {
-			maxExpandLines := 10
-			displayLines := line.fullLines
-			if len(displayLines) > maxExpandLines {
-				// 显示前 5 行 + 省略提示 + 后 5 行
-				displayLines = append([]string{}, displayLines[:5]...)
-				displayLines = append(displayLines, fmt.Sprintf("  ... (%d lines hidden, ctrl+o to collapse)", len(line.fullLines)-maxExpandLines))
-				displayLines = append(displayLines, line.fullLines[len(line.fullLines)-5:]...)
-			}
-			for _, fl := range displayLines {
-				wrapped := wrapLine(fl, m.width-2)
-				for _, wl := range wrapped {
-					sb.WriteString(line.fullStyle.Render("  " + wl))
-					sb.WriteString("\n")
+		// 1. 滚动区：取最后 maxScroll 行，自然渲染
+		scrollLines := m.getScrollLines(maxScroll)
+		for _, line := range scrollLines {
+			rendered := line.render(m.width)
+			sb.WriteString(rendered)
+			sb.WriteString("\n")
+			// 展开内容：超过 10 行时截断显示
+			if line.expanded && len(line.fullLines) > 0 {
+				maxExpandLines := 10
+				displayLines := line.fullLines
+				if len(displayLines) > maxExpandLines {
+					// 显示前 5 行 + 省略提示 + 后 5 行
+					displayLines = append([]string{}, displayLines[:5]...)
+					displayLines = append(displayLines, fmt.Sprintf("  ... (%d lines hidden, ctrl+o to collapse)", len(line.fullLines)-maxExpandLines))
+					displayLines = append(displayLines, line.fullLines[len(line.fullLines)-5:]...)
+				}
+				for _, fl := range displayLines {
+					wrapped := wrapLine(fl, m.width-2)
+					for _, wl := range wrapped {
+						sb.WriteString(line.fullStyle.Render("  " + wl))
+						sb.WriteString("\n")
+					}
 				}
 			}
 		}
-	}
 
-	// 2. 空行分隔（输出区与下方固定区之间）
-	sb.WriteString("\n")
-
-	// 3. 状态行（仅 streaming 时显示）
-	if m.streaming {
-		sb.WriteString(m.renderStatusBar())
+		// 2. 空行分隔（输出区与下方固定区之间）
 		sb.WriteString("\n")
 
-		// 4. 空行分隔（状态行与输入框之间）
+		// 3. 状态行（仅 streaming 时显示）
+		if m.streaming {
+			sb.WriteString(m.renderStatusBar())
+			sb.WriteString("\n")
+
+			// 4. 空行分隔（状态行与输入框之间）
+			sb.WriteString("\n")
+		}
+	} else {
+		// Inline 模式：内容已通过 tea.Println 输出到终端滚动缓冲区，
+		// View 仅渲染状态行和输入框，避免重复渲染。
+		// 2. 空行分隔（与上方 tea.Println 输出的内容隔开）
 		sb.WriteString("\n")
+
+		// 3. 状态行（仅 streaming 时显示）
+		if m.streaming {
+			sb.WriteString(m.renderStatusBar())
+			sb.WriteString("\n")
+
+			// 4. 空行分隔（状态行与输入框之间）
+			sb.WriteString("\n")
+		}
 	}
 
 	// 5. 输入框（始终固定在底部）
