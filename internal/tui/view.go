@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"charm.land/lipgloss/v2"
 )
 
 // ─── View ─────────────────────────────────────────────────────────────────────
@@ -29,90 +31,92 @@ func (m *model) View() tea.View {
 	}
 
 	var sb strings.Builder
+	inputLineY := 0
 
-	// Logo 区域：仅在启动后首次渲染时显示（两种模式均需要）
-	if m.logoVersion != "" {
+	// Logo：alt-screen 模式由 View() 渲染，inline 模式已通过 tea.Println (insertAbove) 输出
+	if m.useAltScreen && m.logoVersion != "" {
 		sb.WriteString(m.renderLogo())
+		inputLineY += 5 // logo 4行 + 1空行（renderLogo 末尾多一个 \n）
 		m.logoVersion = ""
 	}
 
-	// 固定底部区域占用的行数（始终包含输入框及上下空行）
+	// 固定底部区域占用的行数
 	fixedLines := 2 // 空行 + 输入框
 	if m.streaming {
 		fixedLines = 4 // 空行 + 状态行 + 空行 + 输入框
 	}
 
-	if m.useAltScreen {
-		// 滚动区最多显示的行数（留出空间给固定区）
-		maxScroll := m.height - fixedLines
-		maxScroll = max(maxScroll, 2)
+	// 滚动区：取最后 maxScroll 行，自然渲染
+	maxScroll := m.height - fixedLines
+	maxScroll = max(maxScroll, 2)
 
-		// 1. 滚动区：取最后 maxScroll 行，自然渲染
-		scrollLines := m.getScrollLines(maxScroll)
-		for _, line := range scrollLines {
-			rendered := line.render(m.width)
-			sb.WriteString(rendered)
-			sb.WriteString("\n")
-			// 展开内容：超过 10 行时截断显示
-			if line.expanded && len(line.fullLines) > 0 {
-				maxExpandLines := 10
-				displayLines := line.fullLines
-				if len(displayLines) > maxExpandLines {
-					// 显示前 5 行 + 省略提示 + 后 5 行
-					displayLines = append([]string{}, displayLines[:5]...)
-					displayLines = append(displayLines, fmt.Sprintf("  ... (%d lines hidden, ctrl+o to collapse)", len(line.fullLines)-maxExpandLines))
-					displayLines = append(displayLines, line.fullLines[len(line.fullLines)-5:]...)
-				}
-				for _, fl := range displayLines {
-					wrapped := wrapLine(fl, m.width-2)
-					for _, wl := range wrapped {
-						sb.WriteString(line.fullStyle.Render("  " + wl))
-						sb.WriteString("\n")
-					}
+	scrollLines := m.getScrollLines(maxScroll)
+	for _, line := range scrollLines {
+		rendered := line.render(m.width)
+		sb.WriteString(rendered)
+		sb.WriteString("\n")
+		inputLineY++
+		// 展开内容
+		if line.expanded && len(line.fullLines) > 0 {
+			maxExpandLines := 10
+			displayLines := line.fullLines
+			if len(displayLines) > maxExpandLines {
+				displayLines = append([]string{}, displayLines[:5]...)
+				displayLines = append(displayLines, fmt.Sprintf("  ... (%d lines hidden, ctrl+o to collapse)", len(line.fullLines)-maxExpandLines))
+				displayLines = append(displayLines, line.fullLines[len(line.fullLines)-5:]...)
+			}
+			for _, fl := range displayLines {
+				wrapped := wrapLine(fl, m.width-2)
+				for _, wl := range wrapped {
+					sb.WriteString(line.fullStyle.Render("  " + wl))
+					sb.WriteString("\n")
+					inputLineY++
 				}
 			}
 		}
-
-		// 2. 空行分隔（输出区与下方固定区之间）
-		sb.WriteString("\n")
-
-		// 3. 状态行（仅 streaming 时显示）
-		if m.streaming {
-			sb.WriteString(m.renderStatusBar())
-			sb.WriteString("\n")
-
-			// 4. 空行分隔（状态行与输入框之间）
-			sb.WriteString("\n")
-		}
-	} else {
-		// Inline 模式：内容已通过 tea.Println 输出到终端滚动缓冲区，
-		// View 仅渲染状态行和输入框，避免重复渲染。
-		// 2. 空行分隔（与上方 tea.Println 输出的内容隔开）
-		sb.WriteString("\n")
-
-		// 3. 状态行（仅 streaming 时显示）
-		if m.streaming {
-			sb.WriteString(m.renderStatusBar())
-			sb.WriteString("\n")
-
-			// 4. 空行分隔（状态行与输入框之间）
-			sb.WriteString("\n")
-		}
 	}
 
-	// 5. 输入框（始终固定在底部）
-	// 用 styleInputLine.Width(m.width) 渲染整行，lipgloss 会自动
-	// 用带背景色的空格填充右侧空白区域，实现 Codex 风格的整行背景。
-	// textinput.TextStyle 已设置 Background("236")，确保文字本身也有背景色。
-	prompt := stylePromptBg.Render("> ") + m.input.View()
+	// 空行分隔（输出区与下方固定区之间）
+	sb.WriteString("\n")
+	inputLineY++
+
+	// 状态行（仅 streaming 时显示）
+	if m.streaming {
+		sb.WriteString(m.renderStatusBar())
+		sb.WriteString("\n")
+		inputLineY++
+
+		sb.WriteString("\n")
+		inputLineY++
+	}
+
+	// 输入框 — 自行渲染而非使用 m.input.View()，
+	// 避免 inline 模式下 renderer 裁剪 View 内容时与 tea.Println 输出的 logo 冲突。
+	// 光标位置由 m.input.Cursor() 提供（SetVirtualCursor(true)）。
+	var inputContent string
+	if val := m.input.Value(); val != "" {
+		inputContent = lipgloss.NewStyle().Background(lipgloss.Color("236")).Render(val)
+	} else {
+		inputContent = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236")).Render(m.input.Placeholder)
+	}
+	prompt := stylePromptBg.Render("> ") + inputContent
 	inputLine := styleInputLine.Width(m.width).Render(prompt)
 	sb.WriteString(inputLine)
 
 	v := tea.NewView(sb.String())
 	v.AltScreen = m.useAltScreen
+	if cur := m.input.Cursor(); cur != nil {
+		cur.X += 2 // "> " prompt width
+		cur.Y = inputLineY
+		// inline 模式下 renderer 会裁剪顶部行（只保留最后 s.height 行），
+		// 但 inputLineY 是按完整内容计算的，需要映射到裁剪后的 frame 坐标系。
+		if !m.useAltScreen && cur.Y >= m.height {
+			cur.Y = m.height - 1
+		}
+		v.Cursor = cur
+	}
 	return v
 }
-
 // renderStatusBar 渲染固定状态栏
 func (m *model) renderStatusBar() string {
 	spinner := string(m.spinnerChars[m.spinnerFrame])
