@@ -55,6 +55,15 @@ func (m *model) renderThinkBlock(idx int) {
 		return
 	}
 
+	// 如果是重新渲染，先移除旧内容（使用之前记录的 scrollCount）
+	if tb.scrollStart >= 0 && tb.scrollCount > 0 && tb.scrollStart+tb.scrollCount <= len(m.scrollback) {
+		m.scrollback = append(m.scrollback[:tb.scrollStart], m.scrollback[tb.scrollStart+tb.scrollCount:]...)
+	}
+
+	// 记录当前 scrollback 起始位置
+	tb.scrollStart = len(m.scrollback)
+	startLen := len(m.scrollback) // 记录渲染前的长度，用于计算 scrollCount
+
 	if !m.lastLineEmpty {
 		m.addScrollLine("", lipgloss.NewStyle())
 	}
@@ -73,6 +82,9 @@ func (m *model) renderThinkBlock(idx int) {
 			styleThinkTitle,
 		)
 	}
+
+	// 记录本次渲染占用的行数
+	tb.scrollCount = len(m.scrollback) - startLen
 
 	m.lastLineEmpty = false
 }
