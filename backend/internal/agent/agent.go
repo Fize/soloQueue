@@ -765,9 +765,10 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 
 		// 追加 assistant(tool_calls) 消息到对话历史
 		msgs = append(msgs, LLMMessage{
-			Role:      "assistant",
-			Content:   content.String(),
-			ToolCalls: toolCalls,
+			Role:            "assistant",
+			Content:         content.String(),
+			ReasoningContent: reasoning.String(),
+			ToolCalls:       toolCalls,
 		})
 
 		// 执行本轮所有 tool_call（串行 / errgroup 并发，由 WithParallelTools 决定）
