@@ -30,7 +30,7 @@ SoloQueue 是一个基于 Actor 模型的 AI 多智能体协作应用。每个 A
 | 层级 | 技术 | 说明 |
 | --- | --- | --- |
 | **后端语言** | Go | 高性能、并发友好 |
-| **后端框架** | net/http + cobra | HTTP 服务 + CLI 命令 |
+| **后端框架** | net/http + cobra | CLI 优先，内嵌 HTTP 服务 |
 | **LLM 客户端** | DeepSeek | 流式 AI 调用 |
 | **前端框架** | React 19 | UI 组件化 |
 | **CSS 框架** | TailwindCSS v4 | 原子化 CSS |
@@ -80,18 +80,17 @@ SoloQueue 是一个基于 Actor 模型的 AI 多智能体协作应用。每个 A
 
 ```text
 soloqueue/
-├── backend/                       # Go 后端
-│   ├── cmd/soloqueue/main.go     # 入口（serve / version 命令）
-│   └── internal/
-│       ├── agent/                 # Agent 核心（LLM 调用 + Tool Loop）
-│       ├── config/                # 配置系统（热加载）
-│       ├── llm/                   # LLM 客户端（DeepSeek）
-│       ├── logger/                # 日志系统（JSONL + 轮转）
-│       ├── server/                # HTTP/WS 路由
-│       ├── session/               # 会话管理
-│       └── tools/                 # 工具集（文件、Shell、HTTP 等）
-│
-├── frontend/                      # React 前端
+├── cmd/soloqueue/main.go          # CLI 入口（cobra：serve / version 命令）
+├── internal/
+│   ├── agent/                     # Agent 核心（LLM 调用 + Tool Loop）
+│   ├── config/                    # 配置系统（热加载）
+│   ├── llm/                       # LLM 客户端（DeepSeek）
+│   ├── logger/                    # 日志系统（JSONL + 轮转）
+│   ├── server/                    # HTTP/WS 路由
+│   ├── session/                   # 会话管理
+│   ├── tools/                     # 工具集（文件、Shell、HTTP 等）
+│   └── tui/                       # 终端 UI（bubbletea）
+├── web/                           # React Web UI
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── ui/                # 基础 UI 组件
@@ -102,10 +101,13 @@ soloqueue/
 │   │   ├── lib/
 │   │   └── App.tsx
 │   ├── public/                    # 静态资源
-│   ├── package.json               # 前端依赖
-│   ├── vite.config.ts             # Vite 配置
-│   ├── tsconfig.json              # TypeScript 配置
-│   └── eslint.config.ts           # ESLint 配置
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   └── eslint.config.ts
+├── docs/                          # 文档 & Demo
+├── go.mod
+└── go.sum
 ```
 
 ## 性能策略
@@ -122,9 +124,9 @@ soloqueue/
 
 # 第二部分：工作顺序
 
-## Phase 1: 后端核心 ✅
+## Phase 1: Go 核心 ✅
 
-- [x] T001 Go 后端项目初始化（cobra CLI + net/http）
+- [x] T001 Go 项目初始化（cobra CLI + net/http，标准扁平布局）
 - [x] T002 配置系统（settings.json + 热加载）
 - [x] T003 日志系统（JSONL + 轮转 + 分层）
 - [x] T004 LLM 客户端（DeepSeek + SSE 流式 + 重试）
