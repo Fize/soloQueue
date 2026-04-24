@@ -85,13 +85,16 @@ type DoneEvent struct {
 
 // ToolNeedsConfirmEvent 某个 tool 需要用户确认才能继续执行
 //
-// UI/TUI/Web 收到后应向用户展示 Prompt，用户确认后调用 Agent.Confirm(callID, true)。
+// UI/TUI/Web 收到后应向用户展示 Prompt 和 Options（若有）。
+// 用户选择后调用 Agent.Confirm(callID, choice)。
+// Options 为空表示二元确认，choice 用 "yes"（确认）或 ""（拒绝）。
 type ToolNeedsConfirmEvent struct {
-	Iter   int
-	CallID string
-	Name   string
-	Args   string
-	Prompt string
+	Iter    int
+	CallID  string
+	Name    string
+	Args    string
+	Prompt  string
+	Options []string
 }
 
 // ErrorEvent AskStream 因错误终止（ctx cancel / LLM 错误 / 超出 MaxIterations）
