@@ -120,11 +120,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyCtrlT:
-			if len(m.reasonBlocks) > 0 {
-				last := &m.reasonBlocks[len(m.reasonBlocks)-1]
-				last.expanded = !last.expanded
-				m.renderThinkBlock(len(m.reasonBlocks) - 1)
-			}
+			m.toggleLastThinkBlock()
 			return m, nil
 
 		case tea.KeyCtrlO:
