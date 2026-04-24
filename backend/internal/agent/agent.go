@@ -71,6 +71,9 @@ type Agent struct {
 	confirmMu      sync.RWMutex
 	pendingConfirm map[string]*confirmSlot
 
+	// confirmStore 是会话级工具放行存储；默认内存实现，可通过 WithConfirmStore 替换。
+	confirmStore SessionConfirmStore
+
 	// 观察（无锁）
 	state   atomic.Int32 // State
 	exitErr atomic.Value // errHolder
@@ -139,6 +142,18 @@ func WithParallelTools(enabled bool) Option {
 	}
 }
 
+// WithConfirmStore 替换默认的内存会话确认存储。
+//
+// 用于测试 mock，或未来接入 Redis/DB 持久化。
+// nil store 会被忽略（保持默认内存实现）。
+func WithConfirmStore(store SessionConfirmStore) Option {
+	return func(a *Agent) {
+		if store != nil {
+			a.confirmStore = store
+		}
+	}
+}
+
 // WithToolTimeout 给指定 tool.Name() 设置 Execute 的超时时长
 //
 // 语义：
@@ -182,6 +197,7 @@ func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option)
 		Log:            log,
 		mailboxCap:     DefaultMailboxCap,
 		pendingConfirm: make(map[string]*confirmSlot),
+		confirmStore:   NewMemoryConfirmStore(),
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -222,6 +238,9 @@ func (a *Agent) Start(parent context.Context) error {
 	a.done = make(chan struct{})
 	a.exitErr.Store(errHolder{})
 	a.state.Store(int32(StateIdle))
+
+	// 每次 Start 清空会话级确认白名单（对应新 session）
+	a.confirmStore.Clear()
 
 	go a.run(a.ctx, a.mailbox, a.done)
 
@@ -928,54 +947,66 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	})
 
 	// ── Confirmable 检查 ───────────────────────────────────────────────
-	// 若工具实现了 Confirmable 且 CheckConfirmation 返回 true，
-	// 发送 ToolNeedsConfirmEvent（含 Options）并阻塞等待外部 Confirm 调用。
+	// 若工具实现了 Confirmable：
+	//   1. 先查会话级白名单，命中则跳过确认直接注入 confirmed=true；
+	//   2. 否则 CheckConfirmation，需要确认时发 ToolNeedsConfirmEvent 并阻塞等待；
+	//   3. 用户选择 ChoiceAllowInSession → 加入白名单并按 ChoiceApprove 处理。
 	if c, ok := tool.(Confirmable); ok {
-		needsConfirm, prompt := c.CheckConfirmation(args)
-		if needsConfirm {
-			options := c.ConfirmationOptions(args)
-			if !a.emit(ctx, out, ToolNeedsConfirmEvent{
-				Iter:    iter,
-				CallID:  tc.ID,
-				Name:    name,
-				Args:    args,
-				Prompt:  prompt,
-				Options: options,
-			}) {
-				return "error: " + ctx.Err().Error()
-			}
+		if a.confirmStore.IsConfirmed(name) {
+			args = c.ConfirmArgs(args, ChoiceApprove)
+		} else {
+			needsConfirm, prompt := c.CheckConfirmation(args)
+			if needsConfirm {
+				options := c.ConfirmationOptions(args)
+				if !a.emit(ctx, out, ToolNeedsConfirmEvent{
+					Iter:           iter,
+					CallID:         tc.ID,
+					Name:           name,
+					Args:           args,
+					Prompt:         prompt,
+					Options:        options,
+					AllowInSession: c.SupportsSessionWhitelist(),
+				}) {
+					return "error: " + ctx.Err().Error()
+				}
 
-			slot := &confirmSlot{ch: make(chan string, 1)}
-			a.confirmMu.Lock()
-			a.pendingConfirm[tc.ID] = slot
-			a.confirmMu.Unlock()
+				slot := &confirmSlot{ch: make(chan string, 1)}
+				a.confirmMu.Lock()
+				a.pendingConfirm[tc.ID] = slot
+				a.confirmMu.Unlock()
 
-			var choice string
-			select {
-			case choice = <-slot.ch:
-			case <-ctx.Done():
+				var choice string
+				select {
+				case choice = <-slot.ch:
+				case <-ctx.Done():
+					a.confirmMu.Lock()
+					delete(a.pendingConfirm, tc.ID)
+					a.confirmMu.Unlock()
+					return "error: " + ctx.Err().Error()
+				}
+
 				a.confirmMu.Lock()
 				delete(a.pendingConfirm, tc.ID)
 				a.confirmMu.Unlock()
-				return "error: " + ctx.Err().Error()
-			}
 
-			a.confirmMu.Lock()
-			delete(a.pendingConfirm, tc.ID)
-			a.confirmMu.Unlock()
-
-			if choice == "" {
-				result := "error: user denied execution"
-				a.emit(ctx, out, ToolExecDoneEvent{
-					Iter:   iter,
-					CallID: tc.ID,
-					Name:   name,
-					Result: result,
-					Err:    errors.New("user denied"),
-				})
-				return result
+				if choice == "" {
+					result := "error: user denied execution"
+					a.emit(ctx, out, ToolExecDoneEvent{
+						Iter:   iter,
+						CallID: tc.ID,
+						Name:   name,
+						Result: result,
+						Err:    errors.New("user denied"),
+					})
+					return result
+				}
+				confirmChoice := ConfirmChoice(choice)
+				if confirmChoice == ChoiceAllowInSession {
+					a.confirmStore.Confirm(name)
+					confirmChoice = ChoiceApprove
+				}
+				args = c.ConfirmArgs(args, confirmChoice)
 			}
-			args = c.ConfirmArgs(args, choice)
 		}
 	}
 
