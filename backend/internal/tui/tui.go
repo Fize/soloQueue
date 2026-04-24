@@ -112,10 +112,8 @@ type scrollLine struct {
 // ─── Thinking block ───────────────────────────────────────────────────────────
 
 type thinkBlock struct {
-	lines       []string
-	expanded    bool
-	scrollStart int // 该 block 在 scrollback 中的起始索引（含前导空行）
-	scrollCount int // 该 block 渲染占用的行数（用于重新渲染时清除旧内容）
+	lines    []string
+	expanded bool
 }
 
 // ─── Model ────────────────────────────────────────────────────────────────────
