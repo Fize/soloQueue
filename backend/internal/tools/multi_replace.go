@@ -155,5 +155,29 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 	return string(b), nil
 }
 
-// Compile-time check
+// CheckConfirmation 实现 agent.Confirmable：多段替换始终需要确认。
+func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
+	var a multiReplaceArgs
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return true, fmt.Sprintf("Apply edits to file (unable to parse args). Allow?")
+	}
+	return true, fmt.Sprintf("Apply %d edit(s) to %q. Allow?", len(a.Edits), a.Path)
+}
+
+// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+func (t *multiReplaceTool) ConfirmationOptions(_ string) []string { return nil }
+
+// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
+func (t *multiReplaceTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
+	if choice != agent.ChoiceApprove {
+		return original
+	}
+	return original
+}
+
+// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+func (t *multiReplaceTool) SupportsSessionWhitelist() bool { return true }
+
+// Compile-time checks
 var _ agent.Tool = (*multiReplaceTool)(nil)
+var _ agent.Confirmable = (*multiReplaceTool)(nil)

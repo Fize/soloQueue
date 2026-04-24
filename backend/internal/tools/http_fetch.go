@@ -233,5 +233,29 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// Compile-time check
+// CheckConfirmation 实现 agent.Confirmable：HTTP 请求始终需要确认。
+func (t *httpFetchTool) CheckConfirmation(raw string) (bool, string) {
+	var a httpFetchArgs
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return true, fmt.Sprintf("HTTP request (unable to parse args). Allow?")
+	}
+	return true, fmt.Sprintf("HTTP GET %q. Allow?", a.URL)
+}
+
+// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+func (t *httpFetchTool) ConfirmationOptions(_ string) []string { return nil }
+
+// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
+func (t *httpFetchTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
+	if choice != agent.ChoiceApprove {
+		return original
+	}
+	return original
+}
+
+// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+func (t *httpFetchTool) SupportsSessionWhitelist() bool { return true }
+
+// Compile-time checks
 var _ agent.Tool = (*httpFetchTool)(nil)
+var _ agent.Confirmable = (*httpFetchTool)(nil)
