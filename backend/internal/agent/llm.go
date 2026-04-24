@@ -15,11 +15,12 @@ import (
 //   - role="assistant"：Content + 可选 ToolCalls（允许 Content 为空，仅有 tool_calls）
 //   - role="tool"：ToolCallID + Content（工具执行结果）
 type LLMMessage struct {
-	Role       string
-	Content    string
-	Name       string
-	ToolCallID string         // role="tool" 时必填
-	ToolCalls  []llm.ToolCall // role="assistant" 可选
+	Role            string
+	Content         string
+	ReasoningContent string // DeepSeek thinking mode；有 tool_calls 时必须回传
+	Name            string
+	ToolCallID      string         // role="tool" 时必填
+	ToolCalls       []llm.ToolCall // role="assistant" 可选
 }
 
 // LLMRequest 是 LLMClient.Chat / ChatStream 的输入

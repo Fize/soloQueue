@@ -132,6 +132,37 @@ func TestBuildWireRequest_MessagesWithToolCalls(t *testing.T) {
 	}
 }
 
+func TestBuildWireMessages_ReasoningContent(t *testing.T) {
+	msgs := []agent.LLMMessage{
+		{Role: "user", Content: "hello"},
+		// assistant 有 tool_calls：reasoning_content 应出现在 JSON 中
+		{Role: "assistant", Content: "thinking...", ReasoningContent: "let me think", ToolCalls: []llm.ToolCall{
+			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "f", Arguments: "{}"}},
+		}},
+		// assistant 无 tool_calls：reasoning_content 不应出现
+		{Role: "assistant", Content: "done", ReasoningContent: "unused"},
+	}
+	wired := buildWireMessages(msgs)
+
+	// 第 2 条消息（index=1）：有 tool_calls，应含 reasoning_content
+	b1, err := json.Marshal(wired[1])
+	if err != nil {
+		t.Fatalf("marshal msg[1]: %v", err)
+	}
+	if !contains(string(b1), "reasoning_content") {
+		t.Errorf("msg[1] should have reasoning_content, got: %s", b1)
+	}
+
+	// 第 3 条消息（index=2）：无 tool_calls，应不含 reasoning_content
+	b2, err := json.Marshal(wired[2])
+	if err != nil {
+		t.Fatalf("marshal msg[2]: %v", err)
+	}
+	if contains(string(b2), "reasoning_content") {
+		t.Errorf("msg[2] should NOT have reasoning_content, got: %s", b2)
+	}
+}
+
 func TestBuildWireRequest_JSONOmitEmpty(t *testing.T) {
 	// 零值字段不应出现在 JSON 里（验证 omitempty）
 	req := agent.LLMRequest{
