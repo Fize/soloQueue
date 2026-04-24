@@ -212,15 +212,33 @@ func TestShell_CheckConfirmation_NotInList(t *testing.T) {
 	}
 }
 
+func TestShell_ConfirmationOptions(t *testing.T) {
+	tool := newShellExecTool(Config{})
+	if opts := tool.ConfirmationOptions(`{"command":"rm -rf /"}`); opts != nil {
+		t.Errorf("expected nil for binary confirm, got %v", opts)
+	}
+}
+
 func TestShell_ConfirmArgs(t *testing.T) {
 	tool := newShellExecTool(Config{})
-	out := tool.ConfirmArgs(`{"command":"rm -rf /"}`)
+	// choice == "yes" 时注入 confirmed=true
+	out := tool.ConfirmArgs(`{"command":"rm -rf /"}`, "yes")
 	var m map[string]any
 	if err := json.Unmarshal([]byte(out), &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if m["confirmed"] != true {
 		t.Errorf("confirmed = %v, want true", m["confirmed"])
+	}
+
+	// choice != "yes" 时不注入
+	out2 := tool.ConfirmArgs(`{"command":"rm -rf /"}`, "")
+	var m2 map[string]any
+	if err := json.Unmarshal([]byte(out2), &m2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := m2["confirmed"]; ok {
+		t.Error("confirmed should not be set for non-yes choice")
 	}
 }
 

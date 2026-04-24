@@ -48,18 +48,23 @@ type Tool interface {
 //
 // 不实现该接口的工具保持原行为（直接 Execute）。
 // 实现该接口的工具在 CheckConfirmation 返回 true 时，agent 会：
-//   1. 发送 ToolNeedsConfirmEvent
-//   2. 阻塞等待外部调用 Agent.Confirm(callID, approved)
-//   3. approved=true 时：调用 ConfirmArgs 修改 args，然后 Execute
-//   4. approved=false 时：返回 "error: user denied execution"
+//   1. 发送 ToolNeedsConfirmEvent（含 Options）
+//   2. 阻塞等待外部调用 Agent.Confirm(callID, choice)
+//   3. choice != "" 时：调用 ConfirmArgs 修改 args，然后 Execute
+//   4. choice == ""（取消/拒绝）时：返回 "error: user denied execution"
 type Confirmable interface {
 	Tool
 	// CheckConfirmation 检查给定 args 是否需要用户确认。
 	// 返回 (needsConfirm bool, prompt string)：prompt 用于展示给用户。
 	CheckConfirmation(args string) (needsConfirm bool, prompt string)
-	// ConfirmArgs 在确认通过后修改原始 args（例如注入 confirmed=true 标记）。
+	// ConfirmationOptions 返回可选操作列表。
+	// 返回 nil 或空切片表示二元确认（确认/拒绝），UI 可用 "yes"/"" 表示。
+	// 非空时，UI 应展示选项供用户选择，choice 为用户选中的选项值。
+	ConfirmationOptions(args string) []string
+	// ConfirmArgs 在用户做出选择后修改原始 args。
+	// choice 为用户选择的选项值；二元确认时 "yes" 表示确认，"" 表示拒绝。
 	// 修改后的 args 将传入 Execute。
-	ConfirmArgs(originalArgs string) string
+	ConfirmArgs(originalArgs string, choice string) string
 }
 
 // ─── ToolRegistry ────────────────────────────────────────────────────────────

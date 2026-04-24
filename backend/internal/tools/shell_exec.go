@@ -113,8 +113,15 @@ func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
 	return false, ""
 }
 
-// ConfirmArgs 实现 agent.Confirmable：注入 confirmed=true。
-func (shellExecTool) ConfirmArgs(original string) string {
+// ConfirmationOptions 实现 agent.Confirmable。
+// shell_exec 使用二元确认，返回 nil。
+func (shellExecTool) ConfirmationOptions(_ string) []string { return nil }
+
+// ConfirmArgs 实现 agent.Confirmable：choice == "yes" 时注入 confirmed=true。
+func (shellExecTool) ConfirmArgs(original string, choice string) string {
+	if choice != "yes" {
+		return original
+	}
 	var a map[string]any
 	if err := json.Unmarshal([]byte(original), &a); err != nil {
 		return original

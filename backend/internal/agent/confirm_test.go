@@ -40,7 +40,12 @@ func (f *fakeConfirmableTool) CheckConfirmation(args string) (bool, string) {
 	return f.needsConfirm, f.prompt
 }
 
-func (f *fakeConfirmableTool) ConfirmArgs(original string) string {
+func (fakeConfirmableTool) ConfirmationOptions(_ string) []string { return nil }
+
+func (f *fakeConfirmableTool) ConfirmArgs(original string, choice string) string {
+	if choice != "yes" {
+		return original
+	}
 	var m map[string]any
 	if err := json.Unmarshal([]byte(original), &m); err != nil {
 		return original
@@ -85,7 +90,7 @@ func TestAgent_Confirmable_Approved(t *testing.T) {
 			if e.Prompt == "" {
 				t.Error("prompt should not be empty")
 			}
-			if err := a.Confirm(e.CallID, true); err != nil {
+			if err := a.Confirm(e.CallID, "yes"); err != nil {
 				t.Errorf("Confirm: %v", err)
 			}
 		case DoneEvent:
@@ -135,7 +140,7 @@ func TestAgent_Confirmable_Denied(t *testing.T) {
 		switch e := ev.(type) {
 		case ToolNeedsConfirmEvent:
 			foundConfirm = true
-			if err := a.Confirm(e.CallID, false); err != nil {
+			if err := a.Confirm(e.CallID, ""); err != nil {
 				t.Errorf("Confirm: %v", err)
 			}
 		case ToolExecDoneEvent:
@@ -230,11 +235,11 @@ func TestAgent_Confirm_Duplicate(t *testing.T) {
 		switch e := ev.(type) {
 		case ToolNeedsConfirmEvent:
 			callID = e.CallID
-			if err := a.Confirm(callID, true); err != nil {
+			if err := a.Confirm(callID, "yes"); err != nil {
 				t.Errorf("first Confirm: %v", err)
 			}
 			// 第二次重复调用应报错
-			if err := a.Confirm(callID, true); err == nil {
+			if err := a.Confirm(callID, "yes"); err == nil {
 				t.Error("second Confirm should error")
 			}
 		case DoneEvent:
@@ -255,7 +260,7 @@ func TestAgent_Confirm_UnknownCallID(t *testing.T) {
 	fake := &FakeLLM{Responses: []string{"hello"}}
 	a := startedAgent(t, fake)
 
-	if err := a.Confirm("nonexistent", true); err == nil {
+	if err := a.Confirm("nonexistent", "yes"); err == nil {
 		t.Error("Confirm for unknown callID should error")
 	}
 }
@@ -334,7 +339,7 @@ func TestAgent_Confirmable_ParallelPartialConfirm(t *testing.T) {
 		switch e := ev.(type) {
 		case ToolNeedsConfirmEvent:
 			confirmCount++
-			if err := a.Confirm(e.CallID, true); err != nil {
+			if err := a.Confirm(e.CallID, "yes"); err != nil {
 				t.Errorf("Confirm: %v", err)
 			}
 		case DoneEvent:

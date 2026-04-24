@@ -79,7 +79,7 @@ type Agent struct {
 // confirmSlot 是单次 tool_call 的待确认槽位
 type confirmSlot struct {
 	done atomic.Bool
-	ch   chan bool // approved
+	ch   chan string // 用户选择的选项值；"" 表示拒绝/取消
 }
 
 // Option 是 NewAgent 的 functional option
@@ -319,9 +319,10 @@ func (a *Agent) State() State {
 
 // Confirm 向 agent 注入用户对某个待确认 tool_call 的响应。
 //
-// 由外部系统（UI / TUI / WebSocket）在用户点击"确认"/"拒绝"后调用。
+// 由外部系统（UI / TUI / WebSocket）在用户做出选择后调用。
+// choice 为用户选择的选项值；二元确认用 "yes"（确认）或 ""（拒绝）。
 // 若 callID 不存在或已响应，返回错误。
-func (a *Agent) Confirm(callID string, approved bool) error {
+func (a *Agent) Confirm(callID string, choice string) error {
 	a.confirmMu.RLock()
 	slot, ok := a.pendingConfirm[callID]
 	a.confirmMu.RUnlock()
@@ -332,7 +333,7 @@ func (a *Agent) Confirm(callID string, approved bool) error {
 		return fmt.Errorf("agent: confirmation %s already resolved", callID)
 	}
 	select {
-	case slot.ch <- approved:
+	case slot.ch <- choice:
 		return nil
 	default:
 		return fmt.Errorf("agent: confirmation %s channel blocked", callID)
@@ -928,28 +929,30 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 
 	// ── Confirmable 检查 ───────────────────────────────────────────────
 	// 若工具实现了 Confirmable 且 CheckConfirmation 返回 true，
-	// 发送 ToolNeedsConfirmEvent 并阻塞等待外部 Confirm 调用。
+	// 发送 ToolNeedsConfirmEvent（含 Options）并阻塞等待外部 Confirm 调用。
 	if c, ok := tool.(Confirmable); ok {
 		needsConfirm, prompt := c.CheckConfirmation(args)
 		if needsConfirm {
+			options := c.ConfirmationOptions(args)
 			if !a.emit(ctx, out, ToolNeedsConfirmEvent{
-				Iter:   iter,
-				CallID: tc.ID,
-				Name:   name,
-				Args:   args,
-				Prompt: prompt,
+				Iter:    iter,
+				CallID:  tc.ID,
+				Name:    name,
+				Args:    args,
+				Prompt:  prompt,
+				Options: options,
 			}) {
 				return "error: " + ctx.Err().Error()
 			}
 
-			slot := &confirmSlot{ch: make(chan bool, 1)}
+			slot := &confirmSlot{ch: make(chan string, 1)}
 			a.confirmMu.Lock()
 			a.pendingConfirm[tc.ID] = slot
 			a.confirmMu.Unlock()
 
-			var approved bool
+			var choice string
 			select {
-			case approved = <-slot.ch:
+			case choice = <-slot.ch:
 			case <-ctx.Done():
 				a.confirmMu.Lock()
 				delete(a.pendingConfirm, tc.ID)
@@ -961,7 +964,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			delete(a.pendingConfirm, tc.ID)
 			a.confirmMu.Unlock()
 
-			if !approved {
+			if choice == "" {
 				result := "error: user denied execution"
 				a.emit(ctx, out, ToolExecDoneEvent{
 					Iter:   iter,
@@ -972,7 +975,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 				})
 				return result
 			}
-			args = c.ConfirmArgs(args)
+			args = c.ConfirmArgs(args, choice)
 		}
 	}
 
