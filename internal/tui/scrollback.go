@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 // ─── Scrollback management ────────────────────────────────────────────────────
 
@@ -8,11 +8,15 @@ func (m *model) addScrollLine(content string, style lipgloss.Style) {
 	m.scrollback = append(m.scrollback, scrollLine{content: content, style: style})
 	m.lastLineEmpty = (content == "")
 
-	// 超过上限时截断旧数据，保留前 10% 作为上下文缓冲
+	if !m.useAltScreen && m.p != nil {
+		m.p.Println(style.Render(content))
+	}
+
 	if len(m.scrollback) > maxScrollbackLines {
 		keep := maxScrollbackLines * 9 / 10
 		m.scrollback = m.scrollback[len(m.scrollback)-keep:]
 	}
+	// 超过上限时截断旧数据，保留前 10% 作为上下文缓冲
 }
 
 // toggleLastExpandable 切换最近一个可展开块的展开/折叠状态

@@ -1,5 +1,7 @@
 package tui
 
+import "charm.land/bubbletea/v2"
+
 import (
 	"fmt"
 	"strings"
@@ -17,13 +19,13 @@ import (
 //   4. 空行（状态行与输入框的分隔）
 //   5. 输入框（固定底部）
 
-func (m *model) View() string {
+func (m *model) View() tea.View {
 	if m.fatalErr != nil {
-		return styleError.Render("fatal: "+m.fatalErr.Error()) + "\n"
+		return tea.NewView(styleError.Render("fatal: "+m.fatalErr.Error()) + "\n")
 	}
 
 	if m.width == 0 || m.height == 0 {
-		return ""
+		return tea.NewView("")
 	}
 
 	var sb strings.Builder
@@ -91,7 +93,9 @@ func (m *model) View() string {
 	inputLine := styleInputLine.Width(m.width).Render(prompt)
 	sb.WriteString(inputLine)
 
-	return sb.String()
+	v := tea.NewView(sb.String())
+	v.AltScreen = m.useAltScreen
+	return v
 }
 
 // renderStatusBar 渲染固定状态栏
