@@ -160,10 +160,10 @@ func (m *Mux) handleHistory(w http.ResponseWriter, r *http.Request) {
 // ─── WebSocket ────────────────────────────────────────────────────────────
 
 type wsInFrame struct {
-	Type     string `json:"type"`
-	Prompt   string `json:"prompt,omitempty"`
-	CallID   string `json:"call_id,omitempty"`
-	Approved bool   `json:"approved,omitempty"`
+	Type   string `json:"type"`
+	Prompt string `json:"prompt,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+	Choice string `json:"choice,omitempty"` // 用户选择的选项值；"yes" 表示确认，"" 表示拒绝
 }
 
 const (
@@ -259,11 +259,11 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 			}()
 
 		case frameConfirm:
-			if err := s.Agent.Confirm(in.CallID, in.Approved); err != nil {
+			if err := s.Agent.Confirm(in.CallID, in.Choice); err != nil {
 				m.logError(connCtx, "confirm failed", err,
 					slog.String("session_id", id),
 					slog.String("call_id", in.CallID),
-					slog.Bool("approved", in.Approved),
+					slog.String("choice", in.Choice),
 				)
 			}
 
