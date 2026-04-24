@@ -108,5 +108,36 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 	return string(b), nil
 }
 
-// Compile-time check
+// CheckConfirmation 实现 agent.Confirmable：写文件始终需要确认。
+func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
+	var a writeFileArgs
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return true, fmt.Sprintf("Write file (unable to parse args). Allow?")
+	}
+	size := len(a.Content)
+	var sizeStr string
+	if size >= 1<<10 {
+		sizeStr = fmt.Sprintf("%.1fKB", float64(size)/float64(1<<10))
+	} else {
+		sizeStr = fmt.Sprintf("%dB", size)
+	}
+	return true, fmt.Sprintf("Write %s to %q. Allow?", sizeStr, a.Path)
+}
+
+// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+func (t *writeFileTool) ConfirmationOptions(_ string) []string { return nil }
+
+// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
+func (t *writeFileTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
+	if choice != agent.ChoiceApprove {
+		return original
+	}
+	return original
+}
+
+// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+func (t *writeFileTool) SupportsSessionWhitelist() bool { return true }
+
+// Compile-time checks
 var _ agent.Tool = (*writeFileTool)(nil)
+var _ agent.Confirmable = (*writeFileTool)(nil)
