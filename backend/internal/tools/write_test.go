@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -221,6 +223,139 @@ func TestWriteFile_MetadataInterface(t *testing.T) {
 	var m map[string]any
 	if err := json.Unmarshal(tool.Parameters(), &m); err != nil {
 		t.Errorf("Parameters not valid JSON: %v", err)
+	}
+}
+
+// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+
+func TestWriteFile_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
+	tool, _ := mkWriteFileTool(t, 1024)
+	raw, _ := json.Marshal(writeFileArgs{Path: "/tmp/test.go", Content: "hello world"})
+	needs, prompt := tool.CheckConfirmation(string(raw))
+	if !needs {
+		t.Error("write_file should always need confirmation")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !strings.Contains(prompt, "test.go") {
+		t.Errorf("prompt should contain path, got: %s", prompt)
+	}
+}
+
+func TestWriteFile_CheckConfirmation_InvalidJSON(t *testing.T) {
+	tool, _ := mkWriteFileTool(t, 1024)
+	needs, prompt := tool.CheckConfirmation(`{not json`)
+	if !needs {
+		t.Error("should still need confirm even with invalid JSON")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty fallback prompt")
+	}
+}
+
+func TestWriteFile_ConfirmationOptions_Binary(t *testing.T) {
+	tool, _ := mkWriteFileTool(t, 1024)
+	raw, _ := json.Marshal(writeFileArgs{Path: "a.go", Content: "x"})
+	if opts := tool.ConfirmationOptions(string(raw)); opts != nil {
+		t.Errorf("expected nil for binary confirm, got %v", opts)
+	}
+}
+
+func TestWriteFile_ConfirmArgs_PreservesOriginal(t *testing.T) {
+	tool, _ := mkWriteFileTool(t, 1024)
+	original := `{"path":"a.go","content":"hello"}`
+	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+		got := tool.ConfirmArgs(original, choice)
+		if got != original {
+			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
+		}
+	}
+}
+
+func TestWriteFile_SupportsSessionWhitelist(t *testing.T) {
+	tool, _ := mkWriteFileTool(t, 1024)
+	if !tool.SupportsSessionWhitelist() {
+		t.Error("should support session whitelist")
+	}
+}
+
+// ─── MultiWrite Confirmable 测试 ────────────────────────────────────────────
+
+func TestMultiWrite_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
+	tool, _ := mkMultiWriteTool(t, 10, 1024)
+	raw, _ := json.Marshal(multiWriteArgs{
+		Files: []writeFileArgs{
+			{Path: "a.go", Content: "a"},
+			{Path: "b.go", Content: "bb"},
+			{Path: "c.go", Content: "ccc"},
+		},
+	})
+	needs, prompt := tool.CheckConfirmation(string(raw))
+	if !needs {
+		t.Error("multi_write should always need confirmation")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !strings.Contains(prompt, "3") {
+		t.Errorf("prompt should contain file count, got: %s", prompt)
+	}
+}
+
+func TestMultiWrite_CheckConfirmation_ManyFiles(t *testing.T) {
+	tool, _ := mkMultiWriteTool(t, 10, 1024)
+	files := make([]writeFileArgs, 5)
+	for i := range files {
+		files[i] = writeFileArgs{Path: fmt.Sprintf("file%d.go", i), Content: "x"}
+	}
+	raw, _ := json.Marshal(multiWriteArgs{Files: files})
+	needs, prompt := tool.CheckConfirmation(string(raw))
+	if !needs {
+		t.Error("should always need confirm")
+	}
+	// >3 files should not list individual paths
+	if strings.Contains(prompt, "file0.go") {
+		t.Errorf("many files should not list all paths, got: %s", prompt)
+	}
+}
+
+func TestMultiWrite_CheckConfirmation_InvalidJSON(t *testing.T) {
+	tool, _ := mkMultiWriteTool(t, 10, 1024)
+	needs, prompt := tool.CheckConfirmation(`{not json`)
+	if !needs {
+		t.Error("should still need confirm even with invalid JSON")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty fallback prompt")
+	}
+}
+
+func TestMultiWrite_ConfirmationOptions_Binary(t *testing.T) {
+	tool, _ := mkMultiWriteTool(t, 10, 1024)
+	raw, _ := json.Marshal(multiWriteArgs{
+		Files: []writeFileArgs{{Path: "a.go", Content: "x"}},
+	})
+	if opts := tool.ConfirmationOptions(string(raw)); opts != nil {
+		t.Errorf("expected nil for binary confirm, got %v", opts)
+	}
+}
+
+func TestMultiWrite_ConfirmArgs_PreservesOriginal(t *testing.T) {
+	tool, _ := mkMultiWriteTool(t, 10, 1024)
+	original := `{"files":[{"path":"a.go","content":"hello"}]}`
+	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+		got := tool.ConfirmArgs(original, choice)
+		if got != original {
+			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
+		}
+	}
+}
+
+func TestMultiWrite_SupportsSessionWhitelist(t *testing.T) {
+	tool, _ := mkMultiWriteTool(t, 10, 1024)
+	if !tool.SupportsSessionWhitelist() {
+		t.Error("should support session whitelist")
 	}
 }
 

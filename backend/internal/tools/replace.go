@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
@@ -132,5 +133,40 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	return string(b), nil
 }
 
-// Compile-time check
+// CheckConfirmation 实现 agent.Confirmable：替换操作始终需要确认。
+func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
+	var a replaceArgs
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return true, fmt.Sprintf("Replace in file (unable to parse args). Allow?")
+	}
+	oldPreview := truncateString(a.OldString, 40)
+	newPreview := truncateString(a.NewString, 40)
+	return true, fmt.Sprintf("Replace in %q: %q → %q. Allow?", a.Path, oldPreview, newPreview)
+}
+
+// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+func (t *replaceTool) ConfirmationOptions(_ string) []string { return nil }
+
+// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
+func (t *replaceTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
+	if choice != agent.ChoiceApprove {
+		return original
+	}
+	return original
+}
+
+// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+func (t *replaceTool) SupportsSessionWhitelist() bool { return true }
+
+// truncateString 截断字符串用于展示（含省略号）
+func truncateString(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:max]) + "…"
+}
+
+// Compile-time checks
 var _ agent.Tool = (*replaceTool)(nil)
+var _ agent.Confirmable = (*replaceTool)(nil)

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -442,5 +444,123 @@ func TestMultiReplace_MetadataInterface(t *testing.T) {
 	var m map[string]any
 	if err := json.Unmarshal(tool.Parameters(), &m); err != nil {
 		t.Errorf("Parameters not valid JSON: %v", err)
+	}
+}
+
+// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+
+func TestReplace_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
+	tool, _ := mkReplaceTool(t, 1024, 1024)
+	raw, _ := json.Marshal(replaceArgs{Path: "/tmp/test.go", OldString: "foo", NewString: "bar"})
+	needs, prompt := tool.CheckConfirmation(string(raw))
+	if !needs {
+		t.Error("replace should always need confirmation")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !strings.Contains(prompt, "test.go") || !strings.Contains(prompt, "foo") {
+		t.Errorf("prompt should contain path and old_string, got: %s", prompt)
+	}
+}
+
+func TestReplace_CheckConfirmation_InvalidJSON(t *testing.T) {
+	tool, _ := mkReplaceTool(t, 1024, 1024)
+	needs, prompt := tool.CheckConfirmation(`{not json`)
+	if !needs {
+		t.Error("should still need confirm even with invalid JSON")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty fallback prompt")
+	}
+}
+
+func TestReplace_ConfirmationOptions_Binary(t *testing.T) {
+	tool, _ := mkReplaceTool(t, 1024, 1024)
+	raw, _ := json.Marshal(replaceArgs{Path: "a.go", OldString: "x", NewString: "y"})
+	if opts := tool.ConfirmationOptions(string(raw)); opts != nil {
+		t.Errorf("expected nil for binary confirm, got %v", opts)
+	}
+}
+
+func TestReplace_ConfirmArgs_PreservesOriginal(t *testing.T) {
+	tool, _ := mkReplaceTool(t, 1024, 1024)
+	original := `{"path":"a.go","old_string":"foo","new_string":"bar"}`
+	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+		got := tool.ConfirmArgs(original, choice)
+		if got != original {
+			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
+		}
+	}
+}
+
+func TestReplace_SupportsSessionWhitelist(t *testing.T) {
+	tool, _ := mkReplaceTool(t, 1024, 1024)
+	if !tool.SupportsSessionWhitelist() {
+		t.Error("should support session whitelist")
+	}
+}
+
+// ─── MultiReplace Confirmable 测试 ──────────────────────────────────────────
+
+func TestMultiReplace_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
+	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
+	raw, _ := json.Marshal(multiReplaceArgs{
+		Path: "/tmp/test.go",
+		Edits: []replaceEdit{
+			{OldString: "a", NewString: "b"},
+			{OldString: "c", NewString: "d"},
+			{OldString: "e", NewString: "f"},
+		},
+	})
+	needs, prompt := tool.CheckConfirmation(string(raw))
+	if !needs {
+		t.Error("multi_replace should always need confirmation")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !strings.Contains(prompt, "test.go") || !strings.Contains(prompt, "3") {
+		t.Errorf("prompt should contain path and edit count, got: %s", prompt)
+	}
+}
+
+func TestMultiReplace_CheckConfirmation_InvalidJSON(t *testing.T) {
+	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
+	needs, prompt := tool.CheckConfirmation(`{not json`)
+	if !needs {
+		t.Error("should still need confirm even with invalid JSON")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty fallback prompt")
+	}
+}
+
+func TestMultiReplace_ConfirmationOptions_Binary(t *testing.T) {
+	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
+	raw, _ := json.Marshal(multiReplaceArgs{
+		Path: "a.go",
+		Edits: []replaceEdit{{OldString: "x", NewString: "y"}},
+	})
+	if opts := tool.ConfirmationOptions(string(raw)); opts != nil {
+		t.Errorf("expected nil for binary confirm, got %v", opts)
+	}
+}
+
+func TestMultiReplace_ConfirmArgs_PreservesOriginal(t *testing.T) {
+	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
+	original := `{"path":"a.go","edits":[{"old_string":"foo","new_string":"bar"}]}`
+	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+		got := tool.ConfirmArgs(original, choice)
+		if got != original {
+			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
+		}
+	}
+}
+
+func TestMultiReplace_SupportsSessionWhitelist(t *testing.T) {
+	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
+	if !tool.SupportsSessionWhitelist() {
+		t.Error("should support session whitelist")
 	}
 }
