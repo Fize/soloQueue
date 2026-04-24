@@ -37,11 +37,12 @@ type wireRequest struct {
 }
 
 type wireMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
-	Name       string         `json:"name,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
+	Role            string           `json:"role"`
+	Content         string           `json:"content,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	Name            string           `json:"name,omitempty"`
+	ToolCallID      string           `json:"tool_call_id,omitempty"`
+	ToolCalls       []wireToolCall  `json:"tool_calls,omitempty"`
 }
 
 type wireToolCall struct {
@@ -211,6 +212,10 @@ func buildWireMessages(msgs []agent.LLMMessage) []wireMessage {
 			Content:    m.Content,
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
+		}
+		// 只在有 tool_calls 时回传 reasoning_content（满足 API 要求 + 省 token）
+		if len(m.ToolCalls) > 0 && m.ReasoningContent != "" {
+			wm.ReasoningContent = m.ReasoningContent
 		}
 		if len(m.ToolCalls) > 0 {
 			wm.ToolCalls = make([]wireToolCall, 0, len(m.ToolCalls))
