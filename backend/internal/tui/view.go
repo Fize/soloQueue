@@ -51,9 +51,17 @@ func (m *model) View() string {
 		rendered := line.render(m.width)
 		sb.WriteString(rendered)
 		sb.WriteString("\n")
-		// 展开内容
+		// 展开内容：超过 10 行时截断显示
 		if line.expanded && len(line.fullLines) > 0 {
-			for _, fl := range line.fullLines {
+			maxExpandLines := 10
+			displayLines := line.fullLines
+			if len(displayLines) > maxExpandLines {
+				// 显示前 5 行 + 省略提示 + 后 5 行
+				displayLines = append([]string{}, displayLines[:5]...)
+				displayLines = append(displayLines, fmt.Sprintf("  ... (%d lines hidden, ctrl+o to collapse)", len(line.fullLines)-maxExpandLines))
+				displayLines = append(displayLines, line.fullLines[len(line.fullLines)-5:]...)
+			}
+			for _, fl := range displayLines {
 				wrapped := wrapLine(fl, m.width-2)
 				for _, wl := range wrapped {
 					sb.WriteString(line.fullStyle.Render("  " + wl))
