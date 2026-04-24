@@ -178,5 +178,37 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 	return string(b), nil
 }
 
-// Compile-time check
+// CheckConfirmation 实现 agent.Confirmable：批量写文件始终需要确认。
+func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
+	var a multiWriteArgs
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return true, fmt.Sprintf("Write files (unable to parse args). Allow?")
+	}
+	n := len(a.Files)
+	if n <= 3 {
+		paths := make([]string, n)
+		for i, f := range a.Files {
+			paths[i] = f.Path
+		}
+		return true, fmt.Sprintf("Write %d file(s): %v. Allow?", n, paths)
+	}
+	return true, fmt.Sprintf("Write %d file(s). Allow?", n)
+}
+
+// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+func (t *multiWriteTool) ConfirmationOptions(_ string) []string { return nil }
+
+// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
+func (t *multiWriteTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
+	if choice != agent.ChoiceApprove {
+		return original
+	}
+	return original
+}
+
+// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+func (t *multiWriteTool) SupportsSessionWhitelist() bool { return true }
+
+// Compile-time checks
 var _ agent.Tool = (*multiWriteTool)(nil)
+var _ agent.Confirmable = (*multiWriteTool)(nil)
