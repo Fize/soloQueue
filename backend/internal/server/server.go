@@ -314,6 +314,7 @@ func agentEventToFrame(ev agent.AgentEvent) map[string]any {
 		return map[string]any{
 			"type": "tool_needs_confirm", "iter": e.Iter,
 			"call_id": e.CallID, "name": e.Name, "args": e.Args, "prompt": e.Prompt,
+			"allow_in_session": e.AllowInSession,
 		}
 	case agent.ToolExecDoneEvent:
 		errStr := ""

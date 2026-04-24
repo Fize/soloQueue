@@ -6,6 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Update ───────────────────────────────────────────────────────────────────
@@ -38,6 +40,21 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if msg.Type != tea.KeyCtrlC {
 			m.pendingExit = false
+		}
+
+		// 确认弹窗激活时劫持键盘输入
+		if m.confirm.active {
+			choice, ok := m.resolveConfirmChoice(msg)
+			if ok {
+				if err := m.sess.Agent.Confirm(m.confirm.callID, choice); err != nil {
+					m.addScrollLine("✗ confirm error: "+err.Error(), styleError)
+				}
+				m.confirm.active = false
+				// 恢复事件轮询
+				return m, tea.Batch(m.pollEvent())
+			}
+			// 非预期按键忽略，不传给输入框
+			return m, nil
 		}
 
 		switch msg.Type {
@@ -116,7 +133,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentEventMsg:
 		cmds := m.handleAgentEvent(msg.ev)
-		cmds = append(cmds, m.pollEvent())
+		// 若进入确认状态，暂停 pollEvent，等用户响应后再恢复
+		if !m.confirm.active {
+			cmds = append(cmds, m.pollEvent())
+		}
 		return m, tea.Batch(cmds...)
 
 	case streamDoneMsg:
@@ -152,6 +172,45 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// resolveConfirmChoice 将键盘消息解析为确认选择值。
+// 返回 (choice, true) 表示有效选择；否则返回 ("", false)。
+func (m *model) resolveConfirmChoice(msg tea.KeyMsg) (string, bool) {
+	// 多选项模式：数字键选择
+	if len(m.confirm.options) > 0 {
+		switch msg.Type {
+		case tea.KeyRunes:
+			if len(msg.Runes) == 1 {
+				r := msg.Runes[0]
+				if r >= '1' && r <= '9' {
+					idx := int(r - '1')
+					if idx < len(m.confirm.options) {
+						return m.confirm.options[idx], true
+					}
+				}
+			}
+		}
+		return "", false
+	}
+
+	// 二元确认模式 + allow-in-session
+	switch msg.Type {
+	case tea.KeyRunes:
+		if len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case 'y', 'Y':
+				return string(agent.ChoiceApprove), true
+			case 'n', 'N':
+				return string(agent.ChoiceDeny), true
+			case 'a', 'A':
+				if m.confirm.allowInSession {
+					return string(agent.ChoiceAllowInSession), true
+				}
+			}
+		}
+	}
+	return "", false
 }
 
 // quitWithHistory 退出时将对话历史输出到终端（仅 alt-screen 模式）。

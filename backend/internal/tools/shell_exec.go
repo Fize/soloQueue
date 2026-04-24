@@ -117,9 +117,9 @@ func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
 // shell_exec 使用二元确认，返回 nil。
 func (shellExecTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 agent.Confirmable：choice == "yes" 时注入 confirmed=true。
-func (shellExecTool) ConfirmArgs(original string, choice string) string {
-	if choice != "yes" {
+// ConfirmArgs 实现 agent.Confirmable：choice == ChoiceApprove 时注入 confirmed=true。
+func (shellExecTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
+	if choice != agent.ChoiceApprove {
 		return original
 	}
 	var a map[string]any
@@ -130,6 +130,10 @@ func (shellExecTool) ConfirmArgs(original string, choice string) string {
 	b, _ := json.Marshal(a)
 	return string(b)
 }
+
+// SupportsSessionWhitelist 实现 agent.Confirmable。
+// shell_exec 支持 allow-in-session。
+func (shellExecTool) SupportsSessionWhitelist() bool { return true }
 
 func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err := ctxErrOrNil(ctx); err != nil {
