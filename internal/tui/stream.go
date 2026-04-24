@@ -19,10 +19,8 @@ func (m *model) startStream(prompt string) tea.Cmd {
 	evCh, err := m.sess.AskStream(askCtx, prompt)
 	if err != nil {
 		cancel()
-		return tea.Sequence(
-			tea.Println(styleError.Render("✗ "+err.Error())),
-			tea.Println(""),
-		)
+		m.addScrollLine("✗ "+err.Error(), styleError)
+		return nil
 	}
 
 	m.streaming = true
