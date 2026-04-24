@@ -62,9 +62,12 @@ type Confirmable interface {
 	// 非空时，UI 应展示选项供用户选择，choice 为用户选中的选项值。
 	ConfirmationOptions(args string) []string
 	// ConfirmArgs 在用户做出选择后修改原始 args。
-	// choice 为用户选择的选项值；二元确认时 "yes" 表示确认，"" 表示拒绝。
+	// choice 为用户选择的选项值；二元确认时 ChoiceApprove 表示确认，ChoiceDeny 表示拒绝。
 	// 修改后的 args 将传入 Execute。
-	ConfirmArgs(originalArgs string, choice string) string
+	ConfirmArgs(originalArgs string, choice ConfirmChoice) string
+	// SupportsSessionWhitelist 返回该工具是否支持 "allow-in-session" 选项。
+	// 返回 false 时，UI 不应展示"本次全部允许"按钮。
+	SupportsSessionWhitelist() bool
 }
 
 // ─── ToolRegistry ────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -161,9 +162,41 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) []tea.Cmd {
 	case agent.DoneEvent:
 		// 内容由 streamDoneMsg 统一提交
 
+	case agent.ToolNeedsConfirmEvent:
+		m.confirm = confirmState{
+			active:         true,
+			callID:         e.CallID,
+			prompt:         e.Prompt,
+			options:        e.Options,
+			allowInSession: e.AllowInSession,
+		}
+		m.renderConfirmPrompt()
+
 	case agent.ErrorEvent:
 		m.addScrollLine("✗ "+e.Err.Error(), styleError)
 	}
 
 	return cmds
+}
+
+// renderConfirmPrompt 将确认提示渲染到 scrollback
+func (m *model) renderConfirmPrompt() {
+	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+	detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+
+	m.addScrollLine("", lipgloss.NewStyle())
+	m.addScrollLine("⚠ "+m.confirm.prompt, promptStyle)
+
+	if len(m.confirm.options) > 0 {
+		for i, opt := range m.confirm.options {
+			m.addScrollLine(fmt.Sprintf("  [%d] %s", i+1, opt), detailStyle)
+		}
+	} else {
+		m.addScrollLine("  [y] confirm  [n] deny", hintStyle)
+		if m.confirm.allowInSession {
+			m.addScrollLine("  [a] allow in session", hintStyle)
+		}
+	}
+	m.addScrollLine("", lipgloss.NewStyle())
 }
