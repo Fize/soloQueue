@@ -1,26 +1,25 @@
 # SoloQueue - AI Multi-Agent Collaboration Tool
 
-An AI multi-agent collaboration tool with a Go backend and React frontend.
+An AI multi-agent collaboration tool with a Go CLI/server and React web UI.
 
 ## Architecture
 
-- **Backend**: Go (net/http + cobra CLI) — REST + WebSocket API
-- **Frontend**: React 19 + TypeScript + Vite + TailwindCSS
+- **Go App**: Go (net/http + cobra CLI) — CLI-first, embeds REST + WebSocket server
+- **Web UI**: React 19 + TypeScript + Vite + TailwindCSS
 - **Desktop**: Electron (planned)
 
 ## Getting Started
 
-### Backend
+### Go App (CLI + Server)
 
 ```bash
-cd backend
 go run ./cmd/soloqueue serve --port 8765
 ```
 
-### Frontend
+### Web UI
 
 ```bash
-cd frontend
+cd web
 npm install
 npm run dev
 ```
@@ -29,13 +28,23 @@ npm run dev
 
 ```
 soloqueue/
-├── backend/          # Go backend
-│   ├── cmd/          # CLI entrypoint
-│   └── internal/     # Core packages
-├── frontend/         # React frontend
-│   ├── src/          # Frontend source code
-│   └── public/       # Static assets
-└── todo.md           # Development plan
+├── cmd/              # CLI entrypoint (cobra)
+│   └── soloqueue/
+├── internal/         # Core Go packages
+│   ├── agent/        # Agent core (LLM + Tool Loop)
+│   ├── config/       # Config system (hot-reload)
+│   ├── llm/          # LLM client (DeepSeek)
+│   ├── logger/       # Logger (JSONL + rotation)
+│   ├── server/       # HTTP/WS router
+│   ├── session/      # Session management
+│   ├── tools/        # Tools (file, shell, HTTP...)
+│   └── tui/          # Terminal UI
+├── web/              # React web UI
+│   ├── src/
+│   └── public/
+├── docs/             # Documentation & demos
+├── go.mod
+└── go.sum
 ```
 
 ## Recommended IDE Setup
