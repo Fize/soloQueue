@@ -29,6 +29,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -156,6 +157,12 @@ type model struct {
 	// Tool exec tracking
 	toolExecMap map[string]*toolExecInfo
 
+	// 确认弹窗状态
+	confirm confirmState
+
+	// Logo 版本号（启动时设置，View 中渲染）
+	logoVersion string
+
 	// Spinner state
 	spinnerFrame int
 	spinnerChars []rune
@@ -174,6 +181,15 @@ type model struct {
 
 	ready    bool
 	fatalErr error
+}
+
+// confirmState 管理工具确认弹窗状态
+type confirmState struct {
+	active         bool
+	callID         string
+	prompt         string
+	options        []string
+	allowInSession bool
 }
 
 type toolExecInfo struct {
@@ -213,6 +229,9 @@ func New(cfg Config) *tea.Program {
 		streamPhase:  "",
 		useAltScreen: useAlt,
 	}
+
+	// 在 scrollback 顶部显示启动 logo
+	m.logoVersion = cfg.Version
 
 	// Alt-screen 模式：精确控制布局，输入框固定终端底部
 	// Inline 降级模式：tmux/SSH 环境，保留终端滚动历史
@@ -295,4 +314,38 @@ func wrapLine(line string, width int) []string {
 		}
 	}
 	return result
+}
+
+// renderLogo 返回预渲染的 ASCII logo 多行字符串（仅在 View 中使用）
+func (m *model) renderLogo() string {
+	if m.logoVersion == "" {
+		return ""
+	}
+
+	logoLines := []string{
+		" ╭──╮ ╭──╮ ",
+		" ╰──╮ │  │  soloqueue",
+		" ╰──╯ ╰──┼  " + m.logoVersion,
+		"         ╰ ",
+	}
+
+	// 渐变色：#00E5FF → #F5D061
+	startR, startG, startB := uint8(0), uint8(229), uint8(255)
+	endR, endG, endB := uint8(245), uint8(208), uint8(97)
+
+	var sb strings.Builder
+	for i, line := range logoLines {
+		ratio := float64(i) / float64(len(logoLines)-1)
+		r := startR + uint8(float64(endR-startR)*ratio)
+		g := startG + uint8(float64(endG-startG)*ratio)
+		b := startB + uint8(float64(endB-startB)*ratio)
+
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b)))
+		sb.WriteString(style.Render(line))
+		if i < len(logoLines)-1 || true {
+			sb.WriteString("\n")
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }
