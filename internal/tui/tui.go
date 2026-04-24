@@ -180,8 +180,6 @@ type model struct {
 
 	ready    bool
 	fatalErr error
-	// pendingPrintLines 暂存待通过 tea.Println 输出的行（Update 结束时 flush）
-	pendingPrintLines []string
 }
 
 // confirmState 管理工具确认弹窗状态
@@ -214,7 +212,15 @@ func New(cfg Config) *tea.Program {
 	var inputStyles textinput.Styles
 	inputStyles.Focused.Text = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 	inputStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236"))
-	ti.SetStyles(inputStyles) // 自己在外部用 stylePrompt 渲染
+	// 使用虚拟光标获取光标位置（通过 m.input.Cursor()）。
+	// 不再调用 m.input.View()，因此不会触发 placeholderView 输出虚假首字符的问题。
+	inputStyles.Cursor = textinput.CursorStyle{
+		Color: lipgloss.Color("10"),
+		Shape: tea.CursorBlock,
+		Blink: true,
+	}
+	ti.SetStyles(inputStyles)
+	ti.SetVirtualCursor(true)
 	ti.Focus()
 	ti.CharLimit = 4096
 
@@ -247,10 +253,17 @@ func New(cfg Config) *tea.Program {
 }
 
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		textinput.Blink,
 		m.createSessionCmd(),
-	)
+	}
+	// inline 模式下，logo 通过 tea.Println (insertAbove) 输出到终端，
+	// 直接写入终端滚动历史，不受 renderer 行数裁剪影响。
+	// alt-screen 模式下由 View() 统一渲染。
+	if !m.useAltScreen && m.logoVersion != "" {
+		cmds = append(cmds, tea.Println(m.renderLogo()))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *model) createSessionCmd() tea.Cmd {
