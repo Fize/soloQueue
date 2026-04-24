@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
@@ -38,7 +38,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.Type != tea.KeyCtrlC {
+		if !(msg.Key().Code == 'c' && (msg.Key().Mod & tea.ModCtrl != 0)) {
 			m.pendingExit = false
 		}
 
@@ -57,9 +57,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		switch msg.Type {
+		switch {
 
-		case tea.KeyCtrlC:
+		case msg.Key().Code == 'c' && (msg.Key().Mod & tea.ModCtrl != 0):
 			if m.streaming && m.streamCancel != nil {
 				m.streamCancel()
 				return m, nil
@@ -71,19 +71,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingExit = true
 			return m, nil
 
-		case tea.KeyCtrlD:
+		case msg.Key().Code == 'd' && (msg.Key().Mod & tea.ModCtrl != 0):
 			if m.input.Value() == "" && !m.streaming {
 				m.cancelFn()
 				return m, m.quitWithHistory()
 			}
 
-		case tea.KeyEsc:
+		case msg.Key().Code == tea.KeyEsc:
 			if m.streaming && m.streamCancel != nil {
 				m.streamCancel()
 			}
 			return m, nil
 
-		case tea.KeyEnter:
+		case msg.Key().Code == tea.KeyEnter || msg.Key().Code == tea.KeyReturn:
 			if m.streaming || !m.ready {
 				return m, nil
 			}
@@ -107,23 +107,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return m, m.startStream(input)
 
-		case tea.KeyUp:
+		case msg.Key().Code == tea.KeyUp:
 			if !m.streaming {
 				m.historyNavigate(-1)
 			}
 			return m, nil
 
-		case tea.KeyDown:
+		case msg.Key().Code == tea.KeyDown:
 			if !m.streaming {
 				m.historyNavigate(+1)
 			}
 			return m, nil
 
-		case tea.KeyCtrlT:
+		case msg.Key().Code == 't' && (msg.Key().Mod & tea.ModCtrl != 0):
 			m.toggleLastThinkBlock()
 			return m, nil
 
-		case tea.KeyCtrlO:
+		case msg.Key().Code == 'o' && (msg.Key().Mod & tea.ModCtrl != 0):
 			m.toggleLastExpandable()
 			return m, nil
 		}
@@ -140,6 +140,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 流结束：flush 最后一段未完成的半行到 scrollback
 		if tail := m.contentBuf.String(); tail != "" {
 			m.addScrollLine(tail, styleAI)
+			m.p.Println(styleAI.Render(tail))
 		}
 		m.finalizeCurrentThink()
 		if msg.err != nil && msg.err != context.Canceled {
@@ -176,10 +177,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) resolveConfirmChoice(msg tea.KeyMsg) (string, bool) {
 	// 多选项模式：数字键选择
 	if len(m.confirm.options) > 0 {
-		switch msg.Type {
-		case tea.KeyRunes:
-			if len(msg.Runes) == 1 {
-				r := msg.Runes[0]
+		switch {
+		default:
+			if len(msg.Key().Text) == 1 {
+				r := []rune(msg.Key().Text)[0]
 				if r >= '1' && r <= '9' {
 					idx := int(r - '1')
 					if idx < len(m.confirm.options) {
@@ -192,10 +193,10 @@ func (m *model) resolveConfirmChoice(msg tea.KeyMsg) (string, bool) {
 	}
 
 	// 二元确认模式 + allow-in-session
-	switch msg.Type {
-	case tea.KeyRunes:
-		if len(msg.Runes) == 1 {
-			switch msg.Runes[0] {
+	switch {
+	default:
+		if len(msg.Key().Text) == 1 {
+			switch []rune(msg.Key().Text)[0] {
 			case 'y', 'Y':
 				return string(agent.ChoiceApprove), true
 			case 'n', 'N':
