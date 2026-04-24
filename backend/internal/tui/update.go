@@ -123,6 +123,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.reasonBlocks) > 0 {
 				last := &m.reasonBlocks[len(m.reasonBlocks)-1]
 				last.expanded = !last.expanded
+				m.renderThinkBlock(len(m.reasonBlocks) - 1)
 			}
 			return m, nil
 
