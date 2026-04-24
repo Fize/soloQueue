@@ -79,8 +79,8 @@ func (m *model) Update(msg tea.Msg) (_ tea.Model, cmd tea.Cmd) {
 				}
 				return m, nil
 			}
-		// 其他非预期按键忽略，不传给输入框
-		return m, nil
+			// 其他非预期按键忽略，不传给输入框
+			return m, nil
 		}
 
 		// 重置 pendingExit 只在非 Ctrl+C 时处理
