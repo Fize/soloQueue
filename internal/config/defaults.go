@@ -73,11 +73,11 @@ func DefaultSettings() Settings {
 		},
 		Models: []LLMModel{
 			{
-				ID:            "deepseek-chat",
+				ID:            "deepseek-v4-flash",
 				ProviderID:    "deepseek",
-				Name:          "DeepSeek Chat",
+				Name:          "DeepSeek v4 Flash",
 				Type:          "chat",
-				ContextWindow: 64000,
+				ContextWindow: 131072,
 				Enabled:       true,
 				IsDefault:     true,
 				Generation: GenerationParams{
@@ -103,9 +103,9 @@ func DefaultSettings() Settings {
 				},
 			},
 			{
-				ID:            "deepseek-coder",
+				ID:            "deepseek-v4-flash",
 				ProviderID:    "deepseek",
-				Name:          "DeepSeek Coder",
+				Name:          "DeepSeek v4 Flash",
 				Type:          "code",
 				ContextWindow: 128000,
 				Enabled:       true,
@@ -119,7 +119,7 @@ func DefaultSettings() Settings {
 					StopSequences:    []string{},
 				},
 				Thinking: ThinkingConfig{
-					Enabled:      false,
+					Enabled:      true,
 					BudgetTokens: 0,
 					Type:         "",
 				},
@@ -133,17 +133,17 @@ func DefaultSettings() Settings {
 				},
 			},
 			{
-				ID:            "deepseek-reasoner",
+				ID:            "deepseek-v4-pro",
 				ProviderID:    "deepseek",
-				Name:          "DeepSeek Reasoner",
+				Name:          "DeepSeek v4 Pro",
 				Type:          "chat",
-				ContextWindow: 64000,
+				ContextWindow: 131072,
 				Enabled:       true,
 				IsDefault:     false,
 				Generation: GenerationParams{
-					Temperature:      0.6,
+					Temperature:      0.7,
 					MaxTokens:        8192,
-					TopP:             0.95,
+					TopP:             1.0,
 					FrequencyPenalty: 0.0,
 					PresencePenalty:  0.0,
 					StopSequences:    []string{},
