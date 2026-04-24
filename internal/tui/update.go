@@ -13,15 +13,6 @@ import (
 // ─── Update ───────────────────────────────────────────────────────────────────
 
 func (m *model) Update(msg tea.Msg) (_ tea.Model, cmd tea.Cmd) {
-	// 将 Update 期间累积的 pendingPrintLines 通过 tea.Println Cmd 异步发送。
-	// tea.Println 返回一个 Cmd，由 handleCommands goroutine 执行并发送到 p.msgs，
-	// 避免了在 Update 内直接写 p.msgs 导致的死锁。
-	defer func() {
-		if flush := m.flushPrintCmds(); flush != nil {
-			cmd = tea.Batch(cmd, flush)
-		}
-	}()
-
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
