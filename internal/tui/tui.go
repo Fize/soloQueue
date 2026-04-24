@@ -34,9 +34,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -181,6 +181,7 @@ type model struct {
 
 	ready    bool
 	fatalErr error
+p *tea.Program
 }
 
 // confirmState 管理工具确认弹窗状态
@@ -209,9 +210,11 @@ func New(cfg Config) *tea.Program {
 
 	ti := textinput.New()
 	ti.Placeholder = "Ask anything… (/help for commands)"
-	ti.Prompt = "" // 自己在外部用 stylePrompt 渲染
-	ti.TextStyle = lipgloss.NewStyle().Background(lipgloss.Color("236"))  // 输入文字自带背景
-	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236")) // placeholder 同背景
+	ti.Prompt = ""
+	var inputStyles textinput.Styles
+	inputStyles.Focused.Text = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+	inputStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236"))
+	ti.SetStyles(inputStyles) // 自己在外部用 stylePrompt 渲染
 	ti.Focus()
 	ti.CharLimit = 4096
 
@@ -237,9 +240,11 @@ func New(cfg Config) *tea.Program {
 	// Inline 降级模式：tmux/SSH 环境，保留终端滚动历史
 	opts := []tea.ProgramOption{}
 	if useAlt {
-		opts = append(opts, tea.WithAltScreen())
+		
 	}
-	return tea.NewProgram(m, opts...)
+	p := tea.NewProgram(m, opts...)
+	m.p = p
+	return p
 }
 
 func (m *model) Init() tea.Cmd {
