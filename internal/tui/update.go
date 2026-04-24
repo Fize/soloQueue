@@ -4,15 +4,24 @@ import (
 	"context"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Update ───────────────────────────────────────────────────────────────────
 
-func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (_ tea.Model, cmd tea.Cmd) {
+	// 将 Update 期间累积的 pendingPrintLines 通过 tea.Println Cmd 异步发送。
+	// tea.Println 返回一个 Cmd，由 handleCommands goroutine 执行并发送到 p.msgs，
+	// 避免了在 Update 内直接写 p.msgs 导致的死锁。
+	defer func() {
+		if flush := m.flushPrintCmds(); flush != nil {
+			cmd = tea.Batch(cmd, flush)
+		}
+	}()
+
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -38,10 +47,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.Type != tea.KeyCtrlC {
-			m.pendingExit = false
-		}
-
 		// 确认弹窗激活时劫持键盘输入
 		if m.confirm.active {
 			choice, ok := m.resolveConfirmChoice(msg)
@@ -50,18 +55,45 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addScrollLine("✗ confirm error: "+err.Error(), styleError)
 				}
 				m.confirm.active = false
+				// 重置 pendingExit 以允许正常操作
+				m.pendingExit = false
 				// 恢复事件轮询
 				return m, tea.Batch(m.pollEvent())
 			}
-			// 非预期按键忽略，不传给输入框
-			return m, nil
+			// 对于 Ctrl+C，即使在弹窗状态也允许强制退出
+			if msg.Key().Code == 'c' && (msg.Key().Mod&tea.ModCtrl != 0) {
+				if m.pendingExit {
+					m.cancelFn()
+					m.confirm.active = false
+					return m, m.quitWithHistory()
+				}
+				m.pendingExit = true
+				return m, nil
+			}
+			// Ctrl+D：弹窗状态下也允许空输入时退出
+			if msg.Key().Code == 'd' && (msg.Key().Mod&tea.ModCtrl != 0) {
+				if m.input.Value() == "" && !m.streaming {
+					m.cancelFn()
+					m.confirm.active = false
+					return m, m.quitWithHistory()
+				}
+				return m, nil
+			}
+		// 其他非预期按键忽略，不传给输入框
+		return m, nil
 		}
 
-		switch msg.Type {
+		// 重置 pendingExit 只在非 Ctrl+C 时处理
+		if !(msg.Key().Code == 'c' && (msg.Key().Mod&tea.ModCtrl != 0)) {
+			m.pendingExit = false
+		}
 
-		case tea.KeyCtrlC:
+		switch {
+
+		case msg.Key().Code == 'c' && (msg.Key().Mod&tea.ModCtrl != 0):
 			if m.streaming && m.streamCancel != nil {
 				m.streamCancel()
+				m.pendingExit = true
 				return m, nil
 			}
 			if m.pendingExit {
@@ -71,19 +103,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingExit = true
 			return m, nil
 
-		case tea.KeyCtrlD:
+		case msg.Key().Code == 'd' && (msg.Key().Mod&tea.ModCtrl != 0):
 			if m.input.Value() == "" && !m.streaming {
 				m.cancelFn()
 				return m, m.quitWithHistory()
 			}
+			return m, nil
 
-		case tea.KeyEsc:
+		case msg.Key().Code == tea.KeyEsc:
 			if m.streaming && m.streamCancel != nil {
 				m.streamCancel()
 			}
 			return m, nil
 
-		case tea.KeyEnter:
+		case msg.Key().Code == tea.KeyEnter || msg.Key().Code == tea.KeyReturn:
 			if m.streaming || !m.ready {
 				return m, nil
 			}
@@ -107,23 +140,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return m, m.startStream(input)
 
-		case tea.KeyUp:
+		case msg.Key().Code == tea.KeyUp:
 			if !m.streaming {
 				m.historyNavigate(-1)
 			}
 			return m, nil
 
-		case tea.KeyDown:
+		case msg.Key().Code == tea.KeyDown:
 			if !m.streaming {
 				m.historyNavigate(+1)
 			}
 			return m, nil
 
-		case tea.KeyCtrlT:
+		case msg.Key().Code == 't' && (msg.Key().Mod&tea.ModCtrl != 0):
 			m.toggleLastThinkBlock()
 			return m, nil
 
-		case tea.KeyCtrlO:
+		case msg.Key().Code == 'o' && (msg.Key().Mod&tea.ModCtrl != 0):
 			m.toggleLastExpandable()
 			return m, nil
 		}
@@ -176,10 +209,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) resolveConfirmChoice(msg tea.KeyMsg) (string, bool) {
 	// 多选项模式：数字键选择
 	if len(m.confirm.options) > 0 {
-		switch msg.Type {
-		case tea.KeyRunes:
-			if len(msg.Runes) == 1 {
-				r := msg.Runes[0]
+		switch {
+		default:
+			if len(msg.Key().Text) == 1 {
+				r := []rune(msg.Key().Text)[0]
 				if r >= '1' && r <= '9' {
 					idx := int(r - '1')
 					if idx < len(m.confirm.options) {
@@ -192,10 +225,10 @@ func (m *model) resolveConfirmChoice(msg tea.KeyMsg) (string, bool) {
 	}
 
 	// 二元确认模式 + allow-in-session
-	switch msg.Type {
-	case tea.KeyRunes:
-		if len(msg.Runes) == 1 {
-			switch msg.Runes[0] {
+	switch {
+	default:
+		if len(msg.Key().Text) == 1 {
+			switch []rune(msg.Key().Text)[0] {
 			case 'y', 'Y':
 				return string(agent.ChoiceApprove), true
 			case 'n', 'N':
@@ -205,6 +238,13 @@ func (m *model) resolveConfirmChoice(msg tea.KeyMsg) (string, bool) {
 					return string(agent.ChoiceAllowInSession), true
 				}
 			}
+		}
+		// 允许 Enter 键在二元确认模式下直接确认
+		if msg.Key().Code == tea.KeyEnter || msg.Key().Code == tea.KeyReturn {
+			if m.confirm.allowInSession {
+				return string(agent.ChoiceAllowInSession), true
+			}
+			return string(agent.ChoiceApprove), true
 		}
 	}
 	return "", false
