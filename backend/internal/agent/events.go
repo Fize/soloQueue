@@ -88,13 +88,16 @@ type DoneEvent struct {
 // UI/TUI/Web 收到后应向用户展示 Prompt 和 Options（若有）。
 // 用户选择后调用 Agent.Confirm(callID, choice)。
 // Options 为空表示二元确认，choice 用 "yes"（确认）或 ""（拒绝）。
+// 此外，若 AllowInSession 为 true，客户端可提供 "allow-in-session" 选项，
+// 选择后会将该 tool 加入当前 session 的放行白名单，本轮后续不再确认。
 type ToolNeedsConfirmEvent struct {
-	Iter    int
-	CallID  string
-	Name    string
-	Args    string
-	Prompt  string
-	Options []string
+	Iter           int
+	CallID         string
+	Name           string
+	Args           string
+	Prompt         string
+	Options        []string
+	AllowInSession bool
 }
 
 // ErrorEvent AskStream 因错误终止（ctx cancel / LLM 错误 / 超出 MaxIterations）
