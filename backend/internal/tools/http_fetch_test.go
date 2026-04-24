@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 func mkHTTPTool(t *testing.T, cfgMut func(*Config)) *httpFetchTool {
@@ -267,6 +269,60 @@ func TestHTTP_MetadataInterface(t *testing.T) {
 	var m map[string]any
 	if err := json.Unmarshal(tool.Parameters(), &m); err != nil {
 		t.Errorf("Parameters not valid JSON: %v", err)
+	}
+}
+
+// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+
+func TestHTTPFetch_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
+	tool := mkHTTPTool(t, nil)
+	raw, _ := json.Marshal(httpFetchArgs{URL: "https://example.com/api/data"})
+	needs, prompt := tool.CheckConfirmation(string(raw))
+	if !needs {
+		t.Error("http_fetch should always need confirmation")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !strings.Contains(prompt, "example.com") {
+		t.Errorf("prompt should contain URL, got: %s", prompt)
+	}
+}
+
+func TestHTTPFetch_CheckConfirmation_InvalidJSON(t *testing.T) {
+	tool := mkHTTPTool(t, nil)
+	needs, prompt := tool.CheckConfirmation(`{not json`)
+	if !needs {
+		t.Error("should still need confirm even with invalid JSON")
+	}
+	if prompt == "" {
+		t.Error("expected non-empty fallback prompt")
+	}
+}
+
+func TestHTTPFetch_ConfirmationOptions_Binary(t *testing.T) {
+	tool := mkHTTPTool(t, nil)
+	raw, _ := json.Marshal(httpFetchArgs{URL: "https://example.com/"})
+	if opts := tool.ConfirmationOptions(string(raw)); opts != nil {
+		t.Errorf("expected nil for binary confirm, got %v", opts)
+	}
+}
+
+func TestHTTPFetch_ConfirmArgs_PreservesOriginal(t *testing.T) {
+	tool := mkHTTPTool(t, nil)
+	original := `{"url":"https://example.com/"}`
+	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+		got := tool.ConfirmArgs(original, choice)
+		if got != original {
+			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
+		}
+	}
+}
+
+func TestHTTPFetch_SupportsSessionWhitelist(t *testing.T) {
+	tool := mkHTTPTool(t, nil)
+	if !tool.SupportsSessionWhitelist() {
+		t.Error("should support session whitelist")
 	}
 }
 
