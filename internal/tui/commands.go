@@ -3,53 +3,66 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ─── Built-in commands ────────────────────────────────────────────────────────
 
-func (a *App) handleBuiltin(input string) (quit bool) {
+func (m *model) handleBuiltin(input string) (quit bool) {
 	cmd := strings.ToLower(strings.TrimSpace(input))
 	switch cmd {
 	case "/quit", "/exit", "/q":
 		return true
 
 	case "/help", "/?":
-		fmt.Println(Styled("Commands: /help /clear /history /version /quit", styleDim))
-		fmt.Println()
+		m.messages = append(m.messages, message{
+			role:    "agent",
+			content: dimStyle.Render("Commands: /help /clear /history /version /quit"),
+		})
 
 	case "/clear":
-		// Just print some blank lines — no scrollback to clear
-		fmt.Print("\033[2J\033[H") // clear screen + cursor home
+		m.messages = nil
 
 	case "/version":
-		fmt.Println(Styled("SoloQueue "+a.cfg.Version, BOLD))
-		fmt.Println()
+		m.messages = append(m.messages, message{
+			role:    "agent",
+			content: lipgloss.NewStyle().Bold(true).Render("SoloQueue " + m.cfg.Version),
+		})
 
 	case "/history":
-		a.historyCmds()
+		m.historyCmds()
 
 	default:
 		if strings.HasPrefix(input, "/") {
-			fmt.Println(Styled("✗ Unknown command: "+input+". Type /help", styleError))
-			fmt.Println()
+			m.messages = append(m.messages, message{
+				role:    "agent",
+				content: errorStyle.Render("✗ Unknown command: " + input + ". Type /help"),
+			})
 		}
 	}
 	return false
 }
 
-func (a *App) historyCmds() {
-	if len(a.history) == 0 {
-		fmt.Println(Styled("(no history yet)", styleDim))
-		fmt.Println()
+func (m *model) historyCmds() {
+	if len(m.history) == 0 {
+		m.messages = append(m.messages, message{
+			role:    "agent",
+			content: dimStyle.Render("(no history yet)"),
+		})
 		return
 	}
-	fmt.Println(Styled("History:", BOLD))
+	var sb strings.Builder
+	sb.WriteString(lipgloss.NewStyle().Bold(true).Render("History:"))
 	start := 0
-	if len(a.history) > 20 {
-		start = len(a.history) - 20
+	if len(m.history) > 20 {
+		start = len(m.history) - 20
 	}
-	for i := start; i < len(a.history); i++ {
-		fmt.Println(Styled(fmt.Sprintf("  %3d  %s", i+1, truncate(a.history[i], 72)), styleDim))
+	for i := start; i < len(m.history); i++ {
+		sb.WriteString(fmt.Sprintf("\n  %3d  %s", i+1, truncate(m.history[i], 72)))
 	}
-	fmt.Println()
+	m.messages = append(m.messages, message{
+		role:    "agent",
+		content: sb.String(),
+	})
 }
