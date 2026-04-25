@@ -91,6 +91,18 @@ button {
   margin-right: 5px;
 }
 
+input::placeholder {
+  color: #71717a;
+  opacity: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  input::placeholder {
+    color: #a1a1aa;
+    opacity: 1;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
