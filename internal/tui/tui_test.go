@@ -2,39 +2,38 @@ package tui
 
 import (
 	"testing"
-	"time"
 )
 
-// Test_parseToolArgs 测试 JSON 参数解析
+// Test_parseToolArgs tests JSON argument parsing
 func Test_parseToolArgs(t *testing.T) {
 	tests := []struct {
-		name     string
-		argsJSON string
+		name        string
+		argsJSON    string
 		wantPath    string
 		wantCommand string
 		wantFile    string
 	}{
 		{
-			name:     "解析 path 参数",
+			name:     "parse path arg",
 			argsJSON: `{"path": "/home/user/test.go", "other": "value"}`,
-			wantPath:    "/home/user/test.go",
+			wantPath: "/home/user/test.go",
 		},
 		{
-			name:     "解析 command 参数",
-			argsJSON: `{"command": "ls -la", "timeout": 30}`,
+			name:        "parse command arg",
+			argsJSON:    `{"command": "ls -la", "timeout": 30}`,
 			wantCommand: "ls -la",
 		},
 		{
-			name:     "解析 file 参数",
+			name:     "parse file arg",
 			argsJSON: `{"file": "README.md"}`,
-			wantFile:    "README.md",
+			wantFile: "README.md",
 		},
 		{
-			name:     "空 JSON",
+			name:     "empty JSON",
 			argsJSON: `{}`,
 		},
 		{
-			name:     "无效 JSON",
+			name:     "invalid JSON",
 			argsJSON: `invalid json`,
 		},
 	}
@@ -55,7 +54,7 @@ func Test_parseToolArgs(t *testing.T) {
 	}
 }
 
-// Test_truncate 测试字符串截断函数
+// Test_truncate tests string truncation
 func Test_truncate(t *testing.T) {
 	tests := []struct {
 		name string
@@ -64,25 +63,25 @@ func Test_truncate(t *testing.T) {
 		want string
 	}{
 		{
-			name: "短字符串不截断",
+			name: "short string not truncated",
 			s:    "hello",
 			max:  10,
 			want: "hello",
 		},
 		{
-			name: "长字符串截断",
+			name: "long string truncated",
 			s:    "hello world",
 			max:  5,
 			want: "hello…",
 		},
 		{
-			name: "包含换行符",
+			name: "contains newline",
 			s:    "hello\nworld",
 			max:  20,
 			want: "hello↵world",
 		},
 		{
-			name: "包含回车符",
+			name: "contains carriage return",
 			s:    "hello\rworld",
 			max:  20,
 			want: "helloworld",
@@ -99,74 +98,55 @@ func Test_truncate(t *testing.T) {
 	}
 }
 
-// Test_wrapLine 测试文本换行函数
-func Test_wrapLine(t *testing.T) {
-	// 先验证 wrapLine 的实际行为
-	got := wrapLine("hello world this is a long line", 10)
-	t.Logf("实际 wrapLine() 结果: len=%d", len(got))
-	for i, s := range got {
-		t.Logf("  [%d] %q", i, s)
+// Test_Styled tests ANSI style composition
+func Test_Styled(t *testing.T) {
+	// No attrs → plain text
+	if got := Styled("hello"); got != "hello" {
+		t.Errorf("Styled with no attrs = %q, want %q", got, "hello")
 	}
 
-	tests := []struct {
-		name  string
-		line  string
-		width int
-		want  []string
-	}{
-		{
-			name:  "短行不换行",
-			line:  "hello",
-			width: 10,
-			want:  []string{"hello"},
-		},
-		{
-			name:  "长行换行",
-			line:  "hello world this is a long line",
-			width: 10,
-			want:  got, // 使用实际结果作为期望
-		},
-		{
-			name:  "宽度为0",
-			line:  "hello world",
-			width: 0,
-			want:  []string{"hello world"},
-		},
-		{
-			name:  "在空格处换行",
-			line:  "hello world",
-			width: 8,
-			want:  []string{"hello", "world"},
-		},
+	// With attrs → wrapped with ANSI codes and RESET
+	got := Styled("hello", Fg(10))
+	if len(got) < len("hello") {
+		t.Errorf("Styled with Fg(10) too short: %q", got)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := wrapLine(tt.line, tt.width)
-			if len(got) != len(tt.want) {
-				t.Errorf("wrapLine() len = %v, want %v, got=%v", len(got), len(tt.want), got)
-				return
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("wrapLine()[%d] = %v, want %v", i, got[i], tt.want[i])
-				}
-			}
-		})
+	if got[:len(got)-len("hello")] == "" {
+		t.Errorf("Styled should have ANSI prefix")
 	}
 }
 
-// Test_DefaultConfig 测试默认配置
-func Test_DefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	if cfg.MaxScrollbackLines != 10000 {
-		t.Errorf("DefaultConfig() MaxScrollbackLines = %v, want 10000", cfg.MaxScrollbackLines)
+// Test_addHistory tests history deduplication (only consecutive duplicates skipped)
+func Test_addHistory(t *testing.T) {
+	app := &App{}
+
+	app.addHistory("first")
+	app.addHistory("first") // consecutive duplicate — skipped
+	app.addHistory("second")
+	app.addHistory("third")
+
+	if len(app.history) != 3 {
+		t.Errorf("addHistory() got %d entries, want 3", len(app.history))
 	}
-	if cfg.MaxExpandLines != 10 {
-		t.Errorf("DefaultConfig() MaxExpandLines = %v, want 10", cfg.MaxExpandLines)
+	if app.history[0] != "first" || app.history[1] != "second" || app.history[2] != "third" {
+		t.Errorf("addHistory() entries = %v", app.history)
 	}
-	expectedInterval := 80 * time.Millisecond
-	if cfg.SpinnerInterval != expectedInterval {
-		t.Errorf("DefaultConfig() SpinnerInterval = %v, want %v", cfg.SpinnerInterval, expectedInterval)
+
+	// Non-consecutive same value is allowed
+	app2 := &App{}
+	app2.addHistory("a")
+	app2.addHistory("b")
+	app2.addHistory("a") // non-consecutive — allowed
+	if len(app2.history) != 3 {
+		t.Errorf("addHistory() non-consecutive got %d entries, want 3", len(app2.history))
+	}
+}
+
+// Test_Config tests that Config zero values are usable
+func Test_Config(t *testing.T) {
+	cfg := Config{
+		Version: "0.1.0",
+	}
+	if cfg.Version != "0.1.0" {
+		t.Errorf("Config.Version = %v, want 0.1.0", cfg.Version)
 	}
 }

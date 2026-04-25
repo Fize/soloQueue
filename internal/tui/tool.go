@@ -5,45 +5,40 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"charm.land/lipgloss/v2"
 )
 
 // ─── Tool block rendering ─────────────────────────────────────────────────────
 
-// toolArgs 定义工具参数的通用结构
+// toolArgs defines the common structure for tool arguments.
 type toolArgs struct {
 	Path    string `json:"path,omitempty"`
 	Command string `json:"command,omitempty"`
 	File    string `json:"file,omitempty"`
 }
 
-// parseToolArgs 解析 JSON 格式的工具参数
+// parseToolArgs parses JSON-formatted tool arguments.
 func parseToolArgs(argsJSON string) toolArgs {
 	var args toolArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		// 如果解析失败，返回空结构体
 		return toolArgs{}
 	}
 	return args
 }
 
-func (m *model) renderToolStartBlock(name, args string, callID string) {
-	if !m.lastLineEmpty {
-		m.addScrollLine("", lipgloss.NewStyle())
+func (a *App) renderToolStartBlock(name, args, callID string) {
+	if !a.lastLineEmpty {
+		fmt.Println()
 	}
 
-	// 解析工具参数
-	toolArgs := parseToolArgs(args)
+	ta := parseToolArgs(args)
 
-	// 优先显示 path，其次 command，其次 file
 	var displayArg string
-	if toolArgs.Path != "" {
-		displayArg = toolArgs.Path
-	} else if toolArgs.Command != "" {
-		displayArg = toolArgs.Command
-	} else if toolArgs.File != "" {
-		displayArg = toolArgs.File
+	if ta.Path != "" {
+		displayArg = ta.Path
+	} else if ta.Command != "" {
+		displayArg = ta.Command
+	} else if ta.File != "" {
+		displayArg = ta.File
 	}
 
 	var content string
@@ -52,47 +47,19 @@ func (m *model) renderToolStartBlock(name, args string, callID string) {
 	} else {
 		content = fmt.Sprintf("● %s", name)
 	}
-	m.appendScrollback(scrollLine{
-		content: content,
-		style:   styleToolName,
-		callID:  callID,
-	})
-	m.lastLineEmpty = false
+	fmt.Println(Styled(content, styleToolName, BOLD))
+	a.lastLineEmpty = false
 }
 
-// insertAfterCallID 在 scrollback 中找到 callID 对应的行，在其后插入结果行
-func (m *model) insertAfterCallID(callID string, line scrollLine) {
-	idx := -1
-	for i := len(m.scrollback) - 1; i >= 0; i-- {
-		if m.scrollback[i].callID == callID {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		// fallback：找不到对应行，追加到末尾
-		m.appendScrollback(line)
-		return
-	}
-	// 在 idx 后面插入
-	tail := make([]scrollLine, len(m.scrollback[idx+1:]))
-	copy(tail, m.scrollback[idx+1:])
-	m.scrollback = append(m.scrollback[:idx+1], line)
-	m.scrollback = append(m.scrollback, tail...)
-}
-
-func (m *model) renderToolDoneBlock(info *toolExecInfo) {
+func (a *App) renderToolDoneBlock(info *toolExecInfo) {
 	if info.err != nil {
 		content := fmt.Sprintf("  ✗ %s failed: %s", info.name, truncate(info.err.Error(), 50))
-		m.insertAfterCallID(info.callID, scrollLine{
-			content: content,
-			style:   styleToolError,
-		})
-		m.lastLineEmpty = false
+		fmt.Println(Styled(content, styleToolErr))
+		a.lastLineEmpty = false
 		return
 	}
 
-	// 计算结果行数
+	// Count result lines
 	lineCount := 0
 	for _, line := range strings.Split(info.result, "\n") {
 		if strings.TrimSpace(line) != "" {
@@ -100,7 +67,6 @@ func (m *model) renderToolDoneBlock(info *toolExecInfo) {
 		}
 	}
 
-	// 构建执行时间提示
 	var durHint string
 	if info.duration > 0 {
 		durHint = fmt.Sprintf(" · %s", info.duration.Round(time.Millisecond))
@@ -108,26 +74,11 @@ func (m *model) renderToolDoneBlock(info *toolExecInfo) {
 
 	var content string
 	if lineCount > 0 {
-		content = fmt.Sprintf("  ✓ %s %d lines%s (ctrl+o to expand)", info.name, lineCount, durHint)
+		content = fmt.Sprintf("  ✓ %s %d lines%s", info.name, lineCount, durHint)
 	} else {
 		content = fmt.Sprintf("  ✓ %s done%s", info.name, durHint)
 	}
 
-	// 存储完整结果用于展开
-	var fullLines []string
-	for _, line := range strings.Split(info.result, "\n") {
-		if strings.TrimSpace(line) != "" {
-			fullLines = append(fullLines, line)
-		}
-	}
-
-	m.insertAfterCallID(info.callID, scrollLine{
-		content:    content,
-		style:      styleToolSuccess,
-		expandable: len(fullLines) > 0,
-		expanded:   false,
-		fullLines:  fullLines,
-		fullStyle:  styleToolResult,
-	})
-	m.lastLineEmpty = false
+	fmt.Println(Styled(content, styleToolOK))
+	a.lastLineEmpty = false
 }
