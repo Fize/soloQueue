@@ -130,11 +130,12 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) []tea.Cmd {
 
 	case agent.ToolExecStartEvent:
 		m.flushContentBuf()
-		m.renderToolStartBlock(e.Name, e.Args)
+		m.renderToolStartBlock(e.Name, e.Args, e.CallID)
 		m.tool.toolExecMap[e.CallID] = &toolExecInfo{
-			name:  e.Name,
-			args:  e.Args,
-			start: time.Now(),
+			name:   e.Name,
+			args:   e.Args,
+			start:  time.Now(),
+			callID: e.CallID,
 		}
 		m.tool.currentTool = e.Name
 		m.tool.toolArgs.Reset()
@@ -148,6 +149,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) []tea.Cmd {
 			err:      e.Err,
 			result:   e.Result,
 			done:     true,
+			callID:   e.CallID,
 		}
 		m.tool.toolExecMap[e.CallID] = info
 		m.renderToolDoneBlock(info)

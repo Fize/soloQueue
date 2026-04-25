@@ -28,7 +28,7 @@ func parseToolArgs(argsJSON string) toolArgs {
 	return args
 }
 
-func (m *model) renderToolStartBlock(name, args string) {
+func (m *model) renderToolStartBlock(name, args string, callID string) {
 	if !m.lastLineEmpty {
 		m.addScrollLine("", lipgloss.NewStyle())
 	}
@@ -52,16 +52,43 @@ func (m *model) renderToolStartBlock(name, args string) {
 	} else {
 		content = fmt.Sprintf("● %s", name)
 	}
-	m.addScrollLine(content, styleToolName)
+	m.appendScrollback(scrollLine{
+		content: content,
+		style:   styleToolName,
+		callID:  callID,
+	})
 	m.lastLineEmpty = false
+}
+
+// insertAfterCallID 在 scrollback 中找到 callID 对应的行，在其后插入结果行
+func (m *model) insertAfterCallID(callID string, line scrollLine) {
+	idx := -1
+	for i := len(m.scrollback) - 1; i >= 0; i-- {
+		if m.scrollback[i].callID == callID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		// fallback：找不到对应行，追加到末尾
+		m.appendScrollback(line)
+		return
+	}
+	// 在 idx 后面插入
+	tail := make([]scrollLine, len(m.scrollback[idx+1:]))
+	copy(tail, m.scrollback[idx+1:])
+	m.scrollback = append(m.scrollback[:idx+1], line)
+	m.scrollback = append(m.scrollback, tail...)
 }
 
 func (m *model) renderToolDoneBlock(info *toolExecInfo) {
 	if info.err != nil {
 		content := fmt.Sprintf("  ✗ %s failed: %s", info.name, truncate(info.err.Error(), 50))
-		m.addScrollLine(content, styleToolError)
+		m.insertAfterCallID(info.callID, scrollLine{
+			content: content,
+			style:   styleToolError,
+		})
 		m.lastLineEmpty = false
-		m.addScrollLine("", lipgloss.NewStyle())
 		return
 	}
 
@@ -94,7 +121,7 @@ func (m *model) renderToolDoneBlock(info *toolExecInfo) {
 		}
 	}
 
-	m.appendScrollback(scrollLine{
+	m.insertAfterCallID(info.callID, scrollLine{
 		content:    content,
 		style:      styleToolSuccess,
 		expandable: len(fullLines) > 0,
@@ -103,5 +130,4 @@ func (m *model) renderToolDoneBlock(info *toolExecInfo) {
 		fullStyle:  styleToolResult,
 	})
 	m.lastLineEmpty = false
-	m.addScrollLine("", lipgloss.NewStyle())
 }

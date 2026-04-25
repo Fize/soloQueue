@@ -116,6 +116,7 @@ type scrollLine struct {
 	expanded   bool           // 当前是否已展开
 	fullLines  []string       // 展开后显示的完整内容行
 	fullStyle  lipgloss.Style // 展开内容的样式
+	callID     string         // 工具调用的 callID，用于匹配 Start/Done
 }
 
 // ─── Thinking block ───────────────────────────────────────────────────────────
@@ -213,6 +214,7 @@ type toolExecInfo struct {
 	err      error
 	result   string
 	done     bool
+	callID   string // 用于匹配 Start 行的位置
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
