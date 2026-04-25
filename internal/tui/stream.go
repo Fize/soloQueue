@@ -23,33 +23,33 @@ func (m *model) startStream(prompt string) tea.Cmd {
 		return nil
 	}
 
-	m.streaming = true
-	m.streamCancel = cancel
-	m.evCh = evCh
-	m.contentBuf.Reset()
-	m.reasonBuf.Reset()
-	m.reasonBlocks = nil
-	m.curThinkIdx = -1
+	m.stream.streaming = true
+	m.stream.streamCancel = cancel
+	m.stream.evCh = evCh
+	m.stream.contentBuf.Reset()
+	m.reasoning.reasonBuf.Reset()
+	m.reasoning.reasonBlocks = nil
+	m.reasoning.curThinkIdx = -1
 	m.lastLineEmpty = false
-	m.currentTool = ""
-	m.toolArgs.Reset()
-	m.streamPhase = ""
-	m.toolExecMap = make(map[string]*toolExecInfo)
-	m.spinnerFrame = 0
-	m.streamStart = time.Now()
+	m.tool.currentTool = ""
+	m.tool.toolArgs.Reset()
+	m.stream.streamPhase = ""
+	m.tool.toolExecMap = make(map[string]*toolExecInfo)
+	m.ui.spinnerFrame = 0
+	m.stream.streamStart = time.Now()
 
 	// 添加用户输入到 scrollback
 	m.addScrollLine("> "+prompt, styleUser)
 	m.addScrollLine("", lipgloss.NewStyle())
 
 	return tea.Batch(
-		spinnerTick(),
+		m.spinnerTick(),
 		m.pollEvent(),
 	)
 }
 
 func (m *model) pollEvent() tea.Cmd {
-	ch := m.evCh
+	ch := m.stream.evCh
 	return func() tea.Msg {
 		ev, ok := <-ch
 		if !ok {
@@ -61,8 +61,8 @@ func (m *model) pollEvent() tea.Cmd {
 
 // flushContentDelta 将 delta 追加到 contentBuf，遇到 \n 立即写入 scrollback。
 func (m *model) flushContentDelta(delta string) {
-	combined := m.contentBuf.String() + delta
-	m.contentBuf.Reset()
+	combined := m.stream.contentBuf.String() + delta
+	m.stream.contentBuf.Reset()
 
 	for {
 		idx := strings.Index(combined, "\n")
@@ -80,16 +80,16 @@ func (m *model) flushContentDelta(delta string) {
 		}
 	}
 
-	m.contentBuf.WriteString(combined)
+	m.stream.contentBuf.WriteString(combined)
 }
 
 // flushContentBuf 将 contentBuf 中的半行立即写入 scrollback
 func (m *model) flushContentBuf() {
-	if m.contentBuf.Len() == 0 {
+	if m.stream.contentBuf.Len() == 0 {
 		return
 	}
-	line := m.contentBuf.String()
-	m.contentBuf.Reset()
+	line := m.stream.contentBuf.String()
+	m.stream.contentBuf.Reset()
 	m.addScrollLine(line, styleAI)
 }
 
@@ -101,47 +101,47 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) []tea.Cmd {
 	switch e := ev.(type) {
 
 	case agent.ReasoningDeltaEvent:
-		if m.curThinkIdx < 0 {
+		if m.reasoning.curThinkIdx < 0 {
 			m.startNewThinkBlock()
 		}
 		m.appendReasoning(e.Delta)
-		m.streamPhase = "thinking"
+		m.stream.streamPhase = "thinking"
 
 	case agent.ContentDeltaEvent:
-		if m.curThinkIdx >= 0 {
+		if m.reasoning.curThinkIdx >= 0 {
 			m.finalizeCurrentThink()
 		}
-		m.streamPhase = "generating"
+		m.stream.streamPhase = "generating"
 		m.flushContentDelta(e.Delta)
 
 	case agent.ToolCallDeltaEvent:
-		if m.curThinkIdx >= 0 {
+		if m.reasoning.curThinkIdx >= 0 {
 			m.finalizeCurrentThink()
 		}
-		if e.Name != "" && e.Name != m.currentTool {
+		if e.Name != "" && e.Name != m.tool.currentTool {
 			m.flushContentBuf()
-			m.currentTool = e.Name
-			m.toolArgs.Reset()
+			m.tool.currentTool = e.Name
+			m.tool.toolArgs.Reset()
 		}
 		if e.ArgsDelta != "" {
-			m.toolArgs.WriteString(e.ArgsDelta)
+			m.tool.toolArgs.WriteString(e.ArgsDelta)
 		}
-		m.streamPhase = "generating"
+		m.stream.streamPhase = "generating"
 
 	case agent.ToolExecStartEvent:
 		m.flushContentBuf()
 		m.renderToolStartBlock(e.Name, e.Args)
-		m.toolExecMap[e.CallID] = &toolExecInfo{
+		m.tool.toolExecMap[e.CallID] = &toolExecInfo{
 			name:  e.Name,
 			args:  e.Args,
 			start: time.Now(),
 		}
-		m.currentTool = e.Name
-		m.toolArgs.Reset()
-		m.streamPhase = "tool_exec"
+		m.tool.currentTool = e.Name
+		m.tool.toolArgs.Reset()
+		m.stream.streamPhase = "tool_exec"
 
 	case agent.ToolExecDoneEvent:
-		dur := time.Since(m.toolExecMap[e.CallID].start)
+		dur := time.Since(m.tool.toolExecMap[e.CallID].start)
 		info := &toolExecInfo{
 			name:     e.Name,
 			duration: dur,
@@ -149,10 +149,10 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) []tea.Cmd {
 			result:   e.Result,
 			done:     true,
 		}
-		m.toolExecMap[e.CallID] = info
+		m.tool.toolExecMap[e.CallID] = info
 		m.renderToolDoneBlock(info)
-		m.currentTool = ""
-		m.streamPhase = "generating"
+		m.tool.currentTool = ""
+		m.stream.streamPhase = "generating"
 
 	case agent.IterationDoneEvent:
 		// no-op
@@ -170,7 +170,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) []tea.Cmd {
 		}
 		m.renderConfirmPrompt()
 		// 重置 pendingExit 以允许正常操作
-		m.pendingExit = false
+		m.ui.pendingExit = false
 		// 暂停事件轮询，等待用户确认
 		return cmds
 
