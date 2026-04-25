@@ -25,6 +25,7 @@ func (a *App) handleStreamDone(streamErr error) {
 	if !a.lastLineEmpty {
 		fmt.Println()
 	}
+	fmt.Println() // ensure blank line before next prompt
 
 	// Reset stream state
 	a.resetStreamState()

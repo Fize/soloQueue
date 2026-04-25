@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/manifoldco/promptui"
+	"github.com/charmbracelet/huh"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -100,17 +100,13 @@ func (a *App) run() error {
 	fmt.Println()
 
 	// Serial prompt loop
-	prompt := promptui.Prompt{
-		Label: ">",
-		Templates: &promptui.PromptTemplates{
-			Prompt:  " {{ . | bold | cyan }}{{ \" ❯\" | bold | cyan }} ",
-			Valid:   " {{ . | bold | cyan }}{{ \" ❯\" | bold | cyan }} ",
-			Success: "", // Don't echo input again after submission
-		},
-	}
-
 	for {
-		result, err := prompt.Run()
+		var result string
+		err := huh.NewInput().
+			Prompt("> ❯ ").
+			Placeholder("Ask anything...").
+			Value(&result).
+			Run()
 		if err != nil {
 			// Ctrl+C or Ctrl+D — exit
 			break
@@ -128,6 +124,10 @@ func (a *App) run() error {
 		if strings.HasPrefix(input, "/") {
 			continue
 		}
+
+		// Echo user input
+		fmt.Println(Styled("> "+input, styleUser))
+		fmt.Println()
 
 		// Add to history
 		a.addHistory(input)
