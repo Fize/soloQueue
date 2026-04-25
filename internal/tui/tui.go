@@ -49,7 +49,7 @@ var (
 	// Core text styles
 	styleUser   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 	styleAI     = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
 	// Input line background — 整行深色背景（Codex 风格）
 	// 在 View() 中通过 .Width(m.width) 动态设置整行宽度，
@@ -236,7 +236,7 @@ func New(cfg Config) *tea.Program {
 	ti.Prompt = ""
 	var inputStyles textinput.Styles
 	inputStyles.Focused.Text = lipgloss.NewStyle().Background(lipgloss.Color("236"))
-	inputStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236"))
+	inputStyles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	// 使用 textinput 内置的 virtual cursor（通过 m.input.View() 渲染），
 	// 它正确处理 blink、IME 组合文本、Unicode 等所有边界情况。
 	inputStyles.Cursor = textinput.CursorStyle{
