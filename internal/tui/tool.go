@@ -1,43 +1,54 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 )
 
 // ─── Tool block rendering ─────────────────────────────────────────────────────
 
-// parseToolPath 从 JSON args 中提取 path 参数
-func parseToolPath(args string) string {
-	args = strings.TrimSpace(args)
-	// 尝试匹配 "path": "..."
-	if idx := strings.Index(args, `"path"`); idx >= 0 {
-		rest := args[idx+6:]
-		rest = strings.TrimLeft(rest, ` :"`)
-		if end := strings.Index(rest, `"`); end > 0 {
-			return rest[:end]
-		}
+// toolArgs 定义工具参数的通用结构
+type toolArgs struct {
+	Path    string `json:"path,omitempty"`
+	Command string `json:"command,omitempty"`
+	File    string `json:"file,omitempty"`
+}
+
+// parseToolArgs 解析 JSON 格式的工具参数
+func parseToolArgs(argsJSON string) toolArgs {
+	var args toolArgs
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		// 如果解析失败，返回空结构体
+		return toolArgs{}
 	}
-	// 尝试匹配 "path":"..."
-	if idx := strings.Index(args, `"path":"`); idx >= 0 {
-		rest := args[idx+8:]
-		if end := strings.Index(rest, `"`); end > 0 {
-			return rest[:end]
-		}
-	}
-	return ""
+	return args
 }
 
 func (m *model) renderToolStartBlock(name, args string) {
 	if !m.lastLineEmpty {
 		m.addScrollLine("", lipgloss.NewStyle())
 	}
-	path := parseToolPath(args)
+
+	// 解析工具参数
+	toolArgs := parseToolArgs(args)
+
+	// 优先显示 path，其次 command，其次 file
+	var displayArg string
+	if toolArgs.Path != "" {
+		displayArg = toolArgs.Path
+	} else if toolArgs.Command != "" {
+		displayArg = toolArgs.Command
+	} else if toolArgs.File != "" {
+		displayArg = toolArgs.File
+	}
+
 	var content string
-	if path != "" {
-		content = fmt.Sprintf("● %s(%s)", name, path)
+	if displayArg != "" {
+		content = fmt.Sprintf("● %s(%s)", name, displayArg)
 	} else {
 		content = fmt.Sprintf("● %s", name)
 	}
@@ -62,11 +73,17 @@ func (m *model) renderToolDoneBlock(info *toolExecInfo) {
 		}
 	}
 
+	// 构建执行时间提示
+	var durHint string
+	if info.duration > 0 {
+		durHint = fmt.Sprintf(" · %s", info.duration.Round(time.Millisecond))
+	}
+
 	var content string
 	if lineCount > 0 {
-		content = fmt.Sprintf("  ✓ %s %d lines (ctrl+o to expand)", info.name, lineCount)
+		content = fmt.Sprintf("  ✓ %s %d lines%s (ctrl+o to expand)", info.name, lineCount, durHint)
 	} else {
-		content = fmt.Sprintf("  ✓ %s done", info.name)
+		content = fmt.Sprintf("  ✓ %s done%s", info.name, durHint)
 	}
 
 	// 存储完整结果用于展开
@@ -77,7 +94,7 @@ func (m *model) renderToolDoneBlock(info *toolExecInfo) {
 		}
 	}
 
-	m.scrollback = append(m.scrollback, scrollLine{
+	m.appendScrollback(scrollLine{
 		content:    content,
 		style:      styleToolSuccess,
 		expandable: len(fullLines) > 0,

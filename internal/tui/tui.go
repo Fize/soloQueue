@@ -30,6 +30,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -72,17 +73,25 @@ var (
 	styleStatusText = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 	styleError = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-
-	// Scrollback buffer 上限：超过此行数时截断旧数据
-	maxScrollbackLines = 10000
 )
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-
+// Config 存储 TUI 应用的配置常量
 type Config struct {
-	SessionMgr *session.SessionManager
-	ModelID    string
-	Version    string
+	SessionMgr        *session.SessionManager
+	ModelID           string
+	Version           string
+	MaxScrollbackLines int              // 滚动缓冲区最大行数
+	MaxExpandLines    int              // 展开内容最大显示行数
+	SpinnerInterval   time.Duration  // spinner 刷新间隔
+}
+
+// DefaultConfig 返回默认配置
+func DefaultConfig() Config {
+	return Config{
+		MaxScrollbackLines: 10000,
+		MaxExpandLines:     10,
+		SpinnerInterval:    80 * time.Millisecond,
+	}
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -95,6 +104,7 @@ type sessionReadyMsg struct {
 }
 
 type spinnerTickMsg struct{}
+type logoRenderedMsg struct{}
 
 // ─── Scroll buffer ────────────────────────────────────────────────────────────
 
@@ -115,6 +125,54 @@ type thinkBlock struct {
 	expanded bool
 }
 
+// ─── Sub-structures for model ────────────────────────────────────────────────
+
+// InputState 管理用户输入相关状态
+type InputState struct {
+	input        textinput.Model
+	history      []string
+	historyPos   int
+	savedBuf     string
+}
+
+// StreamState 管理流式输出相关状态
+type StreamState struct {
+	streaming    bool
+	streamCancel context.CancelFunc
+	evCh         <-chan agent.AgentEvent
+	contentBuf   strings.Builder
+	streamPhase  string
+	streamStart  time.Time
+}
+
+// ReasoningState 管理推理过程相关状态
+type ReasoningState struct {
+	reasonBuf    strings.Builder
+	reasonBlocks []thinkBlock
+	curThinkIdx  int
+}
+
+// ToolState 管理工具调用相关状态
+type ToolState struct {
+	currentTool string
+	toolArgs    strings.Builder
+	toolExecMap map[string]*toolExecInfo
+}
+
+// UIState 管理 UI 显示相关状态
+type UIState struct {
+	width        int
+	height       int
+	useAltScreen bool
+	ready        bool
+	fatalErr     error
+	logoVersion  string
+	logoRendered bool // alt-screen logo 是否已渲染，避免 View() 副作用
+	spinnerFrame int
+	spinnerChars []rune
+	pendingExit  bool
+}
+
 // ─── Model ────────────────────────────────────────────────────────────────────
 
 type model struct {
@@ -123,63 +181,19 @@ type model struct {
 	ctx      context.Context
 	cancelFn context.CancelFunc
 
-	input  textinput.Model
-	width  int
-	height int
-
-	// 输入历史
-	history    []string
-	historyPos int
-	savedBuf   string
-
-	// 流式状态
-	streaming    bool
-	streamCancel context.CancelFunc
-	evCh         <-chan agent.AgentEvent
+	// 子结构体
+	input     InputState
+	stream    StreamState
+	reasoning ReasoningState
+	tool      ToolState
+	ui        UIState
 
 	// Scrollback buffer: all historical content
 	scrollback []scrollLine
-
-	// contentBuf 存当前未完成的半行（无 \n）
-	contentBuf    strings.Builder
 	lastLineEmpty bool
-
-	// Reasoning state
-	reasonBuf    strings.Builder
-	reasonBlocks []thinkBlock
-	curThinkIdx  int
-
-	// Tool call state
-	currentTool string
-	toolArgs    strings.Builder
-
-	// Tool exec tracking
-	toolExecMap map[string]*toolExecInfo
 
 	// 确认弹窗状态
 	confirm confirmState
-
-	// Logo 版本号（启动时设置，View 中渲染）
-	logoVersion string
-
-	// Spinner state
-	spinnerFrame int
-	spinnerChars []rune
-
-	// Stream phase for status display
-	streamPhase string
-
-	// Timing
-	streamStart time.Time
-
-	// 双击 Ctrl+C 退出
-	pendingExit bool
-
-	// TUI 模式
-	useAltScreen bool // 是否使用 alt-screen 全屏模式
-
-	ready    bool
-	fatalErr error
 }
 
 // confirmState 管理工具确认弹窗状态
@@ -204,6 +218,17 @@ type toolExecInfo struct {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func New(cfg Config) *tea.Program {
+	// 使用默认配置补充未设置的字段
+	if cfg.MaxScrollbackLines == 0 {
+		cfg.MaxScrollbackLines = DefaultConfig().MaxScrollbackLines
+	}
+	if cfg.MaxExpandLines == 0 {
+		cfg.MaxExpandLines = DefaultConfig().MaxExpandLines
+	}
+	if cfg.SpinnerInterval == 0 {
+		cfg.SpinnerInterval = DefaultConfig().SpinnerInterval
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ti := textinput.New()
@@ -227,20 +252,30 @@ func New(cfg Config) *tea.Program {
 	useAlt := shouldUseAltScreen()
 
 	m := &model{
-		cfg:          cfg,
-		ctx:          ctx,
-		cancelFn:     cancel,
-		input:        ti,
-		historyPos:   -1,
-		curThinkIdx:  -1,
-		toolExecMap:  make(map[string]*toolExecInfo),
-		spinnerChars: []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'},
-		streamPhase:  "",
-		useAltScreen: useAlt,
+		cfg:      cfg,
+		ctx:      ctx,
+		cancelFn: cancel,
+		input: InputState{
+			input:      ti,
+			historyPos: -1,
+		},
+		stream: StreamState{
+			streamPhase: "",
+		},
+		reasoning: ReasoningState{
+			curThinkIdx: -1,
+		},
+		tool: ToolState{
+			toolExecMap: make(map[string]*toolExecInfo),
+		},
+		ui: UIState{
+			useAltScreen: useAlt,
+			spinnerChars: []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'},
+		},
 	}
 
 	// 在 scrollback 顶部显示启动 logo
-	m.logoVersion = cfg.Version
+	m.ui.logoVersion = cfg.Version
 
 	// Alt-screen 模式：精确控制布局，输入框固定终端底部
 	// Inline 降级模式：tmux/SSH 环境，保留终端滚动历史
@@ -260,10 +295,17 @@ func (m *model) Init() tea.Cmd {
 	// inline 模式下，logo 通过 tea.Println (insertAbove) 输出到终端，
 	// 直接写入终端滚动历史，不受 renderer 行数裁剪影响。
 	// alt-screen 模式下由 View() 统一渲染。
-	if !m.useAltScreen && m.logoVersion != "" {
+	if !m.ui.useAltScreen && m.ui.logoVersion != "" {
 		cmds = append(cmds, tea.Println(m.renderLogo()))
 	}
-	return tea.Batch(cmds...)
+	// 使用 tea.Sequence 确保 logoRenderedMsg 在初始命令启动后的下一轮事件循环才到达，
+	// 从而保证 alt-screen 模式下 View() 至少已被调用一次、logo 已渲染。
+	return tea.Sequence(
+		tea.Batch(cmds...),
+		tea.Tick(0, func(time.Time) tea.Msg {
+			return logoRenderedMsg{}
+		}),
+	)
 }
 
 func (m *model) createSessionCmd() tea.Cmd {
@@ -273,8 +315,9 @@ func (m *model) createSessionCmd() tea.Cmd {
 	}
 }
 
-func spinnerTick() tea.Cmd {
-	return tea.Tick(time.Millisecond*80, func(_ time.Time) tea.Msg {
+// spinnerTick 返回一个新的 spinnerTick Cmd，使用配置中的 SpinnerInterval
+func (m *model) spinnerTick() tea.Cmd {
+	return tea.Tick(time.Millisecond*m.cfg.SpinnerInterval, func(_ time.Time) tea.Msg {
 		return spinnerTickMsg{}
 	})
 }
@@ -333,16 +376,26 @@ func wrapLine(line string, width int) []string {
 	return result
 }
 
+// ─── Terminal environment detection ───────────────────────────────────────────
+
+// shouldUseAltScreen 判断是否应使用 alt-screen 模式。
+//
+// 默认使用 inline 模式（内容直接追加到终端滚动历史，与 Claude Code 一致）。
+// 如需固定输入框到底部、消除闪烁，可设置环境变量 ALT_SCREEN=1 启用全屏。
+func shouldUseAltScreen() bool {
+	return os.Getenv("ALT_SCREEN") != "" || os.Getenv("SOLOQUEUE_ALT_SCREEN") != ""
+}
+
 // renderLogo 返回预渲染的 ASCII logo 多行字符串（仅在 View 中使用）
 func (m *model) renderLogo() string {
-	if m.logoVersion == "" {
+	if m.ui.logoVersion == "" {
 		return ""
 	}
 
 	logoLines := []string{
 		" ╭──╮ ╭──╮ ",
 		" ╰──╮ │  │  soloqueue",
-		" ╰──╯ ╰──┼  " + m.logoVersion,
+		" ╰──╯ ╰──┼  " + m.ui.logoVersion,
 		"         ╰ ",
 	}
 
