@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"charm.land/lipgloss/v2"
 )
 
 // ─── View ─────────────────────────────────────────────────────────────────────
@@ -90,66 +88,19 @@ func (m *model) View() tea.View {
 		inputLineY++
 	}
 
-	// 输入框 — 自行渲染而非使用 m.input.View()，
-	// 避免 inline 模式下 renderer 裁剪 View 内容时与 tea.Println 输出的 logo 冲突。
+	// 输入框 — 使用 m.input.View() 渲染，让 textinput 内部完整处理
+	// 光标位置、IME 组合文本、Unicode 多字节字符等复杂场景。
 	//
-	// 光标处理策略（关键设计决策）：
-	//   不使用 v.Cursor / m.input.Cursor() 坐标体系。
-	//   原因：inline 模式下 renderer 会裁剪顶部行（cursed_renderer.go:315），
-	//         导致基于完整内容计算的 inputLineY 与裁剪后的 cellbuf 坐标系错位，
-	//         且 inline 模式的 SetRelativeCursor(true) 使光标移动使用相对序列，
-	//         手动设置的 Cursor 坐标很难与 renderer 内部状态对齐。
-	//   方案：仿照 bubbles/cursor 虚拟光标的做法，将光标作为文本内容的一部分渲染 ——
-	//         在光标位置插入一个反色样式的字符块，视觉上等同于终端真实光标。
-	val := m.input.Value()
-	pos := m.input.Position()
-	var inputContent string
-
-	// 样式定义（val 和 placeholder 分开，避免混用）
-	textStyle := lipgloss.NewStyle().Background(lipgloss.Color("236"))
-	cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("10")).Foreground(lipgloss.Color("236"))
-	placeholderTextStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236"))
-	placeholderCursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("10")).Foreground(lipgloss.Color("8"))
-
-	if val != "" {
-		// 用 []rune 切片确保中文等多字节字符的正确处理
-		runes := []rune(val)
-		// pos 边界保护：IME 组合或快速输入时可能出现短暂不一致
-		clampedPos := max(0, min(pos, len(runes)))
-		before := string(runes[:clampedPos])
-		var cursorChar string
-		var after string
-		if clampedPos < len(runes) {
-			cursorChar = string(runes[clampedPos])
-			after = string(runes[clampedPos+1:])
-		} else {
-			cursorChar = " "
-			after = ""
-		}
-		inputContent = textStyle.Render(before) + cursorStyle.Render(cursorChar) + textStyle.Render(after)
-	} else {
-		// val 为空时才显示 placeholder，两者严格互斥
-		placeholder := m.input.Placeholder
-		pRunes := []rune(placeholder)
-		pPos := max(0, min(pos, len(pRunes)))
-		before := string(pRunes[:pPos])
-		var cursorChar string
-		var after string
-		if pPos < len(pRunes) {
-			cursorChar = string(pRunes[pPos])
-			after = string(pRunes[pPos+1:])
-		} else {
-			cursorChar = " "
-			after = ""
-		}
-		inputContent = placeholderTextStyle.Render(before) + placeholderCursorStyle.Render(cursorChar) + placeholderTextStyle.Render(after)
-	}
-
-	// 构建完整输入行：prompt + 内容，并用背景色填满整行宽度。
-	// .Width(m.width) 确保 lipgloss 用背景色空格填充剩余区域，
-	// 清除上一帧可能残留的旧内容（特别是 IME 直接写入终端的文本）。
-	prompt := stylePromptBg.Render("> ") + inputContent
-	inputLine := styleInputLine.Width(m.width).Render(prompt)
+	// 为什么用 m.input.View() 而非自行渲染：
+	//   1. textinput 内置的 virtual cursor 正确处理 blink、位置追踪、IME
+	//   2. 自行内联渲染光标在 IME/中文输入时容易出现状态不一致
+	//   3. 之前不用 m.input.View() 的两个顾虑已解决：
+	//      - inline 裁剪 logo 问题 → 通过 tea.Println (insertAbove) 输出 logo
+	//      - placeholderView "虚假字符" → 实际是正常 virtual cursor 行为
+	//
+	// 注意：ti.Prompt = ""（已在 New 中设为空），所以 m.input.View()
+	//       只返回输入区域内容，不含 prompt 前缀。
+	inputLine := styleInputLine.Width(m.width).Render(stylePromptBg.Render("> ") + m.input.View())
 	sb.WriteString(inputLine)
 
 	v := tea.NewView(sb.String())
