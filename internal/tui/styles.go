@@ -1,59 +1,45 @@
 package tui
 
-import "fmt"
+import "github.com/charmbracelet/lipgloss"
 
-// ─── ANSI escape constants ────────────────────────────────────────────────────
+// ─── Color palette ───────────────────────────────────────────────────────────
 
-const (
-	RESET     = "\033[0m"
-	BOLD      = "\033[1m"
-	DIM       = "\033[2m"
-	UNDERLINE = "\033[4m"
+var (
+	colorPrimary = lipgloss.Color("99")  // purple
+	colorAccent  = lipgloss.Color("86")  // green
+	colorMuted   = lipgloss.Color("240") // gray
+	colorWarning = lipgloss.Color("203") // orange-red
 )
-
-// ─── StyleAttr ────────────────────────────────────────────────────────────────
-
-// StyleAttr represents an ANSI style attribute.
-type StyleAttr string
-
-// 256-color foreground: Fg(10) → \033[38;5;10m
-func Fg(n uint8) StyleAttr { return StyleAttr(fmt.Sprintf("\033[38;5;%dm", n)) }
-
-// 256-color background: Bg(236) → \033[48;5;236m
-func Bg(n uint8) StyleAttr { return StyleAttr(fmt.Sprintf("\033[48;5;%dm", n)) }
-
-// 24-bit foreground: FgRGB(r,g,b) → \033[38;2;r;g;bm
-func FgRGB(r, g, b uint8) StyleAttr {
-	return StyleAttr(fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b))
-}
-
-// 24-bit background: BgRGB(r,g,b) → \033[48;2;r;g;bm
-func BgRGB(r, g, b uint8) StyleAttr {
-	return StyleAttr(fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b))
-}
-
-// Styled applies ANSI style attributes to text and resets at the end.
-func Styled(text string, attrs ...StyleAttr) string {
-	var prefix string
-	for _, a := range attrs {
-		prefix += string(a)
-	}
-	if prefix == "" {
-		return text
-	}
-	return prefix + text + RESET
-}
 
 // ─── Pre-defined styles ──────────────────────────────────────────────────────
 
 var (
-	styleUser       = Fg(10)  // green
-	styleAI         = Fg(252) // light gray
-	styleDim        = Fg(245) // dim gray
-	styleThinkTitle = Fg(8)
-	styleToolName   = Fg(7)   // gray
-	styleToolOK     = Fg(2)   // green
-	styleToolErr    = Fg(9)   // red
-	styleToolResult = Fg(8)   // gray
-	styleError      = Fg(9)   // red
+	userStyle    = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	agentStyle   = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+	contentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+	thinkStyle = lipgloss.NewStyle().
+			Foreground(colorMuted).
+			Italic(true).
+			BorderLeft(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("238")).
+			PaddingLeft(1)
+
+	foldedStyle = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
+
+	toolStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("170")).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("63")).
+			Padding(0, 1)
+
+	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	dimStyle   = lipgloss.NewStyle().Foreground(colorMuted)
+
+	statusStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Padding(0, 1)
+	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("235")).Background(lipgloss.Color("240")).Padding(0, 1)
+
+	confirmHighlight = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
+	confirmNormal    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 )
