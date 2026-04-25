@@ -18,26 +18,26 @@ import (
 // 零索引追踪、零位置管理、零删除/插入操作。
 
 func (m *model) startNewThinkBlock() {
-	m.reasonBuf.Reset()
-	m.reasonBlocks = append(m.reasonBlocks, thinkBlock{expanded: false})
-	m.curThinkIdx = len(m.reasonBlocks) - 1
-	m.streamPhase = "thinking"
+	m.reasoning.reasonBuf.Reset()
+	m.reasoning.reasonBlocks = append(m.reasoning.reasonBlocks, thinkBlock{expanded: false})
+	m.reasoning.curThinkIdx = len(m.reasoning.reasonBlocks) - 1
+	m.stream.streamPhase = "thinking"
 }
 
 func (m *model) appendReasoning(delta string) {
-	if m.curThinkIdx < 0 {
+	if m.reasoning.curThinkIdx < 0 {
 		m.startNewThinkBlock()
 	}
-	m.reasonBuf.WriteString(delta)
+	m.reasoning.reasonBuf.WriteString(delta)
 }
 
 // finalizeCurrentThink 推理结束时，将 think 块作为 expandable scrollLine 追加到 scrollback。
 func (m *model) finalizeCurrentThink() {
-	if m.curThinkIdx < 0 || m.curThinkIdx >= len(m.reasonBlocks) {
+	if m.reasoning.curThinkIdx < 0 || m.reasoning.curThinkIdx >= len(m.reasoning.reasonBlocks) {
 		return
 	}
 
-	raw := m.reasonBuf.String()
+	raw := m.reasoning.reasonBuf.String()
 	var lines []string
 	for _, l := range strings.Split(raw, "\n") {
 		if trimmed := strings.TrimSpace(l); trimmed != "" {
@@ -45,18 +45,18 @@ func (m *model) finalizeCurrentThink() {
 		}
 	}
 	if len(lines) == 0 {
-		m.curThinkIdx = -1
-		m.reasonBuf.Reset()
+		m.reasoning.curThinkIdx = -1
+		m.reasoning.reasonBuf.Reset()
 		return
 	}
 
-	tb := &m.reasonBlocks[m.curThinkIdx]
+	tb := &m.reasoning.reasonBlocks[m.reasoning.curThinkIdx]
 	tb.lines = lines
 
 	// 构造展开时的完整内容行
 	var fullLines []string
 	for _, line := range lines {
-		wrapped := wrapLine(line, m.width-4)
+		wrapped := wrapLine(line, m.ui.width-4)
 		fullLines = append(fullLines, wrapped...)
 	}
 
@@ -67,7 +67,7 @@ func (m *model) finalizeCurrentThink() {
 	if !m.lastLineEmpty {
 		m.addScrollLine("", lipgloss.NewStyle())
 	}
-	m.scrollback = append(m.scrollback, scrollLine{
+	m.appendScrollback(scrollLine{
 		content:    title,
 		style:      styleThinkTitle,
 		expandable: true,
@@ -77,18 +77,6 @@ func (m *model) finalizeCurrentThink() {
 	})
 	m.lastLineEmpty = false
 
-	m.curThinkIdx = -1
-	m.reasonBuf.Reset()
-}
-
-// toggleLastThinkBlock 切换最近一个 thinking 块的展开/折叠状态。
-// 与 toggleLastExpandable()（Ctrl+O）对称，仅过滤条件不同。
-func (m *model) toggleLastThinkBlock() {
-	for i := len(m.scrollback) - 1; i >= 0; i-- {
-		sl := &m.scrollback[i]
-		if sl.expandable && strings.HasPrefix(sl.content, "💭") {
-			sl.expanded = !sl.expanded
-			return
-		}
-	}
+	m.reasoning.curThinkIdx = -1
+	m.reasoning.reasonBuf.Reset()
 }

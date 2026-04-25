@@ -20,7 +20,7 @@ func (m *model) handleBuiltin(input string) (quit bool, cmds []tea.Cmd) {
 		m.addScrollLine("Commands: /help /clear /history /version /quit", styleDim)
 		m.addScrollLine("Shortcuts: Ctrl+C (exit) · Ctrl+T (toggle think) · Ctrl+O (expand)", styleDim)
 		m.addScrollLine("", lipgloss.NewStyle())
-		if !m.useAltScreen {
+		if !m.ui.useAltScreen {
 			m.addScrollLine("Mode: inline (scrollback preserved)", styleDim)
 		} else {
 			m.addScrollLine("Mode: fullscreen (alt-screen)", styleDim)
@@ -49,18 +49,18 @@ func (m *model) handleBuiltin(input string) (quit bool, cmds []tea.Cmd) {
 }
 
 func (m *model) historyCmds() {
-	if len(m.history) == 0 {
+	if len(m.input.history) == 0 {
 		m.addScrollLine("(no history yet)", styleDim)
 		m.addScrollLine("", lipgloss.NewStyle())
 		return
 	}
 	m.addScrollLine("History:", lipgloss.NewStyle().Bold(true))
 	start := 0
-	if len(m.history) > 20 {
-		start = len(m.history) - 20
+	if len(m.input.history) > 20 {
+		start = len(m.input.history) - 20
 	}
-	for i := start; i < len(m.history); i++ {
-		m.addScrollLine(fmt.Sprintf("  %3d  %s", i+1, truncate(m.history[i], 72)), styleDim)
+	for i := start; i < len(m.input.history); i++ {
+		m.addScrollLine(fmt.Sprintf("  %3d  %s", i+1, truncate(m.input.history[i], 72)), styleDim)
 	}
 	m.addScrollLine("", lipgloss.NewStyle())
 }
@@ -71,31 +71,31 @@ func (m *model) addHistory(line string) {
 	if line == "" {
 		return
 	}
-	if len(m.history) > 0 && m.history[len(m.history)-1] == line {
+	if len(m.input.history) > 0 && m.input.history[len(m.input.history)-1] == line {
 		return
 	}
-	m.history = append(m.history, line)
+	m.input.history = append(m.input.history, line)
 }
 
 func (m *model) historyNavigate(dir int) {
-	if len(m.history) == 0 {
+	if len(m.input.history) == 0 {
 		return
 	}
-	if m.historyPos == -1 {
-		m.savedBuf = m.input.Value()
-		m.historyPos = len(m.history)
+	if m.input.historyPos == -1 {
+		m.input.savedBuf = m.input.input.Value()
+		m.input.historyPos = len(m.input.history)
 	}
-	newPos := m.historyPos + dir
+	newPos := m.input.historyPos + dir
 	if newPos < 0 {
 		return
 	}
-	if newPos >= len(m.history) {
-		m.historyPos = -1
-		m.input.SetValue(m.savedBuf)
-		m.input.CursorEnd()
+	if newPos >= len(m.input.history) {
+		m.input.historyPos = -1
+		m.input.input.SetValue(m.input.savedBuf)
+		m.input.input.CursorEnd()
 		return
 	}
-	m.historyPos = newPos
-	m.input.SetValue(m.history[m.historyPos])
-	m.input.CursorEnd()
+	m.input.historyPos = newPos
+	m.input.input.SetValue(m.input.history[m.input.historyPos])
+	m.input.input.CursorEnd()
 }
