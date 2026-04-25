@@ -98,46 +98,28 @@ func Test_truncate(t *testing.T) {
 	}
 }
 
-// Test_Styled tests ANSI style composition
-func Test_Styled(t *testing.T) {
-	// No attrs → plain text
-	if got := Styled("hello"); got != "hello" {
-		t.Errorf("Styled with no attrs = %q, want %q", got, "hello")
-	}
-
-	// With attrs → wrapped with ANSI codes and RESET
-	got := Styled("hello", Fg(10))
-	if len(got) < len("hello") {
-		t.Errorf("Styled with Fg(10) too short: %q", got)
-	}
-	if got[:len(got)-len("hello")] == "" {
-		t.Errorf("Styled should have ANSI prefix")
-	}
-}
-
-// Test_addHistory tests history deduplication (only consecutive duplicates skipped)
+// Test_addHistory tests history deduplication
 func Test_addHistory(t *testing.T) {
-	app := &App{}
+	m := &model{}
+	m.addHistory("first")
+	m.addHistory("first") // consecutive duplicate — skipped
+	m.addHistory("second")
+	m.addHistory("third")
 
-	app.addHistory("first")
-	app.addHistory("first") // consecutive duplicate — skipped
-	app.addHistory("second")
-	app.addHistory("third")
-
-	if len(app.history) != 3 {
-		t.Errorf("addHistory() got %d entries, want 3", len(app.history))
+	if len(m.history) != 3 {
+		t.Errorf("addHistory() got %d entries, want 3", len(m.history))
 	}
-	if app.history[0] != "first" || app.history[1] != "second" || app.history[2] != "third" {
-		t.Errorf("addHistory() entries = %v", app.history)
+	if m.history[0] != "first" || m.history[1] != "second" || m.history[2] != "third" {
+		t.Errorf("addHistory() entries = %v", m.history)
 	}
 
 	// Non-consecutive same value is allowed
-	app2 := &App{}
-	app2.addHistory("a")
-	app2.addHistory("b")
-	app2.addHistory("a") // non-consecutive — allowed
-	if len(app2.history) != 3 {
-		t.Errorf("addHistory() non-consecutive got %d entries, want 3", len(app2.history))
+	m2 := &model{}
+	m2.addHistory("a")
+	m2.addHistory("b")
+	m2.addHistory("a") // non-consecutive — allowed
+	if len(m2.history) != 3 {
+		t.Errorf("addHistory() non-consecutive got %d entries, want 3", len(m2.history))
 	}
 }
 
