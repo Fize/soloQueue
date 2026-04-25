@@ -1,213 +1,133 @@
 package tui
 
 import (
-	"context"
-	"fmt"
+	"encoding/json"
 	"strings"
 	"time"
-
-	"github.com/manifoldco/promptui"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
-// ─── Stream done ──────────────────────────────────────────────────────────────
-
-func (a *App) handleStreamDone(streamErr error) {
-	// Flush remaining content buffer
-	if tail := a.contentBuf.String(); tail != "" {
-		fmt.Println(Styled(tail, styleAI))
-	}
-	a.finalizeCurrentThink()
-	if streamErr != nil && streamErr != context.Canceled {
-		fmt.Println(Styled("✗ "+streamErr.Error(), styleError))
-	}
-	if !a.lastLineEmpty {
-		fmt.Println()
-	}
-	fmt.Println() // ensure blank line before next prompt
-
-	// Reset stream state
-	a.resetStreamState()
-}
-
-// resetStreamState resets all stream-related fields between turns.
-func (a *App) resetStreamState() {
-	a.contentBuf.Reset()
-	a.reasonBuf.Reset()
-	a.lastLineEmpty = false
-	a.currentTool = ""
-	a.toolArgs.Reset()
-	a.streamPhase = ""
-	a.toolExecMap = make(map[string]*toolExecInfo)
-	a.streamStart = time.Now()
-	a.reasonBlocks = nil
-	a.curThinkIdx = -1
-}
-
-// flushContentDelta appends delta to contentBuf, flushing complete lines.
-func (a *App) flushContentDelta(delta string) {
-	combined := a.contentBuf.String() + delta
-	a.contentBuf.Reset()
-
-	for {
-		idx := strings.Index(combined, "\n")
-		if idx < 0 {
-			break
-		}
-		line := combined[:idx]
-		combined = combined[idx+1:]
-		if line == "" {
-			if !a.lastLineEmpty {
-				fmt.Println()
-			}
-		} else {
-			fmt.Println(Styled(line, styleAI))
-		}
-		a.lastLineEmpty = (line == "")
-	}
-
-	a.contentBuf.WriteString(combined)
-}
-
-// flushContentBuf flushes the content buffer as a partial line.
-func (a *App) flushContentBuf() {
-	if a.contentBuf.Len() == 0 {
-		return
-	}
-	line := a.contentBuf.String()
-	a.contentBuf.Reset()
-	fmt.Println(Styled(line, styleAI))
-}
-
 // ─── Agent event handling ─────────────────────────────────────────────────────
 
-func (a *App) handleAgentEvent(ev agent.AgentEvent) {
+func (m *model) handleAgentEvent(ev agent.AgentEvent) {
+	if m.current == nil {
+		return
+	}
+
 	switch e := ev.(type) {
 
 	case agent.ReasoningDeltaEvent:
-		if a.curThinkIdx < 0 {
-			a.startNewThinkBlock()
-		}
-		a.appendReasoning(e.Delta)
-		a.streamPhase = "thinking"
+		m.current.thoughts.WriteString(e.Delta)
 
 	case agent.ContentDeltaEvent:
-		if a.curThinkIdx >= 0 {
-			a.finalizeCurrentThink()
-		}
-		a.streamPhase = "generating"
-		a.flushContentDelta(e.Delta)
+		m.current.content.WriteString(e.Delta)
 
 	case agent.ToolCallDeltaEvent:
-		if a.curThinkIdx >= 0 {
-			a.finalizeCurrentThink()
+		if e.Name != "" && e.Name != m.current.curToolName {
+			// New tool call starting
+			m.current.curToolName = e.Name
+			m.current.curToolArgs.Reset()
 		}
-		if e.Name != "" && e.Name != a.currentTool {
-			a.flushContentBuf()
-			a.currentTool = e.Name
-			a.toolArgs.Reset()
+		if e.CallID != "" {
+			m.current.curToolCallID = e.CallID
 		}
 		if e.ArgsDelta != "" {
-			a.toolArgs.WriteString(e.ArgsDelta)
+			m.current.curToolArgs.WriteString(e.ArgsDelta)
 		}
-		a.streamPhase = "generating"
 
 	case agent.ToolExecStartEvent:
-		a.flushContentBuf()
-		a.renderToolStartBlock(e.Name, e.Args, e.CallID)
-		a.toolExecMap[e.CallID] = &toolExecInfo{
+		m.current.curToolName = ""
+		m.current.curToolArgs.Reset()
+		tb := toolBlock{
+			name:   e.Name,
+			args:   e.Args,
+			callID: e.CallID,
+		}
+		m.current.tools = append(m.current.tools, tb)
+		m.current.toolExecMap[e.CallID] = &toolExecInfo{
 			name:   e.Name,
 			args:   e.Args,
 			start:  time.Now(),
 			callID: e.CallID,
 		}
-		a.currentTool = e.Name
-		a.toolArgs.Reset()
-		a.streamPhase = "tool_exec"
 
 	case agent.ToolExecDoneEvent:
-		dur := time.Since(a.toolExecMap[e.CallID].start)
-		info := &toolExecInfo{
-			name:     e.Name,
-			duration: dur,
-			err:      e.Err,
-			result:   e.Result,
-			done:     true,
-			callID:   e.CallID,
+		dur := time.Duration(0)
+		if info, ok := m.current.toolExecMap[e.CallID]; ok {
+			dur = time.Since(info.start)
 		}
-		a.toolExecMap[e.CallID] = info
-		a.renderToolDoneBlock(info)
-		a.currentTool = ""
-		a.streamPhase = "generating"
+		// Count non-empty result lines
+		lineCount := 0
+		for _, line := range strings.Split(e.Result, "\n") {
+			if strings.TrimSpace(line) != "" {
+				lineCount++
+			}
+		}
+		// Update existing toolBlock
+		for i := range m.current.tools {
+			if m.current.tools[i].callID == e.CallID {
+				m.current.tools[i].done = true
+				m.current.tools[i].duration = dur
+				m.current.tools[i].err = e.Err
+				m.current.tools[i].lineCount = lineCount
+				break
+			}
+		}
 
 	case agent.IterationDoneEvent:
 		// no-op
 
 	case agent.DoneEvent:
-		// handled by streamDone (channel close)
+		// handled by streamDoneMsg (channel close)
 
 	case agent.ToolNeedsConfirmEvent:
-		a.handleToolConfirm(e)
+		m.handleToolConfirm(e)
 
 	case agent.ErrorEvent:
-		fmt.Println(Styled("✗ "+e.Err.Error(), styleError))
+		m.current.content.WriteString(errorStyle.Render("✗ " + e.Err.Error()))
 	}
 }
 
 // ─── Tool confirmation ────────────────────────────────────────────────────────
 
-func (a *App) handleToolConfirm(e agent.ToolNeedsConfirmEvent) {
-	fmt.Println()
-	fmt.Println(Styled("⚠ "+e.Prompt, Fg(11), BOLD))
-
+func (m *model) handleToolConfirm(e agent.ToolNeedsConfirmEvent) {
 	if len(e.Options) > 0 {
-		// Multi-option: use promptui.Select
-		sel := promptui.Select{
-			Label: "Choose",
-			Items: e.Options,
-			Size:  len(e.Options),
-		}
-		_, choice, err := sel.Run()
-		if err != nil {
-			// User cancelled — deny
-			_ = a.sess.Agent.Confirm(e.CallID, string(agent.ChoiceDeny))
-			return
-		}
-		if err := a.sess.Agent.Confirm(e.CallID, choice); err != nil {
-			fmt.Println(Styled("✗ confirm error: "+err.Error(), styleError))
+		m.confirmState = &confirmState{
+			callID:   e.CallID,
+			prompt:   e.Prompt,
+			options:  e.Options,
+			selected: 0,
 		}
 	} else {
-		// Binary: use promptui.Prompt with IsConfirm
+		// Binary choice
 		items := []string{"[y] confirm", "[n] deny"}
 		if e.AllowInSession {
 			items = append(items, "[a] allow in session")
 		}
-		sel := promptui.Select{
-			Label: "Choose",
-			Items: items,
-			Size:  len(items),
-		}
-		idx, _, err := sel.Run()
-		if err != nil {
-			_ = a.sess.Agent.Confirm(e.CallID, string(agent.ChoiceDeny))
-			return
-		}
-		var choice string
-		switch idx {
-		case 0:
-			choice = string(agent.ChoiceApprove)
-		case 1:
-			choice = string(agent.ChoiceDeny)
-		case 2:
-			choice = string(agent.ChoiceAllowInSession)
-		default:
-			choice = string(agent.ChoiceDeny)
-		}
-		if err := a.sess.Agent.Confirm(e.CallID, choice); err != nil {
-			fmt.Println(Styled("✗ confirm error: "+err.Error(), styleError))
+		m.confirmState = &confirmState{
+			callID:   e.CallID,
+			prompt:   e.Prompt,
+			options:  items,
+			selected: 0,
 		}
 	}
+}
 
-	fmt.Println()
+// ─── Tool args parsing ────────────────────────────────────────────────────────
+
+// toolArgs defines the common structure for tool arguments.
+type toolArgs struct {
+	Path    string `json:"path,omitempty"`
+	Command string `json:"command,omitempty"`
+	File    string `json:"file,omitempty"`
+}
+
+// parseToolArgs parses JSON-formatted tool arguments.
+func parseToolArgs(argsJSON string) toolArgs {
+	var args toolArgs
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return toolArgs{}
+	}
+	return args
 }
