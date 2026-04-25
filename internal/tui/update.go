@@ -18,6 +18,10 @@ func (m *model) Update(msg tea.Msg) (_ tea.Model, cmd tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.ui.width = msg.Width
 		m.ui.height = msg.Height
+		// 设置 textinput 宽度（减去 prompt "> " 占用的 2 列），使 placeholder 能完整显示
+		if m.ui.width > 2 {
+			m.input.input.SetWidth(m.ui.width - 2)
+		}
 		return m, nil
 
 	case logoRenderedMsg:
