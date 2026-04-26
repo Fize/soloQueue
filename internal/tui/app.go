@@ -222,9 +222,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		var cmd tea.Cmd
+		if m.width > 0 && msg.Width < m.width {
+			cmd = tea.ClearScreen
+		}
 		m.width = msg.Width
 		m.height = msg.Height
-		m.textInput.Width = m.width - len(m.textInput.Prompt) - 1
+		m.textInput.Width = m.width - lipgloss.Width(m.textInput.Prompt) - 1
+		return m, cmd
 
 	case tea.KeyMsg:
 		// Reset quit count on any non-Ctrl+C key
@@ -609,16 +614,6 @@ func (m model) View() string {
 		sb.WriteString(strings.Repeat(" ", padding))
 	}
 	sb.WriteString(renderedHint)
-
-	// Pad with blank lines to overwrite any previous content when terminal shrinks
-	if m.height > 0 {
-		rendered := sb.String()
-		lineCount := strings.Count(rendered, "\n")
-		for lineCount < m.height {
-			sb.WriteString("\n")
-			lineCount++
-		}
-	}
 
 	return sb.String()
 }
