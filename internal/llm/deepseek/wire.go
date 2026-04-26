@@ -213,8 +213,9 @@ func buildWireMessages(msgs []agent.LLMMessage) []wireMessage {
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}
-		// 只在有 tool_calls 时回传 reasoning_content（满足 API 要求 + 省 token）
-		if len(m.ToolCalls) > 0 && m.ReasoningContent != "" {
+		// DeepSeek thinking mode：assistant 的 reasoning_content 非空时一律回传
+		// 有 tool_calls 时必须回传（否则 400）；无 tool_calls 时传了被忽略，不报错
+		if m.Role == "assistant" && m.ReasoningContent != "" {
 			wm.ReasoningContent = m.ReasoningContent
 		}
 		if len(m.ToolCalls) > 0 {

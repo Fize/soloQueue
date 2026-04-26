@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -20,7 +21,7 @@ import (
 
 func startTestServer(t *testing.T, fake *agent.FakeLLM) (*httptest.Server, *session.SessionManager) {
 	t.Helper()
-	factory := func(ctx context.Context, teamID string) (*agent.Agent, error) {
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error) {
 		a := agent.NewAgent(
 			agent.Definition{ID: "test-" + teamID},
 			fake,
@@ -29,9 +30,10 @@ func startTestServer(t *testing.T, fake *agent.FakeLLM) (*httptest.Server, *sess
 		// agent lifetime must outlive the single Create request ctx;
 		// use Background for the agent's parent ctx.
 		if err := a.Start(context.Background()); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return a, nil
+		cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+		return a, cw, nil
 	}
 	mgr := session.NewSessionManager(factory, 0)
 	t.Cleanup(func() { mgr.Shutdown(2 * time.Second) })
