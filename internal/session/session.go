@@ -322,6 +322,8 @@ func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 // newSessionID returns a 32-char hex id (16 random bytes).
 func newSessionID() string {
 	var b [16]byte
-	_, _ = rand.Read(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
 	return strings.ToLower(hex.EncodeToString(b[:]))
 }

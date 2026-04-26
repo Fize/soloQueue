@@ -222,7 +222,6 @@ func (l *Logger) logCtx(ctx context.Context, level slog.Level, cat Category, msg
 
 	// 验证 category 合法性
 	if !ValidCategory(l.layer, cat) {
-		_, _ = fmt.Fprintf(os.Stderr, "logger: invalid category %q for layer %q\n", cat, l.layer)
 		cat = l.defaultCategory()
 	}
 
@@ -245,7 +244,10 @@ func (l *Logger) logCtx(ctx context.Context, level slog.Level, cat Category, msg
 	// 追加用户传入的 args（支持 slog.Attr 和 key/value 对）
 	r.Add(args...)
 
-	_ = l.inner.Handler().Handle(ctx, r)
+	if err := l.inner.Handler().Handle(ctx, r); err != nil {
+		// 日志写入失败时回退到 stderr，避免静默丢日志
+		fmt.Fprintf(os.Stderr, "logger Handle error: %v\n", err)
+	}
 }
 
 func (l *Logger) defaultCategory() Category {
@@ -259,6 +261,8 @@ func (l *Logger) defaultCategory() Category {
 // randomHex 生成 n 字节的随机 hex 字符串（长度 2n）
 func randomHex(n int) string {
 	b := make([]byte, n)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
 	return hex.EncodeToString(b)
 }

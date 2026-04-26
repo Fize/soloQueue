@@ -3,9 +3,7 @@ package logger
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -34,17 +32,18 @@ func (h *MultiHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *MultiHandler) Handle(ctx context.Context, r slog.Record) error {
+	var firstErr error
 	if h.console != nil && h.console.Enabled(ctx, r.Level) {
-		if err := h.console.Handle(ctx, r); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "console handler error: %v\n", err)
+		if err := h.console.Handle(ctx, r); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 	if h.file != nil && h.file.Enabled(ctx, r.Level) {
-		if err := h.file.Handle(ctx, r); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "file handler error: %v\n", err)
+		if err := h.file.Handle(ctx, r); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 func (h *MultiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
