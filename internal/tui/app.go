@@ -56,13 +56,14 @@ type timelineKind int
 
 const (
 	timelineThinking timelineKind = iota
+	timelineContent
 	timelineTool
 )
 
 // timelineEntry represents a single item in the chronological timeline.
 type timelineEntry struct {
 	kind timelineKind
-	text string     // for thinking entries
+	text string     // for thinking and content entries
 	tool *toolBlock // for tool entries (pointer for in-place update)
 }
 
@@ -447,27 +448,38 @@ func renderAgentMessage(msg message) string {
 	var sb strings.Builder
 	sb.WriteString(agentStyle.Render("Solo:") + "\n")
 
-	hasTimelineEntry := false
-
+	var lastKind timelineKind = -1
 	for _, entry := range msg.timeline {
+		// Blank line separator between different block types
+		if lastKind >= 0 && lastKind != entry.kind {
+			sb.WriteString("\n")
+		}
+		// Blank line separator between consecutive tool blocks
+		if lastKind == timelineTool && entry.kind == timelineTool {
+			sb.WriteString("\n")
+		}
+
 		switch entry.kind {
 		case timelineThinking:
+			sb.WriteString(thinkLabelStyle + "\n")
 			sb.WriteString(thinkStyle.Render(entry.text) + "\n")
-			hasTimelineEntry = true
+		case timelineContent:
+			sb.WriteString(contentStyle.Render(entry.text) + "\n")
 		case timelineTool:
 			if entry.tool != nil {
+				sb.WriteString(toolLabelStyle + "\n")
 				sb.WriteString(toolCollapsedStyle.Render(formatToolBlock(*entry.tool)) + "\n")
 			}
-			hasTimelineEntry = true
 		}
+		lastKind = entry.kind
 	}
 
-	if hasTimelineEntry {
-		sb.WriteString("\n")
-	}
-
+	// Remaining content not yet flushed into timeline (during active streaming)
 	if msg.content != "" {
-		sb.WriteString(contentStyle.Render(msg.content) + "\n\n")
+		if lastKind >= 0 && lastKind != timelineContent {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(contentStyle.Render(msg.content) + "\n")
 	}
 
 	return sb.String()
@@ -546,14 +558,19 @@ func (m model) View() string {
 
 	// 4. Status bar
 	var statusText string
+	var hasStatus bool
 	if m.quitCount > 0 {
 		statusText = foldedStyle.Render("✗ Confirm exit (Press Ctrl+C again)")
+		hasStatus = true
 	} else if m.errMsg != "" {
 		statusText = foldedStyle.Render(fmt.Sprintf("✗ %s", m.errMsg))
+		hasStatus = true
 	} else if m.cancelReason != "" {
 		statusText = foldedStyle.Render(fmt.Sprintf("✗ Cancelled (%s)", m.cancelReason))
+		hasStatus = true
 	} else if m.genSummary != "" {
 		statusText = foldedStyle.Render(m.genSummary)
+		hasStatus = true
 	} else if m.isGenerating {
 		dot := "●"
 		if !m.genDotOn {
@@ -562,8 +579,11 @@ func (m model) View() string {
 		elapsed := formatDuration(time.Since(m.genStartTime))
 		phase := m.genPhase.String()
 		statusText = foldedStyle.Render(fmt.Sprintf("%s %s · %s · esc to interrupt", dot, elapsed, phase))
+		hasStatus = true
 	}
-	sb.WriteString(statusText + "\n")
+	if hasStatus {
+		sb.WriteString(statusText + "\n")
+	}
 
 	// 5. Input box
 	sb.WriteString(m.textInput.View() + "\n")
@@ -587,7 +607,10 @@ func (m model) View() string {
 // for dynamic content in View(). It reserves lines for the status bar,
 // input box, and hint line.
 func (m model) dynamicHeightBudget() int {
-	reserved := 3 // status bar + input + hint
+	reserved := 2 // input + hint
+	if m.quitCount > 0 || m.errMsg != "" || m.cancelReason != "" || m.genSummary != "" || m.isGenerating {
+		reserved++ // status bar is visible
+	}
 	if m.height <= reserved {
 		return 1
 	}
@@ -671,11 +694,12 @@ func (m *model) finalizeCurrentStream() {
 	if msg == nil {
 		return
 	}
-	// Flush any remaining thinking
+	// Flush any remaining thinking and content into timeline
+	m.current.flushContent()
 	m.current.flushThinking()
 	msg.timeline = make([]timelineEntry, len(m.current.timeline))
 	copy(msg.timeline, m.current.timeline)
-	msg.content = m.current.content.String()
+	msg.content = ""
 
 	if m.streamCancel != nil {
 		m.streamCancel()
