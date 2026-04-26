@@ -866,13 +866,13 @@ func TestGlobalService_DefaultModel_ByType(t *testing.T) {
 	if m == nil {
 		t.Fatal("DefaultModel(chat) nil")
 	}
-	if m.ID != "deepseek-chat" {
-		t.Errorf("id = %q, want deepseek-chat", m.ID)
+	if m.ID != "deepseek-v4-flash" {
+		t.Errorf("id = %q, want deepseek-v4-flash", m.ID)
 	}
 
 	m2 := svc.DefaultModel("code")
-	if m2 == nil || m2.ID != "deepseek-coder" {
-		t.Errorf("DefaultModel(code) = %v", m2)
+	if m2 != nil {
+		t.Errorf("DefaultModel(code) should be nil, got %v", m2)
 	}
 }
 
@@ -979,12 +979,12 @@ func TestGlobalService_ModelByID(t *testing.T) {
 	svc, _ := New(dir)
 	_ = svc.Load()
 
-	m := svc.ModelByID("deepseek-reasoner")
+	m := svc.ModelByID("deepseek-v4-pro")
 	if m == nil {
 		t.Fatal("ModelByID nil")
 	}
 	if !m.Thinking.Enabled {
-		t.Error("deepseek-reasoner should have thinking.enabled=true")
+		t.Error("deepseek-v4-pro should have thinking.enabled=true")
 	}
 	if m.Thinking.Type != "reasoning" {
 		t.Errorf("thinking.type = %q", m.Thinking.Type)
