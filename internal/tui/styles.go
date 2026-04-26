@@ -18,15 +18,22 @@ var (
 	agentStyle   = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
 	contentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
+	thinkLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("183")).
+			Bold(true).
+			Render("▎ Thinking")
+
 	thinkStyle = lipgloss.NewStyle().
 			Foreground(colorMuted).
 			Italic(true).
-			BorderLeft(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("238")).
-			PaddingLeft(1)
+			PaddingLeft(2)
 
 	foldedStyle = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
+
+	toolLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("150")).
+			Bold(true).
+			Render("▎ Tool Use")
 
 	toolCollapsedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("246")).
