@@ -44,7 +44,7 @@ var (
 	dimStyle   = lipgloss.NewStyle().Foreground(colorMuted)
 
 	statusStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Padding(0, 1)
-	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("235")).Background(lipgloss.Color("240")).Padding(0, 1)
+	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("189"))
 
 	confirmHighlight = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
 	confirmNormal    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))

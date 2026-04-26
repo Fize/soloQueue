@@ -224,6 +224,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.textInput.Width = m.width - len(m.textInput.Prompt) - 1
 
 	case tea.KeyMsg:
 		// Reset quit count on any non-Ctrl+C key
@@ -585,13 +586,22 @@ func (m model) View() string {
 		sb.WriteString(statusText + "\n")
 	}
 
-	// 5. Input box
+	// 5. Divider (above input)
+	divider := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("237")).
+			Render(strings.Repeat("-", max(m.width, 0)))
+	sb.WriteString(divider + "\n")
+
+	// 6. Input box
 	sb.WriteString(m.textInput.View() + "\n")
 
-	// 6. Hint line (right-aligned)
-	hint := "Ctrl+C quit"
+	// 7. Divider (below input)
+	sb.WriteString(divider + "\n")
+
+	// 8. Hint line (right-aligned)
+	hint := "ctrl+c quit"
 	if m.isGenerating {
-		hint = "esc interrupt · ctrl+c quit"
+		hint = "esc/ctrl+c interrupt"
 	}
 	renderedHint := hintStyle.Render(hint)
 	padding := m.width - lipgloss.Width(renderedHint)
@@ -600,6 +610,16 @@ func (m model) View() string {
 	}
 	sb.WriteString(renderedHint)
 
+	// Pad with blank lines to overwrite any previous content when terminal shrinks
+	if m.height > 0 {
+		rendered := sb.String()
+		lineCount := strings.Count(rendered, "\n")
+		for lineCount < m.height {
+			sb.WriteString("\n")
+			lineCount++
+		}
+	}
+
 	return sb.String()
 }
 
@@ -607,7 +627,7 @@ func (m model) View() string {
 // for dynamic content in View(). It reserves lines for the status bar,
 // input box, and hint line.
 func (m model) dynamicHeightBudget() int {
-	reserved := 2 // input + hint
+	reserved := 4 // input + hint + 2 dividers
 	if m.quitCount > 0 || m.errMsg != "" || m.cancelReason != "" || m.genSummary != "" || m.isGenerating {
 		reserved++ // status bar is visible
 	}
