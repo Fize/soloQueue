@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -766,15 +767,15 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 
 		// 退出条件 1：LLM 不再要工具 → 返回 content
 		if len(toolCalls) == 0 {
-			a.emit(ctx, out, DoneEvent{Content: content.String()})
-			return
-		}
+		a.emit(ctx, out, DoneEvent{Content: content.String(), ReasoningContent: reasoning.String()})
+		return
+	}
 
-		// 追加 assistant(tool_calls) 消息到对话历史
-		msgs = append(msgs, LLMMessage{
-			Role:            "assistant",
-			Content:         content.String(),
-			ReasoningContent: reasoning.String(),
+	// 追加 assistant(tool_calls) 消息到对话历史
+	msgs = append(msgs, LLMMessage{
+		Role:            "assistant",
+		Content:         content.String(),
+		ReasoningContent: reasoning.String(),
 			ToolCalls:       toolCalls,
 		})
 
@@ -1110,7 +1111,306 @@ func RunOnce(ctx context.Context, def Definition, client LLMClient, log *logger.
 	return b.String(), nil
 }
 
+// ─── AskWithHistory / AskStreamWithHistory ──────────────────────────────────
+
+// AskWithHistory 向 agent 投递一次带有上下文历史的 LLM 请求并等结果
+//
+// 与 Ask 不同的是，此方法使用 ContextWindow 提供完整对话历史，
+// 并在工具循环中将中间消息 push 到 ContextWindow。
+// 返回 content 和 reasoningContent（DeepSeek thinking mode 跨轮必须回传）。
+//
+// ⚠️ 调用方（通常是 Session）应在调用前将 user prompt push 到 cw，
+// 调用成功后将 assistant reply（含 reasoningContent）push 到 cw，失败时 PopLast 移除 user prompt。
+func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (content string, reasoningContent string, err error) {
+	ch, err := a.AskStreamWithHistory(ctx, cw, prompt)
+	if err != nil {
+		return "", "", err
+	}
+
+	var (
+		b              strings.Builder
+		finalContent   string
+		finalReasoning string
+		finalErr       error
+	)
+	for ev := range ch {
+		switch e := ev.(type) {
+		case ContentDeltaEvent:
+			b.WriteString(e.Delta)
+		case DoneEvent:
+			finalContent = e.Content
+			finalReasoning = e.ReasoningContent
+		case ErrorEvent:
+			finalErr = e.Err
+		}
+	}
+	if finalErr != nil {
+		return "", "", finalErr
+	}
+	if finalContent != "" {
+		return finalContent, finalReasoning, nil
+	}
+	return b.String(), finalReasoning, nil
+}
+
+// AskStreamWithHistory 投递一次带有上下文历史的流式 Ask
+//
+// 返回通道由 agent goroutine 内部的 runOnceStreamWithHistory close。
+func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan AgentEvent, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx = ensureTraceID(ctx)
+	ctx = a.ctxWithAgentAttrs(ctx)
+
+	out := make(chan AgentEvent, 64)
+
+	jb := func(jobCtx context.Context) {
+		merged, cancel := mergeCtx(ctx, jobCtx)
+		defer cancel()
+		a.runOnceStreamWithHistory(merged, cw, prompt, out)
+	}
+
+	if err := a.submit(ctx, jb); err != nil {
+		close(out)
+		return nil, err
+	}
+	return out, nil
+}
+
+// runOnceStreamWithHistory 是 AskWithHistory 的执行主体
+//
+// 与 runOnceStream 的关键区别：
+//   - 使用 cw.BuildPayload() 代替 buildMessages()
+//   - 每轮 API 返回后先 Calibrate 再 Push（严格时序）
+//   - API 请求前检查 Overflow
+//   - 工具循环中 push 中间消息到 cw
+//   - 最终 assistant 回复不 push（由 Session 负责）
+func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) {
+	defer close(out)
+	defer func() {
+		if r := recover(); r != nil {
+			a.emit(ctx, out, ErrorEvent{
+				Err: fmt.Errorf("agent panic: %v", r),
+			})
+			panic(r)
+		}
+	}()
+
+	if a.LLM == nil {
+		a.emit(ctx, out, ErrorEvent{
+			Err: fmt.Errorf("agent %q: llm client is nil", a.Def.ID),
+		})
+		return
+	}
+
+	specs := a.ToolSpecs()
+
+	maxIter := a.Def.MaxIterations
+	if maxIter <= 0 {
+		maxIter = DefaultMaxIterations
+	}
+
+	for iter := 0; iter < maxIter; iter++ {
+		if err := ctx.Err(); err != nil {
+			a.emit(ctx, out, ErrorEvent{Err: err})
+			return
+		}
+
+		// ★ 从 ContextWindow 构建 payload（包含完整历史）
+		payload := cw.BuildPayload()
+		msgs := payloadToLLMMessages(payload)
+
+		// ★ Overflow 硬限检查：防止 API 400
+		hardLimit := a.Def.ContextWindow
+		if hardLimit <= 0 {
+			hardLimit = 128000 // 兜底默认值
+		}
+		if cw.Overflow(hardLimit) {
+			current, _, _ := cw.TokenUsage()
+			a.logError(ctx, logger.CatLLM, "context overflow", fmt.Errorf("tokens %d exceed hard limit %d", current, hardLimit))
+			a.emit(ctx, out, ErrorEvent{
+				Err: fmt.Errorf("上下文溢出：当前 %d tokens 超过模型硬限 %d，请开启新会话", current, hardLimit),
+			})
+			return
+		}
+
+		req := LLMRequest{
+			Model:           a.Def.ModelID,
+			Temperature:     a.Def.Temperature,
+			MaxTokens:       a.Def.MaxTokens,
+			Messages:        msgs,
+			Tools:           specs,
+			ReasoningEffort: a.Def.ReasoningEffort,
+			IncludeUsage:    true,
+		}
+
+		a.logInfo(ctx, logger.CatLLM, "llm chat start",
+			slog.Int("iter", iter),
+			slog.String("model", req.Model),
+			slog.Int("prompt_len", len(prompt)),
+			slog.Int("messages", len(msgs)),
+			slog.Int("tools", len(specs)),
+		)
+
+		start := time.Now()
+		evCh, err := a.LLM.ChatStream(ctx, req)
+		if err != nil {
+			durMs := time.Since(start).Milliseconds()
+			a.logError(ctx, logger.CatLLM, "llm chat failed", err,
+				slog.Int("iter", iter),
+				slog.Int64("duration_ms", durMs),
+			)
+			a.emit(ctx, out, ErrorEvent{Err: err})
+			return
+		}
+
+		// 本轮累积器
+		var (
+			content   strings.Builder
+			reasoning strings.Builder
+			tcSlots   = map[int]*llm.ToolCall{}
+			finish    llm.FinishReason
+			usage     llm.Usage
+		)
+
+		streamDone := false
+		for !streamDone {
+			select {
+			case <-ctx.Done():
+				a.emit(ctx, out, ErrorEvent{Err: ctx.Err()})
+				return
+			case ev, ok := <-evCh:
+				if !ok {
+					streamDone = true
+					break
+				}
+				switch ev.Type {
+				case llm.EventDelta:
+					if ev.ContentDelta != "" {
+						content.WriteString(ev.ContentDelta)
+						if !a.emit(ctx, out, ContentDeltaEvent{
+							Iter: iter, Delta: ev.ContentDelta,
+						}) {
+							return
+						}
+					}
+					if ev.ReasoningContentDelta != "" {
+						reasoning.WriteString(ev.ReasoningContentDelta)
+						if !a.emit(ctx, out, ReasoningDeltaEvent{
+							Iter: iter, Delta: ev.ReasoningContentDelta,
+						}) {
+							return
+						}
+					}
+					if ev.ToolCallDelta != nil {
+						d := ev.ToolCallDelta
+						accumulateToolCall(tcSlots, d)
+						if !a.emit(ctx, out, ToolCallDeltaEvent{
+							Iter:      iter,
+							CallID:    d.ID,
+							Name:      d.Name,
+							ArgsDelta: d.Arguments,
+						}) {
+							return
+						}
+					}
+				case llm.EventDone:
+					finish = ev.FinishReason
+					if ev.Usage != nil {
+						usage = *ev.Usage
+					}
+					streamDone = true
+				case llm.EventError:
+					durMs := time.Since(start).Milliseconds()
+					a.logError(ctx, logger.CatLLM, "llm chat failed", ev.Err,
+						slog.Int("iter", iter),
+						slog.Int64("duration_ms", durMs),
+					)
+					a.emit(ctx, out, ErrorEvent{Err: ev.Err})
+					return
+				}
+			}
+		}
+
+		durMs := time.Since(start).Milliseconds()
+		toolCalls := sortedToolCalls(tcSlots)
+
+		a.logInfo(ctx, logger.CatLLM, "llm chat done",
+			slog.Int("iter", iter),
+			slog.Int("response_len", content.Len()),
+			slog.Int("reasoning_len", reasoning.Len()),
+			slog.Int("tool_calls", len(toolCalls)),
+			slog.String("finish_reason", string(finish)),
+			slog.Int("prompt_tokens", usage.PromptTokens),
+			slog.Int("completion_tokens", usage.CompletionTokens),
+			slog.Int("total_tokens", usage.TotalTokens),
+			slog.Int64("duration_ms", durMs),
+		)
+
+		// ★ 严格时序：先 Calibrate（对齐到 API 精确值），再 Push 新消息
+		if usage.PromptTokens > 0 {
+			cw.Calibrate(usage.PromptTokens)
+		}
+
+		// IterationDoneEvent
+		if !a.emit(ctx, out, IterationDoneEvent{
+			Iter:         iter,
+			FinishReason: finish,
+			Usage:        usage,
+		}) {
+			return
+		}
+
+		// 退出条件：LLM 不再要工具
+		if len(toolCalls) == 0 {
+		a.emit(ctx, out, DoneEvent{Content: content.String(), ReasoningContent: reasoning.String()})
+		return
+	}
+
+	// ★ Push assistant(tool_calls) 到 ContextWindow
+		cw.Push(ctxwin.RoleAssistant, content.String(),
+			ctxwin.WithReasoningContent(reasoning.String()),
+			ctxwin.WithToolCalls(toolCalls),
+		)
+
+		// 执行本轮所有 tool_call
+		results := a.execTools(ctx, iter, toolCalls, out)
+
+		// ★ Push tool(result) 到 ContextWindow（IsEphemeral=true）
+		for i, tc := range toolCalls {
+			cw.Push(ctxwin.RoleTool, results[i],
+				ctxwin.WithToolCallID(tc.ID),
+				ctxwin.WithToolName(tc.Function.Name),
+				ctxwin.WithEphemeral(true),
+			)
+		}
+	}
+
+	// 迭代超上限
+	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
+		slog.Int("max_iter", maxIter),
+	)
+	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// payloadToLLMMessages 将 ctxwin.PayloadMessage 切片转为 LLMMessage 切片
+func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
+	out := make([]LLMMessage, 0, len(payload))
+	for _, p := range payload {
+		out = append(out, LLMMessage{
+			Role:             p.Role,
+			Content:          p.Content,
+			ReasoningContent: p.ReasoningContent,
+			Name:             p.Name,
+			ToolCallID:       p.ToolCallID,
+			ToolCalls:        p.ToolCalls,
+		})
+	}
+	return out
+}
 
 // buildMessages 组装 system + user 两条消息
 //

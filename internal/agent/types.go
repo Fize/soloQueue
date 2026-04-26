@@ -47,6 +47,11 @@ type Definition struct {
 	// <= 0 使用 DefaultMaxIterations（10）。
 	// 无 tools 时循环第一轮就退出（LLM 不返回 tool_calls），此值不生效。
 	MaxIterations int
+
+	// ContextWindow 是模型的上下文窗口大小（token 数），用于 Overflow 硬限检查。
+	// 对应 config.LLMModel.ContextWindow。
+	// <= 0 时使用兜底默认值 128000。
+	ContextWindow int
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────

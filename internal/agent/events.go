@@ -80,7 +80,8 @@ type IterationDoneEvent struct {
 
 // DoneEvent 整个 AskStream 正常结束；Content 是最终 assistant content
 type DoneEvent struct {
-	Content string
+	Content          string
+	ReasoningContent string
 }
 
 // ToolNeedsConfirmEvent 某个 tool 需要用户确认才能继续执行

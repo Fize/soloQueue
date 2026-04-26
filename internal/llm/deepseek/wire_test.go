@@ -128,16 +128,18 @@ func TestBuildWireRequest_MessagesWithToolCalls(t *testing.T) {
 func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 	msgs := []agent.LLMMessage{
 		{Role: "user", Content: "hello"},
-		// assistant 有 tool_calls：reasoning_content 应出现在 JSON 中
+		// assistant 有 tool_calls + reasoning_content：应出现在 JSON 中
 		{Role: "assistant", Content: "thinking...", ReasoningContent: "let me think", ToolCalls: []llm.ToolCall{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "f", Arguments: "{}"}},
 		}},
-		// assistant 无 tool_calls：reasoning_content 不应出现
-		{Role: "assistant", Content: "done", ReasoningContent: "unused"},
+		// assistant 无 tool_calls 但有 reasoning_content：也应回传（DeepSeek 跨轮要求）
+		{Role: "assistant", Content: "done", ReasoningContent: "my reasoning"},
+		// assistant 无 reasoning_content：不应出现
+		{Role: "assistant", Content: "no reasoning"},
 	}
 	wired := buildWireMessages(msgs)
 
-	// 第 2 条消息（index=1）：有 tool_calls，应含 reasoning_content
+	// 第 2 条消息（index=1）：有 tool_calls + reasoning_content
 	b1, err := json.Marshal(wired[1])
 	if err != nil {
 		t.Fatalf("marshal msg[1]: %v", err)
@@ -146,13 +148,22 @@ func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 		t.Errorf("msg[1] should have reasoning_content, got: %s", b1)
 	}
 
-	// 第 3 条消息（index=2）：无 tool_calls，应不含 reasoning_content
+	// 第 3 条消息（index=2）：无 tool_calls 但有 reasoning_content，也应含
 	b2, err := json.Marshal(wired[2])
 	if err != nil {
 		t.Fatalf("marshal msg[2]: %v", err)
 	}
-	if contains(string(b2), "reasoning_content") {
-		t.Errorf("msg[2] should NOT have reasoning_content, got: %s", b2)
+	if !contains(string(b2), "reasoning_content") {
+		t.Errorf("msg[2] should have reasoning_content, got: %s", b2)
+	}
+
+	// 第 4 条消息（index=3）：无 reasoning_content，不应含
+	b3, err := json.Marshal(wired[3])
+	if err != nil {
+		t.Fatalf("marshal msg[3]: %v", err)
+	}
+	if contains(string(b3), "reasoning_content") {
+		t.Errorf("msg[3] should NOT have reasoning_content, got: %s", b3)
 	}
 }
 
