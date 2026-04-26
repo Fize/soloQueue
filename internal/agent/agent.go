@@ -535,9 +535,14 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 			err := fmt.Errorf("agent panic: %v", r)
 			a.exitErr.Store(errHolder{err: err})
 			a.logError(ctx, logger.CatActor, "agent run goroutine panic", err)
+			a.state.Store(int32(StateStopped))
+			close(done)
+			// panic 已记录到 exitErr，caller 通过 Err() 可获取；
+			// 不再 re-panic：re-panic 会跳过 close(done)，导致 caller 永远阻塞在 Done()
+		} else {
+			a.state.Store(int32(StateStopped))
+			close(done)
 		}
-		a.state.Store(int32(StateStopped))
-		close(done)
 	}()
 
 	for {
@@ -1180,6 +1185,8 @@ func (a *Agent) ctxWithAgentAttrs(ctx context.Context) context.Context {
 // newTraceID 返回一个 8 字节 hex 编码的随机 trace ID（16 字符）
 func newTraceID() string {
 	var b [8]byte
-	_, _ = rand.Read(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
 	return hex.EncodeToString(b[:])
 }

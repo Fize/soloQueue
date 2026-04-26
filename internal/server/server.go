@@ -79,7 +79,7 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				fmt.Errorf("%v", rec),
 				slog.String("path", r.URL.Path),
 			)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal", "path": r.URL.Path})
 		}
 	}()
 	m.mux.ServeHTTP(w, r)
@@ -214,22 +214,28 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 		}
 		var in wsInFrame
 		if err := json.Unmarshal(data, &in); err != nil {
-			_ = writeWSFrame(connCtx, c, map[string]string{
+			if wsErr := writeWSFrame(connCtx, c, map[string]string{
 				"type":  "error",
 				"error": "invalid json",
-			})
+			}); wsErr != nil {
+				m.logError(connCtx, "ws write error", wsErr)
+			}
 			continue
 		}
 
 		switch in.Type {
 		case framePing:
-			_ = writeWSFrame(connCtx, c, map[string]string{"type": "pong"})
+			if err := writeWSFrame(connCtx, c, map[string]string{"type": "pong"}); err != nil {
+				m.logError(connCtx, "ws write pong error", err)
+			}
 
 		case frameCancel:
 			if askCancel != nil {
 				askCancel()
 				askCancel = nil
-				_ = writeWSFrame(connCtx, c, map[string]string{"type": "error", "err": "cancelled"})
+				if err := writeWSFrame(connCtx, c, map[string]string{"type": "error", "err": "cancelled"}); err != nil {
+					m.logError(connCtx, "ws write cancel error", err)
+				}
 			}
 
 		case frameAsk:
@@ -243,10 +249,12 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 
 			events, serr := s.AskStream(askCtx, in.Prompt)
 			if serr != nil {
-				_ = writeWSFrame(connCtx, c, map[string]string{
+				if err := writeWSFrame(connCtx, c, map[string]string{
 					"type":  "error",
 					"error": serr.Error(),
-				})
+				}); err != nil {
+					m.logError(connCtx, "ws write ask error", err)
+				}
 				ac()
 				askCancel = nil
 				continue
@@ -268,10 +276,12 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 			}
 
 		default:
-			_ = writeWSFrame(connCtx, c, map[string]string{
+			if err := writeWSFrame(connCtx, c, map[string]string{
 				"type":  "error",
 				"error": "unknown frame type",
-			})
+			}); err != nil {
+				m.logError(connCtx, "ws write error", err)
+			}
 		}
 	}
 }
@@ -356,8 +366,14 @@ func agentEventToFrame(ev agent.AgentEvent) map[string]any {
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
+	data, err := json.Marshal(payload)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte("\n"))
 }
 
 func writeWSFrame(ctx context.Context, c *websocket.Conn, payload any) error {
