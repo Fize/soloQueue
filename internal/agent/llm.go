@@ -36,6 +36,10 @@ type LLMRequest struct {
 	PresencePenalty  float64
 	StopSequences    []string
 
+	// 推理努力等级（V4 模型思考模式）
+	// "high" | "max" | ""（空表示不发送此参数）
+	ReasoningEffort string
+
 	// Tool-calling
 	Tools      []llm.ToolDef // 空表示无 tool
 	ToolChoice string        // "" | "none" | "auto" | "required"

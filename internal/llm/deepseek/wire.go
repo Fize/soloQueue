@@ -18,12 +18,12 @@ import (
 // 不向外暴露 —— caller 用 agent.LLMRequest / agent.LLMResponse。
 //
 // 所有 optional 字段用指针表示，配合 omitempty，能在 JSON 里完整省略
-// （避免 temperature=0 被误发为 "不填温度"）。
+// （避免 top_p=0 被误发为 "不填"）。
+// 注意：DeepSeek V4 不再支持 temperature 参数，wireRequest 中已移除。
 
 type wireRequest struct {
 	Model            string           `json:"model"`
 	Messages         []wireMessage    `json:"messages"`
-	Temperature      *float64         `json:"temperature,omitempty"`
 	TopP             *float64         `json:"top_p,omitempty"`
 	MaxTokens        *int             `json:"max_tokens,omitempty"`
 	FrequencyPenalty *float64         `json:"frequency_penalty,omitempty"`
@@ -34,6 +34,7 @@ type wireRequest struct {
 	Tools            []wireToolDef    `json:"tools,omitempty"`
 	ToolChoice       string           `json:"tool_choice,omitempty"`
 	ResponseFormat   *wireRespFormat  `json:"response_format,omitempty"`
+	ReasoningEffort  *string          `json:"reasoning_effort,omitempty"`
 }
 
 type wireMessage struct {
@@ -152,14 +153,9 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 		Messages: buildWireMessages(req.Messages),
 		Stream:   stream,
 	}
-	// Optional 采样参数：零值也是合法值（temperature=0 有意义），
-	// 所以用指针 + 无脑填 —— caller 不关心就让它用 API 默认值（通过传零值 Definition 实现？）
-	// 策略：req 的 Temperature > 0 或 MaxTokens > 0 时才填
-	// 否则让服务端用默认
-	if req.Temperature > 0 {
-		t := req.Temperature
-		out.Temperature = &t
-	}
+	// Optional 采样参数：零值也是合法值（top_p=0 有意义），
+	// 所以用指针 + 无脑填 —— caller 不关心就让它用 API 默认值
+	// 注意：DeepSeek V4 不再支持 temperature 参数，因此不再发送
 	if req.TopP > 0 {
 		p := req.TopP
 		out.TopP = &p
@@ -200,6 +196,10 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	}
 	if req.ResponseJSON {
 		out.ResponseFormat = &wireRespFormat{Type: "json_object"}
+	}
+	if req.ReasoningEffort != "" {
+		re := req.ReasoningEffort
+		out.ReasoningEffort = &re
 	}
 	return out
 }
