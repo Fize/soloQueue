@@ -77,7 +77,7 @@ func DefaultSettings() Settings {
 				ProviderID:    "deepseek",
 				Name:          "DeepSeek V4 Flash",
 				Type:          "chat",
-				ContextWindow: 131072,
+				ContextWindow: 1048576,
 				Enabled:       true,
 				IsDefault:     true,
 				Generation: GenerationParams{
@@ -109,7 +109,7 @@ func DefaultSettings() Settings {
 				APIModel:      "deepseek-v4-flash",
 				Name:          "DeepSeek V4 Flash (Thinking)",
 				Type:          "chat",
-				ContextWindow: 131072,
+				ContextWindow: 1048576,
 				Enabled:       true,
 				IsDefault:     false,
 				Generation: GenerationParams{
@@ -140,7 +140,7 @@ func DefaultSettings() Settings {
 				ProviderID:    "deepseek",
 				Name:          "DeepSeek V4 Pro",
 				Type:          "chat",
-				ContextWindow: 131072,
+				ContextWindow: 1048576,
 				Enabled:       true,
 				IsDefault:     false,
 				Generation: GenerationParams{

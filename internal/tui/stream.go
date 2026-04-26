@@ -18,9 +18,16 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 	switch e := ev.(type) {
 
 	case agent.ReasoningDeltaEvent:
+		m.genPhase = phaseThinking
+		// If we already have content, flush it before new thinking starts
+		// (this happens on iteration boundaries: content→thinking)
+		if m.current.content.Len() > 0 {
+			m.current.flushContent()
+		}
 		m.current.thinkingBuf.WriteString(e.Delta)
 
 	case agent.ContentDeltaEvent:
+		m.genPhase = phaseGenerating
 		// First content delta flushes any pending thinking
 		if m.current.content.Len() == 0 {
 			m.current.flushThinking()
@@ -28,6 +35,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		m.current.content.WriteString(e.Delta)
 
 	case agent.ToolCallDeltaEvent:
+		m.genPhase = phaseToolCall
 		if e.Name != "" && e.Name != m.current.curToolName {
 			// New tool call starting
 			m.current.curToolName = e.Name
@@ -41,7 +49,9 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		}
 
 	case agent.ToolExecStartEvent:
-		// Flush any accumulated thinking before this tool
+		m.genPhase = phaseToolCall
+		// Flush any accumulated content and thinking before this tool
+		m.current.flushContent()
 		m.current.flushThinking()
 		m.current.curToolName = ""
 		m.current.curToolArgs.Reset()
@@ -79,7 +89,9 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		}
 
 	case agent.IterationDoneEvent:
-		// no-op
+		m.promptTokens += e.Usage.PromptTokens
+		m.outputTokens += e.Usage.CompletionTokens
+		m.genPhase = phaseWaiting
 
 	case agent.DoneEvent:
 		// handled by streamDoneMsg (channel close)
@@ -88,7 +100,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		m.handleToolConfirm(e)
 
 	case agent.ErrorEvent:
-		m.current.content.WriteString(errorStyle.Render("✗ " + e.Err.Error()))
+		m.errMsg = summarizeError(e.Err)
 	}
 }
 
@@ -125,6 +137,17 @@ func (s *streamState) flushThinking() {
 			text: s.thinkingBuf.String(),
 		})
 		s.thinkingBuf.Reset()
+	}
+}
+
+// flushContent pushes any accumulated content text into the timeline as a new entry.
+func (s *streamState) flushContent() {
+	if s.content.Len() > 0 {
+		s.timeline = append(s.timeline, timelineEntry{
+			kind: timelineContent,
+			text: s.content.String(),
+		})
+		s.content.Reset()
 	}
 }
 

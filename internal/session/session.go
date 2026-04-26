@@ -143,8 +143,17 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 
 		var finalContent string
 		var gotDone bool
-		for ev := range srcCh {
-			// re-emit first so UI can receive; history update happens on Done
+		for {
+			var ev agent.AgentEvent
+			select {
+			case e, ok := <-srcCh:
+				if !ok {
+					goto done
+				}
+				ev = e
+			case <-ctx.Done():
+				return
+			}
 			select {
 			case out <- ev:
 			case <-ctx.Done():
@@ -156,6 +165,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				gotDone = true
 			}
 		}
+	done:
 		if gotDone {
 			s.mu.Lock()
 			s.history = append(s.history,
