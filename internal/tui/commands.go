@@ -4,55 +4,59 @@ import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // ─── Built-in commands ────────────────────────────────────────────────────────
 
-func (m *model) handleBuiltin(input string) (quit bool) {
-	cmd := strings.ToLower(strings.TrimSpace(input))
-	switch cmd {
+func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
+	name := strings.ToLower(strings.TrimSpace(input))
+	switch name {
 	case "/quit", "/exit", "/q":
-		return true
+		return true, nil
 
 	case "/help", "/?":
-		m.messages = append(m.messages, message{
-			role:    "agent",
-			content: dimStyle.Render("Commands: /help /clear /history /version /quit"),
-		})
+		text := agentStyle.Render("Agent:") + "\n" + dimStyle.Render("Commands: /help /clear /history /version /quit") + "\n\n"
+		return false, tea.Printf("%s", text)
 
 	case "/clear":
+		// Cancel any active stream
+		if m.isGenerating {
+			if m.streamCancel != nil {
+				m.streamCancel()
+			}
+			m.isGenerating = false
+			m.current = nil
+		}
 		m.messages = nil
+		m.history = nil
+		// Clear scrollback + screen + cursor home
+		return false, tea.Printf("\x1b[3J\x1b[2J\x1b[H")
 
 	case "/version":
-		m.messages = append(m.messages, message{
-			role:    "agent",
-			content: lipgloss.NewStyle().Bold(true).Render("SoloQueue " + m.cfg.Version),
-		})
+		text := agentStyle.Render("Agent:") + "\n" + lipgloss.NewStyle().Bold(true).Render("SoloQueue "+m.cfg.Version) + "\n\n"
+		return false, tea.Printf("%s", text)
 
 	case "/history":
-		m.historyCmds()
+		return false, m.historyPrintf()
 
 	default:
 		if strings.HasPrefix(input, "/") {
-			m.messages = append(m.messages, message{
-				role:    "agent",
-				content: errorStyle.Render("✗ Unknown command: " + input + ". Type /help"),
-			})
+			text := agentStyle.Render("Agent:") + "\n" + errorStyle.Render("✗ Unknown command: "+input+". Type /help") + "\n\n"
+			return false, tea.Printf("%s", text)
 		}
 	}
-	return false
+	return false, nil
 }
 
-func (m *model) historyCmds() {
-	if len(m.history) == 0 {
-		m.messages = append(m.messages, message{
-			role:    "agent",
-			content: dimStyle.Render("(no history yet)"),
-		})
-		return
-	}
+func (m *model) historyPrintf() tea.Cmd {
 	var sb strings.Builder
+	sb.WriteString(agentStyle.Render("Agent:") + "\n")
+	if len(m.history) == 0 {
+		sb.WriteString(dimStyle.Render("(no history yet)") + "\n\n")
+		return tea.Printf("%s", sb.String())
+	}
 	sb.WriteString(lipgloss.NewStyle().Bold(true).Render("History:"))
 	start := 0
 	if len(m.history) > 20 {
@@ -61,8 +65,6 @@ func (m *model) historyCmds() {
 	for i := start; i < len(m.history); i++ {
 		sb.WriteString(fmt.Sprintf("\n  %3d  %s", i+1, truncate(m.history[i], 72)))
 	}
-	m.messages = append(m.messages, message{
-		role:    "agent",
-		content: sb.String(),
-	})
+	sb.WriteString("\n\n")
+	return tea.Printf("%s", sb.String())
 }
