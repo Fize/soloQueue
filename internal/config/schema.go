@@ -114,9 +114,10 @@ type GenerationParams struct {
 
 // ThinkingConfig 思考/推理配置（extended thinking / reasoning 模型）
 type ThinkingConfig struct {
-	Enabled      bool   `json:"enabled"`
-	BudgetTokens int    `json:"budgetTokens"` // 0 = 不限
-	Type         string `json:"type"`         // "reasoning" | "extended_thinking" | ""
+	Enabled         bool   `json:"enabled"`
+	BudgetTokens    int    `json:"budgetTokens"`    // 旧方式，保留兼容；0 = 不限
+	Type            string `json:"type"`            // "reasoning" | "extended_thinking" | ""
+	ReasoningEffort string `json:"reasoningEffort"` // "high" | "max" | ""（V4 模型使用）
 }
 
 // ModelCapability 模型能力声明
@@ -133,7 +134,8 @@ type LLMModel struct {
 	ID            string          `json:"id"`
 	ProviderID    string          `json:"providerId"`
 	Name          string          `json:"name"`
-	Type          string          `json:"type"`          // "chat" | "code" | "vision"
+	APIModel      string          `json:"apiModel,omitempty"` // 实际 API 模型名，空则用 ID
+	Type          string          `json:"type"`              // "chat" | "code" | "vision"
 	ContextWindow int             `json:"contextWindow"`
 	Enabled       bool            `json:"enabled"`
 	IsDefault     bool            `json:"isDefault"`

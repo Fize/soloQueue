@@ -637,11 +637,12 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 		}
 
 		req := LLMRequest{
-			Model:       a.Def.ModelID,
-			Temperature: a.Def.Temperature,
-			MaxTokens:   a.Def.MaxTokens,
-			Messages:    msgs,
-			Tools:       specs,
+			Model:           a.Def.ModelID,
+			Temperature:     a.Def.Temperature,
+			MaxTokens:       a.Def.MaxTokens,
+			Messages:        msgs,
+			Tools:           specs,
+			ReasoningEffort: a.Def.ReasoningEffort,
 		}
 
 		a.logInfo(ctx, logger.CatLLM, "llm chat start",

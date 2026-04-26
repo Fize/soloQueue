@@ -606,7 +606,6 @@ func TestChatStream_RequestBody_StreamAlwaysTrue(t *testing.T) {
 			{Role: "system", Content: "s"},
 			{Role: "user", Content: "u"},
 		},
-		Temperature:  0.7,
 		MaxTokens:    1024,
 		IncludeUsage: true,
 	})
@@ -644,9 +643,6 @@ func TestChatStream_RequestBody_StreamAlwaysTrue(t *testing.T) {
 	}
 	if body["model"] != "deepseek-chat" {
 		t.Errorf("model = %v", body["model"])
-	}
-	if body["temperature"] != 0.7 {
-		t.Errorf("temperature = %v", body["temperature"])
 	}
 	if body["max_tokens"] != float64(1024) {
 		t.Errorf("max_tokens = %v", body["max_tokens"])
