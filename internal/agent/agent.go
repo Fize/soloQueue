@@ -648,6 +648,7 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 			Messages:        msgs,
 			Tools:           specs,
 			ReasoningEffort: a.Def.ReasoningEffort,
+			IncludeUsage:    true,
 		}
 
 		a.logInfo(ctx, logger.CatLLM, "llm chat start",

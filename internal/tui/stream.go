@@ -18,9 +18,11 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 	switch e := ev.(type) {
 
 	case agent.ReasoningDeltaEvent:
+		m.genPhase = phaseThinking
 		m.current.thinkingBuf.WriteString(e.Delta)
 
 	case agent.ContentDeltaEvent:
+		m.genPhase = phaseGenerating
 		// First content delta flushes any pending thinking
 		if m.current.content.Len() == 0 {
 			m.current.flushThinking()
@@ -28,6 +30,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		m.current.content.WriteString(e.Delta)
 
 	case agent.ToolCallDeltaEvent:
+		m.genPhase = phaseToolCall
 		if e.Name != "" && e.Name != m.current.curToolName {
 			// New tool call starting
 			m.current.curToolName = e.Name
@@ -41,6 +44,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		}
 
 	case agent.ToolExecStartEvent:
+		m.genPhase = phaseToolCall
 		// Flush any accumulated thinking before this tool
 		m.current.flushThinking()
 		m.current.curToolName = ""
@@ -79,7 +83,9 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		}
 
 	case agent.IterationDoneEvent:
-		// no-op
+		m.promptTokens += e.Usage.PromptTokens
+		m.outputTokens += e.Usage.CompletionTokens
+		m.genPhase = phaseWaiting
 
 	case agent.DoneEvent:
 		// handled by streamDoneMsg (channel close)
@@ -88,7 +94,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		m.handleToolConfirm(e)
 
 	case agent.ErrorEvent:
-		m.current.content.WriteString(errorStyle.Render("✗ " + e.Err.Error()))
+		m.errMsg = summarizeError(e.Err)
 	}
 }
 
