@@ -113,14 +113,20 @@ Environment:
 
 			factory := func(ctx context.Context, teamID string) (*agent.Agent, error) {
 				agentID := newAgentID()
+				// APIModel 优先，空则 fallback 到 ID
+				effectiveModelID := defaultModel.APIModel
+				if effectiveModelID == "" {
+					effectiveModelID = defaultModel.ID
+				}
 				def := agent.Definition{
-					ID:            agentID,
-					TeamID:        teamID,
-					Kind:          agent.KindChat,
-					ModelID:       defaultModel.ID,
-					Temperature:   defaultModel.Generation.Temperature,
-					MaxTokens:     defaultModel.Generation.MaxTokens,
-					MaxIterations: 10,
+					ID:              agentID,
+					TeamID:          teamID,
+					Kind:            agent.KindChat,
+					ModelID:         effectiveModelID,
+					Temperature:     defaultModel.Generation.Temperature,
+					MaxTokens:       defaultModel.Generation.MaxTokens,
+					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
+					MaxIterations:   10,
 				}
 				effectiveTeam := teamID
 				if effectiveTeam == "" {
@@ -302,14 +308,20 @@ func serveCmd() *cobra.Command {
 			// ── Agent factory ───────────────────────────────────────────────
 			factory := func(ctx context.Context, teamID string) (*agent.Agent, error) {
 				agentID := newAgentID()
+				// APIModel 优先，空则 fallback 到 ID
+				effectiveModelID := defaultModel.APIModel
+				if effectiveModelID == "" {
+					effectiveModelID = defaultModel.ID
+				}
 				def := agent.Definition{
-					ID:            agentID,
-					TeamID:        teamID,
-					Kind:          agent.KindChat,
-					ModelID:       defaultModel.ID,
-					Temperature:   defaultModel.Generation.Temperature,
-					MaxTokens:     defaultModel.Generation.MaxTokens,
-					MaxIterations: 10,
+					ID:              agentID,
+					TeamID:          teamID,
+					Kind:            agent.KindChat,
+					ModelID:         effectiveModelID,
+					Temperature:     defaultModel.Generation.Temperature,
+					MaxTokens:       defaultModel.Generation.MaxTokens,
+					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
+					MaxIterations:   10,
 				}
 
 				// agent 使用 session-layer logger（CatActor / CatLLM / CatTool）

@@ -28,9 +28,6 @@ func TestBuildWireRequest_Minimal(t *testing.T) {
 	if w.Stream {
 		t.Error("Stream should be false")
 	}
-	if w.Temperature != nil {
-		t.Errorf("Temperature should be nil for zero value, got %v", *w.Temperature)
-	}
 	if w.MaxTokens != nil {
 		t.Errorf("MaxTokens should be nil for zero value")
 	}
@@ -43,7 +40,6 @@ func TestBuildWireRequest_FullFields(t *testing.T) {
 	req := agent.LLMRequest{
 		Model:            "deepseek-reasoner",
 		Messages:         []agent.LLMMessage{{Role: "user", Content: "q"}},
-		Temperature:      0.6,
 		TopP:             0.95,
 		MaxTokens:        1024,
 		FrequencyPenalty: 0.1,
@@ -66,9 +62,6 @@ func TestBuildWireRequest_FullFields(t *testing.T) {
 	}
 	if w.StreamOptions == nil || !w.StreamOptions.IncludeUsage {
 		t.Error("StreamOptions.IncludeUsage should be true")
-	}
-	if w.Temperature == nil || *w.Temperature != 0.6 {
-		t.Errorf("Temperature = %v", w.Temperature)
 	}
 	if w.TopP == nil || *w.TopP != 0.95 {
 		t.Errorf("TopP = %v", w.TopP)
@@ -176,7 +169,7 @@ func TestBuildWireRequest_JSONOmitEmpty(t *testing.T) {
 	}
 	s := string(data)
 	// 这些零值字段应被 omitempty 省略
-	for _, not := range []string{"temperature", "top_p", "max_tokens", "tools", "tool_choice", "response_format"} {
+	for _, not := range []string{"top_p", "max_tokens", "tools", "tool_choice", "response_format", "reasoning_effort"} {
 		if contains(s, `"`+not+`"`) {
 			t.Errorf("JSON should omit %q, got: %s", not, s)
 		}
@@ -184,6 +177,54 @@ func TestBuildWireRequest_JSONOmitEmpty(t *testing.T) {
 	// stream 应出现（总是显式）
 	if !contains(s, `"stream":true`) {
 		t.Errorf(`JSON should include "stream":true, got: %s`, s)
+	}
+}
+
+// ─── reasoning_effort ────────────────────────────────────────────────────────
+
+func TestBuildWireRequest_ReasoningEffort(t *testing.T) {
+	req := agent.LLMRequest{
+		Model:           "deepseek-v4-pro",
+		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
+		ReasoningEffort: "high",
+	}
+	w := buildWireRequest(req, true, false)
+	if w.ReasoningEffort == nil || *w.ReasoningEffort != "high" {
+		t.Errorf("ReasoningEffort = %v, want \"high\"", w.ReasoningEffort)
+	}
+
+	// 验证 JSON 输出包含 reasoning_effort
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(data)
+	if !contains(s, `"reasoning_effort":"high"`) {
+		t.Errorf("JSON should include reasoning_effort=high, got: %s", s)
+	}
+}
+
+func TestBuildWireRequest_ReasoningEffort_Max(t *testing.T) {
+	req := agent.LLMRequest{
+		Model:           "deepseek-v4-pro",
+		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
+		ReasoningEffort: "max",
+	}
+	w := buildWireRequest(req, false, false)
+	if w.ReasoningEffort == nil || *w.ReasoningEffort != "max" {
+		t.Errorf("ReasoningEffort = %v, want \"max\"", w.ReasoningEffort)
+	}
+}
+
+func TestBuildWireRequest_ReasoningEffort_Empty(t *testing.T) {
+	req := agent.LLMRequest{
+		Model:           "deepseek-v4-flash",
+		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
+		ReasoningEffort: "",
+	}
+	w := buildWireRequest(req, true, false)
+	if w.ReasoningEffort != nil {
+		t.Errorf("ReasoningEffort should be nil for empty string, got %v", w.ReasoningEffort)
 	}
 }
 
