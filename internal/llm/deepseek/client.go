@@ -21,7 +21,7 @@ import (
 
 // Config 是 DeepSeek client 的构造参数
 //
-// 所有字段都可零值 —— 有合理默认值。但 APIKey 必填。
+// 所有字段都可零值 —— 有合理默认值。
 type Config struct {
 	// BaseURL 默认 "https://api.deepseek.com"。内部自动补 /chat/completions。
 	BaseURL string
@@ -58,10 +58,8 @@ type Client struct {
 }
 
 // NewClient 构造 DeepSeek client
+// APIKey 不做校验，允许用户先进入程序，调用时报错由 API 侧返回。
 func NewClient(cfg Config) (*Client, error) {
-	if cfg.APIKey == "" {
-		return nil, errors.New("deepseek: APIKey required")
-	}
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = "https://api.deepseek.com"
