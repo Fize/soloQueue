@@ -39,6 +39,21 @@ var layerCategories = map[Layer][]Category{
 	LayerSession: {CatLLM, CatActor, CatTool, CatMessages},
 }
 
+// categoryPrimaryLayer 定义 Category 的首选 layer
+// 当一个 Category 属于多个 layer 时，LayerForCategory 返回首选层
+var categoryPrimaryLayer = map[Category]Layer{
+	CatApp:      LayerSystem,
+	CatConfig:   LayerSystem,
+	CatHTTP:     LayerSystem,
+	CatWS:       LayerSystem,
+	CatLLM:      LayerSession, // session 层优先（agent 内部日志）
+	CatTeam:     LayerTeam,
+	CatAgent:    LayerTeam,
+	CatActor:    LayerSession,
+	CatTool:     LayerSession,
+	CatMessages: LayerSession,
+}
+
 // ValidCategory 检查 category 是否属于给定 layer
 func ValidCategory(layer Layer, cat Category) bool {
 	cats, ok := layerCategories[layer]
@@ -54,13 +69,9 @@ func ValidCategory(layer Layer, cat Category) bool {
 }
 
 // LayerForCategory 根据 category 反查所属 layer
+//
+// 当 Category 属于多个 layer 时，返回首选层（由 categoryPrimaryLayer 定义）
 func LayerForCategory(cat Category) (Layer, bool) {
-	for layer, cats := range layerCategories {
-		for _, c := range cats {
-			if c == cat {
-				return layer, true
-			}
-		}
-	}
-	return "", false
+	lay, ok := categoryPrimaryLayer[cat]
+	return lay, ok
 }

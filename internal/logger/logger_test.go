@@ -26,7 +26,7 @@ func TestValidCategory(t *testing.T) {
 		{LayerSystem, CatConfig, true},
 		{LayerSystem, CatHTTP, true},
 		{LayerSystem, CatWS, true},
-		{LayerSystem, CatLLM, false},
+		{LayerSystem, CatLLM, true},
 		{LayerSystem, CatTeam, false},
 		{LayerTeam, CatTeam, true},
 		{LayerTeam, CatAgent, true},
@@ -61,6 +61,7 @@ func TestLayerForCategory(t *testing.T) {
 		{CatWS, LayerSystem, true},
 		{CatTeam, LayerTeam, true},
 		{CatAgent, LayerTeam, true},
+	// CatLLM belongs to both system and session; primary layer is session
 		{CatLLM, LayerSession, true},
 		{CatActor, LayerSession, true},
 		{CatTool, LayerSession, true},
@@ -234,14 +235,14 @@ func TestLogger_InvalidCategory_FallbackAndNoPanic(t *testing.T) {
 		t.Fatalf("System(): %v", err)
 	}
 
-	// CatLLM 属于 session 层，对 system 层是非法的；不应 panic
+	// CatTeam 属于 team 层，对 system 层是非法的；不应 panic
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("logging invalid category panicked: %v", r)
 		}
 	}()
 
-	log.Info(CatLLM, "wrong layer category")
+	log.Info(CatTeam, "wrong layer category")
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
