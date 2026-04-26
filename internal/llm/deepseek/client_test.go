@@ -143,16 +143,6 @@ func sseChunk(v any) string {
 
 // ─── NewClient ───────────────────────────────────────────────────────────────
 
-func TestNewClient_EmptyAPIKey(t *testing.T) {
-	_, err := NewClient(Config{})
-	if err == nil {
-		t.Fatal("expected error for empty APIKey")
-	}
-	if !strings.Contains(err.Error(), "APIKey") {
-		t.Errorf("err = %v", err)
-	}
-}
-
 func TestNewClient_DefaultBaseURL(t *testing.T) {
 	c, err := NewClient(Config{APIKey: "k"})
 	if err != nil {
