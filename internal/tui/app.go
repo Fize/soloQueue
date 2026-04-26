@@ -105,6 +105,8 @@ type confirmResultMsg struct {
 	choice string
 }
 type resetQuitMsg struct{}
+type clearCancelMsg struct{}
+type dotMsg struct{}
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
@@ -116,6 +118,8 @@ type model struct {
 	// UI state
 	textInput    textinput.Model
 	isGenerating bool
+	cancelReason string
+	genDotOn     bool
 	quitCount    int
 	width        int
 	height       int
@@ -148,7 +152,7 @@ func Run(cfg Config) error {
 
 	// Setup text input
 	ti := textinput.New()
-	ti.Prompt = "❯  "
+	ti.Prompt = "❯ "
 	ti.PromptStyle = userStyle
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	ti.Cursor.Style = lipgloss.NewStyle()
@@ -210,6 +214,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return resetQuitMsg{} })
 
 
+		case tea.KeyEsc:
+			if m.isGenerating {
+				if m.streamCancel != nil {
+					m.streamCancel()
+				}
+				m.isGenerating = false
+				m.cancelReason = "Esc"
+				m.finalizeCurrentStream()
+				return m, tea.Sequence(m.flushStaticHistory(), tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} }))
+			}
+
 		case tea.KeyEnter:
 			// If in confirm state, confirm selection
 			if m.confirmState != nil {
@@ -241,6 +256,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Start streaming
 			m.isGenerating = true
+			m.genDotOn = true
 			m.current = &streamState{
 				toolExecMap: make(map[string]*toolExecInfo),
 			}
@@ -248,7 +264,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Launch AskStream in goroutine
 			cmd = m.startStream(input)
-			return m, cmd
+			return m, tea.Sequence(cmd, dotCmd())
 
 		case tea.KeyUp:
 			if m.confirmState != nil && m.confirmState.selected > 0 {
@@ -287,6 +303,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.current = nil
 		return m, m.flushStaticHistory()
 
+	case dotMsg:
+		if m.isGenerating {
+			m.genDotOn = !m.genDotOn
+			return m, dotCmd()
+		}
+		return m, nil
+
 	case confirmResultMsg:
 		if m.confirmState != nil {
 			if err := m.sess.Agent.Confirm(msg.callID, msg.choice); err != nil {
@@ -300,6 +323,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resetQuitMsg:
 		m.quitCount = 0
+		return m, nil
+
+	case clearCancelMsg:
+		m.cancelReason = ""
 		return m, nil
 	}
 
@@ -410,7 +437,7 @@ func (m model) View() string {
 	// 3. Confirm dialog (if active)
 	if m.confirmState != nil {
 		sb.WriteString("\n")
-		sb.WriteString(lipgloss.NewStyle().Foreground(colorWarning).Bold(true).Render("⚠ "+m.confirmState.prompt) + "\n")
+		sb.WriteString(lipgloss.NewStyle().Foreground(colorWarning).Bold(true).Render(m.confirmState.prompt) + "\n")
 		for i, opt := range m.confirmState.options {
 			if i == m.confirmState.selected {
 				sb.WriteString(confirmHighlight.Render("  ❯ " + opt))
@@ -423,22 +450,25 @@ func (m model) View() string {
 	}
 
 	// 4. Status bar
-	statusText := " READY "
-	sStyle := statusStyle.Foreground(lipgloss.Color("250"))
+	var statusText string
 	if m.quitCount > 0 {
-		statusText = " ⚠️  CONFIRM EXIT (Press Ctrl+C again) "
-		sStyle = statusStyle.Background(colorWarning).Foreground(lipgloss.Color("255"))
+		statusText = foldedStyle.Render("✗ Confirm exit (Press Ctrl+C again)")
+	} else if m.cancelReason != "" {
+		statusText = foldedStyle.Render(fmt.Sprintf("✗ Cancelled (%s)", m.cancelReason))
 	} else if m.isGenerating {
-		statusText = " ⏳ GENERATING... "
-		sStyle = statusStyle.Background(colorPrimary).Foreground(lipgloss.Color("255"))
+		dot := "●"
+		if !m.genDotOn {
+			dot = "○"
+		}
+		statusText = foldedStyle.Render(dot+" Generating...")
 	}
-	sb.WriteString(sStyle.Render(statusText) + "\n")
+	sb.WriteString(statusText + "\n")
 
 	// 5. Input box
 	sb.WriteString(m.textInput.View() + "\n")
 
 	// 6. Hint line (right-aligned)
-	hint := "Ctrl+C Quit"
+	hint := "Ctrl+C quit"
 	renderedHint := hintStyle.Render(hint)
 	padding := m.width - lipgloss.Width(renderedHint)
 	if padding > 0 {
@@ -461,6 +491,10 @@ func (m model) dynamicHeightBudget() int {
 }
 
 // ─── Stream ───────────────────────────────────────────────────────────────────
+
+func dotCmd() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return dotMsg{} })
+}
 
 func (m model) startStream(prompt string) tea.Cmd {
 	return func() tea.Msg {
