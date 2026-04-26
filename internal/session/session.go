@@ -1,17 +1,14 @@
-// Package session 提供"对话会话"抽象，封装 agent + 历史消息
+// Package session 提供"对话会话"抽象，封装 agent + 上下文窗口
 //
 // 设计原则：
 //
-//   - 一个 Session 对应"一次独立的对话"：绑定一个 *agent.Agent，持有累积
-//     的 history（user / assistant 文本对）。
+//   - 一个 Session 对应"一次独立的对话"：绑定一个 *agent.Agent，持有
+//     *ctxwin.ContextWindow 管理完整对话历史（含工具调用中间消息）。
 //   - Session 的生命周期独立于网络连接：REST 显式 Create/Delete，WebSocket
 //     断开后 Session 仍活着（REST 才是 owner）。
 //   - 同一 Session 内 Ask/AskStream **串行**：上一轮未结束时新 Ask 直接返回
-//     ErrSessionBusy（避免 history 错序）。agent 本身也串行，双重保护。
+//     ErrSessionBusy（避免上下文窗口错序）。agent 本身也串行，双重保护。
 //   - SessionManager 维护 id→Session 映射；提供 idle 清理。
-//
-// tool-call 的中间消息（assistant(tool_calls) / tool(result)）**不进** history，
-// 保持"对话视角"；若需 debug tool 链路，查 tool.jsonl 日志（trace_id 串联）。
 package session
 
 import (
@@ -26,6 +23,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 )
 
 // ─── Errors ────────────────────────────────────────────────────────────────
@@ -45,13 +43,13 @@ var (
 
 // Session 是一个对话会话
 type Session struct {
-	ID       string
-	TeamID   string
-	Agent    *agent.Agent
-	Created  time.Time
+	ID      string
+	TeamID  string
+	Agent   *agent.Agent
+	Created time.Time
 
-	mu       sync.Mutex
-	history  []agent.LLMMessage
+	mu sync.Mutex
+	cw *ctxwin.ContextWindow // 替代原 history，管理完整对话上下文
 
 	// inFlight 并发 Ask 的 CAS 锁：0 → 1 入场；失败返回 ErrSessionBusy
 	inFlight atomic.Int32
@@ -64,33 +62,56 @@ type Session struct {
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
-func NewSession(id, teamID string, a *agent.Agent) *Session {
+//
+// cw 应已包含 system prompt（在 factory 中 push）。
+func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow) *Session {
 	s := &Session{
 		ID:      id,
 		TeamID:  teamID,
 		Agent:   a,
 		Created: time.Now(),
+		cw:      cw,
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 	return s
 }
 
-// History 返回 history 的深拷贝快照
+// History 返回当前上下文的快照（兼容旧 API）
+//
+// 返回 []agent.LLMMessage 格式，供 REST /v1/sessions/{id}/history 使用。
 func (s *Session) History() []agent.LLMMessage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]agent.LLMMessage, len(s.history))
-	copy(out, s.history)
+	payload := s.cw.BuildPayload()
+	out := make([]agent.LLMMessage, 0, len(payload))
+	for _, p := range payload {
+		out = append(out, agent.LLMMessage{
+			Role:             p.Role,
+			Content:          p.Content,
+			ReasoningContent: p.ReasoningContent,
+			Name:             p.Name,
+			ToolCallID:       p.ToolCallID,
+			ToolCalls:        p.ToolCalls,
+		})
+	}
 	return out
+}
+
+// ContextWindow 返回底层 ContextWindow（供需要直接访问的场景）
+func (s *Session) ContextWindow() *ctxwin.ContextWindow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cw
 }
 
 // Ask 发送一轮 prompt，返回最终 content
 //
-// 语义（P3-1 决策）：
+// 语义：
 //   - 同一 session 内 Ask 串行（inFlight CAS 0→1，否则 ErrSessionBusy）
-//   - 成功 / 失败时都更新 lastActive；
-//   - 成功时把 (user, prompt) 和 (assistant, final) 追加到 history；
-//     失败时 history 不追加。
+//   - 先 push user prompt 到 ContextWindow
+//   - 调用 Agent.AskWithHistory（携带完整历史）
+//   - 成功：push assistant reply 到 ContextWindow
+//   - 失败：PopLast 移除刚 push 的 user prompt
 //   - ctx 取消透传到 agent；Session 不代管超时。
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	if s.closed.Load() {
@@ -102,23 +123,32 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	defer s.inFlight.Store(0)
 	defer s.touch()
 
-	reply, err := s.Agent.Ask(ctx, prompt)
+	// 先 push user prompt（让 Agent 在 BuildPayload 时能看到）
+	s.mu.Lock()
+	s.cw.Push(ctxwin.RoleUser, prompt)
+	s.mu.Unlock()
+
+	reply, reasoningContent, err := s.Agent.AskWithHistory(ctx, s.cw, prompt)
 	if err != nil {
+		// 失败：移除刚 push 的 user prompt
+		s.mu.Lock()
+		s.cw.PopLast()
+		s.mu.Unlock()
 		return "", err
 	}
+	// 成功：push assistant reply（含 reasoning_content，DeepSeek thinking mode 跨轮必须回传）
 	s.mu.Lock()
-	s.history = append(s.history,
-		agent.LLMMessage{Role: "user", Content: prompt},
-		agent.LLMMessage{Role: "assistant", Content: reply},
-	)
+	opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(reasoningContent)}
+	s.cw.Push(ctxwin.RoleAssistant, reply, opts...)
 	s.mu.Unlock()
 	return reply, nil
 }
 
 // AskStream 流式版本；caller 必须 range 返回的通道直到关闭
 //
-// history 在收到 DoneEvent 时追加 (user, prompt) + (assistant, final)；
-// 收到 ErrorEvent 时不追加。caller 放弃 range 必须 cancel ctx。
+// 上下文窗口在收到 DoneEvent 时 push user + assistant；
+// 收到 ErrorEvent 时 PopLast 移除 user prompt。
+// caller 放弃 range 必须 cancel ctx。
 func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.AgentEvent, error) {
 	if s.closed.Load() {
 		return nil, ErrSessionClosed
@@ -129,8 +159,17 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 	// 注意：inFlight 的释放由下面的 forwarder goroutine 负责
 	s.touch()
 
-	srcCh, err := s.Agent.AskStream(ctx, prompt)
+	// 先 push user prompt
+	s.mu.Lock()
+	s.cw.Push(ctxwin.RoleUser, prompt)
+	s.mu.Unlock()
+
+	srcCh, err := s.Agent.AskStreamWithHistory(ctx, s.cw, prompt)
 	if err != nil {
+		// 入队失败：移除 user prompt
+		s.mu.Lock()
+		s.cw.PopLast()
+		s.mu.Unlock()
 		s.inFlight.Store(0)
 		return nil, err
 	}
@@ -142,6 +181,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		defer s.touch()
 
 		var finalContent string
+		var finalReasoning string
 		var gotDone bool
 		for {
 			var ev agent.AgentEvent
@@ -152,26 +192,37 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				}
 				ev = e
 			case <-ctx.Done():
+				// ctx 取消：移除 user prompt
+				s.mu.Lock()
+				s.cw.PopLast()
+				s.mu.Unlock()
 				return
 			}
 			select {
 			case out <- ev:
 			case <-ctx.Done():
+				s.mu.Lock()
+				s.cw.PopLast()
+				s.mu.Unlock()
 				return
 			}
-			switch e := ev.(type) {
-			case agent.DoneEvent:
-				finalContent = e.Content
-				gotDone = true
+		switch e := ev.(type) {
+		case agent.DoneEvent:
+			finalContent = e.Content
+			finalReasoning = e.ReasoningContent
+			gotDone = true
+			case agent.ErrorEvent:
+				// 错误：移除 user prompt
+				s.mu.Lock()
+				s.cw.PopLast()
+				s.mu.Unlock()
 			}
 		}
 	done:
 		if gotDone {
 			s.mu.Lock()
-			s.history = append(s.history,
-				agent.LLMMessage{Role: "user", Content: prompt},
-				agent.LLMMessage{Role: "assistant", Content: finalContent},
-			)
+			opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
+			s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
 			s.mu.Unlock()
 		}
 	}()
@@ -191,13 +242,13 @@ func (s *Session) touch() {
 
 // ─── SessionManager ──────────────────────────────────────────────────────
 
-// AgentFactory 给定 teamID 构造并 Start 一个新 agent
+// AgentFactory 给定 teamID 构造并 Start 一个新 agent，同时返回 ContextWindow
 //
 // **重要**：传入的 ctx **不应**被直接传给 agent.Start —— agent 生命周期独立于
 // 单次 Create 调用。factory 应使用 context.Background() 或 SessionManager
 // 持有的"根 ctx"（未来若有）作为 agent 的 parent ctx。
 // 这里 ctx 仅供 factory 内部短暂使用（比如网络配置加载、超时检查）。
-type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, error)
+type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error)
 
 // SessionManager 管理所有活跃 session
 type SessionManager struct {
@@ -218,17 +269,17 @@ func NewSessionManager(factory AgentFactory, idleTTL time.Duration) *SessionMana
 	}
 }
 
-// Create 创建新 session；factory 启动 agent
+// Create 创建新 session；factory 启动 agent 并返回 ContextWindow
 func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, error) {
 	if m.closed.Load() {
 		return nil, ErrSessionClosed
 	}
-	a, err := m.factory(ctx, teamID)
+	a, cw, err := m.factory(ctx, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("agent factory: %w", err)
 	}
 	id := newSessionID()
-	s := NewSession(id, teamID, a)
+	s := NewSession(id, teamID, a, cw)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

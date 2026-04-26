@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
@@ -114,7 +115,10 @@ Environment:
 			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
 			toolList := tools.Build(toolsCfg)
 
-			factory := func(ctx context.Context, teamID string) (*agent.Agent, error) {
+			// 共享 Tokenizer（所有 session 复用同一个编码实例）
+			tokenizer := ctxwin.NewTokenizer()
+
+			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error) {
 				agentID := newAgentID()
 				// APIModel 优先，空则 fallback 到 ID
 				effectiveModelID := defaultModel.APIModel
@@ -130,6 +134,7 @@ Environment:
 					MaxTokens:       defaultModel.Generation.MaxTokens,
 					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
 					MaxIterations:   10,
+					ContextWindow:   defaultModel.ContextWindow,
 				}
 				effectiveTeam := teamID
 				if effectiveTeam == "" {
@@ -141,7 +146,7 @@ Environment:
 					logger.WithFile(settings.Log.File),
 					)
 				if err != nil {
-					return nil, fmt.Errorf("build session logger: %w", err)
+					return nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
 				a := agent.NewAgent(def, llmClient, sessLog,
 					agent.WithTools(toolList...),
@@ -150,10 +155,17 @@ Environment:
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
 					agent.WithToolTimeout("web_search", 15*time.Second),
 				)
-				if err := a.Start(context.Background()); err != nil {
-					return nil, err
+
+				// 创建 ContextWindow 并 push system prompt
+				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer)
+				if def.SystemPrompt != "" {
+					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 				}
-				return a, nil
+
+				if err := a.Start(context.Background()); err != nil {
+					return nil, nil, err
+				}
+				return a, cw, nil
 			}
 
 			mgr := session.NewSessionManager(factory, 30*time.Minute)
@@ -312,7 +324,10 @@ func serveCmd() *cobra.Command {
 			}
 
 			// ── Agent factory ───────────────────────────────────────────────
-			factory := func(ctx context.Context, teamID string) (*agent.Agent, error) {
+			// 共享 Tokenizer
+			tokenizer := ctxwin.NewTokenizer()
+
+			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error) {
 				agentID := newAgentID()
 				// APIModel 优先，空则 fallback 到 ID
 				effectiveModelID := defaultModel.APIModel
@@ -328,6 +343,7 @@ func serveCmd() *cobra.Command {
 					MaxTokens:       defaultModel.Generation.MaxTokens,
 					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
 					MaxIterations:   10,
+					ContextWindow:   defaultModel.ContextWindow,
 				}
 
 				// agent 使用 session-layer logger（CatActor / CatLLM / CatTool）
@@ -340,9 +356,9 @@ func serveCmd() *cobra.Command {
 					logger.WithLevel(parseLogLevel(settings.Log.Level)),
 					logger.WithConsole(settings.Log.Console),
 					logger.WithFile(settings.Log.File),
-				)
+			)
 				if err != nil {
-					return nil, fmt.Errorf("build session logger: %w", err)
+					return nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
 
 				a := agent.NewAgent(def, llmClient, sessLog,
@@ -352,11 +368,18 @@ func serveCmd() *cobra.Command {
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
 					agent.WithToolTimeout("web_search", 15*time.Second),
 				)
+
+				// 创建 ContextWindow 并 push system prompt
+				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer)
+				if def.SystemPrompt != "" {
+					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
+				}
+
 				// agent 生命周期由 SessionManager 管理，parent 用 Background
 				if err := a.Start(context.Background()); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
-				return a, nil
+				return a, cw, nil
 			}
 
 			// ── Session manager + reap loop ─────────────────────────────────
