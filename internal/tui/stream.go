@@ -91,6 +91,9 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 	case agent.IterationDoneEvent:
 		m.promptTokens += e.Usage.PromptTokens
 		m.outputTokens += e.Usage.CompletionTokens
+		m.cacheHitTokens += e.Usage.PromptCacheHitTokens
+		m.cacheMissTokens += e.Usage.PromptCacheMissTokens
+		m.reasoningTokens += e.Usage.ReasoningTokens
 		m.genPhase = phaseWaiting
 
 	case agent.DoneEvent:

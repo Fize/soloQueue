@@ -343,10 +343,13 @@ func agentEventToFrame(ev agent.AgentEvent) map[string]any {
 		return map[string]any{
 			"type": "iteration_done", "iter": e.Iter,
 			"finish_reason": string(e.FinishReason),
-			"usage": map[string]int{
-				"prompt_tokens":     e.Usage.PromptTokens,
-				"completion_tokens": e.Usage.CompletionTokens,
-				"total_tokens":      e.Usage.TotalTokens,
+			"usage": map[string]any{
+				"prompt_tokens":          e.Usage.PromptTokens,
+				"completion_tokens":      e.Usage.CompletionTokens,
+				"total_tokens":           e.Usage.TotalTokens,
+				"prompt_cache_hit_tokens":  e.Usage.PromptCacheHitTokens,
+				"prompt_cache_miss_tokens": e.Usage.PromptCacheMissTokens,
+				"reasoning_tokens":        e.Usage.ReasoningTokens,
 			},
 		}
 	case agent.DoneEvent:

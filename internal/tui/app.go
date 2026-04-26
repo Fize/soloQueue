@@ -156,9 +156,12 @@ type model struct {
 	// Generation status tracking
 	genStartTime   time.Time
 	genPhase       genPhase
-	promptTokens   int
-	outputTokens   int
-	genSummary     string
+	promptTokens          int
+	outputTokens          int
+	cacheHitTokens        int
+	cacheMissTokens       int
+	reasoningTokens       int
+	genSummary            string
 
 	// Conversation
 	messages []message
@@ -303,6 +306,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.genPhase = phaseWaiting
 			m.promptTokens = 0
 			m.outputTokens = 0
+			m.cacheHitTokens = 0
+			m.cacheMissTokens = 0
+			m.reasoningTokens = 0
 			m.genSummary = ""
 			m.current = &streamState{
 				toolExecMap: make(map[string]*toolExecInfo),
@@ -347,14 +353,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finalizeCurrentStream()
 		elapsed := formatDuration(time.Since(m.genStartTime))
 		pt, ot := m.promptTokens, m.outputTokens
+		ch, cm, rt := m.cacheHitTokens, m.cacheMissTokens, m.reasoningTokens
 		m.resetGenState()
 		m.current = nil
 		var tokenParts []string
 		if pt > 0 {
-			tokenParts = append(tokenParts, fmt.Sprintf("↓ %s tokens", formatTokenCount(pt)))
+			tokenParts = append(tokenParts, fmt.Sprintf("↓ %s", formatTokenCount(pt)))
 		}
 		if ot > 0 {
-			tokenParts = append(tokenParts, fmt.Sprintf("↑ %s tokens", formatTokenCount(ot)))
+			tokenParts = append(tokenParts, fmt.Sprintf("↑ %s", formatTokenCount(ot)))
+		}
+		if ch > 0 || cm > 0 {
+			tokenParts = append(tokenParts, fmt.Sprintf("cache %s/%s", formatTokenCount(ch), formatTokenCount(cm)))
+		}
+		if rt > 0 {
+			tokenParts = append(tokenParts, fmt.Sprintf("think %s", formatTokenCount(rt)))
 		}
 		if len(tokenParts) > 0 {
 			m.genSummary = fmt.Sprintf("✓ %s · %s", elapsed, strings.Join(tokenParts, " · "))
@@ -660,6 +673,9 @@ func (m *model) resetGenState() {
 	m.genPhase = phaseWaiting
 	m.promptTokens = 0
 	m.outputTokens = 0
+	m.cacheHitTokens = 0
+	m.cacheMissTokens = 0
+	m.reasoningTokens = 0
 }
 
 // ─── Stream ───────────────────────────────────────────────────────────────────
