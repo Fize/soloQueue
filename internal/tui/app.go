@@ -105,6 +105,7 @@ type model struct {
 	showTools    bool
 	quitCount    int
 	width        int
+	height       int
 
 	// Conversation
 	messages []message
@@ -160,7 +161,7 @@ func Run(cfg Config) error {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Sequence(textinput.Blink, tea.Printf("%s", renderLogo(m.cfg.Version)))
 }
 
 // ─── Update ───────────────────────────────────────────────────────────────────
@@ -171,6 +172,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 
 	case tea.KeyMsg:
 		// Reset quit count on any non-Ctrl+C key
@@ -188,7 +190,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.isGenerating = false
 				// Finalize current stream to messages
 				m.finalizeCurrentStream()
-				return m, nil
+				return m, m.flushStaticHistory()
 			}
 			m.quitCount++
 			if m.quitCount >= 2 {
@@ -217,8 +219,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textInput.SetValue("")
 
 			// Handle built-in commands
-			if quit := m.handleBuiltin(input); quit {
+			if quit, builtinCmd := m.handleBuiltin(input); quit {
+				if builtinCmd != nil {
+					return m, tea.Sequence(builtinCmd, tea.Quit)
+				}
 				return m, tea.Quit
+			} else if builtinCmd != nil {
+				return m, builtinCmd
 			}
 			if strings.HasPrefix(input, "/") {
 				return m, nil
@@ -254,14 +261,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamStartMsg:
 		if msg.err != nil {
-			m.messages = append(m.messages, message{
-				role:    "agent",
-				content: errorStyle.Render("✗ " + msg.err.Error()),
-			})
 			m.isGenerating = false
 			m.current = nil
 			msg.cancel()
-			return m, nil
+			// Print error as static text
+			errText := agentStyle.Render("Agent:") + "\n" + errorStyle.Render("✗ "+msg.err.Error()) + "\n\n"
+			return m, tea.Sequence(tea.Printf("%s", errText), m.flushStaticHistory())
 		}
 		m.streamCancel = msg.cancel
 		// Start consuming events
@@ -276,15 +281,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finalizeCurrentStream()
 		m.isGenerating = false
 		m.current = nil
-		return m, nil
+		return m, m.flushStaticHistory()
 
 	case confirmResultMsg:
 		if m.confirmState != nil {
 			if err := m.sess.Agent.Confirm(msg.callID, msg.choice); err != nil {
-				m.messages = append(m.messages, message{
-					role:    "agent",
-					content: errorStyle.Render("✗ confirm error: " + err.Error()),
-				})
+				errText := agentStyle.Render("Agent:") + "\n" + errorStyle.Render("✗ confirm error: "+err.Error()) + "\n\n"
+				m.confirmState = nil
+				return m, tea.Printf("%s", errText)
 			}
 			m.confirmState = nil
 		}
@@ -302,67 +306,97 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// ─── Message rendering helpers ────────────────────────────────────────────────
+
+// renderUserMessage renders a single user message as a string.
+func renderUserMessage(msg message) string {
+	return userStyle.Render("You: ") + msg.content + "\n\n"
+}
+
+// renderAgentMessage renders a single agent message as a string.
+// When showThinking/showTools are true, the corresponding sections are expanded.
+func renderAgentMessage(msg message, showThinking, showTools bool) string {
+	var sb strings.Builder
+	sb.WriteString(agentStyle.Render("Agent:") + "\n")
+
+	if msg.thoughts != "" {
+		if showThinking {
+			sb.WriteString(dimStyle.Render("▾ Thinking") + "\n")
+			sb.WriteString(thinkStyle.Render(msg.thoughts) + "\n\n")
+		} else {
+			sb.WriteString(foldedStyle.Render("▸ Thinking (Folded)") + "\n\n")
+		}
+	}
+
+	if len(msg.tools) > 0 {
+		if showTools {
+			sb.WriteString(dimStyle.Render("▾ Tools") + "\n")
+			for _, tb := range msg.tools {
+				sb.WriteString(toolStyle.Render(formatToolBlock(tb)) + "\n")
+			}
+			sb.WriteString("\n")
+		} else {
+			sb.WriteString(foldedStyle.Render("▸ Tools (Folded)") + "\n\n")
+		}
+	}
+
+	if msg.content != "" {
+		sb.WriteString(contentStyle.Render(msg.content) + "\n\n")
+	}
+
+	return sb.String()
+}
+
 // ─── View ─────────────────────────────────────────────────────────────────────
 
 func (m model) View() string {
 	var sb strings.Builder
 
-	// 0. Logo (only show when no messages yet)
-	if len(m.messages) == 0 {
-		sb.WriteString(renderLogo(m.cfg.Version))
-	}
+	// Dynamic zone: only render current interactive content.
+	// Completed history has been flushed to scrollback via tea.Printf.
 
-	// 1. Render all messages
-	for i := range m.messages {
-		msg := &m.messages[i]
-		if msg.role == "user" {
-			sb.WriteString(userStyle.Render("You: ") + msg.content + "\n\n")
-		} else {
-			sb.WriteString(agentStyle.Render("Agent:") + "\n")
-
-			// Thinking (fold/unfold)
-			thoughts := msg.thoughts
-			if msg == m.currentMessage() && m.current != nil {
-				thoughts = m.current.thoughts.String()
-			}
-			if thoughts != "" {
-				if m.showThinking {
-					sb.WriteString(dimStyle.Render("▾ Thinking") + "\n")
-					sb.WriteString(thinkStyle.Render(thoughts) + "\n\n")
-				} else {
-					sb.WriteString(foldedStyle.Render("▸ Thinking (Folded)") + "\n\n")
-				}
-			}
-
-			// Tools (fold/unfold)
-			tools := msg.tools
-			if msg == m.currentMessage() && m.current != nil {
-				tools = m.current.tools
-			}
-			if len(tools) > 0 {
-				if m.showTools {
-					sb.WriteString(dimStyle.Render("▾ Tools") + "\n")
-					for _, tb := range tools {
-						sb.WriteString(toolStyle.Render(formatToolBlock(tb)) + "\n")
-					}
-					sb.WriteString("\n")
-				} else {
-					sb.WriteString(foldedStyle.Render("▸ Tools (Folded)") + "\n\n")
-				}
-			}
-
-			// Content
-			content := msg.content
-			if msg == m.currentMessage() && m.current != nil {
-				content = m.current.content.String()
-			}
-			if content != "" {
-				sb.WriteString(contentStyle.Render(content) + "\n\n")
+	// 1. Last user message (only while generating, for context)
+	if m.isGenerating {
+		for i := len(m.messages) - 1; i >= 0; i-- {
+			if m.messages[i].role == "user" {
+				sb.WriteString(renderUserMessage(m.messages[i]))
+				break
 			}
 		}
 	}
 
-	// 2. Confirm dialog (if active)
+	// 2. Active agent message (streaming or last agent in buffer)
+	agentMsg := m.currentMessage()
+	if agentMsg != nil {
+		// Build a temporary message with live stream state if generating
+		displayMsg := *agentMsg
+		if m.current != nil {
+			displayMsg.thoughts = m.current.thoughts.String()
+			displayMsg.tools = m.current.tools
+			displayMsg.content = m.current.content.String()
+		}
+
+		// Truncate content if it exceeds the dynamic height budget
+		if m.height > 0 {
+			budget := m.dynamicHeightBudget()
+			rendered := renderAgentMessage(displayMsg, m.showThinking, m.showTools)
+			lineCount := strings.Count(rendered, "\n")
+			if lineCount > budget {
+				// Keep only the last portion of content that fits
+				lines := strings.Split(rendered, "\n")
+				if budget > 0 {
+					rendered = strings.Join(lines[len(lines)-budget:], "\n")
+				} else {
+					rendered = ""
+				}
+			}
+			sb.WriteString(rendered)
+		} else {
+			sb.WriteString(renderAgentMessage(displayMsg, m.showThinking, m.showTools))
+		}
+	}
+
+	// 3. Confirm dialog (if active)
 	if m.confirmState != nil {
 		sb.WriteString("\n")
 		sb.WriteString(lipgloss.NewStyle().Foreground(colorWarning).Bold(true).Render("⚠ "+m.confirmState.prompt) + "\n")
@@ -377,7 +411,7 @@ func (m model) View() string {
 		sb.WriteString("\n")
 	}
 
-	// 3. Status bar
+	// 4. Status bar
 	statusText := " READY "
 	sStyle := statusStyle.Foreground(lipgloss.Color("250"))
 	if m.quitCount > 0 {
@@ -389,10 +423,10 @@ func (m model) View() string {
 	}
 	sb.WriteString(sStyle.Render(statusText) + "\n")
 
-	// 4. Input box
+	// 5. Input box
 	sb.WriteString(m.textInput.View() + "\n")
 
-	// 5. Hint line (right-aligned)
+	// 6. Hint line (right-aligned)
 	hint := "Ctrl+T Thinking | Ctrl+O Tools | Ctrl+C Quit"
 	renderedHint := hintStyle.Render(hint)
 	padding := m.width - lipgloss.Width(renderedHint)
@@ -402,6 +436,17 @@ func (m model) View() string {
 	sb.WriteString(renderedHint)
 
 	return sb.String()
+}
+
+// dynamicHeightBudget returns the maximum number of lines available
+// for dynamic content in View(). It reserves lines for the status bar,
+// input box, and hint line.
+func (m model) dynamicHeightBudget() int {
+	reserved := 3 // status bar + input + hint
+	if m.height <= reserved {
+		return 1
+	}
+	return m.height - reserved
 }
 
 // ─── Stream ───────────────────────────────────────────────────────────────────
@@ -457,6 +502,29 @@ func (m *model) finalizeCurrentStream() {
 		m.streamCancel = nil
 	}
 	m.current = nil
+}
+
+// flushStaticHistory renders all messages in the buffer as static text
+// via tea.Printf and clears the messages slice. This moves completed
+// conversation turns into the terminal scrollback buffer, outside
+// Bubble Tea's redraw jurisdiction.
+func (m *model) flushStaticHistory() tea.Cmd {
+	if len(m.messages) == 0 {
+		return nil
+	}
+
+	var sb strings.Builder
+	for _, msg := range m.messages {
+		if msg.role == "user" {
+			sb.WriteString(renderUserMessage(msg))
+		} else {
+			sb.WriteString(renderAgentMessage(msg, m.showThinking, m.showTools))
+		}
+	}
+	m.messages = nil
+
+	text := sb.String()
+	return tea.Printf("%s", text)
 }
 
 // ─── History ──────────────────────────────────────────────────────────────────
