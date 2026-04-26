@@ -17,7 +17,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return true, nil
 
 	case "/help", "/?":
-		text := agentStyle.Render("Agent:") + "\n" + dimStyle.Render("Commands: /help /clear /history /version /quit") + "\n\n"
+		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /history /version /quit") + "\n\n"
 		return false, tea.Printf("%s", text)
 
 	case "/clear":
@@ -26,7 +26,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 			if m.streamCancel != nil {
 				m.streamCancel()
 			}
-			m.isGenerating = false
+			m.resetGenState()
 			m.current = nil
 		}
 		m.messages = nil
@@ -35,7 +35,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return false, tea.Printf("\x1b[3J\x1b[2J\x1b[H")
 
 	case "/version":
-		text := agentStyle.Render("Agent:") + "\n" + lipgloss.NewStyle().Bold(true).Render("SoloQueue "+m.cfg.Version) + "\n\n"
+		text := agentStyle.Render("Solo:") + "\n" + lipgloss.NewStyle().Bold(true).Render("SoloQueue "+m.cfg.Version) + "\n\n"
 		return false, tea.Printf("%s", text)
 
 	case "/history":
@@ -43,7 +43,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 
 	default:
 		if strings.HasPrefix(input, "/") {
-			text := agentStyle.Render("Agent:") + "\n" + errorStyle.Render("✗ Unknown command: "+input+". Type /help") + "\n\n"
+			text := agentStyle.Render("Solo:") + "\n" + errorStyle.Render("✗ Unknown command: "+input+". Type /help") + "\n\n"
 			return false, tea.Printf("%s", text)
 		}
 	}
@@ -52,7 +52,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 
 func (m *model) historyPrintf() tea.Cmd {
 	var sb strings.Builder
-	sb.WriteString(agentStyle.Render("Agent:") + "\n")
+	sb.WriteString(agentStyle.Render("Solo:") + "\n")
 	if len(m.history) == 0 {
 		sb.WriteString(dimStyle.Render("(no history yet)") + "\n\n")
 		return tea.Printf("%s", sb.String())
