@@ -28,11 +28,10 @@ var (
 
 	foldedStyle = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
 
-	toolStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("170")).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(0, 1)
+	toolCollapsedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("246")).
+				Italic(true).
+				PaddingLeft(2)
 
 	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	dimStyle   = lipgloss.NewStyle().Foreground(colorMuted)

@@ -35,6 +35,9 @@ func Test_parseToolArgs(t *testing.T) {
 		{
 			name:     "invalid JSON",
 			argsJSON: `invalid json`,
+			wantPath:    "[parse error]",
+			wantCommand: "[parse error]",
+			wantFile:    "[parse error]",
 		},
 	}
 
