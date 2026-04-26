@@ -7,9 +7,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/muesli/termenv"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -152,6 +154,8 @@ type model struct {
 	quitCount    int
 	width        int
 	height       int
+	renderer     *glamour.TermRenderer
+	darkBg       bool
 
 	// Generation status tracking
 	genStartTime   time.Time
@@ -184,18 +188,20 @@ func Run(cfg Config) error {
 	ctx := context.Background()
 
 	m := model{
-		cfg:          cfg,
-		ctx:          ctx,
-		messages:     []message{},
+		cfg:      cfg,
+		ctx:      ctx,
+		messages: []message{},
 	}
 
 	// Setup text input
 	ti := textinput.New()
 	ti.Prompt = "❯ "
-	ti.PromptStyle = userStyle
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	ti.Cursor.Style = lipgloss.NewStyle()
-	ti.Focus()
+	styles := textinput.DefaultStyles(m.darkBg)
+	styles.Focused.Prompt = userStyle
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styles.Cursor.Color = lipgloss.Color("252")
+	ti.SetStyles(styles)
+	focusCmd := ti.Focus()
 	m.textInput = ti
 
 	// Create session
@@ -205,6 +211,14 @@ func Run(cfg Config) error {
 		return err
 	}
 	m.sess = sess
+	_ = focusCmd
+
+	// Detect terminal background before bubbletea takes over stdin.
+	// This avoids OSC 11 query responses leaking into bubbletea's input stream.
+	m.darkBg = termenv.HasDarkBackground()
+
+	// Initialize glamour markdown renderer
+	m.renderer = m.newRenderer()
 
 	p := tea.NewProgram(m)
 
@@ -215,7 +229,34 @@ func Run(cfg Config) error {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	return tea.Sequence(textinput.Blink, tea.Printf("%s", renderLogo(m.cfg.Version)))
+	return tea.Sequence(textinput.Blink, printfWithClear("%s", renderLogo(m.cfg.Version)))
+}
+
+// newRenderer creates a glamour TermRenderer configured for the current
+// terminal width. A 2-char safety margin is reserved to avoid native terminal
+// line breaks at the edge column that can cause Bubbletea line-count drift.
+//
+// Uses custom JSON styles instead of built-in "dark"/"light" to work around
+// a glamour bug where H2-H4 headings are not rendered with standard styles.
+func (m *model) newRenderer() *glamour.TermRenderer {
+	wrapWidth := m.width - 2
+	if wrapWidth <= 0 {
+		wrapWidth = 78
+	}
+	var styleJSON []byte
+	if m.darkBg {
+		styleJSON = []byte(darkStyleJSON)
+	} else {
+		styleJSON = []byte(lightStyleJSON)
+	}
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStylesFromJSONBytes(styleJSON),
+		glamour.WithWordWrap(wrapWidth),
+	)
+	if err != nil {
+		return nil
+	}
+	return r
 }
 
 // ─── Update ───────────────────────────────────────────────────────────────────
@@ -225,23 +266,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		var cmd tea.Cmd
+		var clearCmd tea.Cmd
 		if m.width > 0 && msg.Width < m.width {
-			cmd = tea.ClearScreen
+			clearCmd = func() tea.Msg { return tea.ClearScreen() }
 		}
 		m.width = msg.Width
 		m.height = msg.Height
-		m.textInput.Width = m.width - lipgloss.Width(m.textInput.Prompt) - 1
-		return m, cmd
+		m.textInput.SetWidth(m.width - lipgloss.Width(m.textInput.Prompt) - 1)
+		m.renderer = m.newRenderer()
+		return m, clearCmd
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// Reset quit count on any non-Ctrl+C key
-		if msg.Type != tea.KeyCtrlC && m.quitCount > 0 {
+		if msg.String() != "ctrl+c" && m.quitCount > 0 {
 			m.quitCount = 0
 		}
 
-		switch msg.Type {
-		case tea.KeyCtrlC:
+		switch msg.String() {
+		case "ctrl+c":
 			if m.isGenerating {
 				// Cancel current stream
 				if m.streamCancel != nil {
@@ -258,8 +300,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return resetQuitMsg{} })
 
-
-		case tea.KeyEsc:
+		case "esc":
 			if m.isGenerating {
 				if m.streamCancel != nil {
 					m.streamCancel()
@@ -270,7 +311,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Sequence(m.flushStaticHistory(), tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} }))
 			}
 
-		case tea.KeyEnter:
+		case "enter":
 			// If in confirm state, confirm selection
 			if m.confirmState != nil {
 				return m.handleConfirmEnter()
@@ -319,13 +360,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.startStream(input)
 			return m, tea.Sequence(cmd, dotCmd())
 
-		case tea.KeyUp:
+		case "up":
 			if m.confirmState != nil && m.confirmState.selected > 0 {
 				m.confirmState.selected--
 			}
 			return m, nil
 
-		case tea.KeyDown:
+		case "down":
 			if m.confirmState != nil && m.confirmState.selected < len(m.confirmState.options)-1 {
 				m.confirmState.selected++
 			}
@@ -400,7 +441,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := m.sess.Agent.Confirm(msg.callID, msg.choice); err != nil {
 				errText := agentStyle.Render("Solo:") + "\n" + errorStyle.Render("✗ confirm error: "+summarizeError(err)) + "\n\n"
 				m.confirmState = nil
-				return m, tea.Printf("%s", errText)
+				return m, printfWithClear("%s", errText)
 			}
 			m.confirmState = nil
 		}
@@ -459,11 +500,25 @@ func renderUserMessage(msg message) string {
 	return userStyle.Render("❯ ") + msg.content + "\n\n"
 }
 
+// renderContent renders agent content text using glamour for rich markdown
+// rendering with syntax highlighting and word wrap. Falls back to plain
+// contentStyle if the renderer is unavailable or rendering fails.
+func (m *model) renderContent(text string) string {
+	if m.renderer == nil {
+		return contentStyle.Render(text)
+	}
+	rendered, err := m.renderer.Render(text)
+	if err != nil {
+		return contentStyle.Render(text)
+	}
+	return strings.Trim(rendered, "\n")
+}
+
 // renderAgentMessage renders a single agent message as a string.
 // Timeline entries (thinking + tool calls) are rendered in chronological order.
 // Thinking blocks are always expanded; tool calls are shown in compact collapsed form
 // (name, args, status, duration) inline within the thinking flow.
-func renderAgentMessage(msg message) string {
+func (m *model) renderAgentMessage(msg message) string {
 	var sb strings.Builder
 	sb.WriteString(agentStyle.Render("Solo:") + "\n")
 
@@ -483,7 +538,7 @@ func renderAgentMessage(msg message) string {
 			sb.WriteString(thinkLabelStyle + "\n")
 			sb.WriteString(thinkStyle.Render(entry.text) + "\n")
 		case timelineContent:
-			sb.WriteString(contentStyle.Render(entry.text) + "\n")
+			sb.WriteString(m.renderContent(entry.text) + "\n")
 		case timelineTool:
 			if entry.tool != nil {
 				sb.WriteString(toolLabelStyle + "\n")
@@ -498,7 +553,7 @@ func renderAgentMessage(msg message) string {
 		if lastKind >= 0 && lastKind != timelineContent {
 			sb.WriteString("\n")
 		}
-		sb.WriteString(contentStyle.Render(msg.content) + "\n")
+		sb.WriteString(m.renderContent(msg.content) + "\n")
 	}
 
 	return sb.String()
@@ -506,7 +561,7 @@ func renderAgentMessage(msg message) string {
 
 // ─── View ─────────────────────────────────────────────────────────────────────
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	var sb strings.Builder
 
 	// Dynamic zone: only render current interactive content.
@@ -543,7 +598,7 @@ func (m model) View() string {
 		// Truncate content if it exceeds the dynamic height budget
 		if m.height > 0 {
 			budget := m.dynamicHeightBudget()
-			rendered := renderAgentMessage(displayMsg)
+			rendered := m.renderAgentMessage(displayMsg)
 			lineCount := strings.Count(rendered, "\n")
 			if lineCount > budget {
 				// Keep only the last portion of content that fits
@@ -556,7 +611,7 @@ func (m model) View() string {
 			}
 			sb.WriteString(rendered)
 		} else {
-			sb.WriteString(renderAgentMessage(displayMsg))
+			sb.WriteString(m.renderAgentMessage(displayMsg))
 		}
 	}
 
@@ -628,7 +683,7 @@ func (m model) View() string {
 	}
 	sb.WriteString(renderedHint)
 
-	return sb.String()
+	return tea.NewView(sb.String())
 }
 
 // dynamicHeightBudget returns the maximum number of lines available
@@ -753,13 +808,17 @@ func (m *model) flushStaticHistory() tea.Cmd {
 		if msg.role == "user" {
 			sb.WriteString(renderUserMessage(msg))
 		} else {
-			sb.WriteString(renderAgentMessage(msg))
+			sb.WriteString(m.renderAgentMessage(msg))
 		}
 	}
 	m.messages = nil
 
 	text := sb.String()
-	return tea.Printf("%s", text)
+	// ClearScreen forces the cursed renderer to do a full repaint instead of
+	// a diff-based incremental update. Without this, the v2 renderer's
+	// internal cellbuf goes out of sync after Printf writes directly to the
+	// terminal, causing ghost content and duplicate rendering.
+	return tea.Sequence(tea.Printf("%s", text), func() tea.Msg { return tea.ClearScreen() })
 }
 
 // ─── History ──────────────────────────────────────────────────────────────────
