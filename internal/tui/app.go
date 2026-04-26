@@ -816,9 +816,9 @@ func renderLogo(version string) string {
 		"         ╰ ",
 	}
 
-	// Gradient: cyan → gold
-	startR, startG, startB := uint8(0), uint8(229), uint8(255)
-	endR, endG, endB := uint8(245), uint8(208), uint8(97)
+	// Gradient: violet → pink
+	startR, startG, startB := uint8(167), uint8(139), uint8(250)
+	endR, endG, endB := uint8(244), uint8(114), uint8(182)
 
 	var sb strings.Builder
 	for i, line := range logoLines {
