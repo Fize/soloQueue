@@ -18,9 +18,13 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 	switch e := ev.(type) {
 
 	case agent.ReasoningDeltaEvent:
-		m.current.thoughts.WriteString(e.Delta)
+		m.current.thinkingBuf.WriteString(e.Delta)
 
 	case agent.ContentDeltaEvent:
+		// First content delta flushes any pending thinking
+		if m.current.content.Len() == 0 {
+			m.current.flushThinking()
+		}
 		m.current.content.WriteString(e.Delta)
 
 	case agent.ToolCallDeltaEvent:
@@ -37,42 +41,41 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		}
 
 	case agent.ToolExecStartEvent:
+		// Flush any accumulated thinking before this tool
+		m.current.flushThinking()
 		m.current.curToolName = ""
 		m.current.curToolArgs.Reset()
-		tb := toolBlock{
+		tb := &toolBlock{
 			name:   e.Name,
 			args:   e.Args,
 			callID: e.CallID,
 		}
-		m.current.tools = append(m.current.tools, tb)
+		m.current.timeline = append(m.current.timeline, timelineEntry{
+			kind: timelineTool,
+			tool: tb,
+		})
 		m.current.toolExecMap[e.CallID] = &toolExecInfo{
 			name:   e.Name,
 			args:   e.Args,
 			start:  time.Now(),
 			callID: e.CallID,
+			tb:     tb,
 		}
 
 	case agent.ToolExecDoneEvent:
-		dur := time.Duration(0)
 		if info, ok := m.current.toolExecMap[e.CallID]; ok {
-			dur = time.Since(info.start)
-		}
-		// Count non-empty result lines
-		lineCount := 0
-		for _, line := range strings.Split(e.Result, "\n") {
-			if strings.TrimSpace(line) != "" {
-				lineCount++
+			dur := time.Since(info.start)
+			// Count non-empty result lines
+			lineCount := 0
+			for _, line := range strings.Split(e.Result, "\n") {
+				if strings.TrimSpace(line) != "" {
+					lineCount++
+				}
 			}
-		}
-		// Update existing toolBlock
-		for i := range m.current.tools {
-			if m.current.tools[i].callID == e.CallID {
-				m.current.tools[i].done = true
-				m.current.tools[i].duration = dur
-				m.current.tools[i].err = e.Err
-				m.current.tools[i].lineCount = lineCount
-				break
-			}
+			info.tb.done = true
+			info.tb.duration = dur
+			info.tb.err = e.Err
+			info.tb.lineCount = lineCount
 		}
 
 	case agent.IterationDoneEvent:
@@ -114,6 +117,17 @@ func (m *model) handleToolConfirm(e agent.ToolNeedsConfirmEvent) {
 	}
 }
 
+// flushThinking pushes any buffered thinking text into the timeline as a new entry.
+func (s *streamState) flushThinking() {
+	if s.thinkingBuf.Len() > 0 {
+		s.timeline = append(s.timeline, timelineEntry{
+			kind: timelineThinking,
+			text: s.thinkingBuf.String(),
+		})
+		s.thinkingBuf.Reset()
+	}
+}
+
 // ─── Tool args parsing ────────────────────────────────────────────────────────
 
 // toolArgs defines the common structure for tool arguments.
@@ -127,7 +141,7 @@ type toolArgs struct {
 func parseToolArgs(argsJSON string) toolArgs {
 	var args toolArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return toolArgs{}
+		return toolArgs{Path: "[parse error]", Command: "[parse error]", File: "[parse error]"}
 	}
 	return args
 }
