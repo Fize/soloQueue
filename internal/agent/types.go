@@ -38,6 +38,10 @@ type Definition struct {
 	MaxTokens    int
 	CreatedAt    time.Time
 
+	// ReasoningEffort 推理努力等级，用于支持思考模式的 V4 模型
+	// "high" | "max" | ""（空表示不发送此参数）
+	ReasoningEffort string
+
 	// MaxIterations 是 tool-use 循环的最大轮数（一次 Ask 内允许的 LLM.Chat 次数）
 	//
 	// <= 0 使用 DefaultMaxIterations（10）。
