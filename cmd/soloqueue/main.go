@@ -106,7 +106,10 @@ Environment:
 				return fmt.Errorf("build llm client: %w", err)
 			}
 
-			cwd, _ := os.Getwd()
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get working directory: %w", err)
+			}
 			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
 			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
 			toolList := tools.Build(toolsCfg)
@@ -136,9 +139,9 @@ Environment:
 					logger.WithLevel(parseLogLevel(settings.Log.Level)),
 					logger.WithConsole(false), // TUI 模式不在 stderr 输出日志
 					logger.WithFile(settings.Log.File),
-				)
+					)
 				if err != nil {
-					sessLog = log
+					return nil, fmt.Errorf("build session logger: %w", err)
 				}
 				a := agent.NewAgent(def, llmClient, sessLog,
 					agent.WithTools(toolList...),
@@ -262,7 +265,10 @@ func serveCmd() *cobra.Command {
 
 			// ── Tools：沙箱根目录默认落在 workDir + CWD；用户在 settings.json
 			// 通过 tools.allowedDirs 追加 ────────────────────────────────────
-			cwd, _ := os.Getwd()
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("get working directory: %w", err)
+			}
 			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
 			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
 			toolList := tools.Build(toolsCfg)
@@ -336,10 +342,7 @@ func serveCmd() *cobra.Command {
 					logger.WithFile(settings.Log.File),
 				)
 				if err != nil {
-					log.Error(logger.CatApp, "failed to build session logger; falling back to system log",
-						"err", err,
-					)
-					sessLog = log // fallback
+					return nil, fmt.Errorf("build session logger: %w", err)
 				}
 
 				a := agent.NewAgent(def, llmClient, sessLog,
@@ -500,15 +503,14 @@ func initConfig(workDir string) (*config.GlobalService, error) {
 	}
 
 	if err := cfg.Watch(); err != nil {
-		// 热加载失败不阻断启动
-		fmt.Fprintf(os.Stderr, "warn: config watch failed: %v\n", err)
+		slog.Error("config hot-reload watcher failed; config changes will require restart", "err", err)
 	}
 
 	// 若 settings.json 不存在，写入默认值
 	settingsPath := filepath.Join(workDir, "settings.json")
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		if err := cfg.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "warn: failed to write default settings: %v\n", err)
+			slog.Error("failed to save default config", "path", settingsPath, "err", err)
 		}
 	}
 
@@ -534,9 +536,8 @@ func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logge
 	// 热加载时自动更新日志级别（注：slog.Logger 不支持动态修改级别，重建 logger）
 	// 此处仅演示 OnChange 用法
 	cfg.OnChange(func(old, new config.Settings) {
-		if old.Log.Level != new.Log.Level {
-			fmt.Fprintf(os.Stderr, "info: log level changed: %s → %s\n", old.Log.Level, new.Log.Level)
-		}
+		_ = old
+		_ = new
 	})
 
 	// fsnotify watcher 的 error 路由到 logger（之前被静默吞掉）
@@ -552,11 +553,14 @@ func parseLogLevel(level string) slog.Level {
 	switch strings.ToLower(level) {
 	case "debug":
 		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
 	case "warn", "warning":
 		return slog.LevelWarn
 	case "error":
 		return slog.LevelError
 	default:
+		slog.Warn("unknown log level, using info", "level", level)
 		return slog.LevelInfo
 	}
 }

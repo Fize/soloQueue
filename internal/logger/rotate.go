@@ -124,7 +124,9 @@ func (rw *rotateWriter) rotate() error {
 // rollSize 按大小滚动：将当前文件依次重命名 .jsonl → .1 → .2 ...
 func (rw *rotateWriter) rollSize() error {
 	if rw.current != nil {
-		_ = rw.current.Close()
+		if err := rw.current.Close(); err != nil {
+			return fmt.Errorf("close current log file: %w", err)
+		}
 		rw.current = nil
 	}
 
@@ -144,9 +146,13 @@ func (rw *rotateWriter) rollSize() error {
 	}
 	// 从高到低依次重命名
 	for i := maxN; i >= 1; i-- {
-		_ = os.Rename(fmt.Sprintf("%s.%d", base, i), fmt.Sprintf("%s.%d", base, i+1))
+		if err := os.Rename(fmt.Sprintf("%s.%d", base, i), fmt.Sprintf("%s.%d", base, i+1)); err != nil {
+			return fmt.Errorf("rotate rename %s.%d: %w", base, i, err)
+		}
 	}
-	_ = os.Rename(base, base+".1")
+	if err := os.Rename(base, base+".1"); err != nil {
+		return fmt.Errorf("rotate rename %s: %w", base, err)
+	}
 
 	return rw.open()
 }

@@ -144,7 +144,14 @@ func (l *Loader[T]) Set(fn func(*T)) error {
 	l.current = updated
 	l.mu.Unlock()
 
-	if err := l.saveTo(l.primaryPath(), updated); err != nil {
+	pp, err := l.primaryPath()
+	if err != nil {
+		l.mu.Lock()
+		l.current = old
+		l.mu.Unlock()
+		return err
+	}
+	if err := l.saveTo(pp, updated); err != nil {
 		// 回滚
 		l.mu.Lock()
 		l.current = old
@@ -170,7 +177,11 @@ func (l *Loader[T]) SaveContext(ctx context.Context) error {
 	l.mu.RLock()
 	current := l.current
 	l.mu.RUnlock()
-	return l.saveTo(l.primaryPath(), current)
+	pp, err := l.primaryPath()
+	if err != nil {
+		return err
+	}
+	return l.saveTo(pp, current)
 }
 
 // Watch 启动 fsnotify 监听所有 paths，变更时 debounce 200ms 后 Load()
@@ -186,14 +197,17 @@ func (l *Loader[T]) Watch() error {
 	for _, path := range l.paths {
 		expanded, err := expandPath(path)
 		if err != nil {
-			continue
+			return fmt.Errorf("expand path %s: %w", path, err)
 		}
 		dir := filepath.Dir(expanded)
 		if !watched[dir] {
-			if err := os.MkdirAll(dir, 0o755); err == nil {
-				_ = watcher.Add(dir)
-				watched[dir] = true
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("create config dir %s: %w", dir, err)
 			}
+			if err := watcher.Add(dir); err != nil {
+				return fmt.Errorf("watch config dir %s: %w", dir, err)
+			}
+			watched[dir] = true
 		}
 	}
 
@@ -287,18 +301,26 @@ func (l *Loader[T]) scheduleReload() {
 		l.debTimer.Stop()
 	}
 	l.debTimer = time.AfterFunc(200*time.Millisecond, func() {
-		_ = l.Load()
+		if err := l.Load(); err != nil {
+			l.handleWatchError(fmt.Errorf("config reload: %w", err))
+		}
 	})
 }
 
 func (l *Loader[T]) isWatchedFile(name string) bool {
-	absName, _ := filepath.Abs(name)
+	absName, err := filepath.Abs(name)
+	if err != nil {
+		return false
+	}
 	for _, path := range l.paths {
 		expanded, err := expandPath(path)
 		if err != nil {
 			continue
 		}
-		absPath, _ := filepath.Abs(expanded)
+		absPath, err := filepath.Abs(expanded)
+		if err != nil {
+			continue
+		}
 		if absName == absPath {
 			return true
 		}
@@ -317,12 +339,15 @@ func (l *Loader[T]) notify(old, new T) {
 	}
 }
 
-func (l *Loader[T]) primaryPath() string {
+func (l *Loader[T]) primaryPath() (string, error) {
 	if len(l.paths) == 0 {
-		return ""
+		return "", nil
 	}
-	expanded, _ := expandPath(l.paths[0])
-	return expanded
+	expanded, err := expandPath(l.paths[0])
+	if err != nil {
+		return "", fmt.Errorf("expand primary path %s: %w", l.paths[0], err)
+	}
+	return expanded, nil
 }
 
 // saveTo 原子写：先写 .tmp，再 rename
