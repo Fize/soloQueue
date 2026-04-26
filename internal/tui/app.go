@@ -26,12 +26,26 @@ type Config struct {
 
 // ─── Data types ───────────────────────────────────────────────────────────────
 
+// timelineKind distinguishes the type of a timeline entry.
+type timelineKind int
+
+const (
+	timelineThinking timelineKind = iota
+	timelineTool
+)
+
+// timelineEntry represents a single item in the chronological timeline.
+type timelineEntry struct {
+	kind timelineKind
+	text string     // for thinking entries
+	tool *toolBlock // for tool entries (pointer for in-place update)
+}
+
 // message represents a single conversation turn.
 type message struct {
 	role     string // "user" | "agent"
 	content  string
-	thoughts string
-	tools    []toolBlock
+	timeline []timelineEntry
 }
 
 // toolBlock represents a tool call's lifecycle in the UI.
@@ -51,17 +65,18 @@ type toolExecInfo struct {
 	args   string
 	start  time.Time
 	callID string
+	tb     *toolBlock // back-pointer for in-place update by ToolExecDoneEvent
 }
 
 // streamState holds the state of the current streaming response.
 type streamState struct {
-	thoughts      strings.Builder
-	tools         []toolBlock
+	timeline      []timelineEntry
 	content       strings.Builder
 	toolExecMap   map[string]*toolExecInfo
 	curToolCallID string
 	curToolName   string
 	curToolArgs   strings.Builder
+	thinkingBuf   strings.Builder // active thinking buffer, flushed into timeline on tool start / content start
 }
 
 // confirmState holds the state of a tool confirmation dialog.
@@ -101,8 +116,6 @@ type model struct {
 	// UI state
 	textInput    textinput.Model
 	isGenerating bool
-	showThinking bool
-	showTools    bool
 	quitCount    int
 	width        int
 	height       int
@@ -130,8 +143,6 @@ func Run(cfg Config) error {
 	m := model{
 		cfg:          cfg,
 		ctx:          ctx,
-		showThinking: true,
-		showTools:    true,
 		messages:     []message{},
 	}
 
@@ -198,13 +209,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return resetQuitMsg{} })
 
-		case tea.KeyCtrlT:
-			m.showThinking = !m.showThinking
-			return m, nil
-
-		case tea.KeyCtrlO:
-			m.showTools = !m.showTools
-			return m, nil
 
 		case tea.KeyEnter:
 			// If in confirm state, confirm selection
@@ -314,30 +318,30 @@ func renderUserMessage(msg message) string {
 }
 
 // renderAgentMessage renders a single agent message as a string.
-// When showThinking/showTools are true, the corresponding sections are expanded.
-func renderAgentMessage(msg message, showThinking, showTools bool) string {
+// Timeline entries (thinking + tool calls) are rendered in chronological order.
+// Thinking blocks are always expanded; tool calls are shown in compact collapsed form
+// (name, args, status, duration) inline within the thinking flow.
+func renderAgentMessage(msg message) string {
 	var sb strings.Builder
 	sb.WriteString(agentStyle.Render("Agent:") + "\n")
 
-	if msg.thoughts != "" {
-		if showThinking {
-			sb.WriteString(dimStyle.Render("▾ Thinking") + "\n")
-			sb.WriteString(thinkStyle.Render(msg.thoughts) + "\n\n")
-		} else {
-			sb.WriteString(foldedStyle.Render("▸ Thinking (Folded)") + "\n\n")
+	hasTimelineEntry := false
+
+	for _, entry := range msg.timeline {
+		switch entry.kind {
+		case timelineThinking:
+			sb.WriteString(thinkStyle.Render(entry.text) + "\n")
+			hasTimelineEntry = true
+		case timelineTool:
+			if entry.tool != nil {
+				sb.WriteString(toolCollapsedStyle.Render(formatToolBlock(*entry.tool)) + "\n")
+			}
+			hasTimelineEntry = true
 		}
 	}
 
-	if len(msg.tools) > 0 {
-		if showTools {
-			sb.WriteString(dimStyle.Render("▾ Tools") + "\n")
-			for _, tb := range msg.tools {
-				sb.WriteString(toolStyle.Render(formatToolBlock(tb)) + "\n")
-			}
-			sb.WriteString("\n")
-		} else {
-			sb.WriteString(foldedStyle.Render("▸ Tools (Folded)") + "\n\n")
-		}
+	if hasTimelineEntry {
+		sb.WriteString("\n")
 	}
 
 	if msg.content != "" {
@@ -371,15 +375,22 @@ func (m model) View() string {
 		// Build a temporary message with live stream state if generating
 		displayMsg := *agentMsg
 		if m.current != nil {
-			displayMsg.thoughts = m.current.thoughts.String()
-			displayMsg.tools = m.current.tools
+			displayMsg.timeline = make([]timelineEntry, len(m.current.timeline))
+			copy(displayMsg.timeline, m.current.timeline)
+			// Append in-progress thinking as a virtual entry (no side effects in View)
+			if m.current.thinkingBuf.Len() > 0 {
+				displayMsg.timeline = append(displayMsg.timeline, timelineEntry{
+					kind: timelineThinking,
+					text: m.current.thinkingBuf.String(),
+				})
+			}
 			displayMsg.content = m.current.content.String()
 		}
 
 		// Truncate content if it exceeds the dynamic height budget
 		if m.height > 0 {
 			budget := m.dynamicHeightBudget()
-			rendered := renderAgentMessage(displayMsg, m.showThinking, m.showTools)
+			rendered := renderAgentMessage(displayMsg)
 			lineCount := strings.Count(rendered, "\n")
 			if lineCount > budget {
 				// Keep only the last portion of content that fits
@@ -392,7 +403,7 @@ func (m model) View() string {
 			}
 			sb.WriteString(rendered)
 		} else {
-			sb.WriteString(renderAgentMessage(displayMsg, m.showThinking, m.showTools))
+			sb.WriteString(renderAgentMessage(displayMsg))
 		}
 	}
 
@@ -427,7 +438,7 @@ func (m model) View() string {
 	sb.WriteString(m.textInput.View() + "\n")
 
 	// 6. Hint line (right-aligned)
-	hint := "Ctrl+T Thinking | Ctrl+O Tools | Ctrl+C Quit"
+	hint := "Ctrl+C Quit"
 	renderedHint := hintStyle.Render(hint)
 	padding := m.width - lipgloss.Width(renderedHint)
 	if padding > 0 {
@@ -492,9 +503,10 @@ func (m *model) finalizeCurrentStream() {
 	if msg == nil {
 		return
 	}
-	msg.thoughts = m.current.thoughts.String()
-	msg.tools = make([]toolBlock, len(m.current.tools))
-	copy(msg.tools, m.current.tools)
+	// Flush any remaining thinking
+	m.current.flushThinking()
+	msg.timeline = make([]timelineEntry, len(m.current.timeline))
+	copy(msg.timeline, m.current.timeline)
 	msg.content = m.current.content.String()
 
 	if m.streamCancel != nil {
@@ -518,7 +530,7 @@ func (m *model) flushStaticHistory() tea.Cmd {
 		if msg.role == "user" {
 			sb.WriteString(renderUserMessage(msg))
 		} else {
-			sb.WriteString(renderAgentMessage(msg, m.showThinking, m.showTools))
+			sb.WriteString(renderAgentMessage(msg))
 		}
 	}
 	m.messages = nil
