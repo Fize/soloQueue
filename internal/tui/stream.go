@@ -19,6 +19,11 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 
 	case agent.ReasoningDeltaEvent:
 		m.genPhase = phaseThinking
+		// If we already have content, flush it before new thinking starts
+		// (this happens on iteration boundaries: content→thinking)
+		if m.current.content.Len() > 0 {
+			m.current.flushContent()
+		}
 		m.current.thinkingBuf.WriteString(e.Delta)
 
 	case agent.ContentDeltaEvent:
@@ -45,7 +50,8 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 
 	case agent.ToolExecStartEvent:
 		m.genPhase = phaseToolCall
-		// Flush any accumulated thinking before this tool
+		// Flush any accumulated content and thinking before this tool
+		m.current.flushContent()
 		m.current.flushThinking()
 		m.current.curToolName = ""
 		m.current.curToolArgs.Reset()
@@ -131,6 +137,17 @@ func (s *streamState) flushThinking() {
 			text: s.thinkingBuf.String(),
 		})
 		s.thinkingBuf.Reset()
+	}
+}
+
+// flushContent pushes any accumulated content text into the timeline as a new entry.
+func (s *streamState) flushContent() {
+	if s.content.Len() > 0 {
+		s.timeline = append(s.timeline, timelineEntry{
+			kind: timelineContent,
+			text: s.content.String(),
+		})
+		s.content.Reset()
 	}
 }
 
