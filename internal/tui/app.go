@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -139,6 +142,7 @@ type clearCancelMsg struct{}
 type clearErrMsg struct{}
 type clearSummaryMsg struct{}
 type dotMsg struct{}
+type hintRotateMsg struct{}
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
@@ -176,8 +180,13 @@ type model struct {
 	current      *streamState
 	streamCancel context.CancelFunc
 
-	// History (for /history command)
-	history []string
+	// Input history navigation
+	history      []string
+	historyIdx   int    // 0 = not browsing; >0 = offset from end
+	historyDraft string // saved input before history browsing
+
+	// Hint rotation
+	hintIndex int // current index into commandHints
 
 	// Tool confirmation
 	confirmState *confirmState
@@ -196,6 +205,7 @@ func Run(cfg Config) error {
 		cfg:      cfg,
 		ctx:      ctx,
 		messages: []message{},
+		history:  loadHistory(),
 	}
 
 	// Setup text input
@@ -234,7 +244,7 @@ func Run(cfg Config) error {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, hintRotateCmd())
 }
 
 // newRenderer creates a glamour TermRenderer configured for the current
@@ -378,15 +388,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(userPrintCmd, cmd, dotCmd())
 
 		case "up":
-			if m.confirmState != nil && m.confirmState.selected > 0 {
-				m.confirmState.selected--
+			if m.confirmState != nil {
+				if m.confirmState.selected > 0 {
+					m.confirmState.selected--
+				}
+				return m, nil
 			}
+			m.navHistory(-1)
 			return m, nil
 
 		case "down":
-			if m.confirmState != nil && m.confirmState.selected < len(m.confirmState.options)-1 {
-				m.confirmState.selected++
+			if m.confirmState != nil {
+				if m.confirmState.selected < len(m.confirmState.options)-1 {
+					m.confirmState.selected++
+				}
+				return m, nil
 			}
+			m.navHistory(1)
 			return m, nil
 		}
 
@@ -472,6 +490,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resetQuitMsg:
 		m.quitCount = 0
 		return m, nil
+
+	case hintRotateMsg:
+		m.hintIndex = (m.hintIndex + 1) % len(commandHints)
+		return m, hintRotateCmd()
 	}
 
 	// Pass through to textinput when not in confirm mode and not generating
@@ -679,7 +701,7 @@ func (m model) View() tea.View {
 
 	// 5. Divider (above input)
 	divider := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("237")).
+			Foreground(lipgloss.Color("245")).
 			Render(strings.Repeat("-", max(m.width, 0)))
 	sb.WriteString(divider + "\n")
 
@@ -689,17 +711,25 @@ func (m model) View() tea.View {
 	// 7. Divider (below input)
 	sb.WriteString(divider + "\n")
 
-	// 8. Hint line (right-aligned)
-	hint := "ctrl+c quit"
-	if m.isGenerating {
-		hint = "esc/ctrl+c interrupt"
+	// 8. Hint line: left=rotating command hints, right=context token usage
+	leftHint := hintStyle.Render(commandHints[m.hintIndex])
+
+	var pct int
+	if m.sess != nil {
+		current, max, _ := m.sess.ContextWindow().TokenUsage()
+		if max > 0 {
+			pct = current * 100 / max
+		}
 	}
-	renderedHint := hintStyle.Render(hint)
-	padding := m.width - lipgloss.Width(renderedHint)
-	if padding > 0 {
-		sb.WriteString(strings.Repeat(" ", padding))
+	rightHint := contextTokenStyle(pct).Render(fmt.Sprintf("Context Tokens: %d%%", pct))
+
+	separator := dimStyle.Render(" · ")
+	availWidth := m.width - lipgloss.Width(leftHint) - lipgloss.Width(separator) - lipgloss.Width(rightHint)
+	padding := availWidth
+	if padding < 1 {
+		padding = 1
 	}
-	sb.WriteString(renderedHint)
+	sb.WriteString(leftHint + strings.Repeat(" ", padding) + separator + rightHint)
 
 	return tea.NewView(sb.String())
 }
@@ -804,6 +834,21 @@ func (m *model) resetGenState() {
 	m.cacheHitTokens = 0
 	m.cacheMissTokens = 0
 	m.reasoningTokens = 0
+}
+
+// ─── Command hints ─────────────────────────────────────────────────────────────
+
+var commandHints = []string{
+	"· ctrl+c×2 quit",
+	"· esc interrupt",
+	"· ↑↓ history",
+	"· /help commands",
+	"· /clear context",
+	"· /quit exit",
+}
+
+func hintRotateCmd() tea.Cmd {
+	return tea.Tick(10*time.Second, func(t time.Time) tea.Msg { return hintRotateMsg{} })
 }
 
 // ─── Stream ───────────────────────────────────────────────────────────────────
@@ -921,6 +966,45 @@ func (m *model) addHistory(line string) {
 		return
 	}
 	m.history = append(m.history, line)
+	m.historyIdx = 0
+	m.historyDraft = ""
+	appendHistory(line)
+}
+
+// navHistory navigates the input history. dir=-1 = older (up), dir=1 = newer (down).
+func (m *model) navHistory(dir int) {
+	if len(m.history) == 0 || m.isGenerating || m.confirmState != nil {
+		return
+	}
+
+	// Save current input as draft when starting history browsing
+	if m.historyIdx == 0 && dir < 0 {
+		m.historyDraft = m.textInput.Value()
+	}
+
+	newIdx := m.historyIdx - dir // up(-1) increases idx, down(1) decreases
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	if newIdx > len(m.history) {
+		newIdx = len(m.history)
+	}
+
+	// Already at boundary
+	if newIdx == m.historyIdx {
+		return
+	}
+
+	m.historyIdx = newIdx
+
+	if m.historyIdx == 0 {
+		// Back to present — restore draft
+		m.textInput.SetValue(m.historyDraft)
+	} else {
+		// Show historical entry (from end)
+		m.textInput.SetValue(m.history[len(m.history)-m.historyIdx])
+	}
+	m.textInput.CursorEnd()
 }
 
 // ─── String helpers ───────────────────────────────────────────────────────────
@@ -1026,4 +1110,92 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		return confirmResultMsg{callID: cs.callID, choice: agentChoice}
 	}
+}
+
+// ─── History persistence ─────────────────────────────────────────────────────
+
+const maxHistory = 20
+
+// historyFile returns the path to the history file (~/.soloqueue/history).
+func historyFile() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+	return filepath.Join(home, ".soloqueue", "history")
+}
+
+// loadHistory reads history from ~/.soloqueue/history and returns a slice of
+// historical input strings. Silently ignores read errors (file not found, etc.)
+func loadHistory() []string {
+	path := historyFile()
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var history []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimRight(scanner.Text(), "\n\r")
+		if line != "" {
+			history = append(history, line)
+		}
+	}
+	return history
+}
+
+// appendHistory appends a new entry to the history file. If the last entry is
+// identical, it is not appended. The file is truncated to maxHistory entries.
+func appendHistory(entry string) {
+	if entry == "" {
+		return
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(historyFile())
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return
+	}
+
+	// Read existing entries
+	var history []string
+	f, err := os.OpenFile(historyFile(), os.O_RDONLY, 0644)
+	if err == nil {
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimRight(scanner.Text(), "\n\r")
+			if line != "" {
+				history = append(history, line)
+			}
+		}
+		f.Close()
+	}
+
+	// Deduplicate adjacent identical entries
+	if len(history) > 0 && history[len(history)-1] == entry {
+		return
+	}
+
+	// Append new entry
+	history = append(history, entry)
+
+	// Truncate to maxHistory
+	if len(history) > maxHistory {
+		history = history[len(history)-maxHistory:]
+	}
+
+	// Write back
+	file, err := os.OpenFile(historyFile(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	writer := bufio.NewWriter(file)
+	for _, h := range history {
+		fmt.Fprintln(writer, h)
+	}
+	writer.Flush()
 }
