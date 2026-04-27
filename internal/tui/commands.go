@@ -59,9 +59,6 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 			_ = m.sess.Clear()
 		}
 		m.messages = nil
-		m.history = nil
-		m.historyIdx = 0
-		m.historyDraft = ""
 		text := clearStatusStyle.Render("◆  context cleared") + "\n\n"
 		cmd = printfWithClear("%s", text)
 

@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -202,6 +205,7 @@ func Run(cfg Config) error {
 		cfg:      cfg,
 		ctx:      ctx,
 		messages: []message{},
+		history:  loadHistory(),
 	}
 
 	// Setup text input
@@ -964,6 +968,7 @@ func (m *model) addHistory(line string) {
 	m.history = append(m.history, line)
 	m.historyIdx = 0
 	m.historyDraft = ""
+	appendHistory(line)
 }
 
 // navHistory navigates the input history. dir=-1 = older (up), dir=1 = newer (down).
@@ -1105,4 +1110,92 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		return confirmResultMsg{callID: cs.callID, choice: agentChoice}
 	}
+}
+
+// ─── History persistence ─────────────────────────────────────────────────────
+
+const maxHistory = 20
+
+// historyFile returns the path to the history file (~/.soloqueue/history).
+func historyFile() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+	return filepath.Join(home, ".soloqueue", "history")
+}
+
+// loadHistory reads history from ~/.soloqueue/history and returns a slice of
+// historical input strings. Silently ignores read errors (file not found, etc.)
+func loadHistory() []string {
+	path := historyFile()
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var history []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimRight(scanner.Text(), "\n\r")
+		if line != "" {
+			history = append(history, line)
+		}
+	}
+	return history
+}
+
+// appendHistory appends a new entry to the history file. If the last entry is
+// identical, it is not appended. The file is truncated to maxHistory entries.
+func appendHistory(entry string) {
+	if entry == "" {
+		return
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(historyFile())
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return
+	}
+
+	// Read existing entries
+	var history []string
+	f, err := os.OpenFile(historyFile(), os.O_RDONLY, 0644)
+	if err == nil {
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimRight(scanner.Text(), "\n\r")
+			if line != "" {
+				history = append(history, line)
+			}
+		}
+		f.Close()
+	}
+
+	// Deduplicate adjacent identical entries
+	if len(history) > 0 && history[len(history)-1] == entry {
+		return
+	}
+
+	// Append new entry
+	history = append(history, entry)
+
+	// Truncate to maxHistory
+	if len(history) > maxHistory {
+		history = history[len(history)-maxHistory:]
+	}
+
+	// Write back
+	file, err := os.OpenFile(historyFile(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	writer := bufio.NewWriter(file)
+	for _, h := range history {
+		fmt.Fprintln(writer, h)
+	}
+	writer.Flush()
 }
