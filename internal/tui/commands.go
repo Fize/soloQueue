@@ -29,13 +29,22 @@ func printfWithClear(format string, args ...any) tea.Cmd {
 
 func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 	name := strings.ToLower(strings.TrimSpace(input))
+
+	// Flush logo to scrollback on first command
+	var logoCmd tea.Cmd
+	if !m.logoShown {
+		m.logoShown = true
+		logoCmd = printfOnce("%s", renderLogo(m.cfg.Version))
+	}
+
+	var cmd tea.Cmd
 	switch name {
 	case "/quit", "/exit", "/q":
 		return true, nil
 
 	case "/help", "/?":
 		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /history /version /quit") + "\n\n"
-		return false, printfWithClear("%s", text)
+		cmd = printfWithClear("%s", text)
 
 	case "/clear":
 		// Cancel any active stream
@@ -46,25 +55,36 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 			m.resetGenState()
 			m.current = nil
 		}
+		// 清空上下文：追加 /clear 事件到 timeline，重置 ContextWindow
+		if m.sess != nil {
+			_ = m.sess.Clear()
+		}
 		m.messages = nil
 		m.history = nil
-		// Clear scrollback + screen + cursor home
-		return false, tea.Printf("\x1b[3J\x1b[2J\x1b[H")
+		text := clearStatusStyle.Render("◆  context cleared") + "\n\n"
+		cmd = printfWithClear("%s", text)
 
 	case "/version":
 		text := agentStyle.Render("Solo:") + "\n" + lipgloss.NewStyle().Bold(true).Render("SoloQueue "+m.cfg.Version) + "\n\n"
-		return false, printfWithClear("%s", text)
+		cmd = printfWithClear("%s", text)
 
 	case "/history":
-		return false, m.historyPrintf()
+		cmd = m.historyPrintf()
 
 	default:
 		if strings.HasPrefix(input, "/") {
 			text := agentStyle.Render("Solo:") + "\n" + errorStyle.Render("✗ Unknown command: "+input+". Type /help") + "\n\n"
-			return false, printfWithClear("%s", text)
+			cmd = printfWithClear("%s", text)
 		}
 	}
-	return false, nil
+
+	if cmd == nil {
+		return false, nil
+	}
+	if logoCmd != nil {
+		return false, tea.Sequence(logoCmd, cmd)
+	}
+	return false, cmd
 }
 
 func (m *model) historyPrintf() tea.Cmd {
