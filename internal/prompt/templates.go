@@ -20,20 +20,20 @@ const DefaultRules = `## Orchestration Rules
 
 6. **Failure Fallback**: If a Team Leader fails to complete a task, attempt to handle it yourself using available tools. If beyond your capability, report the failure honestly and suggest next steps.`
 
-// 性格说明映射（用于 prompt 中的英文描述）
+// personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
-	"严谨": "Emphasizes accuracy and thorough evidence; avoids jumping to conclusions",
-	"活泼": "Uses vivid language, metaphors, and analogies",
-	"温和": "Speaks gently with encouragement; avoids blunt phrasing",
-	"直接": "Gets straight to the point without beating around the bush",
+	"strict":   "Emphasizes accuracy and thorough evidence; avoids jumping to conclusions",
+	"playful":  "Uses vivid language, metaphors, and analogies",
+	"gentle":   "Speaks gently with encouragement; avoids blunt phrasing",
+	"direct":   "Gets straight to the point without beating around the bush",
 }
 
-// 沟通偏好说明映射（用于 prompt 中的英文描述）
+// commStyleDescriptions maps communication style keys to English descriptions used in the prompt.
 var commStyleDescriptions = map[string]string{
-	"简短": "Prioritizes conclusions and key information; minimizes preamble",
-	"详细": "Provides full background, reasoning process, and supplementary details",
-	"随意": "Uses conversational, casual, and natural language",
-	"正式": "Uses formal, precise wording suitable for professional settings",
+	"brief":    "Prioritizes conclusions and key information; minimizes preamble",
+	"detailed": "Provides full background, reasoning process, and supplementary details",
+	"casual":   "Uses conversational, casual, and natural language",
+	"formal":   "Uses formal, precise wording suitable for professional settings",
 }
 
 // BuildProfile 根据 ProfileAnswers 构建 profile.md 内容（英文 prompt）。
@@ -42,6 +42,15 @@ func BuildProfile(answers ProfileAnswers) string {
 	personalityDesc := personalityDesc(answers.Personality)
 	commStyleDesc := commStyleDesc(answers.CommStyle)
 
+	// 判断是否有多个称呼
+	nameList := parseNameList(answers.Name)
+	nameClause := answers.Name
+	if len(nameList) > 1 {
+		nameClause = fmt.Sprintf("one of %s (pick whichever fits the moment)", answers.Name)
+	}
+
+	genderTone := genderToneGuidance(answers.Gender)
+
 	return fmt.Sprintf(`You are %s, a personal assistant and the single point of interaction for the user.
 
 Your core responsibilities: understand user intent, decompose complex tasks, delegate them to the appropriate Team Leaders, and synthesize the results from all teams into a coherent response.
@@ -49,7 +58,7 @@ Your core responsibilities: understand user intent, decompose complex tasks, del
 ## Personalization
 
 - Name: %s
-- Gender: %s
+- Gender: %s. %s
 - Personality: %s. %s
 - Communication style: %s. %s
 
@@ -63,12 +72,40 @@ You have access to tools and can execute operations yourself, but you must follo
    - No suitable team matches the task
    - A team has failed and no other team can take over
 3. **No Bypassing**: Even when executing tasks yourself, you must never bypass Team Leaders to directly command subordinate Agents.`,
+		nameClause,
 		answers.Name,
-		answers.Name,
-		answers.Gender,
+		answers.Gender, genderTone,
 		answers.Personality, personalityDesc,
 		answers.CommStyle, commStyleDesc,
 	)
+}
+
+// parseNameList 将逗号分隔的称呼字符串拆分为列表。
+func parseNameList(name string) []string {
+	var result []string
+	for _, n := range strings.Split(name, ",") {
+		n = strings.TrimSpace(n)
+		// 兼容中文逗号
+		for _, nn := range strings.Split(n, "，") {
+			nn = strings.TrimSpace(nn)
+			if nn != "" {
+				result = append(result, nn)
+			}
+		}
+	}
+	return result
+}
+
+// genderToneGuidance returns casual-chat tone guidance based on gender.
+func genderToneGuidance(gender string) string {
+	switch gender {
+	case "male":
+		return "In casual chat, adopt a brotherly, steady, and straightforward tone"
+	case "female":
+		return "In casual chat, adopt a warm, lively, and engaging tone"
+	default:
+		return "In casual chat, adopt a balanced and natural tone"
+	}
 }
 
 func personalityDesc(p string) string {
@@ -85,16 +122,16 @@ func commStyleDesc(s string) string {
 	return s // 自定义：原文作为说明
 }
 
-// ProfilePromptText 返回首次启动时显示给用户的问卷提示文本（中文 UI）。
+// ProfilePromptText returns the onboarding questionnaire shown on first launch.
 func ProfilePromptText() string {
 	return strings.TrimSpace(`
-═══ 欢迎使用 SoloQueue ═══
+═══ Welcome to SoloQueue ═══
 
-首次启动，需要完成一些个性化设置（可直接回车使用默认值）：
+First-time setup — personalize your assistant (press Enter to accept defaults):
 
-1. 如何称呼你的助手？ [SoloQueue]
-2. 助手性别（男/女）？ [女]
-3. 助手性格（严谨/活泼/温和/直接/自定义）？ [活泼]
-4. 沟通偏好（简短/详细/随意/正式）？ [随意]
+1. What should we call your assistant? (comma-separated for multiple names, the assistant will pick one) [SoloQueue]
+2. Assistant gender (male/female)? [female]
+3. Personality (strict/playful/gentle/direct/custom)? [playful]
+4. Communication style (brief/detailed/casual/formal)? [casual]
 `)
 }

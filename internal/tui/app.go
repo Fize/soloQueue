@@ -210,14 +210,6 @@ func Run(cfg Config) error {
 		history:  loadHistory(),
 	}
 
-	// 如果新创建了 rules.md，添加系统通知
-	if cfg.RulesCreated && cfg.RulesPath != "" {
-		m.messages = append(m.messages, message{
-			role:    "system",
-			content: fmt.Sprintf("已为你创建默认规则文件 %s，你可以随时编辑自定义。", cfg.RulesPath),
-		})
-	}
-
 	// Setup text input
 	ti := textinput.New()
 	ti.Prompt = "❯ "
@@ -254,7 +246,14 @@ func Run(cfg Config) error {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, hintRotateCmd())
+	cmds := []tea.Cmd{textinput.Blink, hintRotateCmd()}
+
+	// Flush rules creation notice to scrollback before View renders
+	if m.cfg.RulesCreated && m.cfg.RulesPath != "" {
+		cmds = append(cmds, printfOnce("  rules.md not found — default created at %s. Feel free to edit it anytime.\n\n", m.cfg.RulesPath))
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // newRenderer creates a glamour TermRenderer configured for the current

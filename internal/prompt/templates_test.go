@@ -15,29 +15,29 @@ func TestBuildProfile_Defaults(t *testing.T) {
 	if !strings.Contains(result, "personal assistant") {
 		t.Error("should contain 'personal assistant'")
 	}
-	if !strings.Contains(result, "女") {
+	if !strings.Contains(result, "female") {
 		t.Error("should contain default gender")
 	}
-	if !strings.Contains(result, "活泼") {
+	if !strings.Contains(result, "playful") {
 		t.Error("should contain default personality")
 	}
 	if !strings.Contains(result, "vivid language") {
-		t.Error("should contain '活泼' personality description in English")
+		t.Error("should contain 'playful' personality description in English")
 	}
-	if !strings.Contains(result, "随意") {
+	if !strings.Contains(result, "casual") {
 		t.Error("should contain default comm style")
 	}
 	if !strings.Contains(result, "conversational") {
-		t.Error("should contain '随意' comm style description in English")
+		t.Error("should contain 'casual' comm style description in English")
 	}
 }
 
 func TestBuildProfile_Custom(t *testing.T) {
 	answers := ProfileAnswers{
 		Name:        "小Q",
-		Gender:      "女",
-		Personality: "活泼",
-		CommStyle:   "详细",
+		Gender:      "female",
+		Personality: "playful",
+		CommStyle:   "detailed",
 	}
 	result := BuildProfile(answers)
 
@@ -45,19 +45,19 @@ func TestBuildProfile_Custom(t *testing.T) {
 		t.Error("should contain custom name")
 	}
 	if !strings.Contains(result, "vivid language") {
-		t.Error("should contain '活泼' personality description in English")
+		t.Error("should contain 'playful' personality description in English")
 	}
 	if !strings.Contains(result, "full background") {
-		t.Error("should contain '详细' comm style description in English")
+		t.Error("should contain 'detailed' comm style description in English")
 	}
 }
 
 func TestBuildProfile_CustomPersonality(t *testing.T) {
 	answers := ProfileAnswers{
 		Name:        "SoloQueue",
-		Gender:      "女",
+		Gender:      "female",
 		Personality: "像一个老朋友一样交流",
-		CommStyle:   "随意",
+		CommStyle:   "casual",
 	}
 	result := BuildProfile(answers)
 
@@ -65,7 +65,7 @@ func TestBuildProfile_CustomPersonality(t *testing.T) {
 		t.Error("custom personality should be used as-is for description")
 	}
 	if !strings.Contains(result, "conversational") {
-		t.Error("should contain '随意' comm style description in English")
+		t.Error("should contain 'casual' comm style description in English")
 	}
 }
 
@@ -86,7 +86,7 @@ func TestDefaultRules(t *testing.T) {
 
 func TestProfilePromptText(t *testing.T) {
 	text := ProfilePromptText()
-	if !strings.Contains(text, "欢迎") {
+	if !strings.Contains(text, "Welcome") {
 		t.Error("prompt text should contain welcome message")
 	}
 	if !strings.Contains(text, "SoloQueue") {

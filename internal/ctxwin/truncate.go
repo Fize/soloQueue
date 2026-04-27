@@ -146,7 +146,7 @@ func tryJSONArrayTruncate(content string, tokenizer *Tokenizer) string {
 	result := make([]any, 0, headCount+1+tailCount)
 	result = append(result, arr[:headCount]...)
 	omitted := n - headCount - tailCount
-	result = append(result, fmt.Sprintf("[...已省略 %d 个元素...]", omitted))
+	result = append(result, fmt.Sprintf("[...omitted %d elements...]", omitted))
 	result = append(result, arr[n-tailCount:]...)
 
 	b, err := json.Marshal(result)
@@ -173,7 +173,7 @@ func charLevelTruncate(s string, headRatio, tailRatio float64) string {
 	head := string(runes[:headLen])
 	tail := string(runes[n-tailLen:])
 	omitted := n - headLen - tailLen
-	return head + fmt.Sprintf("\n[...已省略 %d 个字符...]\n", omitted) + tail
+	return head + fmt.Sprintf("\n[...omitted %d characters...]\n", omitted) + tail
 }
 
 // ─── Step 2: Turn 粒度 FIFO 滑动窗口 ────────────────────────────────────────
