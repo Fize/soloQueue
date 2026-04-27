@@ -20,9 +20,12 @@ type Settings struct {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	TimeoutSecs int  `json:"timeoutSecs"`
-	MaxHistory  int  `json:"maxHistory"`
-	AutoSave    bool `json:"autoSave"`
+	TimeoutSecs       int  `json:"timeoutSecs"`
+	MaxHistory        int  `json:"maxHistory"`
+	AutoSave          bool `json:"autoSave"`
+	ReplaySegments    int  `json:"replaySegments"`    // 回放段数，默认 3
+	TimelineMaxFileMB int  `json:"timelineMaxFileMB"` // 单文件上限 MB，默认 50
+	TimelineMaxFiles  int  `json:"timelineMaxFiles"`  // 轮转文件数，默认 5
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────

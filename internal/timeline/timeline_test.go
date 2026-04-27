@@ -1,0 +1,827 @@
+package timeline
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+)
+
+// ─── Writer: AppendMessage ───────────────────────────────────────────────────
+
+func TestWriter_AppendMessage(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	err = w.AppendMessage(&MessagePayload{
+		Role:    "user",
+		Content: "hello",
+	})
+	if err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	evt := events[0]
+	if evt.EventType != EventMessage {
+		t.Errorf("type = %q, want %q", evt.EventType, EventMessage)
+	}
+	if evt.Message == nil {
+		t.Fatal("message is nil")
+	}
+	if evt.Message.Role != "user" || evt.Message.Content != "hello" {
+		t.Errorf("message = %+v, want role=user content=hello", evt.Message)
+	}
+	if evt.Control != nil {
+		t.Error("control should be nil for message event")
+	}
+}
+
+func TestWriter_AppendMessage_AllFields(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	err = w.AppendMessage(&MessagePayload{
+		Role:             "assistant",
+		Content:          "result",
+		ReasoningContent: "thinking...",
+		Name:             "tool_a",
+		ToolCallID:       "tc-1",
+		ToolCalls: []ToolCallRec{
+			{ID: "tc-1", Type: "function", Name: "read_file", Arguments: `{"path":"/tmp"}`},
+		},
+		IsEphemeral: true,
+		AgentID:     "agent-001",
+	})
+	if err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	msg := events[0].Message
+	if msg.Role != "assistant" {
+		t.Errorf("role = %q", msg.Role)
+	}
+	if msg.Content != "result" {
+		t.Errorf("content = %q", msg.Content)
+	}
+	if msg.ReasoningContent != "thinking..." {
+		t.Errorf("reasoning = %q", msg.ReasoningContent)
+	}
+	if msg.Name != "tool_a" {
+		t.Errorf("name = %q", msg.Name)
+	}
+	if msg.ToolCallID != "tc-1" {
+		t.Errorf("tool_call_id = %q", msg.ToolCallID)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].Name != "read_file" {
+		t.Errorf("tool_calls = %+v", msg.ToolCalls)
+	}
+	if !msg.IsEphemeral {
+		t.Error("ephemeral should be true")
+	}
+	if msg.AgentID != "agent-001" {
+		t.Errorf("agent_id = %q", msg.AgentID)
+	}
+}
+
+// ─── Writer: AppendControl ───────────────────────────────────────────────────
+
+func TestWriter_AppendControl(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	err = w.AppendControl(&ControlPayload{
+		Action: "clear",
+		Reason: "user_command",
+	})
+	if err != nil {
+		t.Fatalf("AppendControl: %v", err)
+	}
+
+	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	evt := events[0]
+	if evt.EventType != EventControl {
+		t.Errorf("type = %q, want %q", evt.EventType, EventControl)
+	}
+	if evt.Control == nil {
+		t.Fatal("control is nil")
+	}
+	if evt.Control.Action != "clear" {
+		t.Errorf("action = %q, want clear", evt.Control.Action)
+	}
+	if evt.Control.Reason != "user_command" {
+		t.Errorf("reason = %q", evt.Control.Reason)
+	}
+	if evt.Message != nil {
+		t.Error("message should be nil for control event")
+	}
+}
+
+// ─── Writer: Timestamp ───────────────────────────────────────────────────────
+
+func TestWriter_EventHasTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "hi"})
+
+	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	if events[0].Timestamp == "" {
+		t.Error("timestamp is empty")
+	}
+}
+
+// ─── Writer: Multiple events ─────────────────────────────────────────────────
+
+func TestWriter_MultipleEvents(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
+
+	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	if len(events) != 4 {
+		t.Fatalf("expected 4 events, got %d", len(events))
+	}
+	if events[0].Message.Content != "q1" {
+		t.Errorf("event[0] content = %q", events[0].Message.Content)
+	}
+	if events[1].Message.Content != "a1" {
+		t.Errorf("event[1] content = %q", events[1].Message.Content)
+	}
+	if events[2].Control.Action != "clear" {
+		t.Errorf("event[2] action = %q", events[2].Control.Action)
+	}
+	if events[3].Message.Content != "q2" {
+		t.Errorf("event[3] content = %q", events[3].Message.Content)
+	}
+}
+
+// ─── Writer: Rotation ────────────────────────────────────────────────────────
+
+func TestWriter_Rotation(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 50, 3) // 50 bytes per file, keep 3 rotated
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	for i := 0; i < 30; i++ {
+		w.AppendMessage(&MessagePayload{Role: "user", Content: "hello world"})
+	}
+
+	// 主文件应存在
+	if _, err := os.Stat(filepath.Join(dir, "timeline.jsonl")); err != nil {
+		t.Errorf("active file missing: %v", err)
+	}
+	// 至少有一个轮转文件
+	if _, err := os.Stat(filepath.Join(dir, "timeline.jsonl.1")); err != nil {
+		t.Errorf("rotated .1 file missing: %v", err)
+	}
+}
+
+// ─── ReadLastSegments ────────────────────────────────────────────────────────
+
+func TestReadLastSegments_NoFiles(t *testing.T) {
+	dir := t.TempDir()
+	segs, err := ReadLastSegments(dir, "timeline", 3)
+	if err != nil {
+		t.Fatalf("ReadLastSegments: %v", err)
+	}
+	if len(segs) != 0 {
+		t.Errorf("expected 0 segments, got %d", len(segs))
+	}
+}
+
+func TestReadLastSegments_NegativeN(t *testing.T) {
+	dir := t.TempDir()
+	segs, err := ReadLastSegments(dir, "timeline", -1)
+	if err != nil {
+		t.Fatalf("ReadLastSegments: %v", err)
+	}
+	if len(segs) != 0 {
+		t.Errorf("expected 0 segments for n<=0, got %d", len(segs))
+	}
+}
+
+func TestReadLastSegments_NoClear_OneSegment(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
+	w.Close()
+
+	segs, err := ReadLastSegments(dir, "timeline", 3)
+	if err != nil {
+		t.Fatalf("ReadLastSegments: %v", err)
+	}
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 2 {
+		t.Errorf("segment has %d messages, want 2", len(segs[0].Messages))
+	}
+}
+
+func TestReadLastSegments_WithClear_OnlyAfterLastClear(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a2"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q3"})
+	w.Close()
+
+	segs, err := ReadLastSegments(dir, "timeline", 3)
+	if err != nil {
+		t.Fatalf("ReadLastSegments: %v", err)
+	}
+	// /clear 是截断点：只返回最后一个 /clear 之后的消息
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 1 {
+		t.Errorf("segment has %d messages, want 1", len(segs[0].Messages))
+	}
+	if segs[0].Messages[0].Content != "q3" {
+		t.Errorf("msg[0] = %q, want q3", segs[0].Messages[0].Content)
+	}
+}
+
+func TestReadLastSegments_ClearAtEnd_NoSegment(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	w.Close()
+
+	segs, err := ReadLastSegments(dir, "timeline", 3)
+	if err != nil {
+		t.Fatalf("ReadLastSegments: %v", err)
+	}
+	// 最后一个事件是 /clear，之后没有消息 → 不 replay
+	if len(segs) != 0 {
+		t.Errorf("expected 0 segments after /clear, got %d", len(segs))
+	}
+}
+
+func TestReadLastSegments_ClearMiddle_OnlyAfterClear(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
+	w.Close()
+
+	segs, err := ReadLastSegments(dir, "timeline", 10)
+	if err != nil {
+		t.Fatalf("ReadLastSegments: %v", err)
+	}
+	// 只返回 /clear 之后的 q2
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 1 || segs[0].Messages[0].Content != "q2" {
+		t.Errorf("segment content wrong: %+v", segs[0].Messages)
+	}
+}
+
+// ─── splitSegments (internal) ────────────────────────────────────────────────
+
+func TestSplitSegments_NoClear(t *testing.T) {
+	events := []Event{
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q1"}},
+		{EventType: EventMessage, Message: &MessagePayload{Role: "assistant", Content: "a1"}},
+	}
+	segs := splitSegments(events)
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 2 {
+		t.Errorf("segment has %d messages, want 2", len(segs[0].Messages))
+	}
+}
+
+func TestSplitSegments_ClearAtEnd(t *testing.T) {
+	events := []Event{
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q1"}},
+		{EventType: EventControl, Control: &ControlPayload{Action: "clear"}},
+	}
+	segs := splitSegments(events)
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 1 {
+		t.Errorf("segment has %d messages, want 1", len(segs[0].Messages))
+	}
+}
+
+func TestSplitSegments_ConsecutiveClears(t *testing.T) {
+	events := []Event{
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q1"}},
+		{EventType: EventControl, Control: &ControlPayload{Action: "clear"}},
+		{EventType: EventControl, Control: &ControlPayload{Action: "clear"}},
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q2"}},
+	}
+	segs := splitSegments(events)
+	// q1 | (empty from double clear) | q2
+	// The empty segment between two clears is appended by the second clear
+	if len(segs) != 3 {
+		t.Fatalf("expected 3 segments, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 1 {
+		t.Errorf("seg[0] has %d messages, want 1", len(segs[0].Messages))
+	}
+	if len(segs[1].Messages) != 0 {
+		t.Errorf("seg[1] has %d messages, want 0 (empty)", len(segs[1].Messages))
+	}
+	if len(segs[2].Messages) != 1 {
+		t.Errorf("seg[2] has %d messages, want 1", len(segs[2].Messages))
+	}
+}
+
+func TestSplitSegments_IgnoresControlOtherThanClear(t *testing.T) {
+	events := []Event{
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q1"}},
+		{EventType: EventControl, Control: &ControlPayload{Action: "auto_clear"}},
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q2"}},
+	}
+	segs := splitSegments(events)
+	// "auto_clear" doesn't split; only "clear" does
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment (auto_clear doesn't split), got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 2 {
+		t.Errorf("segment has %d messages, want 2", len(segs[0].Messages))
+	}
+}
+
+func TestSplitSegments_IgnoresNilControl(t *testing.T) {
+	events := []Event{
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q1"}},
+		{EventType: EventControl, Control: nil},
+		{EventType: EventMessage, Message: &MessagePayload{Role: "user", Content: "q2"}},
+	}
+	segs := splitSegments(events)
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+}
+
+// ─── ReplayInto ──────────────────────────────────────────────────────────────
+
+func TestReplayInto_SkipsSystemPrompt(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "system", Content: "you are helpful"},
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi there"},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	// system prompt should be skipped (factory already pushes it)
+	if cw.Len() != 2 {
+		t.Errorf("cw.Len() = %d, want 2 (system skipped)", cw.Len())
+	}
+}
+
+func TestReplayInto_WithToolCalls(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "user", Content: "read file"},
+				{
+					Role:    "assistant",
+					Content: "",
+					ToolCalls: []ToolCallRec{
+						{ID: "tc-1", Type: "function", Name: "read_file", Arguments: `{"path":"/tmp"}`},
+					},
+				},
+				{Role: "tool", Content: "file contents", Name: "read_file", ToolCallID: "tc-1"},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	if cw.Len() != 3 {
+		t.Fatalf("cw.Len() = %d, want 3", cw.Len())
+	}
+
+	// Check assistant message has tool calls
+	msg, ok := cw.MessageAt(1)
+	if !ok {
+		t.Fatal("message at index 1 not found")
+	}
+	if len(msg.ToolCalls) != 1 {
+		t.Fatalf("tool_calls len = %d, want 1", len(msg.ToolCalls))
+	}
+	if msg.ToolCalls[0].Function.Name != "read_file" {
+		t.Errorf("tool_call name = %q", msg.ToolCalls[0].Function.Name)
+	}
+	if msg.ToolCalls[0].Function.Arguments != `{"path":"/tmp"}` {
+		t.Errorf("tool_call arguments = %q", msg.ToolCalls[0].Function.Arguments)
+	}
+
+	// Check tool message has correct fields
+	toolMsg, ok := cw.MessageAt(2)
+	if !ok {
+		t.Fatal("message at index 2 not found")
+	}
+	if toolMsg.Name != "read_file" {
+		t.Errorf("tool name = %q", toolMsg.Name)
+	}
+	if toolMsg.ToolCallID != "tc-1" {
+		t.Errorf("tool_call_id = %q", toolMsg.ToolCallID)
+	}
+}
+
+func TestReplayInto_WithReasoningContent(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "user", Content: "think"},
+				{Role: "assistant", Content: "answer", ReasoningContent: "let me think..."},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	msg, ok := cw.MessageAt(1)
+	if !ok {
+		t.Fatal("message at index 1 not found")
+	}
+	if msg.ReasoningContent != "let me think..." {
+		t.Errorf("reasoning = %q", msg.ReasoningContent)
+	}
+}
+
+func TestReplayInto_WithEphemeral(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "tool", Content: "large output", IsEphemeral: true},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	msg, ok := cw.MessageAt(0)
+	if !ok {
+		t.Fatal("message at index 0 not found")
+	}
+	if !msg.IsEphemeral {
+		t.Error("ephemeral flag not set")
+	}
+}
+
+func TestReplayInto_MultipleSegments(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{Messages: []MessagePayload{
+			{Role: "user", Content: "q1"},
+			{Role: "assistant", Content: "a1"},
+		}},
+		{Messages: []MessagePayload{
+			{Role: "user", Content: "q2"},
+			{Role: "assistant", Content: "a2"},
+		}},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	if cw.Len() != 4 {
+		t.Errorf("cw.Len() = %d, want 4", cw.Len())
+	}
+}
+
+func TestReplayInto_EmptySegments(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	ReplayInto(cw, nil)
+	cw.SetReplayMode(false)
+
+	if cw.Len() != 0 {
+		t.Errorf("cw.Len() = %d, want 0", cw.Len())
+	}
+}
+
+// ─── End-to-end: Write then Read ────────────────────────────────────────────
+
+func TestWriteThenRead_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "system", Content: "be helpful"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "hello"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "world"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "new topic"})
+	w.Close()
+
+	segs, err := ReadLastSegments(dir, "timeline", 5)
+	if err != nil {
+		t.Fatalf("ReadLastSegments: %v", err)
+	}
+	// /clear 截断：只返回 /clear 之后的消息
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 1 {
+		t.Errorf("segment has %d messages, want 1 (only 'new topic')", len(segs[0].Messages))
+	}
+	if segs[0].Messages[0].Content != "new topic" {
+		t.Errorf("msg content = %q, want 'new topic'", segs[0].Messages[0].Content)
+	}
+}
+
+func TestWriteThenReplay_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+
+	// 写入完整的对话流程
+	w.AppendMessage(&MessagePayload{Role: "system", Content: "system"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{
+		Role:    "assistant",
+		Content: "",
+		ToolCalls: []ToolCallRec{
+			{ID: "tc-1", Type: "function", Name: "read_file", Arguments: `{"path":"/tmp"}`},
+		},
+	})
+	w.AppendMessage(&MessagePayload{Role: "tool", Content: "contents", Name: "read_file", ToolCallID: "tc-1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1", ReasoningContent: "thinking..."})
+	w.Close()
+
+	segs, _ := ReadLastSegments(dir, "timeline", 3)
+
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+	ReplayInto(cw, segs)
+	cw.SetReplayMode(false)
+
+	// 4 messages (system skipped)
+	if cw.Len() != 4 {
+		t.Fatalf("cw.Len() = %d, want 4", cw.Len())
+	}
+
+	// 验证 user
+	m0, _ := cw.MessageAt(0)
+	if m0.Role != ctxwin.RoleUser || m0.Content != "q1" {
+		t.Errorf("msg[0] = %+v", m0)
+	}
+
+	// 验证 assistant with tool_calls
+	m1, _ := cw.MessageAt(1)
+	if len(m1.ToolCalls) != 1 {
+		t.Fatalf("msg[1] tool_calls len = %d", len(m1.ToolCalls))
+	}
+	if m1.ToolCalls[0].ID != "tc-1" || m1.ToolCalls[0].Function.Name != "read_file" {
+		t.Errorf("msg[1] tool_call = %+v", m1.ToolCalls[0])
+	}
+
+	// 验证 tool result
+	m2, _ := cw.MessageAt(2)
+	if m2.Role != ctxwin.RoleTool || m2.ToolCallID != "tc-1" {
+		t.Errorf("msg[2] = %+v", m2)
+	}
+
+	// 验证 assistant with reasoning
+	m3, _ := cw.MessageAt(3)
+	if m3.Content != "a1" || m3.ReasoningContent != "thinking..." {
+		t.Errorf("msg[3] = %+v", m3)
+	}
+}
+
+// ─── readFile: corrupted lines ───────────────────────────────────────────────
+
+func TestReadFile_SkipsCorruptedLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.jsonl")
+
+	// 写入混合内容：有效行 + 损坏行 + 空行
+	f, _ := os.Create(path)
+	f.WriteString(`{"ts":"2025-01-01T00:00:00Z","type":"message","msg":{"role":"user","content":"q1"}}` + "\n")
+	f.WriteString("this is not json\n")
+	f.WriteString("\n")
+	f.WriteString(`{"ts":"2025-01-01T00:00:00Z","type":"message","msg":{"role":"assistant","content":"a1"}}` + "\n")
+	f.Close()
+
+	events, err := readFile(path)
+	if err != nil {
+		t.Fatalf("readFile: %v", err)
+	}
+	if len(events) != 2 {
+		t.Errorf("expected 2 valid events, got %d", len(events))
+	}
+}
+
+// ─── newEvent ────────────────────────────────────────────────────────────────
+
+func TestNewEvent_Timestamp(t *testing.T) {
+	evt := newEvent(EventMessage)
+	if evt.Timestamp == "" {
+		t.Error("timestamp should not be empty")
+	}
+	if evt.EventType != EventMessage {
+		t.Errorf("type = %q, want %q", evt.EventType, EventMessage)
+	}
+}
+
+// ─── ToolCallRec JSON round-trip ─────────────────────────────────────────────
+
+func TestToolCallRec_JSONRoundTrip(t *testing.T) {
+	tc := ToolCallRec{
+		ID:        "call-abc",
+		Type:      "function",
+		Name:      "shell_exec",
+		Arguments: `{"command":"ls"}`,
+	}
+	data, err := json.Marshal(tc)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got ToolCallRec
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got != tc {
+		t.Errorf("round-trip failed: got %+v, want %+v", got, tc)
+	}
+}
+
+// ─── PushHook integration ────────────────────────────────────────────────────
+
+func TestPushHook_WritesToTimeline(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	defer w.Close()
+
+	pushHook := func(msg ctxwin.Message) {
+		var toolCalls []ToolCallRec
+		for _, tc := range msg.ToolCalls {
+			toolCalls = append(toolCalls, ToolCallRec{
+				ID:        tc.ID,
+				Type:      tc.Type,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+		_ = w.AppendMessage(&MessagePayload{
+			Role:             string(msg.Role),
+			Content:          msg.Content,
+			ReasoningContent: msg.ReasoningContent,
+			Name:             msg.Name,
+			ToolCallID:       msg.ToolCallID,
+			ToolCalls:        toolCalls,
+			IsEphemeral:      msg.IsEphemeral,
+			AgentID:          "test-agent",
+		})
+	}
+
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer(),
+		ctxwin.WithPushHook(pushHook),
+	)
+
+	cw.Push(ctxwin.RoleUser, "hello")
+	cw.Push(ctxwin.RoleAssistant, "world", ctxwin.WithReasoningContent("thinking..."))
+	cw.Push(ctxwin.RoleAssistant, "",
+		ctxwin.WithToolCalls([]llm.ToolCall{
+			{
+				ID:   "tc-1",
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      "read_file",
+					Arguments: `{"path":"/tmp"}`,
+				},
+			},
+		}),
+	)
+
+	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events from pushHook, got %d", len(events))
+	}
+
+	// user
+	if events[0].Message.Role != "user" || events[0].Message.Content != "hello" {
+		t.Errorf("event[0] = %+v", events[0].Message)
+	}
+	// assistant with reasoning
+	if events[1].Message.ReasoningContent != "thinking..." {
+		t.Errorf("event[1] reasoning = %q", events[1].Message.ReasoningContent)
+	}
+	// assistant with tool_calls
+	if len(events[2].Message.ToolCalls) != 1 {
+		t.Fatalf("event[2] tool_calls len = %d", len(events[2].Message.ToolCalls))
+	}
+	if events[2].Message.ToolCalls[0].Name != "read_file" {
+		t.Errorf("event[2] tool_call name = %q", events[2].Message.ToolCalls[0].Name)
+	}
+	if events[2].Message.AgentID != "test-agent" {
+		t.Errorf("event[2] agent_id = %q", events[2].Message.AgentID)
+	}
+}
+
+// ─── Helper ──────────────────────────────────────────────────────────────────
+
+func readEventsFromFile(t *testing.T, path string) []Event {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile %s: %v", path, err)
+	}
+
+	var events []Event
+	for _, line := range splitLines(string(data)) {
+		if len(line) == 0 {
+			continue
+		}
+		var evt Event
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			t.Errorf("unmarshal line: %v\nline: %s", err, line)
+			continue
+		}
+		events = append(events, evt)
+	}
+	return events
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			line := s[start:i]
+			if len(line) > 0 {
+				lines = append(lines, line)
+			}
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}

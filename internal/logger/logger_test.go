@@ -485,11 +485,21 @@ func TestLogDuration_Error_RecordsBoth(t *testing.T) {
 
 func TestRotateWriter_SizeRollover(t *testing.T) {
 	dir := t.TempDir()
+	// maxSizeMB=1 实际上太小不好测，直接用底层 rotating.Writer 的方式：
+	// 通过 newRotateWriter 传入 maxSizeMB=0，然后重新创建一个有大小限制的
 	rw, err := newRotateWriter(dir, "test", false, 0, 0)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
-	rw.maxSize = 10 // 触发轮转
+	_ = rw.Close()
+
+	// 用极小的 maxSize 重新创建以触发轮转
+	rw, err = newRotateWriter(dir, "test", false, 1, 0) // 1MB，足够容纳少量写入但不触发轮转
+	if err != nil {
+		t.Fatalf("newRotateWriter: %v", err)
+	}
+	// 直接写底层 rotating.Writer 的 maxSize 来强制轮转
+	rw.rw.SetMaxSize(10) // 触发轮转
 
 	data := []byte(`{"test":1}`)
 	for i := 0; i < 5; i++ {

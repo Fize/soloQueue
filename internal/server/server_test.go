@@ -15,13 +15,14 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
 func startTestServer(t *testing.T, fake *agent.FakeLLM) (*httptest.Server, *session.SessionManager) {
 	t.Helper()
-	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error) {
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 		a := agent.NewAgent(
 			agent.Definition{ID: "test-" + teamID},
 			fake,
@@ -30,10 +31,10 @@ func startTestServer(t *testing.T, fake *agent.FakeLLM) (*httptest.Server, *sess
 		// agent lifetime must outlive the single Create request ctx;
 		// use Background for the agent's parent ctx.
 		if err := a.Start(context.Background()); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
-		return a, cw, nil
+		return a, cw, nil, nil
 	}
 	mgr := session.NewSessionManager(factory, 0)
 	t.Cleanup(func() { mgr.Shutdown(2 * time.Second) })

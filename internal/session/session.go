@@ -24,6 +24,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
 // ─── Errors ────────────────────────────────────────────────────────────────
@@ -50,6 +51,7 @@ type Session struct {
 
 	mu sync.Mutex
 	cw *ctxwin.ContextWindow // 替代原 history，管理完整对话上下文
+	tl *timeline.Writer      // 时间线持久化（可为 nil，表示不持久化）
 
 	// inFlight 并发 Ask 的 CAS 锁：0 → 1 入场；失败返回 ErrSessionBusy
 	inFlight atomic.Int32
@@ -64,13 +66,15 @@ type Session struct {
 // NewSession 构造并启动一个 session（agent 已应 Start）
 //
 // cw 应已包含 system prompt（在 factory 中 push）。
-func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow) *Session {
+// tl 可为 nil（不持久化）。
+func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl *timeline.Writer) *Session {
 	s := &Session{
 		ID:      id,
 		TeamID:  teamID,
 		Agent:   a,
 		Created: time.Now(),
 		cw:      cw,
+		tl:      tl,
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 	return s
@@ -102,6 +106,29 @@ func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cw
+}
+
+// Clear 执行软清除：追加 /clear 控制事件到 timeline，重置 ContextWindow
+//
+// 不删除任何持久化数据。ContextWindow 仅保留 system prompt。
+func (s *Session) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 追加 /clear 控制事件到 timeline
+	if s.tl != nil {
+		if err := s.tl.AppendControl(&timeline.ControlPayload{
+			Action: "clear",
+			Reason: "user_command",
+		}); err != nil {
+			return fmt.Errorf("session: clear: %w", err)
+		}
+	}
+
+	// 重置 ContextWindow（保留 system prompt）
+	s.cw.Reset()
+
+	return nil
 }
 
 // Ask 发送一轮 prompt，返回最终 content
@@ -234,6 +261,10 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 // SessionManager.Delete 会在调用 Close 之后主动 Stop agent。
 func (s *Session) Close() {
 	s.closed.Store(true)
+	// 关闭 timeline Writer，刷盘并释放文件句柄
+	if s.tl != nil {
+		s.tl.Close()
+	}
 }
 
 func (s *Session) touch() {
@@ -242,13 +273,15 @@ func (s *Session) touch() {
 
 // ─── SessionManager ──────────────────────────────────────────────────────
 
-// AgentFactory 给定 teamID 构造并 Start 一个新 agent，同时返回 ContextWindow
+// AgentFactory 给定 teamID 构造并 Start 一个新 agent，同时返回 ContextWindow 和可选的 TimelineWriter
 //
 // **重要**：传入的 ctx **不应**被直接传给 agent.Start —— agent 生命周期独立于
 // 单次 Create 调用。factory 应使用 context.Background() 或 SessionManager
 // 持有的"根 ctx"（未来若有）作为 agent 的 parent ctx。
 // 这里 ctx 仅供 factory 内部短暂使用（比如网络配置加载、超时检查）。
-type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error)
+//
+// 返回的 *timeline.Writer 在 Session.Close 时自动关闭；不需要时可返回 nil。
+type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error)
 
 // SessionManager 管理所有活跃 session
 type SessionManager struct {
@@ -274,12 +307,12 @@ func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, e
 	if m.closed.Load() {
 		return nil, ErrSessionClosed
 	}
-	a, cw, err := m.factory(ctx, teamID)
+	a, cw, tl, err := m.factory(ctx, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("agent factory: %w", err)
 	}
 	id := newSessionID()
-	s := NewSession(id, teamID, a, cw)
+	s := NewSession(id, teamID, a, cw, tl)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -10,7 +10,7 @@
 //
 // WebSocket 协议（JSON per frame）：
 //
-//	Client → Server:  {"type":"ask","prompt":"..."} | {"type":"cancel"} | {"type":"ping"}
+//	Client → Server:  {"type":"ask","prompt":"..."} | {"type":"cancel"} | {"type":"ping"} | {"type":"clear"}
 //	Server → Client:  (1:1 映射 agent.AgentEvent) content_delta / reasoning_delta /
 //	                  tool_call_delta / tool_exec_start / tool_exec_done /
 //	                  iteration_done / done / error
@@ -171,6 +171,7 @@ const (
 	frameCancel  = "cancel"
 	framePing    = "ping"
 	frameConfirm = "confirm"
+	frameClear   = "clear"
 )
 
 // handleStream accepts WS upgrade and runs read+write loops.
@@ -273,6 +274,16 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 					slog.String("call_id", in.CallID),
 					slog.String("choice", in.Choice),
 				)
+			}
+
+		case frameClear:
+			if err := s.Clear(); err != nil {
+				m.logError(connCtx, "clear failed", err,
+					slog.String("session_id", id),
+				)
+			}
+			if err := writeWSFrame(connCtx, c, map[string]string{"type": "cleared"}); err != nil {
+				m.logError(connCtx, "ws write clear error", err)
 			}
 
 		default:
