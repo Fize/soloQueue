@@ -1,6 +1,11 @@
 package agent
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+)
 
 // ─── ConfirmChoice ──────────────────────────────────────────────────────────
 
@@ -74,4 +79,38 @@ func (s *memoryConfirmStore) Clear() {
 	s.mu.Lock()
 	s.tools = make(map[string]struct{})
 	s.mu.Unlock()
+}
+
+// Confirm 向 agent 注入用户对某个待确认 tool_call 的响应。
+//
+// 由外部系统（UI / TUI / WebSocket）在用户做出选择后调用。
+// choice 为用户选择的选项值；二元确认用 "yes"（确认）或 ""（拒绝）。
+// 若 callID 不存在或已响应，返回错误。
+func (a *Agent) Confirm(callID string, choice string) error {
+	a.confirmMu.RLock()
+	slot, ok := a.pendingConfirm[callID]
+	a.confirmMu.RUnlock()
+	if !ok {
+		return fmt.Errorf("agent: no pending confirmation for %s", callID)
+	}
+	if !slot.done.CompareAndSwap(false, true) {
+		return fmt.Errorf("agent: confirmation %s already resolved", callID)
+	}
+	select {
+	case slot.ch <- choice:
+		return nil
+	default:
+		return fmt.Errorf("agent: confirmation %s channel blocked", callID)
+	}
+}
+
+// ToolSpecs 返回当前 agent 注册的所有 tool 的 llm.ToolDef 快照
+//
+// 未调 WithTools 时返回 nil；LLMRequest.Tools = nil 在 DeepSeek wire 层
+// 会被 omitempty 省略，行为等价于"没注册工具"。
+func (a *Agent) ToolSpecs() []llm.ToolDef {
+	if a.tools == nil {
+		return nil
+	}
+	return a.tools.Specs()
 }
