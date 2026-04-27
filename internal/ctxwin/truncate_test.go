@@ -20,7 +20,7 @@ func TestCharLevelTruncate(t *testing.T) {
 	if !strings.HasPrefix(result, "xxxxxxxxxx") {
 		t.Errorf("should preserve first 10%%: got %q", result[:20])
 	}
-	if !strings.Contains(result, "已省略") {
+	if !strings.Contains(result, "omitted") {
 		t.Error("should contain omission marker")
 	}
 }
@@ -38,7 +38,7 @@ func TestCharLevelTruncateChinese(t *testing.T) {
 	// 中文字符，每个 rune 算一个字符
 	s := strings.Repeat("你", 100)
 	result := charLevelTruncate(s, 0.10, 0.20)
-	if !strings.Contains(result, "已省略") {
+	if !strings.Contains(result, "omitted") {
 		t.Error("should contain omission marker for Chinese")
 	}
 }
@@ -83,7 +83,7 @@ func TestTryJSONObjectTruncate(t *testing.T) {
 	if len(content) >= len(largeContent) {
 		t.Error("content should be truncated")
 	}
-	if !strings.Contains(content, "已省略") {
+	if !strings.Contains(content, "omitted") {
 		t.Error("truncated content should contain omission marker")
 	}
 }
@@ -153,8 +153,8 @@ func TestTryJSONArrayTruncate(t *testing.T) {
 
 	// 省略标记应该是一个字符串
 	marker, ok := parsed[5].(string)
-	if !ok || !strings.Contains(marker, "已省略") {
-		t.Errorf("omission marker should be a string with 已省略, got: %v", parsed[5])
+	if !ok || !strings.Contains(marker, "omitted") {
+		t.Errorf("omission marker should be a string with omitted, got: %v", parsed[5])
 	}
 }
 
