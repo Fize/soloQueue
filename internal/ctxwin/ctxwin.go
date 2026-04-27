@@ -82,6 +82,24 @@ func WithToolCalls(tcs []llm.ToolCall) PushOption {
 	return func(m *Message) { m.ToolCalls = tcs }
 }
 
+// ─── PushHook ───────────────────────────────────────────────────────────────
+
+// PushHook 在 Push 完成后被调用（用于持久化到 timeline）
+//
+// Hook 在 Session 的 mutex 保护内执行，无需额外同步。
+// replayMode 期间 Hook 不会被调用，避免双重写入。
+type PushHook func(msg Message)
+
+// ─── Option ─────────────────────────────────────────────────────────────────
+
+// Option 配置 ContextWindow 的可选行为
+type Option func(*ContextWindow)
+
+// WithPushHook 设置 Push 完成后的回调
+func WithPushHook(hook PushHook) Option {
+	return func(cw *ContextWindow) { cw.pushHook = hook }
+}
+
 // ─── ContextWindow ──────────────────────────────────────────────────────────
 
 // ContextWindow 是纯内存态、基于规则的线性上下文截断器
@@ -99,18 +117,24 @@ type ContextWindow struct {
 	bufferTokens  int        // 预留给模型回答的空间（默认 2000）
 	currentTokens int        // 实时值；Calibrate 后为精确值，Push 后含估算增量
 	tokenizer     *Tokenizer // 共享，初始化后不可变
+	pushHook      PushHook   // Push 完成后的回调（可为 nil）
+	replayMode    bool       // replay 期间禁用 pushHook
 }
 
 // NewContextWindow 创建上下文窗口
 //
 // maxTokens 来自 config.LLMModel.ContextWindow。
 // bufferTokens 预留给模型回答的空间（默认 2000）。
-func NewContextWindow(maxTokens, bufferTokens int, tokenizer *Tokenizer) *ContextWindow {
-	return &ContextWindow{
+func NewContextWindow(maxTokens, bufferTokens int, tokenizer *Tokenizer, opts ...Option) *ContextWindow {
+	cw := &ContextWindow{
 		maxTokens:    maxTokens,
 		bufferTokens: bufferTokens,
 		tokenizer:    tokenizer,
 	}
+	for _, opt := range opts {
+		opt(cw)
+	}
+	return cw
 }
 
 // ─── 核心外部 API ───────────────────────────────────────────────────────────
@@ -137,6 +161,11 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	}
 	cw.messages = append(cw.messages, msg)
 	cw.currentTokens += msg.Tokens
+
+	// Push 完成后调用 Hook（replay 期间不调用）
+	if cw.pushHook != nil && !cw.replayMode {
+		cw.pushHook(msg)
+	}
 }
 
 // BuildPayload 将当前内存中的 Message 切片转为 PayloadMessage 切片
@@ -217,6 +246,28 @@ func (cw *ContextWindow) PopLast() (Message, bool) {
 		cw.currentTokens = 0 // 漂移修正
 	}
 	return last, true
+}
+
+// Reset 重置上下文窗口，仅保留 system prompt（索引 0）
+//
+// 用于 /clear 命令：清空对话历史，保留系统提示词。
+func (cw *ContextWindow) Reset() {
+	if len(cw.messages) > 0 && cw.messages[0].Role == RoleSystem {
+		sysMsg := cw.messages[0]
+		cw.messages = cw.messages[:1]
+		cw.messages[0] = sysMsg
+		cw.currentTokens = sysMsg.Tokens
+	} else {
+		cw.messages = nil
+		cw.currentTokens = 0
+	}
+}
+
+// SetReplayMode 设置 replay 模式
+//
+// replay 期间 Push Hook 不会被调用，避免双重写入。
+func (cw *ContextWindow) SetReplayMode(on bool) {
+	cw.replayMode = on
 }
 
 // Recalculate 从头重算所有消息的估算 token 总和

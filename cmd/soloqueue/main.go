@@ -23,6 +23,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/tui"
 )
@@ -118,7 +119,12 @@ Environment:
 			// 共享 Tokenizer（所有 session 复用同一个编码实例）
 			tokenizer := ctxwin.NewTokenizer()
 
-			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error) {
+			// Timeline 配置
+			tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
+			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
+			replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
+
+			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 				agentID := newAgentID()
 				// APIModel 优先，空则 fallback 到 ID
 				effectiveModelID := defaultModel.APIModel
@@ -146,7 +152,7 @@ Environment:
 					logger.WithFile(settings.Log.File),
 					)
 				if err != nil {
-					return nil, nil, fmt.Errorf("build session logger: %w", err)
+					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
 				a := agent.NewAgent(def, llmClient, sessLog,
 					agent.WithTools(toolList...),
@@ -156,16 +162,56 @@ Environment:
 					agent.WithToolTimeout("web_search", 15*time.Second),
 				)
 
+				// 创建 Timeline Writer + Push Hook
+				tl, err := timeline.NewWriter(workDir, "timeline", tlMaxBytes, tlMaxFiles)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
+				}
+				pushHook := func(msg ctxwin.Message) {
+					var toolCalls []timeline.ToolCallRec
+					for _, tc := range msg.ToolCalls {
+						toolCalls = append(toolCalls, timeline.ToolCallRec{
+							ID:        tc.ID,
+							Type:      tc.Type,
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						})
+					}
+					_ = tl.AppendMessage(&timeline.MessagePayload{
+						Role:             string(msg.Role),
+						Content:          msg.Content,
+						ReasoningContent: msg.ReasoningContent,
+						Name:             msg.Name,
+						ToolCallID:       msg.ToolCallID,
+						ToolCalls:        toolCalls,
+						IsEphemeral:      msg.IsEphemeral,
+						AgentID:          agentID,
+					})
+				}
+
 				// 创建 ContextWindow 并 push system prompt
-				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer)
+				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer,
+					ctxwin.WithPushHook(pushHook),
+				)
 				if def.SystemPrompt != "" {
 					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 				}
 
-				if err := a.Start(context.Background()); err != nil {
-					return nil, nil, err
+				// Replay 历史：读取 timeline 并回放到 ContextWindow
+				if replaySegs > 0 {
+					segments, err := timeline.ReadLastSegments(workDir, "timeline", replaySegs)
+					if err == nil && len(segments) > 0 {
+						cw.SetReplayMode(true)
+						timeline.ReplayInto(cw, segments)
+						cw.SetReplayMode(false)
+					}
 				}
-				return a, cw, nil
+
+				if err := a.Start(context.Background()); err != nil {
+					tl.Close()
+					return nil, nil, nil, err
+				}
+				return a, cw, tl, nil
 			}
 
 			mgr := session.NewSessionManager(factory, 30*time.Minute)
@@ -327,7 +373,12 @@ func serveCmd() *cobra.Command {
 			// 共享 Tokenizer
 			tokenizer := ctxwin.NewTokenizer()
 
-			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, error) {
+			// Timeline 配置
+			tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
+			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
+			replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
+
+			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 				agentID := newAgentID()
 				// APIModel 优先，空则 fallback 到 ID
 				effectiveModelID := defaultModel.APIModel
@@ -358,7 +409,7 @@ func serveCmd() *cobra.Command {
 					logger.WithFile(settings.Log.File),
 			)
 				if err != nil {
-					return nil, nil, fmt.Errorf("build session logger: %w", err)
+					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
 
 				a := agent.NewAgent(def, llmClient, sessLog,
@@ -369,18 +420,48 @@ func serveCmd() *cobra.Command {
 					agent.WithToolTimeout("web_search", 15*time.Second),
 				)
 
+				// 创建 Timeline Writer + Push Hook
+				tl, err := timeline.NewWriter(workDir, "timeline", tlMaxBytes, tlMaxFiles)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
+				}
+				pushHook := func(msg ctxwin.Message) {
+					_ = tl.AppendMessage(&timeline.MessagePayload{
+						Role:             string(msg.Role),
+						Content:          msg.Content,
+						ReasoningContent: msg.ReasoningContent,
+						Name:             msg.Name,
+						ToolCallID:       msg.ToolCallID,
+						IsEphemeral:      msg.IsEphemeral,
+						AgentID:          agentID,
+					})
+				}
+
 				// 创建 ContextWindow 并 push system prompt
-				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer)
+				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer,
+					ctxwin.WithPushHook(pushHook),
+				)
 				if def.SystemPrompt != "" {
 					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 				}
 
+				// Replay 历史：读取 timeline 并回放到 ContextWindow
+				if replaySegs > 0 {
+					segments, err := timeline.ReadLastSegments(workDir, "timeline", replaySegs)
+					if err == nil && len(segments) > 0 {
+						cw.SetReplayMode(true)
+						timeline.ReplayInto(cw, segments)
+						cw.SetReplayMode(false)
+					}
+				}
+
 				// agent 生命周期由 SessionManager 管理，parent 用 Background
 				if err := a.Start(context.Background()); err != nil {
-					return nil, nil, err
+					tl.Close()
+					return nil, nil, nil, err
 				}
-				return a, cw, nil
-			}
+				return a, cw, tl, nil
+		}
 
 			// ── Session manager + reap loop ─────────────────────────────────
 			mgr := session.NewSessionManager(factory, 30*time.Minute)
