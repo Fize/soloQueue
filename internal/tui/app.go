@@ -105,6 +105,8 @@ type streamState struct {
 	curToolName   string
 	curToolArgs   strings.Builder
 	thinkingBuf   strings.Builder // active thinking buffer, flushed into timeline on tool start / content start
+	flushedIdx    int             // timeline[0..flushedIdx-1] have been flushed to scrollback
+	labelFlushed  bool            // true once "Solo:" has been printed to scrollback for this turn
 }
 
 // confirmState holds the state of a tool confirmation dialog.
@@ -290,9 +292,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.streamCancel()
 				}
 				m.resetGenState()
-				// Finalize current stream to messages
-				m.finalizeCurrentStream()
-				return m, m.flushStaticHistory()
+				return m, m.flushCompletedTurn()
 			}
 			m.quitCount++
 			if m.quitCount >= 2 {
@@ -305,10 +305,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.streamCancel != nil {
 					m.streamCancel()
 				}
-				m.resetGenState()
 				m.cancelReason = "Esc"
-				m.finalizeCurrentStream()
-				return m, tea.Sequence(m.flushStaticHistory(), tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} }))
+				m.resetGenState()
+				return m, tea.Sequence(m.flushCompletedTurn(), tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} }))
 			}
 
 		case "enter":
@@ -340,6 +339,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, message{role: "user", content: input})
 			m.addHistory(input)
 
+			// Print user message to terminal scrollback immediately
+			userPrintCmd := printfWithClear("%s", renderUserMessage(message{role: "user", content: input}))
+
 			// Start streaming
 			m.isGenerating = true
 			m.genDotOn = true
@@ -358,7 +360,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Launch AskStream in goroutine
 			cmd = m.startStream(input)
-			return m, tea.Sequence(cmd, dotCmd())
+			return m, tea.Sequence(userPrintCmd, cmd, dotCmd())
 
 		case "up":
 			if m.confirmState != nil && m.confirmState.selected > 0 {
@@ -375,11 +377,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamStartMsg:
 		if msg.err != nil {
-			m.resetGenState()
-			m.current = nil
-			msg.cancel()
 			m.errMsg = summarizeError(msg.err)
-			return m, tea.Sequence(m.flushStaticHistory(), tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return clearErrMsg{} }))
+			msg.cancel()
+			m.resetGenState()
+			return m, tea.Sequence(m.flushCompletedTurn(), tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return clearErrMsg{} }))
 		}
 		m.streamCancel = msg.cancel
 		// Start consuming events
@@ -387,16 +388,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentEventMsg:
 		m.handleAgentEvent(msg.event)
-		// Continue consuming events from the channel
+		// Flush completed timeline entries to scrollback if content exceeds budget
+		flushCmd := m.maybeFlushIncremental()
+		if flushCmd != nil {
+			return m, tea.Sequence(flushCmd, waitForAgentEvent(msg.evCh, msg.cancel))
+		}
 		return m, waitForAgentEvent(msg.evCh, msg.cancel)
 
 	case streamDoneMsg:
-		m.finalizeCurrentStream()
 		elapsed := formatDuration(time.Since(m.genStartTime))
 		pt, ot := m.promptTokens, m.outputTokens
 		ch, cm, rt := m.cacheHitTokens, m.cacheMissTokens, m.reasoningTokens
+		flushCmd := m.flushCompletedTurn()
 		m.resetGenState()
-		m.current = nil
 		var tokenParts []string
 		if pt > 0 {
 			tokenParts = append(tokenParts, fmt.Sprintf("↓ %s", formatTokenCount(pt)))
@@ -415,7 +419,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.genSummary = fmt.Sprintf("✓ %s", elapsed)
 		}
-		return m, tea.Sequence(m.flushStaticHistory(), tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} }))
+		if flushCmd != nil {
+			return m, tea.Sequence(flushCmd, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} }))
+		}
+		return m, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} })
 
 	case dotMsg:
 		if m.isGenerating {
@@ -515,12 +522,17 @@ func (m *model) renderContent(text string) string {
 }
 
 // renderAgentMessage renders a single agent message as a string.
-// Timeline entries (thinking + tool calls) are rendered in chronological order.
-// Thinking blocks are always expanded; tool calls are shown in compact collapsed form
-// (name, args, status, duration) inline within the thinking flow.
+// It prepends the "Solo:" label and delegates the body rendering.
 func (m *model) renderAgentMessage(msg message) string {
+	return agentStyle.Render("Solo:") + "\n" + m.renderAgentMessageBody(msg)
+}
+
+// renderAgentMessageBody renders the body of an agent message (timeline entries
+// and remaining content) without the "Solo:" prefix. Timeline entries (thinking
+// + tool calls) are rendered in chronological order. Thinking blocks are always
+// expanded; tool calls are shown in compact collapsed form.
+func (m *model) renderAgentMessageBody(msg message) string {
 	var sb strings.Builder
-	sb.WriteString(agentStyle.Render("Solo:") + "\n")
 
 	var lastKind timelineKind = -1
 	for _, entry := range msg.timeline {
@@ -567,51 +579,37 @@ func (m model) View() tea.View {
 	// Dynamic zone: only render current interactive content.
 	// Completed history has been flushed to scrollback via tea.Printf.
 
-	// 1. Last user message (only while generating, for context)
-	if m.isGenerating {
-		for i := len(m.messages) - 1; i >= 0; i-- {
-			if m.messages[i].role == "user" {
-				sb.WriteString(renderUserMessage(m.messages[i]))
-				break
-			}
-		}
-	}
-
-	// 2. Active agent message (streaming or last agent in buffer)
+	// 2. Active agent message (only unflushed portion)
 	agentMsg := m.currentMessage()
 	if agentMsg != nil {
-		// Build a temporary message with live stream state if generating
-		displayMsg := *agentMsg
+		var liveTimeline []timelineEntry
+		var liveContent string
+
 		if m.current != nil {
-			displayMsg.timeline = make([]timelineEntry, len(m.current.timeline))
-			copy(displayMsg.timeline, m.current.timeline)
-			// Append in-progress thinking as a virtual entry (no side effects in View)
+			// Only render timeline entries that haven't been flushed to scrollback
+			if m.current.flushedIdx < len(m.current.timeline) {
+				liveTimeline = m.current.timeline[m.current.flushedIdx:]
+			}
+			// Append in-progress thinking as a virtual entry
 			if m.current.thinkingBuf.Len() > 0 {
-				displayMsg.timeline = append(displayMsg.timeline, timelineEntry{
+				liveTimeline = append(liveTimeline, timelineEntry{
 					kind: timelineThinking,
 					text: m.current.thinkingBuf.String(),
 				})
 			}
-			displayMsg.content = m.current.content.String()
+			liveContent = m.current.content.String()
+		} else {
+			liveTimeline = agentMsg.timeline
+			liveContent = agentMsg.content
 		}
 
-		// Truncate content if it exceeds the dynamic height budget
-		if m.height > 0 {
-			budget := m.dynamicHeightBudget()
-			rendered := m.renderAgentMessage(displayMsg)
-			lineCount := strings.Count(rendered, "\n")
-			if lineCount > budget {
-				// Keep only the last portion of content that fits
-				lines := strings.Split(rendered, "\n")
-				if budget > 0 {
-					rendered = strings.Join(lines[len(lines)-budget:], "\n")
-				} else {
-					rendered = ""
-				}
+		if len(liveTimeline) > 0 || liveContent != "" {
+			// "Solo:" label: only show if not already flushed to scrollback
+			if m.current == nil || !m.current.labelFlushed {
+				sb.WriteString(agentStyle.Render("Solo:") + "\n")
 			}
-			sb.WriteString(rendered)
-		} else {
-			sb.WriteString(m.renderAgentMessage(displayMsg))
+			displayMsg := message{role: "agent", timeline: liveTimeline, content: liveContent}
+			sb.WriteString(m.renderAgentMessageBody(displayMsg))
 		}
 	}
 
@@ -698,6 +696,61 @@ func (m model) dynamicHeightBudget() int {
 		return 1
 	}
 	return m.height - reserved
+}
+
+// maybeFlushIncremental checks if the unflushed timeline entries exceed the
+// dynamic height budget. If so, it flushes the oldest entries to scrollback
+// via tea.Printf, keeping only the recent portion in View().
+func (m *model) maybeFlushIncremental() tea.Cmd {
+	if m.current == nil || m.current.flushedIdx >= len(m.current.timeline) {
+		return nil
+	}
+
+	// Measure the unflushed portion's rendered size
+	unflushed := m.current.timeline[m.current.flushedIdx:]
+	var liveTimeline []timelineEntry
+	liveTimeline = append(liveTimeline, unflushed...)
+	if m.current.thinkingBuf.Len() > 0 {
+		liveTimeline = append(liveTimeline, timelineEntry{
+			kind: timelineThinking,
+			text: m.current.thinkingBuf.String(),
+		})
+	}
+	displayMsg := message{role: "agent", timeline: liveTimeline, content: m.current.content.String()}
+	rendered := m.renderAgentMessageBody(displayMsg)
+	lineCount := strings.Count(rendered, "\n")
+
+	budget := m.dynamicHeightBudget()
+	if lineCount <= budget {
+		return nil // Content fits within budget, no flush needed
+	}
+
+	// Determine how many entries to flush.
+	// Strategy: flush everything up to (but not including) the last content/thinking entry,
+	// so View() always shows at least the current content block.
+	flushUpTo := m.current.flushedIdx
+	for i := len(m.current.timeline) - 1; i >= m.current.flushedIdx; i-- {
+		kind := m.current.timeline[i].kind
+		if kind == timelineContent || kind == timelineThinking {
+			flushUpTo = i
+			break
+		}
+	}
+	if flushUpTo <= m.current.flushedIdx {
+		flushUpTo = m.current.flushedIdx + 1 // Flush at least one entry
+	}
+
+	// Render the entries being flushed
+	flushMsg := message{role: "agent", timeline: m.current.timeline[m.current.flushedIdx:flushUpTo]}
+	var sb strings.Builder
+	if !m.current.labelFlushed {
+		sb.WriteString(agentStyle.Render("Solo:") + "\n")
+		m.current.labelFlushed = true
+	}
+	sb.WriteString(m.renderAgentMessageBody(flushMsg))
+
+	m.current.flushedIdx = flushUpTo
+	return printfWithClear("%s", sb.String())
 }
 
 // formatDuration formats elapsed time for the status bar.
@@ -794,31 +847,51 @@ func (m *model) finalizeCurrentStream() {
 	m.current = nil
 }
 
-// flushStaticHistory renders all messages in the buffer as static text
-// via tea.Printf and clears the messages slice. This moves completed
-// conversation turns into the terminal scrollback buffer, outside
-// Bubble Tea's redraw jurisdiction.
-func (m *model) flushStaticHistory() tea.Cmd {
-	if len(m.messages) == 0 {
+// flushCompletedTurn renders any unflushed portion of the current (or just-completed)
+// agent message to scrollback. User messages are already printed on entry.
+// It calls finalizeCurrentStream internally.
+func (m *model) flushCompletedTurn() tea.Cmd {
+	// Save flush state before finalizeCurrentStream clears m.current
+	savedFlushedIdx := 0
+	labelAlreadyFlushed := false
+	if m.current != nil {
+		savedFlushedIdx = m.current.flushedIdx
+		labelAlreadyFlushed = m.current.labelFlushed
+	}
+
+	m.finalizeCurrentStream()
+
+	agentMsg := m.currentMessage()
+	if agentMsg == nil {
+		return nil
+	}
+
+	// Skip if agent message is empty (e.g. cancelled before any output)
+	if len(agentMsg.timeline) == 0 && agentMsg.content == "" {
+		m.messages = nil
 		return nil
 	}
 
 	var sb strings.Builder
-	for _, msg := range m.messages {
-		if msg.role == "user" {
-			sb.WriteString(renderUserMessage(msg))
-		} else {
-			sb.WriteString(m.renderAgentMessage(msg))
+
+	if savedFlushedIdx < len(agentMsg.timeline) {
+		// There are unflushed timeline entries
+		if !labelAlreadyFlushed {
+			sb.WriteString(agentStyle.Render("Solo:") + "\n")
 		}
+		remainingMsg := message{role: "agent", timeline: agentMsg.timeline[savedFlushedIdx:]}
+		sb.WriteString(m.renderAgentMessageBody(remainingMsg))
+	} else if !labelAlreadyFlushed {
+		// Nothing was incrementally flushed — render the complete message
+		sb.WriteString(m.renderAgentMessage(*agentMsg))
 	}
+
 	m.messages = nil
 
-	text := sb.String()
-	// ClearScreen forces the cursed renderer to do a full repaint instead of
-	// a diff-based incremental update. Without this, the v2 renderer's
-	// internal cellbuf goes out of sync after Printf writes directly to the
-	// terminal, causing ghost content and duplicate rendering.
-	return tea.Sequence(tea.Printf("%s", text), func() tea.Msg { return tea.ClearScreen() })
+	if sb.Len() == 0 {
+		return nil
+	}
+	return printfWithClear("%s", sb.String())
 }
 
 // ─── History ──────────────────────────────────────────────────────────────────
