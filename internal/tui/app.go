@@ -176,8 +176,10 @@ type model struct {
 	current      *streamState
 	streamCancel context.CancelFunc
 
-	// History (for /history command)
-	history []string
+	// Input history navigation
+	history      []string
+	historyIdx   int    // 0 = not browsing; >0 = offset from end
+	historyDraft string // saved input before history browsing
 
 	// Tool confirmation
 	confirmState *confirmState
@@ -378,15 +380,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(userPrintCmd, cmd, dotCmd())
 
 		case "up":
-			if m.confirmState != nil && m.confirmState.selected > 0 {
-				m.confirmState.selected--
+			if m.confirmState != nil {
+				if m.confirmState.selected > 0 {
+					m.confirmState.selected--
+				}
+				return m, nil
 			}
+			m.navHistory(-1)
 			return m, nil
 
 		case "down":
-			if m.confirmState != nil && m.confirmState.selected < len(m.confirmState.options)-1 {
-				m.confirmState.selected++
+			if m.confirmState != nil {
+				if m.confirmState.selected < len(m.confirmState.options)-1 {
+					m.confirmState.selected++
+				}
+				return m, nil
 			}
+			m.navHistory(1)
 			return m, nil
 		}
 
@@ -921,6 +931,44 @@ func (m *model) addHistory(line string) {
 		return
 	}
 	m.history = append(m.history, line)
+	m.historyIdx = 0
+	m.historyDraft = ""
+}
+
+// navHistory navigates the input history. dir=-1 = older (up), dir=1 = newer (down).
+func (m *model) navHistory(dir int) {
+	if len(m.history) == 0 || m.isGenerating || m.confirmState != nil {
+		return
+	}
+
+	// Save current input as draft when starting history browsing
+	if m.historyIdx == 0 && dir < 0 {
+		m.historyDraft = m.textInput.Value()
+	}
+
+	newIdx := m.historyIdx - dir // up(-1) increases idx, down(1) decreases
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	if newIdx > len(m.history) {
+		newIdx = len(m.history)
+	}
+
+	// Already at boundary
+	if newIdx == m.historyIdx {
+		return
+	}
+
+	m.historyIdx = newIdx
+
+	if m.historyIdx == 0 {
+		// Back to present — restore draft
+		m.textInput.SetValue(m.historyDraft)
+	} else {
+		// Show historical entry (from end)
+		m.textInput.SetValue(m.history[len(m.history)-m.historyIdx])
+	}
+	m.textInput.CursorEnd()
 }
 
 // ─── String helpers ───────────────────────────────────────────────────────────
