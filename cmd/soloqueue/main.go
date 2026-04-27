@@ -16,11 +16,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -119,6 +120,42 @@ Environment:
 			// 共享 Tokenizer（所有 session 复用同一个编码实例）
 			tokenizer := ctxwin.NewTokenizer()
 
+			// ── Prompt 系统 ──────────────────────────────────────────────
+			promptCfg := &prompt.PromptConfig{
+				RoleID:  "main_assistant",
+				BaseDir: filepath.Join(workDir, "prompts"),
+			}
+			rulesCreated, err := promptCfg.EnsureFiles()
+			if err != nil {
+				var profileErr *prompt.ProfileNeededError
+				if errors.As(err, &profileErr) {
+					answers := promptProfileQuestions()
+					if writeErr := promptCfg.WriteProfile(answers); writeErr != nil {
+						return fmt.Errorf("write profile: %w", writeErr)
+					}
+					// profile 写入后再次调用 EnsureFiles 以创建 rules.md
+					rulesCreated, err = promptCfg.EnsureFiles()
+					if err != nil {
+						return fmt.Errorf("ensure prompt files: %w", err)
+					}
+				} else {
+					return fmt.Errorf("ensure prompt files: %w", err)
+				}
+			}
+
+			// 加载 Team Leaders 用于动态路由表
+			leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"))
+			if err != nil {
+				log.Warn(logger.CatApp, "failed to load leaders", "err", err)
+				leaders = nil // 无 leader 时不阻塞启动
+			}
+
+			// 构建系统提示词
+			systemPrompt, err := promptCfg.BuildPrompt(leaders)
+			if err != nil {
+				return fmt.Errorf("build system prompt: %w", err)
+			}
+
 			// Timeline 配置
 			tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
 			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
@@ -141,6 +178,7 @@ Environment:
 					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
 					MaxIterations:   10,
 					ContextWindow:   defaultModel.ContextWindow,
+					SystemPrompt:    systemPrompt,
 				}
 				effectiveTeam := teamID
 				if effectiveTeam == "" {
@@ -226,9 +264,11 @@ Environment:
 				"version", version, "model", defaultModel.ID)
 
 			return tui.Run(tui.Config{
-				SessionMgr: mgr,
-				ModelID:    defaultModel.ID,
-				Version:    version,
+				SessionMgr:   mgr,
+				ModelID:      defaultModel.ID,
+				Version:      version,
+				RulesCreated: rulesCreated,
+				RulesPath:    promptCfg.RulesPath(),
 			})
 		},
 	}
@@ -373,6 +413,28 @@ func serveCmd() *cobra.Command {
 			// 共享 Tokenizer
 			tokenizer := ctxwin.NewTokenizer()
 
+			// ── Prompt 系统 ──────────────────────────────────────────────
+			servePromptCfg := &prompt.PromptConfig{
+				RoleID:  "main_assistant",
+				BaseDir: filepath.Join(workDir, "prompts"),
+			}
+			if _, err := servePromptCfg.EnsureFiles(); err != nil {
+				var profileErr *prompt.ProfileNeededError
+				if errors.As(err, &profileErr) {
+					// serve 模式无交互终端，使用默认 profile
+					if writeErr := servePromptCfg.WriteProfile(prompt.DefaultProfileAnswers()); writeErr != nil {
+						return fmt.Errorf("write default profile: %w", writeErr)
+					}
+				} else {
+					return fmt.Errorf("ensure prompt files: %w", err)
+				}
+			}
+			serveLeaders, _ := prompt.LoadLeaders(filepath.Join(workDir, "agents"))
+			serveSystemPrompt, err := servePromptCfg.BuildPrompt(serveLeaders)
+			if err != nil {
+				return fmt.Errorf("build system prompt: %w", err)
+			}
+
 			// Timeline 配置
 			tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
 			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
@@ -395,6 +457,7 @@ func serveCmd() *cobra.Command {
 					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
 					MaxIterations:   10,
 					ContextWindow:   defaultModel.ContextWindow,
+					SystemPrompt:    serveSystemPrompt,
 				}
 
 				// agent 使用 session-layer logger（CatActor / CatLLM / CatTool）
@@ -578,6 +641,34 @@ func msToDuration(ms int, def time.Duration) time.Duration {
 func newAgentID() string {
 	// timestamp + short random suffix (good enough for local dev)
 	return fmt.Sprintf("agent-%d", time.Now().UnixNano())
+}
+
+// promptProfileQuestions 在 TUI 启动前执行交互式问卷，收集用户个性化设定。
+// 使用标准输入读取，不依赖 Bubble Tea 组件。
+func promptProfileQuestions() prompt.ProfileAnswers {
+	answers := prompt.DefaultProfileAnswers()
+
+	fmt.Println(prompt.ProfilePromptText())
+	fmt.Println()
+
+	answers.Name = readLineWithDefault("1. 如何称呼你的助手？", answers.Name)
+	answers.Gender = readLineWithDefault("2. 助手性别（男/女）？", answers.Gender)
+	answers.Personality = readLineWithDefault("3. 助手性格（严谨/活泼/温和/直接/自定义）？", answers.Personality)
+	answers.CommStyle = readLineWithDefault("4. 沟通偏好（简短/详细/随意/正式）？", answers.CommStyle)
+
+	return answers
+}
+
+// readLineWithDefault 读取一行输入，空行则返回默认值。
+func readLineWithDefault(prompt, def string) string {
+	fmt.Printf("%s [%s] ", prompt, def)
+	var input string
+	fmt.Scanln(&input)
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return def
+	}
+	return input
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

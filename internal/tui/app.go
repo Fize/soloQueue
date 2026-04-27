@@ -24,9 +24,11 @@ import (
 
 // Config stores TUI application configuration.
 type Config struct {
-	SessionMgr *session.SessionManager
-	ModelID    string
-	Version    string
+	SessionMgr   *session.SessionManager
+	ModelID      string
+	Version      string
+	RulesCreated bool   // 是否新创建了 rules.md
+	RulesPath    string // rules.md 路径（用于通知用户）
 }
 
 // ─── Data types ───────────────────────────────────────────────────────────────
@@ -206,6 +208,14 @@ func Run(cfg Config) error {
 		ctx:      ctx,
 		messages: []message{},
 		history:  loadHistory(),
+	}
+
+	// 如果新创建了 rules.md，添加系统通知
+	if cfg.RulesCreated && cfg.RulesPath != "" {
+		m.messages = append(m.messages, message{
+			role:    "system",
+			content: fmt.Sprintf("已为你创建默认规则文件 %s，你可以随时编辑自定义。", cfg.RulesPath),
+		})
 	}
 
 	// Setup text input
