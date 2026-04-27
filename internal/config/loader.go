@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -111,7 +111,7 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 			return fmt.Errorf("read %s: %w", expanded, err)
 		}
 
-		result, err = MergeJSON(result, data)
+		result, err = MergeTOML(result, data)
 		if err != nil {
 			return fmt.Errorf("merge %s: %w", expanded, err)
 		}
@@ -360,7 +360,7 @@ func (l *Loader[T]) saveTo(path string, value T) error {
 		return fmt.Errorf("mkdirall %s: %w", filepath.Dir(path), err)
 	}
 
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := toml.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}

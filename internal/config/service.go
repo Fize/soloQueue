@@ -15,8 +15,8 @@ type GlobalService struct {
 // New 创建 GlobalService
 // workDir 通常为 ~/.soloqueue
 func New(workDir string) (*GlobalService, error) {
-	mainPath := filepath.Join(workDir, "settings.json")
-	localPath := filepath.Join(workDir, "settings.local.json")
+	mainPath := filepath.Join(workDir, "settings.toml")
+	localPath := filepath.Join(workDir, "settings.local.toml")
 
 	loader, err := NewLoader(DefaultSettings(), mainPath, localPath)
 	if err != nil {

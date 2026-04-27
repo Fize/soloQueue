@@ -5,19 +5,14 @@ package config
 func DefaultSettings() Settings {
 	return Settings{
 		Session: SessionConfig{
-			TimeoutSecs:       3600,
-			MaxHistory:        1000,
-			AutoSave:          true,
 			ReplaySegments:    3,
 			TimelineMaxFileMB: 50,
 			TimelineMaxFiles:  5,
 		},
 		Log: LogConfig{
-			Level:         "info",
-			Console:       true,
-			File:          true,
-			MaxDays:       30,
-			MaxFileSizeMB: 50,
+			Level:   "info",
+			Console: true,
+			File:    true,
 		},
 		Tools: ToolsConfig{
 			// AllowedDirs 默认空：serveCmd 启动时注入 workDir/cwd
@@ -60,11 +55,6 @@ func DefaultSettings() Settings {
 				APIKeyEnv: "DEEPSEEK_API_KEY",
 				Enabled:   true,
 				IsDefault: true,
-				Capabilities: []string{
-					"chat",
-					"streaming",
-					"function-calling",
-				},
 				TimeoutMs: 120000,
 				Retry: RetryConfig{
 					MaxRetries:        3,
@@ -84,26 +74,13 @@ func DefaultSettings() Settings {
 				Enabled:       true,
 				IsDefault:     true,
 				Generation: GenerationParams{
-					Temperature:      0,
-					MaxTokens:        4096,
-					TopP:             1.0,
-					FrequencyPenalty: 0.0,
-					PresencePenalty:  0.0,
-					StopSequences:    []string{},
+					Temperature: 0,
+					MaxTokens:   4096,
 				},
 				Thinking: ThinkingConfig{
 					Enabled:         false,
-					BudgetTokens:    0,
 					Type:            "",
 					ReasoningEffort: "",
-				},
-				Capabilities: ModelCapability{
-					Streaming:       true,
-					FunctionCalling: true,
-					Vision:          false,
-					ImageInput:      false,
-					Thinking:        true,
-					JSONMode:        false,
 				},
 			},
 			{
@@ -116,26 +93,13 @@ func DefaultSettings() Settings {
 				Enabled:       true,
 				IsDefault:     false,
 				Generation: GenerationParams{
-					Temperature:      0,
-					MaxTokens:        8192,
-					TopP:             1.0,
-					FrequencyPenalty: 0.0,
-					PresencePenalty:  0.0,
-					StopSequences:    []string{},
+					Temperature: 0,
+					MaxTokens:   8192,
 				},
 				Thinking: ThinkingConfig{
 					Enabled:         true,
-					BudgetTokens:    0,
 					Type:            "reasoning",
 					ReasoningEffort: "high",
-				},
-				Capabilities: ModelCapability{
-					Streaming:       true,
-					FunctionCalling: true,
-					Vision:          false,
-					ImageInput:      false,
-					Thinking:        true,
-					JSONMode:        false,
 				},
 			},
 			{
@@ -147,26 +111,13 @@ func DefaultSettings() Settings {
 				Enabled:       true,
 				IsDefault:     false,
 				Generation: GenerationParams{
-					Temperature:      0,
-					MaxTokens:        8192,
-					TopP:             1.0,
-					FrequencyPenalty: 0.0,
-					PresencePenalty:  0.0,
-					StopSequences:    []string{},
+					Temperature: 0,
+					MaxTokens:   8192,
 				},
 				Thinking: ThinkingConfig{
 					Enabled:         true,
-					BudgetTokens:    0,
 					Type:            "reasoning",
 					ReasoningEffort: "high",
-				},
-				Capabilities: ModelCapability{
-					Streaming:       true,
-					FunctionCalling: true,
-					Vision:          false,
-					ImageInput:      false,
-					Thinking:        true,
-					JSONMode:        false,
 				},
 			},
 		},
