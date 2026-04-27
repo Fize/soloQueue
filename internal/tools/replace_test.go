@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -486,7 +485,7 @@ func TestReplace_ConfirmationOptions_Binary(t *testing.T) {
 func TestReplace_ConfirmArgs_PreservesOriginal(t *testing.T) {
 	tool, _ := mkReplaceTool(t, 1024, 1024)
 	original := `{"path":"a.go","old_string":"foo","new_string":"bar"}`
-	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+	for _, choice := range []ConfirmChoice{ChoiceApprove, ChoiceDeny, ChoiceAllowInSession} {
 		got := tool.ConfirmArgs(original, choice)
 		if got != original {
 			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
@@ -550,7 +549,7 @@ func TestMultiReplace_ConfirmationOptions_Binary(t *testing.T) {
 func TestMultiReplace_ConfirmArgs_PreservesOriginal(t *testing.T) {
 	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
 	original := `{"path":"a.go","edits":[{"old_string":"foo","new_string":"bar"}]}`
-	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+	for _, choice := range []ConfirmChoice{ChoiceApprove, ChoiceDeny, ChoiceAllowInSession} {
 		got := tool.ConfirmArgs(original, choice)
 		if got != original {
 			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)

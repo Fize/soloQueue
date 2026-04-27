@@ -12,7 +12,6 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // grepTool 在沙箱目录下按 Go 正则搜索
@@ -224,4 +223,4 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 }
 
 // Compile-time check
-var _ agent.Tool = (*grepTool)(nil)
+var _ Tool = (*grepTool)(nil)

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // httpFetchTool 对外发 HTTP GET；含 SSRF 防护
@@ -233,7 +232,7 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// CheckConfirmation 实现 agent.Confirmable：HTTP 请求始终需要确认。
+// CheckConfirmation 实现 Confirmable：HTTP 请求始终需要确认。
 func (t *httpFetchTool) CheckConfirmation(raw string) (bool, string) {
 	var a httpFetchArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -242,20 +241,20 @@ func (t *httpFetchTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("HTTP GET %q. Allow?", a.URL)
 }
 
-// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+// ConfirmationOptions 实现 Confirmable：二元确认。
 func (t *httpFetchTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
-func (t *httpFetchTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
-	if choice != agent.ChoiceApprove {
+// ConfirmArgs 实现 Confirmable：无需修改 args。
+func (t *httpFetchTool) ConfirmArgs(original string, choice ConfirmChoice) string {
+	if choice != ChoiceApprove {
 		return original
 	}
 	return original
 }
 
-// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
 func (t *httpFetchTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
-var _ agent.Tool = (*httpFetchTool)(nil)
-var _ agent.Confirmable = (*httpFetchTool)(nil)
+var _ Tool = (*httpFetchTool)(nil)
+var _ Confirmable = (*httpFetchTool)(nil)

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // webSearchTool 调用 Tavily 搜索 API
@@ -171,4 +170,4 @@ func truncString(s string, n int) string {
 }
 
 // Compile-time check
-var _ agent.Tool = (*webSearchTool)(nil)
+var _ Tool = (*webSearchTool)(nil)

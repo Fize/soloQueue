@@ -1,4 +1,16 @@
-package agent
+// Package tools 定义 Tool 接口和内置工具实现
+//
+// 核心概念：
+//   - Tool：最小粒度的可调用单元，1:1 映射 LLM function calling
+//   - Confirmable：可选接口，支持"执行前需用户确认"流程
+//   - ToolRegistry：name → Tool 的并发安全映射
+//
+// 依赖方向：
+//
+//	tools 不依赖任何人（定义 Tool 接口）
+//	skill → tools（SkillRegistry 组合 ToolRegistry）
+//	agent → skill + tools
+package tools
 
 import (
 	"context"
@@ -13,15 +25,15 @@ import (
 
 // ─── Tool interface ──────────────────────────────────────────────────────────
 
-// Tool 是可被 agent 调用的工具
+// Tool 是可被 Agent 调用的工具
 //
-// Name / Description / Parameters 三个方法在 agent 构造 LLMRequest 时读取，
-// 应视为只读常量（每次 agent 调用 LLM 前都会读一次，但返回值不应变化）。
-// Execute 在 agent run goroutine 中串行调用（同一 agent 同一时刻只有一个
-// 工具在跑），但不同 agent 可能并发调用同一个 Tool 实例 —— 因此 Execute
+// Name / Description / Parameters 三个方法在 Agent 构造 LLMRequest 时读取，
+// 应视为只读常量（每次 Agent 调用 LLM 前都会读一次，但返回值不应变化）。
+// Execute 在 Agent run goroutine 中串行调用（同一 Agent 同一时刻只有一个
+// 工具在跑），但不同 Agent 可能并发调用同一个 Tool 实例 —— 因此 Execute
 // 实现必须是并发安全的。
 type Tool interface {
-	// Name 返回工具名；必须非空、在同一 agent 内唯一
+	// Name 返回工具名；必须非空、在同一 Agent 内唯一
 	Name() string
 
 	// Description 给 LLM 看的自然语言描述；空串被允许但不推荐
@@ -38,20 +50,20 @@ type Tool interface {
 	//
 	// 返回值：
 	//   - result：给 LLM 的 tool-role 消息内容（建议短 + 结构化，文本/JSON 均可）
-	//   - err   ：执行错误；agent 会把 "error: "+err.Error() 喂回 LLM，不中断循环
+	//   - err   ：执行错误；Agent 会把 "error: "+err.Error() 喂回 LLM，不中断循环
 	//
-	// ctx 的取消应尽快响应；若 Execute 实现不响应 ctx，agent 只能靠外层超时。
+	// ctx 的取消应尽快响应；若 Execute 实现不响应 ctx，Agent 只能靠外层超时。
 	Execute(ctx context.Context, args string) (result string, err error)
 }
 
 // Confirmable 是可选接口；工具可实现它以支持"执行前需用户确认"流程。
 //
 // 不实现该接口的工具保持原行为（直接 Execute）。
-// 实现该接口的工具在 CheckConfirmation 返回 true 时，agent 会：
-//   1. 发送 ToolNeedsConfirmEvent（含 Options）
-//   2. 阻塞等待外部调用 Agent.Confirm(callID, choice)
-//   3. choice != "" 时：调用 ConfirmArgs 修改 args，然后 Execute
-//   4. choice == ""（取消/拒绝）时：返回 "error: user denied execution"
+// 实现该接口的工具在 CheckConfirmation 返回 true 时，Agent 会：
+//  1. 发送 ToolNeedsConfirmEvent（含 Options）
+//  2. 阻塞等待外部调用 Agent.Confirm(callID, choice)
+//  3. choice != "" 时：调用 ConfirmArgs 修改 args，然后 Execute
+//  4. choice == ""（取消/拒绝）时：返回 "error: user denied execution"
 type Confirmable interface {
 	Tool
 	// CheckConfirmation 检查给定 args 是否需要用户确认。
@@ -70,21 +82,33 @@ type Confirmable interface {
 	SupportsSessionWhitelist() bool
 }
 
+// ConfirmChoice 是用户在确认对话框中做出的选择。
+type ConfirmChoice string
+
+const (
+	// ChoiceDeny 表示拒绝/取消执行。
+	ChoiceDeny ConfirmChoice = ""
+
+	// ChoiceApprove 表示仅确认本次执行（不加白名单）。
+	ChoiceApprove ConfirmChoice = "yes"
+
+	// ChoiceAllowInSession 表示确认本次执行，并将该工具加入当前会话白名单，
+	// 后续同会话内调用不再触发确认。
+	ChoiceAllowInSession ConfirmChoice = "allow-in-session"
+)
+
 // ─── ToolRegistry ────────────────────────────────────────────────────────────
 
-// tool 相关错误
+// Tool 相关错误
 var (
 	// ErrToolNameEmpty Register 时 Tool.Name() 为空
-	ErrToolNameEmpty = errors.New("agent: tool name is empty")
+	ErrToolNameEmpty = errors.New("tools: tool name is empty")
 	// ErrToolAlreadyRegistered 同名工具重复注册
-	ErrToolAlreadyRegistered = errors.New("agent: tool already registered")
+	ErrToolAlreadyRegistered = errors.New("tools: tool already registered")
 	// ErrToolNil Register(nil)
-	ErrToolNil = errors.New("agent: tool is nil")
+	ErrToolNil = errors.New("tools: tool is nil")
 	// ErrToolNotFound execTool 时 LLM 请求的工具名不存在
-	//
-	// 不从 Get 直接返回（Get 用 bool）；在 execTool 里被包装成
-	// fmt.Errorf("%w: <name>", ErrToolNotFound)，测试可 errors.Is 匹配。
-	ErrToolNotFound = errors.New("agent: tool not found")
+	ErrToolNotFound = errors.New("tools: tool not found")
 )
 
 // ToolRegistry 是 name → Tool 的并发安全映射
@@ -92,7 +116,7 @@ var (
 // 设计原则：
 //   - Register 写锁；Get / Specs / Len / Names 读锁
 //   - Specs() 返回新切片（非共享），工具数量通常 <100，复制代价可忽略
-//   - nil receiver 安全（safeGet 返回 (nil,false) 不 panic）
+//   - nil receiver 安全（SafeGet 返回 (nil,false) 不 panic）
 type ToolRegistry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
@@ -134,10 +158,10 @@ func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	return t, ok
 }
 
-// safeGet 是 Get 的 nil-receiver 友好版本
+// SafeGet 是 Get 的 nil-receiver 友好版本
 //
-// 供 Agent.execTool 调用 —— Agent 可能未注册任何工具（a.tools == nil）。
-func (r *ToolRegistry) safeGet(name string) (Tool, bool) {
+// 供 Agent.execTool 调用 —— Agent 可能未注册任何工具（a.caps == nil）。
+func (r *ToolRegistry) SafeGet(name string) (Tool, bool) {
 	if r == nil {
 		return nil, false
 	}
@@ -195,4 +219,11 @@ func (r *ToolRegistry) Names() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Unregister 内部删除方法，仅供 SkillRegistry 回滚使用
+func (r *ToolRegistry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
 }

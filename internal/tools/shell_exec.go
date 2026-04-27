@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // shellExecTool 执行 shell 命令（黑名单/确认名单校验 + 跨平台 shim）
@@ -93,7 +92,7 @@ type shellExecResult struct {
 	Truncated bool   `json:"truncated"`
 }
 
-// CheckConfirmation 实现 agent.Confirmable。
+// CheckConfirmation 实现 Confirmable。
 // 黑名单命中 → 不确认（让 Execute 直接拒绝）；
 // 已 confirmed → 不确认；
 // 确认名单命中 → 需要确认；
@@ -113,13 +112,13 @@ func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
 	return false, ""
 }
 
-// ConfirmationOptions 实现 agent.Confirmable。
+// ConfirmationOptions 实现 Confirmable。
 // shell_exec 使用二元确认，返回 nil。
 func (shellExecTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 agent.Confirmable：choice == ChoiceApprove 时注入 confirmed=true。
-func (shellExecTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
-	if choice != agent.ChoiceApprove {
+// ConfirmArgs 实现 Confirmable：choice == ChoiceApprove 时注入 confirmed=true。
+func (shellExecTool) ConfirmArgs(original string, choice ConfirmChoice) string {
+	if choice != ChoiceApprove {
 		return original
 	}
 	var a map[string]any
@@ -131,7 +130,7 @@ func (shellExecTool) ConfirmArgs(original string, choice agent.ConfirmChoice) st
 	return string(b)
 }
 
-// SupportsSessionWhitelist 实现 agent.Confirmable。
+// SupportsSessionWhitelist 实现 Confirmable。
 // shell_exec 支持 allow-in-session。
 func (shellExecTool) SupportsSessionWhitelist() bool { return true }
 
@@ -263,5 +262,5 @@ func matchesAny(s string, regexes []*regexp.Regexp) bool {
 }
 
 // Compile-time checks
-var _ agent.Tool = (*shellExecTool)(nil)
-var _ agent.Confirmable = (*shellExecTool)(nil)
+var _ Tool = (*shellExecTool)(nil)
+var _ Confirmable = (*shellExecTool)(nil)

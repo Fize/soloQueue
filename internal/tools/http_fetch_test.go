@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 func mkHTTPTool(t *testing.T, cfgMut func(*Config)) *httpFetchTool {
@@ -311,7 +310,7 @@ func TestHTTPFetch_ConfirmationOptions_Binary(t *testing.T) {
 func TestHTTPFetch_ConfirmArgs_PreservesOriginal(t *testing.T) {
 	tool := mkHTTPTool(t, nil)
 	original := `{"url":"https://example.com/"}`
-	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+	for _, choice := range []ConfirmChoice{ChoiceApprove, ChoiceDeny, ChoiceAllowInSession} {
 		got := tool.ConfirmArgs(original, choice)
 		if got != original {
 			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
