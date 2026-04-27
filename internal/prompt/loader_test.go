@@ -142,9 +142,9 @@ func TestWriteProfile(t *testing.T) {
 
 	answers := ProfileAnswers{
 		Name:        "小Q",
-		Gender:      "女",
-		Personality: "活泼",
-		CommStyle:   "随意",
+		Gender:      "female",
+		Personality: "playful",
+		CommStyle:   "casual",
 	}
 	if err := cfg.WriteProfile(answers); err != nil {
 		t.Fatalf("WriteProfile: %v", err)

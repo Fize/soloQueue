@@ -282,7 +282,7 @@ func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.Context
 			current, _, _ := cw.TokenUsage()
 			a.logError(ctx, logger.CatLLM, "context overflow", fmt.Errorf("tokens %d exceed hard limit %d", current, hardLimit))
 			a.emit(ctx, out, ErrorEvent{
-				Err: fmt.Errorf("上下文溢出：当前 %d tokens 超过模型硬限 %d，请开启新会话", current, hardLimit),
+				Err: fmt.Errorf("context overflow: current %d tokens exceed hard limit %d, please start a new session", current, hardLimit),
 			})
 			return
 		}

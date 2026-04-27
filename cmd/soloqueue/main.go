@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -651,10 +652,10 @@ func promptProfileQuestions() prompt.ProfileAnswers {
 	fmt.Println(prompt.ProfilePromptText())
 	fmt.Println()
 
-	answers.Name = readLineWithDefault("1. 如何称呼你的助手？", answers.Name)
-	answers.Gender = readLineWithDefault("2. 助手性别（男/女）？", answers.Gender)
-	answers.Personality = readLineWithDefault("3. 助手性格（严谨/活泼/温和/直接/自定义）？", answers.Personality)
-	answers.CommStyle = readLineWithDefault("4. 沟通偏好（简短/详细/随意/正式）？", answers.CommStyle)
+	answers.Name = readLineWithDefault("1. What should we call your assistant?", answers.Name)
+	answers.Gender = readLineWithDefault("2. Assistant gender (male/female)?", answers.Gender)
+	answers.Personality = readLineWithDefault("3. Personality (strict/playful/gentle/direct/custom)?", answers.Personality)
+	answers.CommStyle = readLineWithDefault("4. Communication style (brief/detailed/casual/formal)?", answers.CommStyle)
 
 	return answers
 }
@@ -662,13 +663,14 @@ func promptProfileQuestions() prompt.ProfileAnswers {
 // readLineWithDefault 读取一行输入，空行则返回默认值。
 func readLineWithDefault(prompt, def string) string {
 	fmt.Printf("%s [%s] ", prompt, def)
-	var input string
-	fmt.Scanln(&input)
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return def
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		input := strings.TrimSpace(scanner.Text())
+		if input != "" {
+			return input
+		}
 	}
-	return input
+	return def
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
