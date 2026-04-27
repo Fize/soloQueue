@@ -49,8 +49,24 @@ var (
 				PaddingLeft(2)
 
 	statusStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Padding(0, 1)
-	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("189"))
+	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)
 
 	confirmHighlight = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
 	confirmNormal    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 )
+
+// contextTokenStyle returns a style with color based on context window usage percentage.
+// <50%: green, 50-69%: light blue, 70-84%: yellow, 85-100%: orange.
+// No red/warning colors since compression triggers at ~90%.
+func contextTokenStyle(pct int) lipgloss.Style {
+	switch {
+	case pct < 50:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	case pct < 70:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("117"))
+	case pct < 85:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
+	}
+}
