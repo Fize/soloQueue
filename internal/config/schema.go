@@ -20,22 +20,17 @@ type Settings struct {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	TimeoutSecs       int  `json:"timeoutSecs"`
-	MaxHistory        int  `json:"maxHistory"`
-	AutoSave          bool `json:"autoSave"`
-	ReplaySegments    int  `json:"replaySegments"`    // 回放段数，默认 3
-	TimelineMaxFileMB int  `json:"timelineMaxFileMB"` // 单文件上限 MB，默认 50
-	TimelineMaxFiles  int  `json:"timelineMaxFiles"`  // 轮转文件数，默认 5
+	ReplaySegments    int `json:"replaySegments"`    // 回放段数，默认 3
+	TimelineMaxFileMB int `json:"timelineMaxFileMB"` // 单文件上限 MB，默认 50
+	TimelineMaxFiles  int `json:"timelineMaxFiles"`  // 轮转文件数，默认 5
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────
 
 type LogConfig struct {
-	Level         string `json:"level"`         // "debug" | "info" | "warn" | "error"
-	Console       bool   `json:"console"`
-	File          bool   `json:"file"`
-	MaxDays       int    `json:"maxDays"`
-	MaxFileSizeMB int    `json:"maxFileSizeMB"`
+	Level   string `json:"level"`   // "debug" | "info" | "warn" | "error"
+	Console bool   `json:"console"`
+	File    bool   `json:"file"`
 }
 
 // ─── Tools ────────────────────────────────────────────────────────────────────
@@ -91,46 +86,30 @@ type RetryConfig struct {
 }
 
 type LLMProvider struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	BaseURL      string            `json:"baseUrl"`
-	APIKeyEnv    string            `json:"apiKeyEnv"`
-	Enabled      bool              `json:"enabled"`
-	IsDefault    bool              `json:"isDefault"`
-	Capabilities []string          `json:"capabilities"`
-	TimeoutMs    int               `json:"timeoutMs"`
-	Retry        RetryConfig       `json:"retry"`
-	Headers      map[string]string `json:"headers,omitempty"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	BaseURL   string            `json:"baseUrl"`
+	APIKeyEnv string            `json:"apiKeyEnv"`
+	Enabled   bool              `json:"enabled"`
+	IsDefault bool              `json:"isDefault"`
+	TimeoutMs int               `json:"timeoutMs"`
+	Retry     RetryConfig       `json:"retry"`
+	Headers   map[string]string `json:"headers,omitempty"`
 }
 
 // ─── LLM Model ────────────────────────────────────────────────────────────────
 
 // GenerationParams 模型生成参数（采样控制）
 type GenerationParams struct {
-	Temperature      float64  `json:"temperature"`
-	MaxTokens        int      `json:"maxTokens"`
-	TopP             float64  `json:"topP"`
-	FrequencyPenalty float64  `json:"frequencyPenalty"`
-	PresencePenalty  float64  `json:"presencePenalty"`
-	StopSequences    []string `json:"stopSequences"`
+	Temperature float64 `json:"temperature"`
+	MaxTokens  int     `json:"maxTokens"`
 }
 
 // ThinkingConfig 思考/推理配置（extended thinking / reasoning 模型）
 type ThinkingConfig struct {
 	Enabled         bool   `json:"enabled"`
-	BudgetTokens    int    `json:"budgetTokens"`    // 旧方式，保留兼容；0 = 不限
 	Type            string `json:"type"`            // "reasoning" | "extended_thinking" | ""
 	ReasoningEffort string `json:"reasoningEffort"` // "high" | "max" | ""（V4 模型使用）
-}
-
-// ModelCapability 模型能力声明
-type ModelCapability struct {
-	Streaming       bool `json:"streaming"`
-	FunctionCalling bool `json:"functionCalling"`
-	Vision          bool `json:"vision"`      // 图像生成/理解（生成侧）
-	ImageInput      bool `json:"imageInput"`  // 接受图片输入
-	Thinking        bool `json:"thinking"`    // 支持思考/推理模式
-	JSONMode        bool `json:"jsonMode"`    // 强制 JSON 输出
 }
 
 type LLMModel struct {
@@ -144,7 +123,6 @@ type LLMModel struct {
 	IsDefault     bool            `json:"isDefault"`
 	Generation    GenerationParams `json:"generation"`
 	Thinking      ThinkingConfig  `json:"thinking"`
-	Capabilities  ModelCapability `json:"capabilities"`
 }
 
 // ─── Embedding ────────────────────────────────────────────────────────────────
