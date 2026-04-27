@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -43,7 +42,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return true, nil
 
 	case "/help", "/?":
-		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /history /version /quit") + "\n\n"
+		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /version /quit") + "\n\n"
 		cmd = printfWithClear("%s", text)
 
 	case "/clear":
@@ -61,15 +60,14 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		}
 		m.messages = nil
 		m.history = nil
+		m.historyIdx = 0
+		m.historyDraft = ""
 		text := clearStatusStyle.Render("◆  context cleared") + "\n\n"
 		cmd = printfWithClear("%s", text)
 
 	case "/version":
 		text := agentStyle.Render("Solo:") + "\n" + lipgloss.NewStyle().Bold(true).Render("SoloQueue "+m.cfg.Version) + "\n\n"
 		cmd = printfWithClear("%s", text)
-
-	case "/history":
-		cmd = m.historyPrintf()
 
 	default:
 		if strings.HasPrefix(input, "/") {
@@ -85,23 +83,4 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return false, tea.Sequence(logoCmd, cmd)
 	}
 	return false, cmd
-}
-
-func (m *model) historyPrintf() tea.Cmd {
-	var sb strings.Builder
-	sb.WriteString(agentStyle.Render("Solo:") + "\n")
-	if len(m.history) == 0 {
-		sb.WriteString(dimStyle.Render("(no history yet)") + "\n\n")
-		return printfWithClear("%s", sb.String())
-	}
-	sb.WriteString(lipgloss.NewStyle().Bold(true).Render("History:"))
-	start := 0
-	if len(m.history) > 20 {
-		start = len(m.history) - 20
-	}
-	for i := start; i < len(m.history); i++ {
-		sb.WriteString(fmt.Sprintf("\n  %3d  %s", i+1, truncate(m.history[i], 72)))
-	}
-	sb.WriteString("\n\n")
-	return printfWithClear("%s", sb.String())
 }
