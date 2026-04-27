@@ -5,9 +5,12 @@ package config
 func DefaultSettings() Settings {
 	return Settings{
 		Session: SessionConfig{
-			TimeoutSecs: 3600,
-			MaxHistory:  1000,
-			AutoSave:    true,
+			TimeoutSecs:       3600,
+			MaxHistory:        1000,
+			AutoSave:          true,
+			ReplaySegments:    3,
+			TimelineMaxFileMB: 50,
+			TimelineMaxFiles:  5,
 		},
 		Log: LogConfig{
 			Level:         "info",

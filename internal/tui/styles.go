@@ -9,6 +9,7 @@ var (
 	colorAccent  = lipgloss.Color("86")  // green
 	colorMuted   = lipgloss.Color("240") // gray
 	colorWarning = lipgloss.Color("203") // orange-red
+	colorInfo    = lipgloss.Color("117") // light blue
 )
 
 // ─── Pre-defined styles ──────────────────────────────────────────────────────
@@ -42,6 +43,10 @@ var (
 
 	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	dimStyle   = lipgloss.NewStyle().Foreground(colorMuted)
+
+	clearStatusStyle = lipgloss.NewStyle().
+				Foreground(colorInfo).
+				PaddingLeft(2)
 
 	statusStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Padding(0, 1)
 	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("189"))
