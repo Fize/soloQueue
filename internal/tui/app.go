@@ -181,6 +181,9 @@ type model struct {
 
 	// Tool confirmation
 	confirmState *confirmState
+
+	// Logo display: true once the logo has been flushed to scrollback
+	logoShown bool
 }
 
 // ─── Run (public entry point) ─────────────────────────────────────────────────
@@ -231,7 +234,7 @@ func Run(cfg Config) error {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	return tea.Sequence(textinput.Blink, printfWithClear("%s", renderLogo(m.cfg.Version)))
+	return textinput.Blink
 }
 
 // newRenderer creates a glamour TermRenderer configured for the current
@@ -339,8 +342,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, message{role: "user", content: input})
 			m.addHistory(input)
 
+			// Flush logo to scrollback on first input
+			var logoPrintCmd tea.Cmd
+			if !m.logoShown {
+				m.logoShown = true
+				logoPrintCmd = printfOnce("%s", renderLogo(m.cfg.Version))
+			}
+
 			// Print user message to terminal scrollback immediately
 			userPrintCmd := printfWithClear("%s", renderUserMessage(message{role: "user", content: input}))
+
+			// Combine logo flush + user message if needed
+			if logoPrintCmd != nil {
+				userPrintCmd = tea.Sequence(logoPrintCmd, userPrintCmd)
+			}
 
 			// Start streaming
 			m.isGenerating = true
@@ -575,6 +590,11 @@ func (m *model) renderAgentMessageBody(msg message) string {
 
 func (m model) View() tea.View {
 	var sb strings.Builder
+
+	// 1. Logo (shown in View until flushed to scrollback on first input)
+	if !m.logoShown {
+		sb.WriteString(renderLogo(m.cfg.Version))
+	}
 
 	// Dynamic zone: only render current interactive content.
 	// Completed history has been flushed to scrollback via tea.Printf.
