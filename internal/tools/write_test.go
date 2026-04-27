@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -265,7 +264,7 @@ func TestWriteFile_ConfirmationOptions_Binary(t *testing.T) {
 func TestWriteFile_ConfirmArgs_PreservesOriginal(t *testing.T) {
 	tool, _ := mkWriteFileTool(t, 1024)
 	original := `{"path":"a.go","content":"hello"}`
-	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+	for _, choice := range []ConfirmChoice{ChoiceApprove, ChoiceDeny, ChoiceAllowInSession} {
 		got := tool.ConfirmArgs(original, choice)
 		if got != original {
 			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
@@ -344,7 +343,7 @@ func TestMultiWrite_ConfirmationOptions_Binary(t *testing.T) {
 func TestMultiWrite_ConfirmArgs_PreservesOriginal(t *testing.T) {
 	tool, _ := mkMultiWriteTool(t, 10, 1024)
 	original := `{"files":[{"path":"a.go","content":"hello"}]}`
-	for _, choice := range []agent.ConfirmChoice{agent.ChoiceApprove, agent.ChoiceDeny, agent.ChoiceAllowInSession} {
+	for _, choice := range []ConfirmChoice{ChoiceApprove, ChoiceDeny, ChoiceAllowInSession} {
 		got := tool.ConfirmArgs(original, choice)
 		if got != original {
 			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)

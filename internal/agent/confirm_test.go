@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
@@ -42,8 +43,8 @@ func (f *fakeConfirmableTool) CheckConfirmation(args string) (bool, string) {
 
 func (fakeConfirmableTool) ConfirmationOptions(_ string) []string { return nil }
 
-func (f *fakeConfirmableTool) ConfirmArgs(original string, choice ConfirmChoice) string {
-	if choice != ChoiceApprove {
+func (f *fakeConfirmableTool) ConfirmArgs(original string, choice tools.ConfirmChoice) string {
+	if choice != tools.ChoiceApprove {
 		return original
 	}
 	var m map[string]any

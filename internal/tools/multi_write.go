@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // multiWriteTool 批量写多个文件（尽力而为，非全原子）
@@ -178,7 +177,7 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 	return string(b), nil
 }
 
-// CheckConfirmation 实现 agent.Confirmable：批量写文件始终需要确认。
+// CheckConfirmation 实现 Confirmable：批量写文件始终需要确认。
 func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 	var a multiWriteArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -195,20 +194,20 @@ func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Write %d file(s). Allow?", n)
 }
 
-// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+// ConfirmationOptions 实现 Confirmable：二元确认。
 func (t *multiWriteTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
-func (t *multiWriteTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
-	if choice != agent.ChoiceApprove {
+// ConfirmArgs 实现 Confirmable：无需修改 args。
+func (t *multiWriteTool) ConfirmArgs(original string, choice ConfirmChoice) string {
+	if choice != ChoiceApprove {
 		return original
 	}
 	return original
 }
 
-// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
 func (t *multiWriteTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
-var _ agent.Tool = (*multiWriteTool)(nil)
-var _ agent.Confirmable = (*multiWriteTool)(nil)
+var _ Tool = (*multiWriteTool)(nil)
+var _ Confirmable = (*multiWriteTool)(nil)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // writeFileTool 原子写入单个文件
@@ -108,7 +107,7 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 	return string(b), nil
 }
 
-// CheckConfirmation 实现 agent.Confirmable：写文件始终需要确认。
+// CheckConfirmation 实现 Confirmable：写文件始终需要确认。
 func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 	var a writeFileArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -124,20 +123,20 @@ func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Write %s to %q. Allow?", sizeStr, a.Path)
 }
 
-// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+// ConfirmationOptions 实现 Confirmable：二元确认。
 func (t *writeFileTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
-func (t *writeFileTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
-	if choice != agent.ChoiceApprove {
+// ConfirmArgs 实现 Confirmable：无需修改 args。
+func (t *writeFileTool) ConfirmArgs(original string, choice ConfirmChoice) string {
+	if choice != ChoiceApprove {
 		return original
 	}
 	return original
 }
 
-// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
 func (t *writeFileTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
-var _ agent.Tool = (*writeFileTool)(nil)
-var _ agent.Confirmable = (*writeFileTool)(nil)
+var _ Tool = (*writeFileTool)(nil)
+var _ Confirmable = (*writeFileTool)(nil)

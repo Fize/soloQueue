@@ -13,6 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── runOnceStream ──────────────────────────────────────────────────────────
@@ -579,9 +580,13 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	name := tc.Function.Name
 	args := tc.Function.Arguments
 
-	tool, ok := a.tools.safeGet(name)
+	var tool tools.Tool
+	var ok bool
+	if a.caps != nil {
+		tool, ok = a.caps.ToolRegistry().SafeGet(name)
+	}
 	if !ok {
-		err := fmt.Errorf("%w: %s", ErrToolNotFound, name)
+		err := fmt.Errorf("%w: %s", tools.ErrToolNotFound, name)
 		a.logError(ctx, logger.CatTool, "tool not found", err,
 			slog.String("tool_name", name),
 			slog.String("tool_call_id", tc.ID),
@@ -607,9 +612,9 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	//   1. 先查会话级白名单，命中则跳过确认直接注入 confirmed=true；
 	//   2. 否则 CheckConfirmation，需要确认时发 ToolNeedsConfirmEvent 并阻塞等待；
 	//   3. 用户选择 ChoiceAllowInSession → 加入白名单并按 ChoiceApprove 处理。
-	if c, ok := tool.(Confirmable); ok {
+	if c, ok := tool.(tools.Confirmable); ok {
 		if a.confirmStore.IsConfirmed(name) {
-			args = c.ConfirmArgs(args, ChoiceApprove)
+			args = c.ConfirmArgs(args, choiceApprove)
 		} else {
 			needsConfirm, prompt := c.CheckConfirmation(args)
 			if needsConfirm {
@@ -656,12 +661,12 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 					})
 					return result
 				}
-				confirmChoice := ConfirmChoice(choice)
-				if confirmChoice == ChoiceAllowInSession {
+				cc := confirmChoice(choice)
+				if cc == choiceAllowInSession {
 					a.confirmStore.Confirm(name)
-					confirmChoice = ChoiceApprove
+					cc = choiceApprove
 				}
-				args = c.ConfirmArgs(args, confirmChoice)
+				args = c.ConfirmArgs(args, cc)
 			}
 		}
 	}
