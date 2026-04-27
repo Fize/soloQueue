@@ -526,14 +526,16 @@ func initConfig(workDir string) (*config.GlobalService, error) {
 	}
 
 	if err := cfg.Watch(); err != nil {
-		slog.Error("config hot-reload watcher failed; config changes will require restart", "err", err)
+		// Non-fatal: config changes will require restart.
+		// Don't use slog.Error here — logger hasn't been initialized yet
+		// and we don't want to pollute the terminal in TUI mode.
 	}
 
 	// 若 settings.json 不存在，写入默认值
 	settingsPath := filepath.Join(workDir, "settings.json")
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		if err := cfg.Save(); err != nil {
-			slog.Error("failed to save default config", "path", settingsPath, "err", err)
+			// Non-fatal: don't pollute terminal before logger is ready.
 		}
 	}
 
@@ -583,7 +585,7 @@ func parseLogLevel(level string) slog.Level {
 	case "error":
 		return slog.LevelError
 	default:
-		slog.Warn("unknown log level, using info", "level", level)
+		// Unknown level: default to info without printing to terminal
 		return slog.LevelInfo
 	}
 }
