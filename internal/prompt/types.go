@@ -21,9 +21,9 @@ type ProfileAnswers struct {
 func DefaultProfileAnswers() ProfileAnswers {
 	return ProfileAnswers{
 		Name:        "SoloQueue",
-		Gender:      "女",
-		Personality: "活泼",
-		CommStyle:   "随意",
+		Gender:      "female",
+		Personality: "playful",
+		CommStyle:   "casual",
 	}
 }
 
