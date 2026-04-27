@@ -139,6 +139,7 @@ type clearCancelMsg struct{}
 type clearErrMsg struct{}
 type clearSummaryMsg struct{}
 type dotMsg struct{}
+type hintRotateMsg struct{}
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
@@ -180,6 +181,9 @@ type model struct {
 	history      []string
 	historyIdx   int    // 0 = not browsing; >0 = offset from end
 	historyDraft string // saved input before history browsing
+
+	// Hint rotation
+	hintIndex int // current index into commandHints
 
 	// Tool confirmation
 	confirmState *confirmState
@@ -236,7 +240,7 @@ func Run(cfg Config) error {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, hintRotateCmd())
 }
 
 // newRenderer creates a glamour TermRenderer configured for the current
@@ -482,6 +486,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resetQuitMsg:
 		m.quitCount = 0
 		return m, nil
+
+	case hintRotateMsg:
+		m.hintIndex = (m.hintIndex + 1) % len(commandHints)
+		return m, hintRotateCmd()
 	}
 
 	// Pass through to textinput when not in confirm mode and not generating
@@ -689,7 +697,7 @@ func (m model) View() tea.View {
 
 	// 5. Divider (above input)
 	divider := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("237")).
+			Foreground(lipgloss.Color("245")).
 			Render(strings.Repeat("-", max(m.width, 0)))
 	sb.WriteString(divider + "\n")
 
@@ -699,17 +707,25 @@ func (m model) View() tea.View {
 	// 7. Divider (below input)
 	sb.WriteString(divider + "\n")
 
-	// 8. Hint line (right-aligned)
-	hint := "ctrl+c quit"
-	if m.isGenerating {
-		hint = "esc/ctrl+c interrupt"
+	// 8. Hint line: left=rotating command hints, right=context token usage
+	leftHint := hintStyle.Render(commandHints[m.hintIndex])
+
+	var pct int
+	if m.sess != nil {
+		current, max, _ := m.sess.ContextWindow().TokenUsage()
+		if max > 0 {
+			pct = current * 100 / max
+		}
 	}
-	renderedHint := hintStyle.Render(hint)
-	padding := m.width - lipgloss.Width(renderedHint)
-	if padding > 0 {
-		sb.WriteString(strings.Repeat(" ", padding))
+	rightHint := contextTokenStyle(pct).Render(fmt.Sprintf("Context Tokens: %d%%", pct))
+
+	separator := dimStyle.Render(" · ")
+	availWidth := m.width - lipgloss.Width(leftHint) - lipgloss.Width(separator) - lipgloss.Width(rightHint)
+	padding := availWidth
+	if padding < 1 {
+		padding = 1
 	}
-	sb.WriteString(renderedHint)
+	sb.WriteString(leftHint + strings.Repeat(" ", padding) + separator + rightHint)
 
 	return tea.NewView(sb.String())
 }
@@ -814,6 +830,21 @@ func (m *model) resetGenState() {
 	m.cacheHitTokens = 0
 	m.cacheMissTokens = 0
 	m.reasoningTokens = 0
+}
+
+// ─── Command hints ─────────────────────────────────────────────────────────────
+
+var commandHints = []string{
+	"· ctrl+c×2 quit",
+	"· esc interrupt",
+	"· ↑↓ history",
+	"· /help commands",
+	"· /clear context",
+	"· /quit exit",
+}
+
+func hintRotateCmd() tea.Cmd {
+	return tea.Tick(10*time.Second, func(t time.Time) tea.Msg { return hintRotateMsg{} })
 }
 
 // ─── Stream ───────────────────────────────────────────────────────────────────
