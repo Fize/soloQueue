@@ -8,6 +8,12 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// printfOnce prints above the current View without ClearScreen.
+// Use only at Init when the cellbuf is still empty — no ghost-content risk.
+func printfOnce(format string, args ...any) tea.Cmd {
+	return tea.Printf(format, args...)
+}
+
 // printfWithClear wraps tea.Printf with a ClearScreen to keep the v2
 // cursed renderer's cellbuf in sync. Without ClearScreen after Printf,
 // the renderer's diff-based incremental update produces ghost content
