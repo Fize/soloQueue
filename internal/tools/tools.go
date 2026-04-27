@@ -3,7 +3,7 @@
 // 设计原则：
 //
 //   - 所有工具都是 "配置驱动的值对象"：main.go 在启动时构造一个 Config
-//     并调用 Build(cfg)，返回可直接传给 agent.WithTools 的 []agent.Tool。
+//     并调用 Build(cfg)，返回可直接传给 agent.WithTools 的 []Tool。
 //   - 工具扁平布局（每个 .go 文件一个工具 + 一个 *_test.go）；不做子包。
 //     当 tool 数量超过 ~30 或按域划分更有意义时，再做 refactor。
 //   - 共享的配置 / helper（sandbox 检查、atomic write）集中在本文件。
@@ -30,8 +30,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -125,8 +123,8 @@ type Config struct {
 //   - 其他工具总是返回（不可用的配置由各自 Execute 时报错）
 //
 // 返回切片顺序保持与声明顺序一致（便于 debug）。
-func Build(cfg Config) []agent.Tool {
-	out := []agent.Tool{
+func Build(cfg Config) []Tool {
+	out := []Tool{
 		newFileReadTool(cfg),
 		newGrepTool(cfg),
 		newGlobTool(cfg),

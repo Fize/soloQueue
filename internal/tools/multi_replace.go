@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // multiReplaceTool 对同一文件按顺序应用多段替换，原子落盘
@@ -155,7 +154,7 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 	return string(b), nil
 }
 
-// CheckConfirmation 实现 agent.Confirmable：多段替换始终需要确认。
+// CheckConfirmation 实现 Confirmable：多段替换始终需要确认。
 func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
 	var a multiReplaceArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -164,20 +163,20 @@ func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Apply %d edit(s) to %q. Allow?", len(a.Edits), a.Path)
 }
 
-// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+// ConfirmationOptions 实现 Confirmable：二元确认。
 func (t *multiReplaceTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
-func (t *multiReplaceTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
-	if choice != agent.ChoiceApprove {
+// ConfirmArgs 实现 Confirmable：无需修改 args。
+func (t *multiReplaceTool) ConfirmArgs(original string, choice ConfirmChoice) string {
+	if choice != ChoiceApprove {
 		return original
 	}
 	return original
 }
 
-// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
 func (t *multiReplaceTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
-var _ agent.Tool = (*multiReplaceTool)(nil)
-var _ agent.Confirmable = (*multiReplaceTool)(nil)
+var _ Tool = (*multiReplaceTool)(nil)
+var _ Confirmable = (*multiReplaceTool)(nil)

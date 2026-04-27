@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 func mkShellTool(t *testing.T, confirm []string, timeout time.Duration, maxOut int64) *shellExecTool {
@@ -243,6 +242,6 @@ func TestShell_ConfirmArgs(t *testing.T) {
 }
 
 func TestShell_Confirmable_CompileTimeCheck(t *testing.T) {
-	// 编译时检查：shellExecTool 实现了 agent.Confirmable
-	var _ agent.Confirmable = (*shellExecTool)(nil)
+	// 编译时检查：shellExecTool 实现了 Confirmable
+	var _ Confirmable = (*shellExecTool)(nil)
 }

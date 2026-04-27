@@ -25,6 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/tui"
@@ -116,7 +117,7 @@ Environment:
 			}
 			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
 			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
-			toolList := tools.Build(toolsCfg)
+			skillList := skill.BuildSkills(toolsCfg)
 
 			// 共享 Tokenizer（所有 session 复用同一个编码实例）
 			tokenizer := ctxwin.NewTokenizer()
@@ -162,6 +163,9 @@ Environment:
 			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
 			replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
 
+			// 共享 Agent Registry（供 DelegateSkill 的 AgentLocator 查找 L2 Agent）
+			agentRegistry := agent.NewRegistry(log)
+
 			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 				agentID := newAgentID()
 				// APIModel 优先，空则 fallback 到 ID
@@ -194,12 +198,14 @@ Environment:
 					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
 				a := agent.NewAgent(def, llmClient, sessLog,
-					agent.WithTools(toolList...),
+					agent.WithSkills(skillList...),
+					agent.WithSkills(skill.NewDelegateSkill(leaders, agentRegistry, 5*time.Minute)),
 					agent.WithParallelTools(true),
 					agent.WithToolTimeout("shell_exec", 30*time.Second),
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
 					agent.WithToolTimeout("web_search", 15*time.Second),
 				)
+				agentRegistry.Register(a)
 
 				// 创建 Timeline Writer + Push Hook
 				tl, err := timeline.NewWriter(workDir, "timeline", tlMaxBytes, tlMaxFiles)
@@ -370,7 +376,7 @@ func serveCmd() *cobra.Command {
 			}
 			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
 			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
-			toolList := tools.Build(toolsCfg)
+			skillList := skill.BuildSkills(toolsCfg)
 
 			// ── LLM 工厂：从 default provider + default model 构造 DeepSeek
 			//    客户端（目前仅 DeepSeek；未来可按 Provider.ID 分派）─────────
@@ -441,6 +447,9 @@ func serveCmd() *cobra.Command {
 			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
 			replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
 
+			// 共享 Agent Registry（供 DelegateSkill 的 AgentLocator 查找 L2 Agent）
+			serveAgentRegistry := agent.NewRegistry(log)
+
 			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 				agentID := newAgentID()
 				// APIModel 优先，空则 fallback 到 ID
@@ -477,12 +486,14 @@ func serveCmd() *cobra.Command {
 				}
 
 				a := agent.NewAgent(def, llmClient, sessLog,
-					agent.WithTools(toolList...),
+					agent.WithSkills(skillList...),
+					agent.WithSkills(skill.NewDelegateSkill(serveLeaders, serveAgentRegistry, 5*time.Minute)),
 					agent.WithParallelTools(true),
 					agent.WithToolTimeout("shell_exec", 30*time.Second),
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
 					agent.WithToolTimeout("web_search", 15*time.Second),
 				)
+				serveAgentRegistry.Register(a)
 
 				// 创建 Timeline Writer + Push Hook
 				tl, err := timeline.NewWriter(workDir, "timeline", tlMaxBytes, tlMaxFiles)
@@ -556,7 +567,7 @@ func serveCmd() *cobra.Command {
 
 			log.Info(logger.CatApp, "server listening",
 				"addr", srv.Addr,
-				"tools", len(toolList),
+				"skills", len(skillList),
 			)
 			fmt.Printf("soloqueue serve listening on %s:%d\n", host, port)
 

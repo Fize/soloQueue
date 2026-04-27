@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // replaceTool 对单个文件做严格字符串替换
@@ -133,7 +132,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	return string(b), nil
 }
 
-// CheckConfirmation 实现 agent.Confirmable：替换操作始终需要确认。
+// CheckConfirmation 实现 Confirmable：替换操作始终需要确认。
 func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 	var a replaceArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -144,18 +143,18 @@ func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Replace in %q: %q → %q. Allow?", a.Path, oldPreview, newPreview)
 }
 
-// ConfirmationOptions 实现 agent.Confirmable：二元确认。
+// ConfirmationOptions 实现 Confirmable：二元确认。
 func (t *replaceTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 agent.Confirmable：无需修改 args。
-func (t *replaceTool) ConfirmArgs(original string, choice agent.ConfirmChoice) string {
-	if choice != agent.ChoiceApprove {
+// ConfirmArgs 实现 Confirmable：无需修改 args。
+func (t *replaceTool) ConfirmArgs(original string, choice ConfirmChoice) string {
+	if choice != ChoiceApprove {
 		return original
 	}
 	return original
 }
 
-// SupportsSessionWhitelist 实现 agent.Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
 func (t *replaceTool) SupportsSessionWhitelist() bool { return true }
 
 // truncateString 截断字符串用于展示（含省略号）
@@ -168,5 +167,5 @@ func truncateString(s string, max int) string {
 }
 
 // Compile-time checks
-var _ agent.Tool = (*replaceTool)(nil)
-var _ agent.Confirmable = (*replaceTool)(nil)
+var _ Tool = (*replaceTool)(nil)
+var _ Confirmable = (*replaceTool)(nil)

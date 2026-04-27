@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -43,8 +45,8 @@ type Agent struct {
 
 	// 配置（构造后不变）
 	mailboxCap    int
-	tools         *ToolRegistry // nil 表示无 tools（ToolSpecs 返回 nil）
-	parallelTools bool          // true 时一轮多个 tool_call 用 errgroup 并发执行
+	caps          *skill.SkillRegistry // nil 表示无 tools（ToolSpecs 返回 nil）
+	parallelTools bool                 // true 时一轮多个 tool_call 用 errgroup 并发执行
 
 	// toolTimeouts 按 tool.Name() 指定 Execute 的超时时长（0/nil = 无单 tool 超时）
 	// execToolStream 会用 context.WithTimeout 包裹 ctx，超时错误被格式化
@@ -90,23 +92,48 @@ func WithMailboxCap(cap int) Option {
 	}
 }
 
-// WithTools 注册一批工具到 agent
+// WithSkills 注册一批 Skill 到 agent
+//
+// 替代 WithTools：Skill 是能力的组织单元，可包含 1~N 个 Tool。
+// 多次调用 WithSkills 会累加（同一 SkillRegistry），同名 Skill 仍会 panic。
+func WithSkills(skills ...skill.Skill) Option {
+	return func(a *Agent) {
+		if len(skills) == 0 {
+			return
+		}
+		if a.caps == nil {
+			a.caps = skill.NewSkillRegistry()
+		}
+		for _, s := range skills {
+			if err := a.caps.Register(s); err != nil {
+				panic(fmt.Sprintf("agent: WithSkills: %v", err))
+			}
+		}
+	}
+}
+
+// WithTools 注册一批工具到 agent（兼容旧接口）
+//
+// 内部将裸 Tool 包装为匿名 BuiltinSkill 注册到 SkillRegistry。
+// 新代码应优先使用 WithSkills。
 //
 // 重名 / Tool.Name() 为空 / nil tool 会 panic —— 属于构造期编程错误，
 // 必须早炸。生产代码应保证 tool name 唯一；若动态注册需要 error，
-// 直接构造 ToolRegistry 后用 Register() 检查返回值。
+// 直接构造 SkillRegistry 后用 Register() 检查返回值。
 //
 // 多次调用 WithTools 会累加（同一 registry），同名仍会 panic。
-func WithTools(tools ...Tool) Option {
+func WithTools(ts ...tools.Tool) Option {
 	return func(a *Agent) {
-		if len(tools) == 0 {
+		if len(ts) == 0 {
 			return
 		}
-		if a.tools == nil {
-			a.tools = NewToolRegistry()
+		if a.caps == nil {
+			a.caps = skill.NewSkillRegistry()
 		}
-		for _, t := range tools {
-			if err := a.tools.Register(t); err != nil {
+		for _, t := range ts {
+			// 将裸 Tool 包装为匿名 BuiltinSkill 注册
+			s := skill.NewBuiltinSkill("_tool_"+t.Name(), "Auto-wrapped tool", t)
+			if err := a.caps.Register(s); err != nil {
 				panic(fmt.Sprintf("agent: WithTools: %v", err))
 			}
 		}

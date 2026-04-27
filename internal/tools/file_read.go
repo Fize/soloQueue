@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // fileReadTool 读取单个文件并返回 JSON payload
@@ -87,4 +86,4 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 }
 
 // Compile-time check
-var _ agent.Tool = (*fileReadTool)(nil)
+var _ Tool = (*fileReadTool)(nil)

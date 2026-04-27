@@ -18,6 +18,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -1107,11 +1108,11 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	var agentChoice string
 	switch {
 	case strings.HasPrefix(choice, "[y]"):
-		agentChoice = string(agent.ChoiceApprove)
+		agentChoice = string(tools.ChoiceApprove)
 	case strings.HasPrefix(choice, "[n]"):
-		agentChoice = string(agent.ChoiceDeny)
+		agentChoice = string(tools.ChoiceDeny)
 	case strings.HasPrefix(choice, "[a]"):
-		agentChoice = string(agent.ChoiceAllowInSession)
+		agentChoice = string(tools.ChoiceAllowInSession)
 	default:
 		agentChoice = choice
 	}

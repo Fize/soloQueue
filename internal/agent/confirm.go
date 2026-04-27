@@ -5,34 +5,13 @@ import (
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
-)
-
-// ─── ConfirmChoice ──────────────────────────────────────────────────────────
-
-// ConfirmChoice 是用户在确认对话框中做出的选择。
-type ConfirmChoice string
-
-const (
-	// ChoiceDeny 表示拒绝/取消执行。
-	ChoiceDeny ConfirmChoice = ""
-
-	// ChoiceApprove 表示仅确认本次执行（不加白名单）。
-	ChoiceApprove ConfirmChoice = "yes"
-
-	// ChoiceAllowInSession 表示确认本次执行，并将该工具加入当前会话白名单，
-	// 后续同会话内调用不再触发确认。
-	ChoiceAllowInSession ConfirmChoice = "allow-in-session"
+	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── SessionConfirmStore ────────────────────────────────────────────────────
 
 // SessionConfirmStore 是会话级工具放行存储的抽象。
-//
-// 设计原则：
-//   - 当前只有内存实现；未来如需 Redis/DB 持久化，只需通过 WithConfirmStore
-//     注入新实现即可，Agent 内部无感知。
-//   - 接口保持极简：只按 toolName 维度判断，未来如需扩展为按参数特征判断，
-//     可在不破坏现有实现的前提下新增方法（如 IsConfirmedWithArgs）。
 type SessionConfirmStore interface {
 	// IsConfirmed 检查 toolName 是否已被当前会话放行。
 	IsConfirmed(toolName string) bool
@@ -82,10 +61,6 @@ func (s *memoryConfirmStore) Clear() {
 }
 
 // Confirm 向 agent 注入用户对某个待确认 tool_call 的响应。
-//
-// 由外部系统（UI / TUI / WebSocket）在用户做出选择后调用。
-// choice 为用户选择的选项值；二元确认用 "yes"（确认）或 ""（拒绝）。
-// 若 callID 不存在或已响应，返回错误。
 func (a *Agent) Confirm(callID string, choice string) error {
 	a.confirmMu.RLock()
 	slot, ok := a.pendingConfirm[callID]
@@ -105,12 +80,21 @@ func (a *Agent) Confirm(callID string, choice string) error {
 }
 
 // ToolSpecs 返回当前 agent 注册的所有 tool 的 llm.ToolDef 快照
-//
-// 未调 WithTools 时返回 nil；LLMRequest.Tools = nil 在 DeepSeek wire 层
-// 会被 omitempty 省略，行为等价于"没注册工具"。
 func (a *Agent) ToolSpecs() []llm.ToolDef {
-	if a.tools == nil {
+	if a.caps == nil {
 		return nil
 	}
-	return a.tools.Specs()
+	return a.caps.ToolSpecs()
 }
+
+// confirmChoice 方便内部代码引用 tools.ConfirmChoice
+type confirmChoice = tools.ConfirmChoice
+
+const (
+	choiceDeny           = tools.ChoiceDeny
+	choiceApprove        = tools.ChoiceApprove
+	choiceAllowInSession = tools.ChoiceAllowInSession
+)
+
+// 编译时断言：Agent 实现 skill.Locatable
+var _ skill.Locatable = (*Agent)(nil)
