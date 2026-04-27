@@ -612,8 +612,8 @@ func initConfig(workDir string) (*config.GlobalService, error) {
 		// and we don't want to pollute the terminal in TUI mode.
 	}
 
-	// 若 settings.json 不存在，写入默认值
-	settingsPath := filepath.Join(workDir, "settings.json")
+	// 若 settings.toml 不存在，写入默认值
+	settingsPath := filepath.Join(workDir, "settings.toml")
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		if err := cfg.Save(); err != nil {
 			// Non-fatal: don't pollute terminal before logger is ready.
