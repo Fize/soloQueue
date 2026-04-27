@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
@@ -51,7 +53,7 @@ func newFakeTool(name string) *fakeTool {
 	}
 }
 
-// emptyNameTool 一个 Name() 返回空的 Tool，用于测试 ErrToolNameEmpty
+// emptyNameTool 一个 Name() 返回空的 Tool，用于测试 tools.ErrToolNameEmpty
 type emptyNameTool struct{}
 
 func (emptyNameTool) Name() string                                    { return "" }
@@ -62,7 +64,7 @@ func (emptyNameTool) Execute(context.Context, string) (string, error) { return "
 // ─── Register / Get ──────────────────────────────────────────────────────────
 
 func TestToolRegistry_Register_Get(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	tool := newFakeTool("echo")
 	if err := r.Register(tool); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -77,32 +79,32 @@ func TestToolRegistry_Register_Get(t *testing.T) {
 }
 
 func TestToolRegistry_Register_Duplicate(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	_ = r.Register(newFakeTool("echo"))
 	err := r.Register(newFakeTool("echo"))
-	if !errors.Is(err, ErrToolAlreadyRegistered) {
-		t.Errorf("err = %v, want ErrToolAlreadyRegistered", err)
+	if !errors.Is(err, tools.ErrToolAlreadyRegistered) {
+		t.Errorf("err = %v, want tools.ErrToolAlreadyRegistered", err)
 	}
 }
 
 func TestToolRegistry_Register_EmptyName(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	err := r.Register(emptyNameTool{})
-	if !errors.Is(err, ErrToolNameEmpty) {
-		t.Errorf("err = %v, want ErrToolNameEmpty", err)
+	if !errors.Is(err, tools.ErrToolNameEmpty) {
+		t.Errorf("err = %v, want tools.ErrToolNameEmpty", err)
 	}
 }
 
 func TestToolRegistry_Register_Nil(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	err := r.Register(nil)
-	if !errors.Is(err, ErrToolNil) {
-		t.Errorf("err = %v, want ErrToolNil", err)
+	if !errors.Is(err, tools.ErrToolNil) {
+		t.Errorf("err = %v, want tools.ErrToolNil", err)
 	}
 }
 
 func TestToolRegistry_Get_NotFound(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	tool, ok := r.Get("ghost")
 	if tool != nil || ok {
 		t.Errorf("Get(\"ghost\") = (%v, %v), want (nil, false)", tool, ok)
@@ -112,7 +114,7 @@ func TestToolRegistry_Get_NotFound(t *testing.T) {
 // ─── Specs ───────────────────────────────────────────────────────────────────
 
 func TestToolRegistry_Specs_Format(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	_ = r.Register(newFakeTool("bravo"))
 	_ = r.Register(newFakeTool("alpha"))
 	specs := r.Specs()
@@ -137,7 +139,7 @@ func TestToolRegistry_Specs_Format(t *testing.T) {
 }
 
 func TestToolRegistry_Specs_Empty(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	specs := r.Specs()
 	if len(specs) != 0 {
 		t.Errorf("empty registry should return empty specs, got %d", len(specs))
@@ -147,7 +149,7 @@ func TestToolRegistry_Specs_Empty(t *testing.T) {
 // ─── Len / Names ─────────────────────────────────────────────────────────────
 
 func TestToolRegistry_Len(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	if r.Len() != 0 {
 		t.Errorf("empty Len = %d", r.Len())
 	}
@@ -159,7 +161,7 @@ func TestToolRegistry_Len(t *testing.T) {
 }
 
 func TestToolRegistry_Names_Sorted(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	_ = r.Register(newFakeTool("charlie"))
 	_ = r.Register(newFakeTool("alpha"))
 	_ = r.Register(newFakeTool("bravo"))
@@ -176,7 +178,7 @@ func TestToolRegistry_Names_Sorted(t *testing.T) {
 }
 
 func TestToolRegistry_Names_Empty(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	if names := r.Names(); names != nil {
 		t.Errorf("empty Names should be nil, got %v", names)
 	}
@@ -185,17 +187,17 @@ func TestToolRegistry_Names_Empty(t *testing.T) {
 // ─── safeGet（nil receiver）─────────────────────────────────────────────────
 
 func TestToolRegistry_SafeGet_NilReceiver(t *testing.T) {
-	var r *ToolRegistry // nil
-	tool, ok := r.safeGet("x")
+	var r *tools.ToolRegistry // nil
+	tool, ok := r.SafeGet("x")
 	if tool != nil || ok {
 		t.Errorf("nil.safeGet = (%v, %v), want (nil, false)", tool, ok)
 	}
 }
 
 func TestToolRegistry_SafeGet_Existing(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	_ = r.Register(newFakeTool("x"))
-	tool, ok := r.safeGet("x")
+	tool, ok := r.SafeGet("x")
 	if !ok || tool == nil {
 		t.Errorf("safeGet failed for existing tool")
 	}
@@ -205,7 +207,7 @@ func TestToolRegistry_SafeGet_Existing(t *testing.T) {
 
 // TestToolRegistry_Concurrent_ReadWrite 并发 Register + Get + Specs，验证 -race 无数据竞争
 func TestToolRegistry_Concurrent_ReadWrite(t *testing.T) {
-	r := NewToolRegistry()
+	r := tools.NewToolRegistry()
 	var wg sync.WaitGroup
 	const N = 20
 

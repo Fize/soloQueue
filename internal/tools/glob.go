@@ -9,7 +9,6 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // globTool 在沙箱目录下按 doublestar pattern 找文件
@@ -115,4 +114,4 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 }
 
 // Compile-time check
-var _ agent.Tool = (*globTool)(nil)
+var _ Tool = (*globTool)(nil)

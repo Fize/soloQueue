@@ -15,14 +15,15 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
 // startedAgentWithTools 启动一个带 tools 的 agent，自动 Stop
-func startedAgentWithTools(t *testing.T, fake *FakeLLM, tools ...Tool) *Agent {
+func startedAgentWithTools(t *testing.T, fake *FakeLLM, ts ...tools.Tool) *Agent {
 	t.Helper()
-	a := NewAgent(Definition{ID: "a1"}, fake, nil, WithTools(tools...))
+	a := NewAgent(Definition{ID: "a1"}, fake, nil, WithTools(ts...))
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -322,7 +323,7 @@ func TestAgent_WithTools_DuplicatePanic(t *testing.T) {
 func TestAgent_WithTools_EmptyIsNoop(t *testing.T) {
 	// WithTools() 无参不应分配 registry
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil, WithTools())
-	if a.tools != nil {
+	if a.caps != nil {
 		t.Error("empty WithTools should not allocate registry")
 	}
 }
