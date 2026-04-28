@@ -117,7 +117,6 @@ Environment:
 			}
 			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
 			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
-			skillList := skill.BuildSkills(toolsCfg)
 
 			// 共享 Tokenizer（所有 session 复用同一个编码实例）
 			tokenizer := ctxwin.NewTokenizer()
@@ -197,9 +196,26 @@ Environment:
 				if err != nil {
 					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
+				// Tools: 内置工具 + DelegateTool
+				allTools := tools.Build(toolsCfg)
+				for _, l := range leaders {
+					allTools = append(allTools, &tools.DelegateTool{
+						LeaderID: l.Name,
+						Desc:     l.Description,
+						Locator:  agentRegistry,
+						Timeout:  5 * time.Minute,
+					})
+				}
+
+				// Skills: 用户 SKILL.md
+				var skillList []skill.Skill
+				if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(workDir, "skills")); err == nil {
+					skillList = append(skillList, userSkills...)
+				}
+
 				a := agent.NewAgent(def, llmClient, sessLog,
+					agent.WithTools(allTools...),
 					agent.WithSkills(skillList...),
-					agent.WithSkills(skill.NewDelegateSkill(leaders, agentRegistry, 5*time.Minute)),
 					agent.WithParallelTools(true),
 					agent.WithToolTimeout("shell_exec", 30*time.Second),
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
@@ -240,6 +256,11 @@ Environment:
 				)
 				if def.SystemPrompt != "" {
 					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
+				}
+
+				// 追加 skill 目录到 system prompt
+				if cat := a.SkillCatalog(); cat != "" {
+					cw.Push(ctxwin.RoleSystem, cat)
 				}
 
 				// Replay 历史：读取 timeline 并回放到 ContextWindow
@@ -376,7 +397,6 @@ func serveCmd() *cobra.Command {
 			}
 			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
 			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
-			skillList := skill.BuildSkills(toolsCfg)
 
 			// ── LLM 工厂：从 default provider + default model 构造 DeepSeek
 			//    客户端（目前仅 DeepSeek；未来可按 Provider.ID 分派）─────────
@@ -485,9 +505,26 @@ func serveCmd() *cobra.Command {
 					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
 
+				// Tools: 内置工具 + DelegateTool
+				serveAllTools := tools.Build(toolsCfg)
+				for _, l := range serveLeaders {
+					serveAllTools = append(serveAllTools, &tools.DelegateTool{
+						LeaderID: l.Name,
+						Desc:     l.Description,
+						Locator:  serveAgentRegistry,
+						Timeout:  5 * time.Minute,
+					})
+				}
+
+				// Skills: 用户 SKILL.md
+				var serveSkillList []skill.Skill
+				if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(workDir, "skills")); err == nil {
+					serveSkillList = append(serveSkillList, userSkills...)
+				}
+
 				a := agent.NewAgent(def, llmClient, sessLog,
-					agent.WithSkills(skillList...),
-					agent.WithSkills(skill.NewDelegateSkill(serveLeaders, serveAgentRegistry, 5*time.Minute)),
+					agent.WithTools(serveAllTools...),
+					agent.WithSkills(serveSkillList...),
 					agent.WithParallelTools(true),
 					agent.WithToolTimeout("shell_exec", 30*time.Second),
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
@@ -518,6 +555,11 @@ func serveCmd() *cobra.Command {
 				)
 				if def.SystemPrompt != "" {
 					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
+				}
+
+				// 追加 skill 目录到 system prompt
+				if cat := a.SkillCatalog(); cat != "" {
+					cw.Push(ctxwin.RoleSystem, cat)
 				}
 
 				// Replay 历史：读取 timeline 并回放到 ContextWindow
@@ -567,7 +609,6 @@ func serveCmd() *cobra.Command {
 
 			log.Info(logger.CatApp, "server listening",
 				"addr", srv.Addr,
-				"skills", len(skillList),
 			)
 			fmt.Printf("soloqueue serve listening on %s:%d\n", host, port)
 

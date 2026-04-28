@@ -323,7 +323,7 @@ func TestAgent_WithTools_DuplicatePanic(t *testing.T) {
 func TestAgent_WithTools_EmptyIsNoop(t *testing.T) {
 	// WithTools() 无参不应分配 registry
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil, WithTools())
-	if a.caps != nil {
+	if a.tools != nil {
 		t.Error("empty WithTools should not allocate registry")
 	}
 }

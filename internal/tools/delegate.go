@@ -1,12 +1,39 @@
-package skill
+package tools
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"time"
+)
 
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+// ─── AgentLocator / Locatable ─────────────────────────────────────────────
+
+// AgentLocator 按 ID 查找运行中的 Agent 实例
+//
+// DelegateTool 使用此接口查找目标 Agent，解耦对具体 Registry 的直接依赖。
+// 由 Agent 包的 Registry 实现。
+type AgentLocator interface {
+	// Locate 按 ID 查找 Agent；不存在返回 (nil, false)
+	Locate(id string) (Locatable, bool)
+}
+
+// Locatable 是 Agent 的最小抽象，供 DelegateTool 调用
+//
+// DelegateTool 只需要 Ask 能力，不需要知道 Agent 的完整接口。
+// 由 Agent 包的 Agent 类型实现。
+type Locatable interface {
+	Ask(ctx context.Context, prompt string) (string, error)
+}
+
+// ─── Delegate 常量 ─────────────────────────────────────────────────────────
+
+const (
+	// DelegateDefaultTimeout 委托任务默认超时
+	DelegateDefaultTimeout = 5 * time.Minute
+
+	// DelegateMaxTimeout 委托任务最大超时
+	DelegateMaxTimeout = 15 * time.Minute
 )
 
 // ─── DelegateTool ──────────────────────────────────────────────────────────
@@ -28,19 +55,19 @@ var delegateParamsSchema = json.RawMessage(`{
   "required": ["task"]
 }`)
 
-// DelegateTool 是一个 Tool 实现，将任务委托给指定 Team Leader
+// DelegateTool 将任务委托给指定 Team Leader
 //
-// 实现 tools.Tool 接口 → 可被 ToolRegistry 注册 → LLM 通过 function calling 调用。
+// 实现 Tool 接口 → 可被 ToolRegistry 注册 → LLM 通过 function calling 调用。
 // 对 LLM 而言，delegate_dev(task="...") 与 file_read(path="...") 无区别。
 type DelegateTool struct {
-	LeaderID string        // 目标 Agent 的标识（如 "dev"）
-	Desc     string        // Leader 描述（用于 Tool.Description）
-	Locator  AgentLocator  // 查找 Agent 实例
+	LeaderID string       // 目标 Agent 的标识（如 "dev"）
+	Desc     string       // Leader 描述（用于 Tool.Description）
+	Locator  AgentLocator // 查找 Agent 实例
 	Timeout  time.Duration
 }
 
 // compile-time check
-var _ tools.Tool = (*DelegateTool)(nil)
+var _ Tool = (*DelegateTool)(nil)
 
 func (dt *DelegateTool) Name() string {
 	return "delegate_" + dt.LeaderID
@@ -73,10 +100,10 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	// 3. 委托超时
 	timeout := dt.Timeout
 	if timeout <= 0 {
-		timeout = TaskDefaultTimeout
+		timeout = DelegateDefaultTimeout
 	}
-	if timeout > TaskMaxTimeout {
-		timeout = TaskMaxTimeout
+	if timeout > DelegateMaxTimeout {
+		timeout = DelegateMaxTimeout
 	}
 
 	// 在 caller ctx 基础上叠加超时
