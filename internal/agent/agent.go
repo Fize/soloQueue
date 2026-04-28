@@ -45,7 +45,8 @@ type Agent struct {
 
 	// 配置（构造后不变）
 	mailboxCap    int
-	caps          *skill.SkillRegistry // nil 表示无 tools（ToolSpecs 返回 nil）
+	tools         *tools.ToolRegistry  // 底层执行原语
+	skills        *skill.SkillRegistry // 上下文注入机制
 	parallelTools bool                 // true 时一轮多个 tool_call 用 errgroup 并发执行
 
 	// toolTimeouts 按 tool.Name() 指定 Execute 的超时时长（0/nil = 无单 tool 超时）
@@ -92,34 +93,31 @@ func WithMailboxCap(cap int) Option {
 	}
 }
 
-// WithSkills 注册一批 Skill 到 agent
+// WithSkills 注册一批 Skill 到 agent 的 SkillRegistry
 //
-// 替代 WithTools：Skill 是能力的组织单元，可包含 1~N 个 Tool。
+// Skill 是上下文加载机制，激活时将 Instructions 注入 system prompt。
 // 多次调用 WithSkills 会累加（同一 SkillRegistry），同名 Skill 仍会 panic。
 func WithSkills(skills ...skill.Skill) Option {
 	return func(a *Agent) {
 		if len(skills) == 0 {
 			return
 		}
-		if a.caps == nil {
-			a.caps = skill.NewSkillRegistry()
+		if a.skills == nil {
+			a.skills = skill.NewSkillRegistry()
 		}
 		for _, s := range skills {
-			if err := a.caps.Register(s); err != nil {
+			if err := a.skills.Register(s); err != nil {
 				panic(fmt.Sprintf("agent: WithSkills: %v", err))
 			}
 		}
 	}
 }
 
-// WithTools 注册一批工具到 agent（兼容旧接口）
+// WithTools 注册一批 Tool 到 agent 的 ToolRegistry
 //
-// 内部将裸 Tool 包装为匿名 BuiltinSkill 注册到 SkillRegistry。
-// 新代码应优先使用 WithSkills。
-//
+// Tool 是底层执行原语，LLM 通过 function calling 调用。
 // 重名 / Tool.Name() 为空 / nil tool 会 panic —— 属于构造期编程错误，
-// 必须早炸。生产代码应保证 tool name 唯一；若动态注册需要 error，
-// 直接构造 SkillRegistry 后用 Register() 检查返回值。
+// 必须早炸。生产代码应保证 tool name 唯一。
 //
 // 多次调用 WithTools 会累加（同一 registry），同名仍会 panic。
 func WithTools(ts ...tools.Tool) Option {
@@ -127,13 +125,11 @@ func WithTools(ts ...tools.Tool) Option {
 		if len(ts) == 0 {
 			return
 		}
-		if a.caps == nil {
-			a.caps = skill.NewSkillRegistry()
+		if a.tools == nil {
+			a.tools = tools.NewToolRegistry()
 		}
 		for _, t := range ts {
-			// 将裸 Tool 包装为匿名 BuiltinSkill 注册
-			s := skill.NewBuiltinSkill("_tool_"+t.Name(), "Auto-wrapped tool", t)
-			if err := a.caps.Register(s); err != nil {
+			if err := a.tools.Register(t); err != nil {
 				panic(fmt.Sprintf("agent: WithTools: %v", err))
 			}
 		}

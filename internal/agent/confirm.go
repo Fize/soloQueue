@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -81,10 +80,18 @@ func (a *Agent) Confirm(callID string, choice string) error {
 
 // ToolSpecs 返回当前 agent 注册的所有 tool 的 llm.ToolDef 快照
 func (a *Agent) ToolSpecs() []llm.ToolDef {
-	if a.caps == nil {
+	if a.tools == nil {
 		return nil
 	}
-	return a.caps.ToolSpecs()
+	return a.tools.Specs()
+}
+
+// SkillCatalog 返回当前 agent 所有 skill 的目录文本
+func (a *Agent) SkillCatalog() string {
+	if a.skills == nil {
+		return ""
+	}
+	return a.skills.Catalog()
 }
 
 // confirmChoice 方便内部代码引用 tools.ConfirmChoice
@@ -96,5 +103,5 @@ const (
 	choiceAllowInSession = tools.ChoiceAllowInSession
 )
 
-// 编译时断言：Agent 实现 skill.Locatable
-var _ skill.Locatable = (*Agent)(nil)
+// 编译时断言：Agent 实现 tools.Locatable
+var _ tools.Locatable = (*Agent)(nil)

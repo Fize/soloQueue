@@ -582,8 +582,8 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 
 	var tool tools.Tool
 	var ok bool
-	if a.caps != nil {
-		tool, ok = a.caps.ToolRegistry().SafeGet(name)
+	if a.tools != nil {
+		tool, ok = a.tools.SafeGet(name)
 	}
 	if !ok {
 		err := fmt.Errorf("%w: %s", tools.ErrToolNotFound, name)

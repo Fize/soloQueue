@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // Registry 是 agent ID → Agent 的并发安全映射
@@ -211,12 +211,12 @@ func (r *Registry) logInfo(cat logger.Category, msg string, args ...any) {
 	r.log.Info(cat, msg, args...)
 }
 
-// Locate 实现 skill.AgentLocator 接口
+// Locate 实现 tools.AgentLocator 接口
 //
-// 返回 skill.Locatable（Agent 的最小抽象），供 DelegateTool 查找目标 Agent。
-func (r *Registry) Locate(id string) (skill.Locatable, bool) {
+// 返回 tools.Locatable（Agent 的最小抽象），供 DelegateTool 查找目标 Agent。
+func (r *Registry) Locate(id string) (tools.Locatable, bool) {
 	return r.Get(id)
 }
 
-// 编译时断言：Registry 实现 skill.AgentLocator
-var _ skill.AgentLocator = (*Registry)(nil)
+// 编译时断言：Registry 实现 tools.AgentLocator
+var _ tools.AgentLocator = (*Registry)(nil)
