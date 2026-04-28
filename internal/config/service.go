@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 )
 
@@ -104,4 +105,44 @@ func (s *GlobalService) ModelByID(id string) *LLMModel {
 		}
 	}
 	return nil
+}
+
+// ─── Init & DefaultWorkDir ────────────────────────────────────────────────────
+
+// DefaultWorkDir 返回 ~/.soloqueue，不存在则创建
+func DefaultWorkDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".soloqueue")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create work dir %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
+// Init 创建 GlobalService 并完成加载、热加载和首次保存
+func Init(workDir string) (*GlobalService, error) {
+	cfg, err := New(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := cfg.Load(); err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+
+	if err := cfg.Watch(); err != nil {
+		// Non-fatal: config changes will require restart.
+	}
+
+	settingsPath := filepath.Join(workDir, "settings.toml")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		if err := cfg.Save(); err != nil {
+			// Non-fatal: don't pollute terminal before logger is ready.
+		}
+	}
+
+	return cfg, nil
 }

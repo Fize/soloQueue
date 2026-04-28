@@ -1,5 +1,7 @@
 package config
 
+import "os"
+
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
 // Settings 是全局配置的完整结构体
@@ -83,6 +85,11 @@ type RetryConfig struct {
 	InitialDelayMs    int     `json:"initialDelayMs"`
 	MaxDelayMs        int     `json:"maxDelayMs"`
 	BackoffMultiplier float64 `json:"backoffMultiplier"`
+}
+
+// ResolveAPIKey 读取 LLMProvider.APIKeyEnv 指定的环境变量
+func (p LLMProvider) ResolveAPIKey() string {
+	return os.Getenv(p.APIKeyEnv)
 }
 
 type LLMProvider struct {

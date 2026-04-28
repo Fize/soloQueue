@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,11 +31,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tui"
 )
 
-// resolveAPIKey 读取 provider.APIKeyEnv 指定的环境变量
-func resolveAPIKey(primary string) string {
-	return os.Getenv(primary)
-}
-
 const version = "0.1.0"
 
 func main() {
@@ -59,11 +53,11 @@ Environment:
   ALT_SCREEN=1    Enable fullscreen TUI with fixed bottom input (default: inline mode)`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			workDir, err := defaultWorkDir()
+			workDir, err := config.DefaultWorkDir()
 			if err != nil {
 				return err
 			}
-			cfg, err := initConfig(workDir)
+			cfg, err := config.Init(workDir)
 			if err != nil {
 				return fmt.Errorf("init config: %w", err)
 			}
@@ -172,7 +166,7 @@ func buildRuntimeStack(
 	}
 
 	// ── LLM 客户端 ───────────────────────────────────────────────────────────
-	apiKey := resolveAPIKey(provider.APIKeyEnv)
+	apiKey := provider.ResolveAPIKey()
 	if apiKey == "" {
 		log.Warn(logger.CatApp, "LLM API key not set", "env", provider.APIKeyEnv)
 	}
@@ -203,7 +197,7 @@ func buildRuntimeStack(
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
 	allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
-	toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
+	toolsCfg := settings.Tools.ToToolsConfig(allowedDirs)
 
 	// ── Prompt 系统 ───────────────────────────────────────────────────────────
 	promptCfg := &prompt.PromptConfig{
@@ -308,9 +302,9 @@ func newSessionBuilder(
 		workDir:    workDir,
 		settings:   settings,
 		consoleLog: consoleLog,
-		tlMaxBytes: int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024,
-		tlMaxFiles: defaultInt(settings.Session.TimelineMaxFiles, 5),
-		replaySegs: defaultInt(settings.Session.ReplaySegments, 3),
+		tlMaxBytes: int64(config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024,
+		tlMaxFiles: config.DefaultInt(settings.Session.TimelineMaxFiles, 5),
+		replaySegs: config.DefaultInt(settings.Session.ReplaySegments, 3),
 	}
 }
 
@@ -343,7 +337,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		effectiveTeam = "default"
 	}
 	sessLog, err := logger.Session(sb.workDir, effectiveTeam, agentID,
-		logger.WithLevel(parseLogLevel(sb.settings.Log.Level)),
+		logger.WithLevel(logger.ParseLogLevel(sb.settings.Log.Level)),
 		logger.WithConsole(sb.consoleLog),
 		logger.WithFile(sb.settings.Log.File),
 	)
@@ -470,12 +464,12 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			workDir, err := defaultWorkDir()
+			workDir, err := config.DefaultWorkDir()
 			if err != nil {
 				return err
 			}
 
-			cfg, err := initConfig(workDir)
+			cfg, err := config.Init(workDir)
 			if err != nil {
 				return fmt.Errorf("init config: %w", err)
 			}
@@ -520,12 +514,12 @@ func serveCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Start the local HTTP/WebSocket server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			workDir, err := defaultWorkDir()
+			workDir, err := config.DefaultWorkDir()
 			if err != nil {
 				return err
 			}
 
-			cfg, err := initConfig(workDir)
+			cfg, err := config.Init(workDir)
 			if err != nil {
 				return fmt.Errorf("init config: %w", err)
 			}
@@ -595,68 +589,6 @@ func serveCmd() *cobra.Command {
 	return cmd
 }
 
-// ─── toolsConfigFromSettings ───────────────────────────────────────────────────
-
-// toolsConfigFromSettings 把 settings.ToolsConfig 转换为 tools.Config
-func toolsConfigFromSettings(s config.ToolsConfig, allowedDirs []string) tools.Config {
-	tavilyKey := ""
-	if s.TavilyAPIKeyEnv != "" {
-		tavilyKey = os.Getenv(s.TavilyAPIKeyEnv)
-	}
-	return tools.Config{
-		AllowedDirs:        allowedDirs,
-		MaxFileSize:        defaultInt64(s.MaxFileSize, 1<<20),
-		MaxMatches:         defaultInt(s.MaxMatches, 100),
-		MaxLineLen:         defaultInt(s.MaxLineLen, 500),
-		MaxGlobItems:       defaultInt(s.MaxGlobItems, 1000),
-		MaxWriteSize:       defaultInt64(s.MaxWriteSize, 1<<20),
-		MaxMultiWriteBytes: defaultInt64(s.MaxMultiWriteBytes, 10<<20),
-		MaxMultiWriteFiles: defaultInt(s.MaxMultiWriteFiles, 50),
-		MaxReplaceEdits:    defaultInt(s.MaxReplaceEdits, 50),
-
-		HTTPAllowedHosts: s.HTTPAllowedHosts,
-		HTTPMaxBody:      defaultInt64(s.HTTPMaxBody, 5<<20),
-		HTTPTimeout:      msToDuration(s.HTTPTimeoutMs, 10*time.Second),
-		HTTPBlockPrivate: s.HTTPBlockPrivate,
-
-		ShellBlockRegexes:   s.ShellBlockRegexes,
-		ShellConfirmRegexes: s.ShellConfirmRegexes,
-		ShellTimeout:        msToDuration(s.ShellTimeoutMs, 30*time.Second),
-		ShellMaxOutput:      defaultInt64(s.ShellMaxOutput, 256<<10),
-
-		TavilyAPIKey:   tavilyKey,
-		TavilyEndpoint: defaultString(s.TavilyEndpoint, "https://api.tavily.com/search"),
-		TavilyTimeout:  msToDuration(s.TavilyTimeoutMs, 15*time.Second),
-	}
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
-func defaultInt(v, def int) int {
-	if v <= 0 {
-		return def
-	}
-	return v
-}
-func defaultInt64(v, def int64) int64 {
-	if v <= 0 {
-		return def
-	}
-	return v
-}
-func defaultString(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
-}
-func msToDuration(ms int, def time.Duration) time.Duration {
-	if ms <= 0 {
-		return def
-	}
-	return time.Duration(ms) * time.Millisecond
-}
-
 // newAgentID returns a short random ID for an agent instance
 func newAgentID() string {
 	return fmt.Sprintf("agent-%d", time.Now().UnixNano())
@@ -690,49 +622,11 @@ func readLineWithDefault(prompt, def string) string {
 	return def
 }
 
-// defaultWorkDir 返回 ~/.soloqueue
-func defaultWorkDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("get home dir: %w", err)
-	}
-	dir := filepath.Join(home, ".soloqueue")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create work dir %s: %w", dir, err)
-	}
-	return dir, nil
-}
-
-// initConfig 加载并启动热加载
-func initConfig(workDir string) (*config.GlobalService, error) {
-	cfg, err := config.New(workDir)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := cfg.Load(); err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
-	}
-
-	if err := cfg.Watch(); err != nil {
-		// Non-fatal: config changes will require restart.
-	}
-
-	settingsPath := filepath.Join(workDir, "settings.toml")
-	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
-		if err := cfg.Save(); err != nil {
-			// Non-fatal: don't pollute terminal before logger is ready.
-		}
-	}
-
-	return cfg, nil
-}
-
 // initLogger 根据当前配置创建 system 层 Logger。
 func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logger.Logger, error) {
 	settings := cfg.Get()
 
-	level := parseLogLevel(settings.Log.Level)
+	level := logger.ParseLogLevel(settings.Log.Level)
 	log, err := logger.System(workDir,
 		logger.WithLevel(level),
 		logger.WithConsole(console),
@@ -752,20 +646,4 @@ func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logge
 	})
 
 	return log, nil
-}
-
-// parseLogLevel 将字符串日志级别转为 slog.Level
-func parseLogLevel(level string) slog.Level {
-	switch strings.ToLower(level) {
-	case "debug":
-		return slog.LevelDebug
-	case "info":
-		return slog.LevelInfo
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }
