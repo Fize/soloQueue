@@ -85,45 +85,136 @@ func ReadLastSegments(dir, baseName string, n int) ([]Segment, error) {
 //
 // 跳过 system prompt（factory 已 push），将其余消息按顺序 Push 到 ContextWindow。
 // 调用方应确保 ContextWindow 处于 replayMode（禁用 Push Hook）。
+//
+// Orphaned tool_calls 修复：如果 assistant 消息带有 tool_calls 但缺少对应的
+// tool result 消息（例如 async delegation yield 后 session 退出），整个
+// assistant(tool_calls) + 已到达的 partial tool results 都会被跳过，
+// 防止 LLM API 因 "insufficient tool messages" 返回 HTTP 400。
 func ReplayInto(cw *ctxwin.ContextWindow, segments []Segment) {
 	for _, seg := range segments {
-		for _, msg := range seg.Messages {
-			// 跳过 system prompt，factory 已 push
-			if msg.Role == string(ctxwin.RoleSystem) {
-				continue
-			}
-
-			opts := make([]ctxwin.PushOption, 0, 4)
-			if msg.ReasoningContent != "" {
-				opts = append(opts, ctxwin.WithReasoningContent(msg.ReasoningContent))
-			}
-			if msg.IsEphemeral {
-				opts = append(opts, ctxwin.WithEphemeral(true))
-			}
-			if msg.Name != "" {
-				opts = append(opts, ctxwin.WithToolName(msg.Name))
-			}
-			if msg.ToolCallID != "" {
-				opts = append(opts, ctxwin.WithToolCallID(msg.ToolCallID))
-			}
-			if len(msg.ToolCalls) > 0 {
-				tcs := make([]llm.ToolCall, len(msg.ToolCalls))
-				for i, tc := range msg.ToolCalls {
-					tcs[i] = llm.ToolCall{
-						ID:   tc.ID,
-						Type: tc.Type,
-						Function: llm.FunctionCall{
-							Name:      tc.Name,
-							Arguments: tc.Arguments,
-						},
-					}
-				}
-				opts = append(opts, ctxwin.WithToolCalls(tcs))
-			}
-
-			cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)
-		}
+		replaySegment(cw, seg.Messages)
 	}
+}
+
+// replaySegment 回放一段消息，跳过 orphaned tool_calls。
+//
+// 算法：前向扫描，对每个 assistant(tool_calls) 消息缓冲，等收集到所有
+// tool result 后再统一 push。如果遇到非 tool result 消息（说明 tool results
+// 不完整），则丢弃缓冲的 assistant(tool_calls) 及其 partial results。
+func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
+	// pending: 等待 tool result 的 assistant(tool_calls) 及已收集的 tool results
+	type pendingGroup struct {
+		assistant  *MessagePayload
+		toolCallIDs map[string]bool   // 需要的 tool_call_id → 是否已到达
+		toolResults []MessagePayload  // 已到达的 tool result 消息
+		allFound    bool
+	}
+
+	var pending *pendingGroup
+
+	// flushPending 将缓冲的 assistant + tool results push 到 cw
+	flushPending := func() {
+		if pending == nil {
+			return
+		}
+		if pending.allFound {
+			pushMessage(cw, *pending.assistant)
+			for _, tr := range pending.toolResults {
+				pushMessage(cw, tr)
+			}
+		}
+		// allFound == false: orphaned，整组丢弃
+		pending = nil
+	}
+
+	for _, msg := range msgs {
+		// 跳过 system prompt，factory 已 push
+		if msg.Role == string(ctxwin.RoleSystem) {
+			continue
+		}
+
+		// 如果有 pending group，检查当前消息是否为其 tool result
+		if pending != nil && !pending.allFound {
+			if msg.Role == string(ctxwin.RoleTool) && msg.ToolCallID != "" {
+				if _, needed := pending.toolCallIDs[msg.ToolCallID]; needed {
+					pending.toolCallIDs[msg.ToolCallID] = true
+					pending.toolResults = append(pending.toolResults, msg)
+					// 检查是否全部到齐
+					allFound := true
+					for _, found := range pending.toolCallIDs {
+						if !found {
+							allFound = false
+							break
+						}
+					}
+					if allFound {
+						pending.allFound = true
+					}
+					continue
+				}
+			}
+			// 当前消息不是 pending group 的 tool result
+			// → pending group 的 tool results 不完整，丢弃
+			pending = nil
+		}
+
+		// 如果 pending.allFound == true，先 flush 再处理当前消息
+		if pending != nil && pending.allFound {
+			flushPending()
+		}
+
+		// 当前消息是 assistant(tool_calls)？开启新的 pending group
+		if msg.Role == string(ctxwin.RoleAssistant) && len(msg.ToolCalls) > 0 {
+			ids := make(map[string]bool, len(msg.ToolCalls))
+			for _, tc := range msg.ToolCalls {
+				ids[tc.ID] = false
+			}
+			pending = &pendingGroup{
+				assistant:   &msg,
+				toolCallIDs: ids,
+			}
+			continue
+		}
+
+		// 普通消息：直接 push
+		pushMessage(cw, msg)
+	}
+
+	// 处理末尾的 pending group
+	flushPending()
+}
+
+// pushMessage 将单条消息 push 到 ContextWindow
+func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
+	opts := make([]ctxwin.PushOption, 0, 4)
+	if msg.ReasoningContent != "" {
+		opts = append(opts, ctxwin.WithReasoningContent(msg.ReasoningContent))
+	}
+	if msg.IsEphemeral {
+		opts = append(opts, ctxwin.WithEphemeral(true))
+	}
+	if msg.Name != "" {
+		opts = append(opts, ctxwin.WithToolName(msg.Name))
+	}
+	if msg.ToolCallID != "" {
+		opts = append(opts, ctxwin.WithToolCallID(msg.ToolCallID))
+	}
+	if len(msg.ToolCalls) > 0 {
+		tcs := make([]llm.ToolCall, len(msg.ToolCalls))
+		for i, tc := range msg.ToolCalls {
+			tcs[i] = llm.ToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: llm.FunctionCall{
+					Name:      tc.Name,
+					Arguments: tc.Arguments,
+				},
+			}
+		}
+		opts = append(opts, ctxwin.WithToolCalls(tcs))
+	}
+
+	cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)
 }
 
 // ─── 内部方法 ────────────────────────────────────────────────────────────────

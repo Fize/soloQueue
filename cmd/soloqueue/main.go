@@ -345,8 +345,8 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 	}
 
-	// Tools: built-in tools + DelegateTool (async mode: L1 -> L2)
-	allTools := tools.Build(sb.rt.toolsCfg)
+	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
+	allTools := tools.WithFallbackPrefix(tools.Build(sb.rt.toolsCfg))
 	for _, l := range sb.rt.leaders {
 		leader := l // capture loop variable
 		dt := &tools.DelegateTool{

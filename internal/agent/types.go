@@ -109,9 +109,10 @@ const DefaultMailboxCap = 8
 // DefaultMaxIterations is the default maximum number of tool-use loop
 // iterations per Ask call.
 //
-// 10 is sufficient for most tool-use scenarios (typical tasks: 2-4 rounds).
-// Exceeding 10 suggests the LLM is looping or tools are misconfigured.
-const DefaultMaxIterations = 10
+// 100 accommodates complex multi-step tasks and delegation resumption.
+// Typical tasks: 2-4 rounds; with delegation: 10-20 rounds.
+// Exceeding 100 strongly suggests the LLM is looping or tools are misconfigured.
+const DefaultMaxIterations = 100
 
 // DefaultContextWindow is the fallback context window size (tokens).
 // Used when Definition.ContextWindow is unset (<= 0).
