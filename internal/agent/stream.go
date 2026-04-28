@@ -22,6 +22,94 @@ import (
 // 由 tools.WithToolEventChannel / tools.WithConfirmForwarder 提供注入。
 // agent 包通过这些导出 helper 使用，避免跨包 context key 类型不匹配。
 
+// ─── Stream Event Accumulator ───────────────────────────────────────────────
+//
+// streamAccumulator holds accumulated state during a single LLM streaming
+// iteration. Used to eliminate 123-line duplication across runOnceStream,
+// runOnceStreamWithHistory, and runOnceStreamWithHistoryFromIter.
+type streamAccumulator struct {
+	content   strings.Builder
+	reasoning strings.Builder
+	tcSlots   map[int]*llm.ToolCall // by ToolCallDelta.Index
+	finish    llm.FinishReason
+	usage     llm.Usage
+}
+
+// processStreamEvents processes a single LLM streaming event channel and
+// accumulates response into acc. This extracts the 123-line identical
+// event processing loop from all 3 run* functions.
+//
+// Returns after stream is exhausted (normally or on error).
+// On context cancel or LLM error, emits ErrorEvent before returning.
+func (a *Agent) processStreamEvents(
+	ctx context.Context,
+	iter int,
+	evCh <-chan llm.Event,
+	out chan<- AgentEvent,
+	start time.Time,
+	acc *streamAccumulator,
+) error {
+	streamDone := false
+	for !streamDone {
+		select {
+		case <-ctx.Done():
+			a.emit(ctx, out, ErrorEvent{Err: ctx.Err()})
+			return ctx.Err()
+		case ev, ok := <-evCh:
+			if !ok {
+				// channel close but no Done/Error — treat as abnormal end
+				streamDone = true
+				break
+			}
+			switch ev.Type {
+			case llm.EventDelta:
+				if ev.ContentDelta != "" {
+					acc.content.WriteString(ev.ContentDelta)
+					if !a.emit(ctx, out, ContentDeltaEvent{
+						Iter: iter, Delta: ev.ContentDelta,
+					}) {
+					return ctx.Err()
+					}
+				}
+				if ev.ReasoningContentDelta != "" {
+					acc.reasoning.WriteString(ev.ReasoningContentDelta)
+					if !a.emit(ctx, out, ReasoningDeltaEvent{
+						Iter: iter, Delta: ev.ReasoningContentDelta,
+					}) {
+						return ctx.Err()
+					}
+				}
+				if ev.ToolCallDelta != nil {
+					d := ev.ToolCallDelta
+					accumulateToolCall(acc.tcSlots, d)
+					if !a.emit(ctx, out, ToolCallDeltaEvent{
+						Iter:      iter,
+						CallID:    d.ID,
+						Name:      d.Name,
+						ArgsDelta: d.Arguments,
+					}) {
+						return ctx.Err()
+					}
+				}
+			case llm.EventDone:
+				acc.finish = ev.FinishReason
+				if ev.Usage != nil {
+					acc.usage = *ev.Usage
+				}
+				streamDone = true
+			case llm.EventError:
+				durMs := time.Since(start).Milliseconds()
+				a.logError(ctx, logger.CatLLM, "llm chat failed", ev.Err,
+					slog.Int("iter", iter),
+					slog.Int64("duration_ms", durMs),
+				)
+				a.emit(ctx, out, ErrorEvent{Err: ev.Err})
+				return ev.Err
+			}
+		}
+	}
+	return nil
+}
 // ─── runOnceStream ──────────────────────────────────────────────────────────
 
 // runOnceStream 是 AskStream 的执行主体（在 agent goroutine 中串行运行）
@@ -113,73 +201,19 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 		}
 
 		// 本轮累积器
-		var (
-			content   strings.Builder
-			reasoning strings.Builder
-			tcSlots   = map[int]*llm.ToolCall{} // by ToolCallDelta.Index
-			finish    llm.FinishReason
-			usage     llm.Usage
-		)
-
-		streamDone := false
-		for !streamDone {
-			select {
-			case <-ctx.Done():
-				a.emit(ctx, out, ErrorEvent{Err: ctx.Err()})
-				return
-			case ev, ok := <-evCh:
-				if !ok {
-					// channel close 但没收到 Done/Error —— 视为异常结束
-					streamDone = true
-					break
-				}
-				switch ev.Type {
-				case llm.EventDelta:
-					if ev.ContentDelta != "" {
-						content.WriteString(ev.ContentDelta)
-						if !a.emit(ctx, out, ContentDeltaEvent{
-							Iter: iter, Delta: ev.ContentDelta,
-						}) {
-							return
-						}
-					}
-					if ev.ReasoningContentDelta != "" {
-						reasoning.WriteString(ev.ReasoningContentDelta)
-						if !a.emit(ctx, out, ReasoningDeltaEvent{
-							Iter: iter, Delta: ev.ReasoningContentDelta,
-						}) {
-							return
-						}
-					}
-					if ev.ToolCallDelta != nil {
-						d := ev.ToolCallDelta
-						accumulateToolCall(tcSlots, d)
-						if !a.emit(ctx, out, ToolCallDeltaEvent{
-							Iter:      iter,
-							CallID:    d.ID,
-							Name:      d.Name,
-							ArgsDelta: d.Arguments,
-						}) {
-							return
-						}
-					}
-				case llm.EventDone:
-					finish = ev.FinishReason
-					if ev.Usage != nil {
-						usage = *ev.Usage
-					}
-					streamDone = true
-				case llm.EventError:
-					durMs := time.Since(start).Milliseconds()
-					a.logError(ctx, logger.CatLLM, "llm chat failed", ev.Err,
-						slog.Int("iter", iter),
-						slog.Int64("duration_ms", durMs),
-					)
-					a.emit(ctx, out, ErrorEvent{Err: ev.Err})
-					return
-				}
-			}
+		acc := &streamAccumulator{
+			tcSlots: make(map[int]*llm.ToolCall),
 		}
+		if err := a.processStreamEvents(ctx, iter, evCh, out, start, acc); err != nil {
+			return
+		}
+
+		// Unpack accumulated values for use below
+		content := acc.content
+		reasoning := acc.reasoning
+		tcSlots := acc.tcSlots
+		finish := acc.finish
+		usage := acc.usage
 
 		durMs := time.Since(start).Milliseconds()
 		toolCalls := sortedToolCalls(tcSlots)
@@ -329,72 +363,19 @@ func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.Context
 		}
 
 		// 本轮累积器
-		var (
-			content   strings.Builder
-			reasoning strings.Builder
-			tcSlots   = map[int]*llm.ToolCall{}
-			finish    llm.FinishReason
-			usage     llm.Usage
-		)
-
-		streamDone := false
-		for !streamDone {
-			select {
-			case <-ctx.Done():
-				a.emit(ctx, out, ErrorEvent{Err: ctx.Err()})
-				return
-			case ev, ok := <-evCh:
-				if !ok {
-					streamDone = true
-					break
-				}
-				switch ev.Type {
-				case llm.EventDelta:
-					if ev.ContentDelta != "" {
-						content.WriteString(ev.ContentDelta)
-						if !a.emit(ctx, out, ContentDeltaEvent{
-							Iter: iter, Delta: ev.ContentDelta,
-						}) {
-							return
-						}
-					}
-					if ev.ReasoningContentDelta != "" {
-						reasoning.WriteString(ev.ReasoningContentDelta)
-						if !a.emit(ctx, out, ReasoningDeltaEvent{
-							Iter: iter, Delta: ev.ReasoningContentDelta,
-						}) {
-							return
-						}
-					}
-					if ev.ToolCallDelta != nil {
-						d := ev.ToolCallDelta
-						accumulateToolCall(tcSlots, d)
-						if !a.emit(ctx, out, ToolCallDeltaEvent{
-							Iter:      iter,
-							CallID:    d.ID,
-							Name:      d.Name,
-							ArgsDelta: d.Arguments,
-						}) {
-							return
-						}
-					}
-				case llm.EventDone:
-					finish = ev.FinishReason
-					if ev.Usage != nil {
-						usage = *ev.Usage
-					}
-					streamDone = true
-				case llm.EventError:
-					durMs := time.Since(start).Milliseconds()
-					a.logError(ctx, logger.CatLLM, "llm chat failed", ev.Err,
-						slog.Int("iter", iter),
-						slog.Int64("duration_ms", durMs),
-					)
-					a.emit(ctx, out, ErrorEvent{Err: ev.Err})
-					return
-				}
-			}
+		acc := &streamAccumulator{
+			tcSlots: make(map[int]*llm.ToolCall),
 		}
+		if err := a.processStreamEvents(ctx, iter, evCh, out, start, acc); err != nil {
+			return
+		}
+
+		// Unpack accumulated values for use below
+		content := acc.content
+		reasoning := acc.reasoning
+		tcSlots := acc.tcSlots
+		finish := acc.finish
+		usage := acc.usage
 
 		durMs := time.Since(start).Milliseconds()
 		toolCalls := sortedToolCalls(tcSlots)
@@ -569,72 +550,19 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 			return
 		}
 
-		var (
-			content   strings.Builder
-			reasoning strings.Builder
-			tcSlots   = map[int]*llm.ToolCall{}
-			finish    llm.FinishReason
-			usage     llm.Usage
-		)
-
-		streamDone := false
-		for !streamDone {
-			select {
-			case <-ctx.Done():
-				a.emit(ctx, out, ErrorEvent{Err: ctx.Err()})
-				return
-			case ev, ok := <-evCh:
-				if !ok {
-					streamDone = true
-					break
-				}
-				switch ev.Type {
-				case llm.EventDelta:
-					if ev.ContentDelta != "" {
-						content.WriteString(ev.ContentDelta)
-						if !a.emit(ctx, out, ContentDeltaEvent{
-							Iter: iter, Delta: ev.ContentDelta,
-						}) {
-							return
-						}
-					}
-					if ev.ReasoningContentDelta != "" {
-						reasoning.WriteString(ev.ReasoningContentDelta)
-						if !a.emit(ctx, out, ReasoningDeltaEvent{
-							Iter: iter, Delta: ev.ReasoningContentDelta,
-						}) {
-							return
-						}
-					}
-					if ev.ToolCallDelta != nil {
-						d := ev.ToolCallDelta
-						accumulateToolCall(tcSlots, d)
-						if !a.emit(ctx, out, ToolCallDeltaEvent{
-							Iter:      iter,
-							CallID:    d.ID,
-							Name:      d.Name,
-							ArgsDelta: d.Arguments,
-						}) {
-							return
-						}
-					}
-				case llm.EventDone:
-					finish = ev.FinishReason
-					if ev.Usage != nil {
-						usage = *ev.Usage
-					}
-					streamDone = true
-				case llm.EventError:
-					durMs := time.Since(start).Milliseconds()
-					a.logError(ctx, logger.CatLLM, "llm chat failed", ev.Err,
-						slog.Int("iter", iter),
-						slog.Int64("duration_ms", durMs),
-					)
-					a.emit(ctx, out, ErrorEvent{Err: ev.Err})
-					return
-				}
-			}
+		acc := &streamAccumulator{
+			tcSlots: make(map[int]*llm.ToolCall),
 		}
+		if err := a.processStreamEvents(ctx, iter, evCh, out, start, acc); err != nil {
+			return
+		}
+
+		// Unpack accumulated values for use below
+		content := acc.content
+		reasoning := acc.reasoning
+		tcSlots := acc.tcSlots
+		finish := acc.finish
+		usage := acc.usage
 
 		durMs := time.Since(start).Milliseconds()
 		toolCalls := sortedToolCalls(tcSlots)
