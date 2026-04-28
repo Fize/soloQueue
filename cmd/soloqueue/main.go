@@ -107,6 +107,8 @@ Environment:
 				Version:      version,
 				RulesCreated: rt.rulesCreated,
 				RulesPath:    rt.promptCfg.RulesPath(),
+				Registry:     rt.agentRegistry,
+				Supervisors:  rt.supervisors,
 			})
 		},
 	}

@@ -58,3 +58,8 @@ func (pm *PriorityMailbox) HighCh() <-chan prioritizedJob {
 func (pm *PriorityMailbox) NormalCh() <-chan prioritizedJob {
 	return pm.normalCh
 }
+
+// Len 返回当前队列深度（近似值，channel 长度非精确锁定）
+func (pm *PriorityMailbox) Len() (high, normal int) {
+	return len(pm.highCh), len(pm.normalCh)
+}

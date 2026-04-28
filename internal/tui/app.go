@@ -30,6 +30,10 @@ type Config struct {
 	Version      string
 	RulesCreated bool   // 是否新创建了 rules.md
 	RulesPath    string // rules.md 路径（用于通知用户）
+
+	// Agent 运行时（/status 命令使用）
+	Registry    *agent.Registry      // Agent 全局注册表
+	Supervisors []*agent.Supervisor  // L2 Supervisor 列表
 }
 
 // ─── Data types ───────────────────────────────────────────────────────────────
@@ -854,6 +858,7 @@ var commandHints = []string{
 	"· ↑↓ history",
 	"· /help commands",
 	"· /clear context",
+	"· /status agents",
 	"· /quit exit",
 }
 
