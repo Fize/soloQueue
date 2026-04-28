@@ -75,246 +75,25 @@ Environment:
 			defer log.Close()
 
 			settings := cfg.Get()
-			provider := cfg.DefaultProvider()
-			if provider == nil {
-				return errors.New("no default provider configured")
-			}
-			defaultModel := cfg.DefaultModel("")
-			if defaultModel == nil {
-				return errors.New("no default model configured")
+
+			// promptProfileQuestions は TUI モードのみ必要なので、
+			// profileSetup コールバックとして渡す
+			profileSetup := func(cfg *prompt.PromptConfig) error {
+				answers := promptProfileQuestions()
+				return cfg.WriteProfile(answers)
 			}
 
-			apiKey := resolveAPIKey(provider.APIKeyEnv)
-			if apiKey == "" {
-				log.Warn(logger.CatApp, "LLM API key not set", "env", provider.APIKeyEnv)
-			}
-
-			baseURL := provider.BaseURL
-			if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" && baseURL == "" {
-				baseURL = v
-			}
-
-			llmClient, err := deepseek.NewClient(deepseek.Config{
-				BaseURL:   baseURL,
-				APIKey:    apiKey,
-				Headers:   provider.Headers,
-				TimeoutMs: provider.TimeoutMs,
-				Retry: llm.RetryPolicy{
-					MaxRetries:   provider.Retry.MaxRetries,
-					InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
-					MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
-					Multiplier:   provider.Retry.BackoffMultiplier,
-				},
-				Log: log,
-			})
+			rt, err := buildRuntimeStack(workDir, cfg, log, profileSetup)
 			if err != nil {
-				return fmt.Errorf("build llm client: %w", err)
+				return err
 			}
+			defer rt.shutdown()
 
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
-			}
-			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
-			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
+			log.Info(logger.CatApp, "soloqueue tui starting",
+				"version", version, "model", rt.defaultModel.ID)
 
-			// 共享 Tokenizer（所有 session 复用同一个编码实例）
-			tokenizer := ctxwin.NewTokenizer()
-
-			// ── Prompt 系统 ──────────────────────────────────────────────
-			promptCfg := &prompt.PromptConfig{
-				RoleID:  "main_assistant",
-				BaseDir: filepath.Join(workDir, "prompts"),
-			}
-			rulesCreated, err := promptCfg.EnsureFiles()
-			if err != nil {
-				var profileErr *prompt.ProfileNeededError
-				if errors.As(err, &profileErr) {
-					answers := promptProfileQuestions()
-					if writeErr := promptCfg.WriteProfile(answers); writeErr != nil {
-						return fmt.Errorf("write profile: %w", writeErr)
-					}
-					// profile 写入后再次调用 EnsureFiles 以创建 rules.md
-					rulesCreated, err = promptCfg.EnsureFiles()
-					if err != nil {
-						return fmt.Errorf("ensure prompt files: %w", err)
-					}
-				} else {
-					return fmt.Errorf("ensure prompt files: %w", err)
-				}
-			}
-
-			// 加载 Team Leaders 用于动态路由表
-			leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"))
-			if err != nil {
-				log.Warn(logger.CatApp, "failed to load leaders", "err", err)
-				leaders = nil // 无 leader 时不阻塞启动
-			}
-
-			// 加载所有 Agent 模板（Phase B：支持 L2 多代理架构）
-			allTemplates, err := agent.LoadAgentTemplates(filepath.Join(workDir, "agents"))
-			if err != nil {
-				log.Warn(logger.CatApp, "failed to load agent templates", "err", err)
-				allTemplates = nil
-			}
-
-			// 构建系统提示词
-			systemPrompt, err := promptCfg.BuildPrompt(leaders)
-			if err != nil {
-				return fmt.Errorf("build system prompt: %w", err)
-			}
-
-			// Timeline 配置
-			tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
-			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
-			replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
-
-			// 共享 Agent Registry（供 DelegateSkill 的 AgentLocator 查找 L2 Agent）
-			agentRegistry := agent.NewRegistry(log)
-
-			// 创建 DefaultFactory（用于实例化 L2/L3 Agent）
-			agentFactory := agent.NewDefaultFactory(agentRegistry, llmClient, toolsCfg, filepath.Join(workDir, "skills"), log)
-
-			// 创建 L2 Agents（领域领导者）
-			var supervisors []*agent.Supervisor
-			for _, tmpl := range allTemplates {
-				if tmpl.IsLeader {
-					l2Agent, _, err := agentFactory.Create(context.Background(), tmpl)
-					if err != nil {
-						log.Warn(logger.CatApp, "failed to create L2 agent", "name", tmpl.Name, "err", err)
-						continue
-					}
-					// 创建 Supervisor 管理 L3 子 Agent 生命周期
-					sv := agent.NewSupervisor(l2Agent, agentFactory, log)
-					supervisors = append(supervisors, sv)
-				}
-			}
-			_ = supervisors // Phase B: 保留引用供后续扩展
-
-			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
-				agentID := newAgentID()
-				// APIModel 优先，空则 fallback 到 ID
-				effectiveModelID := defaultModel.APIModel
-				if effectiveModelID == "" {
-					effectiveModelID = defaultModel.ID
-				}
-				def := agent.Definition{
-					ID:              agentID,
-					TeamID:          teamID,
-					Kind:            agent.KindChat,
-					ModelID:         effectiveModelID,
-					Temperature:     defaultModel.Generation.Temperature,
-					MaxTokens:       defaultModel.Generation.MaxTokens,
-					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
-					MaxIterations:   10,
-					ContextWindow:   defaultModel.ContextWindow,
-					SystemPrompt:    systemPrompt,
-				}
-				effectiveTeam := teamID
-				if effectiveTeam == "" {
-					effectiveTeam = "default"
-				}
-				sessLog, err := logger.Session(workDir, effectiveTeam, agentID,
-					logger.WithLevel(parseLogLevel(settings.Log.Level)),
-					logger.WithConsole(false), // TUI 模式不在 stderr 输出日志
-					logger.WithFile(settings.Log.File),
-					)
-				if err != nil {
-					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
-				}
-				// Tools: 内置工具 + DelegateTool（异步模式：L1 → L2）
-				allTools := tools.Build(toolsCfg)
-				for _, l := range leaders {
-					dt := &tools.DelegateTool{
-						LeaderID: l.Name,
-						Desc:     l.Description,
-						SpawnFn: func(ctx context.Context, task string) (tools.Locatable, error) {
-							a, ok := agentRegistry.Get(l.Name)
-							if !ok {
-								return nil, fmt.Errorf("leader %q not found", l.Name)
-							}
-							return a, nil
-						},
-						Timeout: 5 * time.Minute,
-					}
-					allTools = append(allTools, dt)
-				}
-
-				// Skills: 用户 SKILL.md
-				var skillList []skill.Skill
-				if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(workDir, "skills")); err == nil {
-					skillList = append(skillList, userSkills...)
-				}
-
-				a := agent.NewAgent(def, llmClient, sessLog,
-					agent.WithTools(allTools...),
-					agent.WithSkills(skillList...),
-					agent.WithParallelTools(true),
-					agent.WithPriorityMailbox(), // L1 需要优先级 mailbox 支持异步委托
-					agent.WithToolTimeout("shell_exec", 30*time.Second),
-					agent.WithToolTimeout("http_fetch", 10*time.Second),
-					agent.WithToolTimeout("web_search", 15*time.Second),
-				)
-				agentRegistry.Register(a)
-
-				// 创建 Timeline Writer + Push Hook
-				tl, err := timeline.NewWriter(workDir, "timeline", tlMaxBytes, tlMaxFiles)
-				if err != nil {
-					return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
-				}
-				pushHook := func(msg ctxwin.Message) {
-					var toolCalls []timeline.ToolCallRec
-					for _, tc := range msg.ToolCalls {
-						toolCalls = append(toolCalls, timeline.ToolCallRec{
-							ID:        tc.ID,
-							Type:      tc.Type,
-							Name:      tc.Function.Name,
-							Arguments: tc.Function.Arguments,
-						})
-					}
-					_ = tl.AppendMessage(&timeline.MessagePayload{
-						Role:             string(msg.Role),
-						Content:          msg.Content,
-						ReasoningContent: msg.ReasoningContent,
-						Name:             msg.Name,
-						ToolCallID:       msg.ToolCallID,
-						ToolCalls:        toolCalls,
-						IsEphemeral:      msg.IsEphemeral,
-						AgentID:          agentID,
-					})
-				}
-
-				// 创建 ContextWindow 并 push system prompt
-				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer,
-					ctxwin.WithPushHook(pushHook),
-				)
-				if def.SystemPrompt != "" {
-					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
-				}
-
-				// 追加 skill 目录到 system prompt
-				if cat := a.SkillCatalog(); cat != "" {
-					cw.Push(ctxwin.RoleSystem, cat)
-				}
-
-				// Replay 历史：读取 timeline 并回放到 ContextWindow
-				if replaySegs > 0 {
-					segments, err := timeline.ReadLastSegments(workDir, "timeline", replaySegs)
-					if err == nil && len(segments) > 0 {
-						cw.SetReplayMode(true)
-						timeline.ReplayInto(cw, segments)
-						cw.SetReplayMode(false)
-					}
-				}
-
-				if err := a.Start(context.Background()); err != nil {
-					tl.Close()
-					return nil, nil, nil, err
-				}
-				return a, cw, tl, nil
-			}
-
-			mgr := session.NewSessionManager(factory, 30*time.Minute)
+			agentFactory := buildSessionFactory(rt, workDir, settings, false /* TUI: no console log */)
+			mgr := session.NewSessionManager(agentFactory, 30*time.Minute)
 
 			rootCtx, stop := signal.NotifyContext(context.Background(),
 				os.Interrupt, syscall.SIGTERM)
@@ -322,15 +101,12 @@ Environment:
 			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
 			defer mgr.Shutdown(5 * time.Second)
 
-			log.Info(logger.CatApp, "soloqueue tui starting",
-				"version", version, "model", defaultModel.ID)
-
 			return tui.Run(tui.Config{
 				SessionMgr:   mgr,
-				ModelID:      defaultModel.ID,
+				ModelID:      rt.defaultModel.ID,
 				Version:      version,
-				RulesCreated: rulesCreated,
-				RulesPath:    promptCfg.RulesPath(),
+				RulesCreated: rt.rulesCreated,
+				RulesPath:    rt.promptCfg.RulesPath(),
 			})
 		},
 	}
@@ -340,6 +116,315 @@ Environment:
 
 	return root
 }
+
+// ─── runtimeStack ─────────────────────────────────────────────────────────────
+
+// runtimeStack 保存两种模式（TUI / serve）共享的运行时依赖，
+// 由 buildRuntimeStack 统一初始化，避免重复代码。
+type runtimeStack struct {
+	llmClient     agent.LLMClient
+	agentRegistry *agent.Registry
+	agentFactory  *agent.DefaultFactory
+	supervisors   []*agent.Supervisor
+	leaders       []prompt.LeaderInfo
+	allTemplates  []agent.AgentTemplate
+	systemPrompt  string
+	promptCfg     *prompt.PromptConfig
+	defaultModel  *config.LLMModel
+	tokenizer     *ctxwin.Tokenizer
+	toolsCfg      tools.Config
+	rulesCreated  bool
+}
+
+// shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent
+func (rt *runtimeStack) shutdown() {
+	for _, sv := range rt.supervisors {
+		_ = sv.ReapAll(5 * time.Second)
+	}
+}
+
+// profileSetupFn 在首次启动时写入用户 profile（TUI 用交互式问卷，serve 用默认值）
+type profileSetupFn func(cfg *prompt.PromptConfig) error
+
+// buildRuntimeStack 初始化两种模式共用的运行时栈：
+//
+//  1. LLM 客户端（DeepSeek）
+//  2. Prompt 系统（EnsureFiles + BuildPrompt）
+//  3. Agent Registry + DefaultFactory
+//  4. L2 Supervisor 列表（IsLeader 模板各一个）
+func buildRuntimeStack(
+	workDir string,
+	cfg *config.GlobalService,
+	log *logger.Logger,
+	profileSetup profileSetupFn,
+) (*runtimeStack, error) {
+	settings := cfg.Get()
+	provider := cfg.DefaultProvider()
+	if provider == nil {
+		return nil, errors.New("no default provider configured")
+	}
+	defaultModel := cfg.DefaultModel("")
+	if defaultModel == nil {
+		return nil, errors.New("no default model configured")
+	}
+
+	// ── LLM 客户端 ───────────────────────────────────────────────────────────
+	apiKey := resolveAPIKey(provider.APIKeyEnv)
+	if apiKey == "" {
+		log.Warn(logger.CatApp, "LLM API key not set", "env", provider.APIKeyEnv)
+	}
+	baseURL := provider.BaseURL
+	if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" && baseURL == "" {
+		baseURL = v
+	}
+	llmClient, err := deepseek.NewClient(deepseek.Config{
+		BaseURL:   baseURL,
+		APIKey:    apiKey,
+		Headers:   provider.Headers,
+		TimeoutMs: provider.TimeoutMs,
+		Retry: llm.RetryPolicy{
+			MaxRetries:   provider.Retry.MaxRetries,
+			InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
+			MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
+			Multiplier:   provider.Retry.BackoffMultiplier,
+		},
+		Log: log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build llm client: %w", err)
+	}
+
+	// ── Tools 配置 ────────────────────────────────────────────────────────────
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("get working directory: %w", err)
+	}
+	allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
+	toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
+
+	// ── Prompt 系统 ───────────────────────────────────────────────────────────
+	promptCfg := &prompt.PromptConfig{
+		RoleID:  "main_assistant",
+		BaseDir: filepath.Join(workDir, "prompts"),
+	}
+	rulesCreated, err := promptCfg.EnsureFiles()
+	if err != nil {
+		var profileErr *prompt.ProfileNeededError
+		if errors.As(err, &profileErr) {
+			if writeErr := profileSetup(promptCfg); writeErr != nil {
+				return nil, fmt.Errorf("write profile: %w", writeErr)
+			}
+			rulesCreated, err = promptCfg.EnsureFiles()
+			if err != nil {
+				return nil, fmt.Errorf("ensure prompt files: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("ensure prompt files: %w", err)
+		}
+	}
+
+	// ── Leaders + Agent 模板 ──────────────────────────────────────────────────
+	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"))
+	if err != nil {
+		log.Warn(logger.CatApp, "failed to load leaders", "err", err)
+		leaders = nil
+	}
+	allTemplates, err := agent.LoadAgentTemplates(filepath.Join(workDir, "agents"))
+	if err != nil {
+		log.Warn(logger.CatApp, "failed to load agent templates", "err", err)
+		allTemplates = nil
+	}
+
+	systemPrompt, err := promptCfg.BuildPrompt(leaders)
+	if err != nil {
+		return nil, fmt.Errorf("build system prompt: %w", err)
+	}
+
+	// ── Agent Registry + Factory ──────────────────────────────────────────────
+	agentRegistry := agent.NewRegistry(log)
+	agentFactory := agent.NewDefaultFactory(
+		agentRegistry, llmClient, toolsCfg,
+		filepath.Join(workDir, "skills"), log,
+	)
+
+	// ── L2 Supervisors ────────────────────────────────────────────────────────
+	// 为每个 IsLeader 模板创建 L2 Agent 并用 Supervisor 管理其 L3 子 Agent 生命周期。
+	// Supervisor 在 runtimeStack.shutdown() 时负责回收所有 L3 子 Agent。
+	var supervisors []*agent.Supervisor
+	for _, tmpl := range allTemplates {
+		if !tmpl.IsLeader {
+			continue
+		}
+		l2Agent, _, err := agentFactory.Create(context.Background(), tmpl)
+		if err != nil {
+			log.Warn(logger.CatApp, "failed to create L2 agent", "name", tmpl.Name, "err", err)
+			continue
+		}
+		sv := agent.NewSupervisor(l2Agent, agentFactory, log)
+		supervisors = append(supervisors, sv)
+	}
+
+	return &runtimeStack{
+		llmClient:     llmClient,
+		agentRegistry: agentRegistry,
+		agentFactory:  agentFactory,
+		supervisors:   supervisors,
+		leaders:       leaders,
+		allTemplates:  allTemplates,
+		systemPrompt:  systemPrompt,
+		promptCfg:     promptCfg,
+		defaultModel:  defaultModel,
+		tokenizer:     ctxwin.NewTokenizer(),
+		toolsCfg:      toolsCfg,
+		rulesCreated:  rulesCreated,
+	}, nil
+}
+
+// ─── Session factory ───────────────────────────────────────────────────────────
+
+// buildSessionFactory 构造 SessionManager 使用的工厂函数。
+//
+// consoleLog 控制 session logger 是否向 stderr 输出（TUI=false，serve=settings.Log.Console）。
+func buildSessionFactory(
+	rt *runtimeStack,
+	workDir string,
+	settings config.Settings,
+	consoleLog bool,
+) session.AgentFactory {
+	tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
+	tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
+	replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
+
+	return func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		agentID := newAgentID()
+
+		effectiveModelID := rt.defaultModel.APIModel
+		if effectiveModelID == "" {
+			effectiveModelID = rt.defaultModel.ID
+		}
+		def := agent.Definition{
+			ID:              agentID,
+			TeamID:          teamID,
+			Kind:            agent.KindChat,
+			ModelID:         effectiveModelID,
+			Temperature:     rt.defaultModel.Generation.Temperature,
+			MaxTokens:       rt.defaultModel.Generation.MaxTokens,
+			ReasoningEffort: rt.defaultModel.Thinking.ReasoningEffort,
+			MaxIterations:   10,
+			ContextWindow:   rt.defaultModel.ContextWindow,
+			SystemPrompt:    rt.systemPrompt,
+		}
+
+		effectiveTeam := teamID
+		if effectiveTeam == "" {
+			effectiveTeam = "default"
+		}
+		sessLog, err := logger.Session(workDir, effectiveTeam, agentID,
+			logger.WithLevel(parseLogLevel(settings.Log.Level)),
+			logger.WithConsole(consoleLog),
+			logger.WithFile(settings.Log.File),
+		)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
+		}
+
+		// Tools: 内置工具 + DelegateTool（异步模式：L1 → L2）
+		allTools := tools.Build(rt.toolsCfg)
+		for _, l := range rt.leaders {
+			leader := l // 捕获循环变量
+			dt := &tools.DelegateTool{
+				LeaderID: leader.Name,
+				Desc:     leader.Description,
+				SpawnFn: func(ctx context.Context, task string) (tools.Locatable, error) {
+					a, ok := rt.agentRegistry.Get(leader.Name)
+					if !ok {
+						return nil, fmt.Errorf("leader %q not found", leader.Name)
+					}
+					return a, nil
+				},
+				Timeout: 5 * time.Minute,
+			}
+			allTools = append(allTools, dt)
+		}
+
+		// Skills: 用户 SKILL.md
+		var skillList []skill.Skill
+		if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(workDir, "skills")); err == nil {
+			skillList = append(skillList, userSkills...)
+		}
+
+		a := agent.NewAgent(def, rt.llmClient, sessLog,
+			agent.WithTools(allTools...),
+			agent.WithSkills(skillList...),
+			agent.WithParallelTools(true),
+			agent.WithPriorityMailbox(),
+			agent.WithToolTimeout("shell_exec", 30*time.Second),
+			agent.WithToolTimeout("http_fetch", 10*time.Second),
+			agent.WithToolTimeout("web_search", 15*time.Second),
+		)
+		rt.agentRegistry.Register(a)
+
+		// Timeline Writer + Push Hook
+		tlDir := filepath.Join(workDir, "logs", "timelines", effectiveTeam)
+		tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, tlMaxFiles)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
+		}
+		pushHook := func(msg ctxwin.Message) {
+			var toolCalls []timeline.ToolCallRec
+			for _, tc := range msg.ToolCalls {
+				toolCalls = append(toolCalls, timeline.ToolCallRec{
+					ID:        tc.ID,
+					Type:      tc.Type,
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				})
+			}
+			_ = tl.AppendMessage(&timeline.MessagePayload{
+				Role:             string(msg.Role),
+				Content:          msg.Content,
+				ReasoningContent: msg.ReasoningContent,
+				Name:             msg.Name,
+				ToolCallID:       msg.ToolCallID,
+				ToolCalls:        toolCalls,
+				IsEphemeral:      msg.IsEphemeral,
+				AgentID:          agentID,
+			})
+		}
+
+		// ContextWindow + system prompt
+		cw := ctxwin.NewContextWindow(
+			rt.defaultModel.ContextWindow,
+			rt.defaultModel.ContextWindow/10,
+			rt.tokenizer,
+			ctxwin.WithPushHook(pushHook),
+		)
+		if def.SystemPrompt != "" {
+			cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
+		}
+		if cat := a.SkillCatalog(); cat != "" {
+			cw.Push(ctxwin.RoleSystem, cat)
+		}
+
+		// Replay 历史
+		if replaySegs > 0 {
+			segments, err := timeline.ReadLastSegments(tlDir, "timeline", replaySegs)
+			if err == nil && len(segments) > 0 {
+				cw.SetReplayMode(true)
+				timeline.ReplayInto(cw, segments)
+				cw.SetReplayMode(false)
+			}
+		}
+
+		if err := a.Start(context.Background()); err != nil {
+			tl.Close()
+			return nil, nil, nil, err
+		}
+		return a, cw, tl, nil
+	}
+}
+
+// ─── Commands ──────────────────────────────────────────────────────────────────
 
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
@@ -351,14 +436,12 @@ func versionCmd() *cobra.Command {
 				return err
 			}
 
-			// 初始化 config
 			cfg, err := initConfig(workDir)
 			if err != nil {
 				return fmt.Errorf("init config: %w", err)
 			}
 			defer cfg.Close()
 
-			// 初始化 logger（version 命令为非交互模式，console 默认关闭）
 			log, err := initLogger(workDir, cfg, false)
 			if err != nil {
 				return fmt.Errorf("init logger: %w", err)
@@ -416,249 +499,36 @@ func serveCmd() *cobra.Command {
 			defer log.Close()
 
 			log.Info(logger.CatApp, "soloqueue serve starting",
-				"host", host,
-				"port", port,
-				"version", version,
-			)
+				"host", host, "port", port, "version", version)
 
 			settings := cfg.Get()
 
-			// ── Tools：沙箱根目录默认落在 workDir + CWD；用户在 settings.json
-			// 通过 tools.allowedDirs 追加 ────────────────────────────────────
-			cwd, err := os.Getwd()
+			// serve 模式无交互终端，使用默认 profile
+			profileSetup := func(cfg *prompt.PromptConfig) error {
+				return cfg.WriteProfile(prompt.DefaultProfileAnswers())
+			}
+
+			rt, err := buildRuntimeStack(workDir, cfg, log, profileSetup)
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return err
 			}
-			allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
-			toolsCfg := toolsConfigFromSettings(settings.Tools, allowedDirs)
+			defer rt.shutdown()
 
-			// ── LLM 工厂：从 default provider + default model 构造 DeepSeek
-			//    客户端（目前仅 DeepSeek；未来可按 Provider.ID 分派）─────────
-			provider := cfg.DefaultProvider()
-			if provider == nil {
-				return errors.New("no default provider configured")
-			}
-			defaultModel := cfg.DefaultModel("")
-			if defaultModel == nil {
-				return errors.New("no default model configured")
-			}
-			apiKey := resolveAPIKey(provider.APIKeyEnv)
-			if apiKey == "" {
-				log.Warn(logger.CatApp, "LLM API key not set in env",
-					"env", provider.APIKeyEnv,
-				)
-			}
-			baseURL := provider.BaseURL
-			if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" && baseURL == "" {
-				baseURL = v
-			}
-
-			llmClient, err := deepseek.NewClient(deepseek.Config{
-				BaseURL:   baseURL,
-				APIKey:    apiKey,
-				Headers:   provider.Headers,
-				TimeoutMs: provider.TimeoutMs,
-				Retry: llm.RetryPolicy{
-					MaxRetries:   provider.Retry.MaxRetries,
-					InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
-					MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
-					Multiplier:   provider.Retry.BackoffMultiplier,
-				},
-				Log: log,
-			})
-			if err != nil {
-				return fmt.Errorf("build deepseek client: %w", err)
-			}
-
-			// ── Agent factory ───────────────────────────────────────────────
-			// 共享 Tokenizer
-			tokenizer := ctxwin.NewTokenizer()
-
-			// ── Prompt 系统 ──────────────────────────────────────────────
-			servePromptCfg := &prompt.PromptConfig{
-				RoleID:  "main_assistant",
-				BaseDir: filepath.Join(workDir, "prompts"),
-			}
-			if _, err := servePromptCfg.EnsureFiles(); err != nil {
-				var profileErr *prompt.ProfileNeededError
-				if errors.As(err, &profileErr) {
-					// serve 模式无交互终端，使用默认 profile
-					if writeErr := servePromptCfg.WriteProfile(prompt.DefaultProfileAnswers()); writeErr != nil {
-						return fmt.Errorf("write default profile: %w", writeErr)
-					}
-				} else {
-					return fmt.Errorf("ensure prompt files: %w", err)
-				}
-			}
-			// 共享 Agent Registry（供 DelegateSkill 的 AgentLocator 查找 L2 Agent）
-			serveAgentRegistry := agent.NewRegistry(log)
-
-			serveLeaders, _ := prompt.LoadLeaders(filepath.Join(workDir, "agents"))
-			allTemplates, err := agent.LoadAgentTemplates(filepath.Join(workDir, "agents"))
-			if err != nil {
-				log.Warn(logger.CatApp, "load agent templates failed", "error", err)
-			}
-			agentFactory := agent.NewDefaultFactory(serveAgentRegistry, llmClient, toolsCfg, filepath.Join(workDir, "skills"), log)
-
-			var supervisors []*agent.Supervisor
-			for _, tmpl := range allTemplates {
-				if tmpl.IsLeader {
-					l2Agent, _, err := agentFactory.Create(cmd.Context(), tmpl)
-					if err != nil {
-						log.Warn(logger.CatApp, "create l2 agent failed", "name", tmpl.Name, "error", err)
-						continue
-					}
-					sv := agent.NewSupervisor(l2Agent, agentFactory, log)
-					supervisors = append(supervisors, sv)
-				}
-			}
-			_ = supervisors
-			serveSystemPrompt, err := servePromptCfg.BuildPrompt(serveLeaders)
-			if err != nil {
-				return fmt.Errorf("build system prompt: %w", err)
-			}
-
-			// Timeline 配置
-			tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
-			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
-			replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
-
-			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
-				agentID := newAgentID()
-				// APIModel 优先，空则 fallback 到 ID
-				effectiveModelID := defaultModel.APIModel
-				if effectiveModelID == "" {
-					effectiveModelID = defaultModel.ID
-				}
-				def := agent.Definition{
-					ID:              agentID,
-					TeamID:          teamID,
-					Kind:            agent.KindChat,
-					ModelID:         effectiveModelID,
-					Temperature:     defaultModel.Generation.Temperature,
-					MaxTokens:       defaultModel.Generation.MaxTokens,
-					ReasoningEffort: defaultModel.Thinking.ReasoningEffort,
-					MaxIterations:   10,
-					ContextWindow:   defaultModel.ContextWindow,
-					SystemPrompt:    serveSystemPrompt,
-				}
-
-				// agent 使用 session-layer logger（CatActor / CatLLM / CatTool）
-				// teamID 可为空（demo 场景）；Session 层要求非空 id，退化到 "default"
-				effectiveTeam := teamID
-				if effectiveTeam == "" {
-					effectiveTeam = "default"
-				}
-				sessLog, err := logger.Session(workDir, effectiveTeam, agentID,
-					logger.WithLevel(parseLogLevel(settings.Log.Level)),
-					logger.WithConsole(settings.Log.Console),
-					logger.WithFile(settings.Log.File),
-			)
-				if err != nil {
-					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
-				}
-
-				// Tools: 内置工具 + DelegateTool
-				serveAllTools := tools.Build(toolsCfg)
-				for _, l := range serveLeaders {
-					dt := &tools.DelegateTool{
-						LeaderID: l.Name,
-						Desc:     l.Description,
-						SpawnFn: func(ctx context.Context, task string) (tools.Locatable, error) {
-							a, ok := serveAgentRegistry.Get(l.Name)
-							if !ok {
-								return nil, fmt.Errorf("leader %q not found", l.Name)
-							}
-							return a, nil
-						},
-						Timeout: 5 * time.Minute,
-					}
-					serveAllTools = append(serveAllTools, dt)
-				}
-
-				// Skills: 用户 SKILL.md
-				var serveSkillList []skill.Skill
-				if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(workDir, "skills")); err == nil {
-					serveSkillList = append(serveSkillList, userSkills...)
-				}
-
-				a := agent.NewAgent(def, llmClient, sessLog,
-					agent.WithTools(serveAllTools...),
-					agent.WithSkills(serveSkillList...),
-					agent.WithParallelTools(true),
-					agent.WithPriorityMailbox(),
-					agent.WithToolTimeout("shell_exec", 30*time.Second),
-					agent.WithToolTimeout("http_fetch", 10*time.Second),
-					agent.WithToolTimeout("web_search", 15*time.Second),
-				)
-				serveAgentRegistry.Register(a)
-
-				// 创建 Timeline Writer + Push Hook
-				tl, err := timeline.NewWriter(workDir, "timeline", tlMaxBytes, tlMaxFiles)
-				if err != nil {
-					return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
-				}
-				pushHook := func(msg ctxwin.Message) {
-					_ = tl.AppendMessage(&timeline.MessagePayload{
-						Role:             string(msg.Role),
-						Content:          msg.Content,
-						ReasoningContent: msg.ReasoningContent,
-						Name:             msg.Name,
-						ToolCallID:       msg.ToolCallID,
-						IsEphemeral:      msg.IsEphemeral,
-						AgentID:          agentID,
-					})
-				}
-
-				// 创建 ContextWindow 并 push system prompt
-				cw := ctxwin.NewContextWindow(defaultModel.ContextWindow, defaultModel.ContextWindow/10, tokenizer,
-					ctxwin.WithPushHook(pushHook),
-				)
-				if def.SystemPrompt != "" {
-					cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
-				}
-
-				// 追加 skill 目录到 system prompt
-				if cat := a.SkillCatalog(); cat != "" {
-					cw.Push(ctxwin.RoleSystem, cat)
-				}
-
-				// Replay 历史：读取 timeline 并回放到 ContextWindow
-				if replaySegs > 0 {
-					segments, err := timeline.ReadLastSegments(workDir, "timeline", replaySegs)
-					if err == nil && len(segments) > 0 {
-						cw.SetReplayMode(true)
-						timeline.ReplayInto(cw, segments)
-						cw.SetReplayMode(false)
-					}
-				}
-
-				// agent 生命周期由 SessionManager 管理，parent 用 Background
-				if err := a.Start(context.Background()); err != nil {
-					tl.Close()
-					return nil, nil, nil, err
-				}
-				return a, cw, tl, nil
-		}
-
-			// ── Session manager + reap loop ─────────────────────────────────
+			factory := buildSessionFactory(rt, workDir, settings, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, 30*time.Minute)
 
-			// 根 ctx + SIGINT/SIGTERM 处理
 			rootCtx, stop := signal.NotifyContext(context.Background(),
 				os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
 			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
 
-			// ── HTTP server ─────────────────────────────────────────────────
 			mux := server.NewMux(mgr, log)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,
 			}
 
-			// Graceful shutdown
 			go func() {
 				<-rootCtx.Done()
 				log.Info(logger.CatApp, "shutdown signal received")
@@ -668,9 +538,7 @@ func serveCmd() *cobra.Command {
 				mgr.Shutdown(5 * time.Second)
 			}()
 
-			log.Info(logger.CatApp, "server listening",
-				"addr", srv.Addr,
-			)
+			log.Info(logger.CatApp, "server listening", "addr", srv.Addr)
 			fmt.Printf("soloqueue serve listening on %s:%d\n", host, port)
 
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -688,12 +556,9 @@ func serveCmd() *cobra.Command {
 	return cmd
 }
 
+// ─── toolsConfigFromSettings ───────────────────────────────────────────────────
+
 // toolsConfigFromSettings 把 settings.ToolsConfig 转换为 tools.Config
-//
-// 关键转换：
-//   - allowedDirs 由 caller 拼接（workDir + cwd + settings）后传入
-//   - *Ms 字段 → time.Duration
-//   - TavilyAPIKeyEnv → os.Getenv（为空时 Build 跳过 web_search）
 func toolsConfigFromSettings(s config.ToolsConfig, allowedDirs []string) tools.Config {
 	tavilyKey := ""
 	if s.TavilyAPIKeyEnv != "" {
@@ -726,6 +591,8 @@ func toolsConfigFromSettings(s config.ToolsConfig, allowedDirs []string) tools.C
 	}
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
 func defaultInt(v, def int) int {
 	if v <= 0 {
 		return def
@@ -753,12 +620,10 @@ func msToDuration(ms int, def time.Duration) time.Duration {
 
 // newAgentID returns a short random ID for an agent instance
 func newAgentID() string {
-	// timestamp + short random suffix (good enough for local dev)
 	return fmt.Sprintf("agent-%d", time.Now().UnixNano())
 }
 
 // promptProfileQuestions 在 TUI 启动前执行交互式问卷，收集用户个性化设定。
-// 使用标准输入读取，不依赖 Bubble Tea 组件。
 func promptProfileQuestions() prompt.ProfileAnswers {
 	answers := prompt.DefaultProfileAnswers()
 
@@ -786,8 +651,6 @@ func readLineWithDefault(prompt, def string) string {
 	return def
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 // defaultWorkDir 返回 ~/.soloqueue
 func defaultWorkDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -814,11 +677,8 @@ func initConfig(workDir string) (*config.GlobalService, error) {
 
 	if err := cfg.Watch(); err != nil {
 		// Non-fatal: config changes will require restart.
-		// Don't use slog.Error here — logger hasn't been initialized yet
-		// and we don't want to pollute the terminal in TUI mode.
 	}
 
-	// 若 settings.toml 不存在，写入默认值
 	settingsPath := filepath.Join(workDir, "settings.toml")
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		if err := cfg.Save(); err != nil {
@@ -830,8 +690,6 @@ func initConfig(workDir string) (*config.GlobalService, error) {
 }
 
 // initLogger 根据当前配置创建 system 层 Logger。
-// console 参数明确控制是否向 stderr 输出日志；调用方通过 --verbose 标志传入，
-// 不再依赖 settings.Log.Console（默认 false，确保 TUI 模式下日志不污染终端）。
 func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logger.Logger, error) {
 	settings := cfg.Get()
 
@@ -845,14 +703,11 @@ func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logge
 		return nil, err
 	}
 
-	// 热加载时自动更新日志级别（注：slog.Logger 不支持动态修改级别，重建 logger）
-	// 此处仅演示 OnChange 用法
 	cfg.OnChange(func(old, new config.Settings) {
 		_ = old
 		_ = new
 	})
 
-	// fsnotify watcher 的 error 路由到 logger（之前被静默吞掉）
 	cfg.SetErrorHandler(func(err error) {
 		log.Error(logger.CatConfig, "config watcher error", "err", err)
 	})
@@ -872,7 +727,6 @@ func parseLogLevel(level string) slog.Level {
 	case "error":
 		return slog.LevelError
 	default:
-		// Unknown level: default to info without printing to terminal
 		return slog.LevelInfo
 	}
 }
