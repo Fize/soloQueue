@@ -195,6 +195,145 @@ func TestSupervisor_SpawnFnForID_NotFound(t *testing.T) {
 	}
 }
 
+// ─── PriorityMailbox.Len ──────────────────────────────────────────────────
+
+func TestPriorityMailbox_Len_Empty(t *testing.T) {
+	pm := NewPriorityMailbox()
+	high, normal := pm.Len()
+	if high != 0 || normal != 0 {
+		t.Errorf("Len() = (%d, %d), want (0, 0)", high, normal)
+	}
+}
+
+func TestPriorityMailbox_Len_WithItems(t *testing.T) {
+	pm := NewPriorityMailbox()
+	pm.SubmitHigh(func(ctx context.Context) {})
+	pm.SubmitHigh(func(ctx context.Context) {})
+	pm.SubmitNormal(func(ctx context.Context) {})
+
+	high, normal := pm.Len()
+	if high != 2 {
+		t.Errorf("high = %d, want 2", high)
+	}
+	if normal != 1 {
+		t.Errorf("normal = %d, want 1", normal)
+	}
+
+	// Drain one high, check again
+	<-pm.HighCh()
+	high2, _ := pm.Len()
+	if high2 != 1 {
+		t.Errorf("after drain high = %d, want 1", high2)
+	}
+}
+
+// ─── Supervisor.Agent() ──────────────────────────────────────────────────
+
+func TestSupervisor_Agent(t *testing.T) {
+	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	a := NewAgent(Definition{ID: "l2-agent", Name: "DevLead"}, fakeLLM, nil)
+	sv := NewSupervisor(a, nil, nil)
+
+	got := sv.Agent()
+	if got != a {
+		t.Errorf("Agent() returned different pointer: got %p, want %p", got, a)
+	}
+	if got.Def.ID != "l2-agent" {
+		t.Errorf("Agent().Def.ID = %q, want %q", got.Def.ID, "l2-agent")
+	}
+}
+
+// ─── Agent.PendingDelegations ────────────────────────────────────────────
+
+func TestAgent_PendingDelegations_Initial(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	if got := a.PendingDelegations(); got != 0 {
+		t.Errorf("PendingDelegations() = %d, want 0", got)
+	}
+}
+
+func TestAgent_PendingDelegations_WithAsyncTurns(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+
+	// 直接注入 asyncTurns 模拟异步委托
+	a.turnMu.Lock()
+	a.asyncTurns[1] = &asyncTurnState{iter: 1}
+	a.asyncTurns[3] = &asyncTurnState{iter: 3}
+	a.turnMu.Unlock()
+
+	if got := a.PendingDelegations(); got != 2 {
+		t.Errorf("PendingDelegations() = %d, want 2", got)
+	}
+
+	// 移除一个
+	a.turnMu.Lock()
+	delete(a.asyncTurns, 1)
+	a.turnMu.Unlock()
+
+	if got := a.PendingDelegations(); got != 1 {
+		t.Errorf("PendingDelegations() after delete = %d, want 1", got)
+	}
+}
+
+// ─── Agent.MailboxDepth ──────────────────────────────────────────────────
+
+func TestAgent_MailboxDepth_NotStarted(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	high, normal := a.MailboxDepth()
+	if high != 0 || normal != 0 {
+		t.Errorf("MailboxDepth() = (%d, %d), want (0, 0)", high, normal)
+	}
+}
+
+func TestAgent_MailboxDepth_WithPriorityMailbox(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithPriorityMailbox())
+	// PriorityMailbox 创建后未投递，应为 (0, 0)
+	high, normal := a.MailboxDepth()
+	if high != 0 || normal != 0 {
+		t.Errorf("MailboxDepth() = (%d, %d), want (0, 0)", high, normal)
+	}
+
+	// 通过 PriorityMailbox 直接投递（不通过 submit，因为 agent 未 Start）
+	a.priorityMailbox.SubmitHigh(func(ctx context.Context) {})
+	a.priorityMailbox.SubmitNormal(func(ctx context.Context) {})
+	a.priorityMailbox.SubmitNormal(func(ctx context.Context) {})
+
+	high, normal = a.MailboxDepth()
+	if high != 1 {
+		t.Errorf("high = %d, want 1", high)
+	}
+	if normal != 2 {
+		t.Errorf("normal = %d, want 2", normal)
+	}
+}
+
+func TestAgent_MailboxDepth_WithRegularMailbox(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}, Delay: time.Second}, nil,
+		WithMailboxCap(4))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
+
+	// 占住 run goroutine
+	go func() { _, _ = a.Ask(context.Background(), "blocking") }()
+	waitFor(t, 500*time.Millisecond, func() bool { return a.State() == StateProcessing })
+
+	// 投递几个到 mailbox（会排队）
+	for i := 0; i < 2; i++ {
+		go func() { _, _ = a.Ask(context.Background(), "queued") }()
+	}
+	time.Sleep(50 * time.Millisecond) // 等它们入队
+
+	high, normal := a.MailboxDepth()
+	if high != 0 {
+		t.Errorf("high = %d, want 0 (regular mailbox)", high)
+	}
+	if normal < 1 {
+		t.Errorf("normal = %d, want ≥ 1", normal)
+	}
+}
+
 // ─── Agent Options ─────────────────────────────────────────────────────────
 
 func TestWithEphemeral(t *testing.T) {

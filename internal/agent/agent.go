@@ -243,6 +243,32 @@ func (a *Agent) IsEphemeral() bool {
 	return a.ephemeral
 }
 
+// PendingDelegations 返回当前等待中的异步委托轮次数量
+func (a *Agent) PendingDelegations() int {
+	a.turnMu.RLock()
+	defer a.turnMu.RUnlock()
+	return len(a.asyncTurns)
+}
+
+// MailboxDepth 返回 mailbox 队列深度
+//
+// 对 PriorityMailbox 返回 (high, normal)；对普通 mailbox 返回 (0, len(mailbox))。
+// 值为近似值（channel 长度非精确锁定）。
+func (a *Agent) MailboxDepth() (high, normal int) {
+	a.mu.Lock()
+	pm := a.priorityMailbox
+	mb := a.mailbox
+	a.mu.Unlock()
+
+	if pm != nil {
+		return pm.Len()
+	}
+	if mb != nil {
+		return 0, len(mb)
+	}
+	return 0, 0
+}
+
 // NewAgent 构造未 Start 的 agent
 //
 // log 可以为 nil（此时日志调用被跳过）。
