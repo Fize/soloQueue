@@ -45,6 +45,25 @@ func (m *mockAskTarget) Ask(ctx context.Context, prompt string) (string, error) 
 	return "mock-response", nil
 }
 
+func (m *mockAskTarget) AskStream(ctx context.Context, prompt string) (<-chan interface{}, error) {
+	// Create a channel and send a DoneEvent with the mocked result
+	ch := make(chan interface{}, 1)
+	go func() {
+		defer close(ch)
+		result, err := m.Ask(ctx, prompt)
+		if err != nil {
+			ch <- ErrorEvent{Err: err}
+		} else {
+			ch <- DoneEvent{Content: result}
+		}
+	}()
+	return ch, nil
+}
+
+func (m *mockAskTarget) Confirm(callID string, choice string) error {
+	return nil // Mock implementation - no-op
+}
+
 // ─── TestExecToolsWithAsync_SingleAsyncTool ────────────────────────────────
 
 func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {

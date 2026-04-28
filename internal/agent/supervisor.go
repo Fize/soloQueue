@@ -182,7 +182,7 @@ func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, ta
 		if err != nil {
 			return nil, err
 		}
-		return child, nil
+		return &LocatableAdapter{child}, nil
 	}
 }
 

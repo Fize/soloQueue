@@ -215,8 +215,32 @@ func (r *Registry) logInfo(cat logger.Category, msg string, args ...any) {
 //
 // 返回 tools.Locatable（Agent 的最小抽象），供 DelegateTool 查找目标 Agent。
 func (r *Registry) Locate(id string) (tools.Locatable, bool) {
-	return r.Get(id)
+	agent, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	return &LocatableAdapter{agent}, true
 }
+
+
+// ─── locatableAdapter ──────────────────────────────────────────────────────
+
+// locatableAdapter 包装 *Agent 以适配 tools.Locatable 接口
+//
+// 主要区别是 AskStream 返回值从 <-chan AgentEvent 转换为 <-chan interface{}。
+// 这个适配层避免 tools 包对 agent 包的循环导入。
+type LocatableAdapter struct {
+	*Agent
+}
+
+// AskStream 实现 tools.Locatable.AskStream
+// 通过调用 Agent.AskStreamInterface 来返回 interface{} 通道
+func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-chan interface{}, error) {
+	return la.Agent.AskStreamInterface(ctx, prompt)
+}
+
+// 编译时验证 locatableAdapter 实现 tools.Locatable
+var _ tools.Locatable = (*LocatableAdapter)(nil)
 
 // 编译时断言：Registry 实现 tools.AgentLocator
 var _ tools.AgentLocator = (*Registry)(nil)
