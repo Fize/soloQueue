@@ -312,6 +312,8 @@ func buildSessionFactory(
 			Temperature:     rt.defaultModel.Generation.Temperature,
 			MaxTokens:       rt.defaultModel.Generation.MaxTokens,
 			ReasoningEffort: rt.defaultModel.Thinking.ReasoningEffort,
+			ThinkingEnabled: rt.defaultModel.Thinking.Enabled,
+			ThinkingType:    rt.defaultModel.Thinking.Type,
 			MaxIterations:   10,
 			ContextWindow:   rt.defaultModel.ContextWindow,
 			SystemPrompt:    rt.systemPrompt,
