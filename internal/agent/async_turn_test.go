@@ -10,13 +10,12 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ─── mock types for testing ─────────────────────────────────────────────────
-
-// mockAsyncTool 实现 AsyncTool 接口
+// mockAsyncTool implements AsyncTool for testing.
 type mockAsyncTool struct {
 	name      string
 	action    *tools.AsyncAction
@@ -33,42 +32,11 @@ func (m *mockAsyncTool) ExecuteAsync(ctx context.Context, args string) (*tools.A
 	return m.action, m.actionErr
 }
 
-// mockAskTarget 实现 Locatable 接口，用于测试
-type mockAskTarget struct {
-	askFunc func(ctx context.Context, prompt string) (string, error)
-}
-
-func (m *mockAskTarget) Ask(ctx context.Context, prompt string) (string, error) {
-	if m.askFunc != nil {
-		return m.askFunc(ctx, prompt)
-	}
-	return "mock-response", nil
-}
-
-func (m *mockAskTarget) AskStream(ctx context.Context, prompt string) (<-chan interface{}, error) {
-	// Create a channel and send a DoneEvent with the mocked result
-	ch := make(chan interface{}, 1)
-	go func() {
-		defer close(ch)
-		result, err := m.Ask(ctx, prompt)
-		if err != nil {
-			ch <- ErrorEvent{Err: err}
-		} else {
-			ch <- DoneEvent{Content: result}
-		}
-	}()
-	return ch, nil
-}
-
-func (m *mockAskTarget) Confirm(callID string, choice string) error {
-	return nil // Mock implementation - no-op
-}
-
 // ─── TestExecToolsWithAsync_SingleAsyncTool ────────────────────────────────
 
 func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 	// 创建目标 Agent（模拟 L2）
-	target := &mockAskTarget{
+	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
 			time.Sleep(50 * time.Millisecond)
 			return "async-result", nil
@@ -150,7 +118,7 @@ func TestExecToolsWithAsync_MultipleAsyncTools(t *testing.T) {
 	var callCount int32
 	var mu sync.Mutex
 
-	target1 := &mockAskTarget{
+	target1 := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
 			mu.Lock()
 			callCount++
@@ -159,7 +127,7 @@ func TestExecToolsWithAsync_MultipleAsyncTools(t *testing.T) {
 			return "result1", nil
 		},
 	}
-	target2 := &mockAskTarget{
+	target2 := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
 			mu.Lock()
 			callCount++
@@ -236,7 +204,7 @@ func TestExecToolsWithAsync_MixedSyncAndAsync(t *testing.T) {
 	asyncTool := &mockAsyncTool{
 		name: "delegate",
 		action: &tools.AsyncAction{
-			Target:  &mockAskTarget{askFunc: func(ctx context.Context, prompt string) (string, error) { return "async", nil }},
+			Target:  &mockLocatable{askFunc: func(ctx context.Context, prompt string) (string, error) { return "async", nil }},
 			Prompt:  "task",
 			Timeout: 5 * time.Second,
 		},
@@ -334,7 +302,7 @@ func TestExecToolsWithAsync_AsyncToolError(t *testing.T) {
 
 func TestExecToolsWithAsync_PendingCount(t *testing.T) {
 	// 验证 pending 计数正确
-	target := &mockAskTarget{
+	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
 			time.Sleep(100 * time.Millisecond)
 			return "done", nil
@@ -577,7 +545,7 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 	// 使用 FakeLLM with ToolCallDeltasByTurn 模拟 L1 返回 delegate tool call
 	// 然后模拟 L2 返回最终结果
 
-	target := &mockAskTarget{
+	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
 			return "delegation-result", nil
 		},
@@ -673,4 +641,115 @@ func (m *mockSyncTool) Description() string                 { return "mock sync 
 func (m *mockSyncTool) Parameters() json.RawMessage          { return json.RawMessage(`{}`) }
 func (m *mockSyncTool) Execute(ctx context.Context, args string) (string, error) {
 	return m.result, nil
+}
+
+// --- DelegateTool API tests ---
+
+func TestDelegateTool_IsAsync(t *testing.T) {
+	// With SpawnFn → async
+	dtAsync := &tools.DelegateTool{
+		LeaderID: "dev",
+		SpawnFn:  func(ctx context.Context, task string) (iface.Locatable, error) { return nil, nil },
+	}
+	if !dtAsync.IsAsync() {
+		t.Error("IsAsync() = false, want true when SpawnFn is set")
+	}
+
+	// Without SpawnFn → sync
+	dtSync := &tools.DelegateTool{
+		LeaderID: "dev",
+		Locator:  nil,
+	}
+	if dtSync.IsAsync() {
+		t.Error("IsAsync() = true, want false when SpawnFn is nil")
+	}
+}
+
+func TestDelegateTool_ExecuteAsync(t *testing.T) {
+	target := &mockLocatable{}
+	dt := &tools.DelegateTool{
+		LeaderID: "dev",
+		SpawnFn: func(ctx context.Context, task string) (iface.Locatable, error) {
+			return target, nil
+		},
+		Timeout: 5 * time.Minute,
+	}
+
+	action, err := dt.ExecuteAsync(context.Background(), `{"task":"test"}`)
+	if err != nil {
+		t.Fatalf("ExecuteAsync: %v", err)
+	}
+	if action == nil {
+		t.Fatal("action is nil")
+	}
+	if action.Target == nil {
+		t.Error("action.Target is nil")
+	}
+	if action.Prompt != "test" {
+		t.Errorf("action.Prompt = %q, want 'test'", action.Prompt)
+	}
+	if action.Timeout != 5*time.Minute {
+		t.Errorf("action.Timeout = %v, want 5m", action.Timeout)
+	}
+}
+
+func TestDelegateTool_ExecuteAsync_InvalidArgs(t *testing.T) {
+	dt := &tools.DelegateTool{LeaderID: "dev"}
+
+	// Empty task
+	_, err := dt.ExecuteAsync(context.Background(), `{"task":""}`)
+	if err == nil {
+		t.Error("expected error for empty task")
+	}
+
+	// Invalid JSON
+	_, err = dt.ExecuteAsync(context.Background(), `not-json`)
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestDelegateTool_ExecuteAsync_NoLocatorOrSpawnFn(t *testing.T) {
+	dt := &tools.DelegateTool{LeaderID: "dev"}
+
+	_, err := dt.ExecuteAsync(context.Background(), `{"task":"test"}`)
+	if err == nil {
+		t.Error("expected error when no Locator or SpawnFn configured")
+	}
+}
+
+func TestAsyncAction_TargetID(t *testing.T) {
+	action := &tools.AsyncAction{Target: nil}
+	if action.TargetID() != "" {
+		t.Errorf("TargetID() = %q, want empty", action.TargetID())
+	}
+
+	action2 := &tools.AsyncAction{Target: &mockLocatable{}}
+	if action2.TargetID() != "" {
+		t.Logf("TargetID() = %q (expected empty until Locatable has ID)", action2.TargetID())
+	}
+}
+
+func TestDelegationEvents_AreAgentEvents(t *testing.T) {
+	var _ AgentEvent = DelegationStartedEvent{}
+	var _ AgentEvent = DelegationCompletedEvent{}
+
+	ev1 := DelegationStartedEvent{Iter: 1, NumTasks: 2}
+	ev2 := DelegationCompletedEvent{Iter: 1, TargetAgentID: "dev"}
+
+	var ae1 AgentEvent = ev1
+	var ae2 AgentEvent = ev2
+	switch ae1.(type) {
+	case DelegationStartedEvent:
+		// ok
+	default:
+		t.Error("DelegationStartedEvent not recognized in type switch")
+	}
+
+	switch ae2.(type) {
+	case DelegationCompletedEvent:
+		// ok
+	default:
+		t.Error("DelegationCompletedEvent not recognized in type switch")
+	}
 }

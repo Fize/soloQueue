@@ -44,7 +44,21 @@ type asyncTurnState struct {
 	cw        *ctxwin.ContextWindow
 	iter      int
 	toolCalls []llm.ToolCall
-	results   []string      // 与 toolCalls 等长
+	// results holds tool execution results, indexed by tool call position.
+	//
+	// CONCURRENCY SAFETY: Each watchDelegatedTask goroutine writes to a
+	// distinct index (its own callIndex), never overlapping with other
+	// writers. The main goroutine only reads results in resumeTurn, which
+	// runs after ALL goroutines have completed. The happens-before
+	// relationship is established by:
+	//   1. watchDelegatedTask writes results[callIndex] THEN does pending.Add(-1)
+	//   2. The last Add(-1) returning 0 triggers submitHighPriority(resumeTurn)
+	//   3. resumeTurn reads results[] after the atomic publish
+	//
+	// The slice header (len/cap/ptr) is never modified after creation.
+	// This pattern is safe per the Go memory model for non-overlapping
+	// writes to different indices of a fixed-size slice.
+	results []string
 	pending   atomic.Int32  // 还剩几个异步调用未完成
 	callerCtx context.Context
 }
