@@ -241,9 +241,9 @@ func TestAgent_Ask_MaxIterations(t *testing.T) {
 }
 
 func TestAgent_Ask_DefaultMaxIterations(t *testing.T) {
-	// 不设 MaxIterations，默认 DefaultMaxIterations (10)
+	// 不设 MaxIterations，默认 DefaultMaxIterations
 	tool := newFakeTool("loop")
-	turns := make([][]llm.ToolCall, 20)
+	turns := make([][]llm.ToolCall, 120)
 	for i := range turns {
 		turns[i] = []llm.ToolCall{{
 			ID: fmt.Sprintf("c%d", i),

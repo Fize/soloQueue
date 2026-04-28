@@ -487,6 +487,117 @@ func TestReplayInto_WithToolCalls(t *testing.T) {
 	}
 }
 
+func TestReplayInto_OrphanedToolCalls_Skipped(t *testing.T) {
+	// When assistant(tool_calls) has no corresponding tool results,
+	// the entire assistant message should be skipped to prevent LLM API 400.
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "user", Content: "do something"},
+				{
+					Role:    "assistant",
+					Content: "let me delegate",
+					ToolCalls: []ToolCallRec{
+						{ID: "tc-1", Type: "function", Name: "delegate_dev", Arguments: `{"task":"find json"}`},
+					},
+				},
+				// NO tool result for tc-1 — orphaned!
+				{Role: "user", Content: "next question"},
+				{Role: "assistant", Content: "here is the answer"},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	// Should have: user("do something"), user("next question"), assistant("here is the answer")
+	// The orphaned assistant(tool_calls) is skipped
+	if cw.Len() != 3 {
+		t.Fatalf("cw.Len() = %d, want 3 (orphaned assistant skipped)", cw.Len())
+	}
+	msg0, _ := cw.MessageAt(0)
+	if msg0.Role != "user" || msg0.Content != "do something" {
+		t.Errorf("msg0 = %q %q, want user/do something", msg0.Role, msg0.Content)
+	}
+	msg1, _ := cw.MessageAt(1)
+	if msg1.Role != "user" || msg1.Content != "next question" {
+		t.Errorf("msg1 = %q %q, want user/next question", msg1.Role, msg1.Content)
+	}
+	msg2, _ := cw.MessageAt(2)
+	if msg2.Role != "assistant" || msg2.Content != "here is the answer" {
+		t.Errorf("msg2 = %q %q, want assistant/here is the answer", msg2.Role, msg2.Content)
+	}
+}
+
+func TestReplayInto_PartialToolResults_Skipped(t *testing.T) {
+	// When assistant(tool_calls) has 2 tool calls but only 1 tool result,
+	// both the assistant message and the partial result should be skipped.
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "user", Content: "do two things"},
+				{
+					Role:    "assistant",
+					Content: "",
+					ToolCalls: []ToolCallRec{
+						{ID: "tc-1", Type: "function", Name: "grep", Arguments: `{}`},
+						{ID: "tc-2", Type: "function", Name: "delegate_dev", Arguments: `{}`},
+					},
+				},
+				{Role: "tool", Content: "grep result", ToolCallID: "tc-1"},
+				// NO tool result for tc-2 — partially orphaned!
+				{Role: "user", Content: "next question"},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	// Should have: user("do two things"), user("next question")
+	// The orphaned assistant + partial tool result are both skipped
+	if cw.Len() != 2 {
+		t.Fatalf("cw.Len() = %d, want 2 (orphaned assistant + partial result skipped)", cw.Len())
+	}
+}
+
+func TestReplayInto_CompleteToolCalls_Kept(t *testing.T) {
+	// When all tool results are present, the assistant(tool_calls) + results are kept.
+	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "user", Content: "read file"},
+				{
+					Role:    "assistant",
+					Content: "",
+					ToolCalls: []ToolCallRec{
+						{ID: "tc-1", Type: "function", Name: "read_file", Arguments: `{}`},
+						{ID: "tc-2", Type: "function", Name: "grep", Arguments: `{}`},
+					},
+				},
+				{Role: "tool", Content: "file contents", ToolCallID: "tc-1"},
+				{Role: "tool", Content: "grep results", ToolCallID: "tc-2"},
+				{Role: "assistant", Content: "here is what I found"},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	// Should have all 5 messages
+	if cw.Len() != 5 {
+		t.Fatalf("cw.Len() = %d, want 5 (complete tool_calls kept)", cw.Len())
+	}
+}
+
 func TestReplayInto_WithReasoningContent(t *testing.T) {
 	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)

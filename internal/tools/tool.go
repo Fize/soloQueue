@@ -130,3 +130,32 @@ type AsyncTool interface {
 	// 框架负责：组装 asyncTurnState → 注册到 Agent → 启动 goroutine → 监听结果。
 	ExecuteAsync(ctx context.Context, args string) (*AsyncAction, error)
 }
+
+// ─── FallbackTool wrapper ───────────────────────────────────────────────────
+
+// FallbackTool wraps a Tool and prepends a fallback-only prefix to its
+// Description, signaling to the LLM that this tool should only be used when
+// no delegate_* tool is available. All other methods delegate to the inner Tool.
+//
+// Confirmable and AsyncTool interfaces are preserved through type assertion
+// in the agent layer, so FallbackTool only needs to implement the base Tool.
+type FallbackTool struct {
+	Tool
+	desc string
+}
+
+// WithFallbackPrefix wraps each tool in tools with a fallback-only prefix.
+// Used by L1 (Session) agent to discourage direct tool usage when delegation
+// is available. L2/L3 agents should NOT use this wrapper.
+func WithFallbackPrefix(tools []Tool) []Tool {
+	out := make([]Tool, len(tools))
+	for i, t := range tools {
+		out[i] = &FallbackTool{
+			Tool: t,
+			desc: "[FALLBACK ONLY - use delegate_* tools first] " + t.Description(),
+		}
+	}
+	return out
+}
+
+func (f *FallbackTool) Description() string { return f.desc }
