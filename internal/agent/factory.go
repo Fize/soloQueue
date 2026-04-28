@@ -146,7 +146,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	a := NewAgent(def, f.llm, f.log, opts...)
 
 	// 7. 创建 ContextWindow
-	cw := ctxwin.NewContextWindow(128000, 2000, nil)
+	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
 	if a.Def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}

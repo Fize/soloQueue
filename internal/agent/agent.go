@@ -253,6 +253,7 @@ func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option)
 		LLM:            llm,
 		Log:            log,
 		mailboxCap:     DefaultMailboxCap,
+		asyncTurns:     make(map[int]*asyncTurnState),
 		pendingConfirm: make(map[string]*confirmSlot),
 		confirmStore:   NewMemoryConfirmStore(),
 	}
