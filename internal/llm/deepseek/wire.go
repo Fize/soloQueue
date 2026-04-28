@@ -35,6 +35,7 @@ type wireRequest struct {
 	ToolChoice       string           `json:"tool_choice,omitempty"`
 	ResponseFormat   *wireRespFormat  `json:"response_format,omitempty"`
 	ReasoningEffort  *string          `json:"reasoning_effort,omitempty"`
+	Thinking         *wireThinking    `json:"thinking,omitempty"`
 }
 
 type wireMessage struct {
@@ -70,6 +71,10 @@ type wireFunctionDecl struct {
 
 type wireStreamOpts struct {
 	IncludeUsage bool `json:"include_usage"`
+}
+
+type wireThinking struct {
+	Type string `json:"type"` // "enabled" | "disabled"
 }
 
 type wireRespFormat struct {
@@ -199,6 +204,18 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	}
 	if req.ReasoningEffort != "" {
 		out.ReasoningEffort = &req.ReasoningEffort
+	}
+	// DeepSeek V4 thinking 参数：必传，enabled 或 disabled
+	if req.ThinkingType != "" {
+		thinkingType := req.ThinkingType
+		out.Thinking = &wireThinking{Type: thinkingType}
+	} else {
+		// ThinkingType 为空时，根据 ThinkingEnabled 推断
+		if req.ThinkingEnabled {
+			out.Thinking = &wireThinking{Type: "enabled"}
+		} else {
+			out.Thinking = &wireThinking{Type: "disabled"}
+		}
 	}
 	return out
 }
