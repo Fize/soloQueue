@@ -137,20 +137,31 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 func (a *Agent) submit(ctx context.Context, jb job) error {
 	a.mu.Lock()
 	mailbox := a.mailbox
+	pm := a.priorityMailbox
 	agentDone := a.done
 	a.mu.Unlock()
 
-	if mailbox == nil || agentDone == nil {
+	if agentDone == nil {
 		return ErrNotStarted
 	}
 
-	// 快速路径：agent 已退出（避免送进一个没人消费的 mailbox）
+	// 快速路径：agent 已退出
 	select {
 	case <-agentDone:
 		return ErrStopped
 	default:
 	}
 
+	// 使用 PriorityMailbox（L1 模式）
+	if pm != nil {
+		pm.SubmitNormal(jb)
+		return nil
+	}
+
+	// 使用普通 mailbox（L2/L3 模式）
+	if mailbox == nil {
+		return ErrNotStarted
+	}
 	select {
 	case mailbox <- jb:
 		return nil
@@ -159,6 +170,29 @@ func (a *Agent) submit(ctx context.Context, jb job) error {
 	case <-agentDone:
 		return ErrStopped
 	}
+}
+
+// submitHighPriority 投递高优先级 job（委托回传、超时事件）
+//
+// 仅当 Agent 启用了 PriorityMailbox 时有效。
+// 异步委托结果通过此路径投递，确保不被普通用户消息阻塞。
+func (a *Agent) submitHighPriority(jb job) error {
+	a.mu.Lock()
+	pm := a.priorityMailbox
+	agentDone := a.done
+	a.mu.Unlock()
+
+	if agentDone == nil {
+		return ErrNotStarted
+	}
+
+	if pm != nil {
+		pm.SubmitHigh(jb)
+		return nil
+	}
+
+	// 未启用 PriorityMailbox：降级为普通 submit
+	return a.submit(context.Background(), jb)
 }
 
 // ─── AskWithHistory / AskStreamWithHistory ──────────────────────────────────
