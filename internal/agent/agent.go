@@ -69,6 +69,16 @@ type Agent struct {
 	// confirmStore 是会话级工具放行存储；默认内存实现，可通过 WithConfirmStore 替换。
 	confirmStore SessionConfirmStore
 
+	// 异步委托追踪（L1 专用）
+	turnMu     sync.RWMutex
+	asyncTurns map[int]*asyncTurnState // iter → 轮次异步状态
+
+	// 优先级 mailbox（L1 启用；nil 表示普通 chan job）
+	priorityMailbox *PriorityMailbox
+
+	// ephemeral 标记（L3 阅后即焚）
+	ephemeral bool
+
 	// 观察（无锁）
 	state   atomic.Int32 // State
 	exitErr atomic.Value // errHolder
@@ -199,6 +209,38 @@ func WithToolTimeout(name string, d time.Duration) Option {
 		}
 		a.toolTimeouts[name] = d
 	}
+}
+
+// WithEphemeral 将 Agent 标记为阅后即焚（L3 执行单元）
+//
+// 语义：
+//   - MailboxCap 设为 1（只接收一个任务）
+//   - 无 Timeline 持久化（factory 中跳过 timeline 创建）
+//   - 完成后由 Supervisor.ReapChild 回收
+func WithEphemeral() Option {
+	return func(a *Agent) {
+		a.ephemeral = true
+		if a.mailboxCap <= 0 || a.mailboxCap == DefaultMailboxCap {
+			a.mailboxCap = 1
+		}
+	}
+}
+
+// WithPriorityMailbox 启用优先级 mailbox（L1 专用）
+//
+// 启用后：
+//   - 高优先级 job（委托回传、超时事件）通过 highCh 投递
+//   - 普通优先级 job（用户 Ask/Submit）通过 normalCh 投递
+//   - run goroutine 优先消费 highCh，确保委托结果不被新消息阻塞
+func WithPriorityMailbox() Option {
+	return func(a *Agent) {
+		a.priorityMailbox = NewPriorityMailbox()
+	}
+}
+
+// IsEphemeral 返回 Agent 是否为阅后即焚模式
+func (a *Agent) IsEphemeral() bool {
+	return a.ephemeral
 }
 
 // NewAgent 构造未 Start 的 agent

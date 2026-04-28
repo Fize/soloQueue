@@ -88,3 +88,30 @@ func LoadLeaders(agentsDir string) ([]LeaderInfo, error) {
 
 	return leaders, nil
 }
+
+// LoadAgentFiles 扫描 agents 目录，返回所有解析后的 AgentFile
+//
+// 不过滤 IsLeader，返回所有 .md 文件。解析失败的文件被跳过（不打断流程）。
+func LoadAgentFiles(agentsDir string) ([]AgentFile, error) {
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return nil, fmt.Errorf("read agents dir %s: %w", agentsDir, err)
+	}
+
+	var files []AgentFile
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+
+		path := filepath.Join(agentsDir, entry.Name())
+		af, err := ParseAgentFile(path)
+		if err != nil {
+			continue // 跳过解析失败的文件
+		}
+
+		files = append(files, *af)
+	}
+
+	return files, nil
+}

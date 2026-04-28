@@ -15,6 +15,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // ─── Tool interface ──────────────────────────────────────────────────────────
@@ -90,3 +91,39 @@ const (
 	// 后续同会话内调用不再触发确认。
 	ChoiceAllowInSession ConfirmChoice = "allow-in-session"
 )
+
+// ─── AsyncTool interface ────────────────────────────────────────────────────
+
+// AsyncAction 描述一个异步工具执行的意图
+//
+// 由 AsyncTool.ExecuteAsync 返回。工具只声明"我要异步做什么"，
+// 不启动 goroutine——框架层全权负责调度。
+type AsyncAction struct {
+	Target  Locatable     // 目标 Agent（已 Locate 到）
+	Prompt  string        // 要发送的任务描述
+	Timeout time.Duration // 委托超时
+}
+
+// TargetID 返回目标 Agent 的标识（用于日志和追踪）
+// 当前 Locatable 接口只包含 Ask，无法获取 ID，返回空字符串。
+// 如需追踪，可在创建 AsyncAction 时通过其他方式记录 targetID。
+func (a *AsyncAction) TargetID() string {
+	return ""
+}
+
+// AsyncTool 可选接口；工具可实现它以声明异步执行意图。
+//
+// 不实现该接口的工具走普通 Execute 路径。
+// 实现该接口的工具由 Agent 的 execTools 统一调度：
+//
+//   - execTools 在启动 goroutine 前完成所有上下文拼装（asyncTurnState）
+//   - 彻底消灭两阶段注册的竞态风险
+//   - Tool 不启动 goroutine，只返回意图；框架负责 go + 注册 + 回收
+//
+// 模式与 Confirmable 一致：在 execTools 中通过 type assertion 检测。
+type AsyncTool interface {
+	Tool
+	// ExecuteAsync 返回异步执行意图，不启动 goroutine。
+	// 框架负责：组装 asyncTurnState → 注册到 Agent → 启动 goroutine → 监听结果。
+	ExecuteAsync(ctx context.Context, args string) (*AsyncAction, error)
+}
