@@ -427,10 +427,267 @@ func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.Context
 			ctxwin.WithToolCalls(toolCalls),
 		)
 
-		// 执行本轮所有 tool_call
-		results := a.execTools(ctx, iter, toolCalls, out)
+	// 执行本轮所有 tool_call
+	results := a.execToolsWithAsync(ctx, iter, toolCalls, out, cw)
 
-		// ★ Push tool(result) 到 ContextWindow（IsEphemeral=true）
+	// 检查是否有异步委托（本轮 tool loop 需要暂停）
+	a.turnMu.RLock()
+	_, hasAsync := a.asyncTurns[iter]
+	a.turnMu.RUnlock()
+
+	if hasAsync {
+		// 异步路径：
+		// - assistant(tool_calls) 已 push 到 cw（上面已做）
+		// - tool result 不 push（等结果回来再 push）
+		// - out 不 close（由 resumeTurn 最终 close）
+		// - 发射 DelegationStartedEvent
+		var numTasks int
+		a.turnMu.RLock()
+		if ts := a.asyncTurns[iter]; ts != nil {
+			numTasks = int(ts.pending.Load())
+		}
+		a.turnMu.RUnlock()
+		a.emit(ctx, out, DelegationStartedEvent{
+			Iter:     iter,
+			NumTasks: numTasks,
+		})
+		return // ← 释放 run goroutine，L1 可处理新消息
+	}
+
+	// 同步路径：push tool results 到 cw
+	for i, tc := range toolCalls {
+		cw.Push(ctxwin.RoleTool, results[i],
+			ctxwin.WithToolCallID(tc.ID),
+			ctxwin.WithToolName(tc.Function.Name),
+			ctxwin.WithEphemeral(true),
+		)
+	}
+}
+
+	// 迭代超上限
+	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
+		slog.Int("max_iter", maxIter),
+	)
+	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
+}
+
+// runOnceStreamWithHistoryFromIter 从指定 iter 开始继续工具循环
+//
+// 由 resumeTurn 调用，复用 runOnceStreamWithHistory 的循环体。
+func (a *Agent) runOnceStreamWithHistoryFromIter(
+	ctx context.Context,
+	cw *ctxwin.ContextWindow,
+	out chan<- AgentEvent,
+	startIter int,
+) {
+	defer close(out)
+	defer func() {
+		if r := recover(); r != nil {
+			a.emit(ctx, out, ErrorEvent{
+				Err: fmt.Errorf("agent panic: %v", r),
+			})
+			panic(r)
+		}
+	}()
+
+	if a.LLM == nil {
+		a.emit(ctx, out, ErrorEvent{
+			Err: fmt.Errorf("agent %q: llm client is nil", a.Def.ID),
+		})
+		return
+	}
+
+	specs := a.ToolSpecs()
+
+	maxIter := a.Def.MaxIterations
+	if maxIter <= 0 {
+		maxIter = DefaultMaxIterations
+	}
+
+	for iter := startIter; iter < maxIter; iter++ {
+		if err := ctx.Err(); err != nil {
+			a.emit(ctx, out, ErrorEvent{Err: err})
+			return
+		}
+
+		// 从 ContextWindow 构建 payload
+		payload := cw.BuildPayload()
+		msgs := payloadToLLMMessages(payload)
+
+		// Overflow 硬限检查
+		hardLimit := a.Def.ContextWindow
+		if hardLimit <= 0 {
+			hardLimit = 128000
+		}
+		if cw.Overflow(hardLimit) {
+			current, _, _ := cw.TokenUsage()
+			a.logError(ctx, logger.CatLLM, "context overflow", fmt.Errorf("tokens %d exceed hard limit %d", current, hardLimit))
+			a.emit(ctx, out, ErrorEvent{
+				Err: fmt.Errorf("context overflow: current %d tokens exceed hard limit %d, please start a new session", current, hardLimit),
+			})
+			return
+		}
+
+		req := LLMRequest{
+			Model:           a.Def.ModelID,
+			Temperature:     a.Def.Temperature,
+			MaxTokens:       a.Def.MaxTokens,
+			Messages:        msgs,
+			Tools:           specs,
+			ReasoningEffort: a.Def.ReasoningEffort,
+			IncludeUsage:    true,
+		}
+
+		a.logInfo(ctx, logger.CatLLM, "llm chat start",
+			slog.Int("iter", iter),
+			slog.String("model", req.Model),
+			slog.Int("messages", len(msgs)),
+			slog.Int("tools", len(specs)),
+		)
+
+		start := time.Now()
+		evCh, err := a.LLM.ChatStream(ctx, req)
+		if err != nil {
+			durMs := time.Since(start).Milliseconds()
+			a.logError(ctx, logger.CatLLM, "llm chat failed", err,
+				slog.Int("iter", iter),
+				slog.Int64("duration_ms", durMs),
+			)
+			a.emit(ctx, out, ErrorEvent{Err: err})
+			return
+		}
+
+		var (
+			content   strings.Builder
+			reasoning strings.Builder
+			tcSlots   = map[int]*llm.ToolCall{}
+			finish    llm.FinishReason
+			usage     llm.Usage
+		)
+
+		streamDone := false
+		for !streamDone {
+			select {
+			case <-ctx.Done():
+				a.emit(ctx, out, ErrorEvent{Err: ctx.Err()})
+				return
+			case ev, ok := <-evCh:
+				if !ok {
+					streamDone = true
+					break
+				}
+				switch ev.Type {
+				case llm.EventDelta:
+					if ev.ContentDelta != "" {
+						content.WriteString(ev.ContentDelta)
+						if !a.emit(ctx, out, ContentDeltaEvent{
+							Iter: iter, Delta: ev.ContentDelta,
+						}) {
+							return
+						}
+					}
+					if ev.ReasoningContentDelta != "" {
+						reasoning.WriteString(ev.ReasoningContentDelta)
+						if !a.emit(ctx, out, ReasoningDeltaEvent{
+							Iter: iter, Delta: ev.ReasoningContentDelta,
+						}) {
+							return
+						}
+					}
+					if ev.ToolCallDelta != nil {
+						d := ev.ToolCallDelta
+						accumulateToolCall(tcSlots, d)
+						if !a.emit(ctx, out, ToolCallDeltaEvent{
+							Iter:      iter,
+							CallID:    d.ID,
+							Name:      d.Name,
+							ArgsDelta: d.Arguments,
+						}) {
+							return
+						}
+					}
+				case llm.EventDone:
+					finish = ev.FinishReason
+					if ev.Usage != nil {
+						usage = *ev.Usage
+					}
+					streamDone = true
+				case llm.EventError:
+					durMs := time.Since(start).Milliseconds()
+					a.logError(ctx, logger.CatLLM, "llm chat failed", ev.Err,
+						slog.Int("iter", iter),
+						slog.Int64("duration_ms", durMs),
+					)
+					a.emit(ctx, out, ErrorEvent{Err: ev.Err})
+					return
+				}
+			}
+		}
+
+		durMs := time.Since(start).Milliseconds()
+		toolCalls := sortedToolCalls(tcSlots)
+
+		a.logInfo(ctx, logger.CatLLM, "llm chat done",
+			slog.Int("iter", iter),
+			slog.Int("response_len", content.Len()),
+			slog.Int("reasoning_len", reasoning.Len()),
+			slog.Int("tool_calls", len(toolCalls)),
+			slog.String("finish_reason", string(finish)),
+			slog.Int("prompt_tokens", usage.PromptTokens),
+			slog.Int("completion_tokens", usage.CompletionTokens),
+			slog.Int("total_tokens", usage.TotalTokens),
+			slog.Int64("duration_ms", durMs),
+		)
+
+		// 严格时序：先 Calibrate，再 Push
+		if usage.PromptTokens > 0 {
+			cw.Calibrate(usage.PromptTokens)
+		}
+
+		// IterationDoneEvent
+		if !a.emit(ctx, out, IterationDoneEvent{
+			Iter:         iter,
+			FinishReason: finish,
+			Usage:        usage,
+		}) {
+			return
+		}
+
+		// 退出条件：LLM 不再要工具
+		if len(toolCalls) == 0 {
+			a.emit(ctx, out, DoneEvent{Content: content.String(), ReasoningContent: reasoning.String()})
+			return
+		}
+
+		// Push assistant(tool_calls) 到 ContextWindow
+		cw.Push(ctxwin.RoleAssistant, content.String(),
+			ctxwin.WithReasoningContent(reasoning.String()),
+			ctxwin.WithToolCalls(toolCalls),
+		)
+
+		// 执行本轮所有 tool_call
+		results := a.execToolsWithAsync(ctx, iter, toolCalls, out, cw)
+
+		// 检查是否有异步委托
+		a.turnMu.RLock()
+		_, hasAsync := a.asyncTurns[iter]
+		a.turnMu.RUnlock()
+
+		if hasAsync {
+			var numTasks int
+			a.turnMu.RLock()
+			if ts := a.asyncTurns[iter]; ts != nil {
+				numTasks = int(ts.pending.Load())
+			}
+			a.turnMu.RUnlock()
+			a.emit(ctx, out, DelegationStartedEvent{
+				Iter:     iter,
+				NumTasks: numTasks,
+			})
+			return
+		}
+
+		// 同步路径：push tool results
 		for i, tc := range toolCalls {
 			cw.Push(ctxwin.RoleTool, results[i],
 				ctxwin.WithToolCallID(tc.ID),
