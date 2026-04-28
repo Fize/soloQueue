@@ -193,46 +193,7 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 	return string(b), nil
 }
 
-// isPrivateIP reports whether ip is in a non-routable range we want to block.
-//
-// Covered ranges (IPv4 & IPv6):
-//   - 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16  (RFC 1918)
-//   - 127.0.0.0/8, ::1                            (loopback)
-//   - 169.254.0.0/16, fe80::/10                   (link-local)
-//   - fc00::/7                                    (ULA)
-//   - 0.0.0.0/8                                   (unspecified)
-//   - 100.64.0.0/10                               (CGNAT)
-func isPrivateIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() {
-		return true
-	}
-	if ip4 := ip.To4(); ip4 != nil {
-		switch {
-		case ip4[0] == 10:
-			return true
-		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
-			return true
-		case ip4[0] == 192 && ip4[1] == 168:
-			return true
-		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127: // 100.64.0.0/10 (CGNAT)
-			return true
-		case ip4[0] == 0:
-			return true
-		}
-		return false
-	}
-	// IPv6: ULA fc00::/7 and similar (first octet 0xfc or 0xfd)
-	if len(ip) == net.IPv6len && (ip[0]&0xfe) == 0xfc {
-		return true
-	}
-	return false
-}
-
-// CheckConfirmation 实现 Confirmable：HTTP 请求始终需要确认。
+// Compile-time checks
 func (t *httpFetchTool) CheckConfirmation(raw string) (bool, string) {
 	var a httpFetchArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {

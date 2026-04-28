@@ -16,7 +16,7 @@ import (
 func mkShellTool(t *testing.T, allow []string, timeout time.Duration, maxOut int64) *shellExecTool {
 	t.Helper()
 	cfg := Config{
-		ShellAllowRegexes: allow,
+		ShellConfirmRegexes: allow,
 		ShellTimeout:      timeout,
 		ShellMaxOutput:    maxOut,
 	}
