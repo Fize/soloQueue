@@ -24,13 +24,14 @@ func buildRoutingTable(leaders []LeaderInfo) string {
 	})
 
 	var b strings.Builder
-	b.WriteString("Team Leaders you can delegate tasks to:")
+	b.WriteString("Team Leaders you can delegate tasks to (use the corresponding delegate tool):\n")
 
 	for _, l := range sorted {
+		toolName := "delegate_" + l.Name
 		if l.Group != "" {
-			fmt.Fprintf(&b, "\n- %s (%s): %s", l.Name, l.Group, l.Description)
+			fmt.Fprintf(&b, "\n- %s (%s): %s → call %s(task=\"...\")", l.Name, l.Group, l.Description, toolName)
 		} else {
-			fmt.Fprintf(&b, "\n- %s: %s", l.Name, l.Description)
+			fmt.Fprintf(&b, "\n- %s: %s → call %s(task=\"...\")", l.Name, l.Description, toolName)
 		}
 	}
 
