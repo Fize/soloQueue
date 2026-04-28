@@ -955,7 +955,7 @@ func waitFor(t *testing.T, timeout time.Duration, condFn func() bool) {
 	t.Fatalf("waitFor: condition not met within %v", timeout)
 }
 
-// checkFileHasCategory 轻量检查日志文件中出现指定 category
+// checkFileHasCategory checks if a log file contains the specified category.
 func checkFileHasCategory(path, cat string) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -963,4 +963,127 @@ func checkFileHasCategory(path, cat string) (bool, error) {
 	}
 	needle := []byte(`"category":"` + cat + `"`)
 	return bytes.Contains(data, needle), nil
+}
+
+// --- Agent Options ---
+
+func TestWithEphemeral(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithEphemeral())
+	if !a.IsEphemeral() {
+		t.Error("IsEphemeral() = false, want true")
+	}
+	if a.mailboxCap != 1 {
+		t.Errorf("mailboxCap = %d, want 1", a.mailboxCap)
+	}
+}
+
+func TestWithEphemeral_PreservesCustomCap(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil,
+		WithMailboxCap(10),
+		WithEphemeral(),
+	)
+	if a.mailboxCap != 10 {
+		t.Errorf("mailboxCap = %d, want 10", a.mailboxCap)
+	}
+}
+
+func TestWithPriorityMailbox(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithPriorityMailbox())
+	if a.priorityMailbox == nil {
+		t.Fatal("priorityMailbox is nil")
+	}
+}
+
+func TestAgent_DefaultNotEphemeral(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	if a.IsEphemeral() {
+		t.Error("default IsEphemeral() = true, want false")
+	}
+}
+
+// --- Agent.PendingDelegations ---
+
+func TestAgent_PendingDelegations_Initial(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	if got := a.PendingDelegations(); got != 0 {
+		t.Errorf("PendingDelegations() = %d, want 0", got)
+	}
+}
+
+func TestAgent_PendingDelegations_WithAsyncTurns(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+
+	a.turnMu.Lock()
+	a.asyncTurns[1] = &asyncTurnState{iter: 1}
+	a.asyncTurns[3] = &asyncTurnState{iter: 3}
+	a.turnMu.Unlock()
+
+	if got := a.PendingDelegations(); got != 2 {
+		t.Errorf("PendingDelegations() = %d, want 2", got)
+	}
+
+	a.turnMu.Lock()
+	delete(a.asyncTurns, 1)
+	a.turnMu.Unlock()
+
+	if got := a.PendingDelegations(); got != 1 {
+		t.Errorf("PendingDelegations() after delete = %d, want 1", got)
+	}
+}
+
+// --- Agent.MailboxDepth ---
+
+func TestAgent_MailboxDepth_NotStarted(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	high, normal := a.MailboxDepth()
+	if high != 0 || normal != 0 {
+		t.Errorf("MailboxDepth() = (%d, %d), want (0, 0)", high, normal)
+	}
+}
+
+func TestAgent_MailboxDepth_WithPriorityMailbox(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithPriorityMailbox())
+	high, normal := a.MailboxDepth()
+	if high != 0 || normal != 0 {
+		t.Errorf("MailboxDepth() = (%d, %d), want (0, 0)", high, normal)
+	}
+
+	a.priorityMailbox.SubmitHigh(func(ctx context.Context) {})
+	a.priorityMailbox.SubmitNormal(func(ctx context.Context) {})
+	a.priorityMailbox.SubmitNormal(func(ctx context.Context) {})
+
+	high, normal = a.MailboxDepth()
+	if high != 1 {
+		t.Errorf("high = %d, want 1", high)
+	}
+	if normal != 2 {
+		t.Errorf("normal = %d, want 2", normal)
+	}
+}
+
+func TestAgent_MailboxDepth_WithRegularMailbox(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}, Delay: time.Second}, nil,
+		WithMailboxCap(4))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
+
+	// Occupy run goroutine
+	go func() { _, _ = a.Ask(context.Background(), "blocking") }()
+	waitFor(t, 500*time.Millisecond, func() bool { return a.State() == StateProcessing })
+
+	// Queue a few to mailbox
+	for i := 0; i < 2; i++ {
+		go func() { _, _ = a.Ask(context.Background(), "queued") }()
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	high, normal := a.MailboxDepth()
+	if high != 0 {
+		t.Errorf("high = %d, want 0 (regular mailbox)", high)
+	}
+	if normal < 1 {
+		t.Errorf("normal = %d, want >= 1", normal)
+	}
 }
