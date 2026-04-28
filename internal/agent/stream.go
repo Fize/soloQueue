@@ -990,14 +990,25 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	})
 	toolCtx = tools.WithConfirmForwarder(toolCtx, forwarder)
 
-	// 启动中继 goroutine：将子 Agent 的 interface{} 事件转换为 AgentEvent 后 emit
+	// 启动中继 goroutine：只转发 ToolNeedsConfirmEvent 到 parent out channel
+	//
+	// ⚠️ 重要：只中继 ToolNeedsConfirmEvent！不能中继 ContentDeltaEvent / DoneEvent 等，
+	// 否则 L3 的事件会污染 L2 的 out channel → Session 误将 L3 的 DoneEvent 当作 L2 的
+	// → ContextWindow 消息序列破坏 → LLM API HTTP 400。
 	relayDone := make(chan struct{})
 	go func() {
 		defer close(relayDone)
 		for ev := range relayCh {
-			if agentEv, ok := ev.(AgentEvent); ok {
+			agentEv, ok := ev.(AgentEvent)
+			if !ok {
+				continue
+			}
+			// 只中继 ToolNeedsConfirmEvent（确认冒泡的核心目的）
+			if _, isConfirm := agentEv.(ToolNeedsConfirmEvent); isConfirm {
 				a.emit(ctx, out, agentEv)
 			}
+			// 其他事件类型（ContentDelta, Done, Error, ToolCallDelta 等）
+			// 由 DelegateTool.Execute 自行消费，不冒泡到 parent
 		}
 	}()
 
