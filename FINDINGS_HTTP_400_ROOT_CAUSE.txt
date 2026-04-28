@@ -1,0 +1,196 @@
+================================================================================
+                    HTTP 400 ROOT CAUSE ANALYSIS
+            SoloQueue 3-Layer Agent System - Multi-Agent Delegation
+================================================================================
+
+PROBLEM:
+When testing L1→L2→L3 agent delegation, HTTP 400 error occurs:
+"llm: http 400: invalid_request_error: An assistant message with tool_calls..."
+
+ROOT CAUSE: 
+Relay goroutine in execToolStream() unconditionally forwards ALL child agent 
+(L3) events into parent agent (L2) event stream. These events corrupt the 
+ContextWindow message history with intermediate L3 state, causing API rejection.
+
+================================================================================
+                          TECHNICAL EXPLANATION
+================================================================================
+
+THE PROBLEM IN 3 STEPS:
+
+1. RELAY GOROUTINE CREATED
+   Location: internal/agent/stream.go, lines 993-1002
+   
+   L2's execToolStream creates a relay goroutine that forwards EVERY event 
+   it receives from child agents:
+   
+   ```
+   go func() {
+       for ev := range relayCh {
+           if agentEv, ok := ev.(AgentEvent); ok {
+               a.emit(ctx, out, agentEv)  // ← Emits L3 events to L2.out
+           }
+       }
+   }()
+   ```
+
+2. CHILD EVENTS LEAK INTO PARENT STREAM
+   Location: internal/tools/delegate.go, lines 210-216
+   
+   When DelegateTool calls L3, it feeds ALL of L3's events to the relay:
+   - ContentDeltaEvent (L3's content chunks)
+   - ToolCallDeltaEvent (L3's tool information)
+   - DoneEvent (L3's completion)
+   - ReasoningDeltaEvent (L3's reasoning)
+   
+   These flow: L3 → DelegateTool → relayCh → L2.out
+
+3. SESSION TREATS CHILD EVENTS AS PARENT'S
+   Location: internal/session/session.go, lines 214-254
+   
+   Session.AskStream doesn't distinguish between L2's DoneEvent and relayed 
+   L3's DoneEvent. When L3's DoneEvent arrives first:
+   
+   ```
+   case agent.DoneEvent:
+       finalContent = e.Content        // Sets to L3's response!
+       finalReasoning = e.ReasoningContent
+       gotDone = true
+   ```
+   
+   Then Session pushes L3's content to ContextWindow as if it were L2's:
+   
+   ```
+   s.cw.Push(ctxwin.RoleAssistant, finalContent, ...)  // L3's content!
+   ```
+
+RESULT: ContextWindow contains corrupted message sequence
+→ Next LLM request sends invalid messages to API
+→ API returns HTTP 400
+
+================================================================================
+                         CORRUPTION MECHANISM
+================================================================================
+
+MESSAGE SEQUENCE CORRUPTION:
+
+When next LLM request is sent (L1 calls L2 again or L2 iterates):
+
+VALID SEQUENCE (single agent):
+    user("prompt")
+    assistant("response", tool_calls=[...])
+    tool("result")
+
+CORRUPTED SEQUENCE (with relay events):
+    user("L2's prompt")
+    assistant("L3's response", tool_calls=[L3's calls])  ← WRONG! (L3's content/calls)
+    tool("L2's delegation result")
+    [Possibly: assistant("partial L3 content"), ...]
+    
+This violates API protocol: assistant with tool_calls must be immediately 
+followed by matching tool results. L3's tool_calls don't match L2's execution.
+
+================================================================================
+                         AFFECTED CODE LOCATIONS
+================================================================================
+
+PRIMARY ISSUES:
+1. internal/agent/stream.go, lines 993-1002
+   → Relay goroutine unconditionally forwards all events
+
+2. internal/tools/delegate.go, lines 210-216
+   → Feeds all L3 events to relay channel
+
+3. internal/session/session.go, lines 236-246, 249-254
+   → Doesn't distinguish L2 vs L3 DoneEvent
+   → Pushes potentially L3's content to ContextWindow
+
+SECONDARY:
+4. internal/agent/stream.go, lines 282-283, 435-438, 469-474
+   → Uses corrupted ContextWindow for message building
+
+5. internal/llm/deepseek/client.go, lines 290
+   → Error message truncation (why message was cut off)
+
+================================================================================
+                         IMPACT ASSESSMENT
+================================================================================
+
+SEVERITY: CRITICAL
+
+AFFECTED:
+✗ L1→L2→L3 hierarchical delegation (BROKEN)
+✗ Tool confirmation propagation (BROKEN)
+✗ Multi-layer agent systems (BROKEN)
+✗ Async delegation (LIKELY BROKEN)
+
+SCOPE:
+- Breaks on second LLM request from any layer
+- First request usually works (minimal history)
+- Second request always fails (corrupted history)
+
+================================================================================
+                         ROOT CAUSE SUMMARY
+================================================================================
+
+DESIGN INTENT:
+- Relay goroutine was meant to forward ToolNeedsConfirmEvent for confirmation 
+  routing through layers
+- Forward UI events (ContentDelta) for transparency
+
+WHAT WENT WRONG:
+- Implementation forwards ALL events unconditionally
+- No filtering of event types
+- Session treats all events as parent's own
+- ContextWindow accepts corrupted message history
+- No validation before API submission
+
+FUNDAMENTAL ISSUE:
+Abstraction layer breach: Child agent's internal state (events) leaks into 
+parent agent's external state (ContextWindow message history). These are 
+separate concerns that should never mix.
+
+================================================================================
+                       FIX RECOMMENDATIONS
+================================================================================
+
+OPTION 1 (MINIMAL - Recommended for quick fix):
+Filter relay goroutine to only forward specific event types
+- Allow: ToolNeedsConfirmEvent (for confirmation routing)
+- Block: DoneEvent, ToolCallDeltaEvent, ReasoningDeltaEvent, etc.
+- Location: internal/agent/stream.go, line 998-1000
+- Time: ~30 minutes
+
+OPTION 2 (BEST - Long-term solution):
+Separate confirmation channel from event relay
+- Remove relay goroutine entirely
+- Create dedicated confirmation routing
+- Keep child events completely isolated
+- Location: Refactor internal/agent/stream.go and internal/tools/delegate.go
+- Time: ~2-3 hours
+
+OPTION 3 (INTERMEDIATE):
+Mark relayed events with metadata
+- Wrap events indicating origin
+- Session filters based on metadata
+- Preserves debugging visibility
+- Time: ~1 hour
+
+================================================================================
+                       VERIFICATION CHECKLIST
+================================================================================
+
+To confirm this is the issue:
+□ Check ContextWindow state before/after L3 delegation
+□ Verify cw.BuildPayload() contains L3's tool_calls instead of L2's
+□ Log all events passing through relay goroutine
+□ Count DoneEvent arrivals in Session forwarder
+□ Verify message sequence sent to API
+
+To validate fix:
+□ Unit test: relay goroutine only relays allowed events
+□ Integration test: L2→L3 doesn't corrupt ContextWindow
+□ Regression test: Multiple iterations work
+□ Confirmation test: Tool confirmation still propagates correctly
+
+================================================================================

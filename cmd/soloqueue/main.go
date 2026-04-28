@@ -344,7 +344,7 @@ func buildSessionFactory(
 					if !ok {
 						return nil, fmt.Errorf("leader %q not found", leader.Name)
 					}
-					return a, nil
+					return &agent.LocatableAdapter{a}, nil
 				},
 				Timeout: 5 * time.Minute,
 			}
