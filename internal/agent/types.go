@@ -1,6 +1,8 @@
 package agent
 
-import "time"
+import (
+	"time"
+)
 
 // Role 区分系统内置 agent 和用户创建 agent
 type Role string
@@ -104,9 +106,19 @@ func (s State) String() string {
 // 需要更大容量的场景通过 WithMailboxCap(N) 指定。
 const DefaultMailboxCap = 8
 
-// DefaultMaxIterations 是 tool-use 循环的默认最大轮数
+// DefaultMaxIterations is the default maximum number of tool-use loop
+// iterations per Ask call.
 //
-// 值的选择：10 对大多数 tool-use 场景足够（经验值：常见任务 2-4 轮）；
-// 超过 10 说明 LLM 陷入循环或 tool 设计有问题，需要上限兜底。
+// 10 is sufficient for most tool-use scenarios (typical tasks: 2-4 rounds).
+// Exceeding 10 suggests the LLM is looping or tools are misconfigured.
 const DefaultMaxIterations = 10
+
+// DefaultContextWindow is the fallback context window size (tokens).
+// Used when Definition.ContextWindow is unset (<= 0).
+const DefaultContextWindow = 128000
+
+// DefaultToolTimeout is the fallback timeout for tools that do not have
+// an explicit per-tool timeout via WithToolTimeout. Prevents indefinite
+// blocking when a tool hangs.
+const DefaultToolTimeout = 10 * time.Minute
 

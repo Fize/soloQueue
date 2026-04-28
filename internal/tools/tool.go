@@ -16,6 +16,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 )
 
 // ─── Tool interface ──────────────────────────────────────────────────────────
@@ -94,19 +96,20 @@ const (
 
 // ─── AsyncTool interface ────────────────────────────────────────────────────
 
-// AsyncAction 描述一个异步工具执行的意图
+// AsyncAction describes the intent for an asynchronous tool execution.
 //
-// 由 AsyncTool.ExecuteAsync 返回。工具只声明"我要异步做什么"，
-// 不启动 goroutine——框架层全权负责调度。
+// Returned by AsyncTool.ExecuteAsync. The tool only declares "what I want
+// to do asynchronously" — it does not start a goroutine. The framework
+// is fully responsible for scheduling.
 type AsyncAction struct {
-	Target  Locatable     // 目标 Agent（已 Locate 到）
-	Prompt  string        // 要发送的任务描述
-	Timeout time.Duration // 委托超时
+	Target  iface.Locatable // target agent (already located)
+	Prompt  string          // task description to send
+	Timeout time.Duration   // delegation timeout
 }
 
-// TargetID 返回目标 Agent 的标识（用于日志和追踪）
-// 当前 Locatable 接口只包含 Ask，无法获取 ID，返回空字符串。
-// 如需追踪，可在创建 AsyncAction 时通过其他方式记录 targetID。
+// TargetID returns the target agent's identifier for logging and tracing.
+// The current Locatable interface does not expose an ID method, so this
+// returns an empty string. Record targetID externally if needed.
 func (a *AsyncAction) TargetID() string {
 	return ""
 }

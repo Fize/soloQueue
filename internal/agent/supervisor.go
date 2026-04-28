@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Supervisor ────────────────────────────────────────────────────────────
@@ -50,12 +50,18 @@ func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supe
 	}
 }
 
-// SpawnChild 基于 AgentTemplate 实例化一个 L3 子 Agent
+// SpawnChild instantiates an L3 child Agent from the given template.
 //
-// 流程：
-//  1. 通过 factory.Create 创建并启动 L3 Agent
-//  2. 注册到 children map
-//  3. 返回 L3 Agent 实例
+// Flow: factory.Create → register in children map → return.
+//
+// KNOWN OVERHEAD: Each spawn pays the full Agent initialization cost
+// (Definition build, tool build, skill load, registry register,
+// ContextWindow create, agent Start goroutine). This is acceptable for
+// the current L2→L3 pattern where spawns are infrequent (triggered by
+// user tasks, not per-token). For high-frequency spawning, consider:
+//   - Agent pooling (pre-spawn N agents, reuse via Reset)
+//   - Lightweight spawn (skip skill loading for ephemeral agents)
+//   - Template caching (pre-build tools once, clone per instance)
 func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate) (*Agent, error) {
 	if s.factory == nil {
 		return nil, fmt.Errorf("supervisor: no factory configured")
@@ -176,20 +182,20 @@ func (s *Supervisor) ChildCount() int {
 //
 // 注入到 L2 的 DelegateTool.SpawnFn 中，使 DelegateTool 可以动态孵化 L3。
 // DelegateTool 不感知 Supervisor/Factory 的存在，只调用注入的闭包。
-func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, task string) (tools.Locatable, error) {
-	return func(ctx context.Context, task string) (tools.Locatable, error) {
+func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, task string) (iface.Locatable, error) {
+	return func(ctx context.Context, task string) (iface.Locatable, error) {
 		child, err := s.SpawnChild(ctx, tmpl)
 		if err != nil {
 			return nil, err
 		}
-		return &LocatableAdapter{child}, nil
+		return &LocatableAdapter{Agent: child}, nil
 	}
 }
 
 // SpawnFnForID 根据 child ID 查找模板并创建 SpawnFn
 //
 // 如果找不到对应模板，返回错误。
-func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) func(ctx context.Context, task string) (tools.Locatable, error) {
+func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) func(ctx context.Context, task string) (iface.Locatable, error) {
 	var tmpl *AgentTemplate
 	for i := range allTemplates {
 		if allTemplates[i].ID == childID {
@@ -198,7 +204,7 @@ func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) 
 		}
 	}
 	if tmpl == nil {
-		return func(ctx context.Context, task string) (tools.Locatable, error) {
+		return func(ctx context.Context, task string) (iface.Locatable, error) {
 			return nil, fmt.Errorf("supervisor: no template for child %q", childID)
 		}
 	}
