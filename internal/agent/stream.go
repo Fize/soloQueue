@@ -81,6 +81,8 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 			Messages:        msgs,
 			Tools:           specs,
 			ReasoningEffort: a.Def.ReasoningEffort,
+			ThinkingEnabled: a.Def.ThinkingEnabled,
+			ThinkingType:    a.Def.ThinkingType,
 			IncludeUsage:    true,
 		}
 
@@ -295,6 +297,8 @@ func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.Context
 			Messages:        msgs,
 			Tools:           specs,
 			ReasoningEffort: a.Def.ReasoningEffort,
+			ThinkingEnabled: a.Def.ThinkingEnabled,
+			ThinkingType:    a.Def.ThinkingType,
 			IncludeUsage:    true,
 		}
 
@@ -535,6 +539,8 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 			Messages:        msgs,
 			Tools:           specs,
 			ReasoningEffort: a.Def.ReasoningEffort,
+			ThinkingEnabled: a.Def.ThinkingEnabled,
+			ThinkingType:    a.Def.ThinkingType,
 			IncludeUsage:    true,
 		}
 
