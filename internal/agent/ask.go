@@ -93,33 +93,7 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 	return out, nil
 }
 
-// AskStreamInterface 包装 AskStream 的返回值为 interface{} 通道
-//
-// 用于满足 tools.Locatable 接口（定义时为了避免循环导入使用了 interface{}）。
-// 实际通道内容仍为 AgentEvent，但通过通用接口类型暴露。
-func (a *Agent) AskStreamInterface(ctx context.Context, prompt string) (<-chan interface{}, error) {
-	eventCh, err := a.AskStream(ctx, prompt)
-	if err != nil {
-		return nil, err
-	}
-	
-	// 创建 interface{} 通道并在后台中继事件
-	interfaceCh := make(chan interface{}, 64)
-	go func() {
-		defer close(interfaceCh)
-		for ev := range eventCh {
-			select {
-			case interfaceCh <- ev:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	
-	return interfaceCh, nil
-}
-
-// Submit 投递任意自定义 job
+// Submit sends an arbitrary job to the agent's mailbox.
 //
 // fn 接收 agent 的 ctx（Stop 时会被 cancel）。
 // Submit 只等入队，不等 fn 完成；返回 nil 表示成功入队。

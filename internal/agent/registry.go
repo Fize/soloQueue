@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // Registry 是 agent ID → Agent 的并发安全映射
@@ -211,36 +211,53 @@ func (r *Registry) logInfo(cat logger.Category, msg string, args ...any) {
 	r.log.Info(cat, msg, args...)
 }
 
-// Locate 实现 tools.AgentLocator 接口
+// Locate implements iface.AgentLocator.
 //
-// 返回 tools.Locatable（Agent 的最小抽象），供 DelegateTool 查找目标 Agent。
-func (r *Registry) Locate(id string) (tools.Locatable, bool) {
+// Returns an iface.Locatable wrapper around the Agent, used by
+// DelegateTool to find target agents without importing this package.
+func (r *Registry) Locate(id string) (iface.Locatable, bool) {
 	agent, ok := r.Get(id)
 	if !ok {
 		return nil, false
 	}
-	return &LocatableAdapter{agent}, true
+	return &LocatableAdapter{Agent: agent}, true
 }
 
 
-// ─── locatableAdapter ──────────────────────────────────────────────────────
+// --- LocatableAdapter ---
 
-// locatableAdapter 包装 *Agent 以适配 tools.Locatable 接口
+// LocatableAdapter wraps *Agent to satisfy the iface.Locatable interface.
 //
-// 主要区别是 AskStream 返回值从 <-chan AgentEvent 转换为 <-chan interface{}。
-// 这个适配层避免 tools 包对 agent 包的循环导入。
+// The primary adaptation is AskStream: Agent returns <-chan AgentEvent,
+// but iface.Locatable requires <-chan iface.AgentEvent. Since Go channels
+// are not covariant, a thin relay goroutine converts the channel type.
 type LocatableAdapter struct {
 	*Agent
 }
 
-// AskStream 实现 tools.Locatable.AskStream
-// 通过调用 Agent.AskStreamInterface 来返回 interface{} 通道
-func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-chan interface{}, error) {
-	return la.Agent.AskStreamInterface(ctx, prompt)
+// AskStream implements iface.Locatable.AskStream.
+// Relays typed AgentEvent values through an iface.AgentEvent channel.
+func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	eventCh, err := la.Agent.AskStream(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan iface.AgentEvent, 64)
+	go func() {
+		defer close(out)
+		for ev := range eventCh {
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return out, nil
 }
 
-// 编译时验证 locatableAdapter 实现 tools.Locatable
-var _ tools.Locatable = (*LocatableAdapter)(nil)
-
-// 编译时断言：Registry 实现 tools.AgentLocator
-var _ tools.AgentLocator = (*Registry)(nil)
+// Compile-time interface assertions.
+var _ iface.Locatable = (*LocatableAdapter)(nil)
+var _ iface.AgentLocator = (*Registry)(nil)

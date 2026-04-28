@@ -3,44 +3,41 @@ package agent
 import (
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
-// ─── AgentEvent（sealed interface）─────────────────────────────────────────
+// AgentEvent is the sealed event interface for agent streams.
 //
-// AskStream 向调用方产出的事件。采用 sealed interface 模式（未导出
-// marker method → 包外无法实现）—— 这是 Go 社区"error / slog.Value"
-// 同款写法，好处是：
+// AskStream produces events implementing this interface. The sealed
+// pattern (unexported marker method) ensures only this package can
+// define event types, enabling exhaustive switch checking via linters.
 //
-//   - 调用方 type switch 时，IDE 补全只看见该事件类型的合法字段，
-//     不会出现 tagged struct 中"Type=X 时 Y 字段才有效"的心智负担。
-//   - 增加新事件类型时，已有 switch 语句的 default 分支会自然兜底；
-//     配 exhaustive linter 可静态检查覆盖。
-//   - 未来给 WebSocket 写 `MarshalJSON` 时，每个类型独立，天然对应
-//     discriminated union 协议。
-//
-// 下层 llm.Event 继续用 tagged struct（wire 层字段少且固定，一次分配
-// 最省），两者在 runOnceStream 中做唯一一次映射。
+// All concrete types also implement iface.AgentEvent (for cross-package
+// use) and iface.EventConsumer (for type-safe field extraction without
+// reflection).
 type AgentEvent interface {
-	agentEvent() // unexported marker → 仅本包内类型可实现
+	iface.AgentEvent
+	agentEvent() // package-level seal — external packages cannot implement
 }
 
-// ContentDeltaEvent 本轮 LLM 响应的 content 增量
+// ContentDeltaEvent carries an incremental LLM response content fragment.
 type ContentDeltaEvent struct {
 	Iter  int
 	Delta string
 }
 
-// ReasoningDeltaEvent deepseek-reasoner 专用的 reasoning_content 增量
+// ReasoningDeltaEvent carries an incremental reasoning_content fragment
+// (DeepSeek reasoner models).
 type ReasoningDeltaEvent struct {
 	Iter  int
 	Delta string
 }
 
-// ToolCallDeltaEvent LLM 正在流式组装一次 tool_call 的 arguments 增量
+// ToolCallDeltaEvent carries an incremental tool_call arguments fragment.
 //
-// 首个 delta 通常携带 CallID / Name；后续同 CallID 的 delta 只带 ArgsDelta。
-// UI 可以据此实时展示"模型正在调用哪个工具"（虚线占位符之类）。
+// The first delta for a given call typically carries CallID and Name;
+// subsequent deltas for the same CallID carry only ArgsDelta.
 type ToolCallDeltaEvent struct {
 	Iter      int
 	CallID    string
@@ -48,18 +45,18 @@ type ToolCallDeltaEvent struct {
 	ArgsDelta string
 }
 
-// ToolExecStartEvent agent 开始真正执行某个 tool（args 已完整）
+// ToolExecStartEvent signals that the agent has started executing a tool.
 type ToolExecStartEvent struct {
 	Iter   int
 	CallID string
 	Name   string
-	Args   string // 完整 JSON 字符串（已拼好）
+	Args   string // complete JSON arguments
 }
 
-// ToolExecDoneEvent 一个 tool 执行完成（成功或失败）
+// ToolExecDoneEvent signals that a tool execution has completed.
 //
-// 当 Err != nil，Result 通常为空；Err 的文本已被 runOnceStream
-// 格式化为 "error: ..." 喂回 LLM，这里也一并暴露给 UI 展示。
+// When Err != nil, Result is typically empty. The error text has already
+// been formatted as "error: ..." and fed back to the LLM.
 type ToolExecDoneEvent struct {
 	Iter     int
 	CallID   string
@@ -69,28 +66,27 @@ type ToolExecDoneEvent struct {
 	Duration time.Duration
 }
 
-// IterationDoneEvent 当前 LLM 迭代结束（一次 Chat 流式读完）
-//
-// 在真正开始 tool 执行之前产出：UI 可据此显示"LLM 说完了、正在执行工具..."
+// IterationDoneEvent signals the end of an LLM iteration (one Chat stream
+// fully consumed). Emitted before tool execution begins.
 type IterationDoneEvent struct {
 	Iter         int
 	FinishReason llm.FinishReason
 	Usage        llm.Usage
 }
 
-// DoneEvent 整个 AskStream 正常结束；Content 是最终 assistant content
+// DoneEvent signals successful completion of the entire AskStream.
+// Content is the final assistant response.
 type DoneEvent struct {
 	Content          string
 	ReasoningContent string
 }
 
-// ToolNeedsConfirmEvent 某个 tool 需要用户确认才能继续执行
+// ToolNeedsConfirmEvent signals that a tool requires user confirmation
+// before execution.
 //
-// UI/TUI/Web 收到后应向用户展示 Prompt 和 Options（若有）。
-// 用户选择后调用 Agent.Confirm(callID, choice)。
-// Options 为空表示二元确认，choice 用 "yes"（确认）或 ""（拒绝）。
-// 此外，若 AllowInSession 为 true，客户端可提供 "allow-in-session" 选项，
-// 选择后会将该 tool 加入当前 session 的放行白名单，本轮后续不再确认。
+// UI should display Prompt and Options (if any). The user's choice is
+// injected via Agent.Confirm(callID, choice). Empty Options means binary
+// confirm/deny; use "yes" to confirm or "" to deny.
 type ToolNeedsConfirmEvent struct {
 	Iter           int
 	CallID         string
@@ -101,32 +97,42 @@ type ToolNeedsConfirmEvent struct {
 	AllowInSession bool
 }
 
-// ErrorEvent AskStream 因错误终止（ctx cancel / LLM 错误 / 超出 MaxIterations）
-//
-// ErrorEvent 总是最后一条事件；产出后 channel 立即关闭。
+// ErrorEvent signals that AskStream has terminated due to an error.
+// Always the last event before channel close.
 type ErrorEvent struct {
 	Err error
 }
 
-// DelegationStartedEvent L1 异步委托已启动
-//
-// 当一轮 tool_calls 中有至少一个异步工具时发射。
-// UI 可据此显示"正在等待委托结果..."，并允许用户继续与 L1 交互。
+// DelegationStartedEvent signals that async delegation has begun.
+// Emitted when at least one tool call in the current iteration is async.
 type DelegationStartedEvent struct {
-	Iter     int // 当前迭代号
-	NumTasks int // 本轮有多少个异步委托任务
+	Iter     int
+	NumTasks int
 }
 
-// DelegationCompletedEvent L1 异步委托已完成
-//
-// 当所有异步委托结果都已回传并注入上下文时发射。
-// 之后 tool loop 会继续执行下一轮 LLM 调用。
+// DelegationCompletedEvent signals that all async delegations have completed
+// and results have been injected into the context window.
 type DelegationCompletedEvent struct {
 	Iter          int
 	TargetAgentID string
 }
 
-// marker impls —— 每个类型实现 AgentEvent
+// --- iface.AgentEvent marker (all types satisfy iface.AgentEvent) ---
+
+func (ContentDeltaEvent) IsAgentEvent()       {}
+func (ReasoningDeltaEvent) IsAgentEvent()      {}
+func (ToolCallDeltaEvent) IsAgentEvent()       {}
+func (ToolExecStartEvent) IsAgentEvent()       {}
+func (ToolExecDoneEvent) IsAgentEvent()        {}
+func (ToolNeedsConfirmEvent) IsAgentEvent()    {}
+func (IterationDoneEvent) IsAgentEvent()       {}
+func (DoneEvent) IsAgentEvent()                {}
+func (ErrorEvent) IsAgentEvent()               {}
+func (DelegationStartedEvent) IsAgentEvent()   {}
+func (DelegationCompletedEvent) IsAgentEvent() {}
+
+// --- agent-internal sealed marker ---
+
 func (ContentDeltaEvent) agentEvent()       {}
 func (ReasoningDeltaEvent) agentEvent()     {}
 func (ToolCallDeltaEvent) agentEvent()      {}
@@ -138,3 +144,74 @@ func (DoneEvent) agentEvent()               {}
 func (ErrorEvent) agentEvent()              {}
 func (DelegationStartedEvent) agentEvent()  {}
 func (DelegationCompletedEvent) agentEvent() {}
+
+// --- iface.EventConsumer implementation ---
+//
+// Each event type implements all four methods. Only the relevant method
+// returns (value, true); all others return (zero, false).
+
+// ContentDeltaEvent → ContentDelta
+func (e ContentDeltaEvent) ContentDelta() (string, bool)  { return e.Delta, true }
+func (e ContentDeltaEvent) DoneContent() (string, bool)   { return "", false }
+func (e ContentDeltaEvent) Error() (error, bool)          { return nil, false }
+func (e ContentDeltaEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// ReasoningDeltaEvent → none (not consumed by DelegateTool)
+func (e ReasoningDeltaEvent) ContentDelta() (string, bool)  { return "", false }
+func (e ReasoningDeltaEvent) DoneContent() (string, bool)   { return "", false }
+func (e ReasoningDeltaEvent) Error() (error, bool)          { return nil, false }
+func (e ReasoningDeltaEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// ToolCallDeltaEvent → none
+func (e ToolCallDeltaEvent) ContentDelta() (string, bool)  { return "", false }
+func (e ToolCallDeltaEvent) DoneContent() (string, bool)   { return "", false }
+func (e ToolCallDeltaEvent) Error() (error, bool)          { return nil, false }
+func (e ToolCallDeltaEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// ToolExecStartEvent → none
+func (e ToolExecStartEvent) ContentDelta() (string, bool)  { return "", false }
+func (e ToolExecStartEvent) DoneContent() (string, bool)   { return "", false }
+func (e ToolExecStartEvent) Error() (error, bool)          { return nil, false }
+func (e ToolExecStartEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// ToolExecDoneEvent → none
+func (e ToolExecDoneEvent) ContentDelta() (string, bool)  { return "", false }
+func (e ToolExecDoneEvent) DoneContent() (string, bool)   { return "", false }
+func (e ToolExecDoneEvent) Error() (error, bool)          { return nil, false }
+func (e ToolExecDoneEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// IterationDoneEvent → none
+func (e IterationDoneEvent) ContentDelta() (string, bool)  { return "", false }
+func (e IterationDoneEvent) DoneContent() (string, bool)   { return "", false }
+func (e IterationDoneEvent) Error() (error, bool)          { return nil, false }
+func (e IterationDoneEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// DoneEvent → DoneContent
+func (e DoneEvent) ContentDelta() (string, bool)  { return "", false }
+func (e DoneEvent) DoneContent() (string, bool)   { return e.Content, true }
+func (e DoneEvent) Error() (error, bool)          { return nil, false }
+func (e DoneEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// ToolNeedsConfirmEvent → ConfirmRequest
+func (e ToolNeedsConfirmEvent) ContentDelta() (string, bool)  { return "", false }
+func (e ToolNeedsConfirmEvent) DoneContent() (string, bool)   { return "", false }
+func (e ToolNeedsConfirmEvent) Error() (error, bool)          { return nil, false }
+func (e ToolNeedsConfirmEvent) ConfirmRequest() (string, bool) { return e.CallID, true }
+
+// ErrorEvent → Error
+func (e ErrorEvent) ContentDelta() (string, bool)  { return "", false }
+func (e ErrorEvent) DoneContent() (string, bool)   { return "", false }
+func (e ErrorEvent) Error() (error, bool)          { return e.Err, true }
+func (e ErrorEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// DelegationStartedEvent → none
+func (e DelegationStartedEvent) ContentDelta() (string, bool)  { return "", false }
+func (e DelegationStartedEvent) DoneContent() (string, bool)   { return "", false }
+func (e DelegationStartedEvent) Error() (error, bool)          { return nil, false }
+func (e DelegationStartedEvent) ConfirmRequest() (string, bool) { return "", false }
+
+// DelegationCompletedEvent → none
+func (e DelegationCompletedEvent) ContentDelta() (string, bool)  { return "", false }
+func (e DelegationCompletedEvent) DoneContent() (string, bool)   { return "", false }
+func (e DelegationCompletedEvent) Error() (error, bool)          { return nil, false }
+func (e DelegationCompletedEvent) ConfirmRequest() (string, bool) { return "", false }

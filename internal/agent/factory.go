@@ -146,7 +146,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	a := NewAgent(def, f.llm, f.log, opts...)
 
 	// 7. 创建 ContextWindow
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(DefaultContextWindow, 2000, ctxwin.NewTokenizer())
 	if a.Def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}
@@ -160,7 +160,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	}
 
 	// 9. Start Agent
-	if err := a.Start(context.Background()); err != nil {
+	if err := a.Start(ctx); err != nil {
 		f.registry.Unregister(tmpl.ID)
 		return nil, nil, fmt.Errorf("factory: start agent %q: %w", tmpl.ID, err)
 	}

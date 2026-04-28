@@ -19,6 +19,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -282,150 +283,184 @@ func buildRuntimeStack(
 	}, nil
 }
 
-// ─── Session factory ───────────────────────────────────────────────────────────
+// --- Session factory ---
 
-// buildSessionFactory 构造 SessionManager 使用的工厂函数。
+// sessionBuilder encapsulates session creation logic, replacing the
+// 140-line closure in buildSessionFactory with a testable struct.
+type sessionBuilder struct {
+	rt         *runtimeStack
+	workDir    string
+	settings   config.Settings
+	consoleLog bool
+	tlMaxBytes int64
+	tlMaxFiles int
+	replaySegs int
+}
+
+func newSessionBuilder(
+	rt *runtimeStack,
+	workDir string,
+	settings config.Settings,
+	consoleLog bool,
+) *sessionBuilder {
+	return &sessionBuilder{
+		rt:         rt,
+		workDir:    workDir,
+		settings:   settings,
+		consoleLog: consoleLog,
+		tlMaxBytes: int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024,
+		tlMaxFiles: defaultInt(settings.Session.TimelineMaxFiles, 5),
+		replaySegs: defaultInt(settings.Session.ReplaySegments, 3),
+	}
+}
+
+// Build creates a new session with its own agent, context window, and
+// timeline writer. Each call produces an independent session.
+func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+	agentID := newAgentID()
+
+	effectiveModelID := sb.rt.defaultModel.APIModel
+	if effectiveModelID == "" {
+		effectiveModelID = sb.rt.defaultModel.ID
+	}
+	def := agent.Definition{
+		ID:              agentID,
+		TeamID:          teamID,
+		Kind:            agent.KindChat,
+		ModelID:         effectiveModelID,
+		Temperature:     sb.rt.defaultModel.Generation.Temperature,
+		MaxTokens:       sb.rt.defaultModel.Generation.MaxTokens,
+		ReasoningEffort: sb.rt.defaultModel.Thinking.ReasoningEffort,
+		ThinkingEnabled: sb.rt.defaultModel.Thinking.Enabled,
+		ThinkingType:    sb.rt.defaultModel.Thinking.Type,
+		MaxIterations:   10,
+		ContextWindow:   sb.rt.defaultModel.ContextWindow,
+		SystemPrompt:    sb.rt.systemPrompt,
+	}
+
+	effectiveTeam := teamID
+	if effectiveTeam == "" {
+		effectiveTeam = "default"
+	}
+	sessLog, err := logger.Session(sb.workDir, effectiveTeam, agentID,
+		logger.WithLevel(parseLogLevel(sb.settings.Log.Level)),
+		logger.WithConsole(sb.consoleLog),
+		logger.WithFile(sb.settings.Log.File),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
+	}
+
+	// Tools: built-in tools + DelegateTool (async mode: L1 -> L2)
+	allTools := tools.Build(sb.rt.toolsCfg)
+	for _, l := range sb.rt.leaders {
+		leader := l // capture loop variable
+		dt := &tools.DelegateTool{
+			LeaderID: leader.Name,
+			Desc:     leader.Description,
+			SpawnFn: func(ctx context.Context, task string) (iface.Locatable, error) {
+				a, ok := sb.rt.agentRegistry.Get(leader.Name)
+				if !ok {
+					return nil, fmt.Errorf("leader %q not found", leader.Name)
+				}
+				return &agent.LocatableAdapter{Agent: a}, nil
+			},
+			Timeout: 5 * time.Minute,
+		}
+		allTools = append(allTools, dt)
+	}
+
+	// Skills: user SKILL.md files
+	var skillList []skill.Skill
+	if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(sb.workDir, "skills")); err == nil {
+		skillList = append(skillList, userSkills...)
+	}
+
+	a := agent.NewAgent(def, sb.rt.llmClient, sessLog,
+		agent.WithTools(allTools...),
+		agent.WithSkills(skillList...),
+		agent.WithParallelTools(true),
+		agent.WithPriorityMailbox(),
+		agent.WithToolTimeout("shell_exec", 30*time.Second),
+		agent.WithToolTimeout("http_fetch", 10*time.Second),
+		agent.WithToolTimeout("web_search", 15*time.Second),
+	)
+	sb.rt.agentRegistry.Register(a)
+
+	// Timeline writer + push hook
+	tlDir := filepath.Join(sb.workDir, "logs", "timelines", effectiveTeam)
+	tl, err := timeline.NewWriter(tlDir, "timeline", sb.tlMaxBytes, sb.tlMaxFiles)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
+	}
+	pushHook := func(msg ctxwin.Message) {
+		var toolCalls []timeline.ToolCallRec
+		for _, tc := range msg.ToolCalls {
+			toolCalls = append(toolCalls, timeline.ToolCallRec{
+				ID:        tc.ID,
+				Type:      tc.Type,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+		if err := tl.AppendMessage(&timeline.MessagePayload{
+			Role:             string(msg.Role),
+			Content:          msg.Content,
+			ReasoningContent: msg.ReasoningContent,
+			Name:             msg.Name,
+			ToolCallID:       msg.ToolCallID,
+			ToolCalls:        toolCalls,
+			IsEphemeral:      msg.IsEphemeral,
+			AgentID:          agentID,
+		}); err != nil {
+			sessLog.Error(logger.CatActor, "timeline append failed",
+				"err", err, "role", string(msg.Role), "agent_id", agentID)
+		}
+	}
+
+	// ContextWindow + system prompt
+	cw := ctxwin.NewContextWindow(
+		sb.rt.defaultModel.ContextWindow,
+		sb.rt.defaultModel.ContextWindow/10,
+		sb.rt.tokenizer,
+		ctxwin.WithPushHook(pushHook),
+	)
+	if def.SystemPrompt != "" {
+		cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
+	}
+	if cat := a.SkillCatalog(); cat != "" {
+		cw.Push(ctxwin.RoleSystem, cat)
+	}
+
+	// Replay history segments
+	if sb.replaySegs > 0 {
+		segments, err := timeline.ReadLastSegments(tlDir, "timeline", sb.replaySegs)
+		if err == nil && len(segments) > 0 {
+			cw.SetReplayMode(true)
+			timeline.ReplayInto(cw, segments)
+			cw.SetReplayMode(false)
+		}
+	}
+
+	if err := a.Start(context.Background()); err != nil {
+		tl.Close()
+		return nil, nil, nil, err
+	}
+	return a, cw, tl, nil
+}
+
+// buildSessionFactory constructs the factory function used by SessionManager.
 //
-// consoleLog 控制 session logger 是否向 stderr 输出（TUI=false，serve=settings.Log.Console）。
+// consoleLog controls whether the session logger outputs to stderr
+// (TUI=false, serve=settings.Log.Console).
 func buildSessionFactory(
 	rt *runtimeStack,
 	workDir string,
 	settings config.Settings,
 	consoleLog bool,
 ) session.AgentFactory {
-	tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
-	tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
-	replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
-
-	return func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
-		agentID := newAgentID()
-
-		effectiveModelID := rt.defaultModel.APIModel
-		if effectiveModelID == "" {
-			effectiveModelID = rt.defaultModel.ID
-		}
-		def := agent.Definition{
-			ID:              agentID,
-			TeamID:          teamID,
-			Kind:            agent.KindChat,
-			ModelID:         effectiveModelID,
-			Temperature:     rt.defaultModel.Generation.Temperature,
-			MaxTokens:       rt.defaultModel.Generation.MaxTokens,
-			ReasoningEffort: rt.defaultModel.Thinking.ReasoningEffort,
-			ThinkingEnabled: rt.defaultModel.Thinking.Enabled,
-			ThinkingType:    rt.defaultModel.Thinking.Type,
-			MaxIterations:   10,
-			ContextWindow:   rt.defaultModel.ContextWindow,
-			SystemPrompt:    rt.systemPrompt,
-		}
-
-		effectiveTeam := teamID
-		if effectiveTeam == "" {
-			effectiveTeam = "default"
-		}
-		sessLog, err := logger.Session(workDir, effectiveTeam, agentID,
-			logger.WithLevel(parseLogLevel(settings.Log.Level)),
-			logger.WithConsole(consoleLog),
-			logger.WithFile(settings.Log.File),
-		)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
-		}
-
-		// Tools: 内置工具 + DelegateTool（异步模式：L1 → L2）
-		allTools := tools.Build(rt.toolsCfg)
-		for _, l := range rt.leaders {
-			leader := l // 捕获循环变量
-			dt := &tools.DelegateTool{
-				LeaderID: leader.Name,
-				Desc:     leader.Description,
-				SpawnFn: func(ctx context.Context, task string) (tools.Locatable, error) {
-					a, ok := rt.agentRegistry.Get(leader.Name)
-					if !ok {
-						return nil, fmt.Errorf("leader %q not found", leader.Name)
-					}
-					return &agent.LocatableAdapter{a}, nil
-				},
-				Timeout: 5 * time.Minute,
-			}
-			allTools = append(allTools, dt)
-		}
-
-		// Skills: 用户 SKILL.md
-		var skillList []skill.Skill
-		if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(workDir, "skills")); err == nil {
-			skillList = append(skillList, userSkills...)
-		}
-
-		a := agent.NewAgent(def, rt.llmClient, sessLog,
-			agent.WithTools(allTools...),
-			agent.WithSkills(skillList...),
-			agent.WithParallelTools(true),
-			agent.WithPriorityMailbox(),
-			agent.WithToolTimeout("shell_exec", 30*time.Second),
-			agent.WithToolTimeout("http_fetch", 10*time.Second),
-			agent.WithToolTimeout("web_search", 15*time.Second),
-		)
-		rt.agentRegistry.Register(a)
-
-		// Timeline Writer + Push Hook
-		tlDir := filepath.Join(workDir, "logs", "timelines", effectiveTeam)
-		tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, tlMaxFiles)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
-		}
-		pushHook := func(msg ctxwin.Message) {
-			var toolCalls []timeline.ToolCallRec
-			for _, tc := range msg.ToolCalls {
-				toolCalls = append(toolCalls, timeline.ToolCallRec{
-					ID:        tc.ID,
-					Type:      tc.Type,
-					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
-				})
-			}
-			_ = tl.AppendMessage(&timeline.MessagePayload{
-				Role:             string(msg.Role),
-				Content:          msg.Content,
-				ReasoningContent: msg.ReasoningContent,
-				Name:             msg.Name,
-				ToolCallID:       msg.ToolCallID,
-				ToolCalls:        toolCalls,
-				IsEphemeral:      msg.IsEphemeral,
-				AgentID:          agentID,
-			})
-		}
-
-		// ContextWindow + system prompt
-		cw := ctxwin.NewContextWindow(
-			rt.defaultModel.ContextWindow,
-			rt.defaultModel.ContextWindow/10,
-			rt.tokenizer,
-			ctxwin.WithPushHook(pushHook),
-		)
-		if def.SystemPrompt != "" {
-			cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
-		}
-		if cat := a.SkillCatalog(); cat != "" {
-			cw.Push(ctxwin.RoleSystem, cat)
-		}
-
-		// Replay 历史
-		if replaySegs > 0 {
-			segments, err := timeline.ReadLastSegments(tlDir, "timeline", replaySegs)
-			if err == nil && len(segments) > 0 {
-				cw.SetReplayMode(true)
-				timeline.ReplayInto(cw, segments)
-				cw.SetReplayMode(false)
-			}
-		}
-
-		if err := a.Start(context.Background()); err != nil {
-			tl.Close()
-			return nil, nil, nil, err
-		}
-		return a, cw, tl, nil
-	}
+	sb := newSessionBuilder(rt, workDir, settings, consoleLog)
+	return sb.Build
 }
 
 // ─── Commands ──────────────────────────────────────────────────────────────────

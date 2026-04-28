@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -249,10 +250,18 @@ func TestConfirmEventBubble_L2Respond_L3Executes(t *testing.T) {
 			confirmID = e.CallID
 			foundConfirm = true
 
-			// 通过 L2 agent 确认（ConfirmForwarder 会转发给 L3）
-			if err := fix.L2Agent.Confirm(e.CallID, "yes"); err != nil {
-				t.Logf("Warning: L2.Confirm: %v", err)
-			}
+			// The confirm forwarder goroutine needs a moment to register
+			// the proxy slot on L2 before we can call Confirm.
+			// Retry a few times to handle the inherent race.
+			go func() {
+				for i := 0; i < 50; i++ {
+					if err := fix.L2Agent.Confirm(e.CallID, "yes"); err == nil {
+						return
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				t.Logf("Warning: L2.Confirm failed after retries for %s", e.CallID)
+			}()
 
 		case ToolExecDoneEvent:
 			if e.Name == "dangerous_op" {
@@ -340,11 +349,11 @@ func TestConfirmEventBubble_ContextPropagation(t *testing.T) {
 	// 测试 tools 包中的 context helper 函数
 	ctx := context.Background()
 
-	// 创建一个 interface{} 通道
-	ch := make(chan interface{}, 1)
+	// Create a typed channel
+	ch := make(chan iface.AgentEvent, 1)
 	defer close(ch)
 
-	// 使用 tools 包的 WithToolEventChannel 注入
+	// Inject via tools package helper
 	ctxWithCh := tools.WithToolEventChannel(ctx, ch)
 
 	// 验证可以提取出来
@@ -360,7 +369,7 @@ func TestConfirmEventBubble_ContextPropagation(t *testing.T) {
 	t.Log("✓ Context key propagation works correctly")
 
 	// 测试 ConfirmForwarder
-	testForwarder := tools.ConfirmForwarder(func(ctx context.Context, callID string, child tools.Locatable) (string, error) {
+	testForwarder := iface.ConfirmForwarder(func(ctx context.Context, callID string, child iface.Locatable) (string, error) {
 		return "yes", nil
 	})
 
@@ -415,8 +424,8 @@ func TestConfirmEventBubble_LocatableAdapter(t *testing.T) {
 		t.Fatal("Failed to locate L3")
 	}
 
-	// 验证它实现了 tools.Locatable 接口
-	var _ tools.Locatable = locatable
+	// Verify it implements iface.Locatable
+	var _ iface.Locatable = locatable
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

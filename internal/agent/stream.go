@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -110,376 +111,63 @@ func (a *Agent) processStreamEvents(
 	}
 	return nil
 }
-// ─── runOnceStream ──────────────────────────────────────────────────────────
 
-// runOnceStream 是 AskStream 的执行主体（在 agent goroutine 中串行运行）
+// --- Strategy pattern for stream loop deduplication ---
 //
-// 职责：
-//   - 构造 LLMRequest（含累积 msgs + ToolSpecs）→ 调 LLM.ChatStream
-//   - 从 llm.Event 累积 content / reasoning / tool_call 并 re-emit AgentEvent
-//   - 每轮结束后：若有 tool_calls 则执行并喂回，否则 DoneEvent 终止
-//   - 守护 MaxIterations 上限；超限 → ErrorEvent(ErrMaxIterations)
-//   - 始终 defer close(out)：无论哪条返回路径都保证 channel 关闭
+// The three run* functions (runOnceStream, runOnceStreamWithHistory,
+// runOnceStreamWithHistoryFromIter) share ~90% identical code. The only
+// differences are:
+//   - How messages are built (in-memory vs ContextWindow)
+//   - Whether overflow checking / calibration applies
+//   - Which execTools variant is called (sync vs async-aware)
+//   - How tool results are stored (in-memory msgs vs ContextWindow push)
 //
-// 日志（都带 trace_id / actor_id）：
-//   - info  "llm chat start"   iter / model / prompt_len / messages / tools
-//   - error "llm chat failed"  iter / err / duration_ms
-//   - info  "llm chat done"    iter / response_len / reasoning_len / tool_calls /
-//                              finish_reason / token 统计 / duration_ms
-//   - info  "tool exec start"  tool_name / tool_call_id / arg_len
-//   - info  "tool exec done"   tool_name / tool_call_id / arg_len / result_len / duration_ms
-//   - error "tool exec failed" 同上 + err
-//   - error "tool not found"   tool_name / tool_call_id
-//   - error "max tool iterations exceeded"  max_iter
-func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- AgentEvent) {
-	// 注意 defer 栈（LIFO）：
-	//   1. close(out) 最先注册 → panic 时**最后**执行，保证 ErrorEvent
-	//      已投递后再关闭 channel（Ask 消费端才能收到错误）
-	//   2. recover+re-panic 后注册 → 最先执行：捕获 panic、emit ErrorEvent、
-	//      re-panic 让上层 run goroutine 的 recover 正常记录 exitErr 并置 Stopped
-	defer close(out)
-	defer func() {
-		if r := recover(); r != nil {
-			a.emit(ctx, out, ErrorEvent{
-				Err: fmt.Errorf("agent panic: %v", r),
-			})
-			panic(r) // 继续冒泡给 run goroutine 的 recover
-		}
-	}()
+// streamStrategy encapsulates these differences so streamLoop contains
+// the shared logic exactly once.
 
-	if a.LLM == nil {
+// streamStrategy defines the variant behavior injected into streamLoop.
+type streamStrategy interface {
+	// buildMessages returns the LLM messages for this iteration.
+	// Returns an error for overflow or other pre-flight failures.
+	buildMessages(a *Agent, iter int) ([]LLMMessage, error)
+
+	// execTools runs all tool calls and returns per-call result strings.
+	execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) []string
+
+	// postIteration handles post-LLM-response processing: calibration,
+	// context window push, async delegation check, tool result storage.
+	// Returns true if the loop should yield (async delegation started).
+	postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, results []string, out chan<- AgentEvent) (yield bool)
+
+	// promptLen returns the original prompt length for logging.
+	promptLen() int
+}
+
+// recoverAndEmit catches panics, emits ErrorEvent, and re-panics.
+// Used as a deferred call in streamLoop to ensure errors are always
+// reported before the channel closes.
+func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
+	if r := recover(); r != nil {
 		a.emit(ctx, out, ErrorEvent{
-			Err: fmt.Errorf("agent %q: llm client is nil", a.Def.ID),
+			Err: fmt.Errorf("agent panic: %v", r),
 		})
-		return
+		panic(r) // propagate to run goroutine's outer recover
 	}
-
-	msgs := buildMessages(a.Def.SystemPrompt, prompt)
-	specs := a.ToolSpecs() // nil-safe
-
-	maxIter := a.Def.MaxIterations
-	if maxIter <= 0 {
-		maxIter = DefaultMaxIterations
-	}
-
-	for iter := 0; iter < maxIter; iter++ {
-		if err := ctx.Err(); err != nil {
-			a.emit(ctx, out, ErrorEvent{Err: err})
-			return
-		}
-
-		req := LLMRequest{
-			Model:           a.Def.ModelID,
-			Temperature:     a.Def.Temperature,
-			MaxTokens:       a.Def.MaxTokens,
-			Messages:        msgs,
-			Tools:           specs,
-			ReasoningEffort: a.Def.ReasoningEffort,
-			ThinkingEnabled: a.Def.ThinkingEnabled,
-			ThinkingType:    a.Def.ThinkingType,
-			IncludeUsage:    true,
-		}
-
-		a.logInfo(ctx, logger.CatLLM, "llm chat start",
-			slog.Int("iter", iter),
-			slog.String("model", req.Model),
-			slog.Int("prompt_len", len(prompt)),
-			slog.Int("messages", len(msgs)),
-			slog.Int("tools", len(specs)),
-		)
-
-		start := time.Now()
-		evCh, err := a.LLM.ChatStream(ctx, req)
-		if err != nil {
-			durMs := time.Since(start).Milliseconds()
-			a.logError(ctx, logger.CatLLM, "llm chat failed", err,
-				slog.Int("iter", iter),
-				slog.Int64("duration_ms", durMs),
-			)
-			a.emit(ctx, out, ErrorEvent{Err: err})
-			return
-		}
-
-		// 本轮累积器
-		acc := &streamAccumulator{
-			tcSlots: make(map[int]*llm.ToolCall),
-		}
-		if err := a.processStreamEvents(ctx, iter, evCh, out, start, acc); err != nil {
-			return
-		}
-
-		// Unpack accumulated values for use below
-		content := acc.content
-		reasoning := acc.reasoning
-		tcSlots := acc.tcSlots
-		finish := acc.finish
-		usage := acc.usage
-
-		durMs := time.Since(start).Milliseconds()
-		toolCalls := sortedToolCalls(tcSlots)
-
-		a.logInfo(ctx, logger.CatLLM, "llm chat done",
-			slog.Int("iter", iter),
-			slog.Int("response_len", content.Len()),
-			slog.Int("reasoning_len", reasoning.Len()),
-			slog.Int("tool_calls", len(toolCalls)),
-			slog.String("finish_reason", string(finish)),
-			slog.Int("prompt_tokens", usage.PromptTokens),
-			slog.Int("completion_tokens", usage.CompletionTokens),
-			slog.Int("total_tokens", usage.TotalTokens),
-			slog.Int64("duration_ms", durMs),
-		)
-
-		// IterationDoneEvent：UI 可据此显示"LLM 说完了、正在执行工具..."
-		if !a.emit(ctx, out, IterationDoneEvent{
-			Iter:         iter,
-			FinishReason: finish,
-			Usage:        usage,
-		}) {
-			return
-		}
-
-		// 退出条件 1：LLM 不再要工具 → 返回 content
-		if len(toolCalls) == 0 {
-			a.emit(ctx, out, DoneEvent{Content: content.String(), ReasoningContent: reasoning.String()})
-			return
-		}
-
-		// 追加 assistant(tool_calls) 消息到对话历史
-		msgs = append(msgs, LLMMessage{
-			Role:             "assistant",
-			Content:          content.String(),
-			ReasoningContent: reasoning.String(),
-			ToolCalls:        toolCalls,
-		})
-
-		// 执行本轮所有 tool_call（串行 / errgroup 并发，由 WithParallelTools 决定）
-		// 返回的 results 顺序严格等于 toolCalls 原顺序
-		results := a.execTools(ctx, iter, toolCalls, out)
-		for i, tc := range toolCalls {
-			msgs = append(msgs, LLMMessage{
-				Role:       "tool",
-				ToolCallID: tc.ID,
-				Name:       tc.Function.Name,
-				Content:    results[i],
-			})
-		}
-	}
-
-	// 退出条件 2：迭代超上限
-	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
-		slog.Int("max_iter", maxIter),
-	)
-	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
 }
 
-// runOnceStreamWithHistory 是 AskWithHistory 的执行主体
+// streamLoop is the unified LLM tool-use loop.
 //
-// 与 runOnceStream 的关键区别：
-//   - 使用 cw.BuildPayload() 代替 buildMessages()
-//   - 每轮 API 返回后先 Calibrate 再 Push（严格时序）
-//   - API 请求前检查 Overflow
-//   - 工具循环中 push 中间消息到 cw
-//   - 最终 assistant 回复不 push（由 Session 负责）
-func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) {
-	defer close(out)
-	defer func() {
-		if r := recover(); r != nil {
-			a.emit(ctx, out, ErrorEvent{
-				Err: fmt.Errorf("agent panic: %v", r),
-			})
-			panic(r)
-		}
-	}()
-
-	if a.LLM == nil {
-		a.emit(ctx, out, ErrorEvent{
-			Err: fmt.Errorf("agent %q: llm client is nil", a.Def.ID),
-		})
-		return
-	}
-
-	specs := a.ToolSpecs()
-
-	maxIter := a.Def.MaxIterations
-	if maxIter <= 0 {
-		maxIter = DefaultMaxIterations
-	}
-
-	for iter := 0; iter < maxIter; iter++ {
-		if err := ctx.Err(); err != nil {
-			a.emit(ctx, out, ErrorEvent{Err: err})
-			return
-		}
-
-		// ★ 从 ContextWindow 构建 payload（包含完整历史）
-		payload := cw.BuildPayload()
-		msgs := payloadToLLMMessages(payload)
-
-		// ★ Overflow 硬限检查：防止 API 400
-		hardLimit := a.Def.ContextWindow
-		if hardLimit <= 0 {
-			hardLimit = 128000 // 兜底默认值
-		}
-		if cw.Overflow(hardLimit) {
-			current, _, _ := cw.TokenUsage()
-			a.logError(ctx, logger.CatLLM, "context overflow", fmt.Errorf("tokens %d exceed hard limit %d", current, hardLimit))
-			a.emit(ctx, out, ErrorEvent{
-				Err: fmt.Errorf("context overflow: current %d tokens exceed hard limit %d, please start a new session", current, hardLimit),
-			})
-			return
-		}
-
-		req := LLMRequest{
-			Model:           a.Def.ModelID,
-			Temperature:     a.Def.Temperature,
-			MaxTokens:       a.Def.MaxTokens,
-			Messages:        msgs,
-			Tools:           specs,
-			ReasoningEffort: a.Def.ReasoningEffort,
-			ThinkingEnabled: a.Def.ThinkingEnabled,
-			ThinkingType:    a.Def.ThinkingType,
-			IncludeUsage:    true,
-		}
-
-		a.logInfo(ctx, logger.CatLLM, "llm chat start",
-			slog.Int("iter", iter),
-			slog.String("model", req.Model),
-			slog.Int("prompt_len", len(prompt)),
-			slog.Int("messages", len(msgs)),
-			slog.Int("tools", len(specs)),
-		)
-
-		start := time.Now()
-		evCh, err := a.LLM.ChatStream(ctx, req)
-		if err != nil {
-			durMs := time.Since(start).Milliseconds()
-			a.logError(ctx, logger.CatLLM, "llm chat failed", err,
-				slog.Int("iter", iter),
-				slog.Int64("duration_ms", durMs),
-			)
-			a.emit(ctx, out, ErrorEvent{Err: err})
-			return
-		}
-
-		// 本轮累积器
-		acc := &streamAccumulator{
-			tcSlots: make(map[int]*llm.ToolCall),
-		}
-		if err := a.processStreamEvents(ctx, iter, evCh, out, start, acc); err != nil {
-			return
-		}
-
-		// Unpack accumulated values for use below
-		content := acc.content
-		reasoning := acc.reasoning
-		tcSlots := acc.tcSlots
-		finish := acc.finish
-		usage := acc.usage
-
-		durMs := time.Since(start).Milliseconds()
-		toolCalls := sortedToolCalls(tcSlots)
-
-		a.logInfo(ctx, logger.CatLLM, "llm chat done",
-			slog.Int("iter", iter),
-			slog.Int("response_len", content.Len()),
-			slog.Int("reasoning_len", reasoning.Len()),
-			slog.Int("tool_calls", len(toolCalls)),
-			slog.String("finish_reason", string(finish)),
-			slog.Int("prompt_tokens", usage.PromptTokens),
-			slog.Int("completion_tokens", usage.CompletionTokens),
-			slog.Int("total_tokens", usage.TotalTokens),
-			slog.Int64("duration_ms", durMs),
-		)
-
-		// ★ 严格时序：先 Calibrate（对齐到 API 精确值），再 Push 新消息
-		if usage.PromptTokens > 0 {
-			cw.Calibrate(usage.PromptTokens)
-		}
-
-		// IterationDoneEvent
-		if !a.emit(ctx, out, IterationDoneEvent{
-			Iter:         iter,
-			FinishReason: finish,
-			Usage:        usage,
-		}) {
-			return
-		}
-
-		// 退出条件：LLM 不再要工具
-		if len(toolCalls) == 0 {
-			a.emit(ctx, out, DoneEvent{Content: content.String(), ReasoningContent: reasoning.String()})
-			return
-		}
-
-		// ★ Push assistant(tool_calls) 到 ContextWindow
-		cw.Push(ctxwin.RoleAssistant, content.String(),
-			ctxwin.WithReasoningContent(reasoning.String()),
-			ctxwin.WithToolCalls(toolCalls),
-		)
-
-	// 执行本轮所有 tool_call
-	results := a.execToolsWithAsync(ctx, iter, toolCalls, out, cw)
-
-	// 检查是否有异步委托（本轮 tool loop 需要暂停）
-	a.turnMu.RLock()
-	_, hasAsync := a.asyncTurns[iter]
-	a.turnMu.RUnlock()
-
-	if hasAsync {
-		// 异步路径：
-		// - assistant(tool_calls) 已 push 到 cw（上面已做）
-		// - tool result 不 push（等结果回来再 push）
-		// - out 不 close（由 resumeTurn 最终 close）
-		// - 发射 DelegationStartedEvent
-		var numTasks int
-		a.turnMu.RLock()
-		if ts := a.asyncTurns[iter]; ts != nil {
-			numTasks = int(ts.pending.Load())
-		}
-		a.turnMu.RUnlock()
-		a.emit(ctx, out, DelegationStartedEvent{
-			Iter:     iter,
-			NumTasks: numTasks,
-		})
-		return // ← 释放 run goroutine，L1 可处理新消息
-	}
-
-	// 同步路径：push tool results 到 cw
-	for i, tc := range toolCalls {
-		cw.Push(ctxwin.RoleTool, results[i],
-			ctxwin.WithToolCallID(tc.ID),
-			ctxwin.WithToolName(tc.Function.Name),
-			ctxwin.WithEphemeral(true),
-		)
-	}
-}
-
-	// 迭代超上限
-	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
-		slog.Int("max_iter", maxIter),
-	)
-	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
-}
-
-// runOnceStreamWithHistoryFromIter 从指定 iter 开始继续工具循环
+// GOROUTINE SAFETY CONTRACT:
+// The caller MUST either:
+//  1. Consume the out channel until close (range), OR
+//  2. Cancel ctx before abandoning the channel
 //
-// 由 resumeTurn 调用，复用 runOnceStreamWithHistory 的循环体。
-func (a *Agent) runOnceStreamWithHistoryFromIter(
-	ctx context.Context,
-	cw *ctxwin.ContextWindow,
-	out chan<- AgentEvent,
-	startIter int,
-) {
+// If ctx is cancelled, emit() returns false and streamLoop exits,
+// triggering defer close(out). The 64-slot buffer absorbs transient
+// backpressure.
+func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat streamStrategy, startIter int) {
 	defer close(out)
-	defer func() {
-		if r := recover(); r != nil {
-			a.emit(ctx, out, ErrorEvent{
-				Err: fmt.Errorf("agent panic: %v", r),
-			})
-			panic(r)
-		}
-	}()
+	defer a.recoverAndEmit(ctx, out)
 
 	if a.LLM == nil {
 		a.emit(ctx, out, ErrorEvent{
@@ -501,21 +189,12 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 			return
 		}
 
-		// 从 ContextWindow 构建 payload
-		payload := cw.BuildPayload()
-		msgs := payloadToLLMMessages(payload)
-
-		// Overflow 硬限检查
-		hardLimit := a.Def.ContextWindow
-		if hardLimit <= 0 {
-			hardLimit = 128000
-		}
-		if cw.Overflow(hardLimit) {
-			current, _, _ := cw.TokenUsage()
-			a.logError(ctx, logger.CatLLM, "context overflow", fmt.Errorf("tokens %d exceed hard limit %d", current, hardLimit))
-			a.emit(ctx, out, ErrorEvent{
-				Err: fmt.Errorf("context overflow: current %d tokens exceed hard limit %d, please start a new session", current, hardLimit),
-			})
+		msgs, err := strat.buildMessages(a, iter)
+		if err != nil {
+			a.logError(ctx, logger.CatLLM, "build messages failed", err,
+				slog.Int("iter", iter),
+			)
+			a.emit(ctx, out, ErrorEvent{Err: err})
 			return
 		}
 
@@ -534,6 +213,7 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 		a.logInfo(ctx, logger.CatLLM, "llm chat start",
 			slog.Int("iter", iter),
 			slog.String("model", req.Model),
+			slog.Int("prompt_len", strat.promptLen()),
 			slog.Int("messages", len(msgs)),
 			slog.Int("tools", len(specs)),
 		)
@@ -557,91 +237,192 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 			return
 		}
 
-		// Unpack accumulated values for use below
-		content := acc.content
-		reasoning := acc.reasoning
-		tcSlots := acc.tcSlots
-		finish := acc.finish
-		usage := acc.usage
-
 		durMs := time.Since(start).Milliseconds()
-		toolCalls := sortedToolCalls(tcSlots)
+		toolCalls := sortedToolCalls(acc.tcSlots)
 
 		a.logInfo(ctx, logger.CatLLM, "llm chat done",
 			slog.Int("iter", iter),
-			slog.Int("response_len", content.Len()),
-			slog.Int("reasoning_len", reasoning.Len()),
+			slog.Int("response_len", acc.content.Len()),
+			slog.Int("reasoning_len", acc.reasoning.Len()),
 			slog.Int("tool_calls", len(toolCalls)),
-			slog.String("finish_reason", string(finish)),
-			slog.Int("prompt_tokens", usage.PromptTokens),
-			slog.Int("completion_tokens", usage.CompletionTokens),
-			slog.Int("total_tokens", usage.TotalTokens),
+			slog.String("finish_reason", string(acc.finish)),
+			slog.Int("prompt_tokens", acc.usage.PromptTokens),
+			slog.Int("completion_tokens", acc.usage.CompletionTokens),
+			slog.Int("total_tokens", acc.usage.TotalTokens),
 			slog.Int64("duration_ms", durMs),
 		)
 
-		// 严格时序：先 Calibrate，再 Push
-		if usage.PromptTokens > 0 {
-			cw.Calibrate(usage.PromptTokens)
-		}
-
-		// IterationDoneEvent
 		if !a.emit(ctx, out, IterationDoneEvent{
 			Iter:         iter,
-			FinishReason: finish,
-			Usage:        usage,
+			FinishReason: acc.finish,
+			Usage:        acc.usage,
 		}) {
 			return
 		}
 
-		// 退出条件：LLM 不再要工具
+		// Exit: LLM produced no tool calls → return final content
 		if len(toolCalls) == 0 {
-			a.emit(ctx, out, DoneEvent{Content: content.String(), ReasoningContent: reasoning.String()})
-			return
-		}
-
-		// Push assistant(tool_calls) 到 ContextWindow
-		cw.Push(ctxwin.RoleAssistant, content.String(),
-			ctxwin.WithReasoningContent(reasoning.String()),
-			ctxwin.WithToolCalls(toolCalls),
-		)
-
-		// 执行本轮所有 tool_call
-		results := a.execToolsWithAsync(ctx, iter, toolCalls, out, cw)
-
-		// 检查是否有异步委托
-		a.turnMu.RLock()
-		_, hasAsync := a.asyncTurns[iter]
-		a.turnMu.RUnlock()
-
-		if hasAsync {
-			var numTasks int
-			a.turnMu.RLock()
-			if ts := a.asyncTurns[iter]; ts != nil {
-				numTasks = int(ts.pending.Load())
-			}
-			a.turnMu.RUnlock()
-			a.emit(ctx, out, DelegationStartedEvent{
-				Iter:     iter,
-				NumTasks: numTasks,
+			a.emit(ctx, out, DoneEvent{
+				Content:          acc.content.String(),
+				ReasoningContent: acc.reasoning.String(),
 			})
 			return
 		}
 
-		// 同步路径：push tool results
-		for i, tc := range toolCalls {
-			cw.Push(ctxwin.RoleTool, results[i],
-				ctxwin.WithToolCallID(tc.ID),
-				ctxwin.WithToolName(tc.Function.Name),
-				ctxwin.WithEphemeral(true),
-			)
+		results := strat.execTools(a, ctx, iter, toolCalls, out)
+		if strat.postIteration(a, ctx, iter, acc, toolCalls, results, out) {
+			return // async delegation started, loop yields
 		}
 	}
 
-	// 迭代超上限
+	// Max iterations exceeded
 	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
 		slog.Int("max_iter", maxIter),
 	)
 	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
+}
+
+// --- simpleStrategy: in-memory message accumulation (runOnceStream) ---
+
+type simpleStrategy struct {
+	systemPrompt string
+	prompt       string
+	msgs         []LLMMessage // accumulated across iterations
+}
+
+func (s *simpleStrategy) buildMessages(a *Agent, iter int) ([]LLMMessage, error) {
+	if iter == 0 {
+		s.msgs = buildMessages(s.systemPrompt, s.prompt)
+	}
+	return s.msgs, nil
+}
+
+func (s *simpleStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) []string {
+	return a.execTools(ctx, iter, calls, out)
+}
+
+func (s *simpleStrategy) postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, results []string, out chan<- AgentEvent) bool {
+	// Append assistant + tool results to in-memory message list
+	s.msgs = append(s.msgs, LLMMessage{
+		Role:             "assistant",
+		Content:          acc.content.String(),
+		ReasoningContent: acc.reasoning.String(),
+		ToolCalls:        calls,
+	})
+	for i, tc := range calls {
+		s.msgs = append(s.msgs, LLMMessage{
+			Role:       "tool",
+			ToolCallID: tc.ID,
+			Name:       tc.Function.Name,
+			Content:    results[i],
+		})
+	}
+	return false
+}
+
+func (s *simpleStrategy) promptLen() int { return len(s.prompt) }
+
+// --- historyStrategy: ContextWindow-based (runOnceStreamWithHistory) ---
+
+type historyStrategy struct {
+	cw     *ctxwin.ContextWindow
+	prompt string
+}
+
+func (s *historyStrategy) buildMessages(a *Agent, iter int) ([]LLMMessage, error) {
+	// Overflow hard-limit check: prevent API 400
+	hardLimit := a.Def.ContextWindow
+	if hardLimit <= 0 {
+		hardLimit = DefaultContextWindow // fallback default
+	}
+	if s.cw.Overflow(hardLimit) {
+		current, _, _ := s.cw.TokenUsage()
+		return nil, fmt.Errorf("context overflow: current %d tokens exceed hard limit %d, please start a new session", current, hardLimit)
+	}
+	payload := s.cw.BuildPayload()
+	return payloadToLLMMessages(payload), nil
+}
+
+func (s *historyStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) []string {
+	return a.execToolsWithAsync(ctx, iter, calls, out, s.cw)
+}
+
+func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, results []string, out chan<- AgentEvent) bool {
+	// Strict ordering: calibrate first (align to API exact value), then push
+	if acc.usage.PromptTokens > 0 {
+		s.cw.Calibrate(acc.usage.PromptTokens)
+	}
+
+	// Push assistant(tool_calls) to ContextWindow
+	s.cw.Push(ctxwin.RoleAssistant, acc.content.String(),
+		ctxwin.WithReasoningContent(acc.reasoning.String()),
+		ctxwin.WithToolCalls(calls),
+	)
+
+	// Check for async delegation (tool loop must pause)
+	a.turnMu.RLock()
+	_, hasAsync := a.asyncTurns[iter]
+	a.turnMu.RUnlock()
+
+	if hasAsync {
+		// Async path:
+		// - assistant(tool_calls) already pushed to cw
+		// - tool results NOT pushed (wait for async results)
+		// - out NOT closed (resumeTurn will close it)
+		// - emit DelegationStartedEvent
+		var numTasks int
+		a.turnMu.RLock()
+		if ts := a.asyncTurns[iter]; ts != nil {
+			numTasks = int(ts.pending.Load())
+		}
+		a.turnMu.RUnlock()
+		a.emit(ctx, out, DelegationStartedEvent{
+			Iter:     iter,
+			NumTasks: numTasks,
+		})
+		return true // yield — release run goroutine for new messages
+	}
+
+	// Sync path: push tool results to ContextWindow
+	for i, tc := range calls {
+		s.cw.Push(ctxwin.RoleTool, results[i],
+			ctxwin.WithToolCallID(tc.ID),
+			ctxwin.WithToolName(tc.Function.Name),
+			ctxwin.WithEphemeral(true),
+		)
+	}
+	return false
+}
+
+func (s *historyStrategy) promptLen() int { return len(s.prompt) }
+
+// --- Public entry points (thin wrappers) ---
+
+// runOnceStream is the execution body of AskStream (runs in the agent
+// goroutine). Uses in-memory message accumulation without ContextWindow.
+func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- AgentEvent) {
+	a.streamLoop(ctx, out, &simpleStrategy{
+		systemPrompt: a.Def.SystemPrompt,
+		prompt:       prompt,
+	}, 0)
+}
+
+// runOnceStreamWithHistory is the execution body of AskStreamWithHistory.
+// Uses ContextWindow for full conversation history, calibration, and
+// async delegation support.
+func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) {
+	a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
+}
+
+// runOnceStreamWithHistoryFromIter resumes the tool loop from a given
+// iteration. Called by resumeTurn after async delegation completes.
+func (a *Agent) runOnceStreamWithHistoryFromIter(
+	ctx context.Context,
+	cw *ctxwin.ContextWindow,
+	out chan<- AgentEvent,
+	startIter int,
+) {
+	a.streamLoop(ctx, out, &historyStrategy{cw: cw}, startIter)
 }
 
 // emit 向 out 发送一个 AgentEvent；ctx 取消时放弃发送并返回 false
@@ -868,8 +649,8 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		}
 	}
 
-	// 按 tool name 叠加超时（WithToolTimeout 注入）
-	// 父 ctx 取消仍优先生效（WithTimeout 是附加 deadline）
+	// Apply per-tool timeout (WithToolTimeout), falling back to DefaultToolTimeout.
+	// Parent ctx cancellation still takes priority (WithTimeout adds a deadline).
 	execCtx := ctx
 	var timeoutDur time.Duration
 	if d, ok := a.toolTimeouts[name]; ok && d > 0 {
@@ -877,22 +658,29 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		execCtx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 		timeoutDur = d
+	} else {
+		// Global fallback timeout — prevents indefinite blocking
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithTimeout(ctx, DefaultToolTimeout)
+		defer cancel()
+		timeoutDur = DefaultToolTimeout
 	}
 
 	start := time.Now()
 
-	// ── 构建 tool 执行 context：注入事件中继 + confirm 路由 ──────────────
+	// Build tool execution context: inject event relay + confirm routing.
 	//
-	// 1. 创建 chan interface{} 中继通道（解决 chan<- AgentEvent 与 chan<- interface{} 类型不匹配）
-	// 2. 启动中继 goroutine：interface{} → AgentEvent 类型转换后 emit 到 parent out
-	// 3. 注入 ConfirmForwarder 闭包：在本 agent 注册代理 slot，用户确认后转发给 child
-	relayCh := make(chan interface{}, 16)
+	// 1. Create typed relay channel for child agent events
+	// 2. Start relay goroutine: filter ToolNeedsConfirmEvent and emit to parent
+	// 3. Inject ConfirmForwarder closure: registers proxy slot on this agent,
+	//    blocks until user confirms, then forwards to child
+	relayCh := make(chan iface.AgentEvent, 16)
 	toolCtx := tools.WithToolEventChannel(execCtx, relayCh)
 
-	// 注入 confirm forwarder：DelegateTool 消费子 Agent 事件时发现 ToolNeedsConfirmEvent
-	// 会调用此闭包路由确认请求
-	forwarder := tools.ConfirmForwarder(func(fwdCtx context.Context, callID string, child tools.Locatable) (string, error) {
-		// 在本 agent（L2）上注册代理 confirmSlot
+	// Inject confirm forwarder: when DelegateTool sees a ToolNeedsConfirmEvent
+	// from the child stream, it invokes this closure to route the request.
+	forwarder := iface.ConfirmForwarder(func(fwdCtx context.Context, callID string, child iface.Locatable) (string, error) {
+		// Register proxy confirmSlot on this agent (L2)
 		slot := &confirmSlot{ch: make(chan string, 1)}
 		a.confirmMu.Lock()
 		a.pendingConfirm[callID] = slot
@@ -904,10 +692,10 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			a.confirmMu.Unlock()
 		}()
 
-		// 阻塞等待：TUI 调用 L2.Confirm(callID, choice) → slot.ch 收到 choice
+		// Block until TUI calls L2.Confirm(callID, choice) → slot.ch receives choice
 		select {
 		case choice := <-slot.ch:
-			// 转发给 child agent（L3）的原始 confirmSlot
+			// Forward to child agent's (L3) original confirmSlot
 			if err := child.Confirm(callID, choice); err != nil {
 				return "", err
 			}
@@ -918,31 +706,25 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	})
 	toolCtx = tools.WithConfirmForwarder(toolCtx, forwarder)
 
-	// 启动中继 goroutine：只转发 ToolNeedsConfirmEvent 到 parent out channel
+	// Start relay goroutine: only forward ToolNeedsConfirmEvent to parent.
 	//
-	// ⚠️ 重要：只中继 ToolNeedsConfirmEvent！不能中继 ContentDeltaEvent / DoneEvent 等，
-	// 否则 L3 的事件会污染 L2 的 out channel → Session 误将 L3 的 DoneEvent 当作 L2 的
-	// → ContextWindow 消息序列破坏 → LLM API HTTP 400。
+	// IMPORTANT: Only relay ToolNeedsConfirmEvent! Relaying ContentDeltaEvent
+	// or DoneEvent would pollute the parent's out channel, causing Session
+	// to mistake L3's DoneEvent for L2's → ContextWindow sequence corruption
+	// → LLM API HTTP 400.
 	relayDone := make(chan struct{})
 	go func() {
 		defer close(relayDone)
 		for ev := range relayCh {
-			agentEv, ok := ev.(AgentEvent)
-			if !ok {
-				continue
+			if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
+				a.emit(ctx, out, ev.(AgentEvent))
 			}
-			// 只中继 ToolNeedsConfirmEvent（确认冒泡的核心目的）
-			if _, isConfirm := agentEv.(ToolNeedsConfirmEvent); isConfirm {
-				a.emit(ctx, out, agentEv)
-			}
-			// 其他事件类型（ContentDelta, Done, Error, ToolCallDelta 等）
-			// 由 DelegateTool.Execute 自行消费，不冒泡到 parent
 		}
 	}()
 
 	result, err := tool.Execute(toolCtx, args)
-	close(relayCh) // 通知中继 goroutine 结束
-	<-relayDone    // 等待中继 goroutine 排干所有事件
+	close(relayCh) // signal relay goroutine to exit
+	<-relayDone    // wait for relay to drain all events
 	dur := time.Since(start)
 
 	if err != nil {
