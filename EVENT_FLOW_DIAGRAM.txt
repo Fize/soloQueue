@@ -1,0 +1,176 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║           EVENT FLOW & CORRUPTION MECHANISM - HTTP 400 ERROR              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+═════════════════════════════════════════════════════════════════════════════
+                        CORRECT FLOW (Single Agent)
+═════════════════════════════════════════════════════════════════════════════
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │ Agent.AskStreamWithHistory(prompt)                              │
+    │   ↓                                                              │
+    │ agent.runOnceStreamWithHistory(cw, prompt, out)                │
+    │   ├─ LLM.ChatStream() → receives events                         │
+    │   │   ├─ ContentDeltaEvent → emit(out)                         │
+    │   │   ├─ ToolCallDeltaEvent → emit(out)                        │
+    │   │   └─ DoneEvent → emit(out)                                 │
+    │   │                                                             │
+    │   ├─ execToolStream(tool) → returns "tool result string"       │
+    │   │                                                             │
+    │   ├─ cw.Push(assistant, content, tool_calls)                   │
+    │   └─ cw.Push(tool, result, tool_id)                            │
+    │                                                                 │
+    └─ out channel closes                                            │
+       ↓                                                              │
+    ┌─ Session.AskStream receives DoneEvent                          │
+    │   └─ Session.cw.Push(assistant, finalContent)                  │
+    │                                                                 │
+    └─ Next iteration sends to API:                                  │
+       [user, assistant, tool] ✓ VALID                               │
+                                                                      │
+═════════════════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════════════════
+                     BROKEN FLOW (Multi-Layer Delegation)
+═════════════════════════════════════════════════════════════════════════════
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │ L2.AskStreamWithHistory(prompt)                                 │
+    │   ↓                                                              │
+    │ L2.runOnceStreamWithHistory(cw, prompt, out)                   │
+    │   ├─ LLM.ChatStream() → assistant(tool_calls=[delegate_tool])  │
+    │   │   └─ emit(out) these events to L2.out                      │
+    │   │                                                             │
+    │   ├─ L2.execToolStream(DelegateTool)                           │
+    │   │   ├─ Create relayCh                                         │
+    │   │   ├─ Start relay goroutine (line 993-1002):                │
+    │   │   │   go func() {                                          │
+    │   │   │       for ev := range relayCh {                        │
+    │   │   │           if agentEv, ok := ev.(AgentEvent) {          │
+    │   │   │               a.emit(ctx, out, agentEv)  ← PROBLEM    │
+    │   │   │           }                                             │
+    │   │   │       }                                                 │
+    │   │   │   }()                                                   │
+    │   │   │                                                         │
+    │   │   ├─ DelegateTool.Execute(ctx, args)                       │
+    │   │   │   ├─ Extract parentEventCh from ctx (relayCh)          │
+    │   │   │   ├─ L3.AskStream() → emits events                     │
+    │   │   │   │   ├─ ContentDeltaEvent(L3's content) → relayCh    │
+    │   │   │   │   ├─ ToolCallDeltaEvent(L3's tool_calls) → relayCh│
+    │   │   │   │   └─ DoneEvent(L3's done) → relayCh              │
+    │   │   │   └─ returns "L3's final content string"              │
+    │   │   │                                                         │
+    │   │   ├─ Relay goroutine receives L3 events from relayCh and  │
+    │   │   │   emits them to L2.out ← EVENTS NOW IN L2.OUT!        │
+    │   │   │   ├─ ContentDeltaEvent (L3's)                         │
+    │   │   │   ├─ ToolCallDeltaEvent (L3's) ← CORRUPTION STARTS   │
+    │   │   │   ├─ DoneEvent (L3's) ← CORRUPTION POINT             │
+    │   │   └─ returns "L3's content" (string result)               │
+    │   │                                                             │
+    │   ├─ cw.Push(assistant, content, tool_calls)  ← Now L2        │
+    │   ├─ cw.Push(tool, "L3's content", tool_id)  ← Confusion!     │
+    │   │                                                             │
+    │   └─ out channel closing...                                    │
+    │                                                                 │
+    └─ Session.AskStream receives:                                   │
+       ├─ ContentDeltaEvent (L2's)                                   │
+       ├─ ToolCallDeltaEvent (L2's)                                  │
+       ├─ DoneEvent (L2's) ← Sets finalContent = L2's content       │
+       ├─ ContentDeltaEvent (L3's) ← RELAYED                        │
+       ├─ ToolCallDeltaEvent (L3's) ← RELAYED                       │
+       ├─ DoneEvent (L3's) ← RELAYED (But finalContent already set!)│
+       └─ Session.cw.Push(assistant, finalContent)                  │
+          ↓                                                           │
+       ContextWindow now contains:                                   │
+       ├─ assistant("L3's response", tool_calls=[L3's calls])       │
+       ├─ tool("delegation result")                                 │
+       └─ [Possibly L3's partial state from relayed events]         │
+          ↓                                                           │
+       Next iteration sends to API:                                 │
+       [user, assistant(with L3's tool_calls), tool] ✗ INVALID      │
+       → HTTP 400: assistant's tool_calls don't match context!       │
+                                                                      │
+═════════════════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════════════════
+                         THE CORE PROBLEM
+═════════════════════════════════════════════════════════════════════════════
+
+Relay Goroutine (line 993-1002 in stream.go):
+┌───────────────────────────────────────────────────────────┐
+│ go func() {                                               │
+│     defer close(relayDone)                               │
+│     for ev := range relayCh {                            │
+│         if agentEv, ok := ev.(AgentEvent); ok {          │
+│             a.emit(ctx, out, agentEv) ← NO FILTERING!   │
+│         }                                                 │
+│     }                                                     │
+│ }()                                                       │
+└───────────────────────────────────────────────────────────┘
+
+PROBLEM: Unconditionally forwards ALL AgentEvent types:
+  ✗ ContentDeltaEvent        → Should NOT relay
+  ✗ ToolCallDeltaEvent       → Should NOT relay
+  ✗ DoneEvent                → Should NOT relay
+  ✗ ReasoningDeltaEvent      → Should NOT relay
+  ✓ ToolNeedsConfirmEvent    → SHOULD relay (for confirmation routing)
+
+RESULT: Child agent's internal state leaks into parent's message history
+
+═════════════════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════════════════
+                         MESSAGE SEQUENCE CORRUPTION
+═════════════════════════════════════════════════════════════════════════════
+
+WHAT API EXPECTS:
+┌──────────────────────────────────────┐
+│ [                                    │
+│   {"role": "user", ...}              │
+│   {"role": "assistant", ...}         │
+│   {"role": "tool", ...}              │
+│   {"role": "assistant", ...}  (next) │
+│   {"role": "tool", ...}       (next) │
+│ ]                                    │
+└──────────────────────────────────────┘
+Note: If assistant has tool_calls, next must be tool with matching tool_call_id
+
+WHAT WE SEND (CORRUPTED):
+┌──────────────────────────────────────────────────────────────┐
+│ [                                                            │
+│   {"role": "user", "content": "prompt"}                      │
+│   {"role": "assistant", "content": "L3's response",         │
+│     "tool_calls": [{"id": "L3's_id", "name": "..."}]} ✗     │
+│   {"role": "tool", "content": "delegation result",          │
+│     "tool_call_id": "L2's_tool_id"} ✗                       │
+│ ]                                                            │
+└──────────────────────────────────────────────────────────────┘
+ERROR: L3's tool_calls don't match L2's tool_call_id
+       tool_call_id field doesn't refer to any assistant message's tool_calls
+
+API RESPONSE: HTTP 400
+"An assistant message with tool_calls must be followed by tool result 
+messages with matching tool_call_id. The tool_call_id '...' does not match 
+any of the assistant's tool_calls."
+
+═════════════════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════════════════
+                         WHY FIRST REQUEST WORKS
+═════════════════════════════════════════════════════════════════════════════
+
+First L2.AskWithHistory call:
+- ContextWindow is empty (or just system prompt)
+- relay events come in but don't significantly corrupt minimal history
+- API might still accept slightly malformed message
+- First call usually succeeds
+
+Second L2.AskWithHistory call:
+- ContextWindow NOW contains corrupted messages from L3 events
+- Message sequence clearly violates protocol
+- API rejects with HTTP 400
+- All subsequent calls fail
+
+This is why the error manifests on the SECOND request, not the first.
+
+═════════════════════════════════════════════════════════════════════════════

@@ -12,7 +12,8 @@ import (
 
 // mockLocatable 是一个可模拟的 Locatable，用于测试
 type mockLocatable struct {
-	askFunc func(ctx context.Context, prompt string) (string, error)
+	askFunc      func(ctx context.Context, prompt string) (string, error)
+	askStreamFunc func(ctx context.Context, prompt string) (<-chan interface{}, error)
 }
 
 func (m *mockLocatable) Ask(ctx context.Context, prompt string) (string, error) {
@@ -20,6 +21,20 @@ func (m *mockLocatable) Ask(ctx context.Context, prompt string) (string, error) 
 		return m.askFunc(ctx, prompt)
 	}
 	return "mock-result", nil
+}
+
+func (m *mockLocatable) AskStream(ctx context.Context, prompt string) (<-chan interface{}, error) {
+	if m.askStreamFunc != nil {
+		return m.askStreamFunc(ctx, prompt)
+	}
+	ch := make(chan interface{}, 1)
+	ch <- &DoneEvent{Content: "mock-result"}
+	close(ch)
+	return ch, nil
+}
+
+func (m *mockLocatable) Confirm(callID string, choice string) error {
+	return nil
 }
 
 // asyncFakeTool 实现 AsyncTool 接口，用于测试
