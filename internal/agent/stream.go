@@ -16,6 +16,12 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
+// ─── Context Keys for Tool Execution ───────────────────────────────────────
+//
+// 注意：toolEventChannelCtxKey 和 confirmForwarderCtxKey 统一定义在 tools 包中，
+// 由 tools.WithToolEventChannel / tools.WithConfirmForwarder 提供注入。
+// agent 包通过这些导出 helper 使用，避免跨包 context key 类型不匹配。
+
 // ─── runOnceStream ──────────────────────────────────────────────────────────
 
 // runOnceStream 是 AskStream 的执行主体（在 agent goroutine 中串行运行）
@@ -946,7 +952,58 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	}
 
 	start := time.Now()
-	result, err := tool.Execute(execCtx, args)
+
+	// ── 构建 tool 执行 context：注入事件中继 + confirm 路由 ──────────────
+	//
+	// 1. 创建 chan interface{} 中继通道（解决 chan<- AgentEvent 与 chan<- interface{} 类型不匹配）
+	// 2. 启动中继 goroutine：interface{} → AgentEvent 类型转换后 emit 到 parent out
+	// 3. 注入 ConfirmForwarder 闭包：在本 agent 注册代理 slot，用户确认后转发给 child
+	relayCh := make(chan interface{}, 16)
+	toolCtx := tools.WithToolEventChannel(execCtx, relayCh)
+
+	// 注入 confirm forwarder：DelegateTool 消费子 Agent 事件时发现 ToolNeedsConfirmEvent
+	// 会调用此闭包路由确认请求
+	forwarder := tools.ConfirmForwarder(func(fwdCtx context.Context, callID string, child tools.Locatable) (string, error) {
+		// 在本 agent（L2）上注册代理 confirmSlot
+		slot := &confirmSlot{ch: make(chan string, 1)}
+		a.confirmMu.Lock()
+		a.pendingConfirm[callID] = slot
+		a.confirmMu.Unlock()
+
+		defer func() {
+			a.confirmMu.Lock()
+			delete(a.pendingConfirm, callID)
+			a.confirmMu.Unlock()
+		}()
+
+		// 阻塞等待：TUI 调用 L2.Confirm(callID, choice) → slot.ch 收到 choice
+		select {
+		case choice := <-slot.ch:
+			// 转发给 child agent（L3）的原始 confirmSlot
+			if err := child.Confirm(callID, choice); err != nil {
+				return "", err
+			}
+			return choice, nil
+		case <-fwdCtx.Done():
+			return "", fwdCtx.Err()
+		}
+	})
+	toolCtx = tools.WithConfirmForwarder(toolCtx, forwarder)
+
+	// 启动中继 goroutine：将子 Agent 的 interface{} 事件转换为 AgentEvent 后 emit
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		for ev := range relayCh {
+			if agentEv, ok := ev.(AgentEvent); ok {
+				a.emit(ctx, out, agentEv)
+			}
+		}
+	}()
+
+	result, err := tool.Execute(toolCtx, args)
+	close(relayCh) // 通知中继 goroutine 结束
+	<-relayDone    // 等待中继 goroutine 排干所有事件
 	dur := time.Since(start)
 
 	if err != nil {

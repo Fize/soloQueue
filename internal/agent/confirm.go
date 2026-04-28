@@ -103,5 +103,4 @@ const (
 	choiceAllowInSession = tools.ChoiceAllowInSession
 )
 
-// 编译时断言：Agent 实现 tools.Locatable
-var _ tools.Locatable = (*Agent)(nil)
+// Agent 不直接实现 tools.Locatable；由 locatableAdapter 包装提供适配
