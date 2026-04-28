@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
 	"time"
-
 )
 
 // shellExecTool 执行 shell 命令（黑名单/确认名单校验 + 跨平台 shim）
@@ -223,42 +221,6 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	res.ExitCode = cmd.ProcessState.ExitCode()
 	b, _ := json.Marshal(res)
 	return string(b), nil
-}
-
-// limitedWriter wraps w and drops any bytes written past cap; sets truncated=true
-// if dropping happened. Returns nil errors to avoid propagating short-write.
-type limitedWriter struct {
-	w         io.Writer
-	cap       int64
-	written   int64
-	truncated bool
-}
-
-func (lw *limitedWriter) Write(p []byte) (int, error) {
-	if lw.written >= lw.cap {
-		lw.truncated = true
-		return len(p), nil // pretend we wrote; drop silently
-	}
-	remain := lw.cap - lw.written
-	if int64(len(p)) > remain {
-		n, err := lw.w.Write(p[:remain])
-		lw.written += int64(n)
-		lw.truncated = true
-		return len(p), err
-	}
-	n, err := lw.w.Write(p)
-	lw.written += int64(n)
-	return n, err
-}
-
-// matchesAny 检查 s 是否命中 regexes 中任一正则
-func matchesAny(s string, regexes []*regexp.Regexp) bool {
-	for _, re := range regexes {
-		if re.MatchString(s) {
-			return true
-		}
-	}
-	return false
 }
 
 // Compile-time checks

@@ -145,7 +145,7 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", fmt.Errorf("read tavily body: %w", readErr)
 	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("tavily %d: %s", resp.StatusCode, truncString(string(data), 200))
+		return "", fmt.Errorf("tavily %d: %s", resp.StatusCode, truncateString(string(data), 200))
 	}
 
 	var parsed tavilyRespBody
@@ -159,14 +159,6 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
-}
-
-// truncString returns s clipped to at most n chars (rune-safe not required here)
-func truncString(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 // Compile-time check
