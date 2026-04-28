@@ -165,8 +165,16 @@ func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
 // If ctx is cancelled, emit() returns false and streamLoop exits,
 // triggering defer close(out). The 64-slot buffer absorbs transient
 // backpressure.
-func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat streamStrategy, startIter int) {
-	defer close(out)
+func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat streamStrategy, startIter int) (yielded bool) {
+	// Only close out when the stream finishes normally (yielded == false).
+	// When async delegation starts, streamLoop yields (returns true) and out
+	// must stay open so resumeTurn can continue writing events and launch the
+	// next streamLoop call which will close out on its final exit.
+	defer func() {
+		if !yielded {
+			close(out)
+		}
+	}()
 	defer a.recoverAndEmit(ctx, out)
 
 	if a.LLM == nil {
@@ -271,7 +279,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 		results := strat.execTools(a, ctx, iter, toolCalls, out)
 		if strat.postIteration(a, ctx, iter, acc, toolCalls, results, out) {
-			return // async delegation started, loop yields
+			return true // async delegation started, loop yields — out stays open
 		}
 	}
 
@@ -280,6 +288,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		slog.Int("max_iter", maxIter),
 	)
 	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
+	return false
 }
 
 // --- simpleStrategy: in-memory message accumulation (runOnceStream) ---
@@ -368,7 +377,7 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 		// Async path:
 		// - assistant(tool_calls) already pushed to cw
 		// - tool results NOT pushed (wait for async results)
-		// - out NOT closed (resumeTurn will close it)
+		// - out NOT closed (streamLoop returns yielded=true, resumeTurn → streamLoop will close on final exit)
 		// - emit DelegationStartedEvent
 		var numTasks int
 		a.turnMu.RLock()
