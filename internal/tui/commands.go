@@ -42,7 +42,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return true, nil
 
 	case "/help", "/?":
-		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /version /quit") + "\n\n"
+		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /status /version /quit") + "\n\n"
 		cmd = printfWithClear("%s", text)
 
 	case "/clear":
@@ -64,6 +64,10 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 
 	case "/version":
 		text := agentStyle.Render("Solo:") + "\n" + lipgloss.NewStyle().Bold(true).Render("SoloQueue "+m.cfg.Version) + "\n\n"
+		cmd = printfWithClear("%s", text)
+
+	case "/status":
+		text := renderStatus(m.cfg.Registry, m.cfg.Supervisors)
 		cmd = printfWithClear("%s", text)
 
 	default:

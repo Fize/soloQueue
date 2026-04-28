@@ -160,6 +160,9 @@ func (s *Supervisor) Children() []*Agent {
 	return agents
 }
 
+// Agent 返回 Supervisor 管理的 L2 Agent
+func (s *Supervisor) Agent() *Agent { return s.agent }
+
 // ChildCount 返回当前子 Agent 数量
 func (s *Supervisor) ChildCount() int {
 	s.childMu.RLock()
