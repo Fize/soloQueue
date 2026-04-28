@@ -108,13 +108,33 @@ type ErrorEvent struct {
 	Err error
 }
 
+// DelegationStartedEvent L1 异步委托已启动
+//
+// 当一轮 tool_calls 中有至少一个异步工具时发射。
+// UI 可据此显示"正在等待委托结果..."，并允许用户继续与 L1 交互。
+type DelegationStartedEvent struct {
+	Iter     int // 当前迭代号
+	NumTasks int // 本轮有多少个异步委托任务
+}
+
+// DelegationCompletedEvent L1 异步委托已完成
+//
+// 当所有异步委托结果都已回传并注入上下文时发射。
+// 之后 tool loop 会继续执行下一轮 LLM 调用。
+type DelegationCompletedEvent struct {
+	Iter          int
+	TargetAgentID string
+}
+
 // marker impls —— 每个类型实现 AgentEvent
-func (ContentDeltaEvent) agentEvent()     {}
-func (ReasoningDeltaEvent) agentEvent()   {}
-func (ToolCallDeltaEvent) agentEvent()    {}
-func (ToolExecStartEvent) agentEvent()    {}
-func (ToolExecDoneEvent) agentEvent()     {}
-func (ToolNeedsConfirmEvent) agentEvent() {}
-func (IterationDoneEvent) agentEvent()    {}
-func (DoneEvent) agentEvent()             {}
-func (ErrorEvent) agentEvent()            {}
+func (ContentDeltaEvent) agentEvent()       {}
+func (ReasoningDeltaEvent) agentEvent()     {}
+func (ToolCallDeltaEvent) agentEvent()      {}
+func (ToolExecStartEvent) agentEvent()      {}
+func (ToolExecDoneEvent) agentEvent()       {}
+func (ToolNeedsConfirmEvent) agentEvent()   {}
+func (IterationDoneEvent) agentEvent()      {}
+func (DoneEvent) agentEvent()               {}
+func (ErrorEvent) agentEvent()              {}
+func (DelegationStartedEvent) agentEvent()  {}
+func (DelegationCompletedEvent) agentEvent() {}

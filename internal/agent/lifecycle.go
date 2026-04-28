@@ -35,7 +35,6 @@ func (a *Agent) Start(parent context.Context) error {
 	a.ctx, a.cancel = context.WithCancel(parent)
 	// agent 自己的 ctx 也注入 actor_id，这样 run/drain 的日志也自动带
 	a.ctx = a.ctxWithAgentAttrs(a.ctx)
-	a.mailbox = make(chan job, a.mailboxCap)
 	a.done = make(chan struct{})
 	a.exitErr.Store(errHolder{})
 	a.state.Store(int32(StateIdle))
@@ -43,13 +42,21 @@ func (a *Agent) Start(parent context.Context) error {
 	// 每次 Start 清空会话级确认白名单（对应新 session）
 	a.confirmStore.Clear()
 
-	go a.run(a.ctx, a.mailbox, a.done)
+	// 根据是否启用 PriorityMailbox 选择 run 函数
+	if a.priorityMailbox != nil {
+		go a.runWithPriorityMailbox(a.ctx, a.priorityMailbox, a.done)
+	} else {
+		a.mailbox = make(chan job, a.mailboxCap)
+		go a.run(a.ctx, a.mailbox, a.done)
+	}
 
 	a.logInfo(a.ctx, logger.CatActor, "agent started",
 		slog.String("kind", string(a.Def.Kind)),
 		slog.String("role", string(a.Def.Role)),
 		slog.String("model_id", a.Def.ModelID),
 		slog.Int("mailbox_cap", a.mailboxCap),
+		slog.Bool("priority_mailbox", a.priorityMailbox != nil),
+		slog.Bool("ephemeral", a.ephemeral),
 	)
 	return nil
 }

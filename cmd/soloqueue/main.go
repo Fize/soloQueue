@@ -151,6 +151,13 @@ Environment:
 				leaders = nil // 无 leader 时不阻塞启动
 			}
 
+			// 加载所有 Agent 模板（Phase B：支持 L2 多代理架构）
+			allTemplates, err := agent.LoadAgentTemplates(filepath.Join(workDir, "agents"))
+			if err != nil {
+				log.Warn(logger.CatApp, "failed to load agent templates", "err", err)
+				allTemplates = nil
+			}
+
 			// 构建系统提示词
 			systemPrompt, err := promptCfg.BuildPrompt(leaders)
 			if err != nil {
@@ -164,6 +171,25 @@ Environment:
 
 			// 共享 Agent Registry（供 DelegateSkill 的 AgentLocator 查找 L2 Agent）
 			agentRegistry := agent.NewRegistry(log)
+
+			// 创建 DefaultFactory（用于实例化 L2/L3 Agent）
+			agentFactory := agent.NewDefaultFactory(agentRegistry, llmClient, toolsCfg, filepath.Join(workDir, "skills"), log)
+
+			// 创建 L2 Agents（领域领导者）
+			var supervisors []*agent.Supervisor
+			for _, tmpl := range allTemplates {
+				if tmpl.IsLeader {
+					l2Agent, _, err := agentFactory.Create(context.Background(), tmpl)
+					if err != nil {
+						log.Warn(logger.CatApp, "failed to create L2 agent", "name", tmpl.Name, "err", err)
+						continue
+					}
+					// 创建 Supervisor 管理 L3 子 Agent 生命周期
+					sv := agent.NewSupervisor(l2Agent, agentFactory, log)
+					supervisors = append(supervisors, sv)
+				}
+			}
+			_ = supervisors // Phase B: 保留引用供后续扩展
 
 			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 				agentID := newAgentID()
@@ -196,15 +222,22 @@ Environment:
 				if err != nil {
 					return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 				}
-				// Tools: 内置工具 + DelegateTool
+				// Tools: 内置工具 + DelegateTool（异步模式：L1 → L2）
 				allTools := tools.Build(toolsCfg)
 				for _, l := range leaders {
-					allTools = append(allTools, &tools.DelegateTool{
+					dt := &tools.DelegateTool{
 						LeaderID: l.Name,
 						Desc:     l.Description,
-						Locator:  agentRegistry,
-						Timeout:  5 * time.Minute,
-					})
+						SpawnFn: func(ctx context.Context, task string) (tools.Locatable, error) {
+							a, ok := agentRegistry.Get(l.Name)
+							if !ok {
+								return nil, fmt.Errorf("leader %q not found", l.Name)
+							}
+							return a, nil
+						},
+						Timeout: 5 * time.Minute,
+					}
+					allTools = append(allTools, dt)
 				}
 
 				// Skills: 用户 SKILL.md
@@ -217,6 +250,7 @@ Environment:
 					agent.WithTools(allTools...),
 					agent.WithSkills(skillList...),
 					agent.WithParallelTools(true),
+					agent.WithPriorityMailbox(), // L1 需要优先级 mailbox 支持异步委托
 					agent.WithToolTimeout("shell_exec", 30*time.Second),
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
 					agent.WithToolTimeout("web_search", 15*time.Second),
@@ -456,7 +490,29 @@ func serveCmd() *cobra.Command {
 					return fmt.Errorf("ensure prompt files: %w", err)
 				}
 			}
+			// 共享 Agent Registry（供 DelegateSkill 的 AgentLocator 查找 L2 Agent）
+			serveAgentRegistry := agent.NewRegistry(log)
+
 			serveLeaders, _ := prompt.LoadLeaders(filepath.Join(workDir, "agents"))
+			allTemplates, err := agent.LoadAgentTemplates(filepath.Join(workDir, "agents"))
+			if err != nil {
+				log.Warn(logger.CatApp, "load agent templates failed", "error", err)
+			}
+			agentFactory := agent.NewDefaultFactory(serveAgentRegistry, llmClient, toolsCfg, filepath.Join(workDir, "skills"), log)
+
+			var supervisors []*agent.Supervisor
+			for _, tmpl := range allTemplates {
+				if tmpl.IsLeader {
+					l2Agent, _, err := agentFactory.Create(cmd.Context(), tmpl)
+					if err != nil {
+						log.Warn(logger.CatApp, "create l2 agent failed", "name", tmpl.Name, "error", err)
+						continue
+					}
+					sv := agent.NewSupervisor(l2Agent, agentFactory, log)
+					supervisors = append(supervisors, sv)
+				}
+			}
+			_ = supervisors
 			serveSystemPrompt, err := servePromptCfg.BuildPrompt(serveLeaders)
 			if err != nil {
 				return fmt.Errorf("build system prompt: %w", err)
@@ -466,9 +522,6 @@ func serveCmd() *cobra.Command {
 			tlMaxBytes := int64(defaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
 			tlMaxFiles := defaultInt(settings.Session.TimelineMaxFiles, 5)
 			replaySegs := defaultInt(settings.Session.ReplaySegments, 3)
-
-			// 共享 Agent Registry（供 DelegateSkill 的 AgentLocator 查找 L2 Agent）
-			serveAgentRegistry := agent.NewRegistry(log)
 
 			factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 				agentID := newAgentID()
@@ -508,12 +561,19 @@ func serveCmd() *cobra.Command {
 				// Tools: 内置工具 + DelegateTool
 				serveAllTools := tools.Build(toolsCfg)
 				for _, l := range serveLeaders {
-					serveAllTools = append(serveAllTools, &tools.DelegateTool{
+					dt := &tools.DelegateTool{
 						LeaderID: l.Name,
 						Desc:     l.Description,
-						Locator:  serveAgentRegistry,
-						Timeout:  5 * time.Minute,
-					})
+						SpawnFn: func(ctx context.Context, task string) (tools.Locatable, error) {
+							a, ok := serveAgentRegistry.Get(l.Name)
+							if !ok {
+								return nil, fmt.Errorf("leader %q not found", l.Name)
+							}
+							return a, nil
+						},
+						Timeout: 5 * time.Minute,
+					}
+					serveAllTools = append(serveAllTools, dt)
 				}
 
 				// Skills: 用户 SKILL.md
@@ -526,6 +586,7 @@ func serveCmd() *cobra.Command {
 					agent.WithTools(serveAllTools...),
 					agent.WithSkills(serveSkillList...),
 					agent.WithParallelTools(true),
+					agent.WithPriorityMailbox(),
 					agent.WithToolTimeout("shell_exec", 30*time.Second),
 					agent.WithToolTimeout("http_fetch", 10*time.Second),
 					agent.WithToolTimeout("web_search", 15*time.Second),
