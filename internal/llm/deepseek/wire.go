@@ -198,8 +198,7 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 		out.ResponseFormat = &wireRespFormat{Type: "json_object"}
 	}
 	if req.ReasoningEffort != "" {
-		re := req.ReasoningEffort
-		out.ReasoningEffort = &re
+		out.ReasoningEffort = &req.ReasoningEffort
 	}
 	return out
 }
