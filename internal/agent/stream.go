@@ -214,7 +214,6 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			Tools:           specs,
 			ReasoningEffort: a.Def.ReasoningEffort,
 			ThinkingEnabled: a.Def.ThinkingEnabled,
-			ThinkingType:    a.Def.ThinkingType,
 			IncludeUsage:    true,
 		}
 
