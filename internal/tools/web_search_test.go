@@ -165,7 +165,7 @@ func TestWebSearch_CtxCanceledUpfront(t *testing.T) {
 
 func TestWebSearch_MetadataInterface(t *testing.T) {
 	tool := mkWebSearchTool(t, "http://example.com")
-	if tool.Name() != "web_search" {
+	if tool.Name() != "WebSearch" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any

@@ -34,7 +34,7 @@ type multiWriteTool struct {
 
 func newMultiWriteTool(cfg Config) *multiWriteTool { return &multiWriteTool{cfg: cfg} }
 
-func (multiWriteTool) Name() string { return "multi_write" }
+func (multiWriteTool) Name() string { return "MultiWrite" }
 
 func (multiWriteTool) Description() string {
 	return "Write multiple files best-effort (each file atomically; failures per-file do not abort others). " +

@@ -8,11 +8,11 @@ import (
 // DefaultRules 通用规则模板（不特化场景）。
 const DefaultRules = `## Orchestration Rules
 
-1. **MANDATORY Delegate First**: You MUST use delegate_* tools for ALL tasks that fall within a team's domain. NEVER use built-in tools (file_read, grep, glob, shell_exec, write_file, etc.) for tasks that a Team Leader can handle. Delegating is not optional — it is the default. Self-execution is ONLY allowed when no team matches the task.
+1. **MANDATORY Delegate First**: You MUST use delegate_* tools for ALL tasks that fall within a team's domain. NEVER use built-in tools (Read, Grep, Glob, Bash, Write, etc.) for tasks that a Team Leader can handle. Delegating is not optional — it is the default. Self-execution is ONLY allowed when no team matches the task.
 
 2. **Immediate Delegation When Specified**: When the user explicitly names a team or says to delegate to a specific team, call the corresponding delegate_* tool IMMEDIATELY. Do NOT investigate, analyze, or use any tools beforehand — just delegate the user's request as-is.
 
-3. **No Pre-Delegation Investigation**: Do NOT use any tools (grep, glob, file_read, shell_exec, etc.) before delegating. Your job is to route tasks, not execute them. Pass the user's original request to the delegate tool without modification or pre-processing.
+3. **No Pre-Delegation Investigation**: Do NOT use any tools (Grep, Glob, Read, Bash, etc.) before delegating. Your job is to route tasks, not execute them. Pass the user's original request to the delegate tool without modification or pre-processing.
 
 4. **Task Distribution**: When a user request spans multiple domains, decompose it and delegate the sub-tasks to the corresponding Team Leaders in parallel.
 
@@ -72,7 +72,7 @@ Your core responsibilities: understand user intent, decompose complex tasks, del
 
 You have access to tools and can execute operations yourself, but you MUST follow this priority order:
 
-1. **MANDATORY Delegate First**: You MUST use delegate_* tools for ALL tasks that match a team's domain. NEVER use built-in tools (file_read, grep, glob, shell_exec, write_file, etc.) when a Team Leader can handle the task. This is not optional — delegation is the default.
+1. **MANDATORY Delegate First**: You MUST use delegate_* tools for ALL tasks that match a team's domain. NEVER use built-in tools (Read, Grep, Glob, Bash, Write, etc.) when a Team Leader can handle the task. This is not optional — delegation is the default.
 2. **Immediate Delegation When Specified**: When the user explicitly names a team, call the delegate tool IMMEDIATELY without any prior tool usage or analysis.
 3. **Self-execution as Fallback**: Only use tools yourself when:
    - No team is available

@@ -262,7 +262,7 @@ func TestIsPrivateIP(t *testing.T) {
 
 func TestHTTP_MetadataInterface(t *testing.T) {
 	tool := mkHTTPTool(t, nil)
-	if tool.Name() != "http_fetch" {
+	if tool.Name() != "WebFetch" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any
@@ -278,7 +278,7 @@ func TestHTTPFetch_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
 	raw, _ := json.Marshal(httpFetchArgs{URL: "https://example.com/api/data"})
 	needs, prompt := tool.CheckConfirmation(string(raw))
 	if !needs {
-		t.Error("http_fetch should always need confirmation")
+		t.Error("WebFetch should always need confirmation")
 	}
 	if prompt == "" {
 		t.Error("expected non-empty prompt")

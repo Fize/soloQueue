@@ -216,7 +216,7 @@ func TestWriteFile_CtxPreCanceled(t *testing.T) {
 
 func TestWriteFile_MetadataInterface(t *testing.T) {
 	tool, _ := mkWriteFileTool(t, 1024)
-	if tool.Name() != "write_file" {
+	if tool.Name() != "Write" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any
@@ -232,7 +232,7 @@ func TestWriteFile_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
 	raw, _ := json.Marshal(writeFileArgs{Path: "/tmp/test.go", Content: "hello world"})
 	needs, prompt := tool.CheckConfirmation(string(raw))
 	if !needs {
-		t.Error("write_file should always need confirmation")
+		t.Error("Write should always need confirmation")
 	}
 	if prompt == "" {
 		t.Error("expected non-empty prompt")
@@ -541,7 +541,7 @@ func TestMultiWrite_CtxPreCanceled(t *testing.T) {
 
 func TestMultiWrite_MetadataInterface(t *testing.T) {
 	tool, _ := mkMultiWriteTool(t, 10, 1024)
-	if tool.Name() != "multi_write" {
+	if tool.Name() != "MultiWrite" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any

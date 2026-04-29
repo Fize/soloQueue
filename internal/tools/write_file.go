@@ -28,7 +28,7 @@ type writeFileTool struct {
 
 func newWriteFileTool(cfg Config) *writeFileTool { return &writeFileTool{cfg: cfg} }
 
-func (writeFileTool) Name() string { return "write_file" }
+func (writeFileTool) Name() string { return "Write" }
 
 func (writeFileTool) Description() string {
 	return "Atomically write a UTF-8 text file within the sandbox. " +

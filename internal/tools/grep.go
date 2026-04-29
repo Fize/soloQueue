@@ -40,7 +40,7 @@ type grepTool struct {
 
 func newGrepTool(cfg Config) *grepTool { return &grepTool{cfg: cfg} }
 
-func (grepTool) Name() string { return "grep" }
+func (grepTool) Name() string { return "Grep" }
 
 func (grepTool) Description() string {
 	return "Search for a Go-regex pattern across files under dir (within the sandbox). " +
