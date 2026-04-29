@@ -61,6 +61,14 @@ type asyncTurnState struct {
 	results []string
 	pending   atomic.Int32  // 还剩几个异步调用未完成
 	callerCtx context.Context
+
+	// cancelMerged holds the cancel function for the merged context.
+	//
+	// When streamLoop yields for async delegation, the job closure in
+	// AskStreamWithHistory must NOT cancel the merged context (callerCtx)
+	// — resumeTurn still needs it. Instead, the cancel is deferred here
+	// and invoked after the final streamLoop completes in resumeTurn.
+	cancelMerged context.CancelFunc
 }
 
 // ─── execTools 异步路径 ────────────────────────────────────────────────────
@@ -206,10 +214,31 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			})
 		}
 	case <-task.turn.callerCtx.Done():
-		// caller 取消，清理
-		a.turnMu.Lock()
-		delete(a.asyncTurns, task.turn.iter)
-		a.turnMu.Unlock()
+		// Caller context cancelled. Give replyCh a short grace period —
+		// the result might already be in-flight and arrive momentarily.
+		select {
+		case result := <-task.replyCh:
+			toolResult := result.content
+			if result.err != nil {
+				toolResult = "error: " + result.err.Error()
+			}
+			task.turn.results[task.callIndex] = toolResult
+
+			if task.turn.pending.Add(-1) == 0 {
+				a.submitHighPriority(func(ctx context.Context) {
+					a.resumeTurn(task.turn)
+				})
+			}
+		case <-time.After(100 * time.Millisecond):
+			// Genuinely cancelled — fill a synthetic error result and
+			// ensure resumeTurn is still triggered so out gets closed.
+			task.turn.results[task.callIndex] = "error: delegation cancelled"
+			if task.turn.pending.Add(-1) == 0 {
+				a.submitHighPriority(func(ctx context.Context) {
+					a.resumeTurn(task.turn)
+				})
+			}
+		}
 	}
 }
 
@@ -243,6 +272,12 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 
 	// 继续工具循环
 	a.continueToolLoop(turn.callerCtx, turn.out, turn.cw, turn.iter+1)
+
+	// Final streamLoop completed — cancel the merged context that was
+	// kept alive for resumeTurn. This prevents context leak.
+	if turn.cancelMerged != nil {
+		turn.cancelMerged()
+	}
 }
 
 // continueToolLoop 从指定 iter 开始继续工具循环
@@ -261,4 +296,24 @@ func (a *Agent) continueToolLoop(
 // generateCorrID 生成一个唯一的 correlation ID
 func generateCorrID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// saveAsyncCancel stores the cancel function into the asyncTurnState whose
+// callerCtx matches ctx. Called by AskStreamWithHistory when streamLoop
+// yields so that resumeTurn can cancel the merged context after the final
+// streamLoop completes.
+//
+// If no matching asyncTurnState is found (should not happen), cancel is
+// invoked immediately to prevent context leak.
+func (a *Agent) saveAsyncCancel(ctx context.Context, cancel context.CancelFunc) {
+	a.turnMu.Lock()
+	defer a.turnMu.Unlock()
+	for _, ts := range a.asyncTurns {
+		if ts.callerCtx == ctx {
+			ts.cancelMerged = cancel
+			return
+		}
+	}
+	// Defensive: no matching turn found — cancel now to prevent leak.
+	cancel()
 }
