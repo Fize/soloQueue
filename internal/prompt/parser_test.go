@@ -14,9 +14,6 @@ model: glm-5.0-ioa
 reasoning: true
 group: DevOps
 is_leader: true
-skills:
-  - Agent Browser
-  - pua
 sub_agents:
   - qa_bot
 ---
@@ -42,9 +39,6 @@ sub_agents:
 	}
 	if af.Frontmatter.Group != "DevOps" {
 		t.Errorf("Group = %q, want %q", af.Frontmatter.Group, "DevOps")
-	}
-	if len(af.Frontmatter.Skills) != 2 {
-		t.Errorf("Skills len = %d, want 2", len(af.Frontmatter.Skills))
 	}
 	if len(af.Frontmatter.SubAgents) != 1 {
 		t.Errorf("SubAgents len = %d, want 1", len(af.Frontmatter.SubAgents))
@@ -86,7 +80,7 @@ group: DevOps
 ---
 body`), 0o644)
 
-	leaders, err := LoadLeaders(dir)
+	leaders, err := LoadLeaders(dir, nil, "")
 	if err != nil {
 		t.Fatalf("LoadLeaders: %v", err)
 	}
@@ -105,11 +99,123 @@ body`), 0o644)
 func TestLoadLeaders_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
-	leaders, err := LoadLeaders(dir)
+	leaders, err := LoadLeaders(dir, nil, "")
 	if err != nil {
 		t.Fatalf("LoadLeaders: %v", err)
 	}
 	if len(leaders) != 0 {
 		t.Errorf("len(leaders) = %d, want 0", len(leaders))
+	}
+}
+
+func TestLoadLeaders_WithGroups(t *testing.T) {
+	agentsDir := t.TempDir()
+	groupsDir := t.TempDir()
+
+	// 创建 group 文件
+	os.WriteFile(filepath.Join(groupsDir, "DevOps.md"), []byte(`---
+name: DevOps
+workspaces:
+  - name: kumquat
+    path: /Users/test/kumquat
+    autoWork:
+      enabled: false
+      initialCooldownMinutes: 1
+      postTaskCooldownMinutes: 30
+      maxIntervalsPerDay: 24
+---
+开发团队，专注前后端开发
+`), 0o644)
+
+	// 创建 leader agent
+	os.WriteFile(filepath.Join(agentsDir, "dev.md"), []byte(`---
+name: dev
+description: 全栈开发工程师
+is_leader: true
+group: DevOps
+sub_agents:
+  - qa_bot
+---
+body`), 0o644)
+
+	// 加载 groups
+	groups, err := LoadGroups(groupsDir)
+	if err != nil {
+		t.Fatalf("LoadGroups: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("len(groups) = %d, want 1", len(groups))
+	}
+	if groups["DevOps"].Body != "开发团队，专注前后端开发" {
+		t.Errorf("GroupBody = %q, want %q", groups["DevOps"].Body, "开发团队，专注前后端开发")
+	}
+
+	// 加载 leaders（传入 groups）
+	leaders, err := LoadLeaders(agentsDir, groups, "/Users/test/kumquat")
+	if err != nil {
+		t.Fatalf("LoadLeaders: %v", err)
+	}
+
+	if len(leaders) != 1 {
+		t.Fatalf("len(leaders) = %d, want 1", len(leaders))
+	}
+	l := leaders[0]
+	if l.GroupDescription != "开发团队，专注前后端开发" {
+		t.Errorf("GroupDescription = %q, want %q", l.GroupDescription, "开发团队，专注前后端开发")
+	}
+	if l.MatchedWorkspace == nil {
+		t.Fatal("MatchedWorkspace = nil, want non-nil")
+	}
+	if l.MatchedWorkspace.Name != "kumquat" {
+		t.Errorf("MatchedWorkspace.Name = %q, want %q", l.MatchedWorkspace.Name, "kumquat")
+	}
+	if len(l.SubAgents) != 1 || l.SubAgents[0] != "qa_bot" {
+		t.Errorf("SubAgents = %v, want [qa_bot]", l.SubAgents)
+	}
+}
+
+func TestLoadGroups(t *testing.T) {
+	dir := t.TempDir()
+
+	os.WriteFile(filepath.Join(dir, "DevOps.md"), []byte(`---
+name: DevOps
+workspaces:
+  - name: kumquat
+    path: /Users/test/kumquat
+---
+开发团队
+`), 0o644)
+
+	os.WriteFile(filepath.Join(dir, "Design.md"), []byte(`---
+name: Design
+---
+设计师团队
+`), 0o644)
+
+	groups, err := LoadGroups(dir)
+	if err != nil {
+		t.Fatalf("LoadGroups: %v", err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("len(groups) = %d, want 2", len(groups))
+	}
+	if groups["DevOps"].Body != "开发团队" {
+		t.Errorf("DevOps body = %q, want %q", groups["DevOps"].Body, "开发团队")
+	}
+	if len(groups["DevOps"].Frontmatter.Workspaces) != 1 {
+		t.Errorf("DevOps workspaces len = %d, want 1", len(groups["DevOps"].Frontmatter.Workspaces))
+	}
+	if groups["Design"].Body != "设计师团队" {
+		t.Errorf("Design body = %q, want %q", groups["Design"].Body, "设计师团队")
+	}
+}
+
+func TestLoadGroups_NonexistentDir(t *testing.T) {
+	groups, err := LoadGroups("/nonexistent/path")
+	if err != nil {
+		t.Fatalf("LoadGroups on nonexistent dir should not error: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("len(groups) = %d, want 0", len(groups))
 	}
 }
