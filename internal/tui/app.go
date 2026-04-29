@@ -130,16 +130,20 @@ type confirmState struct {
 // ─── Bubble Tea messages ──────────────────────────────────────────────────────
 
 type agentEventMsg struct {
-	event  agent.AgentEvent
-	evCh   <-chan agent.AgentEvent
-	cancel context.CancelFunc
+	event    agent.AgentEvent
+	evCh     <-chan agent.AgentEvent
+	cancel   context.CancelFunc
+	streamID int // identifies which stream this event belongs to
 }
 type streamStartMsg struct {
-	evCh   <-chan agent.AgentEvent
-	cancel context.CancelFunc
-	err    error
+	evCh     <-chan agent.AgentEvent
+	cancel   context.CancelFunc
+	err      error
+	streamID int
 }
-type streamDoneMsg struct{}
+type streamDoneMsg struct {
+	streamID int
+}
 type confirmResultMsg struct {
 	callID string
 	choice string
@@ -186,6 +190,7 @@ type model struct {
 	// Current stream
 	current      *streamState
 	streamCancel context.CancelFunc
+	nextStreamID int // monotonically increasing stream ID for concurrent stream tracking
 
 	// Input history navigation
 	history      []string
@@ -382,6 +387,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Start streaming
+			m.nextStreamID++
+			sid := m.nextStreamID
 			m.isGenerating = true
 			m.genDotOn = true
 			m.genStartTime = time.Now()
@@ -398,7 +405,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, message{role: "agent"})
 
 			// Launch AskStream in goroutine
-			cmd = m.startStream(input)
+			cmd = m.startStream(input, sid)
 			return m, tea.Sequence(userPrintCmd, cmd, dotCmd())
 
 		case "up":
@@ -431,45 +438,55 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.streamCancel = msg.cancel
 		// Start consuming events
-		return m, waitForAgentEvent(msg.evCh, msg.cancel)
+		return m, waitForAgentEvent(msg.evCh, msg.cancel, msg.streamID)
 
 	case agentEventMsg:
 		m.handleAgentEvent(msg.event)
+		// On DelegationStartedEvent: release isGenerating so user can type
+		if _, ok := msg.event.(agent.DelegationStartedEvent); ok {
+			m.isGenerating = false
+		}
 		// Flush completed timeline entries to scrollback if content exceeds budget
 		flushCmd := m.maybeFlushIncremental()
 		if flushCmd != nil {
-			return m, tea.Sequence(flushCmd, waitForAgentEvent(msg.evCh, msg.cancel))
+			return m, tea.Sequence(flushCmd, waitForAgentEvent(msg.evCh, msg.cancel, msg.streamID))
 		}
-		return m, waitForAgentEvent(msg.evCh, msg.cancel)
+		return m, waitForAgentEvent(msg.evCh, msg.cancel, msg.streamID)
 
 	case streamDoneMsg:
-		elapsed := formatDuration(time.Since(m.genStartTime))
-		pt, ot := m.promptTokens, m.outputTokens
-		ch, cm, rt := m.cacheHitTokens, m.cacheMissTokens, m.reasoningTokens
-		flushCmd := m.flushCompletedTurn()
-		m.resetGenState()
-		var tokenParts []string
-		if pt > 0 {
-			tokenParts = append(tokenParts, fmt.Sprintf("↓ %s", formatTokenCount(pt)))
+		// Only finalize if this is the latest stream (or no delegation was involved)
+		// Delegation streams may complete while user is typing a new message
+		if msg.streamID == m.nextStreamID || !m.isGenerating {
+			elapsed := formatDuration(time.Since(m.genStartTime))
+			pt, ot := m.promptTokens, m.outputTokens
+			ch, cm, rt := m.cacheHitTokens, m.cacheMissTokens, m.reasoningTokens
+			flushCmd := m.flushCompletedTurn()
+			m.resetGenState()
+			var tokenParts []string
+			if pt > 0 {
+				tokenParts = append(tokenParts, fmt.Sprintf("↓ %s", formatTokenCount(pt)))
+			}
+			if ot > 0 {
+				tokenParts = append(tokenParts, fmt.Sprintf("↑ %s", formatTokenCount(ot)))
+			}
+			if ch > 0 || cm > 0 {
+				tokenParts = append(tokenParts, fmt.Sprintf("cache %s/%s", formatTokenCount(ch), formatTokenCount(cm)))
+			}
+			if rt > 0 {
+				tokenParts = append(tokenParts, fmt.Sprintf("think %s", formatTokenCount(rt)))
+			}
+			if len(tokenParts) > 0 {
+				m.genSummary = fmt.Sprintf("✓ %s · %s", elapsed, strings.Join(tokenParts, " · "))
+			} else {
+				m.genSummary = fmt.Sprintf("✓ %s", elapsed)
+			}
+			if flushCmd != nil {
+				return m, tea.Sequence(flushCmd, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} }))
+			}
+			return m, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} })
 		}
-		if ot > 0 {
-			tokenParts = append(tokenParts, fmt.Sprintf("↑ %s", formatTokenCount(ot)))
-		}
-		if ch > 0 || cm > 0 {
-			tokenParts = append(tokenParts, fmt.Sprintf("cache %s/%s", formatTokenCount(ch), formatTokenCount(cm)))
-		}
-		if rt > 0 {
-			tokenParts = append(tokenParts, fmt.Sprintf("think %s", formatTokenCount(rt)))
-		}
-		if len(tokenParts) > 0 {
-			m.genSummary = fmt.Sprintf("✓ %s · %s", elapsed, strings.Join(tokenParts, " · "))
-		} else {
-			m.genSummary = fmt.Sprintf("✓ %s", elapsed)
-		}
-		if flushCmd != nil {
-			return m, tea.Sequence(flushCmd, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} }))
-		}
-		return m, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} })
+		// Older delegation stream completed while user is typing — just flush silently
+		return m, m.flushCompletedTurn()
 
 	case dotMsg:
 		if m.isGenerating {
@@ -872,25 +889,25 @@ func dotCmd() tea.Cmd {
 	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return dotMsg{} })
 }
 
-func (m model) startStream(prompt string) tea.Cmd {
+func (m model) startStream(prompt string, streamID int) tea.Cmd {
 	return func() tea.Msg {
 		streamCtx, cancel := context.WithCancel(m.ctx)
 		evCh, err := m.sess.AskStream(streamCtx, prompt)
-		return streamStartMsg{evCh: evCh, cancel: cancel, err: err}
+		return streamStartMsg{evCh: evCh, cancel: cancel, err: err, streamID: streamID}
 	}
 }
 
 // waitForAgentEvent returns a tea.Cmd that blocks until an event is available
 // on evCh, then returns the event as a tea.Msg. After each event, the Update
 // handler should call waitForAgentEvent again to continue consuming.
-func waitForAgentEvent(evCh <-chan agent.AgentEvent, cancel context.CancelFunc) tea.Cmd {
+func waitForAgentEvent(evCh <-chan agent.AgentEvent, cancel context.CancelFunc, streamID int) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-evCh
 		if !ok {
 			cancel()
-			return streamDoneMsg{}
+			return streamDoneMsg{streamID: streamID}
 		}
-		return agentEventMsg{event: ev, evCh: evCh, cancel: cancel}
+		return agentEventMsg{event: ev, evCh: evCh, cancel: cancel, streamID: streamID}
 	}
 }
 
