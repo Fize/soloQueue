@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -753,5 +754,163 @@ func TestDelegationEvents_AreAgentEvents(t *testing.T) {
 		// ok
 	default:
 		t.Error("DelegationCompletedEvent not recognized in type switch")
+	}
+}
+
+// ─── Integration: L2 failure must not hang L1 ────────────────────────────
+
+func TestEndToEnd_AsyncDelegation_L2Failure(t *testing.T) {
+	// Reproduces the original bug: L1 delegates to L2, L2's Ask returns an
+	// error (e.g. invalid model → HTTP 400). Before the fix, L1's out channel
+	// was never closed and the caller hung forever.
+	//
+	// The fix ensures:
+	//   1. defer cancel() does NOT prematurely cancel merged ctx on yield
+	//   2. watchDelegatedTask always triggers resumeTurn (even on ctx cancel)
+
+	target := &mockLocatable{
+		askFunc: func(ctx context.Context, prompt string) (string, error) {
+			return "", fmt.Errorf("llm: http 400: model not found")
+		},
+	}
+
+	delegateTool := &mockAsyncTool{
+		name: "delegate",
+		action: &tools.AsyncAction{
+			Target:  target,
+			Prompt:  "do something",
+			Timeout: 5 * time.Second,
+		},
+	}
+
+	// L1 FakeLLM: turn 0 = tool call, turn 1 = final answer
+	fakeLLM := &FakeLLM{
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
+			{
+				{Index: 0, ID: "call_1", Name: "delegate", Arguments: `{"task":"test"}`},
+			},
+		},
+		StreamDeltas: [][]string{{"recovered from L2 failure"}},
+	}
+
+	a := NewAgent(Definition{ID: "l1"}, fakeLLM, newTestLogger(t),
+		WithTools(delegateTool),
+		WithPriorityMailbox(),
+	)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop(2 * time.Second)
+
+	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "you are helpful")
+
+	// Use AskStreamWithHistory — the exact code path that was hanging.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ch, err := a.AskStreamWithHistory(ctx, cw, "delegate to L2")
+	if err != nil {
+		t.Fatalf("AskStreamWithHistory: %v", err)
+	}
+
+	// Collect all events. Before the fix this would block forever.
+	var events []AgentEvent
+	for ev := range ch {
+		events = append(events, ev)
+	}
+
+	if len(events) == 0 {
+		t.Fatal("received no events — out channel was likely never closed (bug not fixed)")
+	}
+
+	// Should have DelegationStartedEvent
+	hasDelegation := false
+	for _, ev := range events {
+		if _, ok := ev.(DelegationStartedEvent); ok {
+			hasDelegation = true
+		}
+	}
+	if !hasDelegation {
+		t.Error("expected DelegationStartedEvent")
+	}
+
+	// Should eventually get content (L1 recovers after L2 error)
+	hasContent := false
+	for _, ev := range events {
+		if e, ok := ev.(ContentDeltaEvent); ok && strings.Contains(e.Delta, "recovered") {
+			hasContent = true
+		}
+		if e, ok := ev.(DoneEvent); ok && strings.Contains(e.Content, "recovered") {
+			hasContent = true
+		}
+	}
+	if !hasContent {
+		t.Error("expected L1 to recover with final content after L2 failure")
+	}
+
+	t.Logf("received %d events total — L1 did not hang", len(events))
+}
+
+// ─── Integration: watchDelegatedTask grace period catches in-flight result ──
+
+func TestWatchDelegatedTask_GracePeriodCatchesInFlightResult(t *testing.T) {
+	// Verify that when callerCtx is cancelled but the result arrives within
+	// the 100ms grace period, the result is NOT lost.
+	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+		WithPriorityMailbox(),
+	)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop(time.Second)
+
+	replyCh := make(chan delegateResult, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // immediately cancelled
+
+	turnState := &asyncTurnState{
+		agentID:   "l1",
+		out:       make(chan AgentEvent, 64),
+		cw:        ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer()),
+		iter:      0,
+		toolCalls: []llm.ToolCall{},
+		results:   make([]string, 1),
+		callerCtx: ctx,
+	}
+	turnState.pending.Store(1)
+
+	a.turnMu.Lock()
+	a.asyncTurns[0] = turnState
+	a.turnMu.Unlock()
+
+	task := &delegatedTask{
+		correlationID: "test-grace",
+		targetAgentID: "l2",
+		replyCh:       replyCh,
+		callID:        "call_1",
+		callIndex:     0,
+		turn:          turnState,
+	}
+
+	// Send result to replyCh BEFORE watchDelegatedTask runs.
+	// Even though ctx is cancelled, the grace period should pick it up.
+	replyCh <- delegateResult{content: "real-result", err: nil}
+
+	done := make(chan struct{})
+	go func() {
+		a.watchDelegatedTask(task)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// The real result should be captured, not "delegation cancelled"
+		if turnState.results[0] != "real-result" {
+			t.Errorf("results[0] = %q, want %q", turnState.results[0], "real-result")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("watchDelegatedTask did not complete")
 	}
 }
