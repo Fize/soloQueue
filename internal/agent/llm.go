@@ -43,10 +43,6 @@ type LLMRequest struct {
 	// ThinkingEnabled 是否启用思考模式
 	ThinkingEnabled bool
 
-	// ThinkingType 思考类型
-	// "reasoning" | "extended_thinking" | ""
-	ThinkingType string
-
 	// Tool-calling
 	Tools      []llm.ToolDef // 空表示无 tool
 	ToolChoice string        // "" | "none" | "auto" | "required"

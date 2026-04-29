@@ -41,36 +41,6 @@ func (s *GlobalService) DefaultProvider() *LLMProvider {
 	return nil
 }
 
-// DefaultModel 返回指定 type 中 isDefault=true 的模型
-// modelType 为空时忽略 type 过滤
-func (s *GlobalService) DefaultModel(modelType string) *LLMModel {
-	settings := s.Get()
-	for i := range settings.Models {
-		m := settings.Models[i]
-		if !m.Enabled {
-			continue
-		}
-		if modelType != "" && m.Type != modelType {
-			continue
-		}
-		if m.IsDefault {
-			return &m
-		}
-	}
-	// 无 isDefault 则返回第一个匹配的
-	for i := range settings.Models {
-		m := settings.Models[i]
-		if !m.Enabled {
-			continue
-		}
-		if modelType != "" && m.Type != modelType {
-			continue
-		}
-		return &m
-	}
-	return nil
-}
-
 // DefaultEmbeddingModel 返回 isDefault=true 的 Embedding 模型
 func (s *GlobalService) DefaultEmbeddingModel() *EmbeddingModel {
 	settings := s.Get()
@@ -105,6 +75,80 @@ func (s *GlobalService) ModelByID(id string) *LLMModel {
 		}
 	}
 	return nil
+}
+
+// ModelByProviderID 按 providerID + modelID 双键查找 LLM Model
+func (s *GlobalService) ModelByProviderID(providerID, modelID string) *LLMModel {
+	settings := s.Get()
+	for i := range settings.Models {
+		m := settings.Models[i]
+		if m.ProviderID == providerID && m.ID == modelID {
+			return &m
+		}
+	}
+	return nil
+}
+
+// DefaultModelByRole 按角色解析默认模型
+//
+// role 支持: "expert", "superior", "universal", "fast"。
+//
+// 解析优先级：角色配置值 → Fallback → 硬编码默认值。
+// 配置值格式为 "provider:id"，provider 和 id 必须存在于配置文件中。
+// 返回 nil 表示未找到对应模型。
+func (s *GlobalService) DefaultModelByRole(role string) *LLMModel {
+	settings := s.Get()
+
+	// 1. 获取角色配置值
+	ref := roleField(settings.DefaultModels, role)
+
+	// 2. 角色未配置 → 尝试 Fallback
+	if ref == "" {
+		ref = settings.DefaultModels.Fallback
+	}
+
+	// 3. Fallback 也为空 → 使用硬编码默认值
+	if ref == "" {
+		ref = roleDefault(role)
+	}
+
+	if ref == "" {
+		return nil
+	}
+
+	// 4. 解析 "provider:id" 并查找
+	providerID, modelID, ok := parseProviderModelID(ref)
+	if !ok {
+		return nil
+	}
+	return s.ModelByProviderID(providerID, modelID)
+}
+
+// roleField 返回角色对应的配置值
+func roleField(dm DefaultModelsConfig, role string) string {
+	switch role {
+	case "expert":
+		return dm.Expert
+	case "superior":
+		return dm.Superior
+	case "universal":
+		return dm.Universal
+	case "fast":
+		return dm.Fast
+	default:
+		return ""
+	}
+}
+
+// roleDefault 返回角色的硬编码默认值
+func roleDefault(role string) string {
+	defaults := map[string]string{
+		"expert":    "deepseek:deepseek-v4-pro-max",
+		"superior":  "deepseek:deepseek-v4-pro",
+		"universal": "deepseek:deepseek-v4-flash-thinking",
+		"fast":      "deepseek:deepseek-v4-flash",
+	}
+	return defaults[role]
 }
 
 // ─── Init & DefaultWorkDir ────────────────────────────────────────────────────

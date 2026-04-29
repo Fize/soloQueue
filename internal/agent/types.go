@@ -47,10 +47,6 @@ type Definition struct {
 	// ThinkingEnabled 是否启用思考模式（DeepSeek V4 模型）
 	ThinkingEnabled bool
 
-	// ThinkingType 思考类型，用于支持思考模式的 V4 模型
-	// "reasoning" | "extended_thinking" | ""
-	ThinkingType string
-
 	// MaxIterations 是 tool-use 循环的最大轮数（一次 Ask 内允许的 LLM.Chat 次数）
 	//
 	// <= 0 使用 DefaultMaxIterations（10）。

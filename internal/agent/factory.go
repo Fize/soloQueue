@@ -48,7 +48,6 @@ type ModelInfo struct {
 
 	// Thinking configuration
 	ThinkingEnabled bool
-	ThinkingType    string
 	ReasoningEffort string
 }
 
@@ -163,7 +162,6 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		def.Temperature = info.Temperature
 		def.MaxTokens = info.MaxTokens
 		def.ThinkingEnabled = info.ThinkingEnabled
-		def.ThinkingType = info.ThinkingType
 		def.ReasoningEffort = info.ReasoningEffort
 	}
 
