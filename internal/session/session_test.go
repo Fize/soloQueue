@@ -44,7 +44,7 @@ func factoryFromFake(t *testing.T, fake *agent.FakeLLM) AgentFactory {
 		if err := a.Start(ctx); err != nil {
 			return nil, nil, nil, err
 		}
-		cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+		cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 		return a, cw, nil, nil
 	}
 }
@@ -54,7 +54,7 @@ func factoryFromFake(t *testing.T, fake *agent.FakeLLM) AgentFactory {
 func TestSession_Ask_UpdatesHistory(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"hi there"}}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
 
 	reply, err := s.Ask(context.Background(), "hello")
 	if err != nil {
@@ -79,7 +79,7 @@ func TestSession_Ask_ErrorDoesNotAppendHistory(t *testing.T) {
 	myErr := errors.New("kaboom")
 	fake := &agent.FakeLLM{Err: myErr}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
 
 	_, err := s.Ask(context.Background(), "hi")
 	if !errors.Is(err, myErr) {
@@ -96,7 +96,7 @@ func TestSession_Ask_BusyReturnsErr(t *testing.T) {
 		Delay:     300 * time.Millisecond,
 	}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
 
 	// goroutine 1 starts a slow Ask
 	done := make(chan struct{})
@@ -123,7 +123,7 @@ func TestSession_Ask_BusyReturnsErr(t *testing.T) {
 func TestSession_Ask_ClosedReturnsErr(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"r"}}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
 	s.Close()
 	_, err := s.Ask(context.Background(), "hi")
 	if !errors.Is(err, ErrSessionClosed) {
@@ -136,7 +136,7 @@ func TestSession_Ask_ClosedReturnsErr(t *testing.T) {
 func TestSession_AskStream_AppendsHistoryOnDone(t *testing.T) {
 	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"hel", "lo"}}}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
 
 	ch, err := s.AskStream(context.Background(), "hi")
 	if err != nil {
@@ -164,7 +164,7 @@ func TestSession_AskStream_AppendsHistoryOnDone(t *testing.T) {
 func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
 	fake := &agent.FakeLLM{Err: errors.New("bad")}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
 	ch, err := s.AskStream(context.Background(), "hi")
 	if err != nil {
 		t.Fatalf("AskStream: %v", err)
@@ -182,7 +182,7 @@ func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 		Delay:        200 * time.Millisecond,
 	}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
 
 	ch1, err := s.AskStream(context.Background(), "one")
 	if err != nil {

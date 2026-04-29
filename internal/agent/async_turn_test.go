@@ -65,7 +65,7 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 	defer a.Stop(time.Second)
 
 	// 创建 ContextWindow
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleUser, "start")
 
 	// 创建 out channel
@@ -164,7 +164,7 @@ func TestExecToolsWithAsync_MultipleAsyncTools(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	out := make(chan AgentEvent, 64)
 
 	calls := []llm.ToolCall{
@@ -222,7 +222,7 @@ func TestExecToolsWithAsync_MixedSyncAndAsync(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	out := make(chan AgentEvent, 64)
 
 	calls := []llm.ToolCall{
@@ -274,7 +274,7 @@ func TestExecToolsWithAsync_AsyncToolError(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	out := make(chan AgentEvent, 64)
 
 	calls := []llm.ToolCall{
@@ -328,7 +328,7 @@ func TestExecToolsWithAsync_PendingCount(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	out := make(chan AgentEvent, 64)
 
 	calls := []llm.ToolCall{
@@ -384,7 +384,7 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 	turnState := &asyncTurnState{
 		agentID:   "l1",
 		out:       make(chan AgentEvent, 64),
-		cw:        ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer()),
+		cw:        ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()),
 		iter:      0,
 		toolCalls: []llm.ToolCall{},
 		results:   make([]string, 1),
@@ -444,7 +444,7 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 	cw.Push(ctxwin.RoleUser, "start")
 
@@ -518,7 +518,7 @@ func TestContinueToolLoop_ResumesFromIter(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 	cw.Push(ctxwin.RoleUser, "start")
 
@@ -582,7 +582,7 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 	}
 	defer a.Stop(2 * time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 
 	// 使用 AskStreamWithHistory 触发完整流程
@@ -802,7 +802,7 @@ func TestEndToEnd_AsyncDelegation_L2Failure(t *testing.T) {
 	}
 	defer a.Stop(2 * time.Second)
 
-	cw := ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 
 	// Use AskStreamWithHistory — the exact code path that was hanging.
@@ -873,7 +873,7 @@ func TestWatchDelegatedTask_GracePeriodCatchesInFlightResult(t *testing.T) {
 	turnState := &asyncTurnState{
 		agentID:   "l1",
 		out:       make(chan AgentEvent, 64),
-		cw:        ctxwin.NewContextWindow(128000, 2000, ctxwin.NewTokenizer()),
+		cw:        ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()),
 		iter:      0,
 		toolCalls: []llm.ToolCall{},
 		results:   make([]string, 1),

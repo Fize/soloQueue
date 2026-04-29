@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -129,6 +130,7 @@ type runtimeStack struct {
 	promptCfg     *prompt.PromptConfig
 	defaultModel  *config.LLMModel
 	tokenizer     *ctxwin.Tokenizer
+	compactor     ctxwin.Compactor // context compression engine
 	toolsCfg      tools.Config
 	rulesCreated  bool
 }
@@ -254,6 +256,7 @@ func buildRuntimeStack(
 		agentRegistry, llmClient, toolsCfg,
 		filepath.Join(workDir, "skills"), log,
 		agent.WithModelResolver(modelResolver),
+		agent.WithDefaultModelID(defaultModel.ID),
 		agent.WithTemplates(allTemplates),
 		agent.WithGroups(groups),
 	)
@@ -275,6 +278,23 @@ func buildRuntimeStack(
 		supervisors = append(supervisors, sv)
 	}
 
+	// ── Compactor (context compression engine) ────────────────────────────
+	// Use "fast" role model, fallback to default model
+	compactorModel := cfg.DefaultModelByRole("fast")
+	if compactorModel == nil {
+		compactorModel = defaultModel
+	}
+	compactorModelID := compactorModel.APIModel
+	if compactorModelID == "" {
+		compactorModelID = compactorModel.ID
+	}
+	llmCompactor := compactor.NewLLMCompactor(
+		compactor.NewAgentChatClient(llmClient),
+		compactorModelID,
+	)
+
+	tok := ctxwin.NewTokenizer()
+
 	return &runtimeStack{
 		llmClient:     llmClient,
 		agentRegistry: agentRegistry,
@@ -285,7 +305,8 @@ func buildRuntimeStack(
 		systemPrompt:  systemPrompt,
 		promptCfg:     promptCfg,
 		defaultModel:  defaultModel,
-		tokenizer:     ctxwin.NewTokenizer(),
+		tokenizer:     tok,
+		compactor:     llmCompactor,
 		toolsCfg:      toolsCfg,
 		rulesCreated:  rulesCreated,
 	}, nil
@@ -428,8 +449,10 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	cw := ctxwin.NewContextWindow(
 		sb.rt.defaultModel.ContextWindow,
 		sb.rt.defaultModel.ContextWindow/10,
+		0,
 		sb.rt.tokenizer,
 		ctxwin.WithPushHook(pushHook),
+		ctxwin.WithCompactor(sb.rt.compactor),
 	)
 	if def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, def.SystemPrompt)

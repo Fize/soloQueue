@@ -72,14 +72,15 @@ type AgentFactory interface {
 //
 // 包含创建 Agent 所需的所有依赖。创建的 Agent 会自动注册到 Registry 并启动。
 type DefaultFactory struct {
-	registry     *Registry
-	llm          LLMClient
-	toolsCfg     tools.Config
-	skillDir     string
-	log          *logger.Logger
-	resolveModel ModelResolver // nil = skip model validation (tests)
-	templates    map[string]AgentTemplate        // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
-	groups       map[string]prompt.GroupFile     // group 信息，供 L2 prompt 注入团队上下文
+	registry       *Registry
+	llm            LLMClient
+	toolsCfg       tools.Config
+	skillDir       string
+	log            *logger.Logger
+	resolveModel   ModelResolver // nil = skip model validation (tests)
+	defaultModelID string                         // 当 AgentTemplate.ModelID 为空时使用此默认值
+	templates      map[string]AgentTemplate        // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
+	groups         map[string]prompt.GroupFile     // group 信息，供 L2 prompt 注入团队上下文
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -114,6 +115,15 @@ type FactoryOption func(*DefaultFactory)
 func WithModelResolver(resolver ModelResolver) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.resolveModel = resolver
+	}
+}
+
+// WithDefaultModelID sets the default model ID used when an agent template
+// does not specify a model. If not set, agents without a model ID will fail
+// to create when ModelResolver is enabled.
+func WithDefaultModelID(modelID string) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.defaultModelID = modelID
 	}
 }
 
@@ -177,16 +187,22 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 
 	// 1b. Validate and resolve model configuration
 	if f.resolveModel != nil {
-		if tmpl.ModelID == "" {
-			return nil, nil, fmt.Errorf("agent %q: model ID is empty", tmpl.ID)
+		modelID := tmpl.ModelID
+		if modelID == "" {
+			modelID = f.defaultModelID
 		}
-		info, err := f.resolveModel(tmpl.ModelID)
+		if modelID == "" {
+			return nil, nil, fmt.Errorf("agent %q: model ID is empty and no default model configured", tmpl.ID)
+		}
+		info, err := f.resolveModel(modelID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("agent %q: invalid model %q: %w", tmpl.ID, tmpl.ModelID, err)
+			return nil, nil, fmt.Errorf("agent %q: invalid model %q: %w", tmpl.ID, modelID, err)
 		}
 		// Use APIModel for the actual API call (may differ from the config ID)
 		if info.APIModel != "" {
 			def.ModelID = info.APIModel
+		} else {
+			def.ModelID = modelID
 		}
 		def.ContextWindow = info.ContextWindow
 		def.Temperature = info.Temperature
@@ -225,7 +241,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	a := NewAgent(def, f.llm, f.log, opts...)
 
 	// 6. 创建 ContextWindow
-	cw := ctxwin.NewContextWindow(DefaultContextWindow, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(DefaultContextWindow, 2000, 0, ctxwin.NewTokenizer())
 	if a.Def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}
