@@ -359,7 +359,8 @@ func TestExecToolsWithAsync_PendingCount(t *testing.T) {
 // ─── TestWatchDelegatedTask_ContextCancel ────────────────────────────────
 
 func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
-	// 验证 caller context 取消时，watchDelegatedTask 会清理 asyncTurns
+	// 验证 caller context 取消时，watchDelegatedTask 填入错误结果并触发 resumeTurn
+	// （新行为：不再简单删除 asyncTurns，而是通过 submitHighPriority 让 resumeTurn 处理清理和 close(out)）
 	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
 		WithPriorityMailbox(),
 	)
@@ -386,9 +387,9 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 		iter:      0,
 		toolCalls: []llm.ToolCall{},
 		results:   make([]string, 1),
-		pending:   pending,
 		callerCtx: ctx,
 	}
+	turnState.pending.Store(1)
 
 	// 注册到 agent
 	a.turnMu.Lock()
@@ -412,18 +413,19 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 		close(done)
 	}()
 
-	// 等待 watchDelegatedTask 处理 context 取消
+	// 等待 watchDelegatedTask 完成（包括 100ms grace period）
 	select {
 	case <-done:
-		// 验证 asyncTurns 已清理
-		a.turnMu.RLock()
-		_, exists := a.asyncTurns[0]
-		a.turnMu.RUnlock()
-		if exists {
-			t.Error("asyncTurns[0] should be deleted after context cancel")
+		// 验证：结果已填入错误信息
+		if turnState.results[0] != "error: delegation cancelled" {
+			t.Errorf("results[0] = %q, want %q", turnState.results[0], "error: delegation cancelled")
 		}
-	case <-time.After(time.Second):
-		t.Error("watchDelegatedTask did not handle context cancel")
+		// 验证：pending 已归零（触发了 resumeTurn 投递）
+		if turnState.pending.Load() != 0 {
+			t.Errorf("pending = %d, want 0", turnState.pending.Load())
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("watchDelegatedTask did not handle context cancel within timeout")
 	}
 }
 
