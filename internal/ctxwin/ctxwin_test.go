@@ -7,7 +7,7 @@ import (
 )
 
 func newTestCW(maxTokens, bufferTokens int) *ContextWindow {
-	return NewContextWindow(maxTokens, bufferTokens, NewTokenizer())
+	return NewContextWindow(maxTokens, bufferTokens, 0, NewTokenizer())
 }
 
 func TestNewContextWindow(t *testing.T) {

@@ -1,8 +1,11 @@
 package ctxwin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"sync/atomic"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
@@ -100,36 +103,62 @@ func WithPushHook(hook PushHook) Option {
 	return func(cw *ContextWindow) { cw.pushHook = hook }
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const (
+	// summaryTokensThreshold is the maxTokens value above which the soft
+	// waterline is calculated at 75% of maxTokens. Below this threshold,
+	// 85% is used to give smaller models more context room.
+	summaryTokensThreshold = 512 * 1024 // 512k
+)
+
 // ─── ContextWindow ──────────────────────────────────────────────────────────
 
-// ContextWindow 是纯内存态、基于规则的线性上下文截断器
+// ContextWindow is an in-memory, rule-based linear context truncator with
+// dual waterlines and async compression support.
 //
-// 核心不变式：
-//   - currentTokens 是"当前上下文窗口中消息的 token 总量"的最佳近似
-//   - sum(messages[i].Tokens) 不一定等于 currentTokens（Calibrate 后产生漂移）
-//   - currentTokens 用于淘汰决策，是可信的
-//   - msg.Tokens 是单条消息的估算值，仅用于增量计算
+// Core invariants:
+//   - currentTokens is the best approximation of the total token count in the
+//     context window
+//   - sum(messages[i].Tokens) may not equal currentTokens (drift after Calibrate)
+//   - currentTokens is used for eviction decisions and is trusted
+//   - msg.Tokens is a per-message estimate, only used for incremental calculation
 //
-// 非并发安全：由 Session 的 mutex 保护，Session 保证 Ask 串行。
+// Concurrency: protected by sync.RWMutex for async compression safety.
+// Write operations use Lock()/Unlock(), read operations use RLock()/RUnlock().
 type ContextWindow struct {
+	sync.RWMutex
 	messages      []Message
-	maxTokens     int        // 来自 config.LLMModel.ContextWindow
-	bufferTokens  int        // 预留给模型回答的空间（默认 2000）
-	currentTokens int        // 实时值；Calibrate 后为精确值，Push 后含估算增量
-	tokenizer     *Tokenizer // 共享，初始化后不可变
-	pushHook      PushHook   // Push 完成后的回调（可为 nil）
-	replayMode    bool       // replay 期间禁用 pushHook
+	maxTokens     int          // hard waterline: physical capacity limit
+	bufferTokens  int          // reserved for model output (from config)
+	summaryTokens int          // soft waterline: triggers async compression
+	currentTokens int          // real-time token count; exact after Calibrate
+	tokenizer     *Tokenizer   // shared, immutable after init
+	compactor     Compactor    // context compressor (may be nil)
+	pushHook      PushHook     // callback after Push (may be nil)
+	replayMode    bool         // disable pushHook during replay
+	summarizing   atomic.Bool  // true while async compression is in progress
 }
 
-// NewContextWindow 创建上下文窗口
+// NewContextWindow creates a context window
 //
-// maxTokens 来自 config.LLMModel.ContextWindow。
-// bufferTokens 预留给模型回答的空间（默认 2000）。
-func NewContextWindow(maxTokens, bufferTokens int, tokenizer *Tokenizer, opts ...Option) *ContextWindow {
+// maxTokens: from config.LLMModel.ContextWindow (hard waterline).
+// bufferTokens: reserved for model output (from config, dynamic).
+// summaryTokens: soft waterline for triggering async compression.
+// Pass 0 to auto-calculate (75% for ≥512k, 85% for <512k).
+func NewContextWindow(maxTokens, bufferTokens, summaryTokens int, tokenizer *Tokenizer, opts ...Option) *ContextWindow {
+	if summaryTokens <= 0 {
+		if maxTokens >= summaryTokensThreshold {
+			summaryTokens = maxTokens * 75 / 100
+		} else {
+			summaryTokens = maxTokens * 85 / 100
+		}
+	}
 	cw := &ContextWindow{
-		maxTokens:    maxTokens,
-		bufferTokens: bufferTokens,
-		tokenizer:    tokenizer,
+		maxTokens:     maxTokens,
+		bufferTokens:  bufferTokens,
+		summaryTokens: summaryTokens,
+		tokenizer:     tokenizer,
 	}
 	for _, opt := range opts {
 		opt(cw)
@@ -137,24 +166,28 @@ func NewContextWindow(maxTokens, bufferTokens int, tokenizer *Tokenizer, opts ..
 	return cw
 }
 
-// ─── 核心外部 API ───────────────────────────────────────────────────────────
+// ─── Core API ───────────────────────────────────────────────────────────────
 
-// Push 追加新消息，计算 token，超载时触发淘汰
+// Push appends a new message, estimates tokens, and triggers eviction if overloaded.
 //
-// Token 计算包含 Content + ReasoningContent + ToolCalls 的 JSON 表示。
-// 如果 currentTokens + 新消息的 token 数超过 maxTokens - bufferTokens，
-// 会同步执行两步淘汰策略（中间截断 + Turn 粒度 FIFO）。
+// Token calculation includes Content + ReasoningContent + ToolCalls JSON.
+// If currentTokens + new message tokens exceeds maxTokens - bufferTokens,
+// the two-step eviction policy runs synchronously (middle-out truncation +
+// Turn-granularity FIFO).
 func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOption) {
+	cw.Lock()
+	defer cw.Unlock()
+
 	msg := Message{Role: role, Content: content}
 	for _, opt := range opts {
 		opt(&msg)
 	}
-	// Token 计数包含 Content + ReasoningContent + ToolCalls
+	// Token count includes Content + ReasoningContent + ToolCalls
 	msg.Tokens = cw.tokenizer.Count(content) + cw.tokenizer.Count(msg.ReasoningContent)
 	if len(msg.ToolCalls) > 0 {
 		msg.Tokens += cw.tokenizer.Count(toolCallsToJSON(msg.ToolCalls))
 	}
-	// 容量检查 & 淘汰
+	// Capacity check & eviction
 	capacity := cw.maxTokens - cw.bufferTokens
 	if cw.currentTokens+msg.Tokens > capacity {
 		cw.evict(msg.Tokens)
@@ -162,17 +195,25 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	cw.messages = append(cw.messages, msg)
 	cw.currentTokens += msg.Tokens
 
-	// Push 完成后调用 Hook（replay 期间不调用）
+	// Soft waterline check: trigger async compression
+	if cw.compactor != nil && cw.currentTokens > cw.summaryTokens && !cw.summarizing.Load() {
+		go cw.asyncCompact()
+	}
+
+	// Push hook (not called during replay)
 	if cw.pushHook != nil && !cw.replayMode {
 		cw.pushHook(msg)
 	}
 }
 
-// BuildPayload 将当前内存中的 Message 切片转为 PayloadMessage 切片
+// BuildPayload converts the current Message slice to a PayloadMessage slice.
 //
-// 每次 DeepSeek API 请求前调用。返回新切片，调用方可安全修改。
-// Agent 包负责将 PayloadMessage 转为 agent.LLMMessage。
+// Called before each API request. Returns a new slice; caller can safely modify.
+// Agent package is responsible for converting PayloadMessage to agent.LLMMessage.
 func (cw *ContextWindow) BuildPayload() []PayloadMessage {
+	cw.RLock()
+	defer cw.RUnlock()
+
 	out := make([]PayloadMessage, 0, len(cw.messages))
 	for _, m := range cw.messages {
 		out = append(out, PayloadMessage{
@@ -187,55 +228,72 @@ func (cw *ContextWindow) BuildPayload() []PayloadMessage {
 	return out
 }
 
-// Calibrate 用 API 返回的 PromptTokens 精确校准 currentTokens
+// Calibrate updates currentTokens to the exact value from the API response.
 //
-// ⚠️ 时序要求：必须在 Push 新消息（assistant/tool）之前调用。
-// 调用顺序必须是：
-//   1. 收到 API EventDone → Calibrate(usage.PromptTokens)
-//   2. 然后 Push(assistant+tool_calls) / Push(tool result)
+// Timing requirement: MUST be called BEFORE Push-ing new messages (assistant/tool).
+// The call order must be:
+//  1. Receive API EventDone → Calibrate(usage.PromptTokens)
+//  2. Then Push(assistant+tool_calls) / Push(tool result)
 //
-// 如果顺序反了，Calibrate 会把新 Push 的估算增量抹掉。
+// If reversed, Calibrate will overwrite the incremental estimate from the new Push.
 //
-// ⚠️ 漂移说明：Calibrate 后 currentTokens 是精确值，但各 msg.Tokens
-// 仍是原始估算值。因此 sum(messages.Tokens) != currentTokens 是正常的。
-// FIFO 淘汰减去的是估算值，会产生轻微漂移，但下次 Calibrate 会纠正。
+// Drift note: After Calibrate, currentTokens is exact, but individual msg.Tokens
+// remain estimates. sum(messages.Tokens) != currentTokens is normal.
+// FIFO eviction subtracts estimates, causing minor drift corrected by next Calibrate.
 func (cw *ContextWindow) Calibrate(promptTokens int) {
+	cw.Lock()
+	defer cw.Unlock()
+
 	cw.currentTokens = promptTokens
 }
 
-// Overflow 检查当前 payload 是否超过硬上限
+// Overflow checks if the current payload exceeds the hard limit.
 //
-// 在发送 API 请求前调用。如果返回 true，应中止请求并报错。
-// hardLimit 取 config.LLMModel.ContextWindow（模型物理上限）。
+// Called before sending an API request. If true, abort and report error.
+// hardLimit comes from config.LLMModel.ContextWindow (model's physical limit).
 func (cw *ContextWindow) Overflow(hardLimit int) bool {
+	cw.RLock()
+	defer cw.RUnlock()
+
 	return cw.currentTokens > hardLimit
 }
 
-// ─── 查询 & 变更 ───────────────────────────────────────────────────────────
+// ─── Queries ────────────────────────────────────────────────────────────────
 
-// TokenUsage 返回 (currentTokens, maxTokens, bufferTokens)
+// TokenUsage returns (currentTokens, maxTokens, bufferTokens)
 func (cw *ContextWindow) TokenUsage() (current, max, buffer int) {
+	cw.RLock()
+	defer cw.RUnlock()
+
 	return cw.currentTokens, cw.maxTokens, cw.bufferTokens
 }
 
-// Len 返回消息数量
+// Len returns the number of messages.
 func (cw *ContextWindow) Len() int {
+	cw.RLock()
+	defer cw.RUnlock()
+
 	return len(cw.messages)
 }
 
-// MessageAt 返回索引 i 处的消息拷贝
+// MessageAt returns a copy of the message at index i.
 func (cw *ContextWindow) MessageAt(i int) (Message, bool) {
+	cw.RLock()
+	defer cw.RUnlock()
+
 	if i < 0 || i >= len(cw.messages) {
 		return Message{}, false
 	}
 	return cw.messages[i], true
 }
 
-// PopLast 移除并返回最后一条消息
+// PopLast removes and returns the last message.
 //
-// Session 用于移除失败 push 的 user prompt。
-// 返回被移除的消息和 true，或零值 Message 和 false（如果为空）。
+// Used by Session to remove a failed user prompt push.
 func (cw *ContextWindow) PopLast() (Message, bool) {
+	cw.Lock()
+	defer cw.Unlock()
+
 	if len(cw.messages) == 0 {
 		return Message{}, false
 	}
@@ -243,15 +301,18 @@ func (cw *ContextWindow) PopLast() (Message, bool) {
 	cw.messages = cw.messages[:len(cw.messages)-1]
 	cw.currentTokens -= last.Tokens
 	if cw.currentTokens < 0 {
-		cw.currentTokens = 0 // 漂移修正
+		cw.currentTokens = 0 // drift correction
 	}
 	return last, true
 }
 
-// Reset 重置上下文窗口，仅保留 system prompt（索引 0）
+// Reset clears the context window, keeping only the system prompt (index 0).
 //
-// 用于 /clear 命令：清空对话历史，保留系统提示词。
+// Used for /clear command.
 func (cw *ContextWindow) Reset() {
+	cw.Lock()
+	defer cw.Unlock()
+
 	if len(cw.messages) > 0 && cw.messages[0].Role == RoleSystem {
 		sysMsg := cw.messages[0]
 		cw.messages = cw.messages[:1]
@@ -263,18 +324,24 @@ func (cw *ContextWindow) Reset() {
 	}
 }
 
-// SetReplayMode 设置 replay 模式
+// SetReplayMode enables or disables replay mode.
 //
-// replay 期间 Push Hook 不会被调用，避免双重写入。
+// During replay, Push hooks are not called to avoid double writes.
 func (cw *ContextWindow) SetReplayMode(on bool) {
+	cw.Lock()
+	defer cw.Unlock()
+
 	cw.replayMode = on
 }
 
-// Recalculate 从头重算所有消息的估算 token 总和
+// Recalculate recomputes the sum of all message token estimates from scratch.
 //
-// 仅用于调试/测试。生产代码不调用。
-// 注意：Calibrate 后此值可能不等于 currentTokens（这是正常的漂移）。
+// For debugging/testing only. Not called in production code.
+// Note: after Calibrate, this may not equal currentTokens (normal drift).
 func (cw *ContextWindow) Recalculate() int {
+	cw.RLock()
+	defer cw.RUnlock()
+
 	total := 0
 	for _, m := range cw.messages {
 		total += m.Tokens
@@ -282,12 +349,59 @@ func (cw *ContextWindow) Recalculate() int {
 	return total
 }
 
-// ─── 内部方法 ───────────────────────────────────────────────────────────────
+// ─── Async Compression ─────────────────────────────────────────────────────
 
-// evict 执行两步淘汰策略
+// asyncCompact compresses the conversation history using the Compactor.
 //
-// Step 1: 中间截断法（Middle-Out Truncation）—— 针对 IsEphemeral 的 Tool 输出
-// Step 2: Turn 粒度 FIFO 滑动窗口
+// Runs in a separate goroutine triggered by the soft waterline check in Push.
+// Uses CAS on summarizing to ensure only one compression runs at a time.
+//
+// Flow:
+//  1. CAS summarizing false→true
+//  2. RLock: snapshot messages
+//  3. Release lock, call Compactor.Compact (allows concurrent reads/writes)
+//  4. Lock: replace messages[1:] with single summary message
+//  5. Update currentTokens
+//  6. Set summarizing false
+func (cw *ContextWindow) asyncCompact() {
+	if !cw.summarizing.CompareAndSwap(false, true) {
+		return
+	}
+	defer cw.summarizing.Store(false)
+
+	// Snapshot messages under read lock
+	cw.RLock()
+	msgs := make([]Message, len(cw.messages))
+	copy(msgs, cw.messages)
+	cw.RUnlock()
+
+	// Compress without holding any lock (allows concurrent operations)
+	summary, err := cw.compactor.Compact(context.Background(), msgs)
+	if err != nil {
+		return // compression failed, keep current state
+	}
+
+	// Replace history with summary under write lock
+	cw.Lock()
+	summaryTokens := cw.tokenizer.Count(summary)
+	summaryMsg := Message{
+		Role:    RoleSystem,
+		Content: "[Conversation Summary]\n" + summary,
+		Tokens:  summaryTokens,
+	}
+	if len(cw.messages) > 0 {
+		cw.messages = append(cw.messages[:1], summaryMsg)
+		cw.currentTokens = cw.messages[0].Tokens + summaryTokens
+	}
+	cw.Unlock()
+}
+
+// ─── Internal ───────────────────────────────────────────────────────────────
+
+// evict runs the two-step eviction policy.
+//
+// Step 1: Middle-Out Truncation — targeting IsEphemeral Tool output
+// Step 2: Turn-granularity FIFO sliding window
 func (cw *ContextWindow) evict(newMsgTokens int) {
 	cw.truncateMiddleOut()
 	capacity := cw.maxTokens - cw.bufferTokens
@@ -299,14 +413,13 @@ func (cw *ContextWindow) evict(newMsgTokens int) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-// toolCallsToJSON 将 ToolCalls 序列化为 JSON 字符串（用于 token 计数）
+// toolCallsToJSON serializes ToolCalls to JSON string for token counting.
 func toolCallsToJSON(tcs []llm.ToolCall) string {
 	if len(tcs) == 0 {
 		return ""
 	}
 	b, err := json.Marshal(tcs)
 	if err != nil {
-		// 序列化失败时返回空字符串，token 计数会略低
 		return fmt.Sprintf("%v", tcs)
 	}
 	return string(b)
