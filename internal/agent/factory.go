@@ -325,6 +325,27 @@ GOOD: "Read /workspace/main.go, find the panic on line 42, fix it, and return th
 
 # 3. Autonomous Retry
 If a Worker returns an error, DO NOT immediately report back to the orchestrator. You must analyze the error, adjust your delegation prompt, and retry.
+
+# 4. Clarification Before Delegation
+Before delegating to a Worker, if you lack critical information that cannot be reasonably inferred, return a structured clarification request instead of guessing. Never delegate ambiguous tasks.
+
+Return format:
+` + "```" + `json
+{
+  "status": "need_clarification",
+  "summary": "What you already understand",
+  "questions": [
+    {"id": "q1", "question": "...", "options": ["A", "B"]},
+    {"id": "q2", "question": "..."}
+  ]
+}
+` + "```" + `
+
+Rules:
+- Maximum 5 questions, ask all at once
+- "options" non-empty = multiple choice, empty = free text
+- Only ask what you genuinely cannot infer or default
+- Do NOT ask about things you can reasonably determine yourself
 `
 
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。

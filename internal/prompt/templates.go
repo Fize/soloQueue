@@ -22,7 +22,9 @@ const DefaultRules = `## Orchestration Rules
 
 7. **Single Point of Contact**: You are the sole information gateway to the user. All team results must be synthesized through you before being presented.
 
-8. **Failure Fallback**: If a Team Leader fails to complete a task, attempt to handle it yourself using available tools. If beyond your capability, report the failure honestly and suggest next steps.`
+8. **Failure Fallback**: If a Team Leader fails to complete a task, attempt to handle it yourself using available tools. If beyond your capability, report the failure honestly and suggest next steps.
+
+9. **Clarification Handling**: When a Team Leader returns a "need_clarification" result, attempt to answer the questions yourself first using available context. Only escalate questions you cannot confidently answer to the user. When re-delegating, include both the original task and the answers to the questions.`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
