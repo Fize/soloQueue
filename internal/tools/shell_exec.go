@@ -8,12 +8,11 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 )
 
-// shellExecTool 执行 shell 命令（黑名单/确认名单校验 + 跨平台 shim）
+// shellExecTool 执行 shell 命令（黑名单/确认名单校验）
 //
 // Schema:
 //
@@ -22,8 +21,7 @@ import (
 // 安全：
 //   - Command 命中 ShellBlockRegexes → 直接拒绝
 //   - Command 命中 ShellConfirmRegexes + confirmed=false → 需要用户确认
-//   - macOS / Linux: /bin/sh -c <command>
-//   - Windows:       powershell.exe -NoProfile -Command <command>
+//   - /bin/sh -c <command>
 //   - ShellTimeout 通过 exec.CommandContext；超时子进程收到 SIGKILL
 //   - stdout/stderr 各自限 ShellMaxOutput 字节（超出截断，truncated=true）
 //   - 用户可选 Stdin（string）→ 写入 cmd stdin
@@ -61,7 +59,7 @@ func (shellExecTool) Name() string { return "shell_exec" }
 
 func (shellExecTool) Description() string {
 	return "Run a shell command. Dangerous commands (rm, dd, mkfs, etc.) require user confirmation. " +
-		"On Unix: /bin/sh -c <cmd>; on Windows: powershell -NoProfile -Command <cmd>. " +
+		"Uses /bin/sh -c <cmd>. " +
 		"Returns {exit_code,stdout,stderr,truncated}."
 }
 
@@ -161,12 +159,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-Command", a.Command)
-	} else {
-		cmd = exec.CommandContext(execCtx, "/bin/sh", "-c", a.Command)
-	}
+	cmd := exec.CommandContext(execCtx, "/bin/sh", "-c", a.Command)
 
 	if a.Stdin != "" {
 		cmd.Stdin = strings.NewReader(a.Stdin)
