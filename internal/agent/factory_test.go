@@ -25,8 +25,6 @@ name: dev
 description: Dev agent
 model: gpt-4
 is_leader: true
-skills:
-  - coding
 sub_agents:
   - test
 ---
@@ -79,9 +77,6 @@ invalid yaml
 		if tmpl.ID == "dev" {
 			if !tmpl.IsLeader {
 				t.Error("dev should have is_leader=true")
-			}
-			if len(tmpl.Skills) != 1 || tmpl.Skills[0] != "coding" {
-				t.Errorf("dev skills = %v, want ['coding']", tmpl.Skills)
 			}
 			if len(tmpl.SubAgents) != 1 || tmpl.SubAgents[0] != "test" {
 				t.Errorf("dev sub_agents = %v, want ['test']", tmpl.SubAgents)
@@ -495,7 +490,6 @@ This is a test skill.
 		ID:          "skill-agent",
 		Name:        "Skill Agent",
 		SystemPrompt: "You are a skill agent.",
-		Skills:       []string{"test-skill"},
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl)

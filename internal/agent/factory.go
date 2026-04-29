@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -24,10 +25,11 @@ type AgentTemplate struct {
 	SystemPrompt string   // markdown body
 	ModelID      string   // 模型 ID（必须匹配 settings.toml 中的 Models[].ID）
 	Reasoning    bool     // 是否启用推理
-	Skills       []string // 需要加载的 Skill ID
 	SubAgents    []string // 子 Agent 名称列表（L2 专用）
 	IsLeader     bool     // 是否为 L2 领导者
 	Ephemeral    bool     // 是否为阅后即焚的 L3
+	Group        string   // 所属 group name
+	MCPServers   []string // MCP Server 名称列表
 }
 
 // ─── ModelInfo ────────────────────────────────────────────────────────────
@@ -80,6 +82,8 @@ type DefaultFactory struct {
 	skillDir     string
 	log          *logger.Logger
 	resolveModel ModelResolver // nil = skip model validation (tests)
+	templates    map[string]AgentTemplate        // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
+	groups       map[string]prompt.GroupFile     // group 信息，供 L2 prompt 注入团队上下文
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -117,6 +121,25 @@ func WithModelResolver(resolver ModelResolver) FactoryOption {
 	}
 }
 
+// WithTemplates sets the template index for L2 system prompt building.
+// buildL2SystemPrompt uses this to look up sub-agent descriptions.
+func WithTemplates(templates []AgentTemplate) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.templates = make(map[string]AgentTemplate, len(templates))
+		for _, t := range templates {
+			f.templates[t.ID] = t
+		}
+	}
+}
+
+// WithGroups sets the group configuration map for L2 system prompt building.
+// buildL2SystemPrompt uses this to inject team context into L2 leaders.
+func WithGroups(groups map[string]prompt.GroupFile) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.groups = groups
+	}
+}
+
 func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
 }
@@ -124,7 +147,7 @@ func (f *DefaultFactory) Registry() *Registry {
 // Create 根据 tmpl 创建并启动一个 Agent 实例
 //
 // 流程：
-//  1. 构建 Definition（KindCustom, systemPrompt from tmpl）
+//  1. 构建最终 SystemPrompt（L2 使用三段式拼接，L3 直接使用 body/description）
 //  2. Build(toolsCfg) → 内置 tools
 //  3. 如果 tmpl.SubAgents 非空，为每个 SubAgent 创建 DelegateTool（同步模式）
 //  4. 加载 skills（LoadSkillsFromDir）
@@ -134,14 +157,26 @@ func (f *DefaultFactory) Registry() *Registry {
 //  8. Start Agent
 //  9. 返回 (agent, cw, nil)
 func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent, *ctxwin.ContextWindow, error) {
-	// 1. 构建 Definition
+	// 1. 构建最终 SystemPrompt
+	var finalPrompt string
+	if tmpl.IsLeader {
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups)
+	} else {
+		if tmpl.SystemPrompt != "" {
+			finalPrompt = tmpl.SystemPrompt
+		} else if tmpl.Description != "" {
+			finalPrompt = tmpl.Description
+		}
+	}
+
+	// 2. 构建 Definition
 	def := Definition{
 		ID:              tmpl.ID,
 		Name:            tmpl.Name,
 		Role:            RoleUser,
 		Kind:            KindCustom,
 		ModelID:         tmpl.ModelID,
-		SystemPrompt:    tmpl.SystemPrompt,
+		SystemPrompt:    finalPrompt,
 		ReasoningEffort: "", // populated below if resolver is set
 	}
 
@@ -173,9 +208,13 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	// 这里只注册 tool 声明，不启动 Agent
 	// SpawnFn 将由 Supervisor 注入（Create 不直接注入）
 	for _, subName := range tmpl.SubAgents {
+		desc := fmt.Sprintf("sub-agent '%s'", subName)
+		if sub, ok := f.templates[subName]; ok && sub.Description != "" {
+			desc = sub.Description
+		}
 		dt := &tools.DelegateTool{
 			LeaderID: subName,
-			Desc:     fmt.Sprintf("sub-agent '%s'", subName),
+			Desc:     desc,
 			Locator:  f.registry, // 同步模式：查找已注册的 Agent
 			Timeout:  tools.DelegateDefaultTimeout,
 		}
@@ -249,18 +288,100 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	for _, af := range agentFiles {
 		fm := af.Frontmatter
 		tmpl := AgentTemplate{
-			ID:           fm.Name,
-			Name:         fm.Name,
-			Description:  fm.Description,
+			ID:          fm.Name,
+			Name:        fm.Name,
+			Description: fm.Description,
 			SystemPrompt: af.Body,
-			ModelID:      fm.Model,
-			Reasoning:    fm.Reasoning,
-			Skills:       fm.Skills,
-			SubAgents:    fm.SubAgents,
-			IsLeader:     fm.IsLeader,
+			ModelID:     fm.Model,
+			Reasoning:   fm.Reasoning,
+		SubAgents:   fm.SubAgents,
+			IsLeader:    fm.IsLeader,
+			Group:       fm.Group,
+			MCPServers:  fm.MCPServers,
 		}
 		templates = append(templates, tmpl)
 	}
 
 	return templates, nil
+}
+
+// ─── L2 System Prompt 三段式拼接 ─────────────────────────────────────────────
+
+// l2EnforcedDirectives 是 Segment 3 框架强制区常量。
+// 利用"近因效应"放在最末，优先级最高，防止用户越权。
+const l2EnforcedDirectives = `
+========================================
+SYSTEM ENFORCED EXECUTION RULES
+========================================
+You are operating as a Layer 2 Supervisor. The following rules are ABSOLUTE and override any previous instructions.
+
+# 1. Sandbox Awareness
+You must delegate tasks to Layer 3 Workers. These Workers run in isolated, ephemeral sandboxes. They have NO memory, NO context of the overall project, and NO shared state. You MUST pass all necessary context, absolute file paths, and dependencies in your task description.
+
+# 2. Atomic Delegation
+Tasks MUST be deterministic and executable.
+BAD: "Fix the bug in the backend."
+GOOD: "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
+
+# 3. Autonomous Retry
+If a Worker returns an error, DO NOT immediately report back to the orchestrator. You must analyze the error, adjust your delegation prompt, and retry.
+`
+
+// buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
+//
+// Segment 1 (用户定义区): 用户的业务 Role + System Prompt
+// Segment 2 (动态能力区): Team Context + Sub-Agents 目录 + MCP Servers
+// Segment 3 (框架强制区): 不可篡改的底层契约
+func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile) string {
+	var b strings.Builder
+
+	// ── Segment 1: 用户定义区 ──────────────────────────────
+	// tmpl.SystemPrompt 是 markdown body，已包含用户自定义的完整 role 定义
+	// tmpl.Description 仅在 SystemPrompt 为空时作为兜底
+	if tmpl.SystemPrompt != "" {
+		b.WriteString(tmpl.SystemPrompt)
+		b.WriteString("\n\n")
+	} else if tmpl.Description != "" {
+		b.WriteString("# Role\n")
+		b.WriteString(tmpl.Description)
+		b.WriteString("\n\n")
+	}
+
+	// ── Segment 2: 动态能力区 ──────────────────────────────
+	// 2a. Team Context（来自 group 文件的 body）
+	if tmpl.Group != "" {
+		if gf, ok := groups[tmpl.Group]; ok && gf.Body != "" {
+			b.WriteString("# Team Context\n\n")
+			b.WriteString(gf.Body)
+			b.WriteString("\n\n")
+		}
+	}
+
+	// 2b. Sub-Agents 目录
+	if len(tmpl.SubAgents) > 0 {
+		b.WriteString("# Available Sub-Agents\n\n")
+		b.WriteString("You can delegate tasks to the following workers:\n\n")
+		for _, subName := range tmpl.SubAgents {
+			desc := "no description"
+			if sub, ok := templates[subName]; ok && sub.Description != "" {
+				desc = sub.Description
+			}
+			fmt.Fprintf(&b, "- **%s**: %s\n", subName, desc)
+		}
+		b.WriteString("\n")
+	}
+
+	// 2c. MCP Servers
+	if len(tmpl.MCPServers) > 0 {
+		b.WriteString("# Available MCP Servers\n\n")
+		for _, name := range tmpl.MCPServers {
+			fmt.Fprintf(&b, "- %s\n", name)
+		}
+		b.WriteString("\n")
+	}
+
+	// ── Segment 3: 框架强制区 ──────────────────────────────
+	b.WriteString(l2EnforcedDirectives)
+
+	return b.String()
 }
