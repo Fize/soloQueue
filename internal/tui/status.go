@@ -127,11 +127,6 @@ func renderAgentLine(a *agent.Agent, indent string) string {
 		parts = append(parts, lipgloss.NewStyle().Foreground(colorInfo).Render(fmt.Sprintf("delegations: %d", pd)))
 	}
 
-	// Ephemeral 标记
-	if a.IsEphemeral() {
-		parts = append(parts, dimStyle.Render("ephemeral"))
-	}
-
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
 	return indent + nameStyle.Render(name) + "  " + strings.Join(parts, dimStyle.Render(" · ")) + "\n"
 }

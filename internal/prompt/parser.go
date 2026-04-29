@@ -14,10 +14,8 @@ type AgentFrontmatter struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
 	Model       string   `yaml:"model"`
-	Reasoning   bool     `yaml:"reasoning"`
 	Group       string   `yaml:"group"`
 	IsLeader    bool     `yaml:"is_leader"`
-	SubAgents   []string `yaml:"sub_agents"`
 	MCPServers  []string `yaml:"mcp_servers"`
 }
 
@@ -86,7 +84,7 @@ func ParseAgentFile(path string) (*AgentFile, error) {
 
 // LoadLeaders 扫描 agents 目录，返回所有 is_leader=true 的 agent。
 // 仅提取 Name/Description/Group，不提取 Skills（主 Agent 不需要知道工具细节）。
-// 如果传入 groups，会填充 GroupDescription、MatchedWorkspace 和 SubAgents。
+// 如果传入 groups，会填充 GroupDescription、MatchedWorkspace。
 func LoadLeaders(agentsDir string, groups map[string]GroupFile, cwd string) ([]LeaderInfo, error) {
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
@@ -110,7 +108,6 @@ func LoadLeaders(agentsDir string, groups map[string]GroupFile, cwd string) ([]L
 				Name:        af.Frontmatter.Name,
 				Description: af.Frontmatter.Description,
 				Group:       af.Frontmatter.Group,
-				SubAgents:   af.Frontmatter.SubAgents,
 			}
 
 			// 填充 group 信息
