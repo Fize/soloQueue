@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -163,8 +164,87 @@ func (a *Agent) execToolsWithAsync(
 			delCtx, cancel := context.WithTimeout(turnState.callerCtx, timeout)
 			defer cancel()
 
-			result, err := action.Target.Ask(delCtx, action.Prompt)
-			replyCh <- delegateResult{content: result, err: err}
+			// --- 注入 confirm relay（与 execToolStream 同步路径对齐） ---
+			relayCh := make(chan iface.AgentEvent, 16)
+
+			forwarder := iface.ConfirmForwarder(func(fwdCtx context.Context, callID string, child iface.Locatable) (string, error) {
+				slot := &confirmSlot{ch: make(chan string, 1)}
+				a.confirmMu.Lock()
+				a.pendingConfirm[callID] = slot
+				a.confirmMu.Unlock()
+
+				defer func() {
+					a.confirmMu.Lock()
+					delete(a.pendingConfirm, callID)
+					a.confirmMu.Unlock()
+				}()
+
+				select {
+				case choice := <-slot.ch:
+					if err := child.Confirm(callID, choice); err != nil {
+						return "", err
+					}
+					return choice, nil
+				case <-fwdCtx.Done():
+					return "", fwdCtx.Err()
+				}
+			})
+
+			relayDone := make(chan struct{})
+			go func() {
+				defer close(relayDone)
+				for ev := range relayCh {
+					if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
+						a.emit(turnState.callerCtx, turnState.out, ev.(AgentEvent))
+					}
+				}
+			}()
+
+			// --- 用 AskStream + 手动消费替代 Ask ---
+			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
+			if err != nil {
+				close(relayCh)
+				<-relayDone
+				replyCh <- delegateResult{err: err}
+				return
+			}
+
+			var content string
+			var finalErr error
+			for ev := range evCh {
+				if ev == nil {
+					continue
+				}
+
+				select {
+				case relayCh <- ev:
+				case <-delCtx.Done():
+				}
+
+				ec, ok := ev.(iface.EventConsumer)
+				if !ok {
+					continue
+				}
+
+				if callID, has := ec.ConfirmRequest(); has {
+					go forwarder(delCtx, callID, action.Target)
+				}
+
+				if delta, has := ec.ContentDelta(); has {
+					content += delta
+				}
+				if doneContent, has := ec.DoneContent(); has && doneContent != "" {
+					content = doneContent
+				}
+				if errValue, has := ec.Error(); has && errValue != nil {
+					finalErr = errValue
+				}
+			}
+
+			close(relayCh)
+			<-relayDone
+
+			replyCh <- delegateResult{content: content, err: finalErr}
 		})
 
 		results[i] = "" // 占位
