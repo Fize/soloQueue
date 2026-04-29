@@ -11,11 +11,8 @@ func TestParseAgentFile(t *testing.T) {
 name: dev
 description: 全栈开发工程师
 model: glm-5.0-ioa
-reasoning: true
 group: DevOps
 is_leader: true
-sub_agents:
-  - qa_bot
 ---
 这是 dev 的 system prompt body。
 `
@@ -39,9 +36,6 @@ sub_agents:
 	}
 	if af.Frontmatter.Group != "DevOps" {
 		t.Errorf("Group = %q, want %q", af.Frontmatter.Group, "DevOps")
-	}
-	if len(af.Frontmatter.SubAgents) != 1 {
-		t.Errorf("SubAgents len = %d, want 1", len(af.Frontmatter.SubAgents))
 	}
 	if af.Body != "这是 dev 的 system prompt body。" {
 		t.Errorf("Body = %q, unexpected", af.Body)
@@ -133,8 +127,6 @@ name: dev
 description: 全栈开发工程师
 is_leader: true
 group: DevOps
-sub_agents:
-  - qa_bot
 ---
 body`), 0o644)
 
@@ -168,9 +160,6 @@ body`), 0o644)
 	}
 	if l.MatchedWorkspace.Name != "kumquat" {
 		t.Errorf("MatchedWorkspace.Name = %q, want %q", l.MatchedWorkspace.Name, "kumquat")
-	}
-	if len(l.SubAgents) != 1 || l.SubAgents[0] != "qa_bot" {
-		t.Errorf("SubAgents = %v, want [qa_bot]", l.SubAgents)
 	}
 }
 

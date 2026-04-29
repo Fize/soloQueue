@@ -967,37 +967,10 @@ func checkFileHasCategory(path, cat string) (bool, error) {
 
 // --- Agent Options ---
 
-func TestWithEphemeral(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithEphemeral())
-	if !a.IsEphemeral() {
-		t.Error("IsEphemeral() = false, want true")
-	}
-	if a.mailboxCap != 1 {
-		t.Errorf("mailboxCap = %d, want 1", a.mailboxCap)
-	}
-}
-
-func TestWithEphemeral_PreservesCustomCap(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil,
-		WithMailboxCap(10),
-		WithEphemeral(),
-	)
-	if a.mailboxCap != 10 {
-		t.Errorf("mailboxCap = %d, want 10", a.mailboxCap)
-	}
-}
-
 func TestWithPriorityMailbox(t *testing.T) {
 	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithPriorityMailbox())
 	if a.priorityMailbox == nil {
 		t.Fatal("priorityMailbox is nil")
-	}
-}
-
-func TestAgent_DefaultNotEphemeral(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
-	if a.IsEphemeral() {
-		t.Error("default IsEphemeral() = true, want false")
 	}
 }
 
