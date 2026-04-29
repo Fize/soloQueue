@@ -6,27 +6,12 @@ import (
 
 // ─── Build ─────────────────────────────────────────────────────────────
 
-func TestBuild_WithoutTavily(t *testing.T) {
+func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AllowedDirs = []string{t.TempDir()}
-	list := Build(cfg)
-	if len(list) != 9 {
-		t.Errorf("Build without TavilyAPIKey returned %d tools, want 9", len(list))
-	}
-	for _, tool := range list {
-		if tool.Name() == "web_search" {
-			t.Errorf("web_search should be omitted when TavilyAPIKey empty")
-		}
-	}
-}
-
-func TestBuild_WithTavily(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.AllowedDirs = []string{t.TempDir()}
-	cfg.TavilyAPIKey = "tvly-test"
 	list := Build(cfg)
 	if len(list) != 10 {
-		t.Errorf("Build with TavilyAPIKey returned %d tools, want 10", len(list))
+		t.Errorf("Build returned %d tools, want 10", len(list))
 	}
 	hasWebSearch := false
 	for _, tool := range list {
@@ -35,14 +20,13 @@ func TestBuild_WithTavily(t *testing.T) {
 		}
 	}
 	if !hasWebSearch {
-		t.Errorf("web_search should be included when TavilyAPIKey set")
+		t.Errorf("web_search should always be included")
 	}
 }
 
 func TestBuild_ReturnsUniqueToolNames(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AllowedDirs = []string{t.TempDir()}
-	cfg.TavilyAPIKey = "tvly-test"
 	seen := map[string]bool{}
 	for _, tool := range Build(cfg) {
 		if seen[tool.Name()] {
@@ -57,7 +41,6 @@ func TestBuild_ReturnsUniqueToolNames(t *testing.T) {
 func TestBuild_AllToolsHaveNonEmptyDescription(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AllowedDirs = []string{t.TempDir()}
-	cfg.TavilyAPIKey = "tvly-test"
 	for _, tool := range Build(cfg) {
 		if tool.Description() == "" {
 			t.Errorf("tool %q has empty Description", tool.Name())
@@ -75,7 +58,7 @@ func TestDefaultConfig_SaneValues(t *testing.T) {
 	if !c.HTTPBlockPrivate {
 		t.Error("HTTPBlockPrivate default should be true")
 	}
-	if c.TavilyEndpoint == "" {
-		t.Error("TavilyEndpoint should have default")
+	if c.WebSearchTimeout <= 0 {
+		t.Error("WebSearchTimeout should be positive")
 	}
 }

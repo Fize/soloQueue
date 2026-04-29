@@ -61,7 +61,4 @@ var (
 
 	// ErrCommandBlocked shell_exec 的 command 命中黑名单
 	ErrCommandBlocked = errors.New("tools: command blocked by security policy")
-
-	// ErrTavilyDisabled web_search 的 APIKey 未配置
-	ErrTavilyDisabled = errors.New("tools: web_search disabled (APIKey empty)")
 )

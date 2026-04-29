@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -10,10 +9,6 @@ import (
 // ToToolsConfig 将 config.ToolsConfig 转换为 tools.Config。
 // allowedDirs 会与配置中的 AllowedDirs 合并作为沙箱白名单。
 func (tc ToolsConfig) ToToolsConfig(allowedDirs []string) tools.Config {
-	tavilyKey := ""
-	if tc.TavilyAPIKeyEnv != "" {
-		tavilyKey = os.Getenv(tc.TavilyAPIKeyEnv)
-	}
 	return tools.Config{
 		AllowedDirs:        allowedDirs,
 		MaxFileSize:        defaultInt64(tc.MaxFileSize, 1<<20),
@@ -35,9 +30,7 @@ func (tc ToolsConfig) ToToolsConfig(allowedDirs []string) tools.Config {
 		ShellTimeout:        msToDuration(tc.ShellTimeoutMs, 30*time.Second),
 		ShellMaxOutput:      defaultInt64(tc.ShellMaxOutput, 256<<10),
 
-		TavilyAPIKey:   tavilyKey,
-		TavilyEndpoint: defaultString(tc.TavilyEndpoint, "https://api.tavily.com/search"),
-		TavilyTimeout:  msToDuration(tc.TavilyTimeoutMs, 15*time.Second),
+		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 15*time.Second),
 	}
 }
 
