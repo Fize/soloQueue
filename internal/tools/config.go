@@ -93,29 +93,19 @@ type Config struct {
 	// ShellMaxOutput stdout + stderr 各自上限（字节）
 	ShellMaxOutput int64
 
-	// ── web_search (Tavily) ──────────────────────────────────────
+	// ── web_search ──────────────────────────────────────────────
 
-	// TavilyAPIKey 空 = Build 跳过 web_search 注册
-	TavilyAPIKey string
-
-	// TavilyEndpoint 默认 https://api.tavily.com/search
-	TavilyEndpoint string
-
-	// TavilyTimeout 搜索请求超时
-	TavilyTimeout time.Duration
+	// WebSearchTimeout 搜索请求超时
+	WebSearchTimeout time.Duration
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────
 
 // Build 返回当前 Config 下启用的所有工具
 //
-// 规则：
-//   - web_search 仅当 TavilyAPIKey 非空时被注册（可选外部依赖）
-//   - 其他工具总是返回（不可用的配置由各自 Execute 时报错）
-//
 // 返回切片顺序保持与声明顺序一致（便于 debug）。
 func Build(cfg Config) []Tool {
-	out := []Tool{
+	return []Tool{
 		newFileReadTool(cfg),
 		newGrepTool(cfg),
 		newGlobTool(cfg),
@@ -125,11 +115,8 @@ func Build(cfg Config) []Tool {
 		newMultiWriteTool(cfg),
 		newHTTPFetchTool(cfg),
 		newShellExecTool(cfg),
+		newWebSearchTool(cfg),
 	}
-	if cfg.TavilyAPIKey != "" {
-		out = append(out, newWebSearchTool(cfg))
-	}
-	return out
 }
 
 // ─── Default Config ─────────────────────────────────────────────────────
@@ -156,7 +143,6 @@ func DefaultConfig() Config {
 		ShellTimeout:   30 * time.Second,
 		ShellMaxOutput: 256 << 10,
 
-		TavilyEndpoint: "https://api.tavily.com/search",
-		TavilyTimeout:  15 * time.Second,
+		WebSearchTimeout: 15 * time.Second,
 	}
 }

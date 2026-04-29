@@ -1,17 +1,19 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 )
 
-// webSearchTool 调用 Tavily 搜索 API
+// webSearchTool 通过 DuckDuckGo Lite 搜索网页
 //
 // Schema:
 //
@@ -20,22 +22,19 @@ import (
 //	  "max_results":5     // 默认 5；上限 20
 //	}
 //
-// 仅当 Config.TavilyAPIKey != "" 时被 Build 注册；否则省略。
-//
-// Tavily wire（POST https://api.tavily.com/search）：
-//
-//	{"api_key":"...","query":"...","max_results":5,"search_depth":"basic"}
+// 无需 API Key，始终注册。
+// 请求 POST https://lite.duckduckgo.com/lite/，解析 HTML 提取结果。
 //
 // 返回（面向 LLM）：
 //
-//	{"answer":"...","results":[{"title","url","content","score"}]}
+//	{"results":[{"title","url","content"}]}
 type webSearchTool struct {
 	cfg    Config
 	client *http.Client
 }
 
 func newWebSearchTool(cfg Config) *webSearchTool {
-	timeout := cfg.TavilyTimeout
+	timeout := cfg.WebSearchTimeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
@@ -50,7 +49,7 @@ func newWebSearchTool(cfg Config) *webSearchTool {
 func (webSearchTool) Name() string { return "web_search" }
 
 func (webSearchTool) Description() string {
-	return "Search the web via Tavily. Returns {answer, results:[{title,url,content,score}]}."
+	return "Search the web via DuckDuckGo. Returns {results:[{title,url,content}]}."
 }
 
 func (webSearchTool) Parameters() json.RawMessage {
@@ -69,36 +68,19 @@ type webSearchArgs struct {
 	MaxResults int    `json:"max_results,omitempty"`
 }
 
-type tavilyReqBody struct {
-	APIKey      string `json:"api_key"`
-	Query       string `json:"query"`
-	MaxResults  int    `json:"max_results"`
-	SearchDepth string `json:"search_depth,omitempty"`
-}
-
-type tavilyResult struct {
-	Title   string  `json:"title"`
-	URL     string  `json:"url"`
-	Content string  `json:"content"`
-	Score   float64 `json:"score"`
-}
-
-type tavilyRespBody struct {
-	Answer  string         `json:"answer,omitempty"`
-	Results []tavilyResult `json:"results"`
+type ddgResult struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Content string `json:"content"`
 }
 
 type webSearchResult struct {
-	Answer  string         `json:"answer,omitempty"`
-	Results []tavilyResult `json:"results"`
+	Results []ddgResult `json:"results"`
 }
 
 func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err := ctxErrOrNil(ctx); err != nil {
 		return "", err
-	}
-	if t.cfg.TavilyAPIKey == "" {
-		return "", ErrTavilyDisabled
 	}
 
 	var a webSearchArgs
@@ -117,23 +99,15 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 		maxR = 20
 	}
 
-	body := tavilyReqBody{
-		APIKey:      t.cfg.TavilyAPIKey,
-		Query:       a.Query,
-		MaxResults:  maxR,
-		SearchDepth: "basic",
-	}
-	bodyJSON, _ := json.Marshal(body)
+	form := url.Values{}
+	form.Set("q", a.Query)
 
-	endpoint := t.cfg.TavilyEndpoint
-	if endpoint == "" {
-		endpoint = "https://api.tavily.com/search"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyJSON))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://lite.duckduckgo.com/lite/", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SoloQueue/1.0)")
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -142,23 +116,96 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	defer resp.Body.Close()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if readErr != nil {
-		return "", fmt.Errorf("read tavily body: %w", readErr)
+		return "", fmt.Errorf("read web_search body: %w", readErr)
 	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("tavily %d: %s", resp.StatusCode, truncateString(string(data), 200))
+		return "", fmt.Errorf("web_search %d: %s", resp.StatusCode, truncateString(string(data), 200))
 	}
 
-	var parsed tavilyRespBody
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		return "", fmt.Errorf("parse tavily response: %w", err)
-	}
+	results := parseDDGResults(data, maxR)
 
-	out := webSearchResult{
-		Answer:  parsed.Answer,
-		Results: parsed.Results,
-	}
+	out := webSearchResult{Results: results}
 	b, _ := json.Marshal(out)
 	return string(b), nil
+}
+
+// parseDDGResults 从 DuckDuckGo Lite HTML 中提取搜索结果
+func parseDDGResults(htmlData []byte, maxResults int) []ddgResult {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(htmlData)))
+	if err != nil {
+		return nil
+	}
+
+	var results []ddgResult
+	doc.Find("a.result-link").Each(func(i int, s *goquery.Selection) {
+		if len(results) >= maxResults {
+			return
+		}
+
+		title := strings.TrimSpace(s.Text())
+		href, _ := s.Attr("href")
+
+		// DDG Lite 的 href 可能是直接 URL 或跳转链接
+		realURL := resolveDDGURL(href)
+		if realURL == "" {
+			realURL = href
+		}
+
+		// 摘要在下一个 <tr> 的 td.result-snippet 中
+		snippet := ""
+		row := s.Closest("tr")
+		if row.Length() > 0 {
+			nextRow := row.Next()
+			if nextRow.Length() > 0 {
+				snippetTD := nextRow.Find("td.result-snippet")
+				if snippetTD.Length() > 0 {
+					snippet = strings.TrimSpace(snippetTD.Text())
+				}
+			}
+		}
+
+		if title != "" && realURL != "" {
+			results = append(results, ddgResult{
+				Title:   title,
+				URL:     realURL,
+				Content: snippet,
+			})
+		}
+	})
+
+	return results
+}
+
+// resolveDDGURL 从 DDG 跳转链接中提取真实 URL
+// DDG Lite 格式: //duckduckgo.com/l/?uddg=<encoded_url>&rut=...
+// 或直接是 https://... URL
+func resolveDDGURL(href string) string {
+	if href == "" {
+		return ""
+	}
+
+	// 补全协议
+	if strings.HasPrefix(href, "//") {
+		href = "https:" + href
+	}
+
+	u, err := url.Parse(href)
+	if err != nil {
+		return href
+	}
+
+	// 如果是 DDG 跳转链接，提取 uddg 参数
+	if strings.Contains(u.Host, "duckduckgo.com") && u.Path == "/l/" {
+		if uddg := u.Query().Get("uddg"); uddg != "" {
+			decoded, err := url.QueryUnescape(uddg)
+			if err == nil {
+				return decoded
+			}
+			return uddg
+		}
+	}
+
+	return href
 }
 
 // Compile-time check
