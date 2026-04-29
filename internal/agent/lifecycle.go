@@ -56,7 +56,6 @@ func (a *Agent) Start(parent context.Context) error {
 		slog.String("model_id", a.Def.ModelID),
 		slog.Int("mailbox_cap", a.mailboxCap),
 		slog.Bool("priority_mailbox", a.priorityMailbox != nil),
-		slog.Bool("ephemeral", a.ephemeral),
 	)
 	return nil
 }

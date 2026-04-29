@@ -9,7 +9,6 @@ type LeaderInfo struct {
 	Group            string     // 例如 "DevOps"
 	GroupDescription string     // 团队描述（来自 group 文件的 body）
 	MatchedWorkspace *Workspace // 按当前 cwd 匹配的 workspace，可能为 nil
-	SubAgents        []string   // 团队成员列表
 }
 
 // ProfileAnswers 用户对个性化问卷的回答。

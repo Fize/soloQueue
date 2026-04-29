@@ -60,7 +60,6 @@ func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supe
 // the current L2→L3 pattern where spawns are infrequent (triggered by
 // user tasks, not per-token). For high-frequency spawning, consider:
 //   - Agent pooling (pre-spawn N agents, reuse via Reset)
-//   - Lightweight spawn (skip skill loading for ephemeral agents)
 //   - Template caching (pre-build tools once, clone per instance)
 func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate) (*Agent, error) {
 	if s.factory == nil {
