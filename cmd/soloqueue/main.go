@@ -239,9 +239,14 @@ func buildRuntimeStack(
 
 	// ── Agent Registry + Factory ──────────────────────────────────────────────
 	agentRegistry := agent.NewRegistry(log)
+
+	// Build model resolver: validates agent model IDs against settings.toml
+	modelResolver := buildModelResolver(cfg)
+
 	agentFactory := agent.NewDefaultFactory(
 		agentRegistry, llmClient, toolsCfg,
 		filepath.Join(workDir, "skills"), log,
+		agent.WithModelResolver(modelResolver),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────
@@ -592,6 +597,39 @@ func serveCmd() *cobra.Command {
 // newAgentID returns a short random ID for an agent instance
 func newAgentID() string {
 	return fmt.Sprintf("agent-%d", time.Now().UnixNano())
+}
+
+// buildModelResolver creates a ModelResolver that validates agent model IDs
+// against the settings model registry. The resolver looks up the model by ID,
+// checks it is enabled, and returns the resolved model parameters.
+func buildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
+	return func(modelID string) (agent.ModelInfo, error) {
+		m := cfg.ModelByID(modelID)
+		if m == nil {
+			// List available model IDs for a helpful error message
+			settings := cfg.Get()
+			var available []string
+			for _, model := range settings.Models {
+				if model.Enabled {
+					available = append(available, model.ID)
+				}
+			}
+			return agent.ModelInfo{}, fmt.Errorf(
+				"model %q not found in settings; available models: %v", modelID, available)
+		}
+		if !m.Enabled {
+			return agent.ModelInfo{}, fmt.Errorf("model %q is disabled in settings", modelID)
+		}
+		return agent.ModelInfo{
+			APIModel:        m.APIModel,
+			ContextWindow:   m.ContextWindow,
+			Temperature:     m.Generation.Temperature,
+			MaxTokens:       m.Generation.MaxTokens,
+			ThinkingEnabled: m.Thinking.Enabled,
+			ThinkingType:    m.Thinking.Type,
+			ReasoningEffort: m.Thinking.ReasoningEffort,
+		}, nil
+	}
 }
 
 // promptProfileQuestions 在 TUI 启动前执行交互式问卷，收集用户个性化设定。

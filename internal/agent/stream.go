@@ -419,8 +419,11 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 // runOnceStreamWithHistory is the execution body of AskStreamWithHistory.
 // Uses ContextWindow for full conversation history, calibration, and
 // async delegation support.
-func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) {
-	a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
+//
+// Returns true if the stream loop yielded (async delegation started);
+// the caller must keep the context alive until resumeTurn completes.
+func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) bool {
+	return a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
 }
 
 // runOnceStreamWithHistoryFromIter resumes the tool loop from a given
