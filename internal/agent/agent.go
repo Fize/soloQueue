@@ -189,8 +189,8 @@ func WithConfirmStore(store SessionConfirmStore) Option {
 //
 //	agent.NewAgent(def, llm, log,
 //	    agent.WithTools(tools...),
-//	    agent.WithToolTimeout("shell_exec", 30*time.Second),
-//	    agent.WithToolTimeout("http_fetch", 10*time.Second),
+//	    agent.WithToolTimeout("Bash", 30*time.Second),
+//	    agent.WithToolTimeout("WebFetch", 10*time.Second),
 //	)
 //
 // 不影响 ctx 取消路径：caller ctx 取消（Stop / Ask ctx）仍按原语义

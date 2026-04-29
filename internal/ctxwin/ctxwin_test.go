@@ -86,7 +86,7 @@ func TestPushWithToolCalls(t *testing.T) {
 
 func TestPushWithEphemeral(t *testing.T) {
 	cw := newTestCW(100000, 2000)
-	cw.Push(RoleTool, `{"exit_code":0,"stdout":"hello"}`, WithEphemeral(true), WithToolCallID("call_1"), WithToolName("shell_exec"))
+	cw.Push(RoleTool, `{"exit_code":0,"stdout":"hello"}`, WithEphemeral(true), WithToolCallID("call_1"), WithToolName("Bash"))
 
 	msg, _ := cw.MessageAt(0)
 	if !msg.IsEphemeral {
@@ -95,8 +95,8 @@ func TestPushWithEphemeral(t *testing.T) {
 	if msg.ToolCallID != "call_1" {
 		t.Errorf("ToolCallID = %q, want %q", msg.ToolCallID, "call_1")
 	}
-	if msg.Name != "shell_exec" {
-		t.Errorf("Name = %q, want %q", msg.Name, "shell_exec")
+	if msg.Name != "Bash" {
+		t.Errorf("Name = %q, want %q", msg.Name, "Bash")
 	}
 }
 
