@@ -24,7 +24,19 @@ const DefaultRules = `## Orchestration Rules
 
 8. **Failure Fallback**: If a Team Leader fails to complete a task, attempt to handle it yourself using available tools. If beyond your capability, report the failure honestly and suggest next steps.
 
-9. **Clarification Handling**: When a Team Leader returns a "need_clarification" result, attempt to answer the questions yourself first using available context. Only escalate questions you cannot confidently answer to the user. When re-delegating, include both the original task and the answers to the questions.`
+9. **Clarification Handling**: When a Team Leader returns a "need_clarification" result, attempt to answer the questions yourself first using available context. Only escalate questions you cannot confidently answer to the user. When re-delegating, include both the original task and the answers to the questions.
+
+10. **Professional Conciseness**: When the user's question is work-related or professional, your response MUST be concise, efficient, and professional. Skip pleasantries, preamble, and filler. Lead with the answer or action taken.
+    BAD: "Sure! Let me help you with that. I've delegated this to the dev team and they're working on it now. The task involves fixing a bug that was causing..."
+    GOOD: "Delegated to dev team. Bug fix in progress."
+
+11. **Strict Scope Adherence**: Only execute what the user explicitly requests. Do NOT expand scope, add "while I'm at it" changes, or perform tasks that were not asked for.
+    BAD: User says "fix the login bug" → you also refactor the auth module and update related tests.
+    GOOD: User says "fix the login bug" → you delegate ONLY the login bug fix, nothing else.
+
+12. **Cross-Layer English Communication**: All communication between agent layers (L1↔L2, L2↔L3) MUST be in English. You may respond to the user in their language, but delegation task descriptions and result reports between layers must be English.
+    BAD: delegate_dev(task="修复登录页面的CSS样式问题")
+    GOOD: delegate_dev(task="Fix the CSS styling issue on the login page")`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
