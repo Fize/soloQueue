@@ -723,3 +723,59 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 		t.Errorf("ModelID = %q, want 'any-random-model-name'", agent.Def.ModelID)
 	}
 }
+
+// ─── L2 System Prompt Clarification Rule tests ────────────────────────
+
+func TestL2EnforcedDirectives_ContainsClarificationRule(t *testing.T) {
+	if !strings.Contains(l2EnforcedDirectives, "Clarification Before Delegation") {
+		t.Error("l2EnforcedDirectives should contain 'Clarification Before Delegation'")
+	}
+	if !strings.Contains(l2EnforcedDirectives, "need_clarification") {
+		t.Error("l2EnforcedDirectives should contain 'need_clarification' JSON status")
+	}
+	if !strings.Contains(l2EnforcedDirectives, "questions") {
+		t.Error("l2EnforcedDirectives should contain 'questions' field")
+	}
+}
+
+func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		SubAgents:    []string{"frontend"},
+	}
+
+	subTmpl := AgentTemplate{
+		ID:          "frontend",
+		Name:        "Frontend",
+		Description: "Frontend worker",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev":      tmpl,
+		"frontend": subTmpl,
+	}
+
+	prompt := buildL2SystemPrompt(tmpl, templates, nil)
+
+	// Segment 1: user-defined
+	if !strings.Contains(prompt, "You are a dev supervisor.") {
+		t.Error("L2 prompt should contain user-defined system prompt")
+	}
+
+	// Segment 2: sub-agents
+	if !strings.Contains(prompt, "frontend") {
+		t.Error("L2 prompt should list sub-agents")
+	}
+
+	// Segment 3: clarification protocol
+	if !strings.Contains(prompt, "Clarification Before Delegation") {
+		t.Error("L2 prompt should contain clarification rule")
+	}
+	if !strings.Contains(prompt, "need_clarification") {
+		t.Error("L2 prompt should contain need_clarification format")
+	}
+}
