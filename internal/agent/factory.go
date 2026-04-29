@@ -22,13 +22,41 @@ type AgentTemplate struct {
 	Name         string   // 显示名称
 	Description  string   // 给 LLM 看的描述
 	SystemPrompt string   // markdown body
-	ModelID      string   // 模型 ID
+	ModelID      string   // 模型 ID（必须匹配 settings.toml 中的 Models[].ID）
 	Reasoning    bool     // 是否启用推理
 	Skills       []string // 需要加载的 Skill ID
 	SubAgents    []string // 子 Agent 名称列表（L2 专用）
 	IsLeader     bool     // 是否为 L2 领导者
 	Ephemeral    bool     // 是否为阅后即焚的 L3
 }
+
+// ─── ModelInfo ────────────────────────────────────────────────────────────
+
+// ModelInfo holds the resolved model configuration for an agent.
+// Populated by ModelResolver from the settings model registry.
+type ModelInfo struct {
+	// APIModel is the actual model name sent to the LLM API.
+	// Empty means use the model ID itself.
+	APIModel string
+
+	// ContextWindow is the model's context window size in tokens.
+	ContextWindow int
+
+	// Generation parameters
+	Temperature float64
+	MaxTokens   int
+
+	// Thinking configuration
+	ThinkingEnabled bool
+	ThinkingType    string
+	ReasoningEffort string
+}
+
+// ModelResolver looks up a model ID in the settings registry.
+//
+// Returns (ModelInfo, nil) on success, or (zero, error) if the model ID
+// is not found or not enabled. Implemented by the config layer.
+type ModelResolver func(modelID string) (ModelInfo, error)
 
 // ─── AgentFactory ──────────────────────────────────────────────────────────
 
@@ -47,11 +75,12 @@ type AgentFactory interface {
 //
 // 包含创建 Agent 所需的所有依赖。创建的 Agent 会自动注册到 Registry 并启动。
 type DefaultFactory struct {
-	registry *Registry
-	llm      LLMClient
-	toolsCfg tools.Config
-	skillDir string
-	log      *logger.Logger
+	registry     *Registry
+	llm          LLMClient
+	toolsCfg     tools.Config
+	skillDir     string
+	log          *logger.Logger
+	resolveModel ModelResolver // nil = skip model validation (tests)
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -61,13 +90,31 @@ func NewDefaultFactory(
 	toolsCfg tools.Config,
 	skillDir string,
 	log *logger.Logger,
+	opts ...FactoryOption,
 ) *DefaultFactory {
-	return &DefaultFactory{
+	f := &DefaultFactory{
 		registry: registry,
 		llm:      llm,
 		toolsCfg: toolsCfg,
 		skillDir: skillDir,
 		log:      log,
+	}
+	for _, opt := range opts {
+		opt(f)
+	}
+	return f
+}
+
+// FactoryOption configures a DefaultFactory.
+type FactoryOption func(*DefaultFactory)
+
+// WithModelResolver sets the model resolver for agent model validation.
+// When set, Create will validate that the template's ModelID exists in the
+// settings model registry, and populate the agent Definition with resolved
+// model parameters (APIModel, ContextWindow, Temperature, etc.).
+func WithModelResolver(resolver ModelResolver) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.resolveModel = resolver
 	}
 }
 
@@ -96,7 +143,28 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		Kind:            KindCustom,
 		ModelID:         tmpl.ModelID,
 		SystemPrompt:    tmpl.SystemPrompt,
-		ReasoningEffort: "", // TODO: 从 tmpl 推导
+		ReasoningEffort: "", // populated below if resolver is set
+	}
+
+	// 1b. Validate and resolve model configuration
+	if f.resolveModel != nil {
+		if tmpl.ModelID == "" {
+			return nil, nil, fmt.Errorf("agent %q: model ID is empty", tmpl.ID)
+		}
+		info, err := f.resolveModel(tmpl.ModelID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("agent %q: invalid model %q: %w", tmpl.ID, tmpl.ModelID, err)
+		}
+		// Use APIModel for the actual API call (may differ from the config ID)
+		if info.APIModel != "" {
+			def.ModelID = info.APIModel
+		}
+		def.ContextWindow = info.ContextWindow
+		def.Temperature = info.Temperature
+		def.MaxTokens = info.MaxTokens
+		def.ThinkingEnabled = info.ThinkingEnabled
+		def.ThinkingType = info.ThinkingType
+		def.ReasoningEffort = info.ReasoningEffort
 	}
 
 	// 2. 构建内置 tools

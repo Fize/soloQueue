@@ -251,8 +251,16 @@ func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWind
 
 	jb := func(jobCtx context.Context) {
 		merged, cancel := mergeCtx(ctx, jobCtx)
-		defer cancel()
-		a.runOnceStreamWithHistory(merged, cw, prompt, out)
+		yielded := a.runOnceStreamWithHistory(merged, cw, prompt, out)
+		if yielded {
+			// streamLoop yielded for async delegation — merged ctx must
+			// stay alive because resumeTurn (and the subsequent streamLoop)
+			// still need it. Save the cancel into the asyncTurnState so
+			// resumeTurn can call it after the final streamLoop completes.
+			a.saveAsyncCancel(merged, cancel)
+		} else {
+			cancel()
+		}
 	}
 
 	if err := a.submit(ctx, jb); err != nil {
