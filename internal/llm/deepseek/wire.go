@@ -166,7 +166,7 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 		out.TopP = &p
 	}
 	if req.MaxTokens > 0 {
-		m := req.MaxTokens
+		m := min(req.MaxTokens, 100000) // 输出 token 上限 100k
 		out.MaxTokens = &m
 	}
 	if req.FrequencyPenalty != 0 {
@@ -206,16 +206,10 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 		out.ReasoningEffort = &req.ReasoningEffort
 	}
 	// DeepSeek V4 thinking 参数：必传，enabled 或 disabled
-	if req.ThinkingType != "" {
-		thinkingType := req.ThinkingType
-		out.Thinking = &wireThinking{Type: thinkingType}
+	if req.ThinkingEnabled {
+		out.Thinking = &wireThinking{Type: "enabled"}
 	} else {
-		// ThinkingType 为空时，根据 ThinkingEnabled 推断
-		if req.ThinkingEnabled {
-			out.Thinking = &wireThinking{Type: "enabled"}
-		} else {
-			out.Thinking = &wireThinking{Type: "disabled"}
-		}
+		out.Thinking = &wireThinking{Type: "disabled"}
 	}
 	return out
 }

@@ -43,9 +43,7 @@ func DefaultSettings() Settings {
 			ShellTimeoutMs: 30000,
 			ShellMaxOutput: 256 << 10,
 
-			TavilyAPIKeyEnv: "TAVILY_API_KEY",
-			TavilyEndpoint:  "https://api.tavily.com/search",
-			TavilyTimeoutMs: 15000,
+			WebSearchTimeoutMs: 15000,
 		},
 		Providers: []LLMProvider{
 			{
@@ -69,18 +67,11 @@ func DefaultSettings() Settings {
 				ID:            "deepseek-v4-flash",
 				ProviderID:    "deepseek",
 				Name:          "DeepSeek V4 Flash",
-				Type:          "chat",
 				ContextWindow: 1048576,
 				Enabled:       true,
-				IsDefault:     true,
 				Generation: GenerationParams{
 					Temperature: 0,
-					MaxTokens:   4096,
-				},
-				Thinking: ThinkingConfig{
-					Enabled:         false,
-					Type:            "",
-					ReasoningEffort: "",
+					MaxTokens:   8192,
 				},
 			},
 			{
@@ -88,17 +79,14 @@ func DefaultSettings() Settings {
 				ProviderID:    "deepseek",
 				APIModel:      "deepseek-v4-flash",
 				Name:          "DeepSeek V4 Flash (Thinking)",
-				Type:          "chat",
 				ContextWindow: 1048576,
 				Enabled:       true,
-				IsDefault:     false,
 				Generation: GenerationParams{
 					Temperature: 0,
 					MaxTokens:   8192,
 				},
 				Thinking: ThinkingConfig{
 					Enabled:         true,
-					Type:            "reasoning",
 					ReasoningEffort: "high",
 				},
 			},
@@ -106,18 +94,31 @@ func DefaultSettings() Settings {
 				ID:            "deepseek-v4-pro",
 				ProviderID:    "deepseek",
 				Name:          "DeepSeek V4 Pro",
-				Type:          "chat",
 				ContextWindow: 1048576,
 				Enabled:       true,
-				IsDefault:     false,
 				Generation: GenerationParams{
 					Temperature: 0,
 					MaxTokens:   8192,
 				},
 				Thinking: ThinkingConfig{
 					Enabled:         true,
-					Type:            "reasoning",
 					ReasoningEffort: "high",
+				},
+			},
+			{
+				ID:            "deepseek-v4-pro-max",
+				ProviderID:    "deepseek",
+				APIModel:      "deepseek-v4-pro",
+				Name:          "DeepSeek V4 Pro (Max Reasoning)",
+				ContextWindow: 1048576,
+				Enabled:       true,
+				Generation: GenerationParams{
+					Temperature: 0,
+					MaxTokens:   8192,
+				},
+				Thinking: ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "max",
 				},
 			},
 		},
@@ -144,6 +145,13 @@ func DefaultSettings() Settings {
 					IsDefault:  true,
 				},
 			},
+		},
+		DefaultModels: DefaultModelsConfig{
+			Expert:    "deepseek:deepseek-v4-pro-max",
+			Superior:  "deepseek:deepseek-v4-pro",
+			Universal: "deepseek:deepseek-v4-flash-thinking",
+			Fast:      "deepseek:deepseek-v4-flash",
+			Fallback:  "",
 		},
 	}
 }

@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
@@ -14,9 +17,10 @@ type Settings struct {
 	Session   SessionConfig   `json:"session"`
 	Log       LogConfig       `json:"log"`
 	Tools     ToolsConfig     `json:"tools"`
-	Providers []LLMProvider   `json:"providers"`
-	Models    []LLMModel      `json:"models"`
-	Embedding EmbeddingConfig `json:"embedding"`
+	Providers     []LLMProvider       `json:"providers"`
+	Models        []LLMModel          `json:"models"`
+	Embedding     EmbeddingConfig     `json:"embedding"`
+	DefaultModels DefaultModelsConfig `json:"defaultModels"`
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -69,13 +73,8 @@ type ToolsConfig struct {
 	ShellTimeoutMs      int      `json:"shellTimeoutMs"`
 	ShellMaxOutput      int64    `json:"shellMaxOutput"`
 
-	// web_search (Tavily)
-	//
-	// TavilyAPIKeyEnv 指定读哪个环境变量的值作为 API key（与 provider 对齐）；
-	// 空 env 或 env 为空值 → Build 跳过 web_search 注册
-	TavilyAPIKeyEnv string `json:"tavilyApiKeyEnv"`
-	TavilyEndpoint  string `json:"tavilyEndpoint"`
-	TavilyTimeoutMs int    `json:"tavilyTimeoutMs"`
+	// web_search
+	WebSearchTimeoutMs int `json:"webSearchTimeoutMs"`
 }
 
 // ─── LLM Provider ─────────────────────────────────────────────────────────────
@@ -112,10 +111,9 @@ type GenerationParams struct {
 	MaxTokens  int     `json:"maxTokens"`
 }
 
-// ThinkingConfig 思考/推理配置（extended thinking / reasoning 模型）
+// ThinkingConfig 思考/推理配置（DeepSeek V4 thinking 模式）
 type ThinkingConfig struct {
 	Enabled         bool   `json:"enabled"`
-	Type            string `json:"type"`            // "reasoning" | "extended_thinking" | ""
 	ReasoningEffort string `json:"reasoningEffort"` // "high" | "max" | ""（V4 模型使用）
 }
 
@@ -124,10 +122,8 @@ type LLMModel struct {
 	ProviderID    string          `json:"providerId"`
 	Name          string          `json:"name"`
 	APIModel      string          `json:"apiModel,omitempty"` // 实际 API 模型名，空则用 ID
-	Type          string          `json:"type"`              // "chat" | "code" | "vision"
 	ContextWindow int             `json:"contextWindow"`
 	Enabled       bool            `json:"enabled"`
-	IsDefault     bool            `json:"isDefault"`
 	Generation    GenerationParams `json:"generation"`
 	Thinking      ThinkingConfig  `json:"thinking"`
 }
@@ -157,4 +153,29 @@ type EmbeddingConfig struct {
 	Enabled   bool                `json:"enabled"`
 	Providers []EmbeddingProvider `json:"providers"`
 	Models    []EmbeddingModel    `json:"models"`
+}
+
+// ─── Default Models ────────────────────────────────────────────────────────────
+
+// DefaultModelsConfig 按角色配置默认模型
+//
+// 配置值格式为 "provider:id"，provider 和 id 必须存在于配置文件的
+// Providers[] 和 Models[] 中。effort 跟随模型自身定义。
+//
+// 解析优先级：角色字段值 → Fallback → 硬编码默认值。
+type DefaultModelsConfig struct {
+	Expert    string `json:"expert"`    // 专家模型
+	Superior  string `json:"superior"`  // 次级专家模型
+	Universal string `json:"universal"` // 通用模型
+	Fast      string `json:"fast"`      // 快速模型
+	Fallback  string `json:"fallback"`  // 兜底默认模型（空=不配置）
+}
+
+// parseProviderModelID 解析 "provider:id" 格式的配置值
+func parseProviderModelID(s string) (providerID, modelID string, ok bool) {
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }

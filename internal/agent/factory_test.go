@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -540,4 +542,190 @@ func TestNewDefaultFactory_NilLogger(t *testing.T) {
 		t.Fatalf("factory.Create with nil logger: %v", err)
 	}
 	defer agent.Stop(time.Second)
+}
+
+// ─── Model validation tests ─────────────────────────────────────────
+
+func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
+	dir := t.TempDir()
+	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.Session: %v", err)
+	}
+	defer log.Close()
+
+	registry := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+
+	// Model resolver that only knows "gpt-4" and "gpt-3.5"
+	resolver := func(modelID string) (ModelInfo, error) {
+		switch modelID {
+		case "gpt-4":
+			return ModelInfo{
+				ContextWindow: 128000,
+				Temperature:   0,
+				MaxTokens:     4096,
+			}, nil
+		case "gpt-3.5":
+			return ModelInfo{
+				ContextWindow: 16000,
+				Temperature:   0.7,
+				MaxTokens:     2048,
+			}, nil
+		default:
+			return ModelInfo{}, fmt.Errorf("model %q not found in settings; available models: [gpt-4 gpt-3.5]", modelID)
+		}
+	}
+
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log,
+		WithModelResolver(resolver),
+	)
+
+	// Invalid model should fail at creation time
+	tmpl := AgentTemplate{
+		ID:          "bad-model-agent",
+		Name:        "Bad Model Agent",
+		SystemPrompt: "You are a test.",
+		ModelID:     "nonexistent-model-xyz",
+	}
+
+	_, _, err = factory.Create(context.Background(), tmpl)
+	if err == nil {
+		t.Fatal("expected error for invalid model ID, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent-model-xyz") {
+		t.Errorf("error should mention the bad model ID, got: %s", err)
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found', got: %s", err)
+	}
+	t.Logf("got expected error: %s", err)
+}
+
+func TestDefaultFactory_Create_EmptyModel(t *testing.T) {
+	dir := t.TempDir()
+	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.Session: %v", err)
+	}
+	defer log.Close()
+
+	registry := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+
+	resolver := func(modelID string) (ModelInfo, error) {
+		return ModelInfo{}, fmt.Errorf("model %q not found", modelID)
+	}
+
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log,
+		WithModelResolver(resolver),
+	)
+
+	tmpl := AgentTemplate{
+		ID:          "empty-model-agent",
+		Name:        "Empty Model Agent",
+		SystemPrompt: "You are a test.",
+		ModelID:     "", // empty
+	}
+
+	_, _, err = factory.Create(context.Background(), tmpl)
+	if err == nil {
+		t.Fatal("expected error for empty model ID, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("error should mention 'empty', got: %s", err)
+	}
+}
+
+func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
+	dir := t.TempDir()
+	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.Session: %v", err)
+	}
+	defer log.Close()
+
+	registry := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+
+	resolver := func(modelID string) (ModelInfo, error) {
+		if modelID == "deepseek-v4-flash-thinking" {
+			return ModelInfo{
+				APIModel:        "deepseek-v4-flash",
+				ContextWindow:   1048576,
+				Temperature:     0,
+				MaxTokens:       8192,
+				ThinkingEnabled: true,
+				ReasoningEffort: "high",
+			}, nil
+		}
+		return ModelInfo{}, fmt.Errorf("model %q not found", modelID)
+	}
+
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log,
+		WithModelResolver(resolver),
+	)
+
+	tmpl := AgentTemplate{
+		ID:          "resolved-agent",
+		Name:        "Resolved Agent",
+		SystemPrompt: "You are a test.",
+		ModelID:     "deepseek-v4-flash-thinking",
+	}
+
+	agent, _, err := factory.Create(context.Background(), tmpl)
+	if err != nil {
+		t.Fatalf("factory.Create: %v", err)
+	}
+	defer agent.Stop(time.Second)
+
+	// Verify resolved parameters
+	if agent.Def.ModelID != "deepseek-v4-flash" {
+		t.Errorf("ModelID = %q, want 'deepseek-v4-flash' (APIModel override)", agent.Def.ModelID)
+	}
+	if agent.Def.ContextWindow != 1048576 {
+		t.Errorf("ContextWindow = %d, want 1048576", agent.Def.ContextWindow)
+	}
+	if agent.Def.MaxTokens != 8192 {
+		t.Errorf("MaxTokens = %d, want 8192", agent.Def.MaxTokens)
+	}
+	if !agent.Def.ThinkingEnabled {
+		t.Error("ThinkingEnabled should be true")
+	}
+	if agent.Def.ReasoningEffort != "high" {
+		t.Errorf("ReasoningEffort = %q, want 'high'", agent.Def.ReasoningEffort)
+	}
+}
+
+func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
+	// Without resolver, any model ID is accepted (backward compat / tests)
+	dir := t.TempDir()
+	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.Session: %v", err)
+	}
+	defer log.Close()
+
+	registry := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log)
+	// No WithModelResolver — should skip validation
+
+	tmpl := AgentTemplate{
+		ID:          "no-resolver-agent",
+		Name:        "No Resolver",
+		SystemPrompt: "You are a test.",
+		ModelID:     "any-random-model-name",
+	}
+
+	agent, _, err := factory.Create(context.Background(), tmpl)
+	if err != nil {
+		t.Fatalf("factory.Create should succeed without resolver: %v", err)
+	}
+	defer agent.Stop(time.Second)
+
+	if agent.Def.ModelID != "any-random-model-name" {
+		t.Errorf("ModelID = %q, want 'any-random-model-name'", agent.Def.ModelID)
+	}
 }
