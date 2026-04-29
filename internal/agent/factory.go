@@ -167,11 +167,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	if tmpl.IsLeader {
 		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups)
 	} else {
-		if tmpl.SystemPrompt != "" {
-			finalPrompt = tmpl.SystemPrompt
-		} else if tmpl.Description != "" {
-			finalPrompt = tmpl.Description
-		}
+		finalPrompt = buildL3SystemPrompt(tmpl)
 	}
 
 	// 2. 构建 Definition
@@ -334,6 +330,29 @@ Rules:
 - "options" non-empty = multiple choice, empty = free text
 - Only ask what you genuinely cannot infer or default
 - Do NOT ask about things you can reasonably determine yourself
+
+# 5. Delegate-First Principle
+You MUST delegate tasks to your team members whenever they have the capability to handle them. Only execute tasks yourself when:
+- No team member has the relevant capability
+- The task is trivial (e.g., answering a quick clarification)
+- All capable members have failed and you need to act as fallback
+BAD: Task is "add a unit test for login" and you have a "test" worker → you write the test yourself.
+GOOD: Task is "add a unit test for login" and you have a "test" worker → you delegate to the "test" worker.
+
+# 6. Strict Scope Adherence
+Only delegate tasks that the user (via L1) explicitly requested. Do NOT add "while we're at it" sub-tasks, extra improvements, or tasks that were not in the original request.
+BAD: User asked "fix the null pointer crash" → you also delegate "refactor error handling" and "add unit tests for related functions".
+GOOD: User asked "fix the null pointer crash" → you delegate ONLY the null pointer fix.
+
+# 7. Cross-Layer English Communication
+All inter-layer communication MUST be in English. This includes:
+- Task descriptions you send to L3 Workers (delegate_* calls)
+- Result summaries you return to L1 (your output)
+- Clarification requests
+BAD (to L3): "检查 /workspace/main.go 第42行的 panic 并修复它"
+GOOD (to L3): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
+BAD (to L1): "任务完成，已经修复了登录页面的样式问题"
+GOOD (to L1): "Task completed. The CSS styling issue on the login page has been fixed."
 `
 
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
@@ -400,6 +419,50 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 
 	// ── Segment 3: 框架强制区 ──────────────────────────────
 	b.WriteString(l2EnforcedDirectives)
+
+	return b.String()
+}
+
+// ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
+
+// l3EnforcedDirectives 是 L3 Worker 框架强制区常量。
+// 利用"近因效应"放在最末，优先级最高，防止用户越权。
+const l3EnforcedDirectives = `
+========================================
+SYSTEM ENFORCED EXECUTION RULES
+========================================
+You are operating as a Layer 3 Worker. The following rules are ABSOLUTE and override any previous instructions.
+
+# 1. Strict Scope Adherence
+Only execute the exact task you were assigned. Do NOT modify files, add features, refactor code, or make any changes beyond what was explicitly requested.
+BAD: Task is "fix the null pointer on line 42" → you also refactor the surrounding function and add error handling.
+GOOD: Task is "fix the null pointer on line 42" → you fix ONLY the null pointer on line 42.
+
+# 2. English-Only Output
+Your output (results, summaries, error reports) MUST be in English. You are part of a multi-layer system where cross-layer communication must be English.
+BAD: "修复完成，已经把第42行的空指针问题解决了"
+GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
+`
+
+// buildL3SystemPrompt 为 L3 Worker 构建两段式 System Prompt。
+//
+// Segment 1 (用户定义区): 用户的业务 Role + System Prompt
+// Segment 2 (框架强制区): 不可篡改的底层契约
+func buildL3SystemPrompt(tmpl AgentTemplate) string {
+	var b strings.Builder
+
+	// ── Segment 1: 用户定义区 ──────────────────────────────
+	if tmpl.SystemPrompt != "" {
+		b.WriteString(tmpl.SystemPrompt)
+		b.WriteString("\n\n")
+	} else if tmpl.Description != "" {
+		b.WriteString("# Role\n")
+		b.WriteString(tmpl.Description)
+		b.WriteString("\n\n")
+	}
+
+	// ── Segment 2: 框架强制区 ──────────────────────────────
+	b.WriteString(l3EnforcedDirectives)
 
 	return b.String()
 }
