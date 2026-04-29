@@ -4,9 +4,12 @@ package prompt
 // 主 Agent 只需知道每个团队"能做什么"（Description），
 // 不需要知道团队有什么工具——工具是实现细节，由团队内部自行管理。
 type LeaderInfo struct {
-	Name        string // 例如 "dev"
-	Description string // 例如 "全栈开发工程师，负责前后端开发与架构设计"
-	Group       string // 例如 "DevOps"
+	Name             string     // 例如 "dev"
+	Description      string     // 例如 "全栈开发工程师，负责前后端开发与架构设计"
+	Group            string     // 例如 "DevOps"
+	GroupDescription string     // 团队描述（来自 group 文件的 body）
+	MatchedWorkspace *Workspace // 按当前 cwd 匹配的 workspace，可能为 nil
+	SubAgents        []string   // 团队成员列表
 }
 
 // ProfileAnswers 用户对个性化问卷的回答。
