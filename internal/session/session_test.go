@@ -345,3 +345,118 @@ func TestSession_ConcurrentCreateDelete_Race(t *testing.T) {
 		t.Error("no sessions created")
 	}
 }
+
+// ─── Delegation-aware inFlight ─────────────────────────────────────────
+
+func TestSession_AskStream_DelegationReleasesInFlight(t *testing.T) {
+	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"hello"}}}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+
+	// inFlight should be 0 initially
+	if s.inFlight.Load() != 0 {
+		t.Fatalf("initial inFlight = %d, want 0", s.inFlight.Load())
+	}
+
+	// Start a stream
+	ch, err := s.AskStream(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	// inFlight should be 1
+	if s.inFlight.Load() != 1 {
+		t.Fatalf("inFlight after AskStream = %d, want 1", s.inFlight.Load())
+	}
+
+	// Simulate DelegationStartedEvent using session's helper methods
+	s.newTurnDone()
+	s.inFlight.Store(0)
+
+	// Now a second AskStream should be allowed (inFlight is 0)
+	ch2, err := s.AskStream(context.Background(), "second")
+	if err != nil {
+		t.Fatalf("second AskStream during delegation: %v", err)
+	}
+
+	// Close turnDone to unblock the second stream's CW push
+	s.closeTurnDone()
+
+	// Drain both streams
+	for range ch {
+	}
+	for range ch2 {
+	}
+}
+
+func TestSession_AskStream_DelegationPendingBlocksCWPush(t *testing.T) {
+	fake := &agent.FakeLLM{
+		StreamDeltas: [][]string{{"first"}, {"second"}},
+		Delay:        500 * time.Millisecond, // slow LLM so forwarder doesn't finish first
+	}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+
+	// Start first stream
+	ch1, err := s.AskStream(context.Background(), "one")
+	if err != nil {
+		t.Fatalf("first AskStream: %v", err)
+	}
+
+	// Set delegation pending state using session's helper
+	s.newTurnDone()
+	s.inFlight.Store(0)
+
+	// Second AskStream should block on turnDone but eventually succeed
+	gotSecond := make(chan error, 1)
+	go func() {
+		_, err := s.AskStream(context.Background(), "two")
+		gotSecond <- err
+	}()
+
+	// Give it time to reach the turnDone wait
+	time.Sleep(50 * time.Millisecond)
+
+	// Before closing turnDone, second stream should still be waiting
+	select {
+	case err := <-gotSecond:
+		t.Fatalf("second AskStream should have blocked, but got: %v", err)
+	default:
+		// Expected: still blocked
+	}
+
+	// Close turnDone — should unblock
+	s.closeTurnDone()
+
+	// Now second AskStream should succeed
+	select {
+	case err := <-gotSecond:
+		if err != nil {
+			t.Errorf("second AskStream after unblock: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("second AskStream timed out after unblock")
+	}
+
+	// Drain first stream
+	for range ch1 {
+	}
+}
+
+func TestSession_AskStream_CloseTurnDoneIdempotent(t *testing.T) {
+	s := NewSession("s1", "t1", nil, nil, nil)
+
+	// Calling closeTurnDone when no turn is active should be safe
+	s.closeTurnDone()
+
+	// Create a turn and close it
+	s.newTurnDone()
+	s.closeTurnDone()
+
+	// Close again — should be idempotent, no panic
+	s.closeTurnDone()
+
+	if s.delegationPending.Load() {
+		t.Error("delegationPending should be false after closeTurnDone")
+	}
+}
