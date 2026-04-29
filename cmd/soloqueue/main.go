@@ -160,9 +160,9 @@ func buildRuntimeStack(
 	if provider == nil {
 		return nil, errors.New("no default provider configured")
 	}
-	defaultModel := cfg.DefaultModel("")
+	defaultModel := cfg.DefaultModelByRole("fast")
 	if defaultModel == nil {
-		return nil, errors.New("no default model configured")
+		return nil, errors.New("no default model configured (fast role)")
 	}
 
 	// ── LLM 客户端 ───────────────────────────────────────────────────────────
@@ -331,7 +331,6 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		MaxTokens:       sb.rt.defaultModel.Generation.MaxTokens,
 		ReasoningEffort: sb.rt.defaultModel.Thinking.ReasoningEffort,
 		ThinkingEnabled: sb.rt.defaultModel.Thinking.Enabled,
-		ThinkingType:    sb.rt.defaultModel.Thinking.Type,
 		MaxIterations:   10,
 		ContextWindow:   sb.rt.defaultModel.ContextWindow,
 		SystemPrompt:    sb.rt.systemPrompt,
@@ -499,7 +498,7 @@ func versionCmd() *cobra.Command {
 				fmt.Printf("default provider: %s (%s)\n", p.Name, p.ID)
 			}
 
-			m := cfg.DefaultModel("")
+			m := cfg.DefaultModelByRole("fast")
 			if m != nil {
 				fmt.Printf("default model: %s (%s)\n", m.Name, m.ID)
 			}
@@ -626,7 +625,6 @@ func buildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 			Temperature:     m.Generation.Temperature,
 			MaxTokens:       m.Generation.MaxTokens,
 			ThinkingEnabled: m.Thinking.Enabled,
-			ThinkingType:    m.Thinking.Type,
 			ReasoningEffort: m.Thinking.ReasoningEffort,
 		}, nil
 	}

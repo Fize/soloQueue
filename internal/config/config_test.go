@@ -834,84 +834,6 @@ func TestGlobalService_DefaultProvider_NoDefault_ReturnsNil(t *testing.T) {
 	}
 }
 
-func TestGlobalService_DefaultModel_ByType(t *testing.T) {
-	dir := t.TempDir()
-	svc, _ := New(dir)
-	_ = svc.Load()
-
-	m := svc.DefaultModel("chat")
-	if m == nil {
-		t.Fatal("DefaultModel(chat) nil")
-	}
-	if m.ID != "deepseek-v4-flash" {
-		t.Errorf("id = %q, want deepseek-v4-flash", m.ID)
-	}
-
-	m2 := svc.DefaultModel("code")
-	if m2 != nil {
-		t.Errorf("DefaultModel(code) should be nil, got %v", m2)
-	}
-}
-
-func TestGlobalService_DefaultModel_EmptyType_ReturnsFirstDefault(t *testing.T) {
-	dir := t.TempDir()
-	svc, _ := New(dir)
-	_ = svc.Load()
-
-	m := svc.DefaultModel("")
-	if m == nil {
-		t.Fatal("DefaultModel(\"\") nil")
-	}
-	if !m.IsDefault {
-		t.Errorf("should return isDefault=true model, got %+v", m)
-	}
-}
-
-func TestGlobalService_DefaultModel_NoDefault_FallbackToFirst(t *testing.T) {
-	dir := t.TempDir()
-	svc, _ := New(dir)
-	_ = svc.Load()
-	_ = svc.Set(func(s *Settings) {
-		s.Models = []LLMModel{
-			{ID: "a", Type: "chat", Enabled: true, IsDefault: false},
-			{ID: "b", Type: "chat", Enabled: true, IsDefault: false},
-		}
-	})
-
-	m := svc.DefaultModel("chat")
-	if m == nil || m.ID != "a" {
-		t.Errorf("should fallback to first enabled model, got %v", m)
-	}
-}
-
-func TestGlobalService_DefaultModel_SkipsDisabled(t *testing.T) {
-	dir := t.TempDir()
-	svc, _ := New(dir)
-	_ = svc.Load()
-	_ = svc.Set(func(s *Settings) {
-		s.Models = []LLMModel{
-			{ID: "disabled", Type: "chat", Enabled: false, IsDefault: true},
-			{ID: "enabled", Type: "chat", Enabled: true, IsDefault: false},
-		}
-	})
-
-	m := svc.DefaultModel("chat")
-	if m == nil || m.ID != "enabled" {
-		t.Errorf("should skip disabled, got %v", m)
-	}
-}
-
-func TestGlobalService_DefaultModel_UnknownType_ReturnsNil(t *testing.T) {
-	dir := t.TempDir()
-	svc, _ := New(dir)
-	_ = svc.Load()
-
-	m := svc.DefaultModel("unknown-type")
-	if m != nil {
-		t.Errorf("unknown type should return nil, got %v", m)
-	}
-}
-
 func TestGlobalService_DefaultEmbeddingModel(t *testing.T) {
 	dir := t.TempDir()
 	svc, _ := New(dir)
@@ -962,8 +884,8 @@ func TestGlobalService_ModelByID(t *testing.T) {
 	if !m.Thinking.Enabled {
 		t.Error("deepseek-v4-pro should have thinking.enabled=true")
 	}
-	if m.Thinking.Type != "reasoning" {
-		t.Errorf("thinking.type = %q", m.Thinking.Type)
+	if m.Thinking.ReasoningEffort != "high" {
+		t.Errorf("reasoningEffort = %q", m.Thinking.ReasoningEffort)
 	}
 }
 
@@ -1265,4 +1187,240 @@ func TestLoader_ErrorHandler_FromWatcherEvents(t *testing.T) {
 		t.Fatal("error handler did not fire")
 	}
 	_ = fsnotify.Write
+}
+
+// ─── parseProviderModelID ────────────────────────────────────────────────────
+
+func TestParseProviderModelID(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantPID     string
+		wantMID     string
+		wantOK      bool
+	}{
+		{"deepseek:deepseek-v4-pro", "deepseek", "deepseek-v4-pro", true},
+		{"openai:gpt-4o", "openai", "gpt-4o", true},
+		{"", "", "", false},
+		{"nocolon", "", "", false},
+		{":emptyprovider", "", "", false},
+		{"emptyid:", "", "", false},
+		{"a:b:c", "a", "b:c", true}, // SplitN(2): only first colon splits
+	}
+
+	for _, tt := range tests {
+		pid, mid, ok := parseProviderModelID(tt.input)
+		if ok != tt.wantOK || pid != tt.wantPID || mid != tt.wantMID {
+			t.Errorf("parseProviderModelID(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				tt.input, pid, mid, ok, tt.wantPID, tt.wantMID, tt.wantOK)
+		}
+	}
+}
+
+// ─── ModelByProviderID ────────────────────────────────────────────────────────
+
+func TestGlobalService_ModelByProviderID(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	m := svc.ModelByProviderID("deepseek", "deepseek-v4-pro")
+	if m == nil {
+		t.Fatal("ModelByProviderID(deepseek, deepseek-v4-pro) nil")
+	}
+	if m.Thinking.ReasoningEffort != "high" {
+		t.Errorf("reasoningEffort = %q, want high", m.Thinking.ReasoningEffort)
+	}
+}
+
+func TestGlobalService_ModelByProviderID_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	if m := svc.ModelByProviderID("deepseek", "nonexistent"); m != nil {
+		t.Errorf("nonexistent model should be nil, got %v", m)
+	}
+	if m := svc.ModelByProviderID("nonexistent", "deepseek-v4-pro"); m != nil {
+		t.Errorf("nonexistent provider should be nil, got %v", m)
+	}
+}
+
+// ─── DefaultModelByRole ────────────────────────────────────────────────────────
+
+func TestGlobalService_DefaultModelByRole_Defaults(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	// 默认配置下，所有角色都能解析到对应模型
+	expert := svc.DefaultModelByRole("expert")
+	if expert == nil {
+		t.Fatal("expert model nil")
+	}
+	if expert.ID != "deepseek-v4-pro-max" {
+		t.Errorf("expert = %q, want deepseek-v4-pro-max", expert.ID)
+	}
+	if expert.Thinking.ReasoningEffort != "max" {
+		t.Errorf("expert reasoningEffort = %q, want max", expert.Thinking.ReasoningEffort)
+	}
+
+	superior := svc.DefaultModelByRole("superior")
+	if superior == nil {
+		t.Fatal("superior model nil")
+	}
+	if superior.ID != "deepseek-v4-pro" {
+		t.Errorf("superior = %q, want deepseek-v4-pro", superior.ID)
+	}
+
+	universal := svc.DefaultModelByRole("universal")
+	if universal == nil {
+		t.Fatal("universal model nil")
+	}
+	if universal.ID != "deepseek-v4-flash-thinking" {
+		t.Errorf("universal = %q, want deepseek-v4-flash-thinking", universal.ID)
+	}
+
+	fast := svc.DefaultModelByRole("fast")
+	if fast == nil {
+		t.Fatal("fast model nil")
+	}
+	if fast.ID != "deepseek-v4-flash" {
+		t.Errorf("fast = %q, want deepseek-v4-flash", fast.ID)
+	}
+	if fast.Thinking.Enabled {
+		t.Error("fast model should have thinking disabled")
+	}
+}
+
+func TestGlobalService_DefaultModelByRole_UserOverride(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	// 用户覆盖 expert 角色为 deepseek-v4-pro（high reasoning）
+	_ = svc.Set(func(s *Settings) {
+		s.DefaultModels.Expert = "deepseek:deepseek-v4-pro"
+	})
+
+	expert := svc.DefaultModelByRole("expert")
+	if expert == nil {
+		t.Fatal("expert model nil after override")
+	}
+	if expert.ID != "deepseek-v4-pro" {
+		t.Errorf("expert = %q, want deepseek-v4-pro after override", expert.ID)
+	}
+	// 用户配置后 effort 跟随模型定义，不是 max
+	if expert.Thinking.ReasoningEffort != "high" {
+		t.Errorf("expert reasoningEffort = %q, want high (from model definition)", expert.Thinking.ReasoningEffort)
+	}
+}
+
+func TestGlobalService_DefaultModelByRole_Fallback(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	// 清空 expert 配置，设置 fallback
+	_ = svc.Set(func(s *Settings) {
+		s.DefaultModels.Expert = ""
+		s.DefaultModels.Fallback = "deepseek:deepseek-v4-flash"
+	})
+
+	expert := svc.DefaultModelByRole("expert")
+	if expert == nil {
+		t.Fatal("expert model nil with fallback")
+	}
+	if expert.ID != "deepseek-v4-flash" {
+		t.Errorf("expert = %q, want deepseek-v4-flash (from fallback)", expert.ID)
+	}
+}
+
+func TestGlobalService_DefaultModelByRole_NoFallback_UsesHardcoded(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	// 清空 expert 和 fallback，应使用硬编码默认值
+	_ = svc.Set(func(s *Settings) {
+		s.DefaultModels.Expert = ""
+		s.DefaultModels.Fallback = ""
+	})
+
+	expert := svc.DefaultModelByRole("expert")
+	if expert == nil {
+		t.Fatal("expert should use hardcoded default")
+	}
+	if expert.ID != "deepseek-v4-pro-max" {
+		t.Errorf("expert = %q, want deepseek-v4-pro-max (hardcoded default)", expert.ID)
+	}
+}
+
+func TestGlobalService_DefaultModelByRole_UnknownRole(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	if m := svc.DefaultModelByRole("unknown"); m != nil {
+		t.Errorf("unknown role should return nil, got %v", m)
+	}
+}
+
+func TestGlobalService_DefaultModelByRole_InvalidFormat(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	// 配置值不是 provider:id 格式
+	_ = svc.Set(func(s *Settings) {
+		s.DefaultModels.Expert = "invalid-format"
+		s.DefaultModels.Fallback = ""
+	})
+
+	if m := svc.DefaultModelByRole("expert"); m != nil {
+		t.Errorf("invalid format should return nil, got %v", m)
+	}
+}
+
+func TestGlobalService_DefaultModelByRole_NonexistentModel(t *testing.T) {
+	dir := t.TempDir()
+	svc, _ := New(dir)
+	_ = svc.Load()
+
+	// provider:id 格式正确但模型不存在
+	_ = svc.Set(func(s *Settings) {
+		s.DefaultModels.Expert = "deepseek:nonexistent-model"
+		s.DefaultModels.Fallback = ""
+	})
+
+	if m := svc.DefaultModelByRole("expert"); m != nil {
+		t.Errorf("nonexistent model should return nil, got %v", m)
+	}
+}
+
+func TestGlobalService_DefaultModelByRole_DefaultsIncludeProMax(t *testing.T) {
+	// 验证 DefaultSettings() 中包含 deepseek-v4-pro-max 模型
+	s := DefaultSettings()
+	found := false
+	for _, m := range s.Models {
+		if m.ID == "deepseek-v4-pro-max" {
+			found = true
+			if m.APIModel != "deepseek-v4-pro" {
+				t.Errorf("deepseek-v4-pro-max apiModel = %q, want deepseek-v4-pro", m.APIModel)
+			}
+			if m.Thinking.ReasoningEffort != "max" {
+				t.Errorf("deepseek-v4-pro-max reasoningEffort = %q, want max", m.Thinking.ReasoningEffort)
+			}
+		}
+	}
+	if !found {
+		t.Error("DefaultSettings should include deepseek-v4-pro-max model")
+	}
+
+	// 验证 DefaultModels 默认值
+	if s.DefaultModels.Expert != "deepseek:deepseek-v4-pro-max" {
+		t.Errorf("defaultModels.expert = %q, want deepseek:deepseek-v4-pro-max", s.DefaultModels.Expert)
+	}
+	if s.DefaultModels.Fallback != "" {
+		t.Errorf("defaultModels.fallback = %q, want empty", s.DefaultModels.Fallback)
+	}
 }
