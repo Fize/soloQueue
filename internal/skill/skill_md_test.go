@@ -242,8 +242,8 @@ func TestSkillRegistry_Catalog(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(cat, "file_read") {
-		t.Error("Catalog should mention file_read for loading instructions")
+	if !strings.Contains(cat, "Read") {
+		t.Error("Catalog should mention Read for loading instructions")
 	}
 }
 

@@ -23,7 +23,7 @@ type fileReadTool struct {
 
 func newFileReadTool(cfg Config) *fileReadTool { return &fileReadTool{cfg: cfg} }
 
-func (fileReadTool) Name() string { return "file_read" }
+func (fileReadTool) Name() string { return "Read" }
 
 func (fileReadTool) Description() string {
 	return "Read a UTF-8 text file within the workspace sandbox. Returns {path,size,content}. " +

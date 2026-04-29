@@ -165,7 +165,7 @@ func TestGrep_DirMustBeDirectory(t *testing.T) {
 
 func TestGrep_MetadataInterface(t *testing.T) {
 	tool, _ := mkGrepTool(t, 100, 200)
-	if tool.Name() != "grep" {
+	if tool.Name() != "Grep" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	if tool.Description() == "" {

@@ -39,7 +39,7 @@ type Config struct {
 
 	// ── 读限制 ────────────────────────────────────────────────────
 
-	// MaxFileSize file_read 单文件上限（字节）
+	// MaxFileSize Read 单文件上限（字节）
 	MaxFileSize int64
 
 	// MaxMatches grep 匹配数量上限（超过截断并返回 truncated=true）
@@ -53,19 +53,19 @@ type Config struct {
 
 	// ── 写限制 ────────────────────────────────────────────────────
 
-	// MaxWriteSize write_file / replace / multi_replace 单次写入上限
+	// MaxWriteSize Write / Edit / MultiEdit 单次写入上限
 	MaxWriteSize int64
 
-	// MaxMultiWriteBytes multi_write 所有 Content 之和上限
+	// MaxMultiWriteBytes MultiWrite 所有 Content 之和上限
 	MaxMultiWriteBytes int64
 
-	// MaxMultiWriteFiles multi_write 单次最多文件数
+	// MaxMultiWriteFiles MultiWrite 单次最多文件数
 	MaxMultiWriteFiles int
 
-	// MaxReplaceEdits multi_replace 单次最多 edit 数
+	// MaxReplaceEdits MultiEdit 单次最多 edit 数
 	MaxReplaceEdits int
 
-	// ── http_fetch ────────────────────────────────────────────────
+	// ── WebFetch ────────────────────────────────────────────────
 
 	// HTTPAllowedHosts 若非空，只允许 URL host 命中其中之一
 	HTTPAllowedHosts []string
@@ -79,7 +79,7 @@ type Config struct {
 	// HTTPBlockPrivate 是否拦截私有 / 环回 / 链路本地地址（默认建议 true）
 	HTTPBlockPrivate bool
 
-	// ── shell_exec ────────────────────────────────────────────────
+	// ── Bash ──────────────────────────────────────────────────
 
 	// ShellBlockRegexes 命令黑名单正则（命中即拒绝）
 	ShellBlockRegexes []string
@@ -93,7 +93,7 @@ type Config struct {
 	// ShellMaxOutput stdout + stderr 各自上限（字节）
 	ShellMaxOutput int64
 
-	// ── web_search ──────────────────────────────────────────────
+	// ── WebSearch ─────────────────────────────────────────────
 
 	// WebSearchTimeout 搜索请求超时
 	WebSearchTimeout time.Duration

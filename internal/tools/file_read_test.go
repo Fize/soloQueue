@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// helper: construct a file_read tool backed by a temp sandbox
+// helper: construct a Read tool backed by a temp sandbox
 func mkFileReadTool(t *testing.T, maxSize int64) (*fileReadTool, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -117,7 +117,7 @@ func TestFileRead_CtxAlreadyCanceled(t *testing.T) {
 
 func TestFileRead_MetadataInterface(t *testing.T) {
 	tool, _ := mkFileReadTool(t, 1024)
-	if tool.Name() != "file_read" {
+	if tool.Name() != "Read" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	if tool.Description() == "" {

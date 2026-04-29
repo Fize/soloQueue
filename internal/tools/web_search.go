@@ -46,7 +46,7 @@ func newWebSearchTool(cfg Config) *webSearchTool {
 	}
 }
 
-func (webSearchTool) Name() string { return "web_search" }
+func (webSearchTool) Name() string { return "WebSearch" }
 
 func (webSearchTool) Description() string {
 	return "Search the web via DuckDuckGo. Returns {results:[{title,url,content}]}."
@@ -116,10 +116,10 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	defer resp.Body.Close()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if readErr != nil {
-		return "", fmt.Errorf("read web_search body: %w", readErr)
+		return "", fmt.Errorf("read WebSearch body: %w", readErr)
 	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("web_search %d: %s", resp.StatusCode, truncateString(string(data), 200))
+		return "", fmt.Errorf("WebSearch %d: %s", resp.StatusCode, truncateString(string(data), 200))
 	}
 
 	results := parseDDGResults(data, maxR)

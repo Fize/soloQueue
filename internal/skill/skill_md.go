@@ -25,7 +25,7 @@ type MDSkill struct {
 	whenToUse    string
 	instructions string
 	dir          string // SKILL.md 所在目录（用于引用支持文件）
-	filePath     string // SKILL.md 绝对路径（LLM 用 file_read 读取）
+	filePath     string // SKILL.md 绝对路径（LLM 用 Read 读取）
 }
 
 func (s *MDSkill) ID() string             { return s.name }
@@ -72,7 +72,7 @@ func ParseSkillMD(path string) (*MDSkill, error) {
 		desc = firstParagraph(body)
 	}
 
-	// filePath: 绝对路径（LLM 用 file_read 读取）
+	// filePath: 绝对路径（LLM 用 Read 读取）
 	absPath, _ := filepath.Abs(path)
 
 	return &MDSkill{

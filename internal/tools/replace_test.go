@@ -229,7 +229,7 @@ func TestReplace_InvalidJSON(t *testing.T) {
 
 func TestReplace_MetadataInterface(t *testing.T) {
 	tool, _ := mkReplaceTool(t, 1024, 1024)
-	if tool.Name() != "replace" {
+	if tool.Name() != "Edit" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any
@@ -437,7 +437,7 @@ func TestMultiReplace_AmbiguousInEdit(t *testing.T) {
 
 func TestMultiReplace_MetadataInterface(t *testing.T) {
 	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
-	if tool.Name() != "multi_replace" {
+	if tool.Name() != "MultiEdit" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any

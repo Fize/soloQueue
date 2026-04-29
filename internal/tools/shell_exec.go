@@ -55,7 +55,7 @@ func newShellExecTool(cfg Config) *shellExecTool {
 	return t
 }
 
-func (shellExecTool) Name() string { return "shell_exec" }
+func (shellExecTool) Name() string { return "Bash" }
 
 func (shellExecTool) Description() string {
 	return "Run a shell command. Dangerous commands (rm, dd, mkfs, etc.) require user confirmation. " +
@@ -109,7 +109,7 @@ func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
 }
 
 // ConfirmationOptions 实现 Confirmable。
-// shell_exec 使用二元确认，返回 nil。
+// Bash 使用二元确认，返回 nil。
 func (shellExecTool) ConfirmationOptions(_ string) []string { return nil }
 
 // ConfirmArgs 实现 Confirmable：choice == ChoiceApprove 时注入 confirmed=true。
@@ -127,7 +127,7 @@ func (shellExecTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 }
 
 // SupportsSessionWhitelist 实现 Confirmable。
-// shell_exec 支持 allow-in-session。
+// Bash 支持 allow-in-session。
 func (shellExecTool) SupportsSessionWhitelist() bool { return true }
 
 func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error) {
