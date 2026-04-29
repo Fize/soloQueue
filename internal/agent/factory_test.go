@@ -25,8 +25,6 @@ name: dev
 description: Dev agent
 model: gpt-4
 is_leader: true
-sub_agents:
-  - test
 ---
 You are a dev agent.
 `
@@ -77,9 +75,6 @@ invalid yaml
 		if tmpl.ID == "dev" {
 			if !tmpl.IsLeader {
 				t.Error("dev should have is_leader=true")
-			}
-			if len(tmpl.SubAgents) != 1 || tmpl.SubAgents[0] != "test" {
-				t.Errorf("dev sub_agents = %v, want ['test']", tmpl.SubAgents)
 			}
 		}
 		if tmpl.ID == "test" {
@@ -159,11 +154,10 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 
 	// 创建 agent template
 	tmpl := AgentTemplate{
-		ID:          "test-agent",
-		Name:        "Test Agent",
-		Description: "A test agent",
+		ID:           "test-agent",
+		Name:         "Test Agent",
+		Description:  "A test agent",
 		SystemPrompt: "You are a test agent.",
-		ModelID:     "gpt-4",
 	}
 
 	// 创建 agent
@@ -216,8 +210,8 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 
 	// 创建子 agent template
 	subTmpl := AgentTemplate{
-		ID:          "sub-agent",
-		Name:        "Sub Agent",
+		ID:           "sub-agent",
+		Name:         "Sub Agent",
 		SystemPrompt: "You are a sub agent.",
 	}
 
@@ -228,12 +222,11 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	}
 	defer subAgent.Stop(time.Second)
 
-	// 创建主 agent，引用子 agent
+	// 创建主 agent
 	mainTmpl := AgentTemplate{
-		ID:          "main-agent",
-		Name:        "Main Agent",
+		ID:           "main-agent",
+		Name:         "Main Agent",
 		SystemPrompt: "You are main.",
-		SubAgents:   []string{"sub-agent"},
 	}
 
 	mainAgent, _, err := factory.Create(context.Background(), mainTmpl)
@@ -242,15 +235,12 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	}
 	defer mainAgent.Stop(time.Second)
 
-	// 验证 DelegateTool 已注册
-	tools := mainAgent.tools
-	if tools == nil {
+	// 验证 tools 已注册
+	if mainAgent.tools == nil {
 		t.Fatal("tools is nil")
 	}
 
-	// 验证 DelegateTool 已注册（通过名字查找）
-	// 注意：tools 包可能需要导出方法来检查
-	t.Log("main agent created with sub-agents")
+	t.Log("main agent created")
 }
 
 func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
@@ -275,10 +265,9 @@ func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 	)
 
 	tmpl := AgentTemplate{
-		ID:          "ephemeral-agent",
-		Name:        "Ephemeral Agent",
+		ID:           "ephemeral-agent",
+		Name:         "Ephemeral Agent",
 		SystemPrompt: "You are ephemeral.",
-		Ephemeral:    true,
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl)
@@ -287,9 +276,9 @@ func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 	}
 	defer agent.Stop(time.Second)
 
-	// 验证 ephemeral 标记
-	if !agent.IsEphemeral() {
-		t.Error("agent should be ephemeral")
+	// 验证 agent 创建成功（Ephemeral 功能已移除，但 agent 仍能正常创建）
+	if agent == nil {
+		t.Fatal("agent is nil")
 	}
 }
 
@@ -577,10 +566,10 @@ func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
 
 	// Invalid model should fail at creation time
 	tmpl := AgentTemplate{
-		ID:          "bad-model-agent",
-		Name:        "Bad Model Agent",
+		ID:           "bad-model-agent",
+		Name:         "Bad Model Agent",
 		SystemPrompt: "You are a test.",
-		ModelID:     "nonexistent-model-xyz",
+		ModelID:      "nonexistent-model-xyz",
 	}
 
 	_, _, err = factory.Create(context.Background(), tmpl)
@@ -616,10 +605,10 @@ func TestDefaultFactory_Create_EmptyModel(t *testing.T) {
 	)
 
 	tmpl := AgentTemplate{
-		ID:          "empty-model-agent",
-		Name:        "Empty Model Agent",
+		ID:           "empty-model-agent",
+		Name:         "Empty Model Agent",
 		SystemPrompt: "You are a test.",
-		ModelID:     "", // empty
+		ModelID:      "", // empty
 	}
 
 	_, _, err = factory.Create(context.Background(), tmpl)
@@ -661,10 +650,10 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 	)
 
 	tmpl := AgentTemplate{
-		ID:          "resolved-agent",
-		Name:        "Resolved Agent",
+		ID:           "resolved-agent",
+		Name:         "Resolved Agent",
 		SystemPrompt: "You are a test.",
-		ModelID:     "deepseek-v4-flash-thinking",
+		ModelID:      "deepseek-v4-flash-thinking",
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl)
@@ -707,10 +696,10 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 	// No WithModelResolver — should skip validation
 
 	tmpl := AgentTemplate{
-		ID:          "no-resolver-agent",
-		Name:        "No Resolver",
+		ID:           "no-resolver-agent",
+		Name:         "No Resolver",
 		SystemPrompt: "You are a test.",
-		ModelID:     "any-random-model-name",
+		ModelID:      "any-random-model-name",
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl)
@@ -739,36 +728,60 @@ func TestL2EnforcedDirectives_ContainsClarificationRule(t *testing.T) {
 }
 
 func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
-	tmpl := AgentTemplate{
+	devTmpl := AgentTemplate{
 		ID:           "dev",
 		Name:         "Dev",
 		Description:  "Dev agent",
 		SystemPrompt: "You are a dev supervisor.",
 		IsLeader:     true,
-		SubAgents:    []string{"frontend"},
+		Group:        "DevOps",
 	}
 
-	subTmpl := AgentTemplate{
+	frontendTmpl := AgentTemplate{
 		ID:          "frontend",
 		Name:        "Frontend",
 		Description: "Frontend worker",
+		Group:       "DevOps",
+	}
+
+	backendTmpl := AgentTemplate{
+		ID:          "backend",
+		Name:        "Backend",
+		Description: "Backend worker",
+		Group:       "DevOps",
+	}
+
+	// 不同组的 agent，不应该出现在 dev 的 prompt 中
+	otherTmpl := AgentTemplate{
+		ID:          "designer",
+		Name:        "Designer",
+		Description: "Design worker",
+		Group:       "Design",
 	}
 
 	templates := map[string]AgentTemplate{
-		"dev":      tmpl,
-		"frontend": subTmpl,
+		"dev":      devTmpl,
+		"frontend": frontendTmpl,
+		"backend":  backendTmpl,
+		"designer": otherTmpl,
 	}
 
-	prompt := buildL2SystemPrompt(tmpl, templates, nil)
+	prompt := buildL2SystemPrompt(devTmpl, templates, nil)
 
 	// Segment 1: user-defined
 	if !strings.Contains(prompt, "You are a dev supervisor.") {
 		t.Error("L2 prompt should contain user-defined system prompt")
 	}
 
-	// Segment 2: sub-agents
-	if !strings.Contains(prompt, "frontend") {
-		t.Error("L2 prompt should list sub-agents")
+	// Segment 2: 同组 peers（frontend 和 backend 应该在，designer 不应该）
+	if !strings.Contains(prompt, "Frontend") {
+		t.Error("L2 prompt should list peer agent Frontend")
+	}
+	if !strings.Contains(prompt, "Backend") {
+		t.Error("L2 prompt should list peer agent Backend")
+	}
+	if strings.Contains(prompt, "Designer") {
+		t.Error("L2 prompt should NOT list agent from different group")
 	}
 
 	// Segment 3: clarification protocol

@@ -7,6 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.6
 	charm.land/glamour/v2 v2.0.0
 	charm.land/lipgloss/v2 v2.0.3
+	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/coder/websocket v1.8.14
 	github.com/fsnotify/fsnotify v1.9.0
@@ -19,7 +20,6 @@ require (
 )
 
 require (
-	github.com/PuerkitoBio/goquery v1.12.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect

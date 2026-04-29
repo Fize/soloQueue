@@ -30,15 +30,12 @@ const (
 type Definition struct {
 	ID           string
 	Name         string
-	TeamID       string
 	Role         Role
 	Kind         Kind
 	ModelID      string
-	ProviderID   string
 	SystemPrompt string
 	Temperature  float64
 	MaxTokens    int
-	CreatedAt    time.Time
 
 	// ReasoningEffort 推理努力等级，用于支持思考模式的 V4 模型
 	// "high" | "max" | ""（空表示不发送此参数）

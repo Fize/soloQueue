@@ -157,16 +157,6 @@ func TestRenderAgentLine_BasicOutput(t *testing.T) {
 	}
 }
 
-func TestRenderAgentLine_EphemeralMarker(t *testing.T) {
-	a := agent.NewAgent(agent.Definition{ID: "e1", Name: "Worker"}, &fakeLLMForTUI{}, nil, agent.WithEphemeral())
-
-	line := renderAgentLine(a, "")
-
-	if !strings.Contains(line, "ephemeral") {
-		t.Error("ephemeral agent should show 'ephemeral' marker")
-	}
-}
-
 func TestRenderAgentLine_TreePrefix(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{ID: "c1", Name: "Child"}, &fakeLLMForTUI{}, nil)
 

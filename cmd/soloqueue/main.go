@@ -333,7 +333,6 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	}
 	def := agent.Definition{
 		ID:              agentID,
-		TeamID:          teamID,
 		Kind:            agent.KindChat,
 		ModelID:         effectiveModelID,
 		Temperature:     sb.rt.defaultModel.Generation.Temperature,

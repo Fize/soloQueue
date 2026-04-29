@@ -17,17 +17,13 @@ import (
 // AgentTemplate 是 Agent 实例化的完整描述
 //
 // 来源于 ~/.soloqueue/agents/*.md 的 YAML frontmatter + markdown body。
-// AgentFrontmatter.SubAgents 引用其他 agent 的 name，运行时由 Factory 解析。
 type AgentTemplate struct {
 	ID           string   // 唯一标识（如 "dev"、"fe"）
 	Name         string   // 显示名称
 	Description  string   // 给 LLM 看的描述
 	SystemPrompt string   // markdown body
-	ModelID      string   // 模型 ID（必须匹配 settings.toml 中的 Models[].ID）
-	Reasoning    bool     // 是否启用推理
-	SubAgents    []string // 子 Agent 名称列表（L2 专用）
+	ModelID      string   // 模型 ID（由全局默认模型填充，不再从配置文件读取）
 	IsLeader     bool     // 是否为 L2 领导者
-	Ephemeral    bool     // 是否为阅后即焚的 L3
 	Group        string   // 所属 group name
 	MCPServers   []string // MCP Server 名称列表
 }
@@ -149,13 +145,12 @@ func (f *DefaultFactory) Registry() *Registry {
 // 流程：
 //  1. 构建最终 SystemPrompt（L2 使用三段式拼接，L3 直接使用 body/description）
 //  2. Build(toolsCfg) → 内置 tools
-//  3. 如果 tmpl.SubAgents 非空，为每个 SubAgent 创建 DelegateTool（同步模式）
-//  4. 加载 skills（LoadSkillsFromDir）
-//  5. 创建 Agent（WithTools, WithSkills, 可选 WithEphemeral/WithPriorityMailbox）
-//  6. 创建 ContextWindow，push system prompt + skill catalog
-//  7. Register 到 registry
-//  8. Start Agent
-//  9. 返回 (agent, cw, nil)
+//  3. 加载 skills（LoadSkillsFromDir）
+//  4. 创建 Agent（WithTools, WithSkills, WithParallelTools）
+//  5. 创建 ContextWindow，push system prompt + skill catalog
+//  6. Register 到 registry
+//  7. Start Agent
+//  8. 返回 (agent, cw, nil)
 func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent, *ctxwin.ContextWindow, error) {
 	// 1. 构建最终 SystemPrompt
 	var finalPrompt string
@@ -203,25 +198,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	// 2. 构建内置 tools
 	allTools := tools.Build(f.toolsCfg)
 
-	// 3. 为每个 SubAgent 创建 DelegateTool（同步模式）
-	// 注意：SubAgent 对应的 L3 实例由 Supervisor.SpawnFn 在运行时创建
-	// 这里只注册 tool 声明，不启动 Agent
-	// SpawnFn 将由 Supervisor 注入（Create 不直接注入）
-	for _, subName := range tmpl.SubAgents {
-		desc := fmt.Sprintf("sub-agent '%s'", subName)
-		if sub, ok := f.templates[subName]; ok && sub.Description != "" {
-			desc = sub.Description
-		}
-		dt := &tools.DelegateTool{
-			LeaderID: subName,
-			Desc:     desc,
-			Locator:  f.registry, // 同步模式：查找已注册的 Agent
-			Timeout:  tools.DelegateDefaultTimeout,
-		}
-		allTools = append(allTools, dt)
-	}
-
-	// 4. 加载 skills
+	// 3. 加载 skills
 	var skillList []skill.Skill
 	if f.skillDir != "" {
 		loaded, err := skill.LoadSkillsFromDir(f.skillDir)
@@ -233,24 +210,21 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		skillList = loaded
 	}
 
-	// 5. 构造 Option 列表
+	// 4. 构造 Option 列表
 	opts := []Option{
 		WithTools(allTools...),
 		WithSkills(skillList...),
 		WithParallelTools(true),
-	}
-	if tmpl.Ephemeral {
-		opts = append(opts, WithEphemeral())
 	}
 	if tmpl.IsLeader {
 		// L2 可以启用 PriorityMailbox，用于接收 L3 结果的高优先级投递
 		// 暂不启用，L2 同步阻塞等待 L3，不需要优先级
 	}
 
-	// 6. 创建 Agent
+	// 5. 创建 Agent
 	a := NewAgent(def, f.llm, f.log, opts...)
 
-	// 7. 创建 ContextWindow
+	// 6. 创建 ContextWindow
 	cw := ctxwin.NewContextWindow(DefaultContextWindow, 2000, ctxwin.NewTokenizer())
 	if a.Def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
@@ -259,12 +233,12 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		cw.Push(ctxwin.RoleSystem, catalog)
 	}
 
-	// 8. Register 到 registry
+	// 7. Register 到 registry
 	if err := f.registry.Register(a); err != nil {
 		return nil, nil, fmt.Errorf("factory: register agent %q: %w", tmpl.ID, err)
 	}
 
-	// 9. Start Agent
+	// 8. Start Agent
 	if err := a.Start(ctx); err != nil {
 		f.registry.Unregister(tmpl.ID)
 		return nil, nil, fmt.Errorf("factory: start agent %q: %w", tmpl.ID, err)
@@ -287,18 +261,16 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	var templates []AgentTemplate
 	for _, af := range agentFiles {
 		fm := af.Frontmatter
-		tmpl := AgentTemplate{
-			ID:          fm.Name,
-			Name:        fm.Name,
-			Description: fm.Description,
-			SystemPrompt: af.Body,
-			ModelID:     fm.Model,
-			Reasoning:   fm.Reasoning,
-		SubAgents:   fm.SubAgents,
-			IsLeader:    fm.IsLeader,
-			Group:       fm.Group,
-			MCPServers:  fm.MCPServers,
-		}
+			tmpl := AgentTemplate{
+				ID:           fm.Name,
+				Name:         fm.Name,
+				Description:  fm.Description,
+				SystemPrompt: af.Body,
+				ModelID:      fm.Model,
+				IsLeader:     fm.IsLeader,
+				Group:        fm.Group,
+				MCPServers:   fm.MCPServers,
+			}
 		templates = append(templates, tmpl)
 	}
 
@@ -351,7 +323,7 @@ Rules:
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
 //
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
-// Segment 2 (动态能力区): Team Context + Sub-Agents 目录 + MCP Servers
+// Segment 2 (动态能力区): Team Context + 同组 Agents 目录 + MCP Servers
 // Segment 3 (框架强制区): 不可篡改的底层契约
 func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile) string {
 	var b strings.Builder
@@ -378,16 +350,25 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		}
 	}
 
-	// 2b. Sub-Agents 目录
-	if len(tmpl.SubAgents) > 0 {
-		b.WriteString("# Available Sub-Agents\n\n")
+	// 2b. 同组 Agents 目录（排除 leader 自身）
+	var peers []AgentTemplate
+	for id, t := range templates {
+		if id == tmpl.ID {
+			continue
+		}
+		if tmpl.Group != "" && t.Group == tmpl.Group {
+			peers = append(peers, t)
+		}
+	}
+	if len(peers) > 0 {
+		b.WriteString("# Available Workers\n\n")
 		b.WriteString("You can delegate tasks to the following workers:\n\n")
-		for _, subName := range tmpl.SubAgents {
-			desc := "no description"
-			if sub, ok := templates[subName]; ok && sub.Description != "" {
-				desc = sub.Description
+		for _, peer := range peers {
+			desc := peer.Description
+			if desc == "" {
+				desc = "no description"
 			}
-			fmt.Fprintf(&b, "- **%s**: %s\n", subName, desc)
+			fmt.Fprintf(&b, "- **%s**: %s\n", peer.Name, desc)
 		}
 		b.WriteString("\n")
 	}

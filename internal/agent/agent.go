@@ -76,9 +76,6 @@ type Agent struct {
 	// 优先级 mailbox（L1 启用；nil 表示普通 chan job）
 	priorityMailbox *PriorityMailbox
 
-	// ephemeral 标记（L3 阅后即焚）
-	ephemeral bool
-
 	// 观察（无锁）
 	state   atomic.Int32 // State
 	exitErr atomic.Value // errHolder
@@ -211,21 +208,6 @@ func WithToolTimeout(name string, d time.Duration) Option {
 	}
 }
 
-// WithEphemeral 将 Agent 标记为阅后即焚（L3 执行单元）
-//
-// 语义：
-//   - MailboxCap 设为 1（只接收一个任务）
-//   - 无 Timeline 持久化（factory 中跳过 timeline 创建）
-//   - 完成后由 Supervisor.ReapChild 回收
-func WithEphemeral() Option {
-	return func(a *Agent) {
-		a.ephemeral = true
-		if a.mailboxCap <= 0 || a.mailboxCap == DefaultMailboxCap {
-			a.mailboxCap = 1
-		}
-	}
-}
-
 // WithPriorityMailbox 启用优先级 mailbox（L1 专用）
 //
 // 启用后：
@@ -236,11 +218,6 @@ func WithPriorityMailbox() Option {
 	return func(a *Agent) {
 		a.priorityMailbox = NewPriorityMailbox()
 	}
-}
-
-// IsEphemeral 返回 Agent 是否为阅后即焚模式
-func (a *Agent) IsEphemeral() bool {
-	return a.ephemeral
 }
 
 // PendingDelegations 返回当前等待中的异步委托轮次数量
