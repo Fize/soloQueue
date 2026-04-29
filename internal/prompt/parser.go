@@ -17,8 +17,35 @@ type AgentFrontmatter struct {
 	Reasoning   bool     `yaml:"reasoning"`
 	Group       string   `yaml:"group"`
 	IsLeader    bool     `yaml:"is_leader"`
-	Skills      []string `yaml:"skills"`
 	SubAgents   []string `yaml:"sub_agents"`
+	MCPServers  []string `yaml:"mcp_servers"`
+}
+
+// GroupFrontmatter 对应 ~/.soloqueue/groups/*.md 的 YAML frontmatter。
+type GroupFrontmatter struct {
+	Name       string      `yaml:"name"`
+	Workspaces []Workspace `yaml:"workspaces"`
+}
+
+// Workspace 描述团队关联的工作空间。
+type Workspace struct {
+	Name     string         `yaml:"name"`
+	Path     string         `yaml:"path"`
+	AutoWork AutoWorkConfig `yaml:"autoWork"`
+}
+
+// AutoWorkConfig 描述自动工作配置。
+type AutoWorkConfig struct {
+	Enabled                 bool `yaml:"enabled"`
+	InitialCooldownMinutes  int  `yaml:"initialCooldownMinutes"`
+	PostTaskCooldownMinutes int  `yaml:"postTaskCooldownMinutes"`
+	MaxIntervalsPerDay      int  `yaml:"maxIntervalsPerDay"`
+}
+
+// GroupFile 解析结果：frontmatter + markdown body（团队描述）。
+type GroupFile struct {
+	Frontmatter GroupFrontmatter
+	Body        string
 }
 
 // AgentFile 解析结果：frontmatter + markdown body。
@@ -59,7 +86,8 @@ func ParseAgentFile(path string) (*AgentFile, error) {
 
 // LoadLeaders 扫描 agents 目录，返回所有 is_leader=true 的 agent。
 // 仅提取 Name/Description/Group，不提取 Skills（主 Agent 不需要知道工具细节）。
-func LoadLeaders(agentsDir string) ([]LeaderInfo, error) {
+// 如果传入 groups，会填充 GroupDescription、MatchedWorkspace 和 SubAgents。
+func LoadLeaders(agentsDir string, groups map[string]GroupFile, cwd string) ([]LeaderInfo, error) {
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read agents dir %s: %w", agentsDir, err)
@@ -78,15 +106,35 @@ func LoadLeaders(agentsDir string) ([]LeaderInfo, error) {
 		}
 
 		if af.Frontmatter.IsLeader {
-			leaders = append(leaders, LeaderInfo{
+			li := LeaderInfo{
 				Name:        af.Frontmatter.Name,
 				Description: af.Frontmatter.Description,
 				Group:       af.Frontmatter.Group,
-			})
+				SubAgents:   af.Frontmatter.SubAgents,
+			}
+
+			// 填充 group 信息
+			if gf, ok := groups[af.Frontmatter.Group]; ok {
+				li.GroupDescription = gf.Body
+				li.MatchedWorkspace = matchWorkspace(cwd, gf.Frontmatter.Workspaces)
+			}
+
+			leaders = append(leaders, li)
 		}
 	}
 
 	return leaders, nil
+}
+
+// matchWorkspace 根据当前工作目录匹配 group 的 workspace。
+// 如果没有精确匹配，返回 nil。
+func matchWorkspace(cwd string, workspaces []Workspace) *Workspace {
+	for i := range workspaces {
+		if workspaces[i].Path == cwd {
+			return &workspaces[i]
+		}
+	}
+	return nil
 }
 
 // LoadAgentFiles 扫描 agents 目录，返回所有解析后的 AgentFile
@@ -114,4 +162,67 @@ func LoadAgentFiles(agentsDir string) ([]AgentFile, error) {
 	}
 
 	return files, nil
+}
+
+// ParseGroupFile 解析单个 group markdown 文件（YAML frontmatter + body）。
+func ParseGroupFile(path string) (*GroupFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read group file %s: %w", path, err)
+	}
+
+	content := string(data)
+
+	if !strings.HasPrefix(content, "---") {
+		return nil, fmt.Errorf("group file %s: missing frontmatter delimiter", path)
+	}
+
+	end := strings.Index(content[3:], "---")
+	if end < 0 {
+		return nil, fmt.Errorf("group file %s: unclosed frontmatter", path)
+	}
+
+	fmContent := strings.TrimSpace(content[3 : end+3])
+	body := strings.TrimSpace(content[end+6:])
+
+	var fm GroupFrontmatter
+	if err := yaml.Unmarshal([]byte(fmContent), &fm); err != nil {
+		return nil, fmt.Errorf("parse group frontmatter %s: %w", path, err)
+	}
+
+	return &GroupFile{Frontmatter: fm, Body: body}, nil
+}
+
+// LoadGroups 扫描 groups 目录，返回 name -> GroupFile 的映射。
+// 如果目录不存在，返回空 map 而非错误（向后兼容）。
+func LoadGroups(groupsDir string) (map[string]GroupFile, error) {
+	entries, err := os.ReadDir(groupsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]GroupFile), nil
+		}
+		return nil, fmt.Errorf("read groups dir %s: %w", groupsDir, err)
+	}
+
+	groups := make(map[string]GroupFile)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+
+		path := filepath.Join(groupsDir, entry.Name())
+		gf, err := ParseGroupFile(path)
+		if err != nil {
+			continue // 跳过解析失败的文件
+		}
+
+		name := gf.Frontmatter.Name
+		if name == "" {
+			// 用文件名（去掉 .md）作为 fallback
+			name = strings.TrimSuffix(entry.Name(), ".md")
+		}
+		groups[name] = *gf
+	}
+
+	return groups, nil
 }

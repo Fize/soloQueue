@@ -220,8 +220,15 @@ func buildRuntimeStack(
 		}
 	}
 
+	// ── Groups ─────────────────────────────────────────────────────────────
+	groups, err := prompt.LoadGroups(filepath.Join(workDir, "groups"))
+	if err != nil {
+		log.Warn(logger.CatApp, "failed to load groups", "err", err)
+		groups = nil
+	}
+
 	// ── Leaders + Agent 模板 ──────────────────────────────────────────────────
-	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"))
+	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), groups, cwd)
 	if err != nil {
 		log.Warn(logger.CatApp, "failed to load leaders", "err", err)
 		leaders = nil
@@ -247,6 +254,8 @@ func buildRuntimeStack(
 		agentRegistry, llmClient, toolsCfg,
 		filepath.Join(workDir, "skills"), log,
 		agent.WithModelResolver(modelResolver),
+		agent.WithTemplates(allTemplates),
+		agent.WithGroups(groups),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────
