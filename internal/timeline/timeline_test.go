@@ -412,7 +412,7 @@ func TestSplitSegments_IgnoresNilControl(t *testing.T) {
 // ─── ReplayInto ──────────────────────────────────────────────────────────────
 
 func TestReplayInto_SkipsSystemPrompt(t *testing.T) {
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -434,7 +434,7 @@ func TestReplayInto_SkipsSystemPrompt(t *testing.T) {
 }
 
 func TestReplayInto_WithToolCalls(t *testing.T) {
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -490,7 +490,7 @@ func TestReplayInto_WithToolCalls(t *testing.T) {
 func TestReplayInto_OrphanedToolCalls_Skipped(t *testing.T) {
 	// When assistant(tool_calls) has no corresponding tool results,
 	// the entire assistant message should be skipped to prevent LLM API 400.
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -535,7 +535,7 @@ func TestReplayInto_OrphanedToolCalls_Skipped(t *testing.T) {
 func TestReplayInto_PartialToolResults_Skipped(t *testing.T) {
 	// When assistant(tool_calls) has 2 tool calls but only 1 tool result,
 	// both the assistant message and the partial result should be skipped.
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -568,7 +568,7 @@ func TestReplayInto_PartialToolResults_Skipped(t *testing.T) {
 
 func TestReplayInto_CompleteToolCalls_Kept(t *testing.T) {
 	// When all tool results are present, the assistant(tool_calls) + results are kept.
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -599,7 +599,7 @@ func TestReplayInto_CompleteToolCalls_Kept(t *testing.T) {
 }
 
 func TestReplayInto_WithReasoningContent(t *testing.T) {
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -623,7 +623,7 @@ func TestReplayInto_WithReasoningContent(t *testing.T) {
 }
 
 func TestReplayInto_WithEphemeral(t *testing.T) {
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -646,7 +646,7 @@ func TestReplayInto_WithEphemeral(t *testing.T) {
 }
 
 func TestReplayInto_MultipleSegments(t *testing.T) {
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	segments := []Segment{
@@ -668,7 +668,7 @@ func TestReplayInto_MultipleSegments(t *testing.T) {
 }
 
 func TestReplayInto_EmptySegments(t *testing.T) {
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
 	ReplayInto(cw, nil)
@@ -727,7 +727,7 @@ func TestWriteThenReplay_RoundTrip(t *testing.T) {
 
 	segs, _ := ReadLastSegments(dir, "timeline", 3)
 
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer())
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 	ReplayInto(cw, segs)
 	cw.SetReplayMode(false)
@@ -851,7 +851,7 @@ func TestPushHook_WritesToTimeline(t *testing.T) {
 		})
 	}
 
-	cw := ctxwin.NewContextWindow(1048576, 2000, ctxwin.NewTokenizer(),
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer(),
 		ctxwin.WithPushHook(pushHook),
 	)
 
