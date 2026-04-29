@@ -806,7 +806,7 @@ func TestToolCallRec_JSONRoundTrip(t *testing.T) {
 	tc := ToolCallRec{
 		ID:        "call-abc",
 		Type:      "function",
-		Name:      "shell_exec",
+		Name:      "Bash",
 		Arguments: `{"command":"ls"}`,
 	}
 	data, err := json.Marshal(tc)

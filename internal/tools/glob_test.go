@@ -147,7 +147,7 @@ func TestGlob_CtxPreCanceled(t *testing.T) {
 
 func TestGlob_MetadataInterface(t *testing.T) {
 	tool, _ := mkGlobTool(t, 1000)
-	if tool.Name() != "glob" {
+	if tool.Name() != "Glob" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any

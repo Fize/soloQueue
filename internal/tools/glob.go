@@ -28,7 +28,7 @@ type globTool struct {
 
 func newGlobTool(cfg Config) *globTool { return &globTool{cfg: cfg} }
 
-func (globTool) Name() string { return "glob" }
+func (globTool) Name() string { return "Glob" }
 
 func (globTool) Description() string {
 	return "Find files by doublestar glob (supports **) under dir within the sandbox. " +

@@ -504,20 +504,20 @@ func TestAgent_Confirmable_ParallelPartialConfirm(t *testing.T) {
 func TestMemoryConfirmStore(t *testing.T) {
 	s := NewMemoryConfirmStore()
 
-	if s.IsConfirmed("shell_exec") {
+	if s.IsConfirmed("Bash") {
 		t.Error("fresh store should not confirm anything")
 	}
 
-	s.Confirm("shell_exec")
-	if !s.IsConfirmed("shell_exec") {
-		t.Error("shell_exec should be confirmed after Confirm")
+	s.Confirm("Bash")
+	if !s.IsConfirmed("Bash") {
+		t.Error("Bash should be confirmed after Confirm")
 	}
 	if s.IsConfirmed("other") {
 		t.Error("other should not be confirmed")
 	}
 
 	s.Clear()
-	if s.IsConfirmed("shell_exec") {
-		t.Error("shell_exec should not be confirmed after Clear")
+	if s.IsConfirmed("Bash") {
+		t.Error("Bash should not be confirmed after Clear")
 	}
 }

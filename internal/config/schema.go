@@ -61,19 +61,19 @@ type ToolsConfig struct {
 	MaxMultiWriteFiles int   `json:"maxMultiWriteFiles"`
 	MaxReplaceEdits    int   `json:"maxReplaceEdits"`
 
-	// http_fetch
+	// WebFetch
 	HTTPAllowedHosts []string `json:"httpAllowedHosts,omitempty"`
 	HTTPMaxBody      int64    `json:"httpMaxBody"`
 	HTTPTimeoutMs    int      `json:"httpTimeoutMs"`
 	HTTPBlockPrivate bool     `json:"httpBlockPrivate"`
 
-	// shell_exec
+	// Bash
 	ShellBlockRegexes   []string `json:"shellBlockRegexes"`
 	ShellConfirmRegexes []string `json:"shellConfirmRegexes"`
 	ShellTimeoutMs      int      `json:"shellTimeoutMs"`
 	ShellMaxOutput      int64    `json:"shellMaxOutput"`
 
-	// web_search
+	// WebSearch
 	WebSearchTimeoutMs int `json:"webSearchTimeoutMs"`
 }
 

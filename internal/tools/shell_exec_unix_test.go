@@ -165,7 +165,7 @@ func TestShell_InvalidJSON(t *testing.T) {
 
 func TestShell_MetadataInterface(t *testing.T) {
 	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
-	if tool.Name() != "shell_exec" {
+	if tool.Name() != "Bash" {
 		t.Errorf("Name = %q", tool.Name())
 	}
 	var m map[string]any

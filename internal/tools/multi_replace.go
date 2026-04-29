@@ -32,7 +32,7 @@ type multiReplaceTool struct {
 
 func newMultiReplaceTool(cfg Config) *multiReplaceTool { return &multiReplaceTool{cfg: cfg} }
 
-func (multiReplaceTool) Name() string { return "multi_replace" }
+func (multiReplaceTool) Name() string { return "MultiEdit" }
 
 func (multiReplaceTool) Description() string {
 	return "Apply multiple exact-string edits to a single file sequentially and atomically. " +

@@ -15,12 +15,12 @@ func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 	}
 	hasWebSearch := false
 	for _, tool := range list {
-		if tool.Name() == "web_search" {
+		if tool.Name() == "WebSearch" {
 			hasWebSearch = true
 		}
 	}
 	if !hasWebSearch {
-		t.Errorf("web_search should always be included")
+		t.Errorf("WebSearch should always be included")
 	}
 }
 

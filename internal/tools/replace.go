@@ -33,7 +33,7 @@ type replaceTool struct {
 
 func newReplaceTool(cfg Config) *replaceTool { return &replaceTool{cfg: cfg} }
 
-func (replaceTool) Name() string { return "replace" }
+func (replaceTool) Name() string { return "Edit" }
 
 func (replaceTool) Description() string {
 	return "Replace exact substrings in a file (no regex). " +

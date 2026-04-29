@@ -55,7 +55,7 @@ func newHTTPFetchTool(cfg Config) *httpFetchTool {
 	}
 }
 
-func (httpFetchTool) Name() string { return "http_fetch" }
+func (httpFetchTool) Name() string { return "WebFetch" }
 
 func (httpFetchTool) Description() string {
 	return "HTTP GET against public URLs (http/https only). Private / loopback / link-local IPs blocked. " +

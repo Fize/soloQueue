@@ -8,7 +8,7 @@
 // 两阶段注入：
 //   1. 目录阶段：Catalog() 返回 skill 列表（ID + Description + WhenToUse + FilePath）
 //      注入 system prompt，LLM 据此判断何时使用哪个 skill
-//   2. 按需阶段：LLM 用 file_read 工具读取 SKILL.md 全文获取完整指令
+//   2. 按需阶段：LLM 用 Read 工具读取 SKILL.md 全文获取完整指令
 //
 // 依赖方向：
 //
@@ -51,7 +51,7 @@ type Skill interface {
 
 	// Instructions 返回 skill 的完整指令内容
 	//
-	// 对于 MDSkill，这是 SKILL.md 的 body 部分，LLM 通过 file_read
+	// 对于 MDSkill，这是 SKILL.md 的 body 部分，LLM 通过 Read
 	// 读取 SKILL.md 时获取；对于 BuiltinSkill，这是短指令文本。
 	// 在 catalog 阶段不注入此内容，仅在按需阶段使用。
 	Instructions() string
@@ -66,7 +66,7 @@ type Skill interface {
 
 	// FilePath 返回 SKILL.md 的绝对路径
 	//
-	// MDSkill 返回文件路径（LLM 可用 file_read 读取）。
+	// MDSkill 返回文件路径（LLM 可用 Read 读取）。
 	// BuiltinSkill 返回空字符串（指令在内存中，无文件）。
 	FilePath() string
 }
@@ -250,7 +250,7 @@ func (r *SkillRegistry) Catalog() string {
 		}
 	}
 
-	b.WriteString("\nUse `file_read` to load a skill's full instructions when needed.\n")
+	b.WriteString("\nUse `Read` to load a skill's full instructions when needed.\n")
 
 	result := b.String()
 	if len(result) > catalogMaxLen {

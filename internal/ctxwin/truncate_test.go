@@ -365,9 +365,9 @@ func TestSlideFIFOWithToolCalls(t *testing.T) {
 	// Turn 1: user + assistant(tool_calls) + tool + assistant
 	cw.Push(RoleUser, "Read the file")
 	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
-		{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "file_read", Arguments: `{"path":"main.go"}`}},
+		{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "Read", Arguments: `{"path":"main.go"}`}},
 	}))
-	cw.Push(RoleTool, `{"path":"main.go","content":"package main"}`, WithToolCallID("call_1"), WithToolName("file_read"), WithEphemeral(true))
+	cw.Push(RoleTool, `{"path":"main.go","content":"package main"}`, WithToolCallID("call_1"), WithToolName("Read"), WithEphemeral(true))
 	cw.Push(RoleAssistant, "The file contains a Go program.")
 	// Turn 2
 	cw.Push(RoleUser, "What does it do?")
