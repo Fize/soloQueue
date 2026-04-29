@@ -61,6 +61,15 @@ type Session struct {
 
 	// lastActive 供 reaper 清理；每次 Ask 更新
 	lastActive atomic.Int64 // unix nanos
+
+	// delegationPending 标志是否有异步委派正在进行
+	// 当 DelegationStartedEvent 到达时设为 true，表示 L1 已委派任务给 L2
+	// 此时 inFlight 会被释放，允许用户发送新消息
+	// 新消息的 CW push 会被延迟到 turnDone 信号后，保证 CW 顺序正确
+	delegationPending atomic.Bool
+	turnMu            sync.Mutex   // 保护 turnDone 的创建和关闭
+	turnDone          chan struct{} // 当异步委派所在轮次完成时关闭
+	turnDoneClosed    bool         // 防止重复关闭 turnDone
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -176,10 +185,32 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 // 上下文窗口在收到 DoneEvent 时 push user + assistant；
 // 收到 ErrorEvent 时 PopLast 移除 user prompt。
 // caller 放弃 range 必须 cancel ctx。
+//
+// 异步委派支持：当 L1 委派任务给 L2 时，DelegationStartedEvent 会释放 inFlight，
+// 允许用户在此期间发送新消息。新消息的 CW push 会等待委派轮次完成后执行，
+// 以保证 ContextWindow 中的消息顺序正确（先完成委派回复，再出现新用户消息）。
 func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.AgentEvent, error) {
 	if s.closed.Load() {
 		return nil, ErrSessionClosed
 	}
+
+	// 如果有异步委派正在进行，等待其完成后再操作 CW
+	// 这保证了 CW 中的消息顺序：委派结果在前，新用户消息在后
+	if s.delegationPending.Load() {
+		s.turnMu.Lock()
+		td := s.turnDone
+		closed := s.turnDoneClosed
+		s.turnMu.Unlock()
+		if td != nil && !closed {
+			select {
+			case <-td:
+				// 委派轮次已完成，可以继续
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+
 	if !s.inFlight.CompareAndSwap(0, 1) {
 		return nil, ErrSessionBusy
 	}
@@ -234,16 +265,20 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				return
 			}
 		switch e := ev.(type) {
+		case agent.DelegationStartedEvent:
+			// 异步委派开始：释放 inFlight，允许用户发送新消息
+			s.newTurnDone()
+			s.inFlight.Store(0)
 		case agent.DoneEvent:
 			finalContent = e.Content
 			finalReasoning = e.ReasoningContent
 			gotDone = true
-			case agent.ErrorEvent:
-				// 错误：移除 user prompt
-				s.mu.Lock()
-				s.cw.PopLast()
-				s.mu.Unlock()
-			}
+		case agent.ErrorEvent:
+			// 错误：移除 user prompt
+			s.mu.Lock()
+			s.cw.PopLast()
+			s.mu.Unlock()
+		}
 		}
 	done:
 		if gotDone {
@@ -252,6 +287,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
 			s.mu.Unlock()
 		}
+		// 委派轮次完成：关闭 turnDone 通道，通知等待的新消息
+		s.closeTurnDone()
 	}()
 	return out, nil
 }
@@ -265,6 +302,27 @@ func (s *Session) Close() {
 	if s.tl != nil {
 		s.tl.Close()
 	}
+}
+
+// closeTurnDone 安全关闭 turnDone 通道并清理状态。
+// 可安全多次调用（幂等）。
+func (s *Session) closeTurnDone() {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if s.turnDone != nil && !s.turnDoneClosed {
+		close(s.turnDone)
+		s.turnDoneClosed = true
+	}
+	s.delegationPending.Store(false)
+}
+
+// newTurnDone 创建一个新的 turnDone 通道。
+func (s *Session) newTurnDone() {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	s.turnDone = make(chan struct{})
+	s.turnDoneClosed = false
+	s.delegationPending.Store(true)
 }
 
 func (s *Session) touch() {
