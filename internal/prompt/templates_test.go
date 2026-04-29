@@ -82,6 +82,12 @@ func TestDefaultRules(t *testing.T) {
 	if !strings.Contains(DefaultRules, "Failure Fallback") {
 		t.Error("DefaultRules should contain Failure Fallback")
 	}
+	if !strings.Contains(DefaultRules, "Clarification Handling") {
+		t.Error("DefaultRules should contain Clarification Handling")
+	}
+	if !strings.Contains(DefaultRules, "need_clarification") {
+		t.Error("DefaultRules should reference need_clarification status")
+	}
 }
 
 func TestProfilePromptText(t *testing.T) {
