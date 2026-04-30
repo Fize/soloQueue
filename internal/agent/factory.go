@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
@@ -210,6 +211,26 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	// 2. 构建内置 tools
 	allTools := tools.Build(f.toolsCfg)
 
+	// 2b. L2 领导者：注入同组 L3 Worker 的 delegate 工具
+	if tmpl.IsLeader {
+		for _, peer := range f.sameGroupWorkers(tmpl) {
+			peer := peer // capture loop variable
+			dt := &tools.DelegateTool{
+				LeaderID: peer.ID,
+				Desc:     peer.Description,
+				Timeout:  tools.DelegateDefaultTimeout,
+				SpawnFn: func(ctx context.Context, task string) (iface.Locatable, error) {
+					child, _, err := f.Create(ctx, peer)
+					if err != nil {
+						return nil, err
+					}
+					return &LocatableAdapter{Agent: child}, nil
+				},
+			}
+			allTools = append(allTools, dt)
+		}
+	}
+
 	// 3. 加载 skills
 	var skillList []skill.Skill
 	if f.skillDir != "" {
@@ -289,6 +310,21 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	return templates, nil
 }
 
+// sameGroupWorkers 返回与 tmpl 同组的所有非 Leader agent 模板。
+// 用于为 L2 领导者注入 delegate_* 工具。
+func (f *DefaultFactory) sameGroupWorkers(tmpl AgentTemplate) []AgentTemplate {
+	var workers []AgentTemplate
+	for _, t := range f.templates {
+		if t.IsLeader || t.ID == tmpl.ID {
+			continue
+		}
+		if t.Group == tmpl.Group && t.Group != "" {
+			workers = append(workers, t)
+		}
+	}
+	return workers
+}
+
 // ─── L2 System Prompt 三段式拼接 ─────────────────────────────────────────────
 
 // l2EnforcedDirectives 是 Segment 3 框架强制区常量。
@@ -353,6 +389,15 @@ BAD (to L3): "检查 /workspace/main.go 第42行的 panic 并修复它"
 GOOD (to L3): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
 BAD (to L1): "任务完成，已经修复了登录页面的样式问题"
 GOOD (to L1): "Task completed. The CSS styling issue on the login page has been fixed."
+
+# 8. Context-Rich Delegation
+Every task you delegate to a Worker MUST include all context the Worker needs to execute autonomously. Workers run in isolated sandboxes with NO prior context. Your task description MUST include:
+- Absolute file paths for any files the Worker needs to read or modify
+- The relevant code snippet or error message if applicable
+- The workspace root path (shown in Workspace section above)
+- Any dependencies or related files the Worker should be aware of
+BAD: "Fix the CSS bug in the login page"
+GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/frontend/src/components/Login.tsx. The CSS module is at /workspace/frontend/src/styles/login.module.css. The bug: the submit button overlaps the password field on mobile viewports. Workspace: /workspace"
 `
 
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
@@ -376,12 +421,21 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 2: 动态能力区 ──────────────────────────────
-	// 2a. Team Context（来自 group 文件的 body）
+	// 2a. Team Context（来自 group 文件的 body）+ Workspace 路径
 	if tmpl.Group != "" {
-		if gf, ok := groups[tmpl.Group]; ok && gf.Body != "" {
-			b.WriteString("# Team Context\n\n")
-			b.WriteString(gf.Body)
-			b.WriteString("\n\n")
+		if gf, ok := groups[tmpl.Group]; ok {
+			if gf.Body != "" {
+				b.WriteString("# Team Context\n\n")
+				b.WriteString(gf.Body)
+				b.WriteString("\n\n")
+			}
+			if len(gf.Frontmatter.Workspaces) > 0 {
+				b.WriteString("# Workspace\n\n")
+				for _, ws := range gf.Frontmatter.Workspaces {
+					fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
+				}
+				b.WriteString("\n")
+			}
 		}
 	}
 
