@@ -79,7 +79,7 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 	}
 
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "file_read: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "file_read: completed",
 			"path", abs, "size", len(data))
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 )
@@ -14,11 +15,12 @@ import (
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 type options struct {
-	level      slog.Level
-	console    bool
-	file       bool
-	maxSizeMB  int
-	maxDays    int
+	level     slog.Level
+	console   bool
+	file      bool
+	maxSizeMB int
+	maxDays   int
+	maxFiles  int
 }
 
 type Option func(*options)
@@ -35,6 +37,10 @@ func WithFile(enabled bool) Option {
 	return func(o *options) { o.file = enabled }
 }
 
+func WithMaxFiles(n int) Option {
+	return func(o *options) { o.maxFiles = n }
+}
+
 func defaultOptions() options {
 	return options{
 		level:     slog.LevelInfo,
@@ -42,6 +48,7 @@ func defaultOptions() options {
 		file:      true,
 		maxSizeMB: 50,
 		maxDays:   30,
+		maxFiles:  5,
 	}
 }
 
@@ -91,7 +98,7 @@ func newLogger(baseDir string, layer Layer, teamID, sessionID string, opts ...Op
 	// File handler
 	var fileHandler *FileHandler
 	if o.file {
-		fileHandler = newFileHandler(baseDir, layer, teamID, sessionID, o.level, o.maxSizeMB, o.maxDays)
+		fileHandler = newFileHandler(baseDir, layer, teamID, sessionID, o.level, o.maxSizeMB, o.maxDays, o.maxFiles)
 	}
 
 	multi := newMultiHandler(consoleHandler, fileHandler)
@@ -213,9 +220,17 @@ func (l *Logger) LogDuration(ctx context.Context, cat Category, msg string, fn f
 	return err
 }
 
-// Close 关闭文件 handler（刷新缓冲）
+// Close 关闭文件 handler（刷新缓冲）并清理 session 日志目录
 func (l *Logger) Close() error {
-	return l.handler.close()
+	err := l.handler.close()
+
+	// 清理 session 层日志目录，避免磁盘累积
+	if l.layer == LayerSession && l.baseDir != "" && l.teamID != "" && l.sessionID != "" {
+		dir := filepath.Join(l.baseDir, "logs", "sessions", l.teamID, l.sessionID)
+		_ = os.RemoveAll(dir)
+	}
+
+	return err
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -227,11 +242,6 @@ func (l *Logger) Close() error {
 func (l *Logger) logCtx(ctx context.Context, level slog.Level, cat Category, msg string, args ...any) {
 	if !l.inner.Enabled(ctx, level) {
 		return
-	}
-
-	// 验证 category 合法性
-	if !ValidCategory(l.layer, cat) {
-		cat = l.defaultCategory()
 	}
 
 	// 构建 record（跳过 logger.go 自身的 caller 帧）
@@ -257,14 +267,6 @@ func (l *Logger) logCtx(ctx context.Context, level slog.Level, cat Category, msg
 		// 日志写入失败时回退到 stderr，避免静默丢日志
 		fmt.Fprintf(os.Stderr, "logger Handle error: %v\n", err)
 	}
-}
-
-func (l *Logger) defaultCategory() Category {
-	cats := layerCategories[l.layer]
-	if len(cats) == 0 {
-		return CatApp
-	}
-	return cats[0]
 }
 
 // randomHex 生成 n 字节的随机 hex 字符串（长度 2n）
