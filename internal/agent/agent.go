@@ -76,6 +76,11 @@ type Agent struct {
 	// 优先级 mailbox（L1 启用；nil 表示普通 chan job）
 	priorityMailbox *PriorityMailbox
 
+	// modelOverride is a per-ask model parameter override.
+	// Set by the router before submitting an ask job, consumed by streamLoop,
+	// and auto-cleared when the ask completes. Thread-safe via atomic pointer.
+	modelOverride atomic.Pointer[ModelParams]
+
 	// 观察（无锁）
 	state   atomic.Int32 // State
 	exitErr atomic.Value // errHolder
@@ -102,9 +107,9 @@ func WithMailboxCap(cap int) Option {
 
 // WithSkills 注册一批 Skill 到 agent 的 SkillRegistry
 //
-// Skill 是上下文加载机制，激活时将 Instructions 注入 system prompt。
+// Skill 是可执行的技能定义，LLM 通过 Skill 内置工具调用。
 // 多次调用 WithSkills 会累加（同一 SkillRegistry），同名 Skill 仍会 panic。
-func WithSkills(skills ...skill.Skill) Option {
+func WithSkills(skills ...*skill.Skill) Option {
 	return func(a *Agent) {
 		if len(skills) == 0 {
 			return
@@ -244,6 +249,26 @@ func (a *Agent) MailboxDepth() (high, normal int) {
 		return 0, len(mb)
 	}
 	return 0, 0
+}
+
+// SetModelOverride sets per-ask model parameters that take precedence over
+// Definition defaults. Called by the router BEFORE AskStream/Ask.
+// The override is automatically cleared when the ask completes.
+//
+// If the agent has an explicitly configured model (from template), this is
+// a no-op — template model takes precedence over task-level routing.
+//
+// Thread-safe (atomic pointer store). Calling with nil clears the override.
+func (a *Agent) SetModelOverride(params *ModelParams) {
+	if a.Def.ExplicitModel {
+		return
+	}
+	a.modelOverride.Store(params)
+}
+
+// ClearModelOverride removes the per-ask override, reverting to Definition defaults.
+func (a *Agent) ClearModelOverride() {
+	a.modelOverride.Store(nil)
 }
 
 // NewAgent 构造未 Start 的 agent

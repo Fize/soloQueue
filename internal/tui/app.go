@@ -18,6 +18,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -34,6 +35,9 @@ type Config struct {
 	// Agent 运行时（/status 命令使用）
 	Registry    *agent.Registry      // Agent 全局注册表
 	Supervisors []*agent.Supervisor  // L2 Supervisor 列表
+
+	// Skill registry（slash 命令使用）
+	Skills *skill.SkillRegistry
 }
 
 // ─── Data types ───────────────────────────────────────────────────────────────

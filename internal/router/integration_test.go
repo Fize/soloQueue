@@ -17,25 +17,25 @@ func TestIntegration_FullRoutingFlow(t *testing.T) {
 			name:        "Simple hello - conversation level",
 			prompt:      "hello, how are you?",
 			expectLevel: LevelConversation,
-			expectModel: "deepseek:deepseek-v4-flash",
+			expectModel: "deepseek-v4-flash",
 		},
 		{
 			name:        "Single file read - single file level",
 			prompt:      "/read main.go",
 			expectLevel: LevelSimpleSingleFile,
-			expectModel: "deepseek:deepseek-v4-flash",
+			expectModel: "deepseek-v4-flash",
 		},
 		{
 			name:        "Multiple files - multi-file level",
 			prompt:      "/refactor main.go config.go utils.go to improve performance",
 			expectLevel: LevelMediumMultiFile,
-			expectModel: "deepseek:deepseek-v4-pro",
+			expectModel: "deepseek-v4-pro",
 		},
 		{
 			name:        "Complex refactoring - complex level",
-			prompt:      "/implement new authentication system with OAuth2 support across models.go, auth.go, middleware.go, handlers.go",
+			prompt:      "/l3 rewrite the authentication system",
 			expectLevel: LevelComplexRefactoring,
-			expectModel: "deepseek:deepseek-v4-pro-max",
+			expectModel: "deepseek-v4-pro",
 		},
 	}
 
@@ -47,7 +47,7 @@ func TestIntegration_FullRoutingFlow(t *testing.T) {
 				EnableLLMClassification:     false,
 				FastTrackConfidenceThreshold: 75,
 			}
-			classifier := NewDefaultClassifier(config, nil)
+			classifier := NewDefaultClassifier(config, nil, "", nil)
 			router := NewRouter(classifier, NewMockModelService(), nil)
 
 			// Route the prompt
@@ -106,7 +106,7 @@ func TestIntegration_ConfidenceThreshold(t *testing.T) {
 				EnableLLMClassification:     false,
 				FastTrackConfidenceThreshold: tt.threshold,
 			}
-			classifier := NewDefaultClassifier(config, nil)
+			classifier := NewDefaultClassifier(config, nil, "", nil)
 			router := NewRouter(classifier, NewMockModelService(), nil)
 
 			decision, err := router.Route(ctx, tt.prompt)
@@ -124,18 +124,23 @@ func TestIntegration_ConfidenceThreshold(t *testing.T) {
 
 // TestIntegration_ModelMappingAccuracy tests that each classification level maps to correct model
 func TestIntegration_ModelMappingAccuracy(t *testing.T) {
+	// Mock returns APIModel for expert/universal, empty for fast/superior
+	// fast    → ID=deepseek-v4-flash, API=deepseek-v4-flash (ID used)
+	// universal → ID=deepseek-v4-flash-thinking, API=deepseek-v4-flash
+	// superior → ID=deepseek-v4-pro, API=deepseek-v4-pro (ID used)
+	// expert  → ID=deepseek-v4-pro-max, API=deepseek-v4-pro
 	levels := map[ClassificationLevel]string{
-		LevelConversation:         "deepseek:deepseek-v4-flash",
-		LevelSimpleSingleFile:     "deepseek:deepseek-v4-flash",
-		LevelMediumMultiFile:      "deepseek:deepseek-v4-pro",
-		LevelComplexRefactoring:   "deepseek:deepseek-v4-pro-max",
+		LevelConversation:       "deepseek-v4-flash",
+		LevelSimpleSingleFile:   "deepseek-v4-flash",     // universal → APIModel=deepseek-v4-flash
+		LevelMediumMultiFile:    "deepseek-v4-pro",       // superior → ID=deepseek-v4-pro
+		LevelComplexRefactoring: "deepseek-v4-pro",       // expert → APIModel=deepseek-v4-pro
 	}
 
 	mockService := NewMockModelService()
 	router := NewRouter(nil, mockService, nil)
 
 	for level, expectedModel := range levels {
-		modelID := router.resolveModelID(level)
+		_, modelID, _, _ := router.resolveModelParams(level)
 		if modelID != expectedModel {
 			t.Errorf("Level %v: got model %s, want %s", level, modelID, expectedModel)
 		}

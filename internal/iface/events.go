@@ -69,3 +69,46 @@ type AgentLocator interface {
 // into the tool execution context. DelegateTool extracts and invokes it
 // when it encounters a ToolNeedsConfirmEvent from the child stream.
 type ConfirmForwarder func(ctx context.Context, callID string, child Locatable) (string, error)
+
+// ─── Model Override Propagation ──────────────────────────────────────────────
+
+// ModelOverrideParams carries model override data across package boundaries.
+//
+// Used to propagate task-level model configuration from parent to child agents
+// during delegation (L1→L2→L3). Lives in iface to avoid circular imports
+// between agent and tools packages.
+type ModelOverrideParams struct {
+	ProviderID      string // LLM provider (e.g., "deepseek"); empty = default
+	ModelID         string // API model name (e.g., "deepseek-v4-pro")
+	ThinkingEnabled bool   // enable thinking/reasoning mode
+	ReasoningEffort string // "high" | "max" | ""
+}
+
+// ModelOverridable is optionally implemented by Locatable targets that
+// support per-ask model override propagation during delegation.
+//
+// DelegateTool checks this via type assertion before calling AskStream,
+// allowing the parent's task-level model to flow to child agents.
+type ModelOverridable interface {
+	SetModelOverride(params *ModelOverrideParams)
+}
+
+// Context helpers for model override propagation through tool execution.
+
+type modelOverrideCtxKey struct{}
+
+// ContextWithModelOverride injects model override params into a context.
+// Used by agent.execToolStream to propagate the override to DelegateTool.
+func ContextWithModelOverride(ctx context.Context, params *ModelOverrideParams) context.Context {
+	if params == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, modelOverrideCtxKey{}, params)
+}
+
+// ModelOverrideFromContext extracts model override params from context.
+// Returns nil if no override was propagated.
+func ModelOverrideFromContext(ctx context.Context) *ModelOverrideParams {
+	v, _ := ctx.Value(modelOverrideCtxKey{}).(*ModelOverrideParams)
+	return v
+}

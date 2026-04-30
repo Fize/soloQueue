@@ -180,6 +180,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		ModelID:         tmpl.ModelID,
 		SystemPrompt:    finalPrompt,
 		ReasoningEffort: "", // populated below if resolver is set
+		ExplicitModel:   tmpl.ModelID != "", // template explicitly set model → don't override
 	}
 
 	// 1b. Validate and resolve model configuration
@@ -232,7 +233,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	}
 
 	// 3. 加载 skills
-	var skillList []skill.Skill
+	var skillList []*skill.Skill
 	if f.skillDir != "" {
 		loaded, err := skill.LoadSkillsFromDir(f.skillDir)
 		if err != nil && f.log != nil {
@@ -241,6 +242,44 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 			)
 		}
 		skillList = loaded
+	}
+
+	// 3b. 构造 SkillTool（仅在有 skill 时注册）
+	sr := skill.NewSkillRegistry()
+	for _, s := range skillList {
+		if err := sr.Register(s); err != nil && f.log != nil {
+			f.log.InfoContext(ctx, logger.CatActor, "skill register skipped",
+				"skill", s.ID, "err", err,
+			)
+		}
+	}
+	if sr.Len() > 0 {
+		// 3c. Fork spawn 函数：创建临时子 agent 执行 fork 模式的 skill
+		forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
+			forkDef := Definition{
+				ID:           fmt.Sprintf("skill-fork-%s", s.ID),
+				ModelID:      def.ModelID, // 继承父 agent 的模型
+				SystemPrompt: content,
+			}
+
+			forkTools := tools.Build(f.toolsCfg)
+			if len(s.AllowedTools) > 0 {
+				forkTools = skill.FilterTools(forkTools, s.AllowedTools)
+			}
+
+			child := NewAgent(forkDef, f.llm, f.log,
+				WithTools(forkTools...),
+				WithParallelTools(true),
+			)
+			if err := child.Start(ctx); err != nil {
+				return nil, nil, fmt.Errorf("start fork agent: %w", err)
+			}
+			cleanup := func() { child.Stop(5) }
+			return &LocatableAdapter{Agent: child}, cleanup, nil
+		}
+
+		skillTool := skill.NewSkillTool(sr, forkSpawn)
+		allTools = append(allTools, skillTool)
 	}
 
 	// 4. 构造 Option 列表
@@ -261,9 +300,6 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	cw := ctxwin.NewContextWindow(DefaultContextWindow, 2000, 0, ctxwin.NewTokenizer())
 	if a.Def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
-	}
-	if catalog := a.SkillCatalog(); catalog != "" {
-		cw.Push(ctxwin.RoleSystem, catalog)
 	}
 
 	// 7. Register 到 registry

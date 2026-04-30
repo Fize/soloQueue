@@ -260,4 +260,20 @@ func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-cha
 
 // Compile-time interface assertions.
 var _ iface.Locatable = (*LocatableAdapter)(nil)
+var _ iface.ModelOverridable = (*LocatableAdapter)(nil)
 var _ iface.AgentLocator = (*Registry)(nil)
+
+// SetModelOverride implements iface.ModelOverridable.
+// Propagates task-level model override from parent to child during delegation.
+func (la *LocatableAdapter) SetModelOverride(params *iface.ModelOverrideParams) {
+	if params == nil {
+		la.Agent.ClearModelOverride()
+		return
+	}
+	la.Agent.SetModelOverride(&ModelParams{
+		ProviderID:      params.ProviderID,
+		ModelID:         params.ModelID,
+		ThinkingEnabled: params.ThinkingEnabled,
+		ReasoningEffort: params.ReasoningEffort,
+	})
+}

@@ -17,7 +17,8 @@ func TestParseSkillMD_WithFrontmatter(t *testing.T) {
 	content := `---
 name: my-skill
 description: A test skill
-when_to_use: user mentions test
+allowed-tools: Read,Bash(git:*)
+user-invocable: true
 ---
 # My Skill
 
@@ -32,26 +33,136 @@ Do the thing.
 	if err != nil {
 		t.Fatalf("ParseSkillMD: %v", err)
 	}
-	if md.ID() != "my-skill" {
-		t.Errorf("ID = %q, want %q", md.ID(), "my-skill")
+	if md.ID != "my-skill" {
+		t.Errorf("ID = %q, want %q", md.ID, "my-skill")
 	}
-	if md.Description() != "A test skill" {
-		t.Errorf("Description = %q, want %q", md.Description(), "A test skill")
+	if md.Description != "A test skill" {
+		t.Errorf("Description = %q, want %q", md.Description, "A test skill")
 	}
-	if md.WhenToUse() != "user mentions test" {
-		t.Errorf("WhenToUse = %q, want %q", md.WhenToUse(), "user mentions test")
+	if md.Instructions != "# My Skill\n\nDo the thing." {
+		t.Errorf("Instructions = %q", md.Instructions)
 	}
-	if md.Instructions() != "# My Skill\n\nDo the thing." {
-		t.Errorf("Instructions = %q", md.Instructions())
+	if md.Category != SkillUser {
+		t.Errorf("Category = %v, want %v", md.Category, SkillUser)
 	}
-	if md.Category() != SkillUser {
-		t.Errorf("Category = %v, want %v", md.Category(), SkillUser)
-	}
-	if md.FilePath() == "" {
+	if md.FilePath == "" {
 		t.Error("FilePath should not be empty for MDSkill")
 	}
-	if !strings.HasSuffix(md.FilePath(), "my-skill/SKILL.md") {
-		t.Errorf("FilePath = %q, should end with my-skill/SKILL.md", md.FilePath())
+	if !strings.HasSuffix(md.FilePath, "my-skill/SKILL.md") {
+		t.Errorf("FilePath = %q, should end with my-skill/SKILL.md", md.FilePath)
+	}
+	if !md.UserInvocable {
+		t.Error("UserInvocable should be true")
+	}
+	if len(md.AllowedTools) != 2 {
+		t.Errorf("AllowedTools = %v, want 2 items", md.AllowedTools)
+	}
+	if md.AllowedTools[0] != "Read" {
+		t.Errorf("AllowedTools[0] = %q, want %q", md.AllowedTools[0], "Read")
+	}
+	if md.AllowedTools[1] != "Bash(git:*)" {
+		t.Errorf("AllowedTools[1] = %q, want %q", md.AllowedTools[1], "Bash(git:*)")
+	}
+}
+
+func TestParseSkillMD_BackwardCompatible(t *testing.T) {
+	// 现有 SKILL.md 只有 name 和 description，无新字段
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "old-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `---
+name: old-skill
+description: An old skill
+---
+Old instructions.
+`
+	path := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	md, err := ParseSkillMD(path)
+	if err != nil {
+		t.Fatalf("ParseSkillMD: %v", err)
+	}
+	// 新字段应该有正确的默认值
+	if md.DisableModelInvocation {
+		t.Error("DisableModelInvocation default should be false")
+	}
+	if !md.UserInvocable {
+		t.Error("UserInvocable default should be true")
+	}
+	if md.Context != "" {
+		t.Errorf("Context default should be empty, got %q", md.Context)
+	}
+	if md.Agent != "" {
+		t.Errorf("Agent default should be empty, got %q", md.Agent)
+	}
+	if len(md.AllowedTools) != 0 {
+		t.Errorf("AllowedTools default should be nil, got %v", md.AllowedTools)
+	}
+}
+
+func TestParseSkillMD_UserInvocableFalse(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "hidden-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `---
+name: hidden-skill
+description: Not in slash menu
+user-invocable: false
+---
+Hidden instructions.
+`
+	path := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	md, err := ParseSkillMD(path)
+	if err != nil {
+		t.Fatalf("ParseSkillMD: %v", err)
+	}
+	if md.UserInvocable {
+		t.Error("UserInvocable should be false when explicitly set")
+	}
+}
+
+func TestParseSkillMD_ForkMode(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "explore")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `---
+name: explore
+description: Explore codebase
+context: fork
+agent: Explore
+---
+Explore the code.
+`
+	path := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	md, err := ParseSkillMD(path)
+	if err != nil {
+		t.Fatalf("ParseSkillMD: %v", err)
+	}
+	if md.Context != "fork" {
+		t.Errorf("Context = %q, want %q", md.Context, "fork")
+	}
+	if md.Agent != "Explore" {
+		t.Errorf("Agent = %q, want %q", md.Agent, "Explore")
 	}
 }
 
@@ -72,11 +183,11 @@ func TestParseSkillMD_NoFrontmatter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSkillMD: %v", err)
 	}
-	if md.ID() != "bare-skill" {
-		t.Errorf("ID = %q, want %q", md.ID(), "bare-skill")
+	if md.ID != "bare-skill" {
+		t.Errorf("ID = %q, want %q", md.ID, "bare-skill")
 	}
-	if md.Description() != "Just plain instructions here." {
-		t.Errorf("Description = %q", md.Description())
+	if md.Description != "Just plain instructions here." {
+		t.Errorf("Description = %q", md.Description)
 	}
 }
 
@@ -101,8 +212,8 @@ Deploy now.
 	if err != nil {
 		t.Fatalf("ParseSkillMD: %v", err)
 	}
-	if md.ID() != "deploy" {
-		t.Errorf("ID = %q, want %q (from dir name)", md.ID(), "deploy")
+	if md.ID != "deploy" {
+		t.Errorf("ID = %q, want %q (from dir name)", md.ID, "deploy")
 	}
 }
 
@@ -140,7 +251,7 @@ func TestLoadSkillsFromDir(t *testing.T) {
 
 	names := map[string]bool{}
 	for _, s := range skills {
-		names[s.ID()] = true
+		names[s.ID] = true
 	}
 	if !names["commit"] || !names["deploy"] {
 		t.Errorf("expected commit and deploy, got %v", names)
@@ -159,30 +270,48 @@ func TestLoadSkillsFromDir_NotExist(t *testing.T) {
 
 func TestBuiltinSkill(t *testing.T) {
 	s := NewBuiltinSkill("test", "A test skill", "Do the thing.")
-	if s.ID() != "test" {
-		t.Errorf("ID = %q", s.ID())
+	if s.ID != "test" {
+		t.Errorf("ID = %q", s.ID)
 	}
-	if s.Description() != "A test skill" {
-		t.Errorf("Description = %q", s.Description())
+	if s.Description != "A test skill" {
+		t.Errorf("Description = %q", s.Description)
 	}
-	if s.Instructions() != "Do the thing." {
-		t.Errorf("Instructions = %q", s.Instructions())
+	if s.Instructions != "Do the thing." {
+		t.Errorf("Instructions = %q", s.Instructions)
 	}
-	if s.WhenToUse() != "" {
-		t.Errorf("WhenToUse should be empty, got %q", s.WhenToUse())
+	if !s.UserInvocable {
+		t.Error("UserInvocable default should be true")
 	}
-	if s.Category() != SkillBuiltin {
-		t.Errorf("Category = %v", s.Category())
+	if s.Category != SkillBuiltin {
+		t.Errorf("Category = %v", s.Category)
 	}
-	if s.FilePath() != "" {
-		t.Errorf("BuiltinSkill FilePath should be empty, got %q", s.FilePath())
+	if s.FilePath != "" {
+		t.Errorf("BuiltinSkill FilePath should be empty, got %q", s.FilePath)
 	}
 }
 
-func TestBuiltinSkill_WithWhenToUse(t *testing.T) {
-	s := NewBuiltinSkill("test", "desc", "instructions", WithWhenToUse("user says test"))
-	if s.WhenToUse() != "user says test" {
-		t.Errorf("WhenToUse = %q", s.WhenToUse())
+func TestBuiltinSkill_WithOptions(t *testing.T) {
+	s := NewBuiltinSkill("test", "desc", "instructions",
+		WithDisableModelInvocation(),
+		WithUserInvocable(false),
+		WithContext("fork"),
+		WithAgent("Explore"),
+		WithAllowedTools([]string{"Read", "Grep"}),
+	)
+	if !s.DisableModelInvocation {
+		t.Error("DisableModelInvocation should be true")
+	}
+	if s.UserInvocable {
+		t.Error("UserInvocable should be false")
+	}
+	if s.Context != "fork" {
+		t.Errorf("Context = %q, want %q", s.Context, "fork")
+	}
+	if s.Agent != "Explore" {
+		t.Errorf("Agent = %q, want %q", s.Agent, "Explore")
+	}
+	if len(s.AllowedTools) != 2 {
+		t.Errorf("AllowedTools = %v, want 2 items", s.AllowedTools)
 	}
 }
 
@@ -198,8 +327,8 @@ func TestSkillRegistry_RegisterAndGet(t *testing.T) {
 	if !ok {
 		t.Fatal("GetSkill not found")
 	}
-	if got.ID() != "test" {
-		t.Errorf("got ID = %q", got.ID())
+	if got.ID != "test" {
+		t.Errorf("got ID = %q", got.ID)
 	}
 }
 
@@ -212,95 +341,43 @@ func TestSkillRegistry_Duplicate(t *testing.T) {
 	}
 }
 
-func TestSkillRegistry_Catalog(t *testing.T) {
+func TestSkillRegistry_Nil(t *testing.T) {
 	r := NewSkillRegistry()
-	_ = r.Register(NewBuiltinSkill("deploy", "Deploy to K8s", "", WithWhenToUse("user wants to deploy")))
-	_ = r.Register(NewBuiltinSkill("commit", "Git commit", ""))
+	err := r.Register(nil)
+	if err != ErrSkillNil {
+		t.Errorf("Register(nil) = %v, want ErrSkillNil", err)
+	}
+}
 
-	cat := r.Catalog()
-	if cat == "" {
-		t.Fatal("Catalog should not be empty")
+func TestSkillRegistry_EmptyID(t *testing.T) {
+	r := NewSkillRegistry()
+	err := r.Register(&Skill{ID: ""})
+	if err != ErrSkillIDEmpty {
+		t.Errorf("Register(empty ID) = %v, want ErrSkillIDEmpty", err)
 	}
-	if !strings.Contains(cat, "## Available Skills") {
-		t.Error("Catalog should contain header")
+}
+
+func TestParseAllowedTools(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{"", nil},
+		{"Read", []string{"Read"}},
+		{"Read,Write,Bash(git:*)", []string{"Read", "Write", "Bash(git:*)"}},
+		{" Read , Write ", []string{"Read", "Write"}},
+		{",,", nil},
 	}
-	if !strings.Contains(cat, "**commit**") {
-		t.Error("Catalog should contain commit skill")
-	}
-	if !strings.Contains(cat, "**deploy**") {
-		t.Error("Catalog should contain deploy skill")
-	}
-	if !strings.Contains(cat, "Use when: user wants to deploy") {
-		t.Error("Catalog should contain when_to_use for deploy")
-	}
-	if strings.Contains(cat, "Use when:") && strings.Contains(cat, "**commit**") {
-		// commit has no when_to_use, should not have "Use when:" in its line
-		lines := strings.Split(cat, "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "**commit**") && strings.Contains(line, "Use when:") {
-				t.Error("commit should not have Use when (empty when_to_use)")
+	for _, tt := range tests {
+		got := ParseAllowedTools(tt.input)
+		if len(got) != len(tt.want) {
+			t.Errorf("ParseAllowedTools(%q) = %v, want %v", tt.input, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("ParseAllowedTools(%q)[%d] = %q, want %q", tt.input, i, got[i], tt.want[i])
 			}
 		}
-	}
-	if !strings.Contains(cat, "Read") {
-		t.Error("Catalog should mention Read for loading instructions")
-	}
-}
-
-func TestSkillRegistry_CatalogEmpty(t *testing.T) {
-	r := NewSkillRegistry()
-	if cat := r.Catalog(); cat != "" {
-		t.Errorf("empty registry Catalog should return empty, got %q", cat)
-	}
-}
-
-func TestSkillRegistry_CatalogNameOnly(t *testing.T) {
-	// skill 只有名字，description 和 when_to_use 都为空
-	r := NewSkillRegistry()
-	_ = r.Register(NewBuiltinSkill("commit", "", ""))
-
-	cat := r.Catalog()
-	if !strings.Contains(cat, "- **commit**") {
-		t.Errorf("Catalog should contain '- **commit**', got %q", cat)
-	}
-	// 不应该有多余的冒号或 "Use when:"
-	for _, line := range strings.Split(cat, "\n") {
-		if strings.Contains(line, "**commit**") {
-			if strings.Contains(line, "Use when:") {
-				t.Error("name-only skill should not have Use when")
-			}
-			// 不应该有 ": " 但名字后面没有描述的情况
-			if strings.Contains(line, "**commit**: ") && !strings.Contains(line, "**commit**: <") {
-				// 允许有描述的情况，但空描述不应该出现 ": "
-				// "- **commit**\n" 是正确的，"- **commit**: \n" 是错误的
-			}
-		}
-	}
-}
-
-func TestSkillRegistry_CatalogWithFilePath(t *testing.T) {
-	r := NewSkillRegistry()
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "my-skill")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(skillDir, "SKILL.md")
-	if err := os.WriteFile(path, []byte("---\nname: my-skill\ndescription: Test skill\n---\nBody."), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	md, err := ParseSkillMD(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = r.Register(md)
-
-	cat := r.Catalog()
-	if !strings.Contains(cat, "→") {
-		t.Error("Catalog with MDSkill should contain file path arrow")
-	}
-	if !strings.Contains(cat, "SKILL.md") {
-		t.Error("Catalog with MDSkill should contain SKILL.md path")
 	}
 }

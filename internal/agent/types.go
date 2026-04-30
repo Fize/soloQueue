@@ -54,6 +54,11 @@ type Definition struct {
 	// 对应 config.LLMModel.ContextWindow。
 	// <= 0 时使用兜底默认值 128000。
 	ContextWindow int
+
+	// ExplicitModel indicates this agent's model was explicitly configured
+	// (from agent template YAML). When true, SetModelOverride is a no-op —
+	// the template's model takes precedence over task-level routing.
+	ExplicitModel bool
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -115,4 +120,31 @@ const DefaultContextWindow = 128000
 // an explicit per-tool timeout via WithToolTimeout. Prevents indefinite
 // blocking when a tool hangs.
 const DefaultToolTimeout = 10 * time.Minute
+
+// ─── ModelParams (per-ask override) ─────────────────────────────────────────
+
+// ModelParams captures per-ask model parameter overrides.
+//
+// When set on an Agent via SetModelOverride, the streamLoop uses these values
+// instead of Definition defaults for that specific ask cycle. After the ask
+// completes, the override is automatically cleared.
+//
+// This enables the Router to dynamically select different models based on
+// task complexity without recreating the Agent.
+type ModelParams struct {
+	// ProviderID identifies which LLM provider to use (e.g., "deepseek", "openai").
+	// Empty means use the agent's default provider.
+	// Reserved for future multi-provider support — currently the Agent has a single LLMClient.
+	ProviderID string
+
+	// ModelID is the actual API model name (e.g., "deepseek-v4-pro").
+	// Empty means use the agent Definition's ModelID.
+	ModelID string
+
+	// ThinkingEnabled controls whether thinking/reasoning mode is activated.
+	ThinkingEnabled bool
+
+	// ReasoningEffort controls the reasoning depth: "high", "max", or "" (disabled).
+	ReasoningEffort string
+}
 
