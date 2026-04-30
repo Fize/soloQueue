@@ -38,7 +38,7 @@ func startTestServer(t *testing.T, fake *agent.FakeLLM) (*httptest.Server, *sess
 		cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 		return a, cw, nil, nil
 	}
-	mgr := session.NewSessionManager(factory, 0)
+	mgr := session.NewSessionManager(factory, 0, nil)
 	t.Cleanup(func() { mgr.Shutdown(2 * time.Second) })
 
 	// Create a mock router for testing

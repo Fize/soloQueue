@@ -9,6 +9,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // globTool 在沙箱目录下按 doublestar pattern 找文件
@@ -23,10 +24,11 @@ import (
 //   - 匹配数 > MaxGlobItems 时截断并返回 truncated=true
 //   - 返回路径**相对 dir**（用 "/" 分隔，跨平台一致）
 type globTool struct {
-	cfg Config
+	cfg    Config
+	logger *logger.Logger
 }
 
-func newGlobTool(cfg Config) *globTool { return &globTool{cfg: cfg} }
+func newGlobTool(cfg Config) *globTool { return &globTool{cfg: cfg, logger: cfg.Logger} }
 
 func (globTool) Name() string { return "Glob" }
 
@@ -108,6 +110,11 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 			res.Truncated = true
 			break
 		}
+	}
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "glob: completed",
+			"pattern", a.Pattern, "dir", absDir,
+			"files", len(res.Files), "truncated", res.Truncated)
 	}
 	b, _ := json.Marshal(res)
 	return string(b), nil
