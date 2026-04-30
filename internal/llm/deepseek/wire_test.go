@@ -137,7 +137,7 @@ func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 		// assistant 无 reasoning_content：不应出现
 		{Role: "assistant", Content: "no reasoning"},
 	}
-	wired := buildWireMessages(msgs)
+	wired := buildWireMessages(msgs, false)
 
 	// 第 2 条消息（index=1）：有 tool_calls + reasoning_content
 	b1, err := json.Marshal(wired[1])

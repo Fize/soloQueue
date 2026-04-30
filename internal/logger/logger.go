@@ -109,6 +109,15 @@ func newLogger(baseDir string, layer Layer, teamID, sessionID string, opts ...Op
 
 // ─── Child / Context ──────────────────────────────────────────────────────────
 
+// Slog returns the underlying *slog.Logger for interop with components
+// that accept standard library loggers (e.g., router, third-party libs).
+func (l *Logger) Slog() *slog.Logger {
+	if l == nil {
+		return slog.Default()
+	}
+	return l.inner
+}
+
 // Child 返回携带额外属性的子 Logger
 func (l *Logger) Child(attrs ...slog.Attr) *Logger {
 	args := make([]any, len(attrs))
