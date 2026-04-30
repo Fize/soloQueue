@@ -93,7 +93,7 @@ func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (stri
 	}
 
 	if c.logger != nil {
-		c.logger.DebugContext(ctx, logger.CatLLM, "compactor: starting",
+		c.logger.InfoContext(ctx, logger.CatLLM, "compactor: starting",
 			"msg_count", len(msgs), "model", c.modelID)
 	}
 	start := time.Now()
@@ -122,8 +122,7 @@ func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (stri
 	})
 	if err != nil {
 		if c.logger != nil {
-			c.logger.WarnContext(ctx, logger.CatLLM, "compactor: chat failed",
-				"err", err.Error(),
+			c.logger.LogError(ctx, logger.CatLLM, "compactor: chat failed", err,
 				"duration_ms", time.Since(start).Milliseconds())
 		}
 		return "", fmt.Errorf("compactor: chat failed: %w", err)

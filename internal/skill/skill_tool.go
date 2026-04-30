@@ -104,7 +104,7 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 	}
 
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "skill: executing",
+		t.logger.InfoContext(ctx, logger.CatTool, "skill: executing",
 			"skill_id", args.Skill, "has_args", args.Args != "")
 	}
 
@@ -133,7 +133,7 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 				return fmt.Sprintf("error: skill %q fork execution failed: %s", s.ID, err), nil
 			}
 			if t.logger != nil {
-				t.logger.DebugContext(ctx, logger.CatTool, "skill: fork completed",
+				t.logger.InfoContext(ctx, logger.CatTool, "skill: fork completed",
 					"skill_id", s.ID, "result_len", len(result))
 			}
 			return result, nil
@@ -142,7 +142,7 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 		fallthrough
 	default:
 		if t.logger != nil {
-			t.logger.DebugContext(ctx, logger.CatTool, "skill: inline completed",
+			t.logger.InfoContext(ctx, logger.CatTool, "skill: inline completed",
 				"skill_id", s.ID, "content_len", len(content))
 		}
 		// inline 模式：返回预处理后的 skill content

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -53,8 +52,7 @@ func (a *Agent) logError(ctx context.Context, cat logger.Category, msg string, e
 	if a.Log == nil {
 		return
 	}
-	allArgs := append([]any{slog.String("err", err.Error())}, args...)
-	a.Log.ErrorContext(ctx, cat, msg, allArgs...)
+	a.Log.LogError(ctx, cat, msg, err, args...)
 }
 
 // mergeCtx 返回一个 context，a 或 b 任一取消都会取消返回的 context

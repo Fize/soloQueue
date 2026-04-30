@@ -96,7 +96,7 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "web_search: starting",
+		t.logger.InfoContext(ctx, logger.CatTool, "web_search: starting",
 			"query", a.Query)
 	}
 	start := time.Now()
@@ -135,7 +135,7 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	results := parseDDGResults(data, maxR)
 
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "web_search: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "web_search: completed",
 			"query", a.Query, "results", len(results),
 			"duration_ms", time.Since(start).Milliseconds())
 	}

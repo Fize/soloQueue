@@ -155,7 +155,7 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 		SizeAfter:  len(current),
 	}
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "multi_replace: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "multi_replace: completed",
 			"path", abs, "edits_applied", len(a.Edits))
 	}
 	b, _ := json.Marshal(out)

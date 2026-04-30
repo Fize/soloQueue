@@ -2,11 +2,9 @@
 //
 // 路由：
 //
-//	POST   /v1/sessions              → {"session_id":"..."}
-//	DELETE /v1/sessions/{id}         → 204
-//	GET    /v1/sessions/{id}/history → {"messages":[...]}
-//	GET    /v1/sessions/{id}/stream  → WebSocket upgrade
-//	GET    /healthz                  → {"status":"ok"}
+//	GET    /v1/session/history → {"messages":[...]}
+//	GET    /v1/session/stream  → WebSocket upgrade
+//	GET    /healthz             → {"status":"ok"}
 //
 // WebSocket 协议（JSON per frame）：
 //
@@ -23,7 +21,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -41,7 +38,7 @@ import (
 
 // Mux 是根路由
 type Mux struct {
-	mgr    *session.SessionManager
+	sess   *session.Session
 	router *router.Router
 	log    *logger.Logger
 	mux    *http.ServeMux
@@ -51,9 +48,9 @@ type Mux struct {
 }
 
 // NewMux 构造路由
-func NewMux(mgr *session.SessionManager, rtr *router.Router, log *logger.Logger) *Mux {
+func NewMux(sess *session.Session, rtr *router.Router, log *logger.Logger) *Mux {
 	m := &Mux{
-		mgr:    mgr,
+		sess:   sess,
 		router: rtr,
 		log:    log,
 		mux:    http.NewServeMux(),
@@ -66,10 +63,8 @@ func NewMux(mgr *session.SessionManager, rtr *router.Router, log *logger.Logger)
 
 	m.mux.HandleFunc("GET /healthz", m.handleHealth)
 
-	m.mux.HandleFunc("POST /v1/sessions", m.handleCreate)
-	m.mux.HandleFunc("DELETE /v1/sessions/{id}", m.handleDelete)
-	m.mux.HandleFunc("GET /v1/sessions/{id}/history", m.handleHistory)
-	m.mux.HandleFunc("GET /v1/sessions/{id}/stream", m.handleStream)
+	m.mux.HandleFunc("GET /v1/session/history", m.handleHistory)
+	m.mux.HandleFunc("GET /v1/session/stream", m.handleStream)
 
 	return m
 }
@@ -82,7 +77,7 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				fmt.Errorf("%v", rec),
 				slog.String("path", r.URL.Path),
 			)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal", "path": r.URL.Path})
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal", "path": r.URL.Path})
 		}
 	}()
 	m.mux.ServeHTTP(w, r)
@@ -91,50 +86,7 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // ─── Handlers ─────────────────────────────────────────────────────────────
 
 func (m *Mux) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-type createReq struct {
-	TeamID string `json:"team_id"`
-}
-type createResp struct {
-	SessionID string `json:"session_id"`
-}
-
-func (m *Mux) handleCreate(w http.ResponseWriter, r *http.Request) {
-	var req createReq
-	// body 可选；缺失时 TeamID 为空字符串
-	if r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
-			return
-		}
-	}
-	s, err := m.mgr.Create(r.Context(), req.TeamID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	m.logInfo(r.Context(), "session created",
-		slog.String("session_id", s.ID),
-		slog.String("team_id", s.TeamID),
-	)
-	writeJSON(w, http.StatusCreated, createResp{SessionID: s.ID})
-}
-
-func (m *Mux) handleDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := m.mgr.Delete(id, 5*time.Second)
-	if errors.Is(err, session.ErrSessionNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	m.logInfo(r.Context(), "session deleted", slog.String("session_id", id))
-	w.WriteHeader(http.StatusNoContent)
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 type historyResp struct {
@@ -146,18 +98,12 @@ type historyMsg struct {
 }
 
 func (m *Mux) handleHistory(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	s, ok := m.mgr.Get(id)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
-	h := s.History()
+	h := m.sess.History()
 	msgs := make([]historyMsg, 0, len(h))
-	for _, m := range h {
-		msgs = append(msgs, historyMsg{Role: m.Role, Content: m.Content})
+	for _, msg := range h {
+		msgs = append(msgs, historyMsg{Role: msg.Role, Content: msg.Content})
 	}
-	writeJSON(w, http.StatusOK, historyResp{Messages: msgs})
+	m.writeJSON(w, http.StatusOK, historyResp{Messages: msgs})
 }
 
 // ─── WebSocket ────────────────────────────────────────────────────────────
@@ -177,24 +123,11 @@ const (
 	frameClear   = "clear"
 )
 
-// handleStream accepts WS upgrade and runs read+write loops.
-//
-// Lifecycle:
-//   - connCtx cancels when: conn closes / client sends cancel / handler returns.
-//   - each "ask" starts an askCtx (child of connCtx). "cancel" cancels it.
-//   - read goroutine drives write goroutine via Session.AskStream events.
 func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	s, ok := m.mgr.Get(id)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
-
 	c, err := websocket.Accept(w, r, m.wsOpts)
 	if err != nil {
-		m.logError(r.Context(), "ws accept failed", err,
-			slog.String("session_id", id),
+		m.logWSError(r.Context(), "ws accept failed", err,
+			slog.String("session_id", m.sess.ID),
 		)
 		return
 	}
@@ -203,8 +136,8 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 	connCtx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	m.logInfo(r.Context(), "ws connected", slog.String("session_id", id))
-	defer m.logInfo(r.Context(), "ws disconnected", slog.String("session_id", id))
+	m.logWS(r.Context(), "ws connected", slog.String("session_id", m.sess.ID))
+	defer m.logWS(r.Context(), "ws disconnected", slog.String("session_id", m.sess.ID))
 
 	// active ask cancel (protected by askMu)
 	var (
@@ -214,15 +147,20 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, data, err := c.Read(connCtx)
 		if err != nil {
+			m.logWS(connCtx, "ws read closed", slog.String("err", err.Error()))
 			return
 		}
 		var in wsInFrame
 		if err := json.Unmarshal(data, &in); err != nil {
+			m.logWS(connCtx, "ws invalid json frame",
+				slog.String("raw", truncateBytes(data, 200)),
+				slog.String("err", err.Error()),
+			)
 			if wsErr := writeWSFrame(connCtx, c, map[string]string{
 				"type":  "error",
 				"error": "invalid json",
 			}); wsErr != nil {
-				m.logError(connCtx, "ws write error", wsErr)
+				m.logWSError(connCtx, "ws write error", wsErr)
 			}
 			continue
 		}
@@ -230,21 +168,23 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 		switch in.Type {
 		case framePing:
 			if err := writeWSFrame(connCtx, c, map[string]string{"type": "pong"}); err != nil {
-				m.logError(connCtx, "ws write pong error", err)
+				m.logWSError(connCtx, "ws write pong error", err)
 			}
 
 		case frameCancel:
 			if askCancel != nil {
+				m.logWS(connCtx, "ws ask cancelled by client")
 				askCancel()
 				askCancel = nil
 				if err := writeWSFrame(connCtx, c, map[string]string{"type": "error", "err": "cancelled"}); err != nil {
-					m.logError(connCtx, "ws write cancel error", err)
+					m.logWSError(connCtx, "ws write cancel error", err)
 				}
 			}
 
 		case frameAsk:
 			// stop any in-flight ask
 			if askCancel != nil {
+				m.logWS(connCtx, "ws ask preempted by new ask")
 				askCancel()
 				askCancel = nil
 			}
@@ -257,12 +197,12 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 				routingDecision, routeErr := m.router.Route(askCtx, in.Prompt)
 				if routeErr != nil {
 					m.logInfo(connCtx, "routing classification failed",
-						slog.String("session_id", id),
+						slog.String("session_id", m.sess.ID),
 						slog.String("reason", routeErr.Error()),
 					)
 				} else {
 					m.logInfo(connCtx, "routing decision",
-						slog.String("session_id", id),
+						slog.String("session_id", m.sess.ID),
 						slog.String("level", routingDecision.Level.String()),
 						slog.String("model", routingDecision.ModelID),
 						slog.Int("confidence", routingDecision.Classification.Confidence),
@@ -279,13 +219,13 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			events, serr := s.AskStream(askCtx, in.Prompt)
+			events, serr := m.sess.AskStream(askCtx, in.Prompt)
 			if serr != nil {
 				if err := writeWSFrame(connCtx, c, map[string]string{
 					"type":  "error",
 					"error": serr.Error(),
 				}); err != nil {
-					m.logError(connCtx, "ws write ask error", err)
+					m.logWSError(connCtx, "ws write ask error", err)
 				}
 				ac()
 				askCancel = nil
@@ -299,22 +239,22 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 			}()
 
 		case frameConfirm:
-			if err := s.Agent.Confirm(in.CallID, in.Choice); err != nil {
+			if err := m.sess.Agent.Confirm(in.CallID, in.Choice); err != nil {
 				m.logError(connCtx, "confirm failed", err,
-					slog.String("session_id", id),
+					slog.String("session_id", m.sess.ID),
 					slog.String("call_id", in.CallID),
 					slog.String("choice", in.Choice),
 				)
 			}
 
 		case frameClear:
-			if err := s.Clear(); err != nil {
+			if err := m.sess.Clear(); err != nil {
 				m.logError(connCtx, "clear failed", err,
-					slog.String("session_id", id),
+					slog.String("session_id", m.sess.ID),
 				)
 			}
 			if err := writeWSFrame(connCtx, c, map[string]string{"type": "cleared"}); err != nil {
-				m.logError(connCtx, "ws write clear error", err)
+				m.logWSError(connCtx, "ws write clear error", err)
 			}
 
 		default:
@@ -322,7 +262,7 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 				"type":  "error",
 				"error": "unknown frame type",
 			}); err != nil {
-				m.logError(connCtx, "ws write error", err)
+				m.logWSError(connCtx, "ws write error", err)
 			}
 		}
 	}
@@ -334,7 +274,14 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 func (m *Mux) forwardEvents(ctx context.Context, c *websocket.Conn, events <-chan agent.AgentEvent) {
 	for ev := range events {
 		frame := agentEventToFrame(ev)
+		if frame["type"] == "unknown" {
+			if m.log != nil {
+				m.log.WarnContext(ctx, logger.CatWS, "ws unknown agent event type",
+					slog.String("event_type", fmt.Sprintf("%T", ev)))
+			}
+		}
 		if err := writeWSFrame(ctx, c, frame); err != nil {
+			m.logWS(ctx, "ws event write failed, draining", slog.String("err", err.Error()))
 			// best-effort: if write fails (client gone), drain remaining events
 			// so Session goroutine can finish
 			for range events {
@@ -409,10 +356,14 @@ func agentEventToFrame(ev agent.AgentEvent) map[string]any {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-func writeJSON(w http.ResponseWriter, status int, payload any) {
+func (m *Mux) writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	data, err := json.Marshal(payload)
 	if err != nil {
+		if m.log != nil {
+			m.log.ErrorContext(context.Background(), logger.CatHTTP, "writeJSON marshal failed",
+				"err", err.Error())
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -431,18 +382,38 @@ func writeWSFrame(ctx context.Context, c *websocket.Conn, payload any) error {
 	return c.Write(writeCtx, websocket.MessageText, data)
 }
 
+func truncateBytes(b []byte, max int) string {
+	s := string(b)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
+}
+
 func (m *Mux) logInfo(ctx context.Context, msg string, args ...any) {
 	if m.log == nil {
 		return
 	}
-	// server handlers run at system layer → use CatHTTP / CatWS as appropriate
 	m.log.InfoContext(ctx, logger.CatHTTP, msg, args...)
+}
+
+func (m *Mux) logWS(ctx context.Context, msg string, args ...any) {
+	if m.log == nil {
+		return
+	}
+	m.log.InfoContext(ctx, logger.CatWS, msg, args...)
+}
+
+func (m *Mux) logWSError(ctx context.Context, msg string, err error, args ...any) {
+	if m.log == nil {
+		return
+	}
+	m.log.LogError(ctx, logger.CatWS, msg, err, args...)
 }
 
 func (m *Mux) logError(ctx context.Context, msg string, err error, args ...any) {
 	if m.log == nil {
 		return
 	}
-	all := append([]any{slog.String("err", err.Error())}, args...)
-	m.log.ErrorContext(ctx, logger.CatHTTP, msg, all...)
+	m.log.LogError(ctx, logger.CatHTTP, msg, err, args...)
 }
