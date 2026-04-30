@@ -14,8 +14,8 @@ func (m *MockModelService) DefaultModelByRole(role string) *config.LLMModel {
 	return m.models[role]
 }
 
-// newMockModelService creates a mock with default models
-func newMockModelService() *MockModelService {
+// NewMockModelService creates a mock with default models
+func NewMockModelService() *MockModelService {
 	return &MockModelService{
 		models: map[string]*config.LLMModel{
 			"fast": {

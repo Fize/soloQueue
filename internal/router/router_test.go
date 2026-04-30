@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// NewMockModelService creates a mock for testing
-func NewMockModelService() *MockModelService {
-	return newMockModelService()
-}
-
 func TestRouter_Route(t *testing.T) {
 	classifierCfg := DefaultClassifierConfig()
 	classifier := NewDefaultClassifier(classifierCfg, nil)

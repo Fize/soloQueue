@@ -43,7 +43,8 @@ func startTestServer(t *testing.T, fake *agent.FakeLLM) (*httptest.Server, *sess
 
 	// Create a mock router for testing
 	classifier := router.NewDefaultClassifier(router.DefaultClassifierConfig(), nil)
-	rtr := router.NewRouter(classifier, nil, nil)
+	mockModelService := router.NewMockModelService()
+	rtr := router.NewRouter(classifier, mockModelService, nil)
 
 	mux := NewMux(mgr, rtr, nil)
 	srv := httptest.NewServer(mux)
@@ -249,7 +250,6 @@ func writeFrame(t *testing.T, c *websocket.Conn, frame map[string]any) {
 }
 
 func TestWS_AskFlow(t *testing.T) {
-	t.Skip("WebSocket test - investigating connection issues")
 	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"hel", "lo"}}}
 	srv, _ := startTestServer(t, fake)
 	id := createSession(t, srv, "team1")
@@ -335,7 +335,6 @@ func TestWS_SessionNotFound(t *testing.T) {
 }
 
 func TestWS_Cancel(t *testing.T) {
-	t.Skip("WebSocket test - investigating connection issues")
 	// slow stream; cancel mid-flight should stop it
 	fake := &agent.FakeLLM{
 		StreamDeltas: [][]string{{"a", "b", "c"}},
