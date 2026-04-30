@@ -58,6 +58,9 @@ func (w *Writer) AppendControl(ctrl *ControlPayload) error {
 
 // Close 关闭写入器
 func (w *Writer) Close() error {
+	if w.logger != nil {
+		w.logger.Debug(logger.CatMessages, "timeline: writer closed")
+	}
 	return w.rw.Close()
 }
 
@@ -72,5 +75,9 @@ func (w *Writer) writeEvent(evt Event) error {
 		return fmt.Errorf("timeline: marshal event: %w", err)
 	}
 	_, err = w.rw.Write(data)
+	if err != nil && w.logger != nil {
+		w.logger.Warn(logger.CatMessages, "timeline: write failed",
+			"event_type", string(evt.EventType), "err", err.Error())
+	}
 	return err
 }

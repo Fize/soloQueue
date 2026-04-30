@@ -112,7 +112,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		}
 	}
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "glob: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "glob: completed",
 			"pattern", a.Pattern, "dir", absDir,
 			"files", len(res.Files), "truncated", res.Truncated)
 	}

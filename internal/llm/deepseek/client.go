@@ -362,9 +362,7 @@ func (c *Client) logError(ctx context.Context, msg string, err error) {
 	if c.log == nil {
 		return
 	}
-	c.log.ErrorContext(ctx, logger.CatLLM, "deepseek: "+msg,
-		slog.String("err", err.Error()),
-	)
+	c.log.LogError(ctx, logger.CatLLM, "deepseek: "+msg, err)
 }
 
 // logRetry 在 retry 即将发生时触发（backoff 开始前）
@@ -415,9 +413,8 @@ func (c *Client) logChatFailed(ctx context.Context, req agent.LLMRequest, err er
 	if c.log == nil {
 		return
 	}
-	c.log.ErrorContext(ctx, logger.CatLLM, "deepseek chat failed",
+	c.log.LogError(ctx, logger.CatLLM, "deepseek chat failed", err,
 		slog.String("model", req.Model),
-		slog.String("err", err.Error()),
 		slog.Int64("duration_ms", dur.Milliseconds()),
 	)
 }

@@ -37,7 +37,7 @@ func TestValidCategory(t *testing.T) {
 		{LayerSession, CatTool, true},
 		{LayerSession, CatMessages, true},
 		{LayerSession, CatAgent, false},
-		{LayerSession, CatApp, false},
+		{LayerSession, CatApp, true},
 		{Layer("unknown"), CatApp, false},
 		{LayerSystem, Category("bogus"), false},
 	}
@@ -140,18 +140,23 @@ func TestSessionLogger_WritesJSONL(t *testing.T) {
 	log.Info(CatLLM, "llm call", "model", "deepseek-chat")
 	log.Debug(CatActor, "actor message")
 	time.Sleep(20 * time.Millisecond)
-	_ = log.Close()
 
+	// Check files before Close (Close cleans up session dir)
 	llmFile := filepath.Join(dir, "logs", "sessions", "team-1", "session-1", "llm.jsonl")
 	checkJSONLFile(t, llmFile, 1)
-
-	// session 不按天，文件名不含日期
 	entry := readFirstEntry(t, llmFile)
 	if entry["session_id"] != "session-1" {
 		t.Errorf("session_id = %v, want session-1", entry["session_id"])
 	}
 	if entry["team_id"] != "team-1" {
 		t.Errorf("team_id = %v, want team-1", entry["team_id"])
+	}
+
+	_ = log.Close()
+
+	// Verify directory is cleaned up
+	if _, err := os.Stat(filepath.Join(dir, "logs", "sessions", "team-1", "session-1")); !os.IsNotExist(err) {
+		t.Error("session log directory should be removed after Close")
 	}
 }
 
@@ -235,7 +240,7 @@ func TestLogger_InvalidCategory_FallbackAndNoPanic(t *testing.T) {
 		t.Fatalf("System(): %v", err)
 	}
 
-	// CatTeam 属于 team 层，对 system 层是非法的；不应 panic
+	// CatTeam 属于 team 层，对 system 层是非法的；不应 panic 也不应 fallback
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("logging invalid category panicked: %v", r)
@@ -246,10 +251,10 @@ func TestLogger_InvalidCategory_FallbackAndNoPanic(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	// 应该 fallback 到该 layer 的默认 category（app）
-	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
-	if _, err := os.Stat(appFile); err != nil {
-		t.Errorf("expected fallback to app-*.jsonl, stat err: %v", err)
+	// 不 fallback：日志按原始 category 写入对应文件
+	teamFile := filepath.Join(dir, "logs", "system", "team-"+today()+".jsonl")
+	if _, err := os.Stat(teamFile); err != nil {
+		t.Errorf("expected log in team-*.jsonl (category used as-is), stat err: %v", err)
 	}
 }
 
@@ -487,14 +492,14 @@ func TestRotateWriter_SizeRollover(t *testing.T) {
 	dir := t.TempDir()
 	// maxSizeMB=1 实际上太小不好测，直接用底层 rotating.Writer 的方式：
 	// 通过 newRotateWriter 传入 maxSizeMB=0，然后重新创建一个有大小限制的
-	rw, err := newRotateWriter(dir, "test", false, 0, 0)
+	rw, err := newRotateWriter(dir, "test", false, 0, 0, 5)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
 	_ = rw.Close()
 
 	// 用极小的 maxSize 重新创建以触发轮转
-	rw, err = newRotateWriter(dir, "test", false, 1, 0) // 1MB，足够容纳少量写入但不触发轮转
+	rw, err = newRotateWriter(dir, "test", false, 1, 0, 5) // 1MB，足够容纳少量写入但不触发轮转
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
@@ -525,7 +530,7 @@ func TestRotateWriter_SizeRollover(t *testing.T) {
 
 func TestRotateWriter_ByDate_FileNameFormat(t *testing.T) {
 	dir := t.TempDir()
-	rw, err := newRotateWriter(dir, "app", true, 50, 30)
+	rw, err := newRotateWriter(dir, "app", true, 50, 30, 0)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
@@ -558,7 +563,7 @@ func TestRotateWriter_Cleanup_OldFiles(t *testing.T) {
 	}
 
 	// 启动时触发 cleanup（maxDays=30）
-	rw, err := newRotateWriter(dir, "app", true, 50, 30)
+	rw, err := newRotateWriter(dir, "app", true, 50, 30, 0)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
@@ -580,7 +585,7 @@ func TestRotateWriter_Cleanup_MaxDaysZero_Skips(t *testing.T) {
 	_ = os.Chtimes(oldFile, oldTime, oldTime)
 
 	// maxDays=0 应跳过 cleanup
-	rw, err := newRotateWriter(dir, "app", true, 50, 0)
+	rw, err := newRotateWriter(dir, "app", true, 50, 0, 0)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
@@ -593,7 +598,7 @@ func TestRotateWriter_Cleanup_MaxDaysZero_Skips(t *testing.T) {
 
 func TestRotateWriter_ReopenAppends(t *testing.T) {
 	dir := t.TempDir()
-	rw, err := newRotateWriter(dir, "test", true, 50, 30)
+	rw, err := newRotateWriter(dir, "test", true, 50, 30, 0)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
@@ -601,7 +606,7 @@ func TestRotateWriter_ReopenAppends(t *testing.T) {
 	_ = rw.Close()
 
 	// 重新打开应追加而非覆盖
-	rw2, err := newRotateWriter(dir, "test", true, 50, 30)
+	rw2, err := newRotateWriter(dir, "test", true, 50, 30, 0)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}

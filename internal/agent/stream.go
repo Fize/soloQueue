@@ -191,6 +191,12 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		maxIter = DefaultMaxIterations
 	}
 
+	a.logInfo(ctx, logger.CatLLM, "agent turn start",
+		slog.String("agent_id", a.Def.ID),
+		slog.Int("max_iter", maxIter),
+		slog.Int("start_iter", startIter),
+	)
+
 	for iter := startIter; iter < maxIter; iter++ {
 		if err := ctx.Err(); err != nil {
 			a.emit(ctx, out, ErrorEvent{Err: err})
@@ -278,6 +284,11 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 		// Exit: LLM produced no tool calls → return final content
 		if len(toolCalls) == 0 {
+			a.logInfo(ctx, logger.CatLLM, "agent turn done",
+				slog.Int("total_iters", iter+1),
+				slog.Int("content_len", acc.content.Len()),
+				slog.Int("reasoning_len", acc.reasoning.Len()),
+			)
 			a.emit(ctx, out, DoneEvent{
 				Content:          acc.content.String(),
 				ReasoningContent: acc.reasoning.String(),
@@ -292,6 +303,9 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 	}
 
 	// Max iterations exceeded
+	a.logInfo(ctx, logger.CatLLM, "agent turn done (max iterations)",
+		slog.Int("total_iters", maxIter),
+	)
 	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
 		slog.Int("max_iter", maxIter),
 	)
@@ -393,6 +407,10 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 			numTasks = int(ts.pending.Load())
 		}
 		a.turnMu.RUnlock()
+		a.logInfo(ctx, logger.CatLLM, "async delegation started",
+			slog.Int("iter", iter),
+			slog.Int("num_tasks", numTasks),
+		)
 		a.emit(ctx, out, DelegationStartedEvent{
 			Iter:     iter,
 			NumTasks: numTasks,

@@ -94,17 +94,18 @@ Environment:
 				"version", version, "model", rt.defaultModel.ID)
 
 			agentFactory := buildSessionFactory(rt, workDir, settings, false /* TUI: no console log */)
-			mgr := session.NewSessionManager(agentFactory, 30*time.Minute, log)
+			mgr := session.NewSessionManager(agentFactory, log)
 			mgr.SetRouter(buildRouterFunc(rt))
 
-			rootCtx, stop := signal.NotifyContext(context.Background(),
-				os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
 			defer mgr.Shutdown(5 * time.Second)
 
+			sess, err := mgr.Init(context.Background(), "")
+			if err != nil {
+				return fmt.Errorf("init session: %w", err)
+			}
+
 			return tui.Run(tui.Config{
-				SessionMgr:   mgr,
+				Session:      sess,
 				ModelID:      rt.defaultModel.ID,
 				Version:      version,
 				RulesCreated: rt.rulesCreated,
@@ -662,16 +663,19 @@ func serveCmd() *cobra.Command {
 			defer rt.shutdown()
 
 			factory := buildSessionFactory(rt, workDir, settings, settings.Log.Console)
-			mgr := session.NewSessionManager(factory, 30*time.Minute, log)
+			mgr := session.NewSessionManager(factory, log)
 			mgr.SetRouter(buildRouterFunc(rt))
+
+			sess, err := mgr.Init(context.Background(), "")
+			if err != nil {
+				return fmt.Errorf("init session: %w", err)
+			}
 
 			rootCtx, stop := signal.NotifyContext(context.Background(),
 				os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
-
-			mux := server.NewMux(mgr, rt.taskRouter, log)
+			mux := server.NewMux(sess, rt.taskRouter, log)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,

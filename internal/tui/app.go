@@ -26,7 +26,7 @@ import (
 
 // Config stores TUI application configuration.
 type Config struct {
-	SessionMgr   *session.SessionManager
+	Session      *session.Session
 	ModelID      string
 	Version      string
 	RulesCreated bool   // 是否新创建了 rules.md
@@ -235,13 +235,8 @@ func Run(cfg Config) error {
 	focusCmd := ti.Focus()
 	m.textInput = ti
 
-	// Create session
-	sess, err := cfg.SessionMgr.Create(ctx, "")
-	if err != nil {
-		fmt.Println(errorStyle.Render("fatal: " + err.Error()))
-		return err
-	}
-	m.sess = sess
+	// Use pre-initialized session
+	m.sess = cfg.Session
 	_ = focusCmd
 
 	// Detect terminal background before bubbletea takes over stdin.
@@ -253,8 +248,8 @@ func Run(cfg Config) error {
 
 	p := tea.NewProgram(m)
 
-	_, err = p.Run()
-	return err
+	_, runErr := p.Run()
+	return runErr
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

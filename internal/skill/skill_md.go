@@ -121,11 +121,16 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if pkgLogger != nil {
+				pkgLogger.Debug(logger.CatApp, "skill: directory not found, skipping",
+					"dir", dir)
+			}
 			return nil, nil
 		}
 		return nil, fmt.Errorf("read skills dir %s: %w", dir, err)
 	}
 
+	loaded := 0
 	var skills []*Skill
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -147,6 +152,12 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 			continue
 		}
 		skills = append(skills, md)
+		loaded++
+	}
+
+	if pkgLogger != nil && loaded > 0 {
+		pkgLogger.Info(logger.CatApp, "skill: loaded from directory",
+			"dir", dir, "count", loaded)
 	}
 	return skills, nil
 }

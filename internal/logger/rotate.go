@@ -30,7 +30,7 @@ type rotateWriter struct {
 }
 
 // newRotateWriter 创建轮转写入器并打开初始文件
-func newRotateWriter(dir, prefix string, byDate bool, maxSizeMB, maxDays int) (*rotateWriter, error) {
+func newRotateWriter(dir, prefix string, byDate bool, maxSizeMB, maxDays, maxFiles int) (*rotateWriter, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create log dir %s: %w", dir, err)
 	}
@@ -52,7 +52,7 @@ func newRotateWriter(dir, prefix string, byDate bool, maxSizeMB, maxDays int) (*
 	} else {
 		// 按大小轮转模式：委托给 rotating.Writer
 		maxBytes := int64(maxSizeMB) * 1024 * 1024
-		r, err := rotating.Open(dir, prefix, maxBytes, 0) // logger 不限制轮转文件数
+		r, err := rotating.Open(dir, prefix, maxBytes, maxFiles)
 		if err != nil {
 			return nil, err
 		}

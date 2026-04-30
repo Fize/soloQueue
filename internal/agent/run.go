@@ -16,6 +16,7 @@ import (
 // Start 构造它们并作为局部参数传入，run 就不需要和 Start/Stop 抢锁；
 // 即使 Stop 重置了 a.mailbox，这里的局部 mailbox 还指向同一个 chan。
 func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{}) {
+	a.logInfo(ctx, logger.CatActor, "agent run goroutine started")
 	defer func() {
 		if r := recover(); r != nil {
 			err := fmt.Errorf("agent panic: %v", r)
@@ -26,6 +27,7 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 			// panic 已记录到 exitErr，caller 通过 Err() 可获取；
 			// 不再 re-panic：re-panic 会跳过 close(done)，导致 caller 永远阻塞在 Done()
 		} else {
+			a.logInfo(ctx, logger.CatActor, "agent run goroutine stopped")
 			a.state.Store(int32(StateStopped))
 			close(done)
 		}
@@ -53,6 +55,7 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 // 优先消费 highCh（委托回传、超时事件），再消费 normalCh（用户 Ask/Submit）。
 // 保证异步委托结果不被普通消息阻塞。
 func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox, done chan<- struct{}) {
+	a.logInfo(ctx, logger.CatActor, "agent run goroutine started")
 	defer func() {
 		if r := recover(); r != nil {
 			err := fmt.Errorf("agent panic: %v", r)
@@ -61,6 +64,7 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 			a.state.Store(int32(StateStopped))
 			close(done)
 		} else {
+			a.logInfo(ctx, logger.CatActor, "agent run goroutine stopped")
 			a.state.Store(int32(StateStopped))
 			close(done)
 		}

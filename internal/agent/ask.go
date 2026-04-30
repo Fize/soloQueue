@@ -28,7 +28,7 @@ import (
 // "runOnce 同步 Chat" 变为 "runOnceStream 消费事件流"。
 func (a *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 	if a.Log != nil {
-		a.Log.DebugContext(ctx, logger.CatActor, "ask: starting synchronous ask",
+		a.Log.InfoContext(ctx, logger.CatActor, "ask: starting synchronous ask",
 			"agent_id", a.Def.ID,
 			"prompt_len", len(prompt),
 		)
@@ -119,7 +119,7 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 	ctx = a.ctxWithAgentAttrs(ctx)
 
 	if a.Log != nil {
-		a.Log.DebugContext(ctx, logger.CatActor, "askstream: enqueueing request",
+		a.Log.InfoContext(ctx, logger.CatActor, "askstream: enqueueing request",
 			"agent_id", a.Def.ID,
 			"prompt_len", len(prompt),
 		)
@@ -198,7 +198,7 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 	traceID := logger.TraceIDFromContext(ctx)
 
 	if a.Log != nil {
-		a.Log.DebugContext(ctx, logger.CatActor, "submit: enqueueing custom job",
+		a.Log.InfoContext(ctx, logger.CatActor, "submit: enqueueing custom job",
 			"agent_id", a.Def.ID,
 		)
 	}
@@ -322,7 +322,7 @@ func (a *Agent) submitHighPriority(jb job) error {
 func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (content string, reasoningContent string, err error) {
 	if a.Log != nil {
 		ctxCurrent, _, _ := cw.TokenUsage()
-		a.Log.DebugContext(ctx, logger.CatActor, "ask_with_history: starting with context window",
+		a.Log.InfoContext(ctx, logger.CatActor, "ask_with_history: starting with context window",
 			"agent_id", a.Def.ID,
 			"prompt_len", len(prompt),
 			"context_window_tokens", ctxCurrent,
@@ -417,7 +417,7 @@ func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWind
 
 	if a.Log != nil {
 		ctxCurrent, _, _ := cw.TokenUsage()
-		a.Log.DebugContext(ctx, logger.CatActor, "askstreamwithhistory: enqueueing request with context",
+		a.Log.InfoContext(ctx, logger.CatActor, "askstreamwithhistory: enqueueing request with context",
 			"agent_id", a.Def.ID,
 			"prompt_len", len(prompt),
 			"context_window_tokens", ctxCurrent,
