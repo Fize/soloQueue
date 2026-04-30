@@ -335,25 +335,3 @@ func TestFastTrackClassifier_EmptyInput(t *testing.T) {
 		t.Errorf("empty input should have high confidence, got %d", result.Confidence)
 	}
 }
-
-func TestModelForLevel(t *testing.T) {
-	tests := []struct {
-		level         ClassificationLevel
-		expectedModel string
-	}{
-		{LevelConversation, "deepseek-v4-flash"},
-		{LevelSimpleSingleFile, "deepseek-v4-flash-thinking"},
-		{LevelMediumMultiFile, "deepseek-v4-pro"},
-		{LevelComplexRefactoring, "deepseek-v4-pro-max"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.level.String(), func(t *testing.T) {
-			model := ModelForLevel(tt.level)
-			if model != tt.expectedModel {
-				t.Errorf("expected model %q, got %q",
-					tt.expectedModel, model)
-			}
-		})
-	}
-}

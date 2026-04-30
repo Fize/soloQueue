@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -306,8 +308,8 @@ func buildRuntimeStack(
 		classifierModel = defaultModel.ID
 	}
 	classifierConfig := router.DefaultClassifierConfig()
-	classifier := router.NewDefaultClassifier(classifierConfig, llmClient, classifierModel, nil)
-	taskRouter := router.NewRouter(classifier, cfg, nil)
+	classifier := router.NewDefaultClassifier(classifierConfig, llmClient, classifierModel, log)
+	taskRouter := router.NewRouter(classifier, cfg, log)
 
 	// 加载全局 skill registry（TUI slash 命令和 session 共用）
 	// 支持多目录优先级：plugin < user < project
@@ -698,7 +700,11 @@ func serveCmd() *cobra.Command {
 
 // newAgentID returns a short random ID for an agent instance
 func newAgentID() string {
-	return fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
+	return "agent-" + hex.EncodeToString(b[:])
 }
 
 // buildModelResolver creates a ModelResolver that validates agent model IDs
@@ -774,11 +780,6 @@ func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logge
 	if err != nil {
 		return nil, err
 	}
-
-	cfg.OnChange(func(old, new config.Settings) {
-		_ = old
-		_ = new
-	})
 
 	cfg.SetErrorHandler(func(err error) {
 		log.Error(logger.CatConfig, "config watcher error", "err", err)
