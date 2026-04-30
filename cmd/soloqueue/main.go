@@ -91,6 +91,7 @@ Environment:
 
 			agentFactory := buildSessionFactory(rt, workDir, settings, false /* TUI: no console log */)
 			mgr := session.NewSessionManager(agentFactory, 30*time.Minute)
+			mgr.SetRouter(buildRouterFunc(rt))
 
 			rootCtx, stop := signal.NotifyContext(context.Background(),
 				os.Interrupt, syscall.SIGTERM)
@@ -106,6 +107,7 @@ Environment:
 				RulesPath:    rt.promptCfg.RulesPath(),
 				Registry:     rt.agentRegistry,
 				Supervisors:  rt.supervisors,
+				Skills:       rt.skillRegistry,
 			})
 		},
 	}
@@ -134,6 +136,8 @@ type runtimeStack struct {
 	compactor     ctxwin.Compactor // context compression engine
 	toolsCfg      tools.Config
 	rulesCreated  bool
+	taskRouter    *router.Router // 任务路由分类器（TUI + serve 共用）
+	skillRegistry *skill.SkillRegistry
 }
 
 // shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent
@@ -296,6 +300,27 @@ func buildRuntimeStack(
 
 	tok := ctxwin.NewTokenizer()
 
+	// ── Task Router Classifier ───────────────────────────────────────────────
+	classifierModel := defaultModel.APIModel
+	if classifierModel == "" {
+		classifierModel = defaultModel.ID
+	}
+	classifierConfig := router.DefaultClassifierConfig()
+	classifier := router.NewDefaultClassifier(classifierConfig, llmClient, classifierModel, nil)
+	taskRouter := router.NewRouter(classifier, cfg, nil)
+
+	// 加载全局 skill registry（TUI slash 命令和 session 共用）
+	// 支持多目录优先级：plugin < user < project
+	skillDirs := map[string]string{
+		"user": filepath.Join(workDir, "skills"),
+	}
+	skillReg := skill.NewSkillRegistry()
+	if skills, err := skill.LoadSkillsFromDirs(skillDirs); err == nil {
+		for _, s := range skills {
+			_ = skillReg.Register(s)
+		}
+	}
+
 	return &runtimeStack{
 		llmClient:     llmClient,
 		agentRegistry: agentRegistry,
@@ -310,6 +335,8 @@ func buildRuntimeStack(
 		compactor:     llmCompactor,
 		toolsCfg:      toolsCfg,
 		rulesCreated:  rulesCreated,
+		taskRouter:    taskRouter,
+		skillRegistry: skillReg,
 	}, nil
 }
 
@@ -398,10 +425,35 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		allTools = append(allTools, dt)
 	}
 
-	// Skills: user SKILL.md files
-	var skillList []skill.Skill
-	if userSkills, err := skill.LoadSkillsFromDir(filepath.Join(sb.workDir, "skills")); err == nil {
-		skillList = append(skillList, userSkills...)
+	// Skills: 使用全局 skillRegistry
+	skillList := sb.rt.skillRegistry.Skills()
+
+	// SkillTool: 仅在有 skill 时注册
+	if sb.rt.skillRegistry.Len() > 0 {
+		// Fork spawn 函数：创建临时子 agent 执行 fork 模式的 skill
+		forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
+			forkDef := agent.Definition{
+				ID:           fmt.Sprintf("skill-fork-%s", s.ID),
+				ModelID:      def.ModelID,
+				SystemPrompt: content,
+			}
+			forkTools := tools.Build(sb.rt.toolsCfg)
+			if len(s.AllowedTools) > 0 {
+				forkTools = skill.FilterTools(forkTools, s.AllowedTools)
+			}
+			child := agent.NewAgent(forkDef, sb.rt.llmClient, sessLog,
+				agent.WithTools(forkTools...),
+				agent.WithParallelTools(true),
+			)
+			if err := child.Start(ctx); err != nil {
+				return nil, nil, fmt.Errorf("start fork agent: %w", err)
+			}
+			cleanup := func() { child.Stop(5) }
+			return &agent.LocatableAdapter{Agent: child}, cleanup, nil
+		}
+
+		skillTool := skill.NewSkillTool(sb.rt.skillRegistry, forkSpawn)
+		allTools = append(allTools, skillTool)
 	}
 
 	a := agent.NewAgent(def, sb.rt.llmClient, sessLog,
@@ -458,9 +510,6 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	if def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 	}
-	if cat := a.SkillCatalog(); cat != "" {
-		cw.Push(ctxwin.RoleSystem, cat)
-	}
 
 	// Replay history segments
 	if sb.replaySegs > 0 {
@@ -491,6 +540,27 @@ func buildSessionFactory(
 ) session.AgentFactory {
 	sb := newSessionBuilder(rt, workDir, settings, consoleLog)
 	return sb.Build
+}
+
+// buildRouterFunc creates a session.TaskRouterFunc from the runtimeStack's task router.
+// Returns nil if no router is configured (routing disabled).
+func buildRouterFunc(rt *runtimeStack) session.TaskRouterFunc {
+	if rt.taskRouter == nil {
+		return nil
+	}
+	rtr := rt.taskRouter
+	return func(ctx context.Context, prompt string) (session.RouteResult, error) {
+		decision, err := rtr.Route(ctx, prompt)
+		if err != nil {
+			return session.RouteResult{}, err
+		}
+		return session.RouteResult{
+			ProviderID:      decision.ProviderID,
+			ModelID:         decision.ModelID,
+			ThinkingEnabled: decision.ThinkingEnabled,
+			ReasoningEffort: decision.ReasoningEffort,
+		}, nil
+	}
 }
 
 // ─── Commands ──────────────────────────────────────────────────────────────────
@@ -585,6 +655,7 @@ func serveCmd() *cobra.Command {
 
 			factory := buildSessionFactory(rt, workDir, settings, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, 30*time.Minute)
+			mgr.SetRouter(buildRouterFunc(rt))
 
 			rootCtx, stop := signal.NotifyContext(context.Background(),
 				os.Interrupt, syscall.SIGTERM)
@@ -592,15 +663,7 @@ func serveCmd() *cobra.Command {
 
 			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
 
-			// Initialize Task Router Classifier
-			classifierConfig := router.ClassifierConfig{
-				EnableFastTrack:              true,
-				EnableLLMClassification:     false,
-				FastTrackConfidenceThreshold: 75,
-			}
-			classifier := router.NewDefaultClassifier(classifierConfig, nil)
-			rtr := router.NewRouter(classifier, cfg, nil)
-			mux := server.NewMux(mgr, rtr, log)
+			mux := server.NewMux(mgr, rt.taskRouter, log)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,

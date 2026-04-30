@@ -42,7 +42,7 @@ func startTestServer(t *testing.T, fake *agent.FakeLLM) (*httptest.Server, *sess
 	t.Cleanup(func() { mgr.Shutdown(2 * time.Second) })
 
 	// Create a mock router for testing
-	classifier := router.NewDefaultClassifier(router.DefaultClassifierConfig(), nil)
+	classifier := router.NewDefaultClassifier(router.DefaultClassifierConfig(), nil, "", nil)
 	mockModelService := router.NewMockModelService()
 	rtr := router.NewRouter(classifier, mockModelService, nil)
 
