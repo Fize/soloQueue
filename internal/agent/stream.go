@@ -217,6 +217,15 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			IncludeUsage:    true,
 		}
 
+		// Apply per-ask model override (set by router, cleared after ask)
+		if override := a.modelOverride.Load(); override != nil {
+			if override.ModelID != "" {
+				req.Model = override.ModelID
+			}
+			req.ThinkingEnabled = override.ThinkingEnabled
+			req.ReasoningEffort = override.ReasoningEffort
+		}
+
 		a.logInfo(ctx, logger.CatLLM, "llm chat start",
 			slog.Int("iter", iter),
 			slog.String("model", req.Model),
@@ -422,6 +431,7 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 // Returns true if the stream loop yielded (async delegation started);
 // the caller must keep the context alive until resumeTurn completes.
 func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) bool {
+	defer a.ClearModelOverride() // auto-clear per-ask model override
 	return a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
 }
 
@@ -732,6 +742,17 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			}
 		}
 	}()
+
+	// Propagate model override to child agents via context (for delegation chain).
+	// When this tool is a DelegateTool, it reads this from ctx and sets it on the target agent.
+	if override := a.modelOverride.Load(); override != nil {
+		toolCtx = iface.ContextWithModelOverride(toolCtx, &iface.ModelOverrideParams{
+			ProviderID:      override.ProviderID,
+			ModelID:         override.ModelID,
+			ThinkingEnabled: override.ThinkingEnabled,
+			ReasoningEffort: override.ReasoningEffort,
+		})
+	}
 
 	result, err := tool.Execute(toolCtx, args)
 	close(relayCh) // signal relay goroutine to exit

@@ -136,6 +136,13 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	// 4b. Extract confirm forwarder (injected by agent.execToolStream)
 	confirmFwd, hasConfirmFwd := ConfirmForwarderFromCtx(ctx)
 
+	// 4c. Propagate task-level model override to target agent (L1→L2→L3 chain)
+	if params := iface.ModelOverrideFromContext(ctx); params != nil {
+		if mo, ok := targetAgent.(iface.ModelOverridable); ok {
+			mo.SetModelOverride(params)
+		}
+	}
+
 	// 5. Call target agent's streaming interface
 	evCh, err := targetAgent.AskStream(delCtx, dArgs.Task)
 	if err != nil {
@@ -268,6 +275,13 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 		}
 	} else {
 		return nil, fmt.Errorf("delegate tool '%s': no Locator or SpawnFn configured", dt.LeaderID)
+	}
+
+	// 2b. Propagate task-level model override to target agent
+	if params := iface.ModelOverrideFromContext(ctx); params != nil {
+		if mo, ok := target.(iface.ModelOverridable); ok {
+			mo.SetModelOverride(params)
+		}
 	}
 
 	// 3. Return async intent

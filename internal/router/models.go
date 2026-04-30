@@ -54,19 +54,20 @@ func (cl ClassificationLevel) String() string {
 	}
 }
 
-// ModelForLevel returns the recommended model for a given classification level
+// ModelForLevel returns the recommended model name for a given classification level.
+// This is used for informational purposes (ClassificationResult.RecommendedModel).
 func ModelForLevel(level ClassificationLevel) string {
 	switch level {
 	case LevelConversation:
-		return "deepseek:deepseek-v4-flash"
+		return "deepseek-v4-flash"
 	case LevelSimpleSingleFile:
-		return "deepseek:deepseek-v4-flash-thinking"
+		return "deepseek-v4-flash-thinking"
 	case LevelMediumMultiFile:
-		return "deepseek:deepseek-v4-pro"
+		return "deepseek-v4-pro"
 	case LevelComplexRefactoring:
-		return "deepseek:deepseek-v4-pro-max"
+		return "deepseek-v4-pro-max"
 	default:
-		return "deepseek:deepseek-v4-flash" // fallback
+		return "deepseek-v4-flash" // fallback
 	}
 }
 

@@ -12,31 +12,17 @@ import (
 // ─── SKILL.md 文件加载器 ──────────────────────────────────────────────────
 
 // SkillMDConfig 是 SKILL.md 的 YAML frontmatter
+//
+// 对齐 Claude Code 的 Skill frontmatter 字段。
 type SkillMDConfig struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	WhenToUse   string `yaml:"when_to_use"`
+	Name                  string `yaml:"name"`
+	Description           string `yaml:"description"`
+	AllowedTools          string `yaml:"allowed-tools"`
+	DisableModelInvocation bool  `yaml:"disable-model-invocation"`
+	UserInvocable         *bool  `yaml:"user-invocable"` // 指针区分"未设置"和"false"
+	Context               string `yaml:"context"`
+	Agent                 string `yaml:"agent"`
 }
-
-// MDSkill 是从 SKILL.md 文件加载的 Skill 实现
-type MDSkill struct {
-	name         string
-	description  string
-	whenToUse    string
-	instructions string
-	dir          string // SKILL.md 所在目录（用于引用支持文件）
-	filePath     string // SKILL.md 绝对路径（LLM 用 Read 读取）
-}
-
-func (s *MDSkill) ID() string             { return s.name }
-func (s *MDSkill) Description() string    { return s.description }
-func (s *MDSkill) Instructions() string   { return s.instructions }
-func (s *MDSkill) WhenToUse() string      { return s.whenToUse }
-func (s *MDSkill) Category() SkillCategory { return SkillUser }
-func (s *MDSkill) FilePath() string       { return s.filePath }
-
-// Dir 返回 SKILL.md 所在目录（用于引用支持文件）
-func (s *MDSkill) Dir() string { return s.dir }
 
 // ParseSkillMD 解析单个 SKILL.md 文件
 //
@@ -45,11 +31,15 @@ func (s *MDSkill) Dir() string { return s.dir }
 //	---
 //	name: my-skill
 //	description: What this skill does
-//	when_to_use: Trigger phrases
+//	allowed-tools: Bash(git:*),Read,Edit(src/**/*.ts)
+//	disable-model-invocation: false
+//	user-invocable: true
+//	context: fork
+//	agent: Explore
 //	---
 //	# Skill Instructions
 //	The actual markdown content...
-func ParseSkillMD(path string) (*MDSkill, error) {
+func ParseSkillMD(path string) (*Skill, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read skill md: %w", err)
@@ -72,16 +62,33 @@ func ParseSkillMD(path string) (*MDSkill, error) {
 		desc = firstParagraph(body)
 	}
 
-	// filePath: 绝对路径（LLM 用 Read 读取）
+	// user-invocable: 默认 true，*bool 区分"未设置"和"false"
+	userInvocable := true
+	if cfg.UserInvocable != nil {
+		userInvocable = *cfg.UserInvocable
+	}
+
+	// allowed-tools: 解析逗号分隔的模式字符串
+	var allowedTools []string
+	if cfg.AllowedTools != "" {
+		allowedTools = ParseAllowedTools(cfg.AllowedTools)
+	}
+
+	// filePath: 绝对路径
 	absPath, _ := filepath.Abs(path)
 
-	return &MDSkill{
-		name:         name,
-		description:  desc,
-		whenToUse:    cfg.WhenToUse,
-		instructions: strings.TrimSpace(body),
-		dir:          filepath.Dir(absPath),
-		filePath:     absPath,
+	return &Skill{
+		ID:                    name,
+		Description:           desc,
+		Instructions:          strings.TrimSpace(body),
+		AllowedTools:          allowedTools,
+		DisableModelInvocation: cfg.DisableModelInvocation,
+		UserInvocable:         userInvocable,
+		Context:               cfg.Context,
+		Agent:                 cfg.Agent,
+		Category:              SkillUser,
+		FilePath:              absPath,
+		Dir:                   filepath.Dir(absPath),
 	}, nil
 }
 
@@ -97,7 +104,7 @@ func ParseSkillMD(path string) (*MDSkill, error) {
 //
 // 只扫描一级子目录中的 SKILL.md 文件。
 // 目录不存在时返回 nil, nil。
-func LoadSkillsFromDir(dir string) ([]Skill, error) {
+func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -106,7 +113,7 @@ func LoadSkillsFromDir(dir string) ([]Skill, error) {
 		return nil, fmt.Errorf("read skills dir %s: %w", dir, err)
 	}
 
-	var skills []Skill
+	var skills []*Skill
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -125,6 +132,34 @@ func LoadSkillsFromDir(dir string) ([]Skill, error) {
 		skills = append(skills, md)
 	}
 	return skills, nil
+}
+
+// LoadSkillsFromDirs 按优先级从多个目录加载 skill
+//
+// dirs 的 key 为作用域标识（"plugin", "user", "project"），value 为目录路径。
+// 低优先级先加载，高优先级后加载覆盖同名 skill。
+// 优先级顺序：plugin → user → project（project 最高）。
+func LoadSkillsFromDirs(dirs map[string]string) ([]*Skill, error) {
+	order := []string{"plugin", "user", "project"}
+	seen := make(map[string]*Skill)
+	for _, scope := range order {
+		dir, ok := dirs[scope]
+		if !ok || dir == "" {
+			continue
+		}
+		skills, err := LoadSkillsFromDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, s := range skills {
+			seen[s.ID] = s // 后加载覆盖先加载
+		}
+	}
+	result := make([]*Skill, 0, len(seen))
+	for _, s := range seen {
+		result = append(result, s)
+	}
+	return result, nil
 }
 
 // ─── 内部辅助 ──────────────────────────────────────────────────────────────

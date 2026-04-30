@@ -9,7 +9,7 @@ import (
 func TestDefaultClassifier_Classify(t *testing.T) {
 	config := DefaultClassifierConfig()
 	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, logger)
+	classifier := NewDefaultClassifier(config, nil, "", logger)
 
 	tests := []struct {
 		name             string
@@ -87,7 +87,7 @@ func TestDefaultClassifier_WithDisabledFastTrack(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.EnableFastTrack = false
 	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, logger)
+	classifier := NewDefaultClassifier(config, nil, "", logger)
 
 	ctx := context.Background()
 	result, err := classifier.Classify(ctx, "Explain closures")
@@ -105,7 +105,7 @@ func TestDefaultClassifier_WithDisabledFastTrack(t *testing.T) {
 func TestClassificationResultDetails(t *testing.T) {
 	config := DefaultClassifierConfig()
 	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, logger)
+	classifier := NewDefaultClassifier(config, nil, "", logger)
 
 	ctx := context.Background()
 
@@ -148,7 +148,7 @@ func TestConfidenceThresholds(t *testing.T) {
 		L3ConfidenceThreshold:        60,
 	}
 	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, logger)
+	classifier := NewDefaultClassifier(config, nil, "", logger)
 
 	ctx := context.Background()
 

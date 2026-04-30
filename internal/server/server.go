@@ -251,7 +251,8 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 			askCtx, ac := context.WithCancel(connCtx)
 			askCancel = ac
 
-			// Perform task routing classification
+			// Perform task routing classification (informational logging + routing_info frame)
+			// Note: The actual model override is now applied inside Session.AskStream()
 			if m.router != nil {
 				routingDecision, routeErr := m.router.Route(askCtx, in.Prompt)
 				if routeErr != nil {
@@ -266,6 +267,15 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 						slog.String("model", routingDecision.ModelID),
 						slog.Int("confidence", routingDecision.Classification.Confidence),
 					)
+
+					// Send routing info frame to client (informational, for UI display)
+					_ = writeWSFrame(connCtx, c, map[string]any{
+						"type":       "routing_info",
+						"level":      routingDecision.Level.String(),
+						"model":      routingDecision.ModelID,
+						"confidence": routingDecision.Classification.Confidence,
+						"reason":     routingDecision.Classification.Reason,
+					})
 				}
 			}
 
