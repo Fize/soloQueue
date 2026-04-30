@@ -40,6 +40,21 @@ var (
 	ErrSessionClosed = errors.New("session: closed")
 )
 
+// ─── TaskRouter Interface ─────────────────────────────────────────────────────
+
+// RouteResult is a minimal routing decision passed to the session layer.
+type RouteResult struct {
+	ProviderID      string // LLM provider to use (e.g., "deepseek"); empty = default
+	ModelID         string // API model to use (e.g., "deepseek-v4-pro")
+	ThinkingEnabled bool   // whether to enable thinking mode
+	ReasoningEffort string // "high" | "max" | ""
+}
+
+// TaskRouterFunc classifies a user prompt and returns model routing parameters.
+// Used to inject the router without creating import cycles.
+// Returns error if classification fails; caller proceeds with defaults.
+type TaskRouterFunc func(ctx context.Context, prompt string) (RouteResult, error)
+
 // ─── Session ──────────────────────────────────────────────────────────────
 
 // Session 是一个对话会话
@@ -47,6 +62,7 @@ type Session struct {
 	ID      string
 	TeamID  string
 	Agent   *agent.Agent
+	Router  TaskRouterFunc // 可选：任务路由分类器（nil = 不做路由，使用默认模型）
 	Created time.Time
 
 	mu sync.Mutex
@@ -217,6 +233,19 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 	// 注意：inFlight 的释放由下面的 forwarder goroutine 负责
 	s.touch()
 
+	// ── Task routing: classify prompt and set model override ──
+	if s.Router != nil {
+		if result, err := s.Router(ctx, prompt); err == nil {
+			s.Agent.SetModelOverride(&agent.ModelParams{
+				ProviderID:      result.ProviderID,
+				ModelID:         result.ModelID,
+				ThinkingEnabled: result.ThinkingEnabled,
+				ReasoningEffort: result.ReasoningEffort,
+			})
+		}
+		// On error: proceed with default model (no override)
+	}
+
 	// 先 push user prompt
 	s.mu.Lock()
 	s.cw.Push(ctxwin.RoleUser, prompt)
@@ -343,8 +372,9 @@ type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwi
 
 // SessionManager 管理所有活跃 session
 type SessionManager struct {
-	factory  AgentFactory
-	idleTTL  time.Duration
+	factory    AgentFactory
+	routerFunc TaskRouterFunc // 可选：每个新 session 都注入此路由器
+	idleTTL    time.Duration
 
 	mu       sync.RWMutex
 	sessions map[string]*Session
@@ -360,6 +390,12 @@ func NewSessionManager(factory AgentFactory, idleTTL time.Duration) *SessionMana
 	}
 }
 
+// SetRouter sets the task router function for all future sessions.
+// Must be called before any Create() calls. Not thread-safe for setup.
+func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
+	m.routerFunc = fn
+}
+
 // Create 创建新 session；factory 启动 agent 并返回 ContextWindow
 func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, error) {
 	if m.closed.Load() {
@@ -371,6 +407,11 @@ func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, e
 	}
 	id := newSessionID()
 	s := NewSession(id, teamID, a, cw, tl)
+
+	// Inject task router (if configured)
+	if m.routerFunc != nil {
+		s.Router = m.routerFunc
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

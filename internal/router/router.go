@@ -48,8 +48,17 @@ type RouteDecision struct {
 	// Level is the determined routing level
 	Level ClassificationLevel
 
-	// ModelID is the recommended model ID for this task (e.g., "deepseek:deepseek-v4-pro")
+	// ProviderID identifies which LLM provider to use (e.g., "deepseek")
+	ProviderID string
+
+	// ModelID is the recommended API model name (e.g., "deepseek-v4-pro")
 	ModelID string
+
+	// ThinkingEnabled indicates whether the model should use thinking/reasoning mode
+	ThinkingEnabled bool
+
+	// ReasoningEffort specifies the reasoning depth: "high", "max", or "" (disabled)
+	ReasoningEffort string
 
 	// Classification contains the full classification result
 	Classification ClassificationResult
@@ -63,6 +72,7 @@ type RouteDecision struct {
 // The decision includes:
 // - The classification level (L0-L3)
 // - The recommended model ID resolved from config
+// - Thinking configuration (enabled + effort level)
 // - Any warnings or special handling notes
 func (r *Router) Route(ctx context.Context, prompt string) (RouteDecision, error) {
 	decision := RouteDecision{
@@ -77,9 +87,12 @@ func (r *Router) Route(ctx context.Context, prompt string) (RouteDecision, error
 	decision.Classification = classification
 	decision.Level = classification.Level
 
-	// Resolve model ID from config based on classification level
-	modelID := r.resolveModelID(classification.Level)
+	// Resolve full model parameters from config based on classification level
+	providerID, modelID, thinking, effort := r.resolveModelParams(classification.Level)
+	decision.ProviderID = providerID
 	decision.ModelID = modelID
+	decision.ThinkingEnabled = thinking
+	decision.ReasoningEffort = effort
 
 	// Collect warnings
 	if classification.RequiresConfirmation {
@@ -90,6 +103,8 @@ func (r *Router) Route(ctx context.Context, prompt string) (RouteDecision, error
 	r.logger.DebugContext(ctx, "routing decision made",
 		slog.String("level", classification.Level.String()),
 		slog.String("model_id", modelID),
+		slog.Bool("thinking", thinking),
+		slog.String("effort", effort),
 		slog.Int("confidence", classification.Confidence),
 		slog.Int("warnings", len(decision.Warnings)),
 	)
@@ -97,24 +112,33 @@ func (r *Router) Route(ctx context.Context, prompt string) (RouteDecision, error
 	return decision, nil
 }
 
-// resolveModelID determines the model ID to use for a classification level
+// resolveModelParams determines the full model configuration for a classification level.
 //
-// This maps classification levels to configured model roles, then looks up
-// the actual model ID from the model service using the role-based resolution.
-func (r *Router) resolveModelID(level ClassificationLevel) string {
+// Mapping:
+//
+//	L0 → fast     (flash, no thinking)
+//	L1 → universal (flash-thinking, high)
+//	L2 → superior (pro, high)
+//	L3 → expert   (pro-max, max)
+func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, modelID string, thinking bool, effort string) {
 	var role string
 
 	switch level {
 	case LevelConversation:
-		role = "fast" // Conversation uses the fast model (flash)
+		role = "fast"
+		thinking, effort = false, ""
 	case LevelSimpleSingleFile:
-		role = "fast" // Single file can use fast model with thinking
+		role = "universal"
+		thinking, effort = true, "high"
 	case LevelMediumMultiFile:
-		role = "superior" // Multi-file uses pro model
+		role = "superior"
+		thinking, effort = true, "high"
 	case LevelComplexRefactoring:
-		role = "expert" // Complex uses pro-max model
+		role = "expert"
+		thinking, effort = true, "max"
 	default:
-		role = "fast" // Safe default
+		role = "fast"
+		thinking, effort = false, ""
 	}
 
 	// Look up the actual model ID from model service
@@ -125,15 +149,23 @@ func (r *Router) resolveModelID(level ClassificationLevel) string {
 			slog.String("level", level.String()),
 		)
 		// Return a safe fallback
-		return "deepseek:deepseek-v4-flash"
+		return "deepseek", "deepseek-v4-flash", false, ""
 	}
 
-	// Return provider:id format
-	return fmt.Sprintf("%s:%s", model.ProviderID, model.ID)
+	// Use APIModel for the actual API call (may differ from the config ID)
+	// Return ONLY the model name (not "provider:model"), because this value
+	// is sent directly to the LLM API as the "model" field.
+	apiModel := model.APIModel
+	if apiModel == "" {
+		apiModel = model.ID
+	}
+
+	return model.ProviderID, apiModel, thinking, effort
 }
 
-// ModelForClassification returns the recommended model ID for a classification result
-// This is a convenience method for direct model lookup without the full routing decision
+// ModelForClassification returns the recommended model ID for a classification result.
+// This is a convenience method for direct model lookup without the full routing decision.
 func (r *Router) ModelForClassification(classification ClassificationResult) string {
-	return r.resolveModelID(classification.Level)
+	_, modelID, _, _ := r.resolveModelParams(classification.Level)
+	return modelID
 }

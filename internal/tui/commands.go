@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/xiaobaitu/soloqueue/internal/skill"
 )
 
 // printfOnce prints above the current View without ClearScreen.
@@ -42,7 +43,24 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return true, nil
 
 	case "/help", "/?":
-		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /status /version /quit") + "\n\n"
+		text := agentStyle.Render("Solo:") + "\n" + dimStyle.Render("Commands: /help /clear /status /version /quit")
+		// Append available skill slash commands
+		if m.cfg.Skills != nil {
+			skills := m.cfg.Skills.Skills()
+			var userSkills []*skill.Skill
+			for _, s := range skills {
+				if s.UserInvocable && !s.DisableModelInvocation {
+					userSkills = append(userSkills, s)
+				}
+			}
+			if len(userSkills) > 0 {
+				text += "\n" + dimStyle.Render("Skills:")
+				for _, s := range userSkills {
+					text += "\n" + dimStyle.Render("  /"+s.ID) + " — " + s.Description
+				}
+			}
+		}
+		text += "\n\n"
 		cmd = printfWithClear("%s", text)
 
 	case "/clear":
@@ -72,6 +90,20 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 
 	default:
 		if strings.HasPrefix(input, "/") {
+			// Check if it's a skill slash command
+			if m.cfg.Skills != nil {
+				parts := strings.SplitN(input, " ", 2)
+				cmdName := strings.TrimPrefix(parts[0], "/")
+				if s, ok := m.cfg.Skills.GetSkill(cmdName); ok && s.UserInvocable {
+					// 触发 skill：构造 prompt 发送给 agent
+					args := ""
+					if len(parts) > 1 {
+						args = strings.TrimSpace(parts[1])
+					}
+					prompt := buildSkillPrompt(s, args)
+					return false, m.startStreamFromInput(prompt)
+				}
+			}
 			text := agentStyle.Render("Solo:") + "\n" + errorStyle.Render("✗ Unknown command: "+input+". Type /help") + "\n\n"
 			cmd = printfWithClear("%s", text)
 		}
@@ -84,4 +116,21 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return false, tea.Sequence(logoCmd, cmd)
 	}
 	return false, cmd
+}
+
+// buildSkillPrompt 构造触发 skill 的 prompt
+func buildSkillPrompt(s *skill.Skill, args string) string {
+	if args != "" {
+		return "Use the '" + s.ID + "' skill with these arguments: " + args
+	}
+	return "Use the '" + s.ID + "' skill."
+}
+
+// startStreamFromInput 从输入启动流式生成
+func (m *model) startStreamFromInput(input string) tea.Cmd {
+	// 复用 TUI 已有的 startStream 逻辑
+	// 这里需要创建一个新的 stream
+	m.nextStreamID++
+	sid := m.nextStreamID
+	return m.startStream(input, sid)
 }

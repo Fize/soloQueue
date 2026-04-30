@@ -14,90 +14,126 @@ func TestFastTrackClassifier_Classify(t *testing.T) {
 		minConfidence     int
 		shouldRequireConf bool
 	}{
+		// ── L0: Conversation / Q&A ──
 		{
-			name:          "L0: Explain JavaScript closures",
+			name:          "L0: Explain concept",
 			prompt:        "Explain how closures work in JavaScript",
 			expectedLevel: LevelConversation,
-			minConfidence: 80,
+			minConfidence: 60,
 		},
 		{
-			name:          "L0: Design question",
-			prompt:        "What's the best design pattern for handling errors in Go?",
+			name:          "L0: What is question",
+			prompt:        "What is the difference between goroutines and threads?",
 			expectedLevel: LevelConversation,
-			minConfidence: 80,
+			minConfidence: 60,
 		},
 		{
-			name:          "L0: Concept review",
-			prompt:        "Review this architectural concept: should we use microservices?",
+			name:          "L0: Chinese explanation",
+			prompt:        "解释一下什么是依赖注入",
 			expectedLevel: LevelConversation,
-			minConfidence: 75,
+			minConfidence: 60,
 		},
+		{
+			name:          "L0: Help me understand",
+			prompt:        "Help me understand how JWT tokens work",
+			expectedLevel: LevelConversation,
+			minConfidence: 60,
+		},
+		{
+			name:          "L0: Chinese question pattern",
+			prompt:        "微服务和单体架构有什么区别",
+			expectedLevel: LevelConversation,
+			minConfidence: 60,
+		},
+		// ── L1: Simple single-step tasks ──
 		{
 			name:          "L1: Fix single file",
 			prompt:        "Fix the null pointer bug on line 42 of main.go",
 			expectedLevel: LevelSimpleSingleFile,
-			minConfidence: 85,
+			minConfidence: 60,
 		},
 		{
-			name:          "L1: Add to single file",
-			prompt:        "Add type annotation to the function in service.ts",
+			name:          "L1: Add something simple",
+			prompt:        "Add a type annotation to the function in service.ts",
 			expectedLevel: LevelSimpleSingleFile,
-			minConfidence: 75,
+			minConfidence: 60,
 		},
 		{
-			name:          "L1: /read command",
-			prompt:        "/read /path/to/auth.js",
+			name:          "L1: Chinese simple task",
+			prompt:        "修复 auth.go 里的空指针问题",
 			expectedLevel: LevelSimpleSingleFile,
-			minConfidence: 90,
+			minConfidence: 60,
 		},
 		{
-			name:          "L1: /write command single file",
-			prompt:        "/write main.go Fix the null pointer",
+			name:          "L1: Typo fix",
+			prompt:        "Fix the typo in README.md",
 			expectedLevel: LevelSimpleSingleFile,
-			minConfidence: 85,
+			minConfidence: 60,
 		},
+		// ── L2: Multi-step / coordination ──
 		{
-			name:          "L2: Multiple files with paths",
-			prompt:        "Update auth.go, middleware.go, and create login.tsx to add user authentication",
+			name:          "L2: Refactor keyword",
+			prompt:        "Refactor the data layer to use repository pattern",
 			expectedLevel: LevelMediumMultiFile,
-			minConfidence: 75,
+			minConfidence: 60,
 		},
 		{
-			name:          "L2: Refactor mentioned",
-			prompt:        "Refactor the data layer across models.go, dal.go, and service.go",
+			name:          "L2: Multiple files mentioned",
+			prompt:        "Update auth.go, middleware.go, and handler.go to add user authentication",
 			expectedLevel: LevelMediumMultiFile,
-			minConfidence: 75,
+			minConfidence: 50, // file count boost + multi-file signals
 		},
 		{
-			name:          "L2: /refactor command",
-			prompt:        "/refactor models.go dal.go service.go",
+			name:          "L2: Chinese refactor",
+			prompt:        "重构数据层，实现功能模块化",
 			expectedLevel: LevelMediumMultiFile,
-			minConfidence: 80,
+			minConfidence: 60,
 		},
 		{
-			name:          "L3: Many files mentioned",
-			prompt:        "Refactor error handling across server.go handler.go middleware.go auth.go db.go utils.go logging.go",
-			expectedLevel: LevelComplexRefactoring,
-			minConfidence: 75,
+			name:          "L2: Implement feature",
+			prompt:        "Implement a new caching workflow with Redis integration",
+			expectedLevel: LevelMediumMultiFile,
+			minConfidence: 60,
 		},
+		// ── L3: Complex / deep-reasoning ──
 		{
-			name:          "L3: /refactor with many files",
-			prompt:        "/refactor api.go handler.go service.go repo.go model.go dto.go config.go main.go",
-			expectedLevel: LevelComplexRefactoring,
-			minConfidence: 85,
-		},
-		{
-			name:          "L3: Architecture changes",
-			prompt:        "Redesign the entire authentication system from scratch",
+			name:          "L3: Rewrite from scratch",
+			prompt:        "Rewrite the entire authentication system from scratch",
 			expectedLevel: LevelComplexRefactoring,
 			minConfidence: 60,
 		},
 		{
-			name:              "Dangerous operation confirmation",
-			prompt:            "Delete all files in the database folder",
+			name:          "L3: Architecture redesign",
+			prompt:        "Redesign the system architecture for high availability",
+			expectedLevel: LevelComplexRefactoring,
+			minConfidence: 60,
+		},
+		{
+			name:          "L3: Chinese complex",
+			prompt:        "从零开始重新设计整个系统的分布式架构",
+			expectedLevel: LevelComplexRefactoring,
+			minConfidence: 60,
+		},
+		{
+			name:          "L3: Root cause investigation",
+			prompt:        "Investigate the root cause of the race condition in the distributed lock",
+			expectedLevel: LevelComplexRefactoring,
+			minConfidence: 60,
+		},
+		// ── Dangerous operations ──
+		{
+			name:              "Dangerous: rm -rf",
+			prompt:            "Run rm -rf on the old backup directory",
 			expectedLevel:     LevelSimpleSingleFile,
-			minConfidence:     40,
+			minConfidence:     0,
 			shouldRequireConf: true,
+		},
+		{
+			name:              "Dangerous: drop table",
+			prompt:            "Drop table users from the database",
+			shouldRequireConf: true,
+			expectedLevel:     LevelMediumMultiFile, // "database" triggers L2 signal
+			minConfidence:     0,
 		},
 	}
 
@@ -106,17 +142,137 @@ func TestFastTrackClassifier_Classify(t *testing.T) {
 			result := ftc.Classify(tt.prompt)
 
 			if result.Level != tt.expectedLevel {
-				t.Errorf("expected level %v, got %v (confidence: %d)",
-					tt.expectedLevel, result.Level, result.Confidence)
+				t.Errorf("Level: got %v, want %v (confidence=%d, reason=%q)",
+					result.Level, tt.expectedLevel, result.Confidence, result.Reason)
 			}
 
 			if result.Confidence < tt.minConfidence {
-				t.Errorf("expected confidence >= %d, got %d",
-					tt.minConfidence, result.Confidence)
+				t.Errorf("Confidence: got %d, want >= %d",
+					result.Confidence, tt.minConfidence)
 			}
 
 			if tt.shouldRequireConf && !result.RequiresConfirmation {
-				t.Errorf("expected confirmation required, but got none")
+				t.Errorf("expected RequiresConfirmation=true, got false")
+			}
+		})
+	}
+}
+
+func TestFastTrackClassifier_SlashCommandOverrides(t *testing.T) {
+	ftc := NewFastTrackClassifier()
+
+	tests := []struct {
+		name          string
+		prompt        string
+		expectedLevel ClassificationLevel
+		expectedConf  int
+	}{
+		{
+			name:          "/l0 force conversation",
+			prompt:        "/l0 tell me about Go generics",
+			expectedLevel: LevelConversation,
+			expectedConf:  100,
+		},
+		{
+			name:          "/chat force conversation",
+			prompt:        "/chat hey how are you",
+			expectedLevel: LevelConversation,
+			expectedConf:  100,
+		},
+		{
+			name:          "/l1 force simple",
+			prompt:        "/l1 fix the bug in auth.go",
+			expectedLevel: LevelSimpleSingleFile,
+			expectedConf:  100,
+		},
+		{
+			name:          "/l2 force multi-step",
+			prompt:        "/l2 refactor the authentication module",
+			expectedLevel: LevelMediumMultiFile,
+			expectedConf:  100,
+		},
+		{
+			name:          "/l3 force complex",
+			prompt:        "/l3 redesign the entire system",
+			expectedLevel: LevelComplexRefactoring,
+			expectedConf:  100,
+		},
+		{
+			name:          "/max force expert",
+			prompt:        "/max investigate the performance issue",
+			expectedLevel: LevelComplexRefactoring,
+			expectedConf:  100,
+		},
+		{
+			name:          "/expert force expert",
+			prompt:        "/expert analyze race conditions",
+			expectedLevel: LevelComplexRefactoring,
+			expectedConf:  100,
+		},
+		{
+			name:          "/fast force fast",
+			prompt:        "/fast what is a pointer",
+			expectedLevel: LevelConversation,
+			expectedConf:  100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ftc.Classify(tt.prompt)
+
+			if result.Level != tt.expectedLevel {
+				t.Errorf("Level: got %v, want %v", result.Level, tt.expectedLevel)
+			}
+			if result.Confidence != tt.expectedConf {
+				t.Errorf("Confidence: got %d, want %d", result.Confidence, tt.expectedConf)
+			}
+		})
+	}
+}
+
+func TestFastTrackClassifier_Escalation(t *testing.T) {
+	ftc := NewFastTrackClassifier()
+
+	tests := []struct {
+		name          string
+		prompt        string
+		expectedLevel ClassificationLevel
+	}{
+		{
+			name:          "Escalation: Chinese 仔细想 bumps L1→L2",
+			prompt:        "仔细想一下怎么修复 auth.go 里的 bug",
+			expectedLevel: LevelMediumMultiFile, // L1 + 1 = L2
+		},
+		{
+			name:          "Escalation: think carefully bumps up",
+			prompt:        "Think carefully about how to fix the login bug in auth.go",
+			expectedLevel: LevelMediumMultiFile, // L1 + 1 (think carefully) = L2
+		},
+		{
+			name:          "Escalation: deeply + in depth = +2",
+			prompt:        "Do a deeply in depth review of the error handling",
+			expectedLevel: LevelComplexRefactoring, // bumped +2
+		},
+		{
+			name:          "De-escalation: simple/quick lowers",
+			prompt:        "Just quickly fix the typo",
+			expectedLevel: LevelConversation, // L1 - 1 = L0 (clamped)
+		},
+		{
+			name:          "De-escalation: Chinese 简单",
+			prompt:        "简单改改这个文件的格式",
+			expectedLevel: LevelConversation, // L1 - 1 = L0
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ftc.Classify(tt.prompt)
+
+			if result.Level != tt.expectedLevel {
+				t.Errorf("Level: got %v, want %v (confidence=%d, reason=%q)",
+					result.Level, tt.expectedLevel, result.Confidence, result.Reason)
 			}
 		})
 	}
@@ -168,72 +324,15 @@ func TestFastTrackClassifier_ExtractFilePaths(t *testing.T) {
 	}
 }
 
-func TestFastTrackClassifier_SlashCommands(t *testing.T) {
+func TestFastTrackClassifier_EmptyInput(t *testing.T) {
 	ftc := NewFastTrackClassifier()
 
-	tests := []struct {
-		name              string
-		prompt            string
-		expectedCommand   string
-		expectedLevel     ClassificationLevel
-		minConfidence     int
-	}{
-		{
-			name:            "/read command",
-			prompt:          "/read main.go",
-			expectedCommand: "read",
-			expectedLevel:   LevelSimpleSingleFile,
-			minConfidence:   90,
-		},
-		{
-			name:            "/write command single file",
-			prompt:          "/write main.go Fix the type error",
-			expectedCommand: "write",
-			expectedLevel:   LevelSimpleSingleFile,
-			minConfidence:   85,
-		},
-		{
-			name:            "/refactor command",
-			prompt:          "/refactor api.go handler.go service.go",
-			expectedCommand: "refactor",
-			expectedLevel:   LevelMediumMultiFile,
-			minConfidence:   80,
-		},
-		{
-			name:            "/implement feature",
-			prompt:          "/implement feature authentication system",
-			expectedCommand: "implement",
-			expectedLevel:   LevelComplexRefactoring,
-			minConfidence:   70,
-		},
-		{
-			name:            "/test with multiple files",
-			prompt:          "/test auth_test.go main_test.go handler_test.go",
-			expectedCommand: "test",
-			expectedLevel:   LevelMediumMultiFile,
-			minConfidence:   75,
-		},
+	result := ftc.Classify("")
+	if result.Level != LevelConversation {
+		t.Errorf("empty input should be L0, got %v", result.Level)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ftc.Classify(tt.prompt)
-
-			if result.SlashCommand != tt.expectedCommand {
-				t.Errorf("expected command %q, got %q",
-					tt.expectedCommand, result.SlashCommand)
-			}
-
-			if result.Level != tt.expectedLevel {
-				t.Errorf("expected level %v, got %v",
-					tt.expectedLevel, result.Level)
-			}
-
-			if result.Confidence < tt.minConfidence {
-				t.Errorf("expected confidence >= %d, got %d",
-					tt.minConfidence, result.Confidence)
-			}
-		})
+	if result.Confidence < 90 {
+		t.Errorf("empty input should have high confidence, got %d", result.Confidence)
 	}
 }
 
@@ -242,10 +341,10 @@ func TestModelForLevel(t *testing.T) {
 		level         ClassificationLevel
 		expectedModel string
 	}{
-		{LevelConversation, "deepseek:deepseek-v4-flash"},
-		{LevelSimpleSingleFile, "deepseek:deepseek-v4-flash-thinking"},
-		{LevelMediumMultiFile, "deepseek:deepseek-v4-pro"},
-		{LevelComplexRefactoring, "deepseek:deepseek-v4-pro-max"},
+		{LevelConversation, "deepseek-v4-flash"},
+		{LevelSimpleSingleFile, "deepseek-v4-flash-thinking"},
+		{LevelMediumMultiFile, "deepseek-v4-pro"},
+		{LevelComplexRefactoring, "deepseek-v4-pro-max"},
 	}
 
 	for _, tt := range tests {

@@ -7,39 +7,49 @@ import (
 
 func TestRouter_Route(t *testing.T) {
 	classifierCfg := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(classifierCfg, nil)
+	classifier := NewDefaultClassifier(classifierCfg, nil, "", nil)
 	modelService := NewMockModelService()
 	router := NewRouter(classifier, modelService, nil)
 
 	tests := []struct {
-		name          string
-		prompt        string
-		expectedLevel ClassificationLevel
-		expectedModel string
+		name            string
+		prompt          string
+		expectedLevel   ClassificationLevel
+		expectedModel   string
+		expectedThink   bool
+		expectedEffort  string
 	}{
 		{
-			name:          "Conversation routes to flash",
-			prompt:        "Explain how closures work",
-			expectedLevel: LevelConversation,
-			expectedModel: "deepseek:deepseek-v4-flash",
+			name:           "Conversation routes to flash (no thinking)",
+			prompt:         "Explain how closures work",
+			expectedLevel:  LevelConversation,
+			expectedModel:  "deepseek-v4-flash",
+			expectedThink:  false,
+			expectedEffort: "",
 		},
 		{
-			name:          "SingleFile routes to flash",
-			prompt:        "Fix the bug in main.go",
-			expectedLevel: LevelSimpleSingleFile,
-			expectedModel: "deepseek:deepseek-v4-flash",
+			name:           "SingleFile routes to universal (flash + thinking high)",
+			prompt:         "Fix the bug in main.go",
+			expectedLevel:  LevelSimpleSingleFile,
+			expectedModel:  "deepseek-v4-flash",
+			expectedThink:  true,
+			expectedEffort: "high",
 		},
 		{
-			name:          "MultiFile routes to pro",
-			prompt:        "Refactor auth.go, middleware.go, and service.go",
-			expectedLevel: LevelMediumMultiFile,
-			expectedModel: "deepseek:deepseek-v4-pro",
+			name:           "MultiFile routes to superior (pro + thinking high)",
+			prompt:         "Refactor auth.go, middleware.go, and service.go",
+			expectedLevel:  LevelMediumMultiFile,
+			expectedModel:  "deepseek-v4-pro",
+			expectedThink:  true,
+			expectedEffort: "high",
 		},
 		{
-			name:          "Complex routes to pro-max",
-			prompt:        "Redesign the entire authentication system with 8 files",
-			expectedLevel: LevelComplexRefactoring,
-			expectedModel: "deepseek:deepseek-v4-pro-max",
+			name:           "Complex routes to expert (pro + thinking max)",
+			prompt:         "/l3 redesign the entire authentication system",
+			expectedLevel:  LevelComplexRefactoring,
+			expectedModel:  "deepseek-v4-pro",
+			expectedThink:  true,
+			expectedEffort: "max",
 		},
 	}
 
@@ -53,13 +63,23 @@ func TestRouter_Route(t *testing.T) {
 			}
 
 			if decision.Level != tt.expectedLevel {
-				t.Errorf("expected level %v, got %v",
-					tt.expectedLevel, decision.Level)
+				t.Errorf("Level: got %v, want %v (confidence=%d)",
+					decision.Level, tt.expectedLevel, decision.Classification.Confidence)
 			}
 
 			if decision.ModelID != tt.expectedModel {
-				t.Errorf("expected model %q, got %q",
-					tt.expectedModel, decision.ModelID)
+				t.Errorf("ModelID: got %q, want %q",
+					decision.ModelID, tt.expectedModel)
+			}
+
+			if decision.ThinkingEnabled != tt.expectedThink {
+				t.Errorf("ThinkingEnabled: got %v, want %v",
+					decision.ThinkingEnabled, tt.expectedThink)
+			}
+
+			if decision.ReasoningEffort != tt.expectedEffort {
+				t.Errorf("ReasoningEffort: got %q, want %q",
+					decision.ReasoningEffort, tt.expectedEffort)
 			}
 		})
 	}
@@ -67,12 +87,12 @@ func TestRouter_Route(t *testing.T) {
 
 func TestRouter_Warnings(t *testing.T) {
 	classifierCfg := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(classifierCfg, nil)
+	classifier := NewDefaultClassifier(classifierCfg, nil, "", nil)
 	modelService := NewMockModelService()
 	router := NewRouter(classifier, modelService, nil)
 
 	ctx := context.Background()
-	decision, _ := router.Route(ctx, "Delete all files in the database")
+	decision, _ := router.Route(ctx, "Run rm -rf on the old backup")
 
 	if len(decision.Warnings) == 0 {
 		t.Errorf("expected warnings for dangerous operation, got none")
@@ -84,7 +104,7 @@ func TestRouter_Warnings(t *testing.T) {
 }
 
 func TestRouter_ModelForClassification(t *testing.T) {
-	classifier := NewDefaultClassifier(DefaultClassifierConfig(), nil)
+	classifier := NewDefaultClassifier(DefaultClassifierConfig(), nil, "", nil)
 	modelService := NewMockModelService()
 	router := NewRouter(classifier, modelService, nil)
 
@@ -93,7 +113,8 @@ func TestRouter_ModelForClassification(t *testing.T) {
 	}
 
 	model := router.ModelForClassification(classification)
-	if model != "deepseek:deepseek-v4-pro-max" {
-		t.Errorf("expected pro-max model, got %q", model)
+	// expert role → APIModel "deepseek-v4-pro" → "deepseek-v4-pro"
+	if model != "deepseek-v4-pro" {
+		t.Errorf("expected deepseek:deepseek-v4-pro, got %q", model)
 	}
 }

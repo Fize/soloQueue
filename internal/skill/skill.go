@@ -1,30 +1,27 @@
-// Package skill 实现上下文加载机制
+// Package skill 实现可执行的技能系统
 //
-// Skill 是独立于 Tool 的上下文注入器：
-//   - Skill 决定"何时、以什么上下文引导 LLM"
-//   - Tool 决定"实际做什么"
-//   - Skill 不包含 Tool，不干预工具确认策略
+// Skill 是 Agent 可调用的技能定义，LLM 通过 Skill 内置工具激活。
+// 重构后的设计对齐 Claude Code 的 Skill 机制：
 //
-// 两阶段注入：
-//   1. 目录阶段：Catalog() 返回 skill 列表（ID + Description + WhenToUse + FilePath）
-//      注入 system prompt，LLM 据此判断何时使用哪个 skill
-//   2. 按需阶段：LLM 用 Read 工具读取 SKILL.md 全文获取完整指令
+//   - Skill 是不可变的数据定义（导出字段 struct，非接口）
+//   - SkillTool 实现 tools.Tool，LLM 通过 function calling 调用
+//   - 支持 inline（指令注入当前对话）和 fork（隔离子 agent）两种执行模式
+//   - 支持 allowed-tools 白名单、$ARGUMENTS 替换、!`command` shell 执行、@file 引用
 //
 // 依赖方向：
 //
 //	tools 不依赖任何人（定义 Tool 接口）
-//	skill 不依赖 tools（纯上下文，不关心执行）
+//	skill → tools（SkillTool 实现 Tool 接口）
 //	agent → skill + tools（同时持有两个 Registry）
 package skill
 
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 )
 
-// ─── Skill 接口 ────────────────────────────────────────────────────────────
+// ─── Skill 类型 ────────────────────────────────────────────────────────────
 
 // SkillCategory 区分内置与外置 Skill
 type SkillCategory string
@@ -36,68 +33,94 @@ const (
 	SkillUser SkillCategory = "user"
 )
 
-// Skill 是上下文加载机制
+// Skill 是一个不可变的技能定义（构造后不修改）
 //
-// 与 Tool 完全解耦：Skill 决定"何时、以什么上下文引导 LLM"，
-// Tool 决定"实际做什么"。Skill 不包含 Tool，不干预工具确认策略。
-type Skill interface {
-	// ID 返回 Skill 唯一标识（如 "commit", "deploy"）
-	ID() string
+// 对齐 Claude Code 的 Skill 机制：Skill 是 LLM 可调用的可执行技能，
+// 包含指令内容、工具白名单、执行模式等配置。
+// LLM 通过 Skill 内置工具激活 skill，而非手动 Read SKILL.md。
+type Skill struct {
+	// ID 唯一标识（如 "commit", "deploy"），必须非空
+	ID string
 
 	// Description 给 LLM 看的自然语言描述
-	//
-	// 在 catalog 中紧跟 skill ID 展示，帮助 LLM 理解 skill 用途。
-	Description() string
+	Description string
 
-	// Instructions 返回 skill 的完整指令内容
+	// Instructions 完整指令内容
 	//
-	// 对于 MDSkill，这是 SKILL.md 的 body 部分，LLM 通过 Read
-	// 读取 SKILL.md 时获取；对于 BuiltinSkill，这是短指令文本。
-	// 在 catalog 阶段不注入此内容，仅在按需阶段使用。
-	Instructions() string
+	// 对于从 SKILL.md 加载的 skill，这是 body 部分；
+	// 对于内置 skill，这是 Go 代码中定义的指令文本。
+	Instructions string
 
-	// WhenToUse 描述触发条件（如 "用户提到部署"、"提到 commit"）
+	// AllowedTools 工具白名单；nil 表示不限制
 	//
-	// 在 catalog 中以 "Use when:" 前缀展示，帮助 LLM 判断何时激活。
-	WhenToUse() string
+	// 支持模式：Bash(git:*), Edit(src/**/*.ts), mcp__server__tool
+	AllowedTools []string
 
-	// Category 返回 Skill 分类
-	Category() SkillCategory
+	// DisableModelInvocation 为 true 时不出现在 Skill tool description 中
+	// 只能通过 /skill-name 斜杠命令手动触发
+	DisableModelInvocation bool
 
-	// FilePath 返回 SKILL.md 的绝对路径
-	//
-	// MDSkill 返回文件路径（LLM 可用 Read 读取）。
-	// BuiltinSkill 返回空字符串（指令在内存中，无文件）。
-	FilePath() string
+	// UserInvocable 为 false 时不出现在 / 菜单中
+	// 仅供 AI 内部调用或其他 skill 引用
+	UserInvocable bool
+
+	// Context 执行模式："fork" 表示隔离子 agent，"" 表示 inline
+	Context string
+
+	// Agent fork 时的子 agent 类型（如 "general-purpose", "Explore"）
+	Agent string
+
+	// Category 返回 Skill 分类（builtin 或 user）
+	Category SkillCategory
+
+	// FilePath SKILL.md 的绝对路径（内置 skill 为空）
+	FilePath string
+
+	// Dir SKILL.md 所在目录（支持文件引用解析）
+	Dir string
 }
 
-// ─── BuiltinSkill ──────────────────────────────────────────────────────────
+// ─── 构造函数 ──────────────────────────────────────────────────────────────
 
-// BuiltinSkill 内置 Skill 的标准实现（纯上下文，不含 Tool）
-type BuiltinSkill struct {
-	id           string
-	description  string
-	instructions string
-	whenToUse    string
+// SkillOption 是 Skill 的可选配置
+type SkillOption func(*Skill)
+
+// WithAllowedTools 设置工具白名单
+func WithAllowedTools(tools []string) SkillOption {
+	return func(s *Skill) { s.AllowedTools = tools }
 }
 
-// BuiltinSkillOption 是 BuiltinSkill 的可选配置
-type BuiltinSkillOption func(*BuiltinSkill)
+// WithDisableModelInvocation 禁止 AI 自动调用
+func WithDisableModelInvocation() SkillOption {
+	return func(s *Skill) { s.DisableModelInvocation = true }
+}
 
-// WithWhenToUse 设置触发条件描述
-func WithWhenToUse(w string) BuiltinSkillOption {
-	return func(s *BuiltinSkill) { s.whenToUse = w }
+// WithUserInvocable 设置是否出现在 / 菜单
+func WithUserInvocable(v bool) SkillOption {
+	return func(s *Skill) { s.UserInvocable = v }
+}
+
+// WithContext 设置执行模式（"fork" 或 ""）
+func WithContext(ctx string) SkillOption {
+	return func(s *Skill) { s.Context = ctx }
+}
+
+// WithAgent 设置 fork 时的子 agent 类型
+func WithAgent(agent string) SkillOption {
+	return func(s *Skill) { s.Agent = agent }
 }
 
 // NewBuiltinSkill 构造内置 Skill
 //
 // id 不能为空（注册时报错）。
-// instructions 为 skill 的完整指令（BuiltinSkill 通常较短，目录中可直接展示）。
-func NewBuiltinSkill(id, description, instructions string, opts ...BuiltinSkillOption) *BuiltinSkill {
-	s := &BuiltinSkill{
-		id:           id,
-		description:  description,
-		instructions: instructions,
+// instructions 为 skill 的完整指令。
+func NewBuiltinSkill(id, desc, instructions string, opts ...SkillOption) *Skill {
+	s := &Skill{
+		ID:            id,
+		Description:   desc,
+		Instructions:  instructions,
+		UserInvocable: true,
+		Category:      SkillBuiltin,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -105,18 +128,11 @@ func NewBuiltinSkill(id, description, instructions string, opts ...BuiltinSkillO
 	return s
 }
 
-func (s *BuiltinSkill) ID() string             { return s.id }
-func (s *BuiltinSkill) Description() string    { return s.description }
-func (s *BuiltinSkill) Instructions() string   { return s.instructions }
-func (s *BuiltinSkill) WhenToUse() string      { return s.whenToUse }
-func (s *BuiltinSkill) Category() SkillCategory { return SkillBuiltin }
-func (s *BuiltinSkill) FilePath() string       { return "" }
-
 // ─── SkillRegistry ─────────────────────────────────────────────────────────
 
 // Skill 相关错误
 var (
-	// ErrSkillIDEmpty Register 时 Skill.ID() 为空
+	// ErrSkillIDEmpty Register 时 Skill.ID 为空
 	ErrSkillIDEmpty = fmt.Errorf("skill: skill id is empty")
 	// ErrSkillAlreadyRegistered 同名 Skill 重复注册
 	ErrSkillAlreadyRegistered = fmt.Errorf("skill: skill already registered")
@@ -124,22 +140,16 @@ var (
 	ErrSkillNil = fmt.Errorf("skill: skill is nil")
 )
 
-// catalogMaxLen 是 Catalog() 输出的最大字符数
-const catalogMaxLen = 2000
-
-// SkillRegistry 管理 Skill 的注册、查找和目录组装
-//
-// 与 ToolRegistry 完全独立。SkillRegistry 只管理上下文注入逻辑，
-// 不持有任何 Tool。
+// SkillRegistry 管理 Skill 的注册和查找
 type SkillRegistry struct {
 	mu     sync.RWMutex
-	skills map[string]Skill // skillID → Skill
+	skills map[string]*Skill // skillID → Skill
 }
 
 // NewSkillRegistry 构造空 SkillRegistry
 func NewSkillRegistry() *SkillRegistry {
 	return &SkillRegistry{
-		skills: make(map[string]Skill),
+		skills: make(map[string]*Skill),
 	}
 }
 
@@ -147,30 +157,29 @@ func NewSkillRegistry() *SkillRegistry {
 //
 // 错误：
 //   - s == nil      → ErrSkillNil
-//   - s.ID() == ""  → ErrSkillIDEmpty
+//   - s.ID == ""    → ErrSkillIDEmpty
 //   - 同名已注册    → ErrSkillAlreadyRegistered
-func (r *SkillRegistry) Register(s Skill) error {
+func (r *SkillRegistry) Register(s *Skill) error {
 	if s == nil {
 		return ErrSkillNil
 	}
-	id := s.ID()
-	if id == "" {
+	if s.ID == "" {
 		return ErrSkillIDEmpty
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, ok := r.skills[id]; ok {
-		return fmt.Errorf("%w: %s", ErrSkillAlreadyRegistered, id)
+	if _, ok := r.skills[s.ID]; ok {
+		return fmt.Errorf("%w: %s", ErrSkillAlreadyRegistered, s.ID)
 	}
 
-	r.skills[id] = s
+	r.skills[s.ID] = s
 	return nil
 }
 
-// GetSkill 按 Skill ID 查找
-func (r *SkillRegistry) GetSkill(id string) (Skill, bool) {
+// GetSkill 按 ID 查找
+func (r *SkillRegistry) GetSkill(id string) (*Skill, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	s, ok := r.skills[id]
@@ -178,15 +187,15 @@ func (r *SkillRegistry) GetSkill(id string) (Skill, bool) {
 }
 
 // Skills 返回所有已注册 Skill 的快照（按 ID 字典序）
-func (r *SkillRegistry) Skills() []Skill {
+func (r *SkillRegistry) Skills() []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Skill, 0, len(r.skills))
+	out := make([]*Skill, 0, len(r.skills))
 	for _, s := range r.skills {
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].ID() < out[j].ID()
+		return out[i].ID < out[j].ID
 	})
 	return out
 }
@@ -196,65 +205,4 @@ func (r *SkillRegistry) Len() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.skills)
-}
-
-// Catalog 返回所有 skill 的目录文本，用于注入 system prompt
-//
-// 格式：
-//
-//	## Available Skills
-//
-//	- **id**: description. Use when: when_to_use
-//	  → `file_path`
-//
-// 按 skill ID 字典序排列。总字符数限制 catalogMaxLen，超出截断。
-// 无 skill 时返回空字符串。
-func (r *SkillRegistry) Catalog() string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if len(r.skills) == 0 {
-		return ""
-	}
-
-	// 按 ID 排序
-	names := make([]string, 0, len(r.skills))
-	for id := range r.skills {
-		names = append(names, id)
-	}
-	sort.Strings(names)
-
-	var b strings.Builder
-	b.WriteString("## Available Skills\n\n")
-
-	for _, id := range names {
-		s := r.skills[id]
-
-		// - **id**
-		fmt.Fprintf(&b, "- **%s**", id)
-
-		// : description（description 可为空，靠名字自解释）
-		if desc := s.Description(); desc != "" {
-			fmt.Fprintf(&b, ": %s", desc)
-		}
-
-		// Use when: when_to_use（可为空）
-		if w := s.WhenToUse(); w != "" {
-			fmt.Fprintf(&b, ". Use when: %s", w)
-		}
-		b.WriteByte('\n')
-
-		// → `file_path` (仅 MDSkill)
-		if fp := s.FilePath(); fp != "" {
-			fmt.Fprintf(&b, "  → `%s`\n", fp)
-		}
-	}
-
-	b.WriteString("\nUse `Read` to load a skill's full instructions when needed.\n")
-
-	result := b.String()
-	if len(result) > catalogMaxLen {
-		result = result[:catalogMaxLen] + "\n..."
-	}
-	return result
 }
