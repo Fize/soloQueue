@@ -25,6 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/server"
+	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -591,7 +592,15 @@ func serveCmd() *cobra.Command {
 
 			go mgr.ReapLoop(rootCtx, time.Minute, 5*time.Second)
 
-			mux := server.NewMux(mgr, log)
+			// Initialize Task Router Classifier
+			classifierConfig := router.ClassifierConfig{
+				EnableFastTrack:              true,
+				EnableLLMClassification:     false,
+				FastTrackConfidenceThreshold: 75,
+			}
+			classifier := router.NewDefaultClassifier(classifierConfig, nil)
+			rtr := router.NewRouter(classifier, cfg, nil)
+			mux := server.NewMux(mgr, rtr, log)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,

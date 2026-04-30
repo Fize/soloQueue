@@ -33,6 +33,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -40,20 +41,22 @@ import (
 
 // Mux 是根路由
 type Mux struct {
-	mgr *session.SessionManager
-	log *logger.Logger
-	mux *http.ServeMux
+	mgr    *session.SessionManager
+	router *router.Router
+	log    *logger.Logger
+	mux    *http.ServeMux
 
 	// wsOpts 传给 websocket.Accept；测试可覆盖以跳过 origin 检查
 	wsOpts *websocket.AcceptOptions
 }
 
 // NewMux 构造路由
-func NewMux(mgr *session.SessionManager, log *logger.Logger) *Mux {
+func NewMux(mgr *session.SessionManager, rtr *router.Router, log *logger.Logger) *Mux {
 	m := &Mux{
-		mgr: mgr,
-		log: log,
-		mux: http.NewServeMux(),
+		mgr:    mgr,
+		router: rtr,
+		log:    log,
+		mux:    http.NewServeMux(),
 		wsOpts: &websocket.AcceptOptions{
 			// 本地开发默认 InsecureSkipVerify（缺省 WS 规范要求 Origin）
 			// 生产中应由调用方（main.go）根据 settings 覆写
@@ -247,6 +250,24 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 			}
 			askCtx, ac := context.WithCancel(connCtx)
 			askCancel = ac
+
+			// Perform task routing classification
+			if m.router != nil {
+				routingDecision, routeErr := m.router.Route(askCtx, in.Prompt)
+				if routeErr != nil {
+					m.logInfo(connCtx, "routing classification failed",
+						slog.String("session_id", id),
+						slog.String("reason", routeErr.Error()),
+					)
+				} else {
+					m.logInfo(connCtx, "routing decision",
+						slog.String("session_id", id),
+						slog.String("level", routingDecision.Level.String()),
+						slog.String("model", routingDecision.ModelID),
+						slog.String("confidence", fmt.Sprintf("%.2f", routingDecision.Classification.Confidence)),
+					)
+				}
+			}
 
 			events, serr := s.AskStream(askCtx, in.Prompt)
 			if serr != nil {
