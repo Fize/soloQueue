@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // httpFetchTool 对外发 HTTP GET；含 SSRF 防护
@@ -32,6 +33,7 @@ import (
 //   - 超时：HTTPTimeout（优先）或 ctx deadline
 type httpFetchTool struct {
 	cfg    Config
+	logger *logger.Logger
 	client *http.Client
 	// allow override of DNS for testing
 	lookup func(host string) ([]net.IP, error)
@@ -43,7 +45,8 @@ func newHTTPFetchTool(cfg Config) *httpFetchTool {
 		timeout = 10 * time.Second
 	}
 	return &httpFetchTool{
-		cfg: cfg,
+		cfg:    cfg,
+		logger: cfg.Logger,
 		client: &http.Client{
 			Timeout: timeout,
 			// disable redirects by default — LLM can follow via subsequent calls
@@ -97,6 +100,12 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 	if err := validateNotZeroLen("url", a.URL); err != nil {
 		return "", err
 	}
+
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "http_fetch: starting",
+			"url", a.URL)
+	}
+	start := time.Now()
 
 	u, err := url.Parse(a.URL)
 	if err != nil {
@@ -188,6 +197,14 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 		Headers:   h,
 		Body:      string(data),
 		Truncated: truncated,
+	}
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "http_fetch: completed",
+			"url", a.URL,
+			"status", resp.StatusCode,
+			"body_len", len(data),
+			"truncated", truncated,
+			"duration_ms", time.Since(start).Milliseconds())
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // fileReadTool 读取单个文件并返回 JSON payload
@@ -18,10 +19,11 @@ import (
 // 沙箱：路径必须落在 Config.AllowedDirs 任一根之内。
 // 限制：MaxFileSize（超出返回 ErrFileTooLarge）；含 NUL 字节返回 ErrBinaryContent。
 type fileReadTool struct {
-	cfg Config
+	cfg    Config
+	logger *logger.Logger
 }
 
-func newFileReadTool(cfg Config) *fileReadTool { return &fileReadTool{cfg: cfg} }
+func newFileReadTool(cfg Config) *fileReadTool { return &fileReadTool{cfg: cfg, logger: cfg.Logger} }
 
 func (fileReadTool) Name() string { return "Read" }
 
@@ -74,6 +76,11 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 	}
 	if looksBinary(data) {
 		return "", fmt.Errorf("%w: %s", ErrBinaryContent, abs)
+	}
+
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "file_read: completed",
+			"path", abs, "size", len(data))
 	}
 
 	out := fileReadResult{

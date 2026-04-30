@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // ─── SkillTool ─────────────────────────────────────────────────────────────
@@ -18,18 +20,31 @@ import (
 // SkillTool 的 Description 动态编译所有非 disable-model-invocation 的 skill 列表，
 // 让 LLM 知道何时该用哪个 skill。
 type SkillTool struct {
-	registry *SkillRegistry
+	registry  *SkillRegistry
 	forkSpawn SkillForkSpawnFn // nil 时 fork 模式降级为 inline
+	logger    *logger.Logger
+}
+
+// SkillToolOption 是 SkillTool 的可选配置
+type SkillToolOption func(*SkillTool)
+
+// WithSkillLogger 设置 SkillTool 的日志实例
+func WithSkillLogger(l *logger.Logger) SkillToolOption {
+	return func(st *SkillTool) { st.logger = l }
 }
 
 // NewSkillTool 构造 SkillTool
 //
 // registry 不能为 nil。forkSpawn 可以为 nil（此时 fork 模式降级为 inline）。
-func NewSkillTool(registry *SkillRegistry, forkSpawn SkillForkSpawnFn) *SkillTool {
-	return &SkillTool{
+func NewSkillTool(registry *SkillRegistry, forkSpawn SkillForkSpawnFn, opts ...SkillToolOption) *SkillTool {
+	st := &SkillTool{
 		registry:  registry,
 		forkSpawn: forkSpawn,
 	}
+	for _, opt := range opts {
+		opt(st)
+	}
+	return st
 }
 
 // skillToolArgs 是 SkillTool 的参数结构
@@ -88,8 +103,17 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 		return fmt.Sprintf("error: invalid skill arguments: %s", err), nil
 	}
 
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "skill: executing",
+			"skill_id", args.Skill, "has_args", args.Args != "")
+	}
+
 	s, ok := t.registry.GetSkill(args.Skill)
 	if !ok {
+		if t.logger != nil {
+			t.logger.WarnContext(ctx, logger.CatTool, "skill: not found",
+				"skill_id", args.Skill)
+		}
 		return fmt.Sprintf("error: skill %q not found", args.Skill), nil
 	}
 
@@ -102,13 +126,25 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 		if t.forkSpawn != nil {
 			result, err := ExecuteFork(ctx, s, content, args.Args, t.forkSpawn)
 			if err != nil {
+				if t.logger != nil {
+					t.logger.WarnContext(ctx, logger.CatTool, "skill: fork failed",
+						"skill_id", s.ID, "err", err.Error())
+				}
 				return fmt.Sprintf("error: skill %q fork execution failed: %s", s.ID, err), nil
+			}
+			if t.logger != nil {
+				t.logger.DebugContext(ctx, logger.CatTool, "skill: fork completed",
+					"skill_id", s.ID, "result_len", len(result))
 			}
 			return result, nil
 		}
 		// forkSpawn 未设置，降级为 inline
 		fallthrough
 	default:
+		if t.logger != nil {
+			t.logger.DebugContext(ctx, logger.CatTool, "skill: inline completed",
+				"skill_id", s.ID, "content_len", len(content))
+		}
 		// inline 模式：返回预处理后的 skill content
 		// LLM 将此作为 tool result 消费，然后根据 skill instructions 继续行动
 		return content, nil

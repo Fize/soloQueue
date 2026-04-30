@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // multiReplaceTool 对同一文件按顺序应用多段替换，原子落盘
@@ -27,10 +28,13 @@ import (
 //   - edits 数 > MaxReplaceEdits → ErrTooManyEdits
 //   - edits 为空 → ErrEmptyInput
 type multiReplaceTool struct {
-	cfg Config
+	cfg    Config
+	logger *logger.Logger
 }
 
-func newMultiReplaceTool(cfg Config) *multiReplaceTool { return &multiReplaceTool{cfg: cfg} }
+func newMultiReplaceTool(cfg Config) *multiReplaceTool {
+	return &multiReplaceTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (multiReplaceTool) Name() string { return "MultiEdit" }
 
@@ -149,6 +153,10 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 		Applied:    len(a.Edits),
 		SizeBefore: len(before),
 		SizeAfter:  len(current),
+	}
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "multi_replace: completed",
+			"path", abs, "edits_applied", len(a.Edits))
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil

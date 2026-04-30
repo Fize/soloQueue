@@ -21,7 +21,11 @@
 //	a := agent.NewAgent(def, llm, log, agent.WithTools(all...))
 package tools
 
-import "time"
+import (
+	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
+)
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -94,9 +98,12 @@ type Config struct {
 	ShellMaxOutput int64
 
 	// ── WebSearch ─────────────────────────────────────────────
-
 	// WebSearchTimeout 搜索请求超时
 	WebSearchTimeout time.Duration
+
+	// ── 日志 ──────────────────────────────────────────────────
+	// Logger 可选日志实例（nil = 静默，不输出日志）
+	Logger *logger.Logger
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────

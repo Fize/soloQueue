@@ -12,6 +12,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // grepTool 在沙箱目录下按 Go 正则搜索
@@ -35,10 +36,11 @@ import (
 //   - 不支持 -C/-B 上下文（LLM 通常可用同 tool 再读文件拿上下文）
 //   - 仅匹配 UTF-8 文本；非 UTF-8 文件按字节跑正则（可能乱但不崩）
 type grepTool struct {
-	cfg Config
+	cfg    Config
+	logger *logger.Logger
 }
 
-func newGrepTool(cfg Config) *grepTool { return &grepTool{cfg: cfg} }
+func newGrepTool(cfg Config) *grepTool { return &grepTool{cfg: cfg, logger: cfg.Logger} }
 
 func (grepTool) Name() string { return "Grep" }
 
@@ -216,6 +218,12 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 			return "", walkErr
 		}
 		// 非严重错误吞：返回收集到的结果（保持向前兼容）
+	}
+
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "grep: completed",
+			"pattern", a.Pattern, "dir", absDir,
+			"matches", len(res.Matches), "truncated", res.Truncated)
 	}
 
 	b, _ := json.Marshal(res)

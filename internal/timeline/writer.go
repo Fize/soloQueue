@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/rotating"
 )
 
@@ -13,19 +14,32 @@ import (
 //
 // 内部组合 rotating.Writer 处理文件轮转，自身负责 JSON 编码。
 type Writer struct {
-	rw *rotating.Writer
+	rw     *rotating.Writer
+	logger *logger.Logger
+}
+
+// WriterOption 是 Writer 的可选配置
+type WriterOption func(*Writer)
+
+// WithWriterLogger 设置时间线写入器的日志实例
+func WithWriterLogger(l *logger.Logger) WriterOption {
+	return func(w *Writer) { w.logger = l }
 }
 
 // NewWriter 创建时间线写入器
 //
 // dir 为文件所在目录，baseName 为文件名前缀（如 "timeline"）。
 // maxBytes 为单文件最大字节数（0=不限），maxFiles 为保留的轮转文件数（0=不限）。
-func NewWriter(dir, baseName string, maxBytes int64, maxFiles int) (*Writer, error) {
+func NewWriter(dir, baseName string, maxBytes int64, maxFiles int, opts ...WriterOption) (*Writer, error) {
 	rw, err := rotating.Open(dir, baseName, maxBytes, maxFiles)
 	if err != nil {
 		return nil, fmt.Errorf("timeline: open rotating writer: %w", err)
 	}
-	return &Writer{rw: rw}, nil
+	w := &Writer{rw: rw}
+	for _, opt := range opts {
+		opt(w)
+	}
+	return w, nil
 }
 
 // AppendMessage 追加消息事件
@@ -51,6 +65,10 @@ func (w *Writer) Close() error {
 func (w *Writer) writeEvent(evt Event) error {
 	data, err := json.Marshal(evt)
 	if err != nil {
+		if w.logger != nil {
+			w.logger.Warn(logger.CatMessages, "timeline: marshal failed",
+				"event_type", string(evt.EventType), "err", err.Error())
+		}
 		return fmt.Errorf("timeline: marshal event: %w", err)
 	}
 	_, err = w.rw.Write(data)

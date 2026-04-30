@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // replaceTool 对单个文件做严格字符串替换
@@ -28,10 +29,11 @@ import (
 //
 // 原子性：读文件 → strings.Replace 内存中完成 → atomicWrite 一次性写回
 type replaceTool struct {
-	cfg Config
+	cfg    Config
+	logger *logger.Logger
 }
 
-func newReplaceTool(cfg Config) *replaceTool { return &replaceTool{cfg: cfg} }
+func newReplaceTool(cfg Config) *replaceTool { return &replaceTool{cfg: cfg, logger: cfg.Logger} }
 
 func (replaceTool) Name() string { return "Edit" }
 
@@ -126,6 +128,10 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 		Replacements: replacements,
 		SizeBefore:   len(before),
 		SizeAfter:    len(after),
+	}
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "replace: completed",
+			"path", abs, "replacements", replacements)
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil

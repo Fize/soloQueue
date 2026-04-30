@@ -54,7 +54,7 @@ func factoryFromFake(t *testing.T, fake *agent.FakeLLM) AgentFactory {
 func TestSession_Ask_UpdatesHistory(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"hi there"}}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	reply, err := s.Ask(context.Background(), "hello")
 	if err != nil {
@@ -79,7 +79,7 @@ func TestSession_Ask_ErrorDoesNotAppendHistory(t *testing.T) {
 	myErr := errors.New("kaboom")
 	fake := &agent.FakeLLM{Err: myErr}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	_, err := s.Ask(context.Background(), "hi")
 	if !errors.Is(err, myErr) {
@@ -96,7 +96,7 @@ func TestSession_Ask_BusyReturnsErr(t *testing.T) {
 		Delay:     300 * time.Millisecond,
 	}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	// goroutine 1 starts a slow Ask
 	done := make(chan struct{})
@@ -123,7 +123,7 @@ func TestSession_Ask_BusyReturnsErr(t *testing.T) {
 func TestSession_Ask_ClosedReturnsErr(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"r"}}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 	s.Close()
 	_, err := s.Ask(context.Background(), "hi")
 	if !errors.Is(err, ErrSessionClosed) {
@@ -136,7 +136,7 @@ func TestSession_Ask_ClosedReturnsErr(t *testing.T) {
 func TestSession_AskStream_AppendsHistoryOnDone(t *testing.T) {
 	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"hel", "lo"}}}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	ch, err := s.AskStream(context.Background(), "hi")
 	if err != nil {
@@ -164,7 +164,7 @@ func TestSession_AskStream_AppendsHistoryOnDone(t *testing.T) {
 func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
 	fake := &agent.FakeLLM{Err: errors.New("bad")}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 	ch, err := s.AskStream(context.Background(), "hi")
 	if err != nil {
 		t.Fatalf("AskStream: %v", err)
@@ -182,7 +182,7 @@ func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 		Delay:        200 * time.Millisecond,
 	}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	ch1, err := s.AskStream(context.Background(), "one")
 	if err != nil {
@@ -201,7 +201,7 @@ func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 
 func TestSessionManager_CreateGetDelete(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"r"}}
-	mgr := NewSessionManager(factoryFromFake(t, fake), 0)
+	mgr := NewSessionManager(factoryFromFake(t, fake), 0, nil)
 	t.Cleanup(func() { mgr.Shutdown(time.Second) })
 
 	s, err := mgr.Create(context.Background(), "team1")
@@ -223,7 +223,7 @@ func TestSessionManager_CreateGetDelete(t *testing.T) {
 }
 
 func TestSessionManager_DeleteNotFound(t *testing.T) {
-	mgr := NewSessionManager(factoryFromFake(t, &agent.FakeLLM{}), 0)
+	mgr := NewSessionManager(factoryFromFake(t, &agent.FakeLLM{}), 0, nil)
 	t.Cleanup(func() { mgr.Shutdown(time.Second) })
 	err := mgr.Delete("ghost", time.Second)
 	if !errors.Is(err, ErrSessionNotFound) {
@@ -235,7 +235,7 @@ func TestSessionManager_FactoryError(t *testing.T) {
 	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 		return nil, nil, nil, fmt.Errorf("factory kaboom")
 	}
-	mgr := NewSessionManager(factory, 0)
+	mgr := NewSessionManager(factory, 0, nil)
 	t.Cleanup(func() { mgr.Shutdown(time.Second) })
 	_, err := mgr.Create(context.Background(), "t1")
 	if err == nil {
@@ -245,7 +245,7 @@ func TestSessionManager_FactoryError(t *testing.T) {
 
 func TestSessionManager_Shutdown(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"r"}}
-	mgr := NewSessionManager(factoryFromFake(t, fake), 0)
+	mgr := NewSessionManager(factoryFromFake(t, fake), 0, nil)
 
 	var ids []string
 	for i := 0; i < 3; i++ {
@@ -267,7 +267,7 @@ func TestSessionManager_Shutdown(t *testing.T) {
 
 func TestSessionManager_ReapIdle(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"r"}}
-	mgr := NewSessionManager(factoryFromFake(t, fake), 50*time.Millisecond)
+	mgr := NewSessionManager(factoryFromFake(t, fake), 50*time.Millisecond, nil)
 	t.Cleanup(func() { mgr.Shutdown(time.Second) })
 
 	s1, _ := mgr.Create(context.Background(), "t1")
@@ -289,7 +289,7 @@ func TestSessionManager_ReapIdle(t *testing.T) {
 
 func TestSessionManager_ReapLoop(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"r"}}
-	mgr := NewSessionManager(factoryFromFake(t, fake), 30*time.Millisecond)
+	mgr := NewSessionManager(factoryFromFake(t, fake), 30*time.Millisecond, nil)
 	t.Cleanup(func() { mgr.Shutdown(time.Second) })
 
 	_, _ = mgr.Create(context.Background(), "t1")
@@ -318,7 +318,7 @@ func TestSessionManager_ReapLoop(t *testing.T) {
 
 func TestSession_ConcurrentCreateDelete_Race(t *testing.T) {
 	fake := &agent.FakeLLM{Responses: []string{"r"}}
-	mgr := NewSessionManager(factoryFromFake(t, fake), 0)
+	mgr := NewSessionManager(factoryFromFake(t, fake), 0, nil)
 	t.Cleanup(func() { mgr.Shutdown(time.Second) })
 
 	const N = 20
@@ -351,7 +351,7 @@ func TestSession_ConcurrentCreateDelete_Race(t *testing.T) {
 func TestSession_AskStream_DelegationReleasesInFlight(t *testing.T) {
 	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"hello"}}}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	// inFlight should be 0 initially
 	if s.inFlight.Load() != 0 {
@@ -395,7 +395,7 @@ func TestSession_AskStream_DelegationPendingBlocksCWPush(t *testing.T) {
 		Delay:        500 * time.Millisecond, // slow LLM so forwarder doesn't finish first
 	}
 	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	// Start first stream
 	ch1, err := s.AskStream(context.Background(), "one")
@@ -444,7 +444,7 @@ func TestSession_AskStream_DelegationPendingBlocksCWPush(t *testing.T) {
 }
 
 func TestSession_AskStream_CloseTurnDoneIdempotent(t *testing.T) {
-	s := NewSession("s1", "t1", nil, nil, nil)
+	s := NewSession("s1", "t1", nil, nil, nil, nil)
 
 	// Calling closeTurnDone when no turn is active should be safe
 	s.closeTurnDone()

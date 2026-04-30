@@ -2,14 +2,13 @@ package router
 
 import (
 	"context"
-	"log/slog"
+	
 	"testing"
 )
 
 func TestDefaultClassifier_Classify(t *testing.T) {
 	config := DefaultClassifierConfig()
-	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, nil, "", logger)
+	classifier := NewDefaultClassifier(config, nil, "", nil)
 
 	tests := []struct {
 		name             string
@@ -81,8 +80,7 @@ func TestDefaultClassifier_Classify(t *testing.T) {
 func TestDefaultClassifier_WithDisabledFastTrack(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.EnableFastTrack = false
-	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, nil, "", logger)
+	classifier := NewDefaultClassifier(config, nil, "", nil)
 
 	ctx := context.Background()
 	result, err := classifier.Classify(ctx, "Explain closures")
@@ -99,8 +97,7 @@ func TestDefaultClassifier_WithDisabledFastTrack(t *testing.T) {
 
 func TestClassificationResultDetails(t *testing.T) {
 	config := DefaultClassifierConfig()
-	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, nil, "", logger)
+	classifier := NewDefaultClassifier(config, nil, "", nil)
 
 	ctx := context.Background()
 
@@ -137,8 +134,7 @@ func TestConfidenceThresholds(t *testing.T) {
 		L2ConfidenceThreshold:        70,
 		L3ConfidenceThreshold:        60,
 	}
-	logger := slog.Default()
-	classifier := NewDefaultClassifier(config, nil, "", logger)
+	classifier := NewDefaultClassifier(config, nil, "", nil)
 
 	ctx := context.Background()
 

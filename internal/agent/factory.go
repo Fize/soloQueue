@@ -216,17 +216,13 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	if tmpl.IsLeader {
 		for _, peer := range f.sameGroupWorkers(tmpl) {
 			peer := peer // capture loop variable
-			dt := &tools.DelegateTool{
-				LeaderID: peer.ID,
-				Desc:     peer.Description,
-				Timeout:  tools.DelegateDefaultTimeout,
-				SpawnFn: func(ctx context.Context, task string) (iface.Locatable, error) {
-					child, _, err := f.Create(ctx, peer)
-					if err != nil {
-						return nil, err
-					}
-					return &LocatableAdapter{Agent: child}, nil
-				},
+			dt := tools.NewDelegateTool(peer.ID, peer.Description, tools.DelegateDefaultTimeout, nil, f.log)
+			dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
+				child, _, err := f.Create(ctx, peer)
+				if err != nil {
+					return nil, err
+				}
+				return &LocatableAdapter{Agent: child}, nil
 			}
 			allTools = append(allTools, dt)
 		}

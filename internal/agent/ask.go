@@ -27,8 +27,21 @@ import (
 // 向后兼容：签名不变，原来所有调用都继续工作；但内部路径从
 // "runOnce 同步 Chat" 变为 "runOnceStream 消费事件流"。
 func (a *Agent) Ask(ctx context.Context, prompt string) (string, error) {
+	if a.Log != nil {
+		a.Log.DebugContext(ctx, logger.CatActor, "ask: starting synchronous ask",
+			"agent_id", a.Def.ID,
+			"prompt_len", len(prompt),
+		)
+	}
+
 	ch, err := a.AskStream(ctx, prompt)
 	if err != nil {
+		if a.Log != nil {
+			a.Log.WarnContext(ctx, logger.CatActor, "ask: askstream failed",
+				"agent_id", a.Def.ID,
+				"err", err.Error(),
+			)
+		}
 		return "", err
 	}
 
@@ -36,8 +49,10 @@ func (a *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 		b            strings.Builder
 		finalContent string
 		finalErr     error
+		eventCount   int
 	)
 	for ev := range ch {
+		eventCount++
 		switch e := ev.(type) {
 		case ContentDeltaEvent:
 			b.WriteString(e.Delta)
@@ -47,11 +62,41 @@ func (a *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 			finalErr = e.Err
 		}
 	}
+
+	if a.Log != nil {
+		a.Log.DebugContext(ctx, logger.CatActor, "ask: event stream consumed",
+			"agent_id", a.Def.ID,
+			"events_received", eventCount,
+			"final_content_len", len(finalContent),
+			"has_error", finalErr != nil,
+		)
+	}
+
 	if finalErr != nil {
+		if a.Log != nil {
+			a.Log.WarnContext(ctx, logger.CatActor, "ask: finished with error",
+				"agent_id", a.Def.ID,
+				"err", finalErr.Error(),
+			)
+		}
 		return "", finalErr
 	}
 	if finalContent != "" {
+		if a.Log != nil {
+			a.Log.InfoContext(ctx, logger.CatActor, "ask: completed successfully",
+				"agent_id", a.Def.ID,
+				"content_len", len(finalContent),
+				"events_received", eventCount,
+			)
+		}
 		return finalContent, nil
+	}
+	if a.Log != nil {
+		a.Log.InfoContext(ctx, logger.CatActor, "ask: completed successfully (from buffer)",
+			"agent_id", a.Def.ID,
+			"content_len", b.Len(),
+			"events_received", eventCount,
+		)
 	}
 	return b.String(), nil
 }
@@ -73,6 +118,13 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 	ctx = ensureTraceID(ctx)
 	ctx = a.ctxWithAgentAttrs(ctx)
 
+	if a.Log != nil {
+		a.Log.DebugContext(ctx, logger.CatActor, "askstream: enqueueing request",
+			"agent_id", a.Def.ID,
+			"prompt_len", len(prompt),
+		)
+	}
+
 	// buffer 64：能缓冲单轮典型的 delta 风暴；满了阻塞（不丢事件）+ ctx 兜底
 	out := make(chan AgentEvent, 64)
 
@@ -81,15 +133,41 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 		// ctx 放前面是关键：合并后 ctx 的 value（trace_id / actor_id）仍可读
 		merged, cancel := mergeCtx(ctx, jobCtx)
 		defer cancel()
+
+		if a.Log != nil {
+			a.Log.DebugContext(merged, logger.CatActor, "askstream: execution starting",
+				"agent_id", a.Def.ID,
+			)
+		}
+
 		a.runOnceStream(merged, prompt, out)
+
+		if a.Log != nil {
+			a.Log.DebugContext(merged, logger.CatActor, "askstream: execution completed",
+				"agent_id", a.Def.ID,
+			)
+		}
 	}
 
 	if err := a.submit(ctx, jb); err != nil {
+		if a.Log != nil {
+			a.Log.WarnContext(ctx, logger.CatActor, "askstream: submit failed",
+				"agent_id", a.Def.ID,
+				"err", err.Error(),
+			)
+		}
 		// submit 失败（ErrNotStarted / ErrStopped / ctx.Err）→ 关闭 out 后返回 err
 		// 关闭是为了防止 caller 误以为 channel 还会有事件来而悬挂
 		close(out)
 		return nil, err
 	}
+
+	if a.Log != nil {
+		a.Log.DebugContext(ctx, logger.CatActor, "askstream: request enqueued successfully",
+			"agent_id", a.Def.ID,
+		)
+	}
+
 	return out, nil
 }
 
@@ -119,6 +197,12 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 	ctx = a.ctxWithAgentAttrs(ctx)
 	traceID := logger.TraceIDFromContext(ctx)
 
+	if a.Log != nil {
+		a.Log.DebugContext(ctx, logger.CatActor, "submit: enqueueing custom job",
+			"agent_id", a.Def.ID,
+		)
+	}
+
 	jb := func(jobCtx context.Context) {
 		// 把 trace_id / actor_id 拷到 jobCtx（actor_id 已由 Start 注入 a.ctx）
 		// jobCtx 源自 a.ctx，所以 actor_id 已有；trace_id 从 caller ctx 补上
@@ -126,11 +210,41 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 		if traceID != "" {
 			fnCtx = logger.WithTraceID(fnCtx, traceID)
 		}
+
+		if a.Log != nil {
+			a.Log.DebugContext(fnCtx, logger.CatActor, "submit: job execution starting",
+				"agent_id", a.Def.ID,
+			)
+		}
+
 		if err := fn(fnCtx); err != nil {
 			a.logError(fnCtx, logger.CatActor, "submit job returned error", err)
 		}
+
+		if a.Log != nil {
+			a.Log.DebugContext(fnCtx, logger.CatActor, "submit: job execution completed",
+				"agent_id", a.Def.ID,
+			)
+		}
 	}
-	return a.submit(ctx, jb)
+
+	if err := a.submit(ctx, jb); err != nil {
+		if a.Log != nil {
+			a.Log.WarnContext(ctx, logger.CatActor, "submit: failed to enqueue",
+				"agent_id", a.Def.ID,
+				"err", err.Error(),
+			)
+		}
+		return err
+	}
+
+	if a.Log != nil {
+		a.Log.DebugContext(ctx, logger.CatActor, "submit: job enqueued successfully",
+			"agent_id", a.Def.ID,
+		)
+	}
+
+	return nil
 }
 
 // submit 是 Ask / Submit 共享的入队实现
@@ -206,8 +320,24 @@ func (a *Agent) submitHighPriority(jb job) error {
 // ⚠️ 调用方（通常是 Session）应在调用前将 user prompt push 到 cw，
 // 调用成功后将 assistant reply（含 reasoningContent）push 到 cw，失败时 PopLast 移除 user prompt。
 func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (content string, reasoningContent string, err error) {
+	if a.Log != nil {
+		ctxCurrent, _, _ := cw.TokenUsage()
+		a.Log.DebugContext(ctx, logger.CatActor, "ask_with_history: starting with context window",
+			"agent_id", a.Def.ID,
+			"prompt_len", len(prompt),
+			"context_window_tokens", ctxCurrent,
+			"context_window_messages", cw.Len(),
+		)
+	}
+
 	ch, err := a.AskStreamWithHistory(ctx, cw, prompt)
 	if err != nil {
+		if a.Log != nil {
+			a.Log.WarnContext(ctx, logger.CatActor, "ask_with_history: askstreamwithhistory failed",
+				"agent_id", a.Def.ID,
+				"err", err.Error(),
+			)
+		}
 		return "", "", err
 	}
 
@@ -216,8 +346,10 @@ func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, pr
 		finalContent   string
 		finalReasoning string
 		finalErr       error
+		eventCount     int
 	)
 	for ev := range ch {
+		eventCount++
 		switch e := ev.(type) {
 		case ContentDeltaEvent:
 			b.WriteString(e.Delta)
@@ -228,11 +360,47 @@ func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, pr
 			finalErr = e.Err
 		}
 	}
+
+	if a.Log != nil {
+		ctxCurrent, _, _ := cw.TokenUsage()
+		a.Log.DebugContext(ctx, logger.CatActor, "ask_with_history: event stream consumed",
+			"agent_id", a.Def.ID,
+			"events_received", eventCount,
+			"final_content_len", len(finalContent),
+			"has_reasoning", len(finalReasoning) > 0,
+			"has_error", finalErr != nil,
+			"context_window_tokens_final", ctxCurrent,
+			"context_window_messages_final", cw.Len(),
+		)
+	}
+
 	if finalErr != nil {
+		if a.Log != nil {
+			a.Log.WarnContext(ctx, logger.CatActor, "ask_with_history: finished with error",
+				"agent_id", a.Def.ID,
+				"err", finalErr.Error(),
+			)
+		}
 		return "", "", finalErr
 	}
 	if finalContent != "" {
+		if a.Log != nil {
+			a.Log.InfoContext(ctx, logger.CatActor, "ask_with_history: completed successfully",
+				"agent_id", a.Def.ID,
+				"content_len", len(finalContent),
+				"reasoning_len", len(finalReasoning),
+				"events_received", eventCount,
+			)
+		}
 		return finalContent, finalReasoning, nil
+	}
+	if a.Log != nil {
+		a.Log.InfoContext(ctx, logger.CatActor, "ask_with_history: completed successfully (from buffer)",
+			"agent_id", a.Def.ID,
+			"content_len", b.Len(),
+			"reasoning_len", len(finalReasoning),
+			"events_received", eventCount,
+		)
 	}
 	return b.String(), finalReasoning, nil
 }
@@ -247,11 +415,36 @@ func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWind
 	ctx = ensureTraceID(ctx)
 	ctx = a.ctxWithAgentAttrs(ctx)
 
+	if a.Log != nil {
+		ctxCurrent, _, _ := cw.TokenUsage()
+		a.Log.DebugContext(ctx, logger.CatActor, "askstreamwithhistory: enqueueing request with context",
+			"agent_id", a.Def.ID,
+			"prompt_len", len(prompt),
+			"context_window_tokens", ctxCurrent,
+			"context_window_messages", cw.Len(),
+		)
+	}
+
 	out := make(chan AgentEvent, 64)
 
 	jb := func(jobCtx context.Context) {
 		merged, cancel := mergeCtx(ctx, jobCtx)
+
+		if a.Log != nil {
+			a.Log.DebugContext(merged, logger.CatActor, "askstreamwithhistory: execution starting",
+				"agent_id", a.Def.ID,
+			)
+		}
+
 		yielded := a.runOnceStreamWithHistory(merged, cw, prompt, out)
+
+		if a.Log != nil {
+			a.Log.DebugContext(merged, logger.CatActor, "askstreamwithhistory: execution completed",
+				"agent_id", a.Def.ID,
+				"async_delegation_started", yielded,
+			)
+		}
+
 		if yielded {
 			// streamLoop yielded for async delegation — merged ctx must
 			// stay alive because resumeTurn (and the subsequent streamLoop)
@@ -264,8 +457,21 @@ func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWind
 	}
 
 	if err := a.submit(ctx, jb); err != nil {
+		if a.Log != nil {
+			a.Log.WarnContext(ctx, logger.CatActor, "askstreamwithhistory: submit failed",
+				"agent_id", a.Def.ID,
+				"err", err.Error(),
+			)
+		}
 		close(out)
 		return nil, err
 	}
+
+	if a.Log != nil {
+		a.Log.DebugContext(ctx, logger.CatActor, "askstreamwithhistory: request enqueued successfully",
+			"agent_id", a.Def.ID,
+		)
+	}
+
 	return out, nil
 }
