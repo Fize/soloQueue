@@ -159,7 +159,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "shell: executing",
+		t.logger.InfoContext(ctx, logger.CatTool, "shell: executing",
 			"command", a.Command)
 	}
 	start := time.Now()
@@ -238,7 +238,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 
 	res.ExitCode = cmd.ProcessState.ExitCode()
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "shell: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "shell: completed",
 			"command", a.Command,
 			"exit_code", res.ExitCode,
 			"duration_ms", time.Since(start).Milliseconds())

@@ -96,11 +96,12 @@ type FileHandler struct {
 	preAttrs  []slog.Attr
 	maxSizeMB int
 	maxDays   int
+	maxFiles  int
 
 	pool *writerPool // 共享指针：clone 后多个 handler 共用同一 writer pool
 }
 
-func newFileHandler(baseDir string, layer Layer, teamID, sessionID string, level slog.Level, maxSizeMB, maxDays int) *FileHandler {
+func newFileHandler(baseDir string, layer Layer, teamID, sessionID string, level slog.Level, maxSizeMB, maxDays, maxFiles int) *FileHandler {
 	return &FileHandler{
 		baseDir:   baseDir,
 		layer:     layer,
@@ -109,6 +110,7 @@ func newFileHandler(baseDir string, layer Layer, teamID, sessionID string, level
 		level:     level,
 		maxSizeMB: maxSizeMB,
 		maxDays:   maxDays,
+		maxFiles:  maxFiles,
 		pool:      &writerPool{writers: make(map[Category]*rotateWriter)},
 	}
 }
@@ -120,8 +122,7 @@ func (h *FileHandler) Enabled(_ context.Context, level slog.Level) bool {
 func (h *FileHandler) Handle(_ context.Context, r slog.Record) error {
 	cat := h.extractCategory(r)
 
-	// 验证 category 合法性（宽容处理：用 app 作为默认）
-	if cat == "" || !ValidCategory(h.layer, cat) {
+	if cat == "" {
 		cat = h.defaultCategory()
 	}
 
@@ -268,7 +269,7 @@ func (h *FileHandler) getOrCreateWriter(cat Category) (*rotateWriter, error) {
 
 	dir := h.logDir(cat)
 	byDate := h.layer != LayerSession
-	w, err := newRotateWriter(dir, string(cat), byDate, h.maxSizeMB, h.maxDays)
+	w, err := newRotateWriter(dir, string(cat), byDate, h.maxSizeMB, h.maxDays, h.maxFiles)
 	if err != nil {
 		return nil, err
 	}

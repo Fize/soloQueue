@@ -205,9 +205,7 @@ func (l *Loader[T]) Set(fn func(*T)) error {
 		l.current = old
 		l.mu.Unlock()
 		if l.log != nil {
-			l.log.ErrorContext(context.Background(), logger.CatConfig, "config set failed, rolled back",
-				"err", err.Error(),
-			)
+			l.log.LogError(context.Background(), logger.CatConfig, "config set failed, rolled back", err)
 		}
 		return err
 	}
@@ -399,9 +397,7 @@ func (l *Loader[T]) scheduleReload() {
 		}
 		if err := l.Load(); err != nil {
 			if l.log != nil {
-				l.log.ErrorContext(context.Background(), logger.CatConfig, "config hot-reload failed",
-					"err", err.Error(),
-				)
+				l.log.LogError(context.Background(), logger.CatConfig, "config hot-reload failed", err)
 			}
 			l.handleWatchError(fmt.Errorf("config reload: %w", err))
 		} else {

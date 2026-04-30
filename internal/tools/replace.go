@@ -130,7 +130,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 		SizeAfter:    len(after),
 	}
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "replace: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "replace: completed",
 			"path", abs, "replacements", replacements)
 	}
 	b, _ := json.Marshal(out)

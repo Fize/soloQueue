@@ -36,7 +36,7 @@ const (
 var layerCategories = map[Layer][]Category{
 	LayerSystem:  {CatApp, CatConfig, CatHTTP, CatWS, CatLLM},
 	LayerTeam:    {CatTeam, CatAgent},
-	LayerSession: {CatLLM, CatActor, CatTool, CatMessages},
+	LayerSession: {CatLLM, CatApp, CatActor, CatTool, CatMessages},
 }
 
 // categoryPrimaryLayer 定义 Category 的首选 layer

@@ -221,7 +221,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 	}
 
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "grep: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "grep: completed",
 			"pattern", a.Pattern, "dir", absDir,
 			"matches", len(res.Matches), "truncated", res.Truncated)
 	}

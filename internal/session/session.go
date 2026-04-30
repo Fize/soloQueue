@@ -4,11 +4,9 @@
 //
 //   - 一个 Session 对应"一次独立的对话"：绑定一个 *agent.Agent，持有
 //     *ctxwin.ContextWindow 管理完整对话历史（含工具调用中间消息）。
-//   - Session 的生命周期独立于网络连接：REST 显式 Create/Delete，WebSocket
-//     断开后 Session 仍活着（REST 才是 owner）。
 //   - 同一 Session 内 Ask/AskStream **串行**：上一轮未结束时新 Ask 直接返回
 //     ErrSessionBusy（避免上下文窗口错序）。agent 本身也串行，双重保护。
-//   - SessionManager 维护 id→Session 映射；提供 idle 清理。
+//   - SessionManager 管理唯一的活跃 session；全局只有一个会话。
 package session
 
 import (
@@ -17,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,13 +30,10 @@ import (
 // ─── Errors ────────────────────────────────────────────────────────────────
 
 var (
-	// ErrSessionNotFound SessionManager.Get 找不到 id
-	ErrSessionNotFound = errors.New("session: not found")
-
 	// ErrSessionBusy Session 内已有 Ask 在跑，新 Ask 被拒绝
 	ErrSessionBusy = errors.New("session: busy (another Ask in flight)")
 
-	// ErrSessionClosed Session 已被 Delete / Shutdown
+	// ErrSessionClosed Session 已被 Close / Shutdown
 	ErrSessionClosed = errors.New("session: closed")
 )
 
@@ -165,9 +161,7 @@ func (s *Session) Clear() error {
 			Action: "clear",
 			Reason: "user_command",
 		}); err != nil {
-			s.logger.ErrorContext(context.Background(), logger.CatApp, "session clear failed",
-				"err", err.Error(),
-			)
+		s.logger.LogError(context.Background(), logger.CatApp, "session clear failed", err)
 			return fmt.Errorf("session: clear: %w", err)
 		}
 	}
@@ -447,8 +441,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 }
 
 // Close 标记 session 为 closed，阻止新 Ask；不停 agent
-//
-// SessionManager.Delete 会在调用 Close 之后主动 Stop agent。
 func (s *Session) Close() {
 	s.closed.Store(true)
 
@@ -460,6 +452,11 @@ func (s *Session) Close() {
 	// 关闭 timeline Writer，刷盘并释放文件句柄
 	if s.tl != nil {
 		s.tl.Close()
+	}
+
+	// 关闭 session 日志并清理 session 日志目录
+	if err := s.logger.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "session close: logger close error: %v\n", err)
 	}
 }
 
@@ -496,27 +493,25 @@ func (s *Session) touch() {
 // AgentFactory 给定 teamID 构造并 Start 一个新 agent，同时返回 ContextWindow 和可选的 TimelineWriter
 //
 // **重要**：传入的 ctx **不应**被直接传给 agent.Start —— agent 生命周期独立于
-// 单次 Create 调用。factory 应使用 context.Background() 或 SessionManager
-// 持有的"根 ctx"（未来若有）作为 agent 的 parent ctx。
+// 单次 Init 调用。factory 应使用 context.Background() 作为 agent 的 parent ctx。
 // 这里 ctx 仅供 factory 内部短暂使用（比如网络配置加载、超时检查）。
 //
 // 返回的 *timeline.Writer 在 Session.Close 时自动关闭；不需要时可返回 nil。
 type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error)
 
-// SessionManager 管理所有活跃 session
+// SessionManager 管理唯一的活跃 session
 type SessionManager struct {
 	factory    AgentFactory
-	routerFunc TaskRouterFunc // 可选：每个新 session 都注入此路由器
-	idleTTL    time.Duration
+	routerFunc TaskRouterFunc
 	logger     *logger.Logger
 
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	closed   atomic.Bool
+	mu      sync.Mutex
+	session *Session
+	closed  atomic.Bool
 }
 
-// NewSessionManager 构造 manager；idleTTL<=0 禁用自动 reap
-func NewSessionManager(factory AgentFactory, idleTTL time.Duration, l *logger.Logger) *SessionManager {
+// NewSessionManager 构造 manager
+func NewSessionManager(factory AgentFactory, l *logger.Logger) *SessionManager {
 	if l == nil {
 		var err error
 		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
@@ -525,23 +520,29 @@ func NewSessionManager(factory AgentFactory, idleTTL time.Duration, l *logger.Lo
 		}
 	}
 	return &SessionManager{
-		factory:    factory,
-		idleTTL:    idleTTL,
-		logger:     l,
-		sessions:   make(map[string]*Session),
+		factory: factory,
+		logger:  l,
 	}
 }
 
-// SetRouter sets the task router function for all future sessions.
-// Must be called before any Create() calls. Not thread-safe for setup.
+// SetRouter sets the task router function for the session.
+// Must be called before Init(). Not thread-safe for setup.
 func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
 	m.routerFunc = fn
 }
 
-// Create 创建新 session；factory 启动 agent 并返回 ContextWindow
-func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, error) {
+// Init 创建唯一 session；重复调用返回已存在的 session
+func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, error) {
+	m.mu.Lock()
+	if m.session != nil {
+		s := m.session
+		m.mu.Unlock()
+		return s, nil
+	}
+	m.mu.Unlock()
+
 	if m.closed.Load() {
-		m.logger.DebugContext(ctx, logger.CatApp, "session create rejected: manager closed")
+		m.logger.DebugContext(ctx, logger.CatApp, "session init rejected: manager closed")
 		return nil, ErrSessionClosed
 	}
 
@@ -555,11 +556,9 @@ func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, e
 	}
 	id := newSessionID()
 
-	// Create session with manager's logger as parent
 	sessionLogger := m.logger.Child()
 	s := NewSession(id, teamID, a, cw, tl, sessionLogger)
 
-	// Inject task router (if configured)
 	if m.routerFunc != nil {
 		s.Router = m.routerFunc
 	}
@@ -567,161 +566,40 @@ func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, e
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed.Load() {
-		// race: shutdown between check and lock
-		m.logger.WarnContext(ctx, logger.CatApp, "session create racing with shutdown",
-			"session_id", id,
-			"team_id", teamID,
-		)
 		_ = a.Stop(time.Second)
 		return nil, ErrSessionClosed
 	}
-	m.sessions[id] = s
+	m.session = s
 
-	m.logger.InfoContext(ctx, logger.CatApp, "session created",
+	m.logger.InfoContext(ctx, logger.CatApp, "session initialized",
 		"session_id", id,
 		"team_id", teamID,
-		"total_sessions", len(m.sessions),
 	)
 
 	return s, nil
 }
 
-// Get 按 id 查找
-func (m *SessionManager) Get(id string) (*Session, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	s, ok := m.sessions[id]
-	return s, ok
-}
-
-// Delete 删除 session：Close → agent.Stop → 从 map 摘除
-func (m *SessionManager) Delete(id string, stopTimeout time.Duration) error {
+// Session 返回当前 session；未初始化时返回 nil
+func (m *SessionManager) Session() *Session {
 	m.mu.Lock()
-	s, ok := m.sessions[id]
-	if ok {
-		delete(m.sessions, id)
-	}
-	m.mu.Unlock()
-
-	if !ok {
-		m.logger.DebugContext(context.Background(), logger.CatApp, "session delete: not found",
-			"session_id", id,
-		)
-		return ErrSessionNotFound
-	}
-
-	s.Close()
-	err := s.Agent.Stop(stopTimeout)
-
-	if err != nil {
-		m.logger.WarnContext(context.Background(), logger.CatApp, "session delete: agent stop failed",
-			"session_id", id,
-			"err", err.Error(),
-		)
-	} else {
-		m.logger.InfoContext(context.Background(), logger.CatApp, "session deleted",
-			"session_id", id,
-			"remaining_sessions", func() int {
-				m.mu.RLock()
-				defer m.mu.RUnlock()
-				return len(m.sessions)
-			}(),
-		)
-	}
-
-	return err
+	defer m.mu.Unlock()
+	return m.session
 }
 
-// Count 返回活跃 session 数量
-func (m *SessionManager) Count() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.sessions)
-}
-
-// ReapIdle 清理 idle 超过 idleTTL 的 session；返回清理数
-func (m *SessionManager) ReapIdle(stopTimeout time.Duration) int {
-	if m.idleTTL <= 0 {
-		return 0
-	}
-	cutoff := time.Now().Add(-m.idleTTL).UnixNano()
-	m.mu.Lock()
-	var victims []*Session
-	for id, s := range m.sessions {
-		if s.lastActive.Load() < cutoff && s.inFlight.Load() == 0 {
-			victims = append(victims, s)
-			delete(m.sessions, id)
-		}
-	}
-	m.mu.Unlock()
-
-	for _, s := range victims {
-		s.Close()
-		_ = s.Agent.Stop(stopTimeout)
-	}
-
-	if len(victims) > 0 {
-		m.logger.InfoContext(context.Background(), logger.CatApp, "idle sessions reaped",
-			"reaped_count", len(victims),
-			"remaining_sessions", func() int {
-				m.mu.RLock()
-				defer m.mu.RUnlock()
-				return len(m.sessions)
-			}(),
-		)
-	}
-
-	return len(victims)
-}
-
-// ReapLoop 定期调 ReapIdle，直到 ctx 取消
-func (m *SessionManager) ReapLoop(ctx context.Context, interval, stopTimeout time.Duration) {
-	if interval <= 0 {
-		return
-	}
-
-	m.logger.InfoContext(context.Background(), logger.CatApp, "session reap loop started",
-		"interval_sec", interval.Seconds(),
-		"idle_ttl_sec", m.idleTTL.Seconds(),
-	)
-
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			m.logger.InfoContext(context.Background(), logger.CatApp, "session reap loop stopped")
-			return
-		case <-t.C:
-			m.ReapIdle(stopTimeout)
-		}
-	}
-}
-
-// Shutdown 停所有 session；阻止新 Create
+// Shutdown 关闭 session 并阻止新 Init
 func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 	m.closed.Store(true)
 	m.mu.Lock()
-	count := len(m.sessions)
-	all := make([]*Session, 0, count)
-	for _, s := range m.sessions {
-		all = append(all, s)
-	}
-	m.sessions = nil
+	s := m.session
+	m.session = nil
 	m.mu.Unlock()
 
-	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown started",
-		"sessions_to_stop", count,
-	)
-
-	for _, s := range all {
+	if s != nil {
 		s.Close()
 		_ = s.Agent.Stop(stopTimeout)
 	}
 
-	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed",
-		"sessions_stopped", count,
-	)
+	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed")
 }
 
 // newSessionID returns a 32-char hex id (16 random bytes).

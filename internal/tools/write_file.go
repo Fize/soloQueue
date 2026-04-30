@@ -87,7 +87,7 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	if t.logger != nil {
-		t.logger.DebugContext(ctx, logger.CatTool, "write_file: completed",
+		t.logger.InfoContext(ctx, logger.CatTool, "write_file: completed",
 			"path", a.Path, "size", len(a.Content))
 	}
 	return result, nil
