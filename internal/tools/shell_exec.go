@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // shellExecTool 执行 shell 命令（黑名单/确认名单校验）
@@ -28,14 +30,15 @@ import (
 //
 // 返回：{"exit_code":0,"stdout":"...","stderr":"...","truncated":false}
 type shellExecTool struct {
-	cfg           Config
-	blockRegexes  []*regexp.Regexp
+	cfg            Config
+	logger         *logger.Logger
+	blockRegexes   []*regexp.Regexp
 	confirmRegexes []*regexp.Regexp
-	regErr        error // 编译失败时的错误（Execute 时返回）
+	regErr         error // 编译失败时的错误（Execute 时返回）
 }
 
 func newShellExecTool(cfg Config) *shellExecTool {
-	t := &shellExecTool{cfg: cfg}
+	t := &shellExecTool{cfg: cfg, logger: cfg.Logger}
 	for _, r := range cfg.ShellBlockRegexes {
 		re, err := regexp.Compile(r)
 		if err != nil {
@@ -148,8 +151,18 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 
 	// 黑名单检查
 	if matchesAny(a.Command, t.blockRegexes) {
+		if t.logger != nil {
+			t.logger.WarnContext(ctx, logger.CatTool, "shell: command blocked",
+				"command", a.Command)
+		}
 		return "", fmt.Errorf("%w: %s", ErrCommandBlocked, a.Command)
 	}
+
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "shell: executing",
+			"command", a.Command)
+	}
+	start := time.Now()
 
 	// Timeout ctx
 	timeout := t.cfg.ShellTimeout
@@ -194,6 +207,12 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	if err != nil {
 		// timeout
 		if execCtx.Err() == context.DeadlineExceeded {
+			if t.logger != nil {
+				t.logger.WarnContext(ctx, logger.CatTool, "shell: timeout",
+					"command", a.Command,
+					"timeout_sec", timeout.Seconds(),
+					"duration_ms", time.Since(start).Milliseconds())
+			}
 			return "", fmt.Errorf("shell timeout after %s: %w", timeout, context.DeadlineExceeded)
 		}
 		// caller canceled
@@ -204,6 +223,12 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			res.ExitCode = ee.ExitCode()
+			if t.logger != nil {
+				t.logger.DebugContext(ctx, logger.CatTool, "shell: non-zero exit",
+					"command", a.Command,
+					"exit_code", res.ExitCode,
+					"duration_ms", time.Since(start).Milliseconds())
+			}
 			b, _ := json.Marshal(res)
 			return string(b), nil
 		}
@@ -212,6 +237,12 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	res.ExitCode = cmd.ProcessState.ExitCode()
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "shell: completed",
+			"command", a.Command,
+			"exit_code", res.ExitCode,
+			"duration_ms", time.Since(start).Milliseconds())
+	}
 	b, _ := json.Marshal(res)
 	return string(b), nil
 }

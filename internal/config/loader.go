@@ -11,6 +11,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/fsnotify/fsnotify"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // Loader[T] 是可复用的泛型配置加载器
@@ -46,6 +47,8 @@ type Loader[T any] struct {
 
 	errHandler func(error)
 	errMu      sync.RWMutex
+	
+	log        *logger.Logger
 }
 
 // callbackEntry 关联一个 OnChange 注册的回调和它的取消 ID
@@ -91,7 +94,15 @@ func (l *Loader[T]) Load() error {
 // LoadContext 带 context 的 Load：在每次文件 I/O 前检查 ctx.Err()
 // 注意：不会真正中断 syscall；仅在文件之间的 gap 响应取消
 func (l *Loader[T]) LoadContext(ctx context.Context) error {
+	start := time.Now()
 	result := l.defaults
+	successCount := 0
+	
+	if l.log != nil {
+		l.log.DebugContext(ctx, logger.CatConfig, "config load started",
+			"num_paths", len(l.paths),
+		)
+	}
 
 	for _, path := range l.paths {
 		if err := ctx.Err(); err != nil {
@@ -105,15 +116,38 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 
 		data, err := os.ReadFile(expanded)
 		if os.IsNotExist(err) {
+			if l.log != nil {
+				l.log.DebugContext(ctx, logger.CatConfig, "config file not found, skipping",
+					"path", expanded,
+				)
+			}
 			continue // 文件不存在：跳过（不是错误）
 		}
 		if err != nil {
+			if l.log != nil {
+				l.log.WarnContext(ctx, logger.CatConfig, "config file read failed",
+					"path", expanded,
+					"err", err.Error(),
+				)
+			}
 			return fmt.Errorf("read %s: %w", expanded, err)
 		}
 
 		result, err = MergeTOML(result, data)
 		if err != nil {
+			if l.log != nil {
+				l.log.WarnContext(ctx, logger.CatConfig, "config merge failed",
+					"path", expanded,
+					"err", err.Error(),
+				)
+			}
 			return fmt.Errorf("merge %s: %w", expanded, err)
+		}
+		successCount++
+		if l.log != nil {
+			l.log.DebugContext(ctx, logger.CatConfig, "config file merged successfully",
+				"path", expanded,
+			)
 		}
 	}
 
@@ -122,6 +156,15 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 	old := l.current
 	l.current = result
 	l.mu.Unlock()
+
+	// Log completion
+	if l.log != nil {
+		duration := time.Since(start).Milliseconds()
+		l.log.InfoContext(ctx, logger.CatConfig, "config load completed",
+			"files_merged", successCount,
+			"duration_ms", duration,
+		)
+	}
 
 	// 在锁外通知回调
 	l.notify(old, result)
@@ -149,6 +192,11 @@ func (l *Loader[T]) Set(fn func(*T)) error {
 		l.mu.Lock()
 		l.current = old
 		l.mu.Unlock()
+		if l.log != nil {
+			l.log.WarnContext(context.Background(), logger.CatConfig, "config set: primary path resolution failed",
+				"err", err.Error(),
+			)
+		}
 		return err
 	}
 	if err := l.saveTo(pp, updated); err != nil {
@@ -156,7 +204,18 @@ func (l *Loader[T]) Set(fn func(*T)) error {
 		l.mu.Lock()
 		l.current = old
 		l.mu.Unlock()
+		if l.log != nil {
+			l.log.ErrorContext(context.Background(), logger.CatConfig, "config set failed, rolled back",
+				"err", err.Error(),
+			)
+		}
 		return err
+	}
+
+	if l.log != nil {
+		l.log.InfoContext(context.Background(), logger.CatConfig, "config set successfully",
+			"primary_path", pp,
+		)
 	}
 
 	// 在锁外通知回调
@@ -237,13 +296,19 @@ func (l *Loader[T]) OnChange(fn func(old, new T)) (cancel func()) {
 	}
 }
 
-// SetErrorHandler 设置 fsnotify watcher 的 error 回调
-// nil 表示不处理（默认行为）
-// config 包不依赖 logger 包；由 caller 决定如何记录 error
+// SetErrorHandler sets the fsnotify watcher's error callback
+// nil means no handling (default behavior)
+// config package does not depend on logger package; caller decides how to log errors
 func (l *Loader[T]) SetErrorHandler(fn func(error)) {
 	l.errMu.Lock()
 	defer l.errMu.Unlock()
 	l.errHandler = fn
+}
+
+// SetLogger sets the logger for configuration change tracking and debugging
+// nil is valid; logging is optional and degraded gracefully
+func (l *Loader[T]) SetLogger(log *logger.Logger) {
+	l.log = log
 }
 
 // Close 停止 fsnotify watcher 并取消 debounce timer
@@ -263,20 +328,36 @@ func (l *Loader[T]) Close() error {
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
 func (l *Loader[T]) watchLoop() {
+	if l.log != nil {
+		l.log.DebugContext(context.Background(), logger.CatConfig, "config watch loop started")
+	}
+	
 	for {
 		select {
 		case event, ok := <-l.watcher.Events:
 			if !ok {
+				if l.log != nil {
+					l.log.DebugContext(context.Background(), logger.CatConfig, "config watcher events channel closed")
+				}
 				return
 			}
 			// 仅处理受监控文件的写入/创建/重命名事件
 			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) {
 				if l.isWatchedFile(event.Name) {
+					if l.log != nil {
+						l.log.DebugContext(context.Background(), logger.CatConfig, "config file change detected",
+							"file", event.Name,
+							"op", event.Op.String(),
+						)
+					}
 					l.scheduleReload()
 				}
 			}
 		case err, ok := <-l.watcher.Errors:
 			if !ok {
+				if l.log != nil {
+					l.log.DebugContext(context.Background(), logger.CatConfig, "config watcher errors channel closed")
+				}
 				return
 			}
 			l.handleWatchError(err)
@@ -285,6 +366,11 @@ func (l *Loader[T]) watchLoop() {
 }
 
 func (l *Loader[T]) handleWatchError(err error) {
+	if l.log != nil {
+		l.log.WarnContext(context.Background(), logger.CatConfig, "config watch error",
+			"err", err.Error(),
+		)
+	}
 	l.errMu.RLock()
 	fn := l.errHandler
 	l.errMu.RUnlock()
@@ -300,9 +386,28 @@ func (l *Loader[T]) scheduleReload() {
 	if l.debTimer != nil {
 		l.debTimer.Stop()
 	}
+	
+	if l.log != nil {
+		l.log.DebugContext(context.Background(), logger.CatConfig, "config reload scheduled",
+			"debounce_ms", 200,
+		)
+	}
+	
 	l.debTimer = time.AfterFunc(200*time.Millisecond, func() {
+		if l.log != nil {
+			l.log.DebugContext(context.Background(), logger.CatConfig, "config hot-reload triggered after debounce")
+		}
 		if err := l.Load(); err != nil {
+			if l.log != nil {
+				l.log.ErrorContext(context.Background(), logger.CatConfig, "config hot-reload failed",
+					"err", err.Error(),
+				)
+			}
 			l.handleWatchError(fmt.Errorf("config reload: %w", err))
+		} else {
+			if l.log != nil {
+				l.log.InfoContext(context.Background(), logger.CatConfig, "config hot-reload completed successfully")
+			}
 		}
 	})
 }
@@ -334,7 +439,13 @@ func (l *Loader[T]) notify(old, new T) {
 	copy(entries, l.onChange)
 	l.cbMu.RUnlock()
 
-	for _, e := range entries {
+	for i, e := range entries {
+		if l.log != nil {
+			l.log.DebugContext(context.Background(), logger.CatConfig, "invoking config change callback",
+				"callback_index", i,
+				"total_callbacks", len(entries),
+			)
+		}
 		e.fn(old, new)
 	}
 }

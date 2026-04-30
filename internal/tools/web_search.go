@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // webSearchTool 通过 DuckDuckGo Lite 搜索网页
@@ -30,6 +32,7 @@ import (
 //	{"results":[{"title","url","content"}]}
 type webSearchTool struct {
 	cfg    Config
+	logger *logger.Logger
 	client *http.Client
 }
 
@@ -39,7 +42,8 @@ func newWebSearchTool(cfg Config) *webSearchTool {
 		timeout = 15 * time.Second
 	}
 	return &webSearchTool{
-		cfg: cfg,
+		cfg:    cfg,
+		logger: cfg.Logger,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -91,6 +95,12 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", err
 	}
 
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "web_search: starting",
+			"query", a.Query)
+	}
+	start := time.Now()
+
 	maxR := a.MaxResults
 	if maxR <= 0 {
 		maxR = 5
@@ -123,6 +133,12 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	results := parseDDGResults(data, maxR)
+
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "web_search: completed",
+			"query", a.Query, "results", len(results),
+			"duration_ms", time.Since(start).Milliseconds())
+	}
 
 	out := webSearchResult{Results: results}
 	b, _ := json.Marshal(out)

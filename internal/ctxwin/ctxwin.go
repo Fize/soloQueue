@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // ─── PayloadMessage ─────────────────────────────────────────────────────────
@@ -137,6 +139,7 @@ type ContextWindow struct {
 	compactor     Compactor    // context compressor (may be nil)
 	pushHook      PushHook     // callback after Push (may be nil)
 	replayMode    bool         // disable pushHook during replay
+	log           *logger.Logger // optional logger for message tracking
 	summarizing   atomic.Bool  // true while async compression is in progress
 }
 
@@ -166,6 +169,14 @@ func NewContextWindow(maxTokens, bufferTokens, summaryTokens int, tokenizer *Tok
 	return cw
 }
 
+// SetLogger sets the logger for tracking context window message changes
+// nil is valid; logging is optional and gracefully degraded
+func (cw *ContextWindow) SetLogger(log *logger.Logger) {
+	cw.Lock()
+	defer cw.Unlock()
+	cw.log = log
+}
+
 // ─── Core API ───────────────────────────────────────────────────────────────
 
 // Push appends a new message, estimates tokens, and triggers eviction if overloaded.
@@ -187,16 +198,57 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	if len(msg.ToolCalls) > 0 {
 		msg.Tokens += cw.tokenizer.Count(toolCallsToJSON(msg.ToolCalls))
 	}
+
+	if cw.log != nil {
+		cw.log.DebugContext(context.Background(), logger.CatMessages, "push: message entry",
+			"role", string(msg.Role),
+			"content_len", len(msg.Content),
+			"tokens", msg.Tokens,
+			"is_ephemeral", msg.IsEphemeral,
+			"has_reasoning", len(msg.ReasoningContent) > 0,
+			"tool_calls_count", len(msg.ToolCalls),
+		)
+	}
+
 	// Capacity check & eviction
 	capacity := cw.maxTokens - cw.bufferTokens
 	if cw.currentTokens+msg.Tokens > capacity {
+		if cw.log != nil {
+			cw.log.DebugContext(context.Background(), logger.CatMessages, "push: capacity check triggered",
+				"current_tokens", cw.currentTokens,
+				"new_msg_tokens", msg.Tokens,
+				"capacity", capacity,
+				"messages_count_before", len(cw.messages),
+			)
+		}
 		cw.evict(msg.Tokens)
+		if cw.log != nil {
+			cw.log.DebugContext(context.Background(), logger.CatMessages, "push: eviction completed",
+				"current_tokens_after", cw.currentTokens,
+				"messages_count_after", len(cw.messages),
+			)
+		}
 	}
 	cw.messages = append(cw.messages, msg)
 	cw.currentTokens += msg.Tokens
 
+	if cw.log != nil {
+		cw.log.DebugContext(context.Background(), logger.CatMessages, "push: message appended",
+			"total_messages", len(cw.messages),
+			"total_tokens", cw.currentTokens,
+			"tokens_used_pct", float64(cw.currentTokens)*100.0/float64(cw.maxTokens),
+		)
+	}
+
 	// Soft waterline check: trigger async compression
 	if cw.compactor != nil && cw.currentTokens > cw.summaryTokens && !cw.summarizing.Load() {
+		if cw.log != nil {
+			cw.log.DebugContext(context.Background(), logger.CatMessages, "push: soft waterline exceeded, triggering async compression",
+				"current_tokens", cw.currentTokens,
+				"summary_waterline", cw.summaryTokens,
+				"waterline_exceeded_pct", float64(cw.currentTokens-cw.summaryTokens)*100.0/float64(cw.summaryTokens),
+			)
+		}
 		go cw.asyncCompact()
 	}
 
@@ -243,6 +295,17 @@ func (cw *ContextWindow) BuildPayload() []PayloadMessage {
 func (cw *ContextWindow) Calibrate(promptTokens int) {
 	cw.Lock()
 	defer cw.Unlock()
+
+	if cw.log != nil {
+		drift := cw.currentTokens - promptTokens
+		cw.log.DebugContext(context.Background(), logger.CatMessages, "calibrate: token count updated",
+			"estimated_tokens", cw.currentTokens,
+			"actual_tokens", promptTokens,
+			"drift", drift,
+			"drift_pct", float64(drift)*100.0/float64(promptTokens),
+			"messages_count", len(cw.messages),
+		)
+	}
 
 	cw.currentTokens = promptTokens
 }
@@ -369,15 +432,32 @@ func (cw *ContextWindow) asyncCompact() {
 	}
 	defer cw.summarizing.Store(false)
 
+	if cw.log != nil {
+		cw.log.DebugContext(context.Background(), logger.CatMessages, "async_compact: compression initiated")
+	}
+
 	// Snapshot messages under read lock
 	cw.RLock()
 	msgs := make([]Message, len(cw.messages))
 	copy(msgs, cw.messages)
+	tokensBefore := cw.currentTokens
 	cw.RUnlock()
+
+	if cw.log != nil {
+		cw.log.DebugContext(context.Background(), logger.CatMessages, "async_compact: snapshot taken",
+			"messages_count", len(msgs),
+			"tokens_before", tokensBefore,
+		)
+	}
 
 	// Compress without holding any lock (allows concurrent operations)
 	summary, err := cw.compactor.Compact(context.Background(), msgs)
 	if err != nil {
+		if cw.log != nil {
+			cw.log.WarnContext(context.Background(), logger.CatMessages, "async_compact: compression failed",
+				"err", err.Error(),
+			)
+		}
 		return // compression failed, keep current state
 	}
 
@@ -390,8 +470,23 @@ func (cw *ContextWindow) asyncCompact() {
 		Tokens:  summaryTokens,
 	}
 	if len(cw.messages) > 0 {
+		tokensAfter := cw.messages[0].Tokens + summaryTokens
+		removedTokens := tokensBefore - tokensAfter
+
 		cw.messages = append(cw.messages[:1], summaryMsg)
-		cw.currentTokens = cw.messages[0].Tokens + summaryTokens
+		cw.currentTokens = tokensAfter
+
+		if cw.log != nil {
+			cw.log.InfoContext(context.Background(), logger.CatMessages, "async_compact: compression completed",
+				"messages_count_before", len(msgs),
+				"messages_count_after", len(cw.messages),
+				"tokens_before", tokensBefore,
+				"tokens_after", tokensAfter,
+				"tokens_saved", removedTokens,
+				"tokens_saved_pct", float64(removedTokens)*100.0/float64(tokensBefore),
+				"summary_len", len(summary),
+			)
+		}
 	}
 	cw.Unlock()
 }

@@ -9,8 +9,10 @@ package compactor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -54,18 +56,31 @@ Rules:
 - Keep the summary as compact as possible while retaining all essential information
 - Output only the summary, no meta-commentary`
 
+// CompactorOption 是 LLMCompactor 的可选配置
+type CompactorOption func(*LLMCompactor)
+
+// WithLogger 设置 compactor 的日志实例
+func WithLogger(l *logger.Logger) CompactorOption {
+	return func(c *LLMCompactor) { c.logger = l }
+}
+
 // LLMCompactor compresses conversation history using any LLM backend.
 type LLMCompactor struct {
 	client  ChatClient
 	modelID string
+	logger  *logger.Logger
 }
 
 // NewLLMCompactor creates a new LLMCompactor with the given client and model.
-func NewLLMCompactor(client ChatClient, modelID string) *LLMCompactor {
-	return &LLMCompactor{
+func NewLLMCompactor(client ChatClient, modelID string, opts ...CompactorOption) *LLMCompactor {
+	c := &LLMCompactor{
 		client:  client,
 		modelID: modelID,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Compact compresses a slice of messages into a single summary string.
@@ -76,6 +91,12 @@ func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (stri
 	if len(msgs) == 0 {
 		return "", nil
 	}
+
+	if c.logger != nil {
+		c.logger.DebugContext(ctx, logger.CatLLM, "compactor: starting",
+			"msg_count", len(msgs), "model", c.modelID)
+	}
+	start := time.Now()
 
 	// Build chat messages: compression system prompt + conversation history
 	chatMsgs := make([]ChatMessage, 0, len(msgs)+1)
@@ -100,7 +121,19 @@ func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (stri
 		Messages: chatMsgs,
 	})
 	if err != nil {
+		if c.logger != nil {
+			c.logger.WarnContext(ctx, logger.CatLLM, "compactor: chat failed",
+				"err", err.Error(),
+				"duration_ms", time.Since(start).Milliseconds())
+		}
 		return "", fmt.Errorf("compactor: chat failed: %w", err)
+	}
+
+	if c.logger != nil {
+		c.logger.InfoContext(ctx, logger.CatLLM, "compactor: completed",
+			"input_msgs", len(msgs),
+			"output_len", len(resp.Content),
+			"duration_ms", time.Since(start).Milliseconds())
 	}
 
 	return resp.Content, nil

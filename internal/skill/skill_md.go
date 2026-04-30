@@ -6,8 +6,21 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"gopkg.in/yaml.v3"
 )
+
+// ─── 包级 Logger ────────────────────────────────────────────────────────────
+
+// pkgLogger 是 skill 包的可选日志实例，通过 SetPackageLogger 设置。
+// 用于记录 Skill 加载过程中的非致命错误（如单个 SKILL.md 解析失败）。
+var pkgLogger *logger.Logger
+
+// SetPackageLogger 设置 skill 包的全局日志实例。
+// 在程序启动时调用一次即可。
+func SetPackageLogger(l *logger.Logger) {
+	pkgLogger = l
+}
 
 // ─── SKILL.md 文件加载器 ──────────────────────────────────────────────────
 
@@ -127,6 +140,10 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 		md, err := ParseSkillMD(skillFile)
 		if err != nil {
 			// 单个 skill 加载失败不阻塞其他
+			if pkgLogger != nil {
+				pkgLogger.Warn(logger.CatApp, "skill: load failed",
+					"path", skillFile, "err", err.Error())
+			}
 			continue
 		}
 		skills = append(skills, md)
