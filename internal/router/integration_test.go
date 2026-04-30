@@ -48,7 +48,7 @@ func TestIntegration_FullRoutingFlow(t *testing.T) {
 				FastTrackConfidenceThreshold: 75,
 			}
 			classifier := NewDefaultClassifier(config, nil)
-			router := NewRouter(classifier, newMockModelService(), nil)
+			router := NewRouter(classifier, NewMockModelService(), nil)
 
 			// Route the prompt
 			ctx := context.Background()
@@ -107,7 +107,7 @@ func TestIntegration_ConfidenceThreshold(t *testing.T) {
 				FastTrackConfidenceThreshold: tt.threshold,
 			}
 			classifier := NewDefaultClassifier(config, nil)
-			router := NewRouter(classifier, newMockModelService(), nil)
+			router := NewRouter(classifier, NewMockModelService(), nil)
 
 			decision, err := router.Route(ctx, tt.prompt)
 			if err != nil {
@@ -131,7 +131,7 @@ func TestIntegration_ModelMappingAccuracy(t *testing.T) {
 		LevelComplexRefactoring:   "deepseek:deepseek-v4-pro-max",
 	}
 
-	mockService := newMockModelService()
+	mockService := NewMockModelService()
 	router := NewRouter(nil, mockService, nil)
 
 	for level, expectedModel := range levels {
