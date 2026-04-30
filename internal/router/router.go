@@ -3,9 +3,9 @@ package router
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // ModelService provides model lookups by role
@@ -23,23 +23,27 @@ type ModelService interface {
 type Router struct {
 	classifier   Classifier
 	modelService ModelService
-	logger       *slog.Logger
+	logger       *logger.Logger
 }
 
 // NewRouter creates a new Router instance
 func NewRouter(
 	classifier Classifier,
 	modelService ModelService,
-	logger *slog.Logger,
+	l *logger.Logger,
 ) *Router {
-	if logger == nil {
-		logger = slog.Default()
+	if l == nil {
+		var err error
+		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return &Router{
 		classifier:   classifier,
 		modelService: modelService,
-		logger:       logger,
+		logger:       l,
 	}
 }
 
@@ -94,19 +98,22 @@ func (r *Router) Route(ctx context.Context, prompt string) (RouteDecision, error
 	decision.ThinkingEnabled = thinking
 	decision.ReasoningEffort = effort
 
+	// Fill RecommendedModel in classification (single source of truth from config)
+	decision.Classification.RecommendedModel = modelID
+
 	// Collect warnings
 	if classification.RequiresConfirmation {
 		decision.Warnings = append(decision.Warnings,
 			fmt.Sprintf("⚠️  %s", classification.ConfirmationMessage))
 	}
 
-	r.logger.DebugContext(ctx, "routing decision made",
-		slog.String("level", classification.Level.String()),
-		slog.String("model_id", modelID),
-		slog.Bool("thinking", thinking),
-		slog.String("effort", effort),
-		slog.Int("confidence", classification.Confidence),
-		slog.Int("warnings", len(decision.Warnings)),
+	r.logger.DebugContext(ctx, logger.CatApp, "routing decision made",
+		"level", classification.Level.String(),
+		"model_id", modelID,
+		"thinking", thinking,
+		"effort", effort,
+		"confidence", classification.Confidence,
+		"warnings", len(decision.Warnings),
 	)
 
 	return decision, nil
@@ -144,9 +151,9 @@ func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, mode
 	// Look up the actual model ID from model service
 	model := r.modelService.DefaultModelByRole(role)
 	if model == nil {
-		r.logger.WarnContext(context.Background(), "model not found for role",
-			slog.String("role", role),
-			slog.String("level", level.String()),
+		r.logger.WarnContext(context.Background(), logger.CatApp, "model not found for role",
+			"role", role,
+			"level", level.String(),
 		)
 		// Return a safe fallback
 		return "deepseek", "deepseek-v4-flash", false, ""

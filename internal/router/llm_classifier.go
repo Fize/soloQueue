@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"hash/fnv"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // ─── LLM Classifier ─────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ type LLMClassifier struct {
 	model   string // API model name for classification (e.g., "deepseek-v4-flash")
 	timeout time.Duration
 	cache   sync.Map // uint64 → ClassificationResult
-	logger  *slog.Logger
+	logger  *logger.Logger
 }
 
 // NewLLMClassifier creates a new LLM-based classifier.
@@ -65,16 +65,20 @@ type LLMClassifier struct {
 // Parameters:
 //   - client: shared LLM client (concurrent-safe)
 //   - model: API model name to use (typically the "fast" model without thinking)
-//   - logger: optional logger (nil = slog.Default())
-func NewLLMClassifier(client agent.LLMClient, model string, logger *slog.Logger) *LLMClassifier {
-	if logger == nil {
-		logger = slog.Default()
+//   - logger: optional logger (nil = creates minimal system-layer logger)
+func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *LLMClassifier {
+	if l == nil {
+		var err error
+		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+		if err != nil {
+			panic(err)
+		}
 	}
 	return &LLMClassifier{
 		client:  client,
 		model:   model,
 		timeout: llmClassifierTimeout,
-		logger:  logger,
+		logger:  l,
 	}
 }
 
@@ -92,8 +96,8 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string) (Classific
 	key := hashPrompt(prompt)
 	if cached, ok := lc.cache.Load(key); ok {
 		result := cached.(ClassificationResult)
-		lc.logger.DebugContext(ctx, "llm classifier cache hit",
-			slog.String("level", result.Level.String()),
+		lc.logger.DebugContext(ctx, logger.CatApp, "llm classifier cache hit",
+			"level", result.Level.String(),
 		)
 		return result, nil
 	}
@@ -120,8 +124,8 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string) (Classific
 	resp, err := lc.client.Chat(classCtx, req)
 	if err != nil {
 		// Timeout or API error → graceful degradation to L1
-		lc.logger.DebugContext(ctx, "llm classifier failed, fallback to L1",
-			slog.String("err", err.Error()),
+		lc.logger.DebugContext(ctx, logger.CatApp, "llm classifier failed, fallback to L1",
+			"err", err.Error(),
 		)
 		return ClassificationResult{
 			Level:      LevelSimpleSingleFile,
@@ -133,10 +137,10 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string) (Classific
 	// 5. Parse JSON response
 	result := parseLLMClassifyResponse(resp.Content)
 
-	lc.logger.DebugContext(ctx, "llm classification complete",
-		slog.String("level", result.Level.String()),
-		slog.Int("confidence", result.Confidence),
-		slog.String("reason", result.Reason),
+	lc.logger.DebugContext(ctx, logger.CatApp, "llm classification complete",
+		"level", result.Level.String(),
+		"confidence", result.Confidence,
+		"reason", result.Reason,
 	)
 
 	// 6. Cache and return
@@ -203,7 +207,6 @@ func parseLLMClassifyResponse(content string) ClassificationResult {
 		Level:            level,
 		Confidence:       confidence,
 		Reason:           reason,
-		RecommendedModel: ModelForLevel(level),
 	}
 }
 

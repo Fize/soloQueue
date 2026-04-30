@@ -87,7 +87,6 @@ func (ftc *FastTrackClassifier) Classify(prompt string) ClassificationResult {
 		result.Level = LevelConversation
 		result.Confidence = 95
 		result.Reason = "Empty prompt"
-		result.RecommendedModel = ModelForLevel(result.Level)
 		return result
 	}
 
@@ -142,7 +141,6 @@ func (ftc *FastTrackClassifier) Classify(prompt string) ClassificationResult {
 		result.ConfirmationMessage = "This command appears to involve destructive operations. Proceed?"
 	}
 
-	result.RecommendedModel = ModelForLevel(result.Level)
 	return result
 }
 
@@ -220,7 +218,6 @@ func (ftc *FastTrackClassifier) classifySlashCommand(cmd string, fullPrompt stri
 		return ClassificationResult{}, false
 	}
 
-	result.RecommendedModel = ModelForLevel(result.Level)
 	return result, true
 }
 
