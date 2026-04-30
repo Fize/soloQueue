@@ -1,9 +1,12 @@
 package ctxwin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"unicode/utf8"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // ─── 常量 ───────────────────────────────────────────────────────────────────
@@ -40,25 +43,62 @@ var largeFields = map[string]bool{
 // 返回 true 如果有任何消息被截断。
 func (cw *ContextWindow) truncateMiddleOut() bool {
 	truncated := false
+	truncatedCount := 0
+	totalSavedTokens := 0
+
 	for i := range cw.messages {
 		msg := &cw.messages[i]
 		if !msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
 			continue
 		}
 
+		if cw.log != nil {
+			cw.log.DebugContext(context.Background(), logger.CatMessages, "truncate_middle_out: ephemeral message detected",
+				"msg_index", i,
+				"msg_role", string(msg.Role),
+				"msg_tokens", msg.Tokens,
+				"threshold", ephemeralTruncateThreshold,
+			)
+		}
+
 		newContent := tryJSONTruncate(msg.Content, cw.tokenizer)
 		if newContent == "" {
-			// JSON 解析失败或无需截断，回退到字符级截断
+			// JSON 解析失败或無需截斷，回退到字符級截斷
 			newContent = charLevelTruncate(msg.Content, 0.10, 0.20)
 		}
 		msg.Content = newContent
 
-		// 重新计算 token（包含 Content + ReasoningContent）
+		// 重新計算 token（包含 Content + ReasoningContent）
+		oldTokens := msg.Tokens
 		newTokens := cw.tokenizer.Count(msg.Content) + cw.tokenizer.Count(msg.ReasoningContent)
-		cw.currentTokens -= (msg.Tokens - newTokens)
+		savedTokens := oldTokens - newTokens
+		cw.currentTokens -= savedTokens
 		msg.Tokens = newTokens
+
+		truncatedCount++
+		totalSavedTokens += savedTokens
+
+		if cw.log != nil {
+			cw.log.DebugContext(context.Background(), logger.CatMessages, "truncate_middle_out: message truncated",
+				"msg_index", i,
+				"tokens_before", oldTokens,
+				"tokens_after", newTokens,
+				"tokens_saved", savedTokens,
+				"content_len_before", len(msg.Content), // Note: this is after truncation, but shows result
+			)
+		}
+
 		truncated = true
 	}
+
+	if truncated && cw.log != nil {
+		cw.log.InfoContext(context.Background(), logger.CatMessages, "truncate_middle_out: completed",
+			"messages_truncated", truncatedCount,
+			"total_tokens_saved", totalSavedTokens,
+			"remaining_messages", len(cw.messages),
+		)
+	}
+
 	return truncated
 }
 
@@ -188,25 +228,75 @@ func charLevelTruncate(s string, headRatio, tailRatio float64) string {
 //   - 每次删除一个完整 Turn，保证上下文始终是完整的"问答对"序列
 //   - 只剩一个 Turn 时不删除（否则只剩 system prompt，LLM 无法工作）
 func (cw *ContextWindow) slideFIFO(targetTokens int) {
+	turnsRemoved := 0
+	totalTokensFreed := 0
+
 	for cw.currentTokens > targetTokens {
 		if len(cw.messages) <= 1 {
+			if cw.log != nil {
+				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: cannot remove more turns",
+					"reason", "only_system_prompt_left",
+					"turns_removed", turnsRemoved,
+					"total_tokens_freed", totalTokensFreed,
+				)
+			}
 			break // 只剩 system prompt
 		}
 		turnEnd := cw.findTurnEnd(1)
 		if turnEnd <= 1 {
+			if cw.log != nil {
+				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: cannot remove more turns",
+					"reason", "no_turn_found",
+					"turns_removed", turnsRemoved,
+					"total_tokens_freed", totalTokensFreed,
+				)
+			}
 			break // 没有 Turn 可删
 		}
 		// 只剩一个 Turn 时，不删除
 		if turnEnd >= len(cw.messages) {
+			if cw.log != nil {
+				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: cannot remove more turns",
+					"reason", "only_one_turn_left",
+					"turns_removed", turnsRemoved,
+					"total_tokens_freed", totalTokensFreed,
+				)
+			}
 			break
 		}
 		// 删除 messages[1:turnEnd]
 		removedTokens := 0
+		removedCount := 0
 		for i := 1; i < turnEnd; i++ {
 			removedTokens += cw.messages[i].Tokens
+			removedCount++
 		}
+
+		if cw.log != nil {
+			cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: removing turn",
+				"turn_index", turnsRemoved,
+				"messages_in_turn", removedCount,
+				"tokens_freed", removedTokens,
+				"tokens_before", cw.currentTokens,
+				"tokens_after", cw.currentTokens - removedTokens,
+				"target_tokens", targetTokens,
+			)
+		}
+
 		cw.messages = append(cw.messages[:1], cw.messages[turnEnd:]...)
 		cw.currentTokens -= removedTokens
+		turnsRemoved++
+		totalTokensFreed += removedTokens
+	}
+
+	if turnsRemoved > 0 && cw.log != nil {
+		cw.log.InfoContext(context.Background(), logger.CatMessages, "slide_fifo: completed",
+			"turns_removed", turnsRemoved,
+			"total_tokens_freed", totalTokensFreed,
+			"final_token_count", cw.currentTokens,
+			"target_tokens", targetTokens,
+			"remaining_messages", len(cw.messages),
+		)
 	}
 }
 

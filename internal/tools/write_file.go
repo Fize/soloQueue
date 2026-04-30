@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // writeFileTool 原子写入单个文件
@@ -23,10 +24,11 @@ import (
 //   - 父目录必须已存在（不自动 MkdirAll；避免 LLM 误造目录树）
 //   - 原子性：atomicWrite(tmp + rename)；失败无残留 tmp
 type writeFileTool struct {
-	cfg Config
+	cfg    Config
+	logger *logger.Logger
 }
 
-func newWriteFileTool(cfg Config) *writeFileTool { return &writeFileTool{cfg: cfg} }
+func newWriteFileTool(cfg Config) *writeFileTool { return &writeFileTool{cfg: cfg, logger: cfg.Logger} }
 
 func (writeFileTool) Name() string { return "Write" }
 
@@ -79,7 +81,16 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 		overwrite = *a.Overwrite
 	}
 
-	return writeFileImpl(t.cfg, a.Path, a.Content, overwrite)
+	result, err := writeFileImpl(t.cfg, a.Path, a.Content, overwrite)
+	if err != nil {
+		return "", err
+	}
+
+	if t.logger != nil {
+		t.logger.DebugContext(ctx, logger.CatTool, "write_file: completed",
+			"path", a.Path, "size", len(a.Content))
+	}
+	return result, nil
 }
 
 // writeFileImpl 是内部实现；multi_write 直接调用以保证语义一致

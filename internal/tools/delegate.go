@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // --- Delegate constants ---
@@ -58,6 +59,7 @@ type DelegateTool struct {
 	LeaderID string        // target agent identifier (e.g., "dev")
 	Desc     string        // leader description (for Tool.Description)
 	Timeout  time.Duration
+	logger   *logger.Logger // optional logger for delegation tracking
 
 	// Synchronous mode (L2 -> L3): look up an already-registered agent.
 	Locator iface.AgentLocator
@@ -74,6 +76,30 @@ var (
 	_ Tool      = (*DelegateTool)(nil)
 	_ AsyncTool = (*DelegateTool)(nil)
 )
+
+// NewDelegateTool creates a new DelegateTool with optional logger.
+func NewDelegateTool(leaderID, desc string, timeout time.Duration, locator iface.AgentLocator, l *logger.Logger) *DelegateTool {
+	if l == nil {
+		var err error
+		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+		if err != nil {
+			// Fallback to nil logger is ok here, we check before use
+			l = nil
+		}
+	}
+	return &DelegateTool{
+		LeaderID: leaderID,
+		Desc:     desc,
+		Timeout:  timeout,
+		Locator:  locator,
+		logger:   l,
+	}
+}
+
+// SetLogger sets the logger for this DelegateTool.
+func (dt *DelegateTool) SetLogger(l *logger.Logger) {
+	dt.logger = l
+}
 
 func (dt *DelegateTool) Name() string {
 	return "delegate_" + dt.LeaderID
@@ -93,28 +119,77 @@ func (dt *DelegateTool) Parameters() json.RawMessage {
 // ToolNeedsConfirmEvent to the parent event channel (if injected via
 // context), and accumulates the final content or error.
 func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error) {
+	start := time.Now()
+
 	// 1. Parse arguments
 	var dArgs delegateArgs
 	if err := json.Unmarshal([]byte(args), &dArgs); err != nil {
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate: invalid args",
+				"leader_id", dt.LeaderID,
+				"err", err.Error(),
+			)
+		}
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
 	if dArgs.Task == "" {
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate: task is empty",
+				"leader_id", dt.LeaderID,
+			)
+		}
 		return "error: task is empty", nil
+	}
+
+	if dt.logger != nil {
+		dt.logger.DebugContext(ctx, logger.CatTool, "delegate: starting synchronous delegation",
+			"leader_id", dt.LeaderID,
+			"task_len", len(dArgs.Task),
+			"timeout_sec", dt.Timeout.Seconds(),
+		)
 	}
 
 	// 2. Locate or spawn target agent
 	var targetAgent iface.Locatable
+	var isSpawned bool
+
 	if dt.SpawnFn != nil {
 		var err error
 		targetAgent, err = dt.SpawnFn(ctx, dArgs.Task)
 		if err != nil {
+			if dt.logger != nil {
+				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: failed to spawn agent",
+					"leader_id", dt.LeaderID,
+					"err", err.Error(),
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
+			}
 			return fmt.Sprintf("error: failed to spawn agent '%s': %s", dt.LeaderID, err), nil
+		}
+		isSpawned = true
+
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate: agent spawned",
+				"leader_id", dt.LeaderID,
+			)
 		}
 	} else {
 		var ok bool
 		targetAgent, ok = dt.Locator.Locate(dt.LeaderID)
 		if !ok {
+			if dt.logger != nil {
+				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: target agent not found",
+					"leader_id", dt.LeaderID,
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
+			}
 			return fmt.Sprintf("error: team leader '%s' not found", dt.LeaderID), nil
+		}
+
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate: target agent located",
+				"leader_id", dt.LeaderID,
+			)
 		}
 	}
 
@@ -140,14 +215,44 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	if params := iface.ModelOverrideFromContext(ctx); params != nil {
 		if mo, ok := targetAgent.(iface.ModelOverridable); ok {
 			mo.SetModelOverride(params)
+
+			if dt.logger != nil {
+				dt.logger.DebugContext(ctx, logger.CatTool, "delegate: model override propagated",
+					"leader_id", dt.LeaderID,
+					"provider_id", params.ProviderID,
+					"model_id", params.ModelID,
+				)
+			}
 		}
 	}
 
 	// 5. Call target agent's streaming interface
+	if dt.logger != nil {
+		dt.logger.DebugContext(ctx, logger.CatTool, "delegate: calling AskStream on target",
+			"leader_id", dt.LeaderID,
+			"timeout_sec", timeout.Seconds(),
+		)
+	}
+
 	evCh, err := targetAgent.AskStream(delCtx, dArgs.Task)
 	if err != nil {
 		if delCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+			if dt.logger != nil {
+				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: timeout",
+					"leader_id", dt.LeaderID,
+					"timeout_sec", timeout.Seconds(),
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
+			}
 			return fmt.Sprintf("error: delegation to %s timed out after %s, task has been cancelled", dt.LeaderID, timeout), nil
+		}
+
+		if dt.logger != nil {
+			dt.logger.WarnContext(ctx, logger.CatTool, "delegate: AskStream failed",
+				"leader_id", dt.LeaderID,
+				"err", err.Error(),
+				"duration_ms", time.Since(start).Milliseconds(),
+			)
 		}
 		return "error: " + err.Error(), nil
 	}
@@ -155,18 +260,32 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	// 6. Consume events: relay to parent, track content/error
 	var content string
 	var finalErr error
+	var eventCount int
 
 	for ev := range evCh {
 		if ev == nil {
 			continue
 		}
 
+		eventCount++
+
 		// Relay event to parent event channel (for ToolNeedsConfirmEvent bubbling)
 		if parentEventCh != nil {
 			select {
 			case parentEventCh <- ev:
+				if dt.logger != nil {
+					dt.logger.DebugContext(ctx, logger.CatTool, "delegate: event relayed to parent",
+						"leader_id", dt.LeaderID,
+						"event_type", fmt.Sprintf("%T", ev),
+					)
+				}
 			case <-delCtx.Done():
 				// parent cancelled or timed out, stop relaying
+				if dt.logger != nil {
+					dt.logger.DebugContext(ctx, logger.CatTool, "delegate: parent cancelled, stop relaying",
+						"leader_id", dt.LeaderID,
+					)
+				}
 			}
 		}
 
@@ -179,6 +298,13 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 		// Route confirmation requests to parent agent
 		if callID, has := ec.ConfirmRequest(); has && hasConfirmFwd {
 			go confirmFwd(delCtx, callID, targetAgent)
+
+			if dt.logger != nil {
+				dt.logger.DebugContext(ctx, logger.CatTool, "delegate: confirmation forwarded",
+					"leader_id", dt.LeaderID,
+					"call_id", callID,
+				)
+			}
 		}
 
 		// Accumulate content delta
@@ -189,16 +315,48 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 		// DoneEvent content overrides accumulated deltas
 		if doneContent, has := ec.DoneContent(); has && doneContent != "" {
 			content = doneContent
+
+			if dt.logger != nil {
+				dt.logger.DebugContext(ctx, logger.CatTool, "delegate: done event received",
+					"leader_id", dt.LeaderID,
+					"content_len", len(content),
+				)
+			}
 		}
 
 		// Capture error
 		if errValue, has := ec.Error(); has && errValue != nil {
 			finalErr = errValue
+
+			if dt.logger != nil {
+				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: error event received",
+					"leader_id", dt.LeaderID,
+					"err", errValue.Error(),
+				)
+			}
 		}
 	}
 
 	if finalErr != nil {
+		if dt.logger != nil {
+			dt.logger.WarnContext(ctx, logger.CatTool, "delegate: finished with error",
+				"leader_id", dt.LeaderID,
+				"events_processed", eventCount,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"err", finalErr.Error(),
+			)
+		}
 		return "", finalErr
+	}
+
+	if dt.logger != nil {
+		dt.logger.DebugContext(ctx, logger.CatTool, "delegate: completed successfully",
+			"leader_id", dt.LeaderID,
+			"content_len", len(content),
+			"events_processed", eventCount,
+			"is_spawned", isSpawned,
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
 	}
 
 	return content, nil
@@ -249,13 +407,33 @@ func ConfirmForwarderFromCtx(ctx context.Context) (iface.ConfirmForwarder, bool)
 //  3. Starting goroutines to execute Ask
 //  4. Monitoring results and resuming the tool loop
 func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAction, error) {
+	start := time.Now()
+
 	// 1. Parse arguments
 	var dArgs delegateArgs
 	if err := json.Unmarshal([]byte(args), &dArgs); err != nil {
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate async: invalid args",
+				"leader_id", dt.LeaderID,
+				"err", err.Error(),
+			)
+		}
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
 	if dArgs.Task == "" {
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate async: task is empty",
+				"leader_id", dt.LeaderID,
+			)
+		}
 		return nil, fmt.Errorf("task is empty")
+	}
+
+	if dt.logger != nil {
+		dt.logger.DebugContext(ctx, logger.CatTool, "delegate async: starting asynchronous delegation",
+			"leader_id", dt.LeaderID,
+			"task_len", len(dArgs.Task),
+		)
 	}
 
 	// 2. Locate or spawn target agent (intent only, no execution)
@@ -265,15 +443,43 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 	if dt.SpawnFn != nil {
 		target, err = dt.SpawnFn(ctx, dArgs.Task)
 		if err != nil {
+			if dt.logger != nil {
+				dt.logger.WarnContext(ctx, logger.CatTool, "delegate async: failed to spawn agent",
+					"leader_id", dt.LeaderID,
+					"err", err.Error(),
+				)
+			}
 			return nil, fmt.Errorf("failed to spawn agent '%s': %w", dt.LeaderID, err)
+		}
+
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate async: agent spawned",
+				"leader_id", dt.LeaderID,
+			)
 		}
 	} else if dt.Locator != nil {
 		var ok bool
 		target, ok = dt.Locator.Locate(dt.LeaderID)
 		if !ok {
+			if dt.logger != nil {
+				dt.logger.WarnContext(ctx, logger.CatTool, "delegate async: target agent not found",
+					"leader_id", dt.LeaderID,
+				)
+			}
 			return nil, fmt.Errorf("team leader '%s' not found", dt.LeaderID)
 		}
+
+		if dt.logger != nil {
+			dt.logger.DebugContext(ctx, logger.CatTool, "delegate async: target agent located",
+				"leader_id", dt.LeaderID,
+			)
+		}
 	} else {
+		if dt.logger != nil {
+			dt.logger.ErrorContext(ctx, logger.CatTool, "delegate async: no Locator or SpawnFn configured",
+				"leader_id", dt.LeaderID,
+			)
+		}
 		return nil, fmt.Errorf("delegate tool '%s': no Locator or SpawnFn configured", dt.LeaderID)
 	}
 
@@ -281,6 +487,14 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 	if params := iface.ModelOverrideFromContext(ctx); params != nil {
 		if mo, ok := target.(iface.ModelOverridable); ok {
 			mo.SetModelOverride(params)
+
+			if dt.logger != nil {
+				dt.logger.DebugContext(ctx, logger.CatTool, "delegate async: model override propagated",
+					"leader_id", dt.LeaderID,
+					"provider_id", params.ProviderID,
+					"model_id", params.ModelID,
+				)
+			}
 		}
 	}
 
@@ -291,6 +505,14 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 	}
 	if timeout > DelegateMaxTimeout {
 		timeout = DelegateMaxTimeout
+	}
+
+	if dt.logger != nil {
+		dt.logger.DebugContext(ctx, logger.CatTool, "delegate async: async action created",
+			"leader_id", dt.LeaderID,
+			"timeout_sec", timeout.Seconds(),
+			"preparation_ms", time.Since(start).Milliseconds(),
+		)
 	}
 
 	return &AsyncAction{

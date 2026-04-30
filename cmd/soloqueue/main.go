@@ -73,6 +73,8 @@ Environment:
 			}
 			defer log.Close()
 
+			cfg.SetLogger(log)
+
 			settings := cfg.Get()
 
 			// promptProfileQuestions は TUI モードのみ必要なので、
@@ -298,6 +300,7 @@ func buildRuntimeStack(
 	llmCompactor := compactor.NewLLMCompactor(
 		compactor.NewAgentChatClient(llmClient),
 		compactorModelID,
+		compactor.WithLogger(log),
 	)
 
 	tok := ctxwin.NewTokenizer()
@@ -313,6 +316,7 @@ func buildRuntimeStack(
 
 	// 加载全局 skill registry（TUI slash 命令和 session 共用）
 	// 支持多目录优先级：plugin < user < project
+	skill.SetPackageLogger(log)
 	skillDirs := map[string]string{
 		"user": filepath.Join(workDir, "skills"),
 	}
@@ -409,23 +413,21 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	}
 
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
-	allTools := tools.WithFallbackPrefix(tools.Build(sb.rt.toolsCfg))
-	for _, l := range sb.rt.leaders {
-		leader := l // capture loop variable
-		dt := &tools.DelegateTool{
-			LeaderID: leader.Name,
-			Desc:     leader.Description,
-			SpawnFn: func(ctx context.Context, task string) (iface.Locatable, error) {
+	sessionToolsCfg := sb.rt.toolsCfg
+	sessionToolsCfg.Logger = sessLog
+	allTools := tools.WithFallbackPrefix(tools.Build(sessionToolsCfg))
+		for _, l := range sb.rt.leaders {
+			leader := l // capture loop variable
+			dt := tools.NewDelegateTool(leader.Name, leader.Description, 5*time.Minute, sb.rt.agentRegistry, sessLog)
+			dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
 				a, ok := sb.rt.agentRegistry.Get(leader.Name)
 				if !ok {
 					return nil, fmt.Errorf("leader %q not found", leader.Name)
 				}
 				return &agent.LocatableAdapter{Agent: a}, nil
-			},
-			Timeout: 5 * time.Minute,
+			}
+			allTools = append(allTools, dt)
 		}
-		allTools = append(allTools, dt)
-	}
 
 	// Skills: 使用全局 skillRegistry
 	skillList := sb.rt.skillRegistry.Skills()
@@ -454,7 +456,8 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 			return &agent.LocatableAdapter{Agent: child}, cleanup, nil
 		}
 
-		skillTool := skill.NewSkillTool(sb.rt.skillRegistry, forkSpawn)
+		skillTool := skill.NewSkillTool(sb.rt.skillRegistry, forkSpawn,
+			skill.WithSkillLogger(sessLog))
 		allTools = append(allTools, skillTool)
 	}
 
@@ -471,7 +474,8 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 
 	// Timeline writer + push hook
 	tlDir := filepath.Join(sb.workDir, "logs", "timelines", effectiveTeam)
-	tl, err := timeline.NewWriter(tlDir, "timeline", sb.tlMaxBytes, sb.tlMaxFiles)
+	tl, err := timeline.NewWriter(tlDir, "timeline", sb.tlMaxBytes, sb.tlMaxFiles,
+		timeline.WithWriterLogger(sessLog))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
@@ -589,25 +593,25 @@ func versionCmd() *cobra.Command {
 			}
 			defer log.Close()
 
-			log.Info(logger.CatApp, "soloqueue starting", "version", version)
-
-			fmt.Printf("soloqueue version %s\n", version)
-			fmt.Printf("work dir: %s\n", workDir)
+			cfg.SetLogger(log)
 
 			settings := cfg.Get()
-			fmt.Printf("log level: %s\n", settings.Log.Level)
+
+			log.Info(logger.CatApp, "soloqueue version info",
+				"version", version,
+				"work_dir", workDir,
+				"log_level", settings.Log.Level,
+			)
 
 			p := cfg.DefaultProvider()
 			if p != nil {
-				fmt.Printf("default provider: %s (%s)\n", p.Name, p.ID)
+				log.Info(logger.CatApp, "default provider", "name", p.Name, "id", p.ID)
 			}
 
 			m := cfg.DefaultModelByRole("fast")
 			if m != nil {
-				fmt.Printf("default model: %s (%s)\n", m.Name, m.ID)
+				log.Info(logger.CatApp, "default model", "name", m.Name, "id", m.ID)
 			}
-
-			log.Info(logger.CatApp, "version command completed")
 			return nil
 		},
 	}
@@ -641,6 +645,8 @@ func serveCmd() *cobra.Command {
 
 			log.Info(logger.CatApp, "soloqueue serve starting",
 				"host", host, "port", port, "version", version)
+
+			cfg.SetLogger(log)
 
 			settings := cfg.Get()
 
@@ -681,7 +687,6 @@ func serveCmd() *cobra.Command {
 			}()
 
 			log.Info(logger.CatApp, "server listening", "addr", srv.Addr)
-			fmt.Printf("soloqueue serve listening on %s:%d\n", host, port)
 
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				return fmt.Errorf("http listen: %w", err)
