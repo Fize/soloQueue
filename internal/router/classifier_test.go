@@ -74,11 +74,6 @@ func TestDefaultClassifier_Classify(t *testing.T) {
 				t.Errorf("expected confidence >= %d, got %d",
 					tt.minConfidence, result.Confidence)
 			}
-
-			// Verify model is set correctly
-			if result.RecommendedModel == "" {
-				t.Errorf("recommended model should not be empty")
-			}
 		})
 	}
 }
@@ -128,13 +123,8 @@ func TestClassificationResultDetails(t *testing.T) {
 		t.Errorf("expected reason to be provided")
 	}
 
-	// Test model recommendation matches level
-	result, _ = classifier.Classify(ctx, "Explain closures")
-	expectedModel := ModelForLevel(result.Level)
-	if result.RecommendedModel != expectedModel {
-		t.Errorf("expected model %q, got %q",
-			expectedModel, result.RecommendedModel)
-	}
+	// RecommendedModel is now filled by Router.Route(), not by the classifier directly.
+	// Classifier output leaves it empty; Router populates it from config.
 }
 
 func TestConfidenceThresholds(t *testing.T) {

@@ -2,9 +2,9 @@ package router
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // Classifier is the main interface for task classification
@@ -18,7 +18,7 @@ type DefaultClassifier struct {
 	config    ClassifierConfig
 	fastTrack *FastTrackClassifier
 	llm       *LLMClassifier // nil when LLM classification is disabled
-	logger    *slog.Logger
+	logger    *logger.Logger
 }
 
 // NewDefaultClassifier creates a new classifier with the given configuration.
@@ -27,22 +27,27 @@ type DefaultClassifier struct {
 //   - config: classifier behavior settings (thresholds, feature flags)
 //   - llmClient: shared LLM client for semantic fallback (nil = disable LLM)
 //   - model: API model name for the LLM classifier (used only if llmClient != nil)
-//   - logger: optional logger (nil = slog.Default())
-func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, model string, logger *slog.Logger) *DefaultClassifier {
-	if logger == nil {
-		logger = slog.Default()
+//   - logger: optional logger (nil = default System-layer logger)
+func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, model string, l *logger.Logger) *DefaultClassifier {
+	if l == nil {
+		// Create a minimal system-layer logger for classification
+		var err error
+		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	var lc *LLMClassifier
 	if config.EnableLLMClassification && llmClient != nil && model != "" {
-		lc = NewLLMClassifier(llmClient, model, logger)
+		lc = NewLLMClassifier(llmClient, model, l)
 	}
 
 	return &DefaultClassifier{
 		config:    config,
 		fastTrack: NewFastTrackClassifier(),
 		llm:       lc,
-		logger:    logger,
+		logger:    l,
 	}
 }
 
@@ -72,50 +77,50 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string) (Class
 	// Step 1: Run fast-track classifier
 	ftResult := dc.fastTrack.Classify(prompt)
 
-	dc.logger.DebugContext(ctx, "fast-track classification",
-		slog.String("level", ftResult.Level.String()),
-		slog.Int("confidence", ftResult.Confidence),
-		slog.String("reason", ftResult.Reason),
+	dc.logger.DebugContext(ctx, logger.CatApp, "fast-track classification",
+		"level", ftResult.Level.String(),
+		"confidence", ftResult.Confidence,
+		"reason", ftResult.Reason,
 	)
 
 	// Step 2: Check if confidence is sufficient
 	if ftResult.Confidence >= dc.config.FastTrackConfidenceThreshold {
-		dc.logger.DebugContext(ctx, "classification complete (fast-track sufficient)",
-			slog.String("level", ftResult.Level.String()),
-			slog.Int("confidence", ftResult.Confidence),
+		dc.logger.DebugContext(ctx, logger.CatApp, "classification complete (fast-track sufficient)",
+			"level", ftResult.Level.String(),
+			"confidence", ftResult.Confidence,
 		)
 		return ftResult, nil
 	}
 
 	// Step 3: LLM classification as fallback (only when fast-track is uncertain)
 	if !dc.config.EnableLLMClassification || dc.llm == nil {
-		dc.logger.DebugContext(ctx, "classification complete (low confidence, LLM unavailable)",
-			slog.String("level", ftResult.Level.String()),
-			slog.Int("confidence", ftResult.Confidence),
+		dc.logger.DebugContext(ctx, logger.CatApp, "classification complete (low confidence, LLM unavailable)",
+			"level", ftResult.Level.String(),
+			"confidence", ftResult.Confidence,
 		)
 		return ftResult, nil
 	}
 
-	dc.logger.DebugContext(ctx, "fast-track uncertain, invoking LLM fallback",
-		slog.Int("ft_confidence", ftResult.Confidence),
-		slog.Int("threshold", dc.config.FastTrackConfidenceThreshold),
+	dc.logger.DebugContext(ctx, logger.CatApp, "fast-track uncertain, invoking LLM fallback",
+		"ft_confidence", ftResult.Confidence,
+		"threshold", dc.config.FastTrackConfidenceThreshold,
 	)
 
 	llmResult, err := dc.llm.Classify(ctx, prompt)
 	if err != nil {
 		// LLM error: use fast-track result regardless of confidence
-		dc.logger.DebugContext(ctx, "LLM classifier error, using fast-track",
-			slog.String("err", err.Error()),
+		dc.logger.DebugContext(ctx, logger.CatApp, "LLM classifier error, using fast-track",
+			"err", err.Error(),
 		)
 		return ftResult, nil
 	}
 
 	// Step 4: Use whichever result has higher confidence
 	if llmResult.Confidence > ftResult.Confidence {
-		dc.logger.DebugContext(ctx, "classification complete (LLM override)",
-			slog.String("level", llmResult.Level.String()),
-			slog.Int("confidence", llmResult.Confidence),
-			slog.String("reason", llmResult.Reason),
+		dc.logger.DebugContext(ctx, logger.CatApp, "classification complete (LLM override)",
+			"level", llmResult.Level.String(),
+			"confidence", llmResult.Confidence,
+			"reason", llmResult.Reason,
 		)
 		// Preserve RequiresConfirmation from fast-track (safety check)
 		if ftResult.RequiresConfirmation {
@@ -125,10 +130,10 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string) (Class
 		return llmResult, nil
 	}
 
-	dc.logger.DebugContext(ctx, "classification complete (fast-track preferred over LLM)",
-		slog.String("level", ftResult.Level.String()),
-		slog.Int("ft_confidence", ftResult.Confidence),
-		slog.Int("llm_confidence", llmResult.Confidence),
+	dc.logger.DebugContext(ctx, logger.CatApp, "classification complete (fast-track preferred over LLM)",
+		"level", ftResult.Level.String(),
+		"ft_confidence", ftResult.Confidence,
+		"llm_confidence", llmResult.Confidence,
 	)
 	return ftResult, nil
 }

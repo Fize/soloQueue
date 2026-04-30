@@ -54,23 +54,6 @@ func (cl ClassificationLevel) String() string {
 	}
 }
 
-// ModelForLevel returns the recommended model name for a given classification level.
-// This is used for informational purposes (ClassificationResult.RecommendedModel).
-func ModelForLevel(level ClassificationLevel) string {
-	switch level {
-	case LevelConversation:
-		return "deepseek-v4-flash"
-	case LevelSimpleSingleFile:
-		return "deepseek-v4-flash-thinking"
-	case LevelMediumMultiFile:
-		return "deepseek-v4-pro"
-	case LevelComplexRefactoring:
-		return "deepseek-v4-pro-max"
-	default:
-		return "deepseek-v4-flash" // fallback
-	}
-}
-
 // ClassificationResult holds the output of task classification
 type ClassificationResult struct {
 	// Level is the determined routing level

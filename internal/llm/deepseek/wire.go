@@ -155,7 +155,7 @@ type wireError struct {
 func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireRequest {
 	out := wireRequest{
 		Model:    req.Model,
-		Messages: buildWireMessages(req.Messages),
+		Messages: buildWireMessages(req.Messages, req.ThinkingEnabled),
 		Stream:   stream,
 	}
 	// Optional 采样参数：零值也是合法值（top_p=0 有意义），
@@ -214,7 +214,7 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	return out
 }
 
-func buildWireMessages(msgs []agent.LLMMessage) []wireMessage {
+func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled bool) []wireMessage {
 	out := make([]wireMessage, 0, len(msgs))
 	for _, m := range msgs {
 		wm := wireMessage{
@@ -223,10 +223,17 @@ func buildWireMessages(msgs []agent.LLMMessage) []wireMessage {
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}
-		// DeepSeek thinking mode：assistant 的 reasoning_content 非空时一律回传
-		// 有 tool_calls 时必须回传（否则 400）；无 tool_calls 时传了被忽略，不报错
-		if m.Role == "assistant" && m.ReasoningContent != "" {
-			wm.ReasoningContent = m.ReasoningContent
+		// DeepSeek thinking mode：assistant 的 reasoning_content 处理
+		// 当 thinking mode 启用时，所有 assistant 消息必须带 reasoning_content
+		// （即使为空，也需要发送字段以满足 API 校验）
+		if m.Role == "assistant" {
+			if m.ReasoningContent != "" {
+				wm.ReasoningContent = m.ReasoningContent
+			} else if thinkingEnabled {
+				// Thinking mode requires reasoning_content on all assistant messages.
+				// For messages produced without thinking, insert a placeholder.
+				wm.ReasoningContent = " "
+			}
 		}
 		if len(m.ToolCalls) > 0 {
 			wm.ToolCalls = make([]wireToolCall, 0, len(m.ToolCalls))
