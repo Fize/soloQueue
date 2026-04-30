@@ -264,7 +264,7 @@ func (m *Mux) handleStream(w http.ResponseWriter, r *http.Request) {
 						slog.String("session_id", id),
 						slog.String("level", routingDecision.Level.String()),
 						slog.String("model", routingDecision.ModelID),
-						slog.String("confidence", fmt.Sprintf("%.2f", routingDecision.Classification.Confidence)),
+						slog.Int("confidence", routingDecision.Classification.Confidence),
 					)
 				}
 			}
