@@ -92,7 +92,7 @@ Environment:
 				"version", version, "model", rt.defaultModel.ID)
 
 			agentFactory := buildSessionFactory(rt, workDir, settings, false /* TUI: no console log */)
-			mgr := session.NewSessionManager(agentFactory, 30*time.Minute)
+			mgr := session.NewSessionManager(agentFactory, 30*time.Minute, log)
 			mgr.SetRouter(buildRouterFunc(rt))
 
 			rootCtx, stop := signal.NotifyContext(context.Background(),
@@ -656,7 +656,7 @@ func serveCmd() *cobra.Command {
 			defer rt.shutdown()
 
 			factory := buildSessionFactory(rt, workDir, settings, settings.Log.Console)
-			mgr := session.NewSessionManager(factory, 30*time.Minute)
+			mgr := session.NewSessionManager(factory, 30*time.Minute, log)
 			mgr.SetRouter(buildRouterFunc(rt))
 
 			rootCtx, stop := signal.NotifyContext(context.Background(),

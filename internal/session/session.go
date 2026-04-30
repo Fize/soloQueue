@@ -24,6 +24,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
@@ -65,9 +66,10 @@ type Session struct {
 	Router  TaskRouterFunc // 可选：任务路由分类器（nil = 不做路由，使用默认模型）
 	Created time.Time
 
-	mu sync.Mutex
-	cw *ctxwin.ContextWindow // 替代原 history，管理完整对话上下文
-	tl *timeline.Writer      // 时间线持久化（可为 nil，表示不持久化）
+	mu     sync.Mutex
+	cw     *ctxwin.ContextWindow // 替代原 history，管理完整对话上下文
+	tl     *timeline.Writer      // 时间线持久化（可为 nil，表示不持久化）
+	logger *logger.Logger        // 会话级日志
 
 	// inFlight 并发 Ask 的 CAS 锁：0 → 1 入场；失败返回 ErrSessionBusy
 	inFlight atomic.Int32
@@ -92,7 +94,17 @@ type Session struct {
 //
 // cw 应已包含 system prompt（在 factory 中 push）。
 // tl 可为 nil（不持久化）。
-func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl *timeline.Writer) *Session {
+// logger 为会话级日志记录器（nil 时会创建默认记录器）。
+func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl *timeline.Writer, l *logger.Logger) *Session {
+	if l == nil {
+		var err error
+		l, err = logger.Session("/tmp", teamID, id, logger.WithConsole(false), logger.WithFile(false))
+		if err != nil {
+			// Fallback to system logger if session logger creation fails
+			l, _ = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+		}
+	}
+
 	s := &Session{
 		ID:      id,
 		TeamID:  teamID,
@@ -100,8 +112,15 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		Created: time.Now(),
 		cw:      cw,
 		tl:      tl,
+		logger:  l,
 	}
 	s.lastActive.Store(time.Now().UnixNano())
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session created",
+		"session_id", id,
+		"team_id", teamID,
+	)
+
 	return s
 }
 
@@ -146,12 +165,19 @@ func (s *Session) Clear() error {
 			Action: "clear",
 			Reason: "user_command",
 		}); err != nil {
+			s.logger.ErrorContext(context.Background(), logger.CatApp, "session clear failed",
+				"err", err.Error(),
+			)
 			return fmt.Errorf("session: clear: %w", err)
 		}
 	}
 
 	// 重置 ContextWindow（保留 system prompt）
 	s.cw.Reset()
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session cleared",
+		"session_id", s.ID,
+	)
 
 	return nil
 }
@@ -167,32 +193,58 @@ func (s *Session) Clear() error {
 //   - ctx 取消透传到 agent；Session 不代管超时。
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	if s.closed.Load() {
+		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session closed")
 		return "", ErrSessionClosed
 	}
 	if !s.inFlight.CompareAndSwap(0, 1) {
+		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session busy")
 		return "", ErrSessionBusy
 	}
 	defer s.inFlight.Store(0)
 	defer s.touch()
+
+	start := time.Now()
 
 	// 先 push user prompt（让 Agent 在 BuildPayload 时能看到）
 	s.mu.Lock()
 	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
 
+	s.logger.DebugContext(ctx, logger.CatApp, "ask: prompt pushed to context window",
+		"session_id", s.ID,
+		"prompt_len", len(prompt),
+	)
+
 	reply, reasoningContent, err := s.Agent.AskWithHistory(ctx, s.cw, prompt)
+	duration := time.Since(start).Milliseconds()
+
 	if err != nil {
 		// 失败：移除刚 push 的 user prompt
 		s.mu.Lock()
 		s.cw.PopLast()
 		s.mu.Unlock()
+
+		s.logger.WarnContext(ctx, logger.CatApp, "ask failed, user prompt removed",
+			"session_id", s.ID,
+			"duration_ms", duration,
+			"err", err.Error(),
+		)
 		return "", err
 	}
+
 	// 成功：push assistant reply（含 reasoning_content，DeepSeek thinking mode 跨轮必须回传）
 	s.mu.Lock()
 	opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(reasoningContent)}
 	s.cw.Push(ctxwin.RoleAssistant, reply, opts...)
 	s.mu.Unlock()
+
+	s.logger.DebugContext(ctx, logger.CatApp, "ask complete",
+		"session_id", s.ID,
+		"reply_len", len(reply),
+		"reasoning_len", len(reasoningContent),
+		"duration_ms", duration,
+	)
+
 	return reply, nil
 }
 
@@ -207,12 +259,16 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 // 以保证 ContextWindow 中的消息顺序正确（先完成委派回复，再出现新用户消息）。
 func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.AgentEvent, error) {
 	if s.closed.Load() {
+		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session closed")
 		return nil, ErrSessionClosed
 	}
 
 	// 如果有异步委派正在进行，等待其完成后再操作 CW
 	// 这保证了 CW 中的消息顺序：委派结果在前，新用户消息在后
 	if s.delegationPending.Load() {
+		s.logger.DebugContext(ctx, logger.CatApp, "askstream waiting for delegation completion",
+			"session_id", s.ID,
+		)
 		s.turnMu.Lock()
 		td := s.turnDone
 		closed := s.turnDoneClosed
@@ -220,36 +276,60 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		if td != nil && !closed {
 			select {
 			case <-td:
-				// 委派轮次已完成，可以继续
+				s.logger.DebugContext(ctx, logger.CatApp, "delegation completed, proceeding with askstream",
+					"session_id", s.ID,
+				)
 			case <-ctx.Done():
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled while waiting for delegation",
+					"session_id", s.ID,
+				)
 				return nil, ctx.Err()
 			}
 		}
 	}
 
 	if !s.inFlight.CompareAndSwap(0, 1) {
+		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session busy")
 		return nil, ErrSessionBusy
 	}
 	// 注意：inFlight 的释放由下面的 forwarder goroutine 负责
 	s.touch()
 
+	start := time.Now()
+
 	// ── Task routing: classify prompt and set model override ──
 	if s.Router != nil {
 		if result, err := s.Router(ctx, prompt); err == nil {
+			s.logger.DebugContext(ctx, logger.CatApp, "task router applied model override",
+				"session_id", s.ID,
+				"provider_id", result.ProviderID,
+				"model_id", result.ModelID,
+				"thinking_enabled", result.ThinkingEnabled,
+				"reasoning_effort", result.ReasoningEffort,
+			)
 			s.Agent.SetModelOverride(&agent.ModelParams{
 				ProviderID:      result.ProviderID,
 				ModelID:         result.ModelID,
 				ThinkingEnabled: result.ThinkingEnabled,
 				ReasoningEffort: result.ReasoningEffort,
 			})
+		} else {
+			s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
+				"session_id", s.ID,
+				"err", err.Error(),
+			)
 		}
-		// On error: proceed with default model (no override)
 	}
 
 	// 先 push user prompt
 	s.mu.Lock()
 	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
+
+	s.logger.DebugContext(ctx, logger.CatApp, "askstream: prompt pushed to context window",
+		"session_id", s.ID,
+		"prompt_len", len(prompt),
+	)
 
 	srcCh, err := s.Agent.AskStreamWithHistory(ctx, s.cw, prompt)
 	if err != nil {
@@ -258,6 +338,11 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		s.cw.PopLast()
 		s.mu.Unlock()
 		s.inFlight.Store(0)
+
+		s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent stream setup failed",
+			"session_id", s.ID,
+			"err", err.Error(),
+		)
 		return nil, err
 	}
 
@@ -270,6 +355,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		var finalContent string
 		var finalReasoning string
 		var gotDone bool
+		var eventCount int
+
 		for {
 			var ev agent.AgentEvent
 			select {
@@ -283,31 +370,58 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				s.mu.Lock()
 				s.cw.PopLast()
 				s.mu.Unlock()
+
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled",
+					"session_id", s.ID,
+					"events_processed", eventCount,
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
 				return
 			}
 			select {
 			case out <- ev:
+				eventCount++
 			case <-ctx.Done():
 				s.mu.Lock()
 				s.cw.PopLast()
 				s.mu.Unlock()
+
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled",
+					"session_id", s.ID,
+					"events_processed", eventCount,
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
 				return
 			}
-		switch e := ev.(type) {
-		case agent.DelegationStartedEvent:
-			// 异步委派开始：释放 inFlight，允许用户发送新消息
-			s.newTurnDone()
-			s.inFlight.Store(0)
-		case agent.DoneEvent:
-			finalContent = e.Content
-			finalReasoning = e.ReasoningContent
-			gotDone = true
-		case agent.ErrorEvent:
-			// 错误：移除 user prompt
-			s.mu.Lock()
-			s.cw.PopLast()
-			s.mu.Unlock()
-		}
+
+			switch e := ev.(type) {
+			case agent.DelegationStartedEvent:
+				// 异步委派开始：释放 inFlight，允许用户发送新消息
+				s.logger.DebugContext(ctx, logger.CatApp, "delegation started",
+					"session_id", s.ID,
+				)
+				s.newTurnDone()
+				s.inFlight.Store(0)
+			case agent.DoneEvent:
+				finalContent = e.Content
+				finalReasoning = e.ReasoningContent
+				gotDone = true
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream done event received",
+					"session_id", s.ID,
+					"content_len", len(e.Content),
+					"reasoning_len", len(e.ReasoningContent),
+				)
+			case agent.ErrorEvent:
+				// 错误：移除 user prompt
+				s.mu.Lock()
+				s.cw.PopLast()
+				s.mu.Unlock()
+
+				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event, user prompt removed",
+					"session_id", s.ID,
+					"err", e.Err.Error(),
+				)
+			}
 		}
 	done:
 		if gotDone {
@@ -315,9 +429,19 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
 			s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
 			s.mu.Unlock()
+
+			s.logger.DebugContext(ctx, logger.CatApp, "askstream: assistant reply pushed to context window",
+				"session_id", s.ID,
+			)
 		}
 		// 委派轮次完成：关闭 turnDone 通道，通知等待的新消息
 		s.closeTurnDone()
+
+		s.logger.DebugContext(ctx, logger.CatApp, "askstream complete",
+			"session_id", s.ID,
+			"events_processed", eventCount,
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
 	}()
 	return out, nil
 }
@@ -327,6 +451,12 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 // SessionManager.Delete 会在调用 Close 之后主动 Stop agent。
 func (s *Session) Close() {
 	s.closed.Store(true)
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session closed",
+		"session_id", s.ID,
+		"lifetime_sec", time.Since(s.Created).Seconds(),
+	)
+
 	// 关闭 timeline Writer，刷盘并释放文件句柄
 	if s.tl != nil {
 		s.tl.Close()
@@ -341,6 +471,9 @@ func (s *Session) closeTurnDone() {
 	if s.turnDone != nil && !s.turnDoneClosed {
 		close(s.turnDone)
 		s.turnDoneClosed = true
+		s.logger.DebugContext(context.Background(), logger.CatApp, "delegation turn completed",
+			"session_id", s.ID,
+		)
 	}
 	s.delegationPending.Store(false)
 }
@@ -375,6 +508,7 @@ type SessionManager struct {
 	factory    AgentFactory
 	routerFunc TaskRouterFunc // 可选：每个新 session 都注入此路由器
 	idleTTL    time.Duration
+	logger     *logger.Logger
 
 	mu       sync.RWMutex
 	sessions map[string]*Session
@@ -382,11 +516,19 @@ type SessionManager struct {
 }
 
 // NewSessionManager 构造 manager；idleTTL<=0 禁用自动 reap
-func NewSessionManager(factory AgentFactory, idleTTL time.Duration) *SessionManager {
+func NewSessionManager(factory AgentFactory, idleTTL time.Duration, l *logger.Logger) *SessionManager {
+	if l == nil {
+		var err error
+		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+		if err != nil {
+			panic(err)
+		}
+	}
 	return &SessionManager{
-		factory:  factory,
-		idleTTL:  idleTTL,
-		sessions: make(map[string]*Session),
+		factory:    factory,
+		idleTTL:    idleTTL,
+		logger:     l,
+		sessions:   make(map[string]*Session),
 	}
 }
 
@@ -399,14 +541,23 @@ func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
 // Create 创建新 session；factory 启动 agent 并返回 ContextWindow
 func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, error) {
 	if m.closed.Load() {
+		m.logger.DebugContext(ctx, logger.CatApp, "session create rejected: manager closed")
 		return nil, ErrSessionClosed
 	}
+
 	a, cw, tl, err := m.factory(ctx, teamID)
 	if err != nil {
+		m.logger.WarnContext(ctx, logger.CatApp, "session factory failed",
+			"team_id", teamID,
+			"err", err.Error(),
+		)
 		return nil, fmt.Errorf("agent factory: %w", err)
 	}
 	id := newSessionID()
-	s := NewSession(id, teamID, a, cw, tl)
+
+	// Create session with manager's logger as parent
+	sessionLogger := m.logger.Child()
+	s := NewSession(id, teamID, a, cw, tl, sessionLogger)
 
 	// Inject task router (if configured)
 	if m.routerFunc != nil {
@@ -417,10 +568,21 @@ func (m *SessionManager) Create(ctx context.Context, teamID string) (*Session, e
 	defer m.mu.Unlock()
 	if m.closed.Load() {
 		// race: shutdown between check and lock
+		m.logger.WarnContext(ctx, logger.CatApp, "session create racing with shutdown",
+			"session_id", id,
+			"team_id", teamID,
+		)
 		_ = a.Stop(time.Second)
 		return nil, ErrSessionClosed
 	}
 	m.sessions[id] = s
+
+	m.logger.InfoContext(ctx, logger.CatApp, "session created",
+		"session_id", id,
+		"team_id", teamID,
+		"total_sessions", len(m.sessions),
+	)
+
 	return s, nil
 }
 
@@ -442,10 +604,32 @@ func (m *SessionManager) Delete(id string, stopTimeout time.Duration) error {
 	m.mu.Unlock()
 
 	if !ok {
+		m.logger.DebugContext(context.Background(), logger.CatApp, "session delete: not found",
+			"session_id", id,
+		)
 		return ErrSessionNotFound
 	}
+
 	s.Close()
-	return s.Agent.Stop(stopTimeout)
+	err := s.Agent.Stop(stopTimeout)
+
+	if err != nil {
+		m.logger.WarnContext(context.Background(), logger.CatApp, "session delete: agent stop failed",
+			"session_id", id,
+			"err", err.Error(),
+		)
+	} else {
+		m.logger.InfoContext(context.Background(), logger.CatApp, "session deleted",
+			"session_id", id,
+			"remaining_sessions", func() int {
+				m.mu.RLock()
+				defer m.mu.RUnlock()
+				return len(m.sessions)
+			}(),
+		)
+	}
+
+	return err
 }
 
 // Count 返回活跃 session 数量
@@ -475,6 +659,18 @@ func (m *SessionManager) ReapIdle(stopTimeout time.Duration) int {
 		s.Close()
 		_ = s.Agent.Stop(stopTimeout)
 	}
+
+	if len(victims) > 0 {
+		m.logger.InfoContext(context.Background(), logger.CatApp, "idle sessions reaped",
+			"reaped_count", len(victims),
+			"remaining_sessions", func() int {
+				m.mu.RLock()
+				defer m.mu.RUnlock()
+				return len(m.sessions)
+			}(),
+		)
+	}
+
 	return len(victims)
 }
 
@@ -483,11 +679,18 @@ func (m *SessionManager) ReapLoop(ctx context.Context, interval, stopTimeout tim
 	if interval <= 0 {
 		return
 	}
+
+	m.logger.InfoContext(context.Background(), logger.CatApp, "session reap loop started",
+		"interval_sec", interval.Seconds(),
+		"idle_ttl_sec", m.idleTTL.Seconds(),
+	)
+
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			m.logger.InfoContext(context.Background(), logger.CatApp, "session reap loop stopped")
 			return
 		case <-t.C:
 			m.ReapIdle(stopTimeout)
@@ -499,17 +702,26 @@ func (m *SessionManager) ReapLoop(ctx context.Context, interval, stopTimeout tim
 func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 	m.closed.Store(true)
 	m.mu.Lock()
-	all := make([]*Session, 0, len(m.sessions))
+	count := len(m.sessions)
+	all := make([]*Session, 0, count)
 	for _, s := range m.sessions {
 		all = append(all, s)
 	}
 	m.sessions = nil
 	m.mu.Unlock()
 
+	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown started",
+		"sessions_to_stop", count,
+	)
+
 	for _, s := range all {
 		s.Close()
 		_ = s.Agent.Stop(stopTimeout)
 	}
+
+	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed",
+		"sessions_stopped", count,
+	)
 }
 
 // newSessionID returns a 32-char hex id (16 random bytes).
