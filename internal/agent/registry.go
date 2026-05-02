@@ -223,7 +223,6 @@ func (r *Registry) Locate(id string) (iface.Locatable, bool) {
 	return &LocatableAdapter{Agent: agent}, true
 }
 
-
 // --- LocatableAdapter ---
 
 // LocatableAdapter wraps *Agent to satisfy the iface.Locatable interface.
