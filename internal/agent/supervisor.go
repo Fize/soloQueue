@@ -175,6 +175,29 @@ func (s *Supervisor) ChildCount() int {
 	return len(s.children)
 }
 
+// WireSpawnFns rewires the L2 agent's DelegateTools to use Supervisor.SpawnChild
+// instead of direct factory.Create. This ensures L3 children spawned via
+// delegation are tracked in the Supervisor's children map.
+//
+// Must be called after the L2 agent is created and the Supervisor is constructed.
+// allTemplates is the full template list used to resolve worker templates by ID.
+func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
+	l2 := s.Agent()
+	for _, tmpl := range allTemplates {
+		if tmpl.IsLeader || tmpl.Group == "" {
+			continue
+		}
+		tmpl := tmpl // capture loop variable
+		l2.SetDelegateSpawnFn(tmpl.ID, func(ctx context.Context, task string) (iface.Locatable, error) {
+			child, err := s.SpawnChild(ctx, tmpl)
+			if err != nil {
+				return nil, err
+			}
+			return &LocatableAdapter{Agent: child}, nil
+		})
+	}
+}
+
 // ─── SpawnFn 闭包注入 ──────────────────────────────────────────────────────
 
 // SpawnFnFor 为指定 SubAgent 模板创建 SpawnFn 闭包

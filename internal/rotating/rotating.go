@@ -29,6 +29,7 @@ type Writer struct {
 	curSize  int64
 	maxSize  int64 // 单文件最大字节数，0=不限
 	maxFiles int   // 保留的轮转文件数（不含活跃文件），0=不限
+	closed   bool
 }
 
 // Open 创建或追加打开轮转文件
@@ -56,9 +57,14 @@ func Open(dir, baseName string, maxSize int64, maxFiles int) (*Writer, error) {
 }
 
 // Write 写入数据（自动追加 \n），超限时触发轮转
+// After Close, writes are silently discarded.
 func (w *Writer) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if w.closed {
+		return 0, nil
+	}
 
 	if err := w.rotateIfNeeded(); err != nil {
 		return 0, err
@@ -85,6 +91,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.closed = true
 	if w.current != nil {
 		return w.current.Close()
 	}
