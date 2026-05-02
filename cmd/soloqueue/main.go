@@ -33,6 +33,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/tui"
 )
 
@@ -461,7 +462,24 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := sb.rt.toolsCfg
 	sessionToolsCfg.Logger = sessLog
-	allTools := tools.WithFallbackPrefix(tools.Build(sessionToolsCfg))
+	baseTools := tools.Build(sessionToolsCfg)
+
+	// Auto-reload: wrap file-writing tools so writes to agents/ or groups/ dirs
+	// trigger automatic parsing and instantiation.
+	autoReloadCfg := &team.AutoReloadConfig{
+		AgentsDir:    filepath.Join(sb.workDir, "agents"),
+		GroupsDir:    filepath.Join(sb.workDir, "groups"),
+		AgentFactory: sb.rt.agentFactory,
+		Logger:       sessLog,
+	}
+	for i, t := range baseTools {
+		switch t.Name() {
+		case "Write", "Edit", "MultiWrite", "MultiEdit":
+			baseTools[i] = team.WrapWithAutoReload(t, autoReloadCfg)
+		}
+	}
+
+	allTools := tools.WithFallbackPrefix(baseTools)
 		for _, l := range sb.rt.leaders {
 			leader := l // capture loop variable
 			dt := tools.NewDelegateTool(leader.Name, leader.Description, 5*time.Minute, sb.rt.agentRegistry, sessLog)
@@ -517,6 +535,24 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		agent.WithToolTimeout("web_search", 15*time.Second),
 	)
 	sb.rt.agentRegistry.Register(a)
+
+	// Set the OnLeaderCreated hook after agent construction so the closure
+	// can reference 'a'. The hook fires when a leader agent file is written
+	// and auto-instantiated — it dynamically registers a delegate_* tool on L1.
+	autoReloadCfg.OnLeaderCreated = func(ctx context.Context, name string, ag *agent.Agent) {
+		dt := tools.NewDelegateTool(name, name+" team leader", 5*time.Minute, sb.rt.agentRegistry, sessLog)
+		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
+			a, ok := sb.rt.agentRegistry.Get(name)
+			if !ok {
+				return nil, fmt.Errorf("leader %q not found in registry", name)
+			}
+			return &agent.LocatableAdapter{Agent: a}, nil
+		}
+		if err := a.RegisterTool(dt); err != nil {
+			sessLog.Error(logger.CatActor, "register delegate tool for new leader failed",
+				"leader", name, "err", err)
+		}
+	}
 
 	// Timeline writer + push hook
 	tlDir := filepath.Join(sb.workDir, "logs", "timelines", effectiveTeam)
