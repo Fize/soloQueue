@@ -48,8 +48,12 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo) (string, error) {
 	// 4. 动态构建路由表
 	routingTable := buildRoutingTable(leaders)
 
-	// 5. XML 组装
-	return assembleWithXML(profile, userCtx, routingTable, rules), nil
+	// 5. 团队管理指南
+	workDir := filepath.Dir(p.BaseDir) // BaseDir = <workDir>/prompts
+	teamMgmt := buildTeamManagementSection(workDir)
+
+	// 6. XML 组装
+	return assembleWithXML(profile, userCtx, routingTable, teamMgmt, rules), nil
 }
 
 // EnsureFiles 检查并补齐缺失的 prompt 文件。

@@ -7,7 +7,7 @@ import (
 
 // assembleWithXML 将各段 prompt 内容用 XML 标签组装为最终系统提示词。
 // userCtx 为空时跳过 <user_context> 段。
-func assembleWithXML(profile, userCtx, routingTable, rules string) string {
+func assembleWithXML(profile, userCtx, routingTable, teamMgmt, rules string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", strings.TrimSpace(profile))
@@ -17,6 +17,8 @@ func assembleWithXML(profile, userCtx, routingTable, rules string) string {
 	}
 
 	fmt.Fprintf(&b, "\n\n<available_teams>\n%s\n</available_teams>", strings.TrimSpace(routingTable))
+
+	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", strings.TrimSpace(teamMgmt))
 
 	fmt.Fprintf(&b, "\n\n<rules>\n%s\n</rules>", strings.TrimSpace(rules))
 

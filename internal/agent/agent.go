@@ -244,6 +244,14 @@ func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Con
 	}
 }
 
+// RegisterTool registers a tool into the agent's ToolRegistry at runtime.
+func (a *Agent) RegisterTool(t tools.Tool) error {
+	if a.tools == nil {
+		return fmt.Errorf("agent %q: ToolRegistry is nil", a.Def.ID)
+	}
+	return a.tools.Register(t)
+}
+
 // PendingDelegations 返回当前等待中的异步委托轮次数量
 func (a *Agent) PendingDelegations() int {
 	a.turnMu.RLock()
