@@ -10,7 +10,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
-// replaceTool 对单个文件做严格字符串替换
+// replaceTool performs strict string replacement on a single file
 //
 // Schema:
 //
@@ -18,23 +18,26 @@ import (
 //	  "path":"...",
 //	  "old_string":"...",
 //	  "new_string":"...",
-//	  "replace_all":false   // 默认 false；false 时要求 old_string 唯一出现
+//	  "replace_all":false   // Default false; false requires old_string to appear exactly once
 //	}
 //
-// 匹配规则（严格字符串，不支持正则）：
+// Matching rules (strict string, no regex):
 //   - strings.Count(content, old_string) == 0 → ErrOldStringNotFound
 //   - Count > 1 && !ReplaceAll              → ErrOldStringAmbiguous
-//   - ReplaceAll=true 时允许任意多次（0 次仍报错）
+//   - ReplaceAll=true when any multiple occurrences allowed (0 still errors)
 //   - old_string == ""                       → ErrInvalidArgs
 //   - old_string == new_string               → ErrNoopReplace
 //
-// 原子性：读文件 → strings.Replace 内存中完成 → atomicWrite 一次性写回
+// Atomicity: read file → strings.Replace completes in memory → atomicWrite writes back in one operation
 type replaceTool struct {
 	cfg    Config
 	logger *logger.Logger
 }
 
-func newReplaceTool(cfg Config) *replaceTool { ensureExecutor(&cfg); return &replaceTool{cfg: cfg, logger: cfg.Logger} }
+func newReplaceTool(cfg Config) *replaceTool {
+	ensureExecutor(&cfg)
+	return &replaceTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (replaceTool) Name() string { return "Edit" }
 

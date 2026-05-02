@@ -135,18 +135,18 @@ func TestRotation_SingleRollover(t *testing.T) {
 	}
 	defer w.Close()
 
-	// 写入足够数据触发轮转
+	// Write enough data to trigger rotation
 	for i := 0; i < 5; i++ {
 		if _, err := w.Write([]byte("line")); err != nil {
 			t.Fatalf("Write %d: %v", i, err)
 		}
 	}
 
-	// 主文件应存在
+	// Active file should exist
 	if _, err := os.Stat(filepath.Join(dir, "test.jsonl")); err != nil {
 		t.Errorf("active file missing: %v", err)
 	}
-	// .1 轮转文件应存在
+	// .1 rotated file should exist
 	if _, err := os.Stat(filepath.Join(dir, "test.jsonl.1")); err != nil {
 		t.Errorf("rolled .1 file missing: %v", err)
 	}

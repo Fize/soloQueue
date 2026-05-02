@@ -12,20 +12,20 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// Registry 是 agent ID → Agent 的并发安全映射
+// Registry is a concurrent-safe mapping of agent ID → Agent
 //
-// 设计原则：Registry 只管 map；**不隐式**触发 Start/Stop。
-// 生命周期触发用显式 API：StartAll / StopAll / Shutdown。
+// Design principle: Registry only manages the map; does **not** implicitly trigger Start/Stop.
+// Lifecycle control uses explicit APIs: StartAll / StopAll / Shutdown.
 type Registry struct {
 	mu     sync.RWMutex
 	agents map[string]*Agent
 	log    *logger.Logger
 }
 
-// NewRegistry 构造空 registry
+// NewRegistry constructs an empty registry
 //
-// log 可为 nil（日志调用被跳过）。传入 logger 后 Register / Unregister /
-// StartAll / StopAll / Shutdown 会产生结构化日志，便于追踪批量生命周期事件。
+// log can be nil (log calls are skipped). After passing a logger, Register / Unregister /
+// StartAll / StopAll / Shutdown produce structured logs for tracking batch lifecycle events.
 func NewRegistry(log *logger.Logger) *Registry {
 	return &Registry{
 		agents: make(map[string]*Agent),
@@ -33,10 +33,10 @@ func NewRegistry(log *logger.Logger) *Registry {
 	}
 }
 
-// Register 添加 agent；ID 已存在返回 ErrAgentAlreadyExists
-// agent 为 nil 返回 ErrAgentNil；Def.ID 为空返回 ErrEmptyID
+// Register adds an agent; returns ErrAgentAlreadyExists if ID already exists
+// Returns ErrAgentNil if agent is nil; ErrEmptyID if Def.ID is empty
 //
-// 不启动 agent —— 调用方需要显式 Start 或使用 StartAll。
+// Does not start the agent — caller must explicitly call Start or use StartAll.
 func (r *Registry) Register(a *Agent) error {
 	if a == nil {
 		return ErrAgentNil
@@ -63,9 +63,9 @@ func (r *Registry) Register(a *Agent) error {
 	return nil
 }
 
-// Unregister 从 registry 移除 ID；返回 true 表示确实存在并被移除
+// Unregister removes an ID from registry; returns true if it existed and was removed
 //
-// 不停止 agent —— 调用方需要显式 Stop 或使用 Shutdown。
+// Does not stop the agent — caller must explicitly call Stop or use Shutdown.
 func (r *Registry) Unregister(id string) bool {
 	r.mu.Lock()
 	if _, exists := r.agents[id]; !exists {
@@ -83,7 +83,7 @@ func (r *Registry) Unregister(id string) bool {
 	return true
 }
 
-// Get 查找 agent；不存在返回 (nil, false)
+// Get looks up an agent; returns (nil, false) if not found
 func (r *Registry) Get(id string) (*Agent, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -91,10 +91,10 @@ func (r *Registry) Get(id string) (*Agent, bool) {
 	return a, ok
 }
 
-// List 返回当前所有 agent 的快照切片
+// List returns a snapshot slice of all current agents
 //
-// 返回的切片与内部 map 独立，修改切片不影响 registry；
-// 切片元素仍是 *Agent 指针。
+// The returned slice is independent of the internal map; modifying it doesn't affect registry;
+// slice elements are still *Agent pointers.
 func (r *Registry) List() []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -105,7 +105,7 @@ func (r *Registry) List() []*Agent {
 	return out
 }
 
-// Len 当前 registry 中 agent 的数量
+// Len returns the number of agents currently in the registry
 func (r *Registry) Len() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -114,7 +114,7 @@ func (r *Registry) Len() int {
 
 // ─── Batch lifecycle ────────────────────────────────────────────────────────
 
-// StartAll 对所有已注册 agent 调用 Start
+// StartAll calls Start on all registered agents
 //
 // 返回所有 Start 报错（每个 agent 最多一条）；nil slice 表示全部成功。
 // 已在运行的 agent 返回 ErrAlreadyStarted 会被跳过收集？不 —— 如实收集，
