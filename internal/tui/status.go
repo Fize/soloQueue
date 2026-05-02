@@ -127,7 +127,7 @@ func renderAgentLine(a *agent.Agent, indent string) string {
 		parts = append(parts, lipgloss.NewStyle().Foreground(colorInfo).Render(fmt.Sprintf("delegations: %d", pd)))
 	}
 
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
+	nameStyle := lipgloss.NewStyle().Foreground(colorText).Bold(true)
 	return indent + nameStyle.Render(name) + "  " + strings.Join(parts, dimStyle.Render(" · ")) + "\n"
 }
 

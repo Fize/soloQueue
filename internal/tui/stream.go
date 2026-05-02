@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -152,22 +151,4 @@ func (s *streamState) flushContent() {
 		})
 		s.content.Reset()
 	}
-}
-
-// ─── Tool args parsing ────────────────────────────────────────────────────────
-
-// toolArgs defines the common structure for tool arguments.
-type toolArgs struct {
-	Path    string `json:"path,omitempty"`
-	Command string `json:"command,omitempty"`
-	File    string `json:"file,omitempty"`
-}
-
-// parseToolArgs parses JSON-formatted tool arguments.
-func parseToolArgs(argsJSON string) toolArgs {
-	var args toolArgs
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return toolArgs{Path: "[parse error]", Command: "[parse error]", File: "[parse error]"}
-	}
-	return args
 }

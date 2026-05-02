@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -225,6 +226,24 @@ func WithPriorityMailbox() Option {
 	}
 }
 
+// SetDelegateSpawnFn replaces the SpawnFn on the DelegateTool with the given
+// leaderID. This is used after Supervisor creation to wire L2→L3 delegation
+// through the Supervisor so spawned L3 children are tracked.
+//
+// No-op if the agent has no DelegateTool with that name.
+func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Context, task string) (iface.Locatable, error)) {
+	if a.tools == nil {
+		return
+	}
+	t, ok := a.tools.Get("delegate_" + leaderID)
+	if !ok {
+		return
+	}
+	if dt, ok := t.(*tools.DelegateTool); ok {
+		dt.SpawnFn = spawnFn
+	}
+}
+
 // PendingDelegations 返回当前等待中的异步委托轮次数量
 func (a *Agent) PendingDelegations() int {
 	a.turnMu.RLock()
@@ -269,6 +288,16 @@ func (a *Agent) SetModelOverride(params *ModelParams) {
 // ClearModelOverride removes the per-ask override, reverting to Definition defaults.
 func (a *Agent) ClearModelOverride() {
 	a.modelOverride.Store(nil)
+}
+
+// EffectiveModelID returns the model ID actually in use.
+// It prefers the per-ask override (set by the router) and falls back to the
+// Definition default. Thread-safe (atomic pointer load).
+func (a *Agent) EffectiveModelID() string {
+	if mp := a.modelOverride.Load(); mp != nil && mp.ModelID != "" {
+		return mp.ModelID
+	}
+	return a.Def.ModelID
 }
 
 // NewAgent 构造未 Start 的 agent
