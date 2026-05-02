@@ -1,10 +1,7 @@
-import { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import "./App.css";
 
 function App() {
-  const [name, setName] = useState("");
-
   return (
     <main className="container">
       <h1>Welcome to SoloQueue</h1>
@@ -18,20 +15,6 @@ function App() {
         </a>
       </div>
       <p>AI multi-agent collaboration tool</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a message..."
-        />
-        <button type="submit">Send</button>
-      </form>
     </main>
   );
 }
