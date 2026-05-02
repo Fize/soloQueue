@@ -33,7 +33,6 @@ var (
 	thinkStyle         lipgloss.Style
 	foldedStyle        lipgloss.Style
 	successStyle       lipgloss.Style
-	toolLabelStyle     string
 	toolCollapsedStyle lipgloss.Style
 	errorStyle         lipgloss.Style
 	dimStyle           lipgloss.Style
@@ -101,10 +100,6 @@ func applyTheme(darkBg bool) {
 	foldedStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	successStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 
-	toolLabelStyle = lipgloss.NewStyle().
-		Foreground(colorTool).
-		Bold(true).
-		Render("▎ Tool Use")
 
 	toolCollapsedStyle = lipgloss.NewStyle().
 		Foreground(colorMuted).
