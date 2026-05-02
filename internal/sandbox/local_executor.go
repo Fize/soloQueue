@@ -16,15 +16,24 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // LocalExecutor 直接在宿主机上执行操作的执行器实现。
 // 适用于无 Docker 环境或调试场景。
-type LocalExecutor struct{}
+type LocalExecutor struct {
+	log *logger.Logger
+}
 
 // NewLocalExecutor 创建本地执行器。
 func NewLocalExecutor() *LocalExecutor {
 	return &LocalExecutor{}
+}
+
+// SetLogger 设置 logger，nil 表示不记录日志。
+func (e *LocalExecutor) SetLogger(l *logger.Logger) {
+	e.log = l
 }
 
 // ─── RunCommand ─────────────────────────────────────────────────────────────
@@ -76,6 +85,9 @@ func (e *LocalExecutor) RunCommand(ctx context.Context, cmd string, opts RunComm
 			res.ExitCode = ee.ExitCode()
 			return res, nil
 		}
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: run command failed", err, "command", cmd)
+		}
 		return res, err
 	}
 
@@ -88,6 +100,9 @@ func (e *LocalExecutor) RunCommand(ctx context.Context, cmd string, opts RunComm
 func (e *LocalExecutor) ReadFile(ctx context.Context, path string, opts ReadFileOptions) (ReadFileResult, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: read file failed", err, "path", path)
+		}
 		return ReadFileResult{}, err
 	}
 	if opts.MaxSize > 0 && fi.Size() > opts.MaxSize {
@@ -96,12 +111,18 @@ func (e *LocalExecutor) ReadFile(ctx context.Context, path string, opts ReadFile
 
 	f, err := os.Open(path)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: read file failed", err, "path", path)
+		}
 		return ReadFileResult{}, err
 	}
 	defer f.Close()
 
 	data, err := io.ReadAll(f)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: read file failed", err, "path", path)
+		}
 		return ReadFileResult{}, err
 	}
 
@@ -130,6 +151,9 @@ func (e *LocalExecutor) WriteFile(ctx context.Context, path string, data []byte,
 
 	tmp, err := os.CreateTemp(dir, ".soloqueue-tmp-*")
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
+		}
 		return WriteFileResult{}, fmt.Errorf("create tmp: %w", err)
 	}
 	tmpName := tmp.Name()
@@ -142,16 +166,28 @@ func (e *LocalExecutor) WriteFile(ctx context.Context, path string, data []byte,
 
 	if _, err = tmp.Write(data); err != nil {
 		_ = tmp.Close()
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
+		}
 		return WriteFileResult{}, fmt.Errorf("write tmp: %w", err)
 	}
 	if err = tmp.Sync(); err != nil {
 		_ = tmp.Close()
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
+		}
 		return WriteFileResult{}, fmt.Errorf("sync tmp: %w", err)
 	}
 	if err = tmp.Close(); err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
+		}
 		return WriteFileResult{}, fmt.Errorf("close tmp: %w", err)
 	}
 	if err = os.Rename(tmpName, path); err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
+		}
 		return WriteFileResult{}, fmt.Errorf("rename tmp → target: %w", err)
 	}
 
@@ -163,6 +199,9 @@ func (e *LocalExecutor) WriteFile(ctx context.Context, path string, data []byte,
 func (e *LocalExecutor) Stat(ctx context.Context, path string) (FileInfo, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: stat failed", err, "path", path)
+		}
 		return FileInfo{}, err
 	}
 	return FileInfo{Size: fi.Size(), IsDir: fi.IsDir()}, nil
@@ -179,6 +218,9 @@ func (e *LocalExecutor) Glob(ctx context.Context, dir string, pattern string, op
 	fsys := os.DirFS(dir)
 	matches, err := doublestar.Glob(fsys, pattern)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: glob failed", err, "dir", dir, "pattern", pattern)
+		}
 		return nil, err
 	}
 
@@ -199,6 +241,9 @@ func (e *LocalExecutor) Glob(ctx context.Context, dir string, pattern string, op
 func (e *LocalExecutor) Grep(ctx context.Context, dir string, pattern string, opts GrepOptions) ([]GrepMatch, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: grep failed", err, "dir", dir, "pattern", pattern)
+		}
 		return nil, fmt.Errorf("invalid pattern: %w", err)
 	}
 
@@ -279,6 +324,9 @@ func (e *LocalExecutor) Grep(ctx context.Context, dir string, pattern string, op
 	})
 
 	if walkErr != nil && walkErr != fs.SkipAll {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: grep walk failed", walkErr, "dir", dir, "pattern", pattern)
+		}
 		return nil, walkErr
 	}
 	return result, nil
@@ -300,6 +348,9 @@ func (e *LocalExecutor) HTTPGet(ctx context.Context, rawURL string, opts HTTPOpt
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http get failed", err, "url", rawURL)
+		}
 		return HTTPResponse{}, err
 	}
 
@@ -309,12 +360,18 @@ func (e *LocalExecutor) HTTPGet(ctx context.Context, rawURL string, opts HTTPOpt
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http get failed", err, "url", rawURL)
+		}
 		return HTTPResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http get read body failed", err, "url", rawURL)
+		}
 		return HTTPResponse{}, err
 	}
 
@@ -340,6 +397,9 @@ func (e *LocalExecutor) HTTPPost(ctx context.Context, rawURL string, body string
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(body))
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http post failed", err, "url", rawURL)
+		}
 		return HTTPResponse{}, err
 	}
 
@@ -352,12 +412,18 @@ func (e *LocalExecutor) HTTPPost(ctx context.Context, rawURL string, body string
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http post failed", err, "url", rawURL)
+		}
 		return HTTPResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http post read body failed", err, "url", rawURL)
+		}
 		return HTTPResponse{}, err
 	}
 

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // DockerExecutor 基于 DockerSandbox.Exec 的沙盒执行器实现。
@@ -14,12 +16,18 @@ import (
 type DockerExecutor struct {
 	sb      *DockerSandbox
 	pathMap *PathMap
+	log     *logger.Logger
 }
 
 // NewDockerExecutor 创建基于 Docker 的执行器。
 // 调用方需确保 sb 已 Start。
 func NewDockerExecutor(sb *DockerSandbox) *DockerExecutor {
 	return &DockerExecutor{sb: sb, pathMap: sb.pathMap}
+}
+
+// SetLogger 设置 logger，nil 表示不记录日志。
+func (e *DockerExecutor) SetLogger(l *logger.Logger) {
+	e.log = l
 }
 
 // toContainer 将宿主机路径转换为容器路径。
@@ -55,6 +63,9 @@ func (e *DockerExecutor) RunCommand(ctx context.Context, cmd string, opts RunCom
 		return res, nil
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: run command failed", err, "command", cmd)
+		}
 		return res, err
 	}
 
@@ -86,6 +97,9 @@ func (e *DockerExecutor) ReadFile(ctx context.Context, path string, opts ReadFil
 		}
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: read file failed", err, "path", path)
+		}
 		return ReadFileResult{}, err
 	}
 
@@ -129,6 +143,9 @@ func (e *DockerExecutor) WriteFile(ctx context.Context, path string, data []byte
 		return WriteFileResult{}, fmt.Errorf("write file %s: %s", path, strings.TrimSpace(string(execErr.Stderr)))
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
+		}
 		return WriteFileResult{}, err
 	}
 	_ = stderr
@@ -146,6 +163,9 @@ func (e *DockerExecutor) Stat(ctx context.Context, path string) (FileInfo, error
 		return FileInfo{}, fmt.Errorf("stat %s: %s", path, strings.TrimSpace(string(execErr.Stderr)))
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: stat failed", err, "path", path)
+		}
 		return FileInfo{}, err
 	}
 
@@ -185,6 +205,9 @@ func (e *DockerExecutor) Glob(ctx context.Context, dir string, pattern string, o
 		return nil, fmt.Errorf("glob %s: %s", dir, strings.TrimSpace(string(execErr.Stderr)))
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: glob failed", err, "dir", dir, "pattern", pattern)
+		}
 		return nil, err
 	}
 
@@ -227,6 +250,9 @@ func (e *DockerExecutor) Grep(ctx context.Context, dir string, pattern string, o
 		}
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: grep failed", err, "dir", dir, "pattern", pattern)
+		}
 		return nil, err
 	}
 
@@ -291,6 +317,9 @@ func (e *DockerExecutor) HTTPGet(ctx context.Context, url string, opts HTTPOptio
 		return HTTPResponse{}, fmt.Errorf("http get %s: exit code %d", url, execErr.ExitCode)
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http get failed", err, "url", url)
+		}
 		return HTTPResponse{}, err
 	}
 
@@ -330,6 +359,9 @@ func (e *DockerExecutor) HTTPPost(ctx context.Context, url string, body string, 
 		return HTTPResponse{}, fmt.Errorf("http post %s: exit code %d", url, execErr.ExitCode)
 	}
 	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: http post failed", err, "url", url)
+		}
 		return HTTPResponse{}, err
 	}
 

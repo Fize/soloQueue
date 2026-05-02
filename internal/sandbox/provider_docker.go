@@ -21,6 +21,8 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // ─── 接口定义 ────────────────────────────────────────────────────────────────
@@ -50,9 +52,15 @@ type DockerSandbox struct {
 	containerID string
 	mu          sync.Mutex // protects containerID + Start/Destroy transitions
 	started     bool
-	mounts      []Mount   // 需要挂载到容器内的目录列表
-	workDir     string    // 容器内默认工作目录（~/.soloqueue 的容器内路径）
-	pathMap     *PathMap  // 宿主机 ↔ 容器路径映射
+	mounts      []Mount       // 需要挂载到容器内的目录列表
+	workDir     string        // 容器内默认工作目录（~/.soloqueue 的容器内路径）
+	pathMap     *PathMap      // 宿主机 ↔ 容器路径映射
+	log         *logger.Logger // 可选的结构化日志
+}
+
+// SetLogger 设置 logger，nil 表示不记录日志。
+func (d *DockerSandbox) SetLogger(l *logger.Logger) {
+	d.log = l
 }
 
 // Mount 描述一个宿主机到容器的目录挂载。
@@ -162,12 +170,18 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 
 	// 1. 清理同名残留容器
 	if err := d.removeExisting(ctx); err != nil {
+		if d.log != nil {
+			d.log.LogError(ctx, logger.CatApp, "sandbox: remove existing container failed", err)
+		}
 		return fmt.Errorf("sandbox: remove existing container: %w", err)
 	}
 
 	// 2. 拉取镜像
 	reader, err := d.cli.ImagePull(ctx, imageName, image.PullOptions{})
 	if err != nil {
+		if d.log != nil {
+			d.log.LogError(ctx, logger.CatApp, "sandbox: pull image failed", err, "image", imageName)
+		}
 		return fmt.Errorf("sandbox: pull image %s: %w", imageName, err)
 	}
 	// 必须读完 pull 响应，否则镜像可能未完整落盘
@@ -202,6 +216,9 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 		containerName,
 	)
 	if err != nil {
+		if d.log != nil {
+			d.log.LogError(ctx, logger.CatApp, "sandbox: create container failed", err, "image", imageName)
+		}
 		return fmt.Errorf("sandbox: create container: %w", err)
 	}
 
@@ -209,6 +226,9 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 	if err := d.cli.ContainerStart(ctx, createResp.ID, container.StartOptions{}); err != nil {
 		// 启动失败时清理已创建的容器
 		_ = d.cli.ContainerRemove(ctx, createResp.ID, container.RemoveOptions{Force: true})
+		if d.log != nil {
+			d.log.LogError(ctx, logger.CatApp, "sandbox: start container failed", err, "container_id", createResp.ID[:12])
+		}
 		return fmt.Errorf("sandbox: start container: %w", err)
 	}
 
@@ -259,9 +279,16 @@ func (d *DockerSandbox) Exec(ctx context.Context, cmd string) (stdout []byte, st
 	// 检查退出码
 	inspectResp, err := d.cli.ContainerExecInspect(ctx, execResp.ID)
 	if err != nil {
+		if d.log != nil {
+			d.log.LogError(ctx, logger.CatTool, "sandbox: exec inspect failed", err, "command", cmd)
+		}
 		return stdout, stderr, fmt.Errorf("sandbox: exec inspect: %w", err)
 	}
 	if inspectResp.ExitCode != 0 {
+		if d.log != nil {
+			d.log.WarnContext(ctx, logger.CatTool, "sandbox: exec non-zero exit",
+				"command", cmd, "exit_code", inspectResp.ExitCode)
+		}
 		return stdout, stderr, &ExecError{
 			ExitCode: inspectResp.ExitCode,
 			Stdout:   stdout,
@@ -286,6 +313,9 @@ func (d *DockerSandbox) Destroy(ctx context.Context) error {
 
 	err := d.cli.ContainerRemove(ctx, cid, container.RemoveOptions{Force: true})
 	if err != nil {
+		if d.log != nil {
+			d.log.LogError(ctx, logger.CatApp, "sandbox: destroy container failed", err, "container_id", cid[:12])
+		}
 		return fmt.Errorf("sandbox: destroy container: %w", err)
 	}
 	return nil
