@@ -48,6 +48,7 @@ var (
 	paneBorderStyle    lipgloss.Style
 	composerStyle      lipgloss.Style
 	copyModeStyle      lipgloss.Style
+	timestampStyle     lipgloss.Style
 )
 
 func init() {
@@ -132,6 +133,7 @@ func applyTheme(darkBg bool) {
 	paneBorderStyle = lipgloss.NewStyle().Foreground(colorBorder)
 	composerStyle = lipgloss.NewStyle().Foreground(colorText).BorderTop(true).BorderForeground(colorBorder)
 	copyModeStyle = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
+	timestampStyle = lipgloss.NewStyle().Foreground(colorMuted)
 
 }
 

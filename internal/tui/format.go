@@ -84,24 +84,23 @@ func formatToolBlock(tb toolBlock) string {
 	} else if ta.File != "" {
 		displayArg = ta.File
 	}
-	if tb.done {
-		var durHint string
-		if tb.duration > 0 {
-			durHint = fmt.Sprintf(" · %s", tb.duration.Round(time.Millisecond))
-		}
-		if tb.err != nil {
-			return fmt.Sprintf("✗ %s(%s) failed: %s", tb.name, displayArg, truncate(tb.err.Error(), 50))
-		}
-		if tb.lineCount > 0 {
-			return fmt.Sprintf("✓ %s(%s) %d lines%s", tb.name, displayArg, tb.lineCount, durHint)
-		}
-		if displayArg != "" {
-			return fmt.Sprintf("✓ %s(%s)%s", tb.name, displayArg, durHint)
-		}
-		return fmt.Sprintf("✓ %s%s", tb.name, durHint)
+	// Trim displayArg to keep output compact
+	displayArg = truncate(displayArg, 30)
+	if !tb.done {
+		return "⚙ " + tb.name + "(" + displayArg + ")"
+	}
+	var durHint string
+	if tb.duration > 0 {
+		durHint = tb.duration.Round(time.Millisecond).String()
+	}
+	if tb.err != nil {
+		return "✗ " + tb.name + " failed: " + truncate(tb.err.Error(), 30)
+	}
+	if tb.lineCount > 0 {
+		return "✓ " + tb.name + "(" + displayArg + ") " + fmt.Sprintf("%d 行", tb.lineCount) + durHint
 	}
 	if displayArg != "" {
-		return fmt.Sprintf("⚙ %s(%s)", tb.name, displayArg)
+		return "✓ " + tb.name + "(" + displayArg + ")" + durHint
 	}
-	return fmt.Sprintf("⚙ %s", tb.name)
+	return "✓ " + tb.name + durHint
 }

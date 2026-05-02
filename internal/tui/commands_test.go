@@ -41,8 +41,9 @@ func TestHandleBuiltin_Help(t *testing.T) {
 	if quit || cmd != nil {
 		t.Error("/help should not quit, should return nil cmd")
 	}
-	if len(m.messages) == 0 || !strings.Contains(m.messages[0].content, "Commands:") {
-		t.Error("/help should add message with commands list")
+	// Should have user message + agent response
+	if len(m.messages) < 2 || !strings.Contains(m.messages[1].content, "Commands:") {
+		t.Error("/help should add user message and agent response with commands list")
 	}
 }
 
@@ -53,10 +54,10 @@ func TestHandleBuiltin_HelpWithSkills(t *testing.T) {
 	sr.Register(&skill.Skill{ID: "internal", Description: "Internal", UserInvocable: false, DisableModelInvocation: true})
 	m.cfg.Skills = sr
 	m.handleBuiltin("/help")
-	if len(m.messages) == 0 {
-		t.Fatal("/help should add a message")
+	if len(m.messages) < 2 {
+		t.Fatal("/help should add messages")
 	}
-	if !strings.Contains(m.messages[0].content, "deploy") {
+	if !strings.Contains(m.messages[1].content, "deploy") {
 		t.Error("/help should list user-invocable skills")
 	}
 }
@@ -68,8 +69,8 @@ func TestHandleBuiltin_Clear(t *testing.T) {
 	if quit {
 		t.Error("/clear should not quit")
 	}
-	if len(m.messages) != 1 || m.messages[0].content != "◆  context cleared" {
-		t.Error("/clear should reset messages to clear notice")
+	if len(m.messages) != 2 || m.messages[1].content != "◆  context cleared" {
+		t.Error("/clear should reset messages to user + clear notice")
 	}
 }
 
@@ -89,7 +90,7 @@ func TestHandleBuiltin_Version(t *testing.T) {
 	if quit {
 		t.Error("/version should not quit")
 	}
-	if len(m.messages) == 0 || !strings.Contains(m.messages[0].content, "v0.1.0") {
+	if len(m.messages) < 2 || !strings.Contains(m.messages[1].content, "v0.1.0") {
 		t.Error("/version should show version")
 	}
 }
@@ -105,7 +106,7 @@ func TestHandleBuiltin_Status(t *testing.T) {
 	if quit {
 		t.Error("/status should not quit")
 	}
-	if len(m.messages) == 0 || !strings.Contains(m.messages[0].content, "Agent Status") {
+	if len(m.messages) < 2 || !strings.Contains(m.messages[1].content, "Agent Status") {
 		t.Error("/status should show agent status")
 	}
 }
@@ -127,7 +128,7 @@ func TestHandleBuiltin_UnknownCommand(t *testing.T) {
 	if quit {
 		t.Error("unknown command should not quit")
 	}
-	if len(m.messages) == 0 || !strings.Contains(m.messages[0].content, "Unknown command") {
+	if len(m.messages) < 2 || !strings.Contains(m.messages[1].content, "Unknown command") {
 		t.Error("unknown command should show error")
 	}
 }
@@ -179,7 +180,7 @@ func TestBuildSkillPrompt_NoArgs(t *testing.T) {
 
 func TestStartStreamFromInput(t *testing.T) {
 	m := newTestModel()
-	cmd := m.startStreamFromInput("test prompt")
+	cmd := m.startStreamFromInput("/skill", "test prompt")
 	if cmd == nil {
 		t.Error("startStreamFromInput should return a tea.Cmd")
 	}
