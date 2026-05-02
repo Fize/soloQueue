@@ -28,6 +28,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -52,7 +53,8 @@ func rootCmd() *cobra.Command {
 
 Run without subcommands for interactive TUI mode.
 Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
-		SilenceUsage: true,
+		SilenceUsage:   true,
+		SilenceErrors:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workDir, err := config.DefaultWorkDir()
 			if err != nil {
@@ -116,6 +118,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 	root.AddCommand(versionCmd())
 	root.AddCommand(serveCmd())
+	root.AddCommand(cleanupCmd())
 
 	return root
 }
@@ -140,12 +143,20 @@ type runtimeStack struct {
 	rulesCreated  bool
 	taskRouter    *router.Router // 任务路由分类器（TUI + serve 共用）
 	skillRegistry *skill.SkillRegistry
+	dockerSandbox sandbox.Sandbox // Docker 沙盒（L3 工具执行隔离底座）
 }
 
-// shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent
+// shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent，并销毁 Docker 沙盒。
 func (rt *runtimeStack) shutdown() {
 	for _, sv := range rt.supervisors {
 		_ = sv.ReapAll(5 * time.Second)
+	}
+	if rt.dockerSandbox != nil {
+		destroyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := rt.dockerSandbox.Destroy(destroyCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: docker sandbox destroy failed: %v\n", err)
+		}
 	}
 }
 
@@ -328,6 +339,36 @@ func buildRuntimeStack(
 		}
 	}
 
+	// ── Docker Sandbox ───────────────────────────────────────────────────
+	// 固定挂载 ~/.soloqueue + 所有 team workspace 路径
+	var sandboxMounts []sandbox.Mount
+	seen := make(map[string]bool)
+	seen[workDir] = true
+	sandboxMounts = append(sandboxMounts, sandbox.Mount{HostPath: workDir})
+	for _, gf := range groups {
+		for _, ws := range gf.Frontmatter.Workspaces {
+			p := ws.Path
+			if p == "" || p == "@default" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			sandboxMounts = append(sandboxMounts, sandbox.Mount{HostPath: p})
+		}
+	}
+
+	dockerSandbox, err := sandbox.NewDockerSandbox(sandboxMounts)
+	if err != nil {
+		return nil, fmt.Errorf("docker sandbox init failed: is Docker running? %w", err)
+	}
+	if err := dockerSandbox.Start(context.Background()); err != nil {
+		return nil, fmt.Errorf("docker sandbox start failed: is Docker running? %w", err)
+	}
+	log.Info(logger.CatApp, "docker sandbox started",
+		"image", "debian:bookworm-slim", "mounts", len(sandboxMounts))
+
+	// 注入 DockerExecutor 到 tools 配置
+	toolsCfg.Executor = sandbox.NewDockerExecutor(dockerSandbox)
+
 	return &runtimeStack{
 		llmClient:     llmClient,
 		agentRegistry: agentRegistry,
@@ -344,6 +385,7 @@ func buildRuntimeStack(
 		rulesCreated:  rulesCreated,
 		taskRouter:    taskRouter,
 		skillRegistry: skillReg,
+		dockerSandbox: dockerSandbox,
 	}, nil
 }
 
@@ -613,6 +655,26 @@ func versionCmd() *cobra.Command {
 			if m != nil {
 				log.Info(logger.CatApp, "default model", "name", m.Name, "id", m.ID)
 			}
+			return nil
+		},
+	}
+}
+
+func cleanupCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "cleanup",
+		Short: "Remove all soloqueue sandbox containers",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sb, err := sandbox.NewDockerSandbox(nil)
+			if err != nil {
+				return fmt.Errorf("docker client init failed: is Docker running? %w", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := sb.Cleanup(ctx); err != nil {
+				return err
+			}
+			fmt.Println("cleanup done")
 			return nil
 		},
 	}

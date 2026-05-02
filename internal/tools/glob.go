@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
-	"github.com/bmatcuk/doublestar/v4"
-
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // globTool 在沙箱目录下按 doublestar pattern 找文件
@@ -28,7 +26,7 @@ type globTool struct {
 	logger *logger.Logger
 }
 
-func newGlobTool(cfg Config) *globTool { return &globTool{cfg: cfg, logger: cfg.Logger} }
+func newGlobTool(cfg Config) *globTool { ensureExecutor(&cfg); return &globTool{cfg: cfg, logger: cfg.Logger} }
 
 func (globTool) Name() string { return "Glob" }
 
@@ -78,11 +76,12 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fi, err := os.Stat(absDir)
+
+	fi, err := t.cfg.Executor.Stat(ctx, absDir)
 	if err != nil {
 		return "", err
 	}
-	if !fi.IsDir() {
+	if !fi.IsDir {
 		return "", fmt.Errorf("%w: dir is not a directory: %s", ErrInvalidArgs, absDir)
 	}
 
@@ -91,26 +90,28 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		maxItems = 1000
 	}
 
-	fsys := os.DirFS(absDir)
-	// doublestar validates pattern syntax; invalid → error
-	matches, err := doublestar.Glob(fsys, a.Pattern)
+	matches, err := t.cfg.Executor.Glob(ctx, absDir, a.Pattern, sandbox.GlobOptions{
+		MaxItems: maxItems,
+	})
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid pattern: %v", ErrInvalidArgs, err)
 	}
 
 	res := globResult{}
+	truncated := false
 	for _, m := range matches {
-		if err := ctx.Err(); err != nil {
-			return "", err
+		// Convert absolute path back to relative
+		rel, rerr := filepath.Rel(absDir, m)
+		if rerr != nil {
+			rel = m
 		}
-		// doublestar.Glob returns fs-relative paths with '/'; normalize to OS later if caller wants
-		// we keep '/' to match doublestar convention (LLM should be robust)
-		res.Files = append(res.Files, filepath.ToSlash(m))
+		res.Files = append(res.Files, filepath.ToSlash(rel))
 		if len(res.Files) >= maxItems {
-			res.Truncated = true
+			truncated = true
 			break
 		}
 	}
+	res.Truncated = truncated
 	if t.logger != nil {
 		t.logger.InfoContext(ctx, logger.CatTool, "glob: completed",
 			"pattern", a.Pattern, "dir", absDir,
