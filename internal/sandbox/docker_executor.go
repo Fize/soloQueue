@@ -10,14 +10,26 @@ import (
 
 // DockerExecutor 基于 DockerSandbox.Exec 的沙盒执行器实现。
 // 所有操作通过在容器内执行 shell 命令完成。
+// 自动将宿主机路径转换为容器内路径，结果中的容器路径转换回宿主机路径。
 type DockerExecutor struct {
-	sb *DockerSandbox
+	sb      *DockerSandbox
+	pathMap *PathMap
 }
 
 // NewDockerExecutor 创建基于 Docker 的执行器。
 // 调用方需确保 sb 已 Start。
 func NewDockerExecutor(sb *DockerSandbox) *DockerExecutor {
-	return &DockerExecutor{sb: sb}
+	return &DockerExecutor{sb: sb, pathMap: sb.pathMap}
+}
+
+// toContainer 将宿主机路径转换为容器路径。
+func (e *DockerExecutor) toContainer(hostPath string) string {
+	return e.pathMap.ToContainerPath(hostPath)
+}
+
+// toHost 将容器路径转换为宿主机路径。
+func (e *DockerExecutor) toHost(containerPath string) string {
+	return e.pathMap.ToHostPath(containerPath)
 }
 
 // ─── RunCommand ─────────────────────────────────────────────────────────────
@@ -52,6 +64,8 @@ func (e *DockerExecutor) RunCommand(ctx context.Context, cmd string, opts RunCom
 // ─── ReadFile ───────────────────────────────────────────────────────────────
 
 func (e *DockerExecutor) ReadFile(ctx context.Context, path string, opts ReadFileOptions) (ReadFileResult, error) {
+	containerPath := e.toContainer(path)
+
 	// 先检查文件大小
 	if opts.MaxSize > 0 {
 		fi, err := e.Stat(ctx, path)
@@ -64,7 +78,7 @@ func (e *DockerExecutor) ReadFile(ctx context.Context, path string, opts ReadFil
 	}
 
 	// 用 base64 编码读取，避免二进制内容损坏
-	cmd := fmt.Sprintf("base64 %s", shellQuote(path))
+	cmd := fmt.Sprintf("base64 %s", shellQuote(containerPath))
 	stdout, _, err := e.sb.Exec(ctx, cmd)
 	if execErr, ok := err.(*ExecError); ok {
 		if execErr.ExitCode != 0 {
@@ -86,6 +100,8 @@ func (e *DockerExecutor) ReadFile(ctx context.Context, path string, opts ReadFil
 // ─── WriteFile ──────────────────────────────────────────────────────────────
 
 func (e *DockerExecutor) WriteFile(ctx context.Context, path string, data []byte, opts WriteFileOptions) (WriteFileResult, error) {
+	containerPath := e.toContainer(path)
+
 	if opts.MaxSize > 0 && int64(len(data)) > opts.MaxSize {
 		return WriteFileResult{}, fmt.Errorf("write too large: %d bytes > %d", len(data), opts.MaxSize)
 	}
@@ -107,7 +123,7 @@ func (e *DockerExecutor) WriteFile(ctx context.Context, path string, data []byte
 
 	// 通过 base64 编码写入，避免 shell 转义问题
 	encoded := base64.StdEncoding.EncodeToString(data)
-	cmd := fmt.Sprintf("echo %s | base64 -d > %s", shellQuote(encoded), shellQuote(path))
+	cmd := fmt.Sprintf("echo %s | base64 -d > %s", shellQuote(encoded), shellQuote(containerPath))
 	_, stderr, err := e.sb.Exec(ctx, cmd)
 	if execErr, ok := err.(*ExecError); ok && execErr.ExitCode != 0 {
 		return WriteFileResult{}, fmt.Errorf("write file %s: %s", path, strings.TrimSpace(string(execErr.Stderr)))
@@ -123,7 +139,8 @@ func (e *DockerExecutor) WriteFile(ctx context.Context, path string, data []byte
 // ─── Stat ───────────────────────────────────────────────────────────────────
 
 func (e *DockerExecutor) Stat(ctx context.Context, path string) (FileInfo, error) {
-	cmd := fmt.Sprintf("stat -c '%%s|%%F' %s 2>/dev/null || echo 'ERR'", shellQuote(path))
+	containerPath := e.toContainer(path)
+	cmd := fmt.Sprintf("stat -c '%%s|%%F' %s 2>/dev/null || echo 'ERR'", shellQuote(containerPath))
 	stdout, _, err := e.sb.Exec(ctx, cmd)
 	if execErr, ok := err.(*ExecError); ok && execErr.ExitCode != 0 {
 		return FileInfo{}, fmt.Errorf("stat %s: %s", path, strings.TrimSpace(string(execErr.Stderr)))
@@ -155,12 +172,14 @@ func (e *DockerExecutor) Stat(ctx context.Context, path string) (FileInfo, error
 // ─── Glob ───────────────────────────────────────────────────────────────────
 
 func (e *DockerExecutor) Glob(ctx context.Context, dir string, pattern string, opts GlobOptions) ([]string, error) {
+	containerDir := e.toContainer(dir)
+
 	maxItems := opts.MaxItems
 	if maxItems <= 0 {
 		maxItems = 10000
 	}
 
-	cmd := fmt.Sprintf("find %s -type f -name %s 2>/dev/null | head -n %d", shellQuote(dir), shellQuote(pattern), maxItems)
+	cmd := fmt.Sprintf("find %s -type f -name %s 2>/dev/null | head -n %d", shellQuote(containerDir), shellQuote(pattern), maxItems)
 	stdout, _, err := e.sb.Exec(ctx, cmd)
 	if execErr, ok := err.(*ExecError); ok && execErr.ExitCode != 0 {
 		return nil, fmt.Errorf("glob %s: %s", dir, strings.TrimSpace(string(execErr.Stderr)))
@@ -179,7 +198,7 @@ func (e *DockerExecutor) Glob(ctx context.Context, dir string, pattern string, o
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			result = append(result, line)
+			result = append(result, e.toHost(line))
 		}
 	}
 
@@ -189,12 +208,14 @@ func (e *DockerExecutor) Glob(ctx context.Context, dir string, pattern string, o
 // ─── Grep ───────────────────────────────────────────────────────────────────
 
 func (e *DockerExecutor) Grep(ctx context.Context, dir string, pattern string, opts GrepOptions) ([]GrepMatch, error) {
+	containerDir := e.toContainer(dir)
+
 	maxMatches := opts.MaxMatches
 	if maxMatches <= 0 {
 		maxMatches = 1000
 	}
 
-	cmd := fmt.Sprintf("grep -rn -- %s %s 2>/dev/null | head -n %d", shellQuote(pattern), shellQuote(dir), maxMatches)
+	cmd := fmt.Sprintf("grep -rn -- %s %s 2>/dev/null | head -n %d", shellQuote(pattern), shellQuote(containerDir), maxMatches)
 	stdout, _, err := e.sb.Exec(ctx, cmd)
 	if execErr, ok := err.(*ExecError); ok {
 		// grep 返回 1 表示无匹配，不是错误
@@ -239,7 +260,7 @@ func (e *DockerExecutor) Grep(ctx context.Context, dir string, pattern string, o
 		}
 
 		result = append(result, GrepMatch{
-			File:    file,
+			File:    e.toHost(file),
 			Line:    lineNum,
 			Content: content,
 		})
