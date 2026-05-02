@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
@@ -50,18 +51,71 @@ type DockerSandbox struct {
 	mu          sync.Mutex // protects containerID + Start/Destroy transitions
 	started     bool
 	mounts      []Mount   // 需要挂载到容器内的目录列表
+	workDir     string    // 容器内默认工作目录（~/.soloqueue 的容器内路径）
+	pathMap     *PathMap  // 宿主机 ↔ 容器路径映射
 }
 
 // Mount 描述一个宿主机到容器的目录挂载。
 type Mount struct {
 	// HostPath 宿主机绝对路径。
 	HostPath string
-	// ContainerPath 容器内绝对路径。为空时默认与 HostPath 相同。
+	// ContainerPath 容器内绝对路径。为空时默认 /root/.soloqueue（第一个 mount）或 /root/projects/<basename>。
 	ContainerPath string
+}
+
+// PathMap 维护宿主机路径与容器路径之间的双向映射。
+type PathMap struct {
+	hostToContainer map[string]string // 前缀映射：宿主机前缀 → 容器前缀
+	containerToHost map[string]string // 前缀映射：容器前缀 → 宿主机前缀
+}
+
+// NewPathMap 从挂载列表构建路径映射。
+func NewPathMap(mounts []Mount) *PathMap {
+	pm := &PathMap{
+		hostToContainer: make(map[string]string),
+		containerToHost: make(map[string]string),
+	}
+	for _, m := range mounts {
+		pm.hostToContainer[m.HostPath] = m.ContainerPath
+		pm.containerToHost[m.ContainerPath] = m.HostPath
+	}
+	return pm
+}
+
+// ToContainerPath 将宿主机绝对路径转换为容器内路径。
+// 找到最长匹配的挂载前缀进行替换。
+func (pm *PathMap) ToContainerPath(hostPath string) string {
+	best := ""
+	for hp := range pm.hostToContainer {
+		if strings.HasPrefix(hostPath, hp) && len(hp) > len(best) {
+			best = hp
+		}
+	}
+	if best == "" {
+		return hostPath // 不在挂载范围内，原样返回
+	}
+	return pm.hostToContainer[best] + hostPath[len(best):]
+}
+
+// ToHostPath 将容器内路径转换为宿主机绝对路径。
+// 找到最长匹配的挂载前缀进行替换。
+func (pm *PathMap) ToHostPath(containerPath string) string {
+	best := ""
+	for cp := range pm.containerToHost {
+		if strings.HasPrefix(containerPath, cp) && len(cp) > len(best) {
+			best = cp
+		}
+	}
+	if best == "" {
+		return containerPath // 不在挂载范围内，原样返回
+	}
+	return pm.containerToHost[best] + containerPath[len(best):]
 }
 
 // NewDockerSandbox 创建一个新的 Docker 沙盒实例（未启动）。
 // mounts 指定需要挂载到容器内的目录列表。
+// 第一个 mount 视为主工作目录，映射到 /root/.soloqueue；
+// 其余 mount 映射到 /root/projects/<basename>。
 // 自动探测 Docker / Rancher Desktop / OrbStack 的 socket 路径。
 func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 	if err := ensureDockerHost(); err != nil {
@@ -71,7 +125,30 @@ func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: create docker client: %w", err)
 	}
-	return &DockerSandbox{cli: cli, mounts: mounts}, nil
+
+	// 为没有指定 ContainerPath 的 mount 分配容器内路径
+	for i := range mounts {
+		if mounts[i].ContainerPath != "" {
+			continue
+		}
+		if i == 0 {
+			mounts[i].ContainerPath = "/root/.soloqueue"
+		} else {
+			mounts[i].ContainerPath = "/root/projects/" + filepath.Base(mounts[i].HostPath)
+		}
+	}
+
+	workDir := "/root/.soloqueue"
+	if len(mounts) > 0 {
+		workDir = mounts[0].ContainerPath
+	}
+
+	return &DockerSandbox{
+		cli:     cli,
+		mounts:  mounts,
+		workDir: workDir,
+		pathMap: NewPathMap(mounts),
+	}, nil
 }
 
 // Start 清理残留容器、拉取镜像、拉起新容器。
@@ -108,19 +185,16 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 		hostConfig.ExtraHosts = []string{"localhost:host-gateway"}
 	}
 
-	// 挂载目录
+	// 挂载目录（hostPath:containerPath）
 	for _, m := range d.mounts {
-		containerPath := m.ContainerPath
-		if containerPath == "" {
-			containerPath = m.HostPath
-		}
-		hostConfig.Binds = append(hostConfig.Binds, m.HostPath+":"+containerPath)
+		hostConfig.Binds = append(hostConfig.Binds, m.HostPath+":"+m.ContainerPath)
 	}
 
 	createResp, err := d.cli.ContainerCreate(ctx,
 		&container.Config{
-			Image: imageName,
-			Cmd:   []string{"/bin/sh", "-c", "apt-get update -qq && apt-get install -y --no-install-recommends -qq curl ca-certificates > /dev/null 2>&1; tail -f /dev/null"},
+			Image:      imageName,
+			Cmd:        []string{"/bin/sh", "-c", "apt-get update -qq && apt-get install -y --no-install-recommends -qq curl ca-certificates > /dev/null 2>&1; tail -f /dev/null"},
+			WorkingDir: d.workDir,
 		},
 		hostConfig,
 		nil,
