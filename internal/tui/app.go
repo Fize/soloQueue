@@ -202,6 +202,7 @@ func Run(cfg Config) error {
 	ta.Prompt = "┃ "
 	ta.CharLimit = 0
 	ta.DynamicHeight = true
+	ta.MinHeight = 5
 	ta.MaxHeight = maxComposerLines
 	ta.ShowLineNumbers = false
 	// Rebind InsertNewline to shift+enter only.
@@ -378,7 +379,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			input := strings.TrimSpace(m.textArea.Value())
 			m.textArea.Reset()
-			m.textArea.SetHeight(1)
 
 			if isSlashCommandInput(input) {
 				if quit, builtinCmd := m.handleBuiltin(input); quit {
