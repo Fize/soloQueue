@@ -1,17 +1,14 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // shellExecTool 执行 shell 命令（黑名单/确认名单校验）
@@ -38,6 +35,7 @@ type shellExecTool struct {
 }
 
 func newShellExecTool(cfg Config) *shellExecTool {
+	ensureExecutor(&cfg)
 	t := &shellExecTool{cfg: cfg, logger: cfg.Logger}
 	for _, r := range cfg.ShellBlockRegexes {
 		re, err := regexp.Compile(r)
@@ -164,86 +162,46 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 	start := time.Now()
 
-	// Timeout ctx
 	timeout := t.cfg.ShellTimeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(execCtx, "/bin/sh", "-c", a.Command)
-
-	if a.Stdin != "" {
-		cmd.Stdin = strings.NewReader(a.Stdin)
-	}
-
 	maxOut := t.cfg.ShellMaxOutput
 	if maxOut <= 0 {
 		maxOut = 256 << 10
 	}
 
-	var stdout, stderr bytes.Buffer
-	// limit reader: we cap each stream independently; total cap = 2 * maxOut
-	cmd.Stdout = &limitedWriter{w: &stdout, cap: maxOut}
-	cmd.Stderr = &limitedWriter{w: &stderr, cap: maxOut}
+	res, err := t.cfg.Executor.RunCommand(ctx, a.Command, sandbox.RunCommandOptions{
+		Timeout:   timeout,
+		Stdin:     a.Stdin,
+		MaxOutput: maxOut,
+	})
 
-	err := cmd.Run()
-
-	truncated := false
-	if sw, ok := cmd.Stdout.(*limitedWriter); ok && sw.truncated {
-		truncated = true
-	}
-	if sw, ok := cmd.Stderr.(*limitedWriter); ok && sw.truncated {
-		truncated = true
-	}
-
-	res := shellExecResult{
-		Stdout:    stdout.String(),
-		Stderr:    stderr.String(),
-		Truncated: truncated,
+	shellRes := shellExecResult{
+		Stdout:    string(res.Stdout),
+		Stderr:    string(res.Stderr),
+		Truncated: res.Truncated,
 	}
 
 	if err != nil {
-		// timeout
-		if execCtx.Err() == context.DeadlineExceeded {
-			if t.logger != nil {
-				t.logger.WarnContext(ctx, logger.CatTool, "shell: timeout",
-					"command", a.Command,
-					"timeout_sec", timeout.Seconds(),
-					"duration_ms", time.Since(start).Milliseconds())
-			}
-			return "", fmt.Errorf("shell timeout after %s: %w", timeout, context.DeadlineExceeded)
-		}
-		// caller canceled
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		// non-zero exit → encode to result; do NOT return error (LLM reads exit_code)
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			res.ExitCode = ee.ExitCode()
-			if t.logger != nil {
-				t.logger.DebugContext(ctx, logger.CatTool, "shell: non-zero exit",
-					"command", a.Command,
-					"exit_code", res.ExitCode,
-					"duration_ms", time.Since(start).Milliseconds())
-			}
-			b, _ := json.Marshal(res)
-			return string(b), nil
-		}
-		// other errors (couldn't start) → surface
 		return "", err
 	}
 
-	res.ExitCode = cmd.ProcessState.ExitCode()
+	shellRes.ExitCode = res.ExitCode
 	if t.logger != nil {
-		t.logger.InfoContext(ctx, logger.CatTool, "shell: completed",
-			"command", a.Command,
-			"exit_code", res.ExitCode,
-			"duration_ms", time.Since(start).Milliseconds())
+		if res.ExitCode != 0 {
+			t.logger.DebugContext(ctx, logger.CatTool, "shell: non-zero exit",
+				"command", a.Command,
+				"exit_code", res.ExitCode,
+				"duration_ms", time.Since(start).Milliseconds())
+		} else {
+			t.logger.InfoContext(ctx, logger.CatTool, "shell: completed",
+				"command", a.Command,
+				"exit_code", res.ExitCode,
+				"duration_ms", time.Since(start).Milliseconds())
+		}
 	}
-	b, _ := json.Marshal(res)
+	b, _ := json.Marshal(shellRes)
 	return string(b), nil
 }
 

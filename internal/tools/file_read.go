@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // fileReadTool 读取单个文件并返回 JSON payload
@@ -23,7 +24,7 @@ type fileReadTool struct {
 	logger *logger.Logger
 }
 
-func newFileReadTool(cfg Config) *fileReadTool { return &fileReadTool{cfg: cfg, logger: cfg.Logger} }
+func newFileReadTool(cfg Config) *fileReadTool { ensureExecutor(&cfg); return &fileReadTool{cfg: cfg, logger: cfg.Logger} }
 
 func (fileReadTool) Name() string { return "Read" }
 
@@ -70,10 +71,13 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	data, err := readFileCapped(abs, t.cfg.MaxFileSize)
+	res, err := t.cfg.Executor.ReadFile(ctx, abs, sandbox.ReadFileOptions{
+		MaxSize: t.cfg.MaxFileSize,
+	})
 	if err != nil {
 		return "", err
 	}
+	data := res.Data
 	if looksBinary(data) {
 		return "", fmt.Errorf("%w: %s", ErrBinaryContent, abs)
 	}

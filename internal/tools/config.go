@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -104,14 +105,28 @@ type Config struct {
 	// ── 日志 ──────────────────────────────────────────────────
 	// Logger 可选日志实例（nil = 静默，不输出日志）
 	Logger *logger.Logger
+
+	// ── 沙盒执行器 ──────────────────────────────────────────────
+	// Executor 是所有工具的执行底座，所有宿主机交互必须通过它。
+	// nil 时 Build 会自动注入 LocalExecutor（保障测试和本地开发场景）。
+	Executor sandbox.Executor
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────
 
+// ensureExecutor 保证 cfg.Executor 不为 nil，否则注入 LocalExecutor。
+func ensureExecutor(cfg *Config) {
+	if cfg.Executor == nil {
+		cfg.Executor = sandbox.NewLocalExecutor()
+	}
+}
+
 // Build 返回当前 Config 下启用的所有工具
 //
 // 返回切片顺序保持与声明顺序一致（便于 debug）。
+// 如果 cfg.Executor 为 nil，自动注入 LocalExecutor。
 func Build(cfg Config) []Tool {
+	ensureExecutor(&cfg)
 	return []Tool{
 		newFileReadTool(cfg),
 		newGrepTool(cfg),

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // replaceTool 对单个文件做严格字符串替换
@@ -33,7 +34,7 @@ type replaceTool struct {
 	logger *logger.Logger
 }
 
-func newReplaceTool(cfg Config) *replaceTool { return &replaceTool{cfg: cfg, logger: cfg.Logger} }
+func newReplaceTool(cfg Config) *replaceTool { ensureExecutor(&cfg); return &replaceTool{cfg: cfg, logger: cfg.Logger} }
 
 func (replaceTool) Name() string { return "Edit" }
 
@@ -93,10 +94,13 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := readFileCapped(abs, t.cfg.MaxFileSize)
+	readRes, err := t.cfg.Executor.ReadFile(ctx, abs, sandbox.ReadFileOptions{
+		MaxSize: t.cfg.MaxFileSize,
+	})
 	if err != nil {
 		return "", err
 	}
+	data := readRes.Data
 	before := string(data)
 	count := strings.Count(before, a.OldString)
 	if count == 0 {
@@ -115,7 +119,10 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("%w: result %d bytes > %d", ErrContentTooLarge, len(after), t.cfg.MaxWriteSize)
 	}
 
-	if _, werr := atomicWrite(abs, []byte(after), true); werr != nil {
+	if _, werr := t.cfg.Executor.WriteFile(ctx, abs, []byte(after), sandbox.WriteFileOptions{
+		Overwrite: true,
+		MaxSize:   t.cfg.MaxWriteSize,
+	}); werr != nil {
 		return "", werr
 	}
 

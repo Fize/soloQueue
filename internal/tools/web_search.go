@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -13,6 +11,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // webSearchTool 通过 DuckDuckGo Lite 搜索网页
@@ -33,20 +32,13 @@ import (
 type webSearchTool struct {
 	cfg    Config
 	logger *logger.Logger
-	client *http.Client
 }
 
 func newWebSearchTool(cfg Config) *webSearchTool {
-	timeout := cfg.WebSearchTimeout
-	if timeout <= 0 {
-		timeout = 15 * time.Second
-	}
+	ensureExecutor(&cfg)
 	return &webSearchTool{
 		cfg:    cfg,
 		logger: cfg.Logger,
-		client: &http.Client{
-			Timeout: timeout,
-		},
 	}
 }
 
@@ -112,24 +104,21 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	form := url.Values{}
 	form.Set("q", a.Query)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://lite.duckduckgo.com/lite/", strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SoloQueue/1.0)")
-
-	resp, err := t.client.Do(req)
+	httpResp, err := t.cfg.Executor.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
+		form.Encode(),
+		sandbox.HTTPOptions{
+			Timeout:      t.cfg.WebSearchTimeout,
+			MaxBody:      2 << 20,
+			ContentType:  "application/x-www-form-urlencoded",
+			Headers:      map[string]string{"User-Agent": "Mozilla/5.0 (compatible; SoloQueue/1.0)"},
+		},
+	)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if readErr != nil {
-		return "", fmt.Errorf("read WebSearch body: %w", readErr)
-	}
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("WebSearch %d: %s", resp.StatusCode, truncateString(string(data), 200))
+	data := httpResp.Body
+	if httpResp.StatusCode >= 400 {
+		return "", fmt.Errorf("WebSearch %d: %s", httpResp.StatusCode, truncateString(string(data), 200))
 	}
 
 	results := parseDDGResults(data, maxR)

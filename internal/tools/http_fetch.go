@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // httpFetchTool 对外发 HTTP GET；含 SSRF 防护
@@ -34,26 +33,15 @@ import (
 type httpFetchTool struct {
 	cfg    Config
 	logger *logger.Logger
-	client *http.Client
 	// allow override of DNS for testing
 	lookup func(host string) ([]net.IP, error)
 }
 
 func newHTTPFetchTool(cfg Config) *httpFetchTool {
-	timeout := cfg.HTTPTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
+	ensureExecutor(&cfg)
 	return &httpFetchTool{
 		cfg:    cfg,
 		logger: cfg.Logger,
-		client: &http.Client{
-			Timeout: timeout,
-			// disable redirects by default — LLM can follow via subsequent calls
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
 		lookup: net.LookupIP,
 	}
 }
@@ -156,52 +144,37 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	// timeout: ctx + HTTPTimeout (client already has Timeout)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
-	}
-	for k, v := range a.Headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
 	maxBody := t.cfg.HTTPMaxBody
 	if maxBody <= 0 {
 		maxBody = 5 << 20
 	}
-	// read up to maxBody+1 to detect truncation
-	data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
-	if readErr != nil {
-		return "", fmt.Errorf("read body: %w", readErr)
+
+	httpResp, err := t.cfg.Executor.HTTPGet(ctx, a.URL, sandbox.HTTPOptions{
+		Timeout:      t.cfg.HTTPTimeout,
+		MaxBody:      maxBody,
+		Headers:      a.Headers,
+		BlockPrivate: t.cfg.HTTPBlockPrivate,
+	})
+	if err != nil {
+		return "", err
 	}
+
+	data := httpResp.Body
 	truncated := false
 	if int64(len(data)) > maxBody {
 		data = data[:maxBody]
 		truncated = true
 	}
 
-	// flatten headers (first value each)
-	h := make(map[string]string, len(resp.Header))
-	for k, vs := range resp.Header {
-		if len(vs) > 0 {
-			h[k] = vs[0]
-		}
-	}
 	out := httpFetchResult{
-		Status:    resp.StatusCode,
-		Headers:   h,
+		Status:    httpResp.StatusCode,
 		Body:      string(data),
 		Truncated: truncated,
 	}
 	if t.logger != nil {
 		t.logger.InfoContext(ctx, logger.CatTool, "http_fetch: completed",
 			"url", a.URL,
-			"status", resp.StatusCode,
+			"status", httpResp.StatusCode,
 			"body_len", len(data),
 			"truncated", truncated,
 			"duration_ms", time.Since(start).Milliseconds())
