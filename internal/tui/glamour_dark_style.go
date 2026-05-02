@@ -2,50 +2,55 @@ package tui
 
 // glamour_dark_style.go — custom dark JSON style for glamour markdown rendering.
 //
-// This works around a bug in glamour v1/v2 where the built-in "dark" and "light"
-// standard styles fail to render H2-H4 headings (they appear as literal "##" text).
-// The style definitions are based on glamour's dark.json with all heading levels
-// explicitly defined.
+// Glamour v2's built-in "dark" style renders heading text with ANSI 256-color
+// codes that can break in some terminals. This custom style uses true-color hex
+// codes for headings and includes the document block needed for correct layout.
 
 const darkStyleJSON = `{
+	"document": {
+		"block_prefix": "\n",
+		"block_suffix": "\n"
+	},
 	"block_quote": {
 		"indent": 1,
-		"indent_token": "│"
+		"indent_token": "│ "
 	},
 	"paragraph": {},
 	"list": {
-		"color": "252"
+		"level_indent": 2
 	},
 	"heading": {
+		"block_suffix": "\n",
+		"color": "#bd93f9",
 		"bold": true
 	},
 	"h1": {
-		"prefix": " ",
+		"prefix": "# ",
 		"color": "#b39afc",
 		"bold": true
 	},
 	"h2": {
-		"prefix": " ",
+		"prefix": "## ",
 		"color": "#b39afc",
 		"bold": true
 	},
 	"h3": {
-		"prefix": " ",
+		"prefix": "### ",
 		"color": "#b39afc",
 		"bold": true
 	},
 	"h4": {
-		"prefix": " ",
+		"prefix": "#### ",
 		"color": "#b39afc",
 		"bold": true
 	},
 	"h5": {
-		"prefix": " ",
+		"prefix": "##### ",
 		"color": "#b39afc",
 		"bold": true
 	},
 	"h6": {
-		"prefix": " ",
+		"prefix": "###### ",
 		"color": "#b39afc",
 		"bold": true
 	},
@@ -53,7 +58,7 @@ const darkStyleJSON = `{
 	"strong": {
 		"bold": true
 	},
-	"em": {
+	"emph": {
 		"italic": true
 	},
 	"strikethrough": {
@@ -64,66 +69,7 @@ const darkStyleJSON = `{
 		"underline": true
 	},
 	"code_block": {
-		"theme": "dracula",
-		"chroma": {
-			"text": {
-				"color": "#f8f8f2"
-			},
-			"error": {
-				"color": "#f8f8f2",
-				"background_color": "#ff5555"
-			},
-			"keyword": {
-				"color": "#ff79c6"
-			},
-			"keyword.namespace": {
-				"color": "#ff79c6"
-			},
-			"keyword.type": {
-				"color": "#8be9fd"
-			},
-			"keyword.constant": {
-				"color": "#bd93f9"
-			},
-			"name": {
-				"color": "#f8f8f2"
-			},
-			"name.builtin": {
-				"color": "#8be9fd"
-			},
-			"name.class": {
-				"color": "#8be9fd"
-			},
-			"name.function": {
-				"color": "#50fa7b"
-			},
-			"name.function.macro": {
-				"color": "#50fa7b",
-				"italic": true
-			},
-			"literal": {
-				"color": "#bd93f9"
-			},
-			"literal.string": {
-				"color": "#f1fa8c"
-			},
-			"literal.string.doc": {
-				"color": "#6272a4"
-			},
-			"comment": {
-				"color": "#6272a4",
-				"italic": true
-			},
-			"operator": {
-				"color": "#ff79c6"
-			},
-			"punctuation": {
-				"color": "#f8f8f2"
-			},
-			"generic": {
-				"color": "#bd93f9"
-			}
-		}
+		"theme": "dracula"
 	},
 	"code": {
 		"color": "#ff79c6",
@@ -132,42 +78,50 @@ const darkStyleJSON = `{
 }`
 
 const lightStyleJSON = `{
+	"document": {
+		"block_prefix": "\n",
+		"block_suffix": "\n"
+	},
 	"block_quote": {
 		"indent": 1,
-		"indent_token": "│"
+		"indent_token": "│ "
 	},
 	"paragraph": {},
-	"list": {},
+	"list": {
+		"level_indent": 2
+	},
 	"heading": {
+		"block_suffix": "\n",
+		"color": "#7c3aed",
 		"bold": true
 	},
 	"h1": {
-		"prefix": " ",
+		"prefix": "# ",
 		"color": "#7c3aed",
 		"bold": true
 	},
 	"h2": {
-		"prefix": " ",
+		"prefix": "## ",
 		"color": "#7c3aed",
 		"bold": true
 	},
 	"h3": {
-		"prefix": " ",
+		"prefix": "### ",
 		"color": "#7c3aed",
 		"bold": true
 	},
 	"h4": {
-		"prefix": " ",
+		"prefix": "#### ",
 		"color": "#7c3aed",
 		"bold": true
 	},
 	"h5": {
-		"prefix": " ",
+		"prefix": "##### ",
 		"color": "#7c3aed",
 		"bold": true
 	},
 	"h6": {
-		"prefix": " ",
+		"prefix": "###### ",
 		"color": "#7c3aed",
 		"bold": true
 	},
@@ -175,7 +129,7 @@ const lightStyleJSON = `{
 	"strong": {
 		"bold": true
 	},
-	"em": {
+	"emph": {
 		"italic": true
 	},
 	"strikethrough": {
