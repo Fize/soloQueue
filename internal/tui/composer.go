@@ -55,9 +55,6 @@ func isSlashCommandInput(input string) bool {
 }
 
 func (m model) renderComposer(ly layout) string {
-	line := lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", max(ly.mainW, 0)))
-	title := paneTitleStyle.Render(" Composer ")
-
 	// Ensure the textarea uses exact width by trimming/padding as needed
 	// (BubbleTea's textarea doesn't reliably fill space on its own)
 	input := m.textArea.View()
@@ -69,21 +66,16 @@ func (m model) renderComposer(ly layout) string {
 	}
 	input = strings.Join(lines, "\n")
 
-	composerBlock := lipgloss.JoinVertical(lipgloss.Left, line, title+" "+dimStyle.Render("enter send · shift+enter newline"), input)
-
 	if ly.mode == layoutTwoPane && m.showAgents {
-		// Composer matches the main Workspace, left is filled with spaces to align with sidebar + separator
 		var padding strings.Builder
 		padding.WriteString(strings.Repeat(" ", ly.leftW))
 		padding.WriteString(paneBorderStyle.Render("│"))
 
-		lines = strings.Split(composerBlock, "\n")
+		lines = strings.Split(input, "\n")
 		for i, l := range lines {
-			// For the top border line, continue the separator upwards?
-			// No, just keep the standard separator structure.
 			lines[i] = padding.String() + l
 		}
 		return strings.Join(lines, "\n")
 	}
-	return composerBlock
+	return input
 }

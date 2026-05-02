@@ -91,7 +91,7 @@ func TestFormatToolBlock(t *testing.T) {
 		{
 			name: "done success with lines",
 			tb:   toolBlock{name: "file_read", args: `{"path":"a.go"}`, done: true, lineCount: 24, duration: 120 * time.Millisecond},
-			want: []string{"✓", "file_read", "a.go", "24 lines", "120ms"},
+			want: []string{"✓", "file_read", "a.go", "24 行", "120ms"},
 		},
 		{
 			name: "done success no lines",
@@ -101,7 +101,7 @@ func TestFormatToolBlock(t *testing.T) {
 		{
 			name: "done success no duration",
 			tb:   toolBlock{name: "file_read", args: `{"path":"x.go"}`, done: true, lineCount: 5},
-			want: []string{"✓", "file_read", "5 lines"},
+			want: []string{"✓", "file_read", "5 行"},
 			dont: []string{"·"},
 		},
 		{
