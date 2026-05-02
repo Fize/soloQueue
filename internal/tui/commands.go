@@ -34,7 +34,8 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 				}
 			}
 		}
-		m.messages = append(m.messages, message{role: "agent", content: text})
+		m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
+		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
 		return false, nil
@@ -51,8 +52,9 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 			_ = m.sess.Clear()
 		}
 		m.messages = nil
+		m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
 		text := "◆  context cleared"
-		m.messages = append(m.messages, message{role: "agent", content: text})
+		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.resizeViewport()
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
@@ -60,14 +62,16 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 
 	case "/version":
 		text := "SoloQueue " + m.cfg.Version
-		m.messages = append(m.messages, message{role: "agent", content: text})
+		m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
+		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
 		return false, nil
 
 	case "/status":
 		text := renderStatus(m.cfg.Registry, m.cfg.Supervisors)
-		m.messages = append(m.messages, message{role: "agent", content: text})
+		m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
+		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
 		return false, nil
@@ -89,11 +93,12 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 						args = strings.TrimSpace(parts[1])
 					}
 					prompt := buildSkillPrompt(s, args)
-					return false, m.startStreamFromInput(prompt)
+					return false, m.startStreamFromInput(input, prompt)
 				}
 			}
 			text := "✗ Unknown command: " + input + ". Type /help"
-			m.messages = append(m.messages, message{role: "agent", content: text})
+			m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
+			m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 			m.rebuildViewportContent()
 			m.viewport.GotoBottom()
 			return false, nil
@@ -112,7 +117,9 @@ func buildSkillPrompt(s *skill.Skill, args string) string {
 }
 
 // startStreamFromInput starts a stream from the given input string.
-func (m *model) startStreamFromInput(input string) tea.Cmd {
+// displayInput is the original user input to show in the conversation.
+func (m *model) startStreamFromInput(displayInput string, streamInput string) tea.Cmd {
+	m.messages = append(m.messages, message{role: "user", content: displayInput, timestamp: time.Now()})
 	m.nextStreamID++
 	sid := m.nextStreamID
 	m.isGenerating = true
@@ -128,9 +135,9 @@ func (m *model) startStreamFromInput(input string) tea.Cmd {
 	m.current = &streamState{
 		toolExecMap: make(map[string]*toolExecInfo),
 	}
-	m.messages = append(m.messages, message{role: "agent"})
+	m.messages = append(m.messages, message{role: "agent", timestamp: time.Now()})
 	m.resizeViewport()
 	m.rebuildViewportContent()
 	m.viewport.GotoBottom()
-	return m.startStream(input, sid)
+	return m.startStream(streamInput, sid)
 }

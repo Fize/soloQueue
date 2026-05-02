@@ -40,13 +40,8 @@ func (m model) renderConversationPane(width, height int) string {
 	if height <= 0 {
 		return ""
 	}
-	title := paneTitleStyle.Render(" Conversation ")
-	contentHeight := height - 1
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
-	content := fitLines(m.viewport.View(), contentHeight)
-	return paneStyle(width).Render(title + "\n" + content)
+	content := fitLines(m.viewport.View(), height)
+	return paneStyle(width).Render(content)
 }
 
 func paneSeparator(height int) string {
