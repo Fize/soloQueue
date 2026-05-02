@@ -3,18 +3,34 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 )
+
+// ─── formatTimestamp ─────────────────────────────────────────────────────────
+
+func TestFormatTimestamp(t *testing.T) {
+	ts := time.Date(2026, 1, 1, 14, 30, 0, 0, time.UTC)
+	got := formatTimestamp("You", ts)
+	if got != "You · 14:30" {
+		t.Errorf("got %q, want %q", got, "You · 14:30")
+	}
+	// Zero time: just the name
+	got = formatTimestamp("Solo", time.Time{})
+	if got != "Solo" {
+		t.Errorf("got %q, want %q", got, "Solo")
+	}
+}
 
 // ─── renderUserMessage ──────────────────────────────────────────────────────
 
 func TestRenderUserMessage(t *testing.T) {
 	msg := message{role: "user", content: "hello world"}
-	got := renderUserMessage(msg)
-	if !strings.Contains(got, "❯") {
-		t.Error("user message should contain prompt marker")
-	}
+	got := renderUserMessage(msg, 80)
 	if !strings.Contains(got, "hello world") {
 		t.Error("user message should contain content")
+	}
+	if !strings.Contains(got, "You") {
+		t.Error("user message should contain timestamp label 'You'")
 	}
 	if !strings.HasSuffix(got, "\n\n") {
 		t.Error("user message should end with double newline")
@@ -24,27 +40,34 @@ func TestRenderUserMessage(t *testing.T) {
 // ─── renderMessage ──────────────────────────────────────────────────────────
 
 func TestRenderMessage_UserRole(t *testing.T) {
-	m := &model{}
+	m := newTestModel()
 	msg := message{role: "user", content: "test"}
 	got := m.renderMessage(msg)
-	if !strings.Contains(got, "❯") {
-		t.Error("user message should have prompt marker")
+	if !strings.Contains(got, "test") {
+		t.Error("user message should contain content")
+	}
+	if !strings.Contains(got, "You") {
+		t.Error("user message should contain timestamp label 'You'")
 	}
 }
 
 func TestRenderMessage_AgentRole(t *testing.T) {
-	m := &model{}
+	m := newTestModel()
 	msg := message{role: "agent", content: "response"}
 	got := m.renderMessage(msg)
-	if !strings.Contains(got, "Solo:") {
-		t.Error("agent message should have 'Solo:' header")
+	if got == "" {
+		t.Error("agent message should not be empty")
+	}
+	if !strings.Contains(got, "Solo") {
+		t.Error("agent message should contain timestamp label 'Solo'")
 	}
 }
 
 func TestRenderMessage_EmptyRole(t *testing.T) {
-	m := &model{}
+	m := newTestModel()
 	msg := message{role: "unknown", content: "something"}
 	got := m.renderMessage(msg)
+	// Unknown role returns empty string (no separator anymore)
 	if got != "" {
 		t.Errorf("unknown role should produce empty string, got %q", got)
 	}
@@ -53,11 +76,11 @@ func TestRenderMessage_EmptyRole(t *testing.T) {
 // ─── renderAgentMessage ─────────────────────────────────────────────────────
 
 func TestRenderAgentMessage(t *testing.T) {
-	m := &model{}
+	m := newTestModel()
 	msg := message{role: "agent", content: "response", timeline: []timelineEntry{}}
 	got := m.renderAgentMessage(msg)
-	if !strings.Contains(got, "Solo:") {
-		t.Error("should contain 'Solo:' header")
+	if got == "" {
+		t.Error("should not be empty")
 	}
 }
 

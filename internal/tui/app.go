@@ -73,11 +73,12 @@ type timelineEntry struct {
 }
 
 type message struct {
-	role     string
-	content  string
-	timeline []timelineEntry
-	dirty    bool   // true if content changed since last render
-	rendered string // cached rendered output
+	role      string
+	content   string
+	timeline  []timelineEntry
+	dirty     bool      // true if content changed since last render
+	rendered  string    // cached rendered output
+	timestamp time.Time // when the message was created
 }
 
 type confirmState struct {
@@ -243,19 +244,21 @@ func (m *model) resizeViewport() {
 	// SetWidth triggers DynamicHeight recalculation, so call it first.
 	m.textArea.SetWidth(ly.composerW)
 	// Now read the auto-calculated height and recompute layout with it.
-	composerH := m.textArea.Height() + 2 // separator/title + textarea lines
+	composerH := m.textArea.Height() // textarea lines only, no title
 	bodyH := m.height - ly.headerH - composerH - ly.footerH
 	if bodyH < minBodyHeight {
 		bodyH = minBodyHeight
 	}
-	viewportH := bodyH - 1
+	viewportH := bodyH // no title line subtracted anymore
 	if viewportH < 3 {
 		viewportH = 3
 	}
 	m.viewport.SetHeight(viewportH)
-	// Viewport sits inside paneStyle which adds Padding(0,1) = 2 columns,
-	// so the viewport content width must be mainW - 2 to avoid overflow.
-	m.viewport.SetWidth(max(ly.mainW-2, 1))
+	// Viewport sits inside paneStyle which is Width(mainW-2).Padding(0,1).
+	// In lipgloss v2, Width includes padding, so the content area is
+	// (mainW-2) - 2 = mainW-4. Viewport lines must fit within this
+	// content area or lipgloss will wrap them, adding extra lines.
+	m.viewport.SetWidth(max(ly.mainW-4, 1))
 }
 
 // ─── rebuildViewportContent ───────────────────
@@ -285,7 +288,8 @@ func (m *model) rebuildViewportContent() {
 	}
 
 	if m.current != nil {
-		sb.WriteString(agentStyle.Render("Solo:") + "\n")
+		ts := formatTimestamp("Solo", time.Now())
+		sb.WriteString(timestampStyle.Render(ts) + "\n")
 		var liveTimeline []timelineEntry
 		liveTimeline = append(liveTimeline, m.current.timeline...)
 		if m.current.thinkingBuf.Len() > 0 {
@@ -388,7 +392,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			m.messages = append(m.messages, message{role: "user", content: input})
+			m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
 			m.addHistory(input)
 
 			m.nextStreamID++
@@ -406,7 +410,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.current = &streamState{
 				toolExecMap: make(map[string]*toolExecInfo),
 			}
-			m.messages = append(m.messages, message{role: "agent"})
+			m.messages = append(m.messages, message{role: "agent", timestamp: time.Now()})
 			m.resizeViewport()
 			m.rebuildViewportContent()
 			m.viewport.GotoBottom()
@@ -519,7 +523,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
 		return m, nil
-		return m, nil
 
 	case spinnerMsg:
 		if m.isGenerating {
@@ -604,8 +607,10 @@ func (m model) View() tea.View {
 	if !m.copyMode {
 		c := m.textArea.Cursor()
 		if c != nil {
-			c.Y += ly.headerH + ly.bodyH + 2
-			// 如果启用了侧边栏，cursor 的 X 需要偏移 sidebar 的宽度 + 分割线
+			// Count actual rendered lines above the textarea.
+			// body + header (no composer title line anymore)
+			c.Y += lineCount(body) + lineCount(header)
+			// If sidebar is visible, offset X for sidebar width + separator
 			if ly.mode == layoutTwoPane && m.showAgents {
 				c.X += ly.leftW + 1
 			}
@@ -617,6 +622,15 @@ func (m model) View() tea.View {
 	}
 	v.AltScreen = true
 	return v
+}
+
+// lineCount returns the number of visual lines in a rendered string.
+func lineCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return len(lines)
 }
 
 // ─── Error summarization ───────────────────────

@@ -212,8 +212,9 @@ func TestResizeViewport_TwoPaneComposer(t *testing.T) {
 	m.width = 120
 	m.height = 30
 	m.resizeViewport()
-	// Viewport width is mainW - 2 to account for paneStyle's Padding(0,1)
-	expectedW := max(m.computeLayout().mainW-2, 1)
+	// Viewport width is mainW-4 to account for paneStyle's Width(mainW-2).Padding(0,1)
+	// Content area = (mainW-2) - 2 = mainW-4
+	expectedW := max(m.computeLayout().mainW-4, 1)
 	if m.viewport.Width() != expectedW {
 		t.Errorf("viewport width = %d, want %d", m.viewport.Width(), expectedW)
 	}

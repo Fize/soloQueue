@@ -64,7 +64,7 @@ func (m *model) computeLayout() layout {
 	if composerLines < 1 {
 		composerLines = composerLineCountForValue(m.textArea.Value(), composerW, maxLines)
 	}
-	composerH := composerLines + 2 // separator/title + textarea lines
+	composerH := composerLines // textarea lines only, no title
 
 	ly := layout{
 		mode:             mode,
