@@ -6,17 +6,17 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// MergeTOML 将 src TOML bytes 部分覆盖合并到 dst，返回新值
+// MergeTOML partially merges src TOML bytes into dst and returns the new value
 //
-// 合并策略：
-//   - 对象字段：逐一覆盖（partial merge，未指定字段保留上层值）
-//   - 数组字段：整体替换（非追加）
-//   - null / 缺失字段：跳过，保留上层值
+// Merge strategy:
+//   - Object fields: override one by one (partial merge, unspecified fields retain upper-level values)
+//   - Array fields: replace entirely (not append)
+//   - null / missing fields: skip, retain upper-level values
 //
-// 实现方式：将 dst 序列化为 TOML，再将 src 解析为 map，
-// 递归合并后反序列化回 T。
+// Implementation: serialize dst to TOML, parse src into map,
+// recursively merge, then deserialize back to T.
 func MergeTOML[T any](dst T, src []byte) (T, error) {
-	// 将 dst 序列化为通用 map
+	// Serialize dst into generic map
 	dstBytes, err := toml.Marshal(dst)
 	if err != nil {
 		var zero T
@@ -29,17 +29,17 @@ func MergeTOML[T any](dst T, src []byte) (T, error) {
 		return zero, fmt.Errorf("MergeTOML: unmarshal dst map: %w", err)
 	}
 
-	// 解析 src
+	// Parse src
 	var srcMap map[string]any
 	if err := toml.Unmarshal(src, &srcMap); err != nil {
 		var zero T
 		return zero, fmt.Errorf("MergeTOML: unmarshal src: %w", err)
 	}
 
-	// 递归合并
+	// Recursively merge
 	mergeMapTOML(dstMap, srcMap)
 
-	// 序列化合并结果，反序列化回 T
+	// Serialize merged result, deserialize back to T
 	merged, err := toml.Marshal(dstMap)
 	if err != nil {
 		var zero T
@@ -55,16 +55,16 @@ func MergeTOML[T any](dst T, src []byte) (T, error) {
 	return result, nil
 }
 
-// mergeMapTOML 递归合并 src 到 dst（原地修改 dst）
+// mergeMapTOML recursively merges src into dst (modifies dst in-place)
 //
-// 规则：
-//   - src 中的对象字段递归合并到 dst 对应字段
-//   - src 中的数组字段整体替换 dst 对应字段
-//   - src 中的 null 值跳过（保留 dst 原值）
-//   - 其他类型（string/number/bool）直接覆盖
+// Rules:
+//   - Object fields in src recursively merge into corresponding dst fields
+//   - Array fields in src completely replace corresponding dst fields
+//   - null values in src are skipped (preserve dst original values)
+//   - Other types (string/number/bool) are directly overwritten
 func mergeMapTOML(dst, src map[string]any) {
 	for k, srcVal := range src {
-		// null 跳过
+		// null skip
 		if srcVal == nil {
 			continue
 		}
@@ -75,13 +75,13 @@ func mergeMapTOML(dst, src map[string]any) {
 		if srcIsObj && exists {
 			dstObj, dstIsObj := dstVal.(map[string]any)
 			if dstIsObj {
-				// 两边都是对象：递归合并
+				// Both sides are objects: recursively merge
 				mergeMapTOML(dstObj, srcObj)
 				continue
 			}
 		}
 
-		// 数组、标量、新键：直接覆盖
+		// Arrays, scalars, new keys: directly overwrite
 		dst[k] = srcVal
 	}
 }

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
 	"github.com/fsnotify/fsnotify"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // ─── MergeTOML ────────────────────────────────────────────────────────────────
@@ -1193,10 +1193,10 @@ func TestLoader_ErrorHandler_FromWatcherEvents(t *testing.T) {
 
 func TestParseProviderModelID(t *testing.T) {
 	tests := []struct {
-		input       string
-		wantPID     string
-		wantMID     string
-		wantOK      bool
+		input   string
+		wantPID string
+		wantMID string
+		wantOK  bool
 	}{
 		{"deepseek:deepseek-v4-pro", "deepseek", "deepseek-v4-pro", true},
 		{"openai:gpt-4o", "openai", "gpt-4o", true},
@@ -1252,7 +1252,7 @@ func TestGlobalService_DefaultModelByRole_Defaults(t *testing.T) {
 	svc, _ := New(dir)
 	_ = svc.Load()
 
-	// 默认配置下，所有角色都能解析到对应模型
+	// With default config, all roles can resolve to corresponding models
 	expert := svc.DefaultModelByRole("expert")
 	if expert == nil {
 		t.Fatal("expert model nil")
@@ -1297,7 +1297,7 @@ func TestGlobalService_DefaultModelByRole_UserOverride(t *testing.T) {
 	svc, _ := New(dir)
 	_ = svc.Load()
 
-	// 用户覆盖 expert 角色为 deepseek-v4-pro（high reasoning）
+	// User overrides expert role to deepseek-v4-pro (high reasoning)
 	_ = svc.Set(func(s *Settings) {
 		s.DefaultModels.Expert = "deepseek:deepseek-v4-pro"
 	})
@@ -1309,7 +1309,7 @@ func TestGlobalService_DefaultModelByRole_UserOverride(t *testing.T) {
 	if expert.ID != "deepseek-v4-pro" {
 		t.Errorf("expert = %q, want deepseek-v4-pro after override", expert.ID)
 	}
-	// 用户配置后 effort 跟随模型定义，不是 max
+	// After user config, effort follows model definition, not max
 	if expert.Thinking.ReasoningEffort != "high" {
 		t.Errorf("expert reasoningEffort = %q, want high (from model definition)", expert.Thinking.ReasoningEffort)
 	}
@@ -1320,7 +1320,7 @@ func TestGlobalService_DefaultModelByRole_Fallback(t *testing.T) {
 	svc, _ := New(dir)
 	_ = svc.Load()
 
-	// 清空 expert 配置，设置 fallback
+	// Clear expert config, set fallback
 	_ = svc.Set(func(s *Settings) {
 		s.DefaultModels.Expert = ""
 		s.DefaultModels.Fallback = "deepseek:deepseek-v4-flash"
@@ -1340,7 +1340,7 @@ func TestGlobalService_DefaultModelByRole_NoFallback_UsesHardcoded(t *testing.T)
 	svc, _ := New(dir)
 	_ = svc.Load()
 
-	// 清空 expert 和 fallback，应使用硬编码默认值
+	// Clear expert and fallback, should use hardcoded default
 	_ = svc.Set(func(s *Settings) {
 		s.DefaultModels.Expert = ""
 		s.DefaultModels.Fallback = ""
