@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // multiReplaceTool 对同一文件按顺序应用多段替换，原子落盘
@@ -33,6 +34,7 @@ type multiReplaceTool struct {
 }
 
 func newMultiReplaceTool(cfg Config) *multiReplaceTool {
+	ensureExecutor(&cfg)
 	return &multiReplaceTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -112,10 +114,13 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 	if err != nil {
 		return "", err
 	}
-	data, err := readFileCapped(abs, t.cfg.MaxFileSize)
+	readRes, err := t.cfg.Executor.ReadFile(ctx, abs, sandbox.ReadFileOptions{
+		MaxSize: t.cfg.MaxFileSize,
+	})
 	if err != nil {
 		return "", err
 	}
+	data := readRes.Data
 	before := string(data)
 	current := before
 
@@ -144,7 +149,10 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 		return "", fmt.Errorf("%w: result %d bytes > %d", ErrContentTooLarge, len(current), t.cfg.MaxWriteSize)
 	}
 
-	if _, werr := atomicWrite(abs, []byte(current), true); werr != nil {
+	if _, werr := t.cfg.Executor.WriteFile(ctx, abs, []byte(current), sandbox.WriteFileOptions{
+		Overwrite: true,
+		MaxSize:   t.cfg.MaxWriteSize,
+	}); werr != nil {
 		return "", werr
 	}
 

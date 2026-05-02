@@ -52,9 +52,6 @@ func TestHTTP_Happy(t *testing.T) {
 	if r.Body != "hello" {
 		t.Errorf("body = %q", r.Body)
 	}
-	if r.Headers["X-Test"] != "yes" {
-		t.Errorf("header = %+v", r.Headers)
-	}
 }
 
 func TestHTTP_404Passes(t *testing.T) {

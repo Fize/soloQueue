@@ -1,18 +1,13 @@
 package tools
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"regexp"
 
-	"github.com/bmatcuk/doublestar/v4"
-
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // grepTool 在沙箱目录下按 Go 正则搜索
@@ -40,7 +35,7 @@ type grepTool struct {
 	logger *logger.Logger
 }
 
-func newGrepTool(cfg Config) *grepTool { return &grepTool{cfg: cfg, logger: cfg.Logger} }
+func newGrepTool(cfg Config) *grepTool { ensureExecutor(&cfg); return &grepTool{cfg: cfg, logger: cfg.Logger} }
 
 func (grepTool) Name() string { return "Grep" }
 
@@ -95,7 +90,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	re, err := regexp.Compile(a.Pattern)
+	_, err := regexp.Compile(a.Pattern)
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid pattern: %v", ErrInvalidArgs, err)
 	}
@@ -104,11 +99,12 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fi, err := os.Stat(absDir)
+
+	fi, err := t.cfg.Executor.Stat(ctx, absDir)
 	if err != nil {
 		return "", err
 	}
-	if !fi.IsDir() {
+	if !fi.IsDir {
 		return "", fmt.Errorf("%w: dir is not a directory: %s", ErrInvalidArgs, absDir)
 	}
 
@@ -121,103 +117,25 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		maxLine = 500
 	}
 
-	res := grepResult{}
-	var visitCount int
-
-	walkErr := filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// 权限错误 / 消失的条目：记一次并继续
-			return nil
-		}
-		visitCount++
-		if visitCount&0xFF == 0 { // every 256 items
-			if cerr := ctx.Err(); cerr != nil {
-				return cerr
-			}
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		// glob 过滤（相对 absDir）
-		if a.Glob != "" {
-			rel, rerr := filepath.Rel(absDir, path)
-			if rerr != nil {
-				return nil
-			}
-			// doublestar uses '/' separators; normalize
-			relSlash := filepath.ToSlash(rel)
-			ok, _ := doublestar.PathMatch(a.Glob, relSlash)
-			if !ok {
-				return nil
-			}
-		}
-
-		// 上限预检
-		if len(res.Matches) >= maxMatches {
-			res.Truncated = true
-			return filepath.SkipAll
-		}
-
-		// 打开 + peek 二进制检测
-		f, ferr := os.Open(path)
-		if ferr != nil {
-			return nil
-		}
-		defer f.Close()
-
-		// peek first 512
-		head := make([]byte, 512)
-		n, _ := f.Read(head)
-		if looksBinary(head[:n]) {
-			return nil
-		}
-		// 回到起点
-		if _, serr := f.Seek(0, 0); serr != nil {
-			return nil
-		}
-
-		scanner := bufio.NewScanner(f)
-		// 给 scanner 放宽默认 token 上限，避免长行直接报 bufio.ErrTooLong
-		// 取 max(maxLine*2, 1MB) 作为缓冲，单行仍被截断到 maxLine
-		buf := make([]byte, 0, 64*1024)
-		cap := maxLine * 4
-		if cap < 1<<20 {
-			cap = 1 << 20
-		}
-		scanner.Buffer(buf, cap)
-
-		lineNo := 0
-		for scanner.Scan() {
-			lineNo++
-			text := scanner.Text()
-			if !re.MatchString(text) {
-				continue
-			}
-			// 截断
-			if len(text) > maxLine {
-				text = text[:maxLine] + "…"
-			}
-			res.Matches = append(res.Matches, grepMatch{
-				File: path,
-				Line: lineNo,
-				Text: text,
-			})
-			if len(res.Matches) >= maxMatches {
-				res.Truncated = true
-				return filepath.SkipAll
-			}
-		}
-		return nil
+	grepMatches, err := t.cfg.Executor.Grep(ctx, absDir, a.Pattern, sandbox.GrepOptions{
+		MaxMatches:  maxMatches,
+		MaxLineLen:  maxLine,
+		GlobPattern: a.Glob,
 	})
+	if err != nil {
+		return "", err
+	}
 
-	if walkErr != nil && walkErr != filepath.SkipAll {
-		if walkErr == context.Canceled || walkErr == context.DeadlineExceeded {
-			return "", walkErr
-		}
-		// 非严重错误吞：返回收集到的结果（保持向前兼容）
+	res := grepResult{}
+	for _, m := range grepMatches {
+		res.Matches = append(res.Matches, grepMatch{
+			File: m.File,
+			Line: m.Line,
+			Text: m.Content,
+		})
+	}
+	if len(res.Matches) >= maxMatches {
+		res.Truncated = true
 	}
 
 	if t.logger != nil {
