@@ -7,16 +7,16 @@ import (
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
-// Settings 是全局配置的完整结构体
-// 对应 ~/.soloqueue/settings.json
+// Settings is the complete structure for global configuration
+// Corresponds to ~/.soloqueue/settings.json
 //
-// 注意：UI 专属状态（theme / language 等）由前端自行持久化（localStorage /
-// Tauri Store），不进 backend settings.json —— backend 不做 i18n，日志
-// 统一英文输出，没必要帮前端代管存储。
+// Note: UI-specific states (theme / language, etc.) are persisted by the frontend itself (localStorage /
+// Tauri Store), not in backend settings.json —— backend does not do i18n, logs
+// are uniformly output in English, no need to help frontend manage storage.
 type Settings struct {
-	Session   SessionConfig   `json:"session"`
-	Log       LogConfig       `json:"log"`
-	Tools     ToolsConfig     `json:"tools"`
+	Session       SessionConfig       `json:"session"`
+	Log           LogConfig           `json:"log"`
+	Tools         ToolsConfig         `json:"tools"`
 	Providers     []LLMProvider       `json:"providers"`
 	Models        []LLMModel          `json:"models"`
 	Embedding     EmbeddingConfig     `json:"embedding"`
@@ -26,36 +26,36 @@ type Settings struct {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	ReplaySegments    int `json:"replaySegments"`    // 回放段数，默认 3
-	TimelineMaxFileMB int `json:"timelineMaxFileMB"` // 单文件上限 MB，默认 50
-	TimelineMaxFiles  int `json:"timelineMaxFiles"`  // 轮转文件数，默认 5
+	ReplaySegments    int `json:"replaySegments"`    // Number of replay segments, default 3
+	TimelineMaxFileMB int `json:"timelineMaxFileMB"` // Single file limit MB, default 50
+	TimelineMaxFiles  int `json:"timelineMaxFiles"`  // Number of rotating files, default 5
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────
 
 type LogConfig struct {
-	Level   string `json:"level"`   // "debug" | "info" | "warn" | "error"
+	Level   string `json:"level"` // "debug" | "info" | "warn" | "error"
 	Console bool   `json:"console"`
 	File    bool   `json:"file"`
 }
 
 // ─── Tools ────────────────────────────────────────────────────────────────────
 
-// ToolsConfig 是 agent 内置工具的运行时配置
+// ToolsConfig is the runtime configuration for agent built-in tools
 //
-// 文件系统上限 / 写入上限 / 外部工具（http / shell / Tavily）的策略都在这里。
-// main.go 会用这些字段构造 internal/tools.Config 并调用 tools.Build(cfg)。
+// File system limits / write limits / external tools (http / shell / Tavily) policies are all here.
+// main.go will use these fields to construct internal/tools.Config and call tools.Build(cfg).
 type ToolsConfig struct {
-	// AllowedDirs 沙箱白名单（empty = 禁止所有文件操作）
+	// AllowedDirs sandbox whitelist (empty = prohibit all file operations)
 	AllowedDirs []string `json:"allowedDirs"`
 
-	// 读类限制（0 = 使用编译内置默认）
+	// Read limits (0 = use compile-time built-in defaults)
 	MaxFileSize  int64 `json:"maxFileSize"`
 	MaxMatches   int   `json:"maxMatches"`
 	MaxLineLen   int   `json:"maxLineLen"`
 	MaxGlobItems int   `json:"maxGlobItems"`
 
-	// 写类限制
+	// Write limits
 	MaxWriteSize       int64 `json:"maxWriteSize"`
 	MaxMultiWriteBytes int64 `json:"maxMultiWriteBytes"`
 	MaxMultiWriteFiles int   `json:"maxMultiWriteFiles"`
@@ -86,7 +86,7 @@ type RetryConfig struct {
 	BackoffMultiplier float64 `json:"backoffMultiplier"`
 }
 
-// ResolveAPIKey 读取 LLMProvider.APIKeyEnv 指定的环境变量
+// ResolveAPIKey reads the environment variable specified by LLMProvider.APIKeyEnv
 func (p LLMProvider) ResolveAPIKey() string {
 	return os.Getenv(p.APIKeyEnv)
 }
@@ -105,27 +105,27 @@ type LLMProvider struct {
 
 // ─── LLM Model ────────────────────────────────────────────────────────────────
 
-// GenerationParams 模型生成参数（采样控制）
+// GenerationParams model generation parameters (sampling control)
 type GenerationParams struct {
 	Temperature float64 `json:"temperature"`
-	MaxTokens  int     `json:"maxTokens"`
+	MaxTokens   int     `json:"maxTokens"`
 }
 
-// ThinkingConfig 思考/推理配置（DeepSeek V4 thinking 模式）
+// ThinkingConfig thinking/reasoning configuration (DeepSeek V4 thinking mode)
 type ThinkingConfig struct {
 	Enabled         bool   `json:"enabled"`
-	ReasoningEffort string `json:"reasoningEffort"` // "high" | "max" | ""（V4 模型使用）
+	ReasoningEffort string `json:"reasoningEffort"` // "high" | "max" | "" (used by V4 models)
 }
 
 type LLMModel struct {
-	ID            string          `json:"id"`
-	ProviderID    string          `json:"providerId"`
-	Name          string          `json:"name"`
-	APIModel      string          `json:"apiModel,omitempty"` // 实际 API 模型名，空则用 ID
-	ContextWindow int             `json:"contextWindow"`
-	Enabled       bool            `json:"enabled"`
+	ID            string           `json:"id"`
+	ProviderID    string           `json:"providerId"`
+	Name          string           `json:"name"`
+	APIModel      string           `json:"apiModel,omitempty"` // Actual API model name, empty uses ID
+	ContextWindow int              `json:"contextWindow"`
+	Enabled       bool             `json:"enabled"`
 	Generation    GenerationParams `json:"generation"`
-	Thinking      ThinkingConfig  `json:"thinking"`
+	Thinking      ThinkingConfig   `json:"thinking"`
 }
 
 // ─── Embedding ────────────────────────────────────────────────────────────────
@@ -157,21 +157,21 @@ type EmbeddingConfig struct {
 
 // ─── Default Models ────────────────────────────────────────────────────────────
 
-// DefaultModelsConfig 按角色配置默认模型
+// DefaultModelsConfig configures default models by role
 //
-// 配置值格式为 "provider:id"，provider 和 id 必须存在于配置文件的
-// Providers[] 和 Models[] 中。effort 跟随模型自身定义。
+// Config value format is "provider:id", provider and id must exist in the config file's
+// Providers[] and Models[]. effort follows the model's own definition.
 //
-// 解析优先级：角色字段值 → Fallback → 硬编码默认值。
+// Resolution priority: role field value → Fallback → hardcoded default value.
 type DefaultModelsConfig struct {
-	Expert    string `json:"expert"`    // 专家模型
-	Superior  string `json:"superior"`  // 次级专家模型
-	Universal string `json:"universal"` // 通用模型
-	Fast      string `json:"fast"`      // 快速模型
-	Fallback  string `json:"fallback"`  // 兜底默认模型（空=不配置）
+	Expert    string `json:"expert"`    // Expert model
+	Superior  string `json:"superior"`  // Secondary expert model
+	Universal string `json:"universal"` // Universal model
+	Fast      string `json:"fast"`      // Fast model
+	Fallback  string `json:"fallback"`  // Fallback default model (empty=no config)
 }
 
-// parseProviderModelID 解析 "provider:id" 格式的配置值
+// parseProviderModelID parses config value in "provider:id" format
 func parseProviderModelID(s string) (providerID, modelID string, ok bool) {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

@@ -6,15 +6,15 @@ import (
 	"path/filepath"
 )
 
-// GlobalService 是全局配置服务，嵌入 Loader[Settings]
-// 自动继承所有 Loader 方法：Load / Save / Get / Set / OnChange / Watch / Close 等
-// 在此基础上提供业务相关的便捷查询接口
+// GlobalService is the global configuration service, embedding Loader[Settings]
+// Automatically inherits all Loader methods: Load / Save / Get / Set / OnChange / Watch / Close, etc.
+// Provides business-related convenience query interfaces on top of that
 type GlobalService struct {
 	*Loader[Settings]
 }
 
-// New 创建 GlobalService
-// workDir 通常为 ~/.soloqueue
+// New creates a GlobalService
+// workDir is typically ~/.soloqueue
 func New(workDir string) (*GlobalService, error) {
 	mainPath := filepath.Join(workDir, "settings.toml")
 	localPath := filepath.Join(workDir, "settings.local.toml")
@@ -29,7 +29,7 @@ func New(workDir string) (*GlobalService, error) {
 
 // ─── Convenience Queries ──────────────────────────────────────────────────────
 
-// DefaultProvider 返回 isDefault=true 的 LLM Provider，无则返回 nil
+// DefaultProvider returns the LLM Provider with isDefault=true, or nil if not found
 func (s *GlobalService) DefaultProvider() *LLMProvider {
 	settings := s.Get()
 	for i := range settings.Providers {
@@ -41,7 +41,7 @@ func (s *GlobalService) DefaultProvider() *LLMProvider {
 	return nil
 }
 
-// DefaultEmbeddingModel 返回 isDefault=true 的 Embedding 模型
+// DefaultEmbeddingModel returns the Embedding model with isDefault=true
 func (s *GlobalService) DefaultEmbeddingModel() *EmbeddingModel {
 	settings := s.Get()
 	for i := range settings.Embedding.Models {
@@ -53,7 +53,7 @@ func (s *GlobalService) DefaultEmbeddingModel() *EmbeddingModel {
 	return nil
 }
 
-// ProviderByID 按 ID 查找 LLM Provider
+// ProviderByID looks up an LLM Provider by ID
 func (s *GlobalService) ProviderByID(id string) *LLMProvider {
 	settings := s.Get()
 	for i := range settings.Providers {
@@ -65,7 +65,7 @@ func (s *GlobalService) ProviderByID(id string) *LLMProvider {
 	return nil
 }
 
-// ModelByID 按 ID 查找 LLM Model
+// ModelByID looks up an LLM Model by ID
 func (s *GlobalService) ModelByID(id string) *LLMModel {
 	settings := s.Get()
 	for i := range settings.Models {
@@ -77,7 +77,7 @@ func (s *GlobalService) ModelByID(id string) *LLMModel {
 	return nil
 }
 
-// ModelByProviderID 按 providerID + modelID 双键查找 LLM Model
+// ModelByProviderID looks up an LLM Model by dual keys: providerID + modelID
 func (s *GlobalService) ModelByProviderID(providerID, modelID string) *LLMModel {
 	settings := s.Get()
 	for i := range settings.Models {
@@ -89,25 +89,25 @@ func (s *GlobalService) ModelByProviderID(providerID, modelID string) *LLMModel 
 	return nil
 }
 
-// DefaultModelByRole 按角色解析默认模型
+// DefaultModelByRole resolves the default model by role
 //
-// role 支持: "expert", "superior", "universal", "fast"。
+// role supports: "expert", "superior", "universal", "fast".
 //
-// 解析优先级：角色配置值 → Fallback → 硬编码默认值。
-// 配置值格式为 "provider:id"，provider 和 id 必须存在于配置文件中。
-// 返回 nil 表示未找到对应模型。
+// Resolution priority: role config value → Fallback → hardcoded default value.
+// Config value format is "provider:id"; both provider and id must exist in the config file.
+// Returns nil if the corresponding model is not found.
 func (s *GlobalService) DefaultModelByRole(role string) *LLMModel {
 	settings := s.Get()
 
-	// 1. 获取角色配置值
+	// 1. Get role config value
 	ref := roleField(settings.DefaultModels, role)
 
-	// 2. 角色未配置 → 尝试 Fallback
+	// 2. Role not configured → try Fallback
 	if ref == "" {
 		ref = settings.DefaultModels.Fallback
 	}
 
-	// 3. Fallback 也为空 → 使用硬编码默认值
+	// 3. Fallback is empty → use hardcoded default value
 	if ref == "" {
 		ref = roleDefault(role)
 	}
@@ -116,7 +116,7 @@ func (s *GlobalService) DefaultModelByRole(role string) *LLMModel {
 		return nil
 	}
 
-	// 4. 解析 "provider:id" 并查找
+	// 4. Parse "provider:id" and look up
 	providerID, modelID, ok := parseProviderModelID(ref)
 	if !ok {
 		return nil
@@ -124,7 +124,7 @@ func (s *GlobalService) DefaultModelByRole(role string) *LLMModel {
 	return s.ModelByProviderID(providerID, modelID)
 }
 
-// roleField 返回角色对应的配置值
+// roleField returns the config value corresponding to the role
 func roleField(dm DefaultModelsConfig, role string) string {
 	switch role {
 	case "expert":
@@ -140,7 +140,7 @@ func roleField(dm DefaultModelsConfig, role string) string {
 	}
 }
 
-// roleDefault 返回角色的硬编码默认值
+// roleDefault returns the hardcoded default value for the role
 func roleDefault(role string) string {
 	defaults := map[string]string{
 		"expert":    "deepseek:deepseek-v4-pro-max",
@@ -153,7 +153,7 @@ func roleDefault(role string) string {
 
 // ─── Init & DefaultWorkDir ────────────────────────────────────────────────────
 
-// DefaultWorkDir 返回 ~/.soloqueue，不存在则创建
+// DefaultWorkDir returns ~/.soloqueue, creating it if it doesn't exist
 func DefaultWorkDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -166,7 +166,7 @@ func DefaultWorkDir() (string, error) {
 	return dir, nil
 }
 
-// Init 创建 GlobalService 并完成加载、热加载和首次保存
+// Init creates a GlobalService and completes loading, hot-reloading, and initial save
 func Init(workDir string) (*GlobalService, error) {
 	cfg, err := New(workDir)
 	if err != nil {
