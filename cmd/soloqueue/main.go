@@ -51,10 +51,7 @@ func rootCmd() *cobra.Command {
 		Long: `SoloQueue is an AI multi-agent collaboration tool built on the Actor model.
 
 Run without subcommands for interactive TUI mode.
-Use 'soloqueue serve' to start the local HTTP/WebSocket server.
-
-Environment:
-  ALT_SCREEN=1    Enable fullscreen TUI with fixed bottom input (default: inline mode)`,
+Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workDir, err := config.DefaultWorkDir()
@@ -285,6 +282,9 @@ func buildRuntimeStack(
 			continue
 		}
 		sv := agent.NewSupervisor(l2Agent, agentFactory, log)
+		// Wire L2's DelegateTools to spawn L3 through Supervisor.SpawnChild
+		// so L3 children are tracked and visible in the TUI sidebar.
+		sv.WireSpawnFns(allTemplates)
 		supervisors = append(supervisors, sv)
 	}
 

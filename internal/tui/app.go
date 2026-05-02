@@ -1,16 +1,13 @@
 package tui
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
@@ -22,34 +19,28 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+// ─── Config ─────────────────────────────────
 
-// Config stores TUI application configuration.
 type Config struct {
 	Session      *session.Session
 	ModelID      string
 	Version      string
-	RulesCreated bool   // 是否新创建了 rules.md
-	RulesPath    string // rules.md 路径（用于通知用户）
-
-	// Agent 运行时（/status 命令使用）
-	Registry    *agent.Registry      // Agent 全局注册表
-	Supervisors []*agent.Supervisor  // L2 Supervisor 列表
-
-	// Skill registry（slash 命令使用）
-	Skills *skill.SkillRegistry
+	RulesCreated bool
+	RulesPath    string
+	Registry     *agent.Registry
+	Supervisors  []*agent.Supervisor
+	Skills       *skill.SkillRegistry
 }
 
-// ─── Data types ───────────────────────────────────────────────────────────────
+// ─── Data types ──────────────────────────────
 
-// genPhase tracks what the model is currently doing during generation.
 type genPhase int
 
 const (
-	phaseWaiting    genPhase = iota // Before first delta arrives (waiting for model)
-	phaseThinking                   // Receiving ReasoningDeltaEvent
-	phaseGenerating                 // Receiving ContentDeltaEvent
-	phaseToolCall                   // Receiving ToolCallDeltaEvent / executing tools
+	phaseWaiting genPhase = iota
+	phaseThinking
+	phaseGenerating
+	phaseToolCall
 )
 
 func (p genPhase) String() string {
@@ -67,7 +58,6 @@ func (p genPhase) String() string {
 	}
 }
 
-// timelineKind distinguishes the type of a timeline entry.
 type timelineKind int
 
 const (
@@ -76,54 +66,20 @@ const (
 	timelineTool
 )
 
-// timelineEntry represents a single item in the chronological timeline.
 type timelineEntry struct {
 	kind timelineKind
-	text string     // for thinking and content entries
-	tool *toolBlock // for tool entries (pointer for in-place update)
+	text string
+	tool *toolBlock
 }
 
-// message represents a single conversation turn.
 type message struct {
-	role     string // "user" | "agent"
+	role     string
 	content  string
 	timeline []timelineEntry
+	dirty    bool   // true if content changed since last render
+	rendered string // cached rendered output
 }
 
-// toolBlock represents a tool call's lifecycle in the UI.
-type toolBlock struct {
-	name      string
-	args      string
-	callID    string
-	done      bool
-	duration  time.Duration
-	err       error
-	lineCount int
-}
-
-// toolExecInfo tracks tool execution for duration calculation.
-type toolExecInfo struct {
-	name   string
-	args   string
-	start  time.Time
-	callID string
-	tb     *toolBlock // back-pointer for in-place update by ToolExecDoneEvent
-}
-
-// streamState holds the state of the current streaming response.
-type streamState struct {
-	timeline      []timelineEntry
-	content       strings.Builder
-	toolExecMap   map[string]*toolExecInfo
-	curToolCallID string
-	curToolName   string
-	curToolArgs   strings.Builder
-	thinkingBuf   strings.Builder // active thinking buffer, flushed into timeline on tool start / content start
-	flushedIdx    int             // timeline[0..flushedIdx-1] have been flushed to scrollback
-	labelFlushed  bool            // true once "Solo:" has been printed to scrollback for this turn
-}
-
-// confirmState holds the state of a tool confirmation dialog.
 type confirmState struct {
 	callID   string
 	prompt   string
@@ -131,199 +87,259 @@ type confirmState struct {
 	selected int
 }
 
-// ─── Bubble Tea messages ──────────────────────────────────────────────────────
+type streamState struct {
+	timeline      []timelineEntry
+	content       strings.Builder
+	toolExecMap   map[string]*toolExecInfo
+	curToolCallID string
+	curToolName   string
+	curToolArgs   strings.Builder
+	thinkingBuf   strings.Builder
+}
+
+// ─── Bubble Tea messages ──────────────────────
 
 type agentEventMsg struct {
 	event    agent.AgentEvent
 	evCh     <-chan agent.AgentEvent
 	cancel   context.CancelFunc
-	streamID int // identifies which stream this event belongs to
+	streamID int
 }
+
 type streamStartMsg struct {
 	evCh     <-chan agent.AgentEvent
 	cancel   context.CancelFunc
 	err      error
 	streamID int
 }
+
 type streamDoneMsg struct {
 	streamID int
 }
+
 type confirmResultMsg struct {
 	callID string
 	choice string
 }
+
 type resetQuitMsg struct{}
 type clearCancelMsg struct{}
 type clearErrMsg struct{}
 type clearSummaryMsg struct{}
-type dotMsg struct{}
-type hintRotateMsg struct{}
 
-// ─── Model ────────────────────────────────────────────────────────────────────
+// ─── Model ─────────────────────────────────────
 
 type model struct {
 	cfg  Config
 	sess *session.Session
 	ctx  context.Context
 
-	// UI state
-	textInput    textinput.Model
+	viewport     viewport.Model
+	textArea     textarea.Model
 	isGenerating bool
 	cancelReason string
 	errMsg       string
-	genDotOn     bool
+	spinner      spinner
 	quitCount    int
 	width        int
 	height       int
 	renderer     *glamour.TermRenderer
 	darkBg       bool
 
-	// Generation status tracking
-	genStartTime   time.Time
-	genPhase       genPhase
-	promptTokens          int
-	outputTokens          int
-	cacheHitTokens        int
-	cacheMissTokens       int
-	reasoningTokens       int
-	genSummary            string
+	genStartTime    time.Time
+	genPhase        genPhase
+	promptTokens    int
+	outputTokens    int
+	cacheHitTokens  int
+	cacheMissTokens int
+	reasoningTokens int
+	genSummary      string
 
-	// Conversation
-	messages []message
-
-	// Current stream
+	messages     []message
 	current      *streamState
 	streamCancel context.CancelFunc
-	nextStreamID int // monotonically increasing stream ID for concurrent stream tracking
+	nextStreamID int
 
-	// Input history navigation
 	history      []string
-	historyIdx   int    // 0 = not browsing; >0 = offset from end
-	historyDraft string // saved input before history browsing
+	historyIdx   int
+	historyDraft string
 
-	// Hint rotation
-	hintIndex int // current index into commandHints
-
-	// Tool confirmation
+	sidebar      sidebar
+	focus        focusMode
+	showAgents   bool
+	copyMode     bool
 	confirmState *confirmState
-
-	// Logo display: true once the logo has been flushed to scrollback
-	logoShown bool
 }
 
-// ─── Run (public entry point) ─────────────────────────────────────────────────
+// ─── Run (public entry point) ────────────────
 
-// Run starts the TUI application.
 func Run(cfg Config) error {
 	ctx := context.Background()
 
 	m := model{
-		cfg:      cfg,
-		ctx:      ctx,
-		messages: []message{},
-		history:  loadHistory(),
+		cfg:        cfg,
+		ctx:        ctx,
+		messages:   []message{},
+		history:    loadHistory(),
+		sidebar:    newSidebar(cfg.Registry, cfg.Supervisors),
+		spinner:    newSpinner(),
+		focus:      focusComposer,
+		showAgents: true,
 	}
 
-	// Setup text input
-	ti := textinput.New()
-	ti.Prompt = "❯ "
-	styles := textinput.DefaultStyles(m.darkBg)
-	styles.Focused.Prompt = userStyle
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	styles.Cursor.Color = lipgloss.Color("252")
-	ti.SetStyles(styles)
-	focusCmd := ti.Focus()
-	m.textInput = ti
-
-	// Use pre-initialized session
-	m.sess = cfg.Session
-	_ = focusCmd
-
-	// Detect terminal background before bubbletea takes over stdin.
-	// This avoids OSC 11 query responses leaking into bubbletea's input stream.
 	m.darkBg = termenv.HasDarkBackground()
+	applyTheme(m.darkBg)
 
-	// Initialize glamour markdown renderer
+	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
+	vp.SoftWrap = true
+	m.viewport = vp
+
+	ta := textarea.New()
+	ta.Placeholder = "Type a message..."
+	ta.SetVirtualCursor(false)
+	ta.Focus()
+	ta.Prompt = "┃ "
+	ta.CharLimit = 0
+	ta.DynamicHeight = true
+	ta.MaxHeight = maxComposerLines
+	ta.ShowLineNumbers = false
+	// Rebind InsertNewline to shift+enter only.
+	// Plain enter is intercepted by Update() and used as submit.
+	ta.KeyMap.InsertNewline.SetKeys("ctrl+j")
+	s := ta.Styles()
+	s.Focused.CursorLine = lipgloss.NewStyle()
+	ta.SetStyles(s)
+	m.textArea = ta
+
+	m.sess = cfg.Session
 	m.renderer = m.newRenderer()
 
 	p := tea.NewProgram(m)
-
 	_, runErr := p.Run()
+
 	return runErr
 }
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
+// ─── Init ─────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textinput.Blink, hintRotateCmd()}
-
-	// Flush rules creation notice to scrollback before View renders
+	cmds := []tea.Cmd{textarea.Blink, agentTickCmd(agentTickInterval(false))}
 	if m.cfg.RulesCreated && m.cfg.RulesPath != "" {
-		cmds = append(cmds, printfOnce("  rules.md not found — default created at %s. Feel free to edit it anytime.\n\n", m.cfg.RulesPath))
+		notice := fmt.Sprintf("rules.md not found — default created at %s. Feel free to edit it anytime.", m.cfg.RulesPath)
+		m.messages = append(m.messages, message{role: "agent", content: notice})
 	}
-
 	return tea.Batch(cmds...)
 }
 
-// newRenderer creates a glamour TermRenderer configured for the current
-// terminal width. A 2-char safety margin is reserved to avoid native terminal
-// line breaks at the edge column that can cause Bubbletea line-count drift.
-//
-// Uses custom JSON styles instead of built-in "dark"/"light" to work around
-// a glamour bug where H2-H4 headings are not rendered with standard styles.
-func (m *model) newRenderer() *glamour.TermRenderer {
-	wrapWidth := m.width - 2
-	if wrapWidth <= 0 {
-		wrapWidth = 78
-	}
-	var styleJSON []byte
-	if m.darkBg {
-		styleJSON = []byte(darkStyleJSON)
-	} else {
-		styleJSON = []byte(lightStyleJSON)
-	}
-	r, err := glamour.NewTermRenderer(
-		glamour.WithStylesFromJSONBytes(styleJSON),
-		glamour.WithWordWrap(wrapWidth),
-	)
-	if err != nil {
-		return nil
-	}
-	return r
+// ─── Layout sizing ─────────────────────────────
+
+func (m *model) chromeLines() int {
+	ly := m.computeLayout()
+	return ly.headerH + ly.composerH + ly.footerH
 }
 
-// ─── Update ───────────────────────────────────────────────────────────────────
+func (m *model) resizeViewport() {
+	ly := m.computeLayout()
+	// SetWidth triggers DynamicHeight recalculation, so call it first.
+	m.textArea.SetWidth(ly.composerW)
+	// Now read the auto-calculated height and recompute layout with it.
+	composerH := m.textArea.Height() + 2 // separator/title + textarea lines
+	bodyH := m.height - ly.headerH - composerH - ly.footerH
+	if bodyH < minBodyHeight {
+		bodyH = minBodyHeight
+	}
+	viewportH := bodyH - 1
+	if viewportH < 3 {
+		viewportH = 3
+	}
+	m.viewport.SetHeight(viewportH)
+	// Viewport sits inside paneStyle which adds Padding(0,1) = 2 columns,
+	// so the viewport content width must be mainW - 2 to avoid overflow.
+	m.viewport.SetWidth(max(ly.mainW-2, 1))
+}
+
+// ─── rebuildViewportContent ───────────────────
+
+// rebuildViewportContent reconstructs viewport content. Historical messages
+// are cached — only dirty (newly changed) messages are re-rendered.
+// The live streaming message is always re-rendered since it changes every event.
+func (m *model) rebuildViewportContent() {
+	var sb strings.Builder
+
+	// When streaming, the last agent message in m.messages is a placeholder
+	// whose content is being built via m.current. Skip rendering it here
+	// to avoid duplicate "Solo:" headers — the live block below handles it.
+	skipLast := m.current != nil && len(m.messages) > 0 &&
+		m.messages[len(m.messages)-1].role == "agent"
+
+	for i := range m.messages {
+		if skipLast && i == len(m.messages)-1 {
+			continue
+		}
+		msg := &m.messages[i]
+		if msg.dirty || msg.rendered == "" {
+			msg.rendered = m.renderMessage(*msg)
+			msg.dirty = false
+		}
+		sb.WriteString(msg.rendered)
+	}
+
+	if m.current != nil {
+		sb.WriteString(agentStyle.Render("Solo:") + "\n")
+		var liveTimeline []timelineEntry
+		liveTimeline = append(liveTimeline, m.current.timeline...)
+		if m.current.thinkingBuf.Len() > 0 {
+			liveTimeline = append(liveTimeline, timelineEntry{
+				kind: timelineThinking,
+				text: m.current.thinkingBuf.String(),
+			})
+		}
+		liveContent := m.current.content.String()
+		displayMsg := message{role: "agent", timeline: liveTimeline, content: liveContent}
+		sb.WriteString(m.renderAgentMessageBody(displayMsg))
+	}
+
+	m.viewport.SetContent(sb.String())
+}
+
+// ─── Update ─────────────────────────────────────
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		var clearCmd tea.Cmd
-		if m.width > 0 && msg.Width < m.width {
-			clearCmd = func() tea.Msg { return tea.ClearScreen() }
-		}
 		m.width = msg.Width
 		m.height = msg.Height
-		m.textInput.SetWidth(m.width - lipgloss.Width(m.textInput.Prompt) - 1)
+		m.resizeViewport()
 		m.renderer = m.newRenderer()
-		return m, clearCmd
+		m.invalidateMessageCache()
+		m.rebuildViewportContent()
+		m.viewport.GotoBottom()
+		return m, nil
 
 	case tea.KeyPressMsg:
-		// Reset quit count on any non-Ctrl+C key
 		if msg.String() != "ctrl+c" && m.quitCount > 0 {
 			m.quitCount = 0
 		}
 
 		switch msg.String() {
+		case "ctrl+y":
+			m.copyMode = true
+			m.focus = focusCopy
+			return m, nil
+
 		case "ctrl+c":
 			if m.isGenerating {
-				// Cancel current stream
 				if m.streamCancel != nil {
 					m.streamCancel()
 				}
 				m.resetGenState()
-				return m, m.flushCompletedTurn()
+				m.current = nil
+				m.resizeViewport()
+				m.rebuildViewportContent()
+				m.viewport.GotoBottom()
+				return m, nil
 			}
 			m.quitCount++
 			if m.quitCount >= 2 {
@@ -332,64 +348,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return resetQuitMsg{} })
 
 		case "esc":
+			if m.copyMode {
+				m.copyMode = false
+				m.focus = focusComposer
+				return m, nil
+			}
 			if m.isGenerating {
 				if m.streamCancel != nil {
 					m.streamCancel()
 				}
 				m.cancelReason = "Esc"
 				m.resetGenState()
-				return m, tea.Sequence(m.flushCompletedTurn(), tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} }))
+				m.current = nil
+				m.rebuildViewportContent()
+				m.viewport.GotoBottom()
+				return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} })
 			}
 
 		case "enter":
-			// If in confirm state, confirm selection
 			if m.confirmState != nil {
 				return m.handleConfirmEnter()
 			}
-			if m.isGenerating || strings.TrimSpace(m.textInput.Value()) == "" {
+			if m.isGenerating || strings.TrimSpace(m.textArea.Value()) == "" {
 				return m, nil
 			}
+			input := strings.TrimSpace(m.textArea.Value())
+			m.textArea.Reset()
+			m.textArea.SetHeight(1)
 
-			input := strings.TrimSpace(m.textInput.Value())
-			m.textInput.SetValue("")
-
-			// Handle built-in commands
-			if quit, builtinCmd := m.handleBuiltin(input); quit {
-				if builtinCmd != nil {
-					return m, tea.Sequence(builtinCmd, tea.Quit)
+			if isSlashCommandInput(input) {
+				if quit, builtinCmd := m.handleBuiltin(input); quit {
+					if builtinCmd != nil {
+						return m, tea.Sequence(builtinCmd, tea.Quit)
+					}
+					return m, tea.Quit
+				} else if builtinCmd != nil {
+					return m, builtinCmd
 				}
-				return m, tea.Quit
-			} else if builtinCmd != nil {
-				return m, builtinCmd
-			}
-			if strings.HasPrefix(input, "/") {
 				return m, nil
 			}
 
-			// Add user message
 			m.messages = append(m.messages, message{role: "user", content: input})
 			m.addHistory(input)
 
-			// Flush logo to scrollback on first input
-			var logoPrintCmd tea.Cmd
-			if !m.logoShown {
-				m.logoShown = true
-				logoPrintCmd = printfOnce("%s", renderLogo(m.cfg.Version))
-			}
-
-			// Print user message to terminal scrollback immediately
-			userPrintCmd := printfWithClear("%s", renderUserMessage(message{role: "user", content: input}))
-
-			// Combine logo flush + user message if needed
-			if logoPrintCmd != nil {
-				userPrintCmd = tea.Sequence(logoPrintCmd, userPrintCmd)
-			}
-
-			// Start streaming
 			m.nextStreamID++
 			sid := m.nextStreamID
 			m.isGenerating = true
-			m.genDotOn = true
+			m.spinner = newSpinner()
 			m.genStartTime = time.Now()
 			m.genPhase = phaseWaiting
 			m.promptTokens = 0
@@ -402,10 +407,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				toolExecMap: make(map[string]*toolExecInfo),
 			}
 			m.messages = append(m.messages, message{role: "agent"})
-
-			// Launch AskStream in goroutine
+			m.resizeViewport()
+			m.rebuildViewportContent()
+			m.viewport.GotoBottom()
 			cmd = m.startStream(input, sid)
-			return m, tea.Sequence(userPrintCmd, cmd, dotCmd())
+			return m, tea.Sequence(cmd, spinnerCmd())
+
+		case "ctrl+a":
+			m.showAgents = !m.showAgents
+			m.resizeViewport()
+			m.rebuildViewportContent()
+			return m, nil
 
 		case "up":
 			if m.confirmState != nil {
@@ -414,8 +426,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			m.navHistory(-1)
-			return m, nil
+			if m.textArea.Value() == "" || m.historyIdx > 0 {
+				m.navHistory(-1)
+				return m, nil
+			}
+			m.textArea, cmd = m.textArea.Update(msg)
+			return m, cmd
 
 		case "down":
 			if m.confirmState != nil {
@@ -424,42 +440,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			m.navHistory(1)
-			return m, nil
+			if m.textArea.Value() == "" || m.historyIdx > 0 {
+				m.navHistory(1)
+				return m, nil
+			}
+			m.textArea, cmd = m.textArea.Update(msg)
+			return m, cmd
 		}
+
+	case tea.PasteMsg:
+		if m.confirmState == nil {
+			m.textArea, cmd = m.textArea.Update(msg)
+			newH := visualLineCount(m.textArea)
+			if newH != m.textArea.Height() {
+				m.resizeViewport()
+				m.rebuildViewportContent()
+				m.viewport.GotoBottom()
+			}
+			return m, cmd
+		}
+
+	case tea.MouseWheelMsg:
+		var c tea.Cmd
+		m.viewport, c = m.viewport.Update(msg)
+		return m, c
 
 	case streamStartMsg:
 		if msg.err != nil {
 			m.errMsg = summarizeError(msg.err)
 			msg.cancel()
 			m.resetGenState()
-			return m, tea.Sequence(m.flushCompletedTurn(), tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return clearErrMsg{} }))
+			m.current = nil
+			return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return clearErrMsg{} })
 		}
 		m.streamCancel = msg.cancel
-		// Start consuming events
 		return m, waitForAgentEvent(msg.evCh, msg.cancel, msg.streamID)
 
 	case agentEventMsg:
 		m.handleAgentEvent(msg.event)
-		// On DelegationStartedEvent: release isGenerating so user can type
 		if _, ok := msg.event.(agent.DelegationStartedEvent); ok {
 			m.isGenerating = false
 		}
-		// Flush completed timeline entries to scrollback if content exceeds budget
-		flushCmd := m.maybeFlushIncremental()
-		if flushCmd != nil {
-			return m, tea.Sequence(flushCmd, waitForAgentEvent(msg.evCh, msg.cancel, msg.streamID))
-		}
+		m.rebuildViewportContent()
+		m.viewport.GotoBottom()
 		return m, waitForAgentEvent(msg.evCh, msg.cancel, msg.streamID)
 
 	case streamDoneMsg:
-		// Only finalize if this is the latest stream (or no delegation was involved)
-		// Delegation streams may complete while user is typing a new message
 		if msg.streamID == m.nextStreamID || !m.isGenerating {
 			elapsed := formatDuration(time.Since(m.genStartTime))
 			pt, ot := m.promptTokens, m.outputTokens
 			ch, cm, rt := m.cacheHitTokens, m.cacheMissTokens, m.reasoningTokens
-			flushCmd := m.flushCompletedTurn()
+			m.finalizeCurrentStream()
 			m.resetGenState()
 			var tokenParts []string
 			if pt > 0 {
@@ -479,39 +510,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.genSummary = fmt.Sprintf("✓ %s", elapsed)
 			}
-			if flushCmd != nil {
-				return m, tea.Sequence(flushCmd, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} }))
-			}
+			m.rebuildViewportContent()
+			m.resizeViewport()
+			m.viewport.GotoBottom()
 			return m, tea.Tick(6*time.Second, func(t time.Time) tea.Msg { return clearSummaryMsg{} })
 		}
-		// Older delegation stream completed while user is typing — just flush silently
-		return m, m.flushCompletedTurn()
+		m.finalizeCurrentStream()
+		m.rebuildViewportContent()
+		m.viewport.GotoBottom()
+		return m, nil
+		return m, nil
 
-	case dotMsg:
+	case spinnerMsg:
 		if m.isGenerating {
-			m.genDotOn = !m.genDotOn
-			return m, dotCmd()
+			if !m.copyMode {
+				m.spinner.Next()
+			}
+			return m, spinnerCmd()
 		}
 		return m, nil
 
 	case clearCancelMsg:
 		m.cancelReason = ""
+		m.resizeViewport()
 		return m, nil
 
 	case clearErrMsg:
 		m.errMsg = ""
+		m.resizeViewport()
 		return m, nil
 
 	case clearSummaryMsg:
 		m.genSummary = ""
+		m.resizeViewport()
+		m.rebuildViewportContent()
 		return m, nil
 
 	case confirmResultMsg:
 		if m.confirmState != nil {
 			if err := m.sess.Agent.Confirm(msg.callID, msg.choice); err != nil {
-				errText := agentStyle.Render("Solo:") + "\n" + errorStyle.Render("✗ confirm error: "+summarizeError(err)) + "\n\n"
+				errText := fmt.Sprintf("✗ confirm error: %s", summarizeError(err))
+				m.messages = append(m.messages, message{role: "agent", content: errText})
 				m.confirmState = nil
-				return m, printfWithClear("%s", errText)
+				m.rebuildViewportContent()
+				m.viewport.GotoBottom()
+				return m, nil
 			}
 			m.confirmState = nil
 		}
@@ -521,19 +564,62 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.quitCount = 0
 		return m, nil
 
-	case hintRotateMsg:
-		m.hintIndex = (m.hintIndex + 1) % len(commandHints)
-		return m, hintRotateCmd()
+	case agentTickMsg:
+		if !m.copyMode {
+			m.sidebar.spinner.Next()
+		}
+		return m, agentTickCmd(agentTickInterval(m.isGenerating))
 	}
 
-	// Pass through to textinput when not in confirm mode and not generating
 	if m.confirmState == nil {
-		m.textInput, cmd = m.textInput.Update(msg)
+		// Any key not handled above resets history navigation state.
+		if _, ok := msg.(tea.KeyPressMsg); ok && m.historyIdx > 0 {
+			m.historyIdx = 0
+			m.historyDraft = ""
+		}
+		var c tea.Cmd
+		m.textArea, c = m.textArea.Update(msg)
+		newH := visualLineCount(m.textArea)
+		if newH != m.textArea.Height() {
+			m.resizeViewport()
+			m.rebuildViewportContent()
+			m.viewport.GotoBottom()
+		}
+		return m, c
 	}
 	return m, cmd
 }
 
-// ─── Error summarization ─────────────────────────────────────────────────────
+// ─── View ───────────────────────────────────────
+
+func (m model) View() tea.View {
+	ly := m.computeLayout()
+	body := m.renderWorkbenchBody(ly)
+	header := m.renderHeader(ly)
+	composer := m.renderComposer(ly)
+	footer := m.renderFooter(ly)
+
+	fullView := lipgloss.JoinVertical(lipgloss.Left, body, header, composer, footer)
+	v := tea.NewView(fullView)
+	if !m.copyMode {
+		c := m.textArea.Cursor()
+		if c != nil {
+			c.Y += ly.headerH + ly.bodyH + 2
+			// 如果启用了侧边栏，cursor 的 X 需要偏移 sidebar 的宽度 + 分割线
+			if ly.mode == layoutTwoPane && m.showAgents {
+				c.X += ly.leftW + 1
+			}
+		}
+		v.Cursor = c
+		v.MouseMode = tea.MouseModeCellMotion
+	} else {
+		v.MouseMode = tea.MouseModeNone
+	}
+	v.AltScreen = true
+	return v
+}
+
+// ─── Error summarization ───────────────────────
 
 func summarizeError(err error) string {
 	if err == nil {
@@ -567,294 +653,12 @@ func summarizeError(err error) string {
 	}
 }
 
-// ─── Message rendering helpers ────────────────────────────────────────────────
+// ─── Message rendering helpers (in render.go) ─────
 
-// renderUserMessage renders a single user message as a string.
-func renderUserMessage(msg message) string {
-	return userStyle.Render("❯ ") + msg.content + "\n\n"
-}
+// ─── Formatting helpers (in format.go) ─────
 
-// renderContent renders agent content text using glamour for rich markdown
-// rendering with syntax highlighting and word wrap. Falls back to plain
-// contentStyle if the renderer is unavailable or rendering fails.
-func (m *model) renderContent(text string) string {
-	if m.renderer == nil {
-		return contentStyle.Render(text)
-	}
-	rendered, err := m.renderer.Render(text)
-	if err != nil {
-		return contentStyle.Render(text)
-	}
-	return strings.Trim(rendered, "\n")
-}
+// ─── Generation state ────────────────────────
 
-// renderAgentMessage renders a single agent message as a string.
-// It prepends the "Solo:" label and delegates the body rendering.
-func (m *model) renderAgentMessage(msg message) string {
-	return agentStyle.Render("Solo:") + "\n" + m.renderAgentMessageBody(msg)
-}
-
-// renderAgentMessageBody renders the body of an agent message (timeline entries
-// and remaining content) without the "Solo:" prefix. Timeline entries (thinking
-// + tool calls) are rendered in chronological order. Thinking blocks are always
-// expanded; tool calls are shown in compact collapsed form.
-func (m *model) renderAgentMessageBody(msg message) string {
-	var sb strings.Builder
-
-	var lastKind timelineKind = -1
-	for _, entry := range msg.timeline {
-		// Blank line separator between different block types
-		if lastKind >= 0 && lastKind != entry.kind {
-			sb.WriteString("\n")
-		}
-		// Blank line separator between consecutive tool blocks
-		if lastKind == timelineTool && entry.kind == timelineTool {
-			sb.WriteString("\n")
-		}
-
-		switch entry.kind {
-		case timelineThinking:
-			sb.WriteString(thinkLabelStyle + "\n")
-			sb.WriteString(thinkStyle.Render(entry.text) + "\n")
-		case timelineContent:
-			sb.WriteString(m.renderContent(entry.text) + "\n")
-		case timelineTool:
-			if entry.tool != nil {
-				sb.WriteString(toolLabelStyle + "\n")
-				sb.WriteString(toolCollapsedStyle.Render(formatToolBlock(*entry.tool)) + "\n")
-			}
-		}
-		lastKind = entry.kind
-	}
-
-	// Remaining content not yet flushed into timeline (during active streaming)
-	if msg.content != "" {
-		if lastKind >= 0 && lastKind != timelineContent {
-			sb.WriteString("\n")
-		}
-		sb.WriteString(m.renderContent(msg.content) + "\n")
-	}
-
-	return sb.String()
-}
-
-// ─── View ─────────────────────────────────────────────────────────────────────
-
-func (m model) View() tea.View {
-	var sb strings.Builder
-
-	// 1. Logo (shown in View until flushed to scrollback on first input)
-	if !m.logoShown {
-		sb.WriteString(renderLogo(m.cfg.Version))
-	}
-
-	// Dynamic zone: only render current interactive content.
-	// Completed history has been flushed to scrollback via tea.Printf.
-
-	// 2. Active agent message (only unflushed portion)
-	agentMsg := m.currentMessage()
-	if agentMsg != nil {
-		var liveTimeline []timelineEntry
-		var liveContent string
-
-		if m.current != nil {
-			// Only render timeline entries that haven't been flushed to scrollback
-			if m.current.flushedIdx < len(m.current.timeline) {
-				liveTimeline = m.current.timeline[m.current.flushedIdx:]
-			}
-			// Append in-progress thinking as a virtual entry
-			if m.current.thinkingBuf.Len() > 0 {
-				liveTimeline = append(liveTimeline, timelineEntry{
-					kind: timelineThinking,
-					text: m.current.thinkingBuf.String(),
-				})
-			}
-			liveContent = m.current.content.String()
-		} else {
-			liveTimeline = agentMsg.timeline
-			liveContent = agentMsg.content
-		}
-
-		if len(liveTimeline) > 0 || liveContent != "" {
-			// "Solo:" label: only show if not already flushed to scrollback
-			if m.current == nil || !m.current.labelFlushed {
-				sb.WriteString(agentStyle.Render("Solo:") + "\n")
-			}
-			displayMsg := message{role: "agent", timeline: liveTimeline, content: liveContent}
-			sb.WriteString(m.renderAgentMessageBody(displayMsg))
-		}
-	}
-
-	// 3. Confirm dialog (if active)
-	if m.confirmState != nil {
-		sb.WriteString("\n")
-		sb.WriteString(lipgloss.NewStyle().Foreground(colorWarning).Bold(true).Render(m.confirmState.prompt) + "\n")
-		for i, opt := range m.confirmState.options {
-			if i == m.confirmState.selected {
-				sb.WriteString(confirmHighlight.Render("  ❯ " + opt))
-			} else {
-				sb.WriteString(confirmNormal.Render("    " + opt))
-			}
-			sb.WriteString("\n")
-		}
-		sb.WriteString("\n")
-	}
-
-	// 4. Status bar
-	var statusText string
-	var hasStatus bool
-	if m.quitCount > 0 {
-		statusText = foldedStyle.Render("✗ Confirm exit (Press Ctrl+C again)")
-		hasStatus = true
-	} else if m.errMsg != "" {
-		statusText = foldedStyle.Render(fmt.Sprintf("✗ %s", m.errMsg))
-		hasStatus = true
-	} else if m.cancelReason != "" {
-		statusText = foldedStyle.Render(fmt.Sprintf("✗ Cancelled (%s)", m.cancelReason))
-		hasStatus = true
-	} else if m.genSummary != "" {
-		statusText = foldedStyle.Render(m.genSummary)
-		hasStatus = true
-	} else if m.isGenerating {
-		dot := "●"
-		if !m.genDotOn {
-			dot = "○"
-		}
-		elapsed := formatDuration(time.Since(m.genStartTime))
-		phase := m.genPhase.String()
-		statusText = foldedStyle.Render(fmt.Sprintf("%s %s · %s · esc to interrupt", dot, elapsed, phase))
-		hasStatus = true
-	}
-	if hasStatus {
-		sb.WriteString(statusText + "\n")
-	}
-
-	// 5. Divider (above input)
-	divider := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")).
-			Render(strings.Repeat("-", max(m.width, 0)))
-	sb.WriteString(divider + "\n")
-
-	// 6. Input box
-	sb.WriteString(m.textInput.View() + "\n")
-
-	// 7. Divider (below input)
-	sb.WriteString(divider + "\n")
-
-	// 8. Hint line: left=rotating command hints, right=context token usage
-	leftHint := hintStyle.Render(commandHints[m.hintIndex])
-
-	var pct int
-	if m.sess != nil {
-		current, max, _ := m.sess.ContextWindow().TokenUsage()
-		if max > 0 {
-			pct = current * 100 / max
-		}
-	}
-	rightHint := contextTokenStyle(pct).Render(fmt.Sprintf("Context Tokens: %d%%", pct))
-
-	separator := dimStyle.Render(" · ")
-	availWidth := m.width - lipgloss.Width(leftHint) - lipgloss.Width(separator) - lipgloss.Width(rightHint)
-	padding := availWidth
-	if padding < 1 {
-		padding = 1
-	}
-	sb.WriteString(leftHint + strings.Repeat(" ", padding) + separator + rightHint)
-
-	return tea.NewView(sb.String())
-}
-
-// dynamicHeightBudget returns the maximum number of lines available
-// for dynamic content in View(). It reserves lines for the status bar,
-// input box, and hint line.
-func (m model) dynamicHeightBudget() int {
-	reserved := 4 // input + hint + 2 dividers
-	if m.quitCount > 0 || m.errMsg != "" || m.cancelReason != "" || m.genSummary != "" || m.isGenerating {
-		reserved++ // status bar is visible
-	}
-	if m.height <= reserved {
-		return 1
-	}
-	return m.height - reserved
-}
-
-// maybeFlushIncremental checks if the unflushed timeline entries exceed the
-// dynamic height budget. If so, it flushes the oldest entries to scrollback
-// via tea.Printf, keeping only the recent portion in View().
-func (m *model) maybeFlushIncremental() tea.Cmd {
-	if m.current == nil || m.current.flushedIdx >= len(m.current.timeline) {
-		return nil
-	}
-
-	// Measure the unflushed portion's rendered size
-	unflushed := m.current.timeline[m.current.flushedIdx:]
-	var liveTimeline []timelineEntry
-	liveTimeline = append(liveTimeline, unflushed...)
-	if m.current.thinkingBuf.Len() > 0 {
-		liveTimeline = append(liveTimeline, timelineEntry{
-			kind: timelineThinking,
-			text: m.current.thinkingBuf.String(),
-		})
-	}
-	displayMsg := message{role: "agent", timeline: liveTimeline, content: m.current.content.String()}
-	rendered := m.renderAgentMessageBody(displayMsg)
-	lineCount := strings.Count(rendered, "\n")
-
-	budget := m.dynamicHeightBudget()
-	if lineCount <= budget {
-		return nil // Content fits within budget, no flush needed
-	}
-
-	// Determine how many entries to flush.
-	// Strategy: flush everything up to (but not including) the last content/thinking entry,
-	// so View() always shows at least the current content block.
-	flushUpTo := m.current.flushedIdx
-	for i := len(m.current.timeline) - 1; i >= m.current.flushedIdx; i-- {
-		kind := m.current.timeline[i].kind
-		if kind == timelineContent || kind == timelineThinking {
-			flushUpTo = i
-			break
-		}
-	}
-	if flushUpTo <= m.current.flushedIdx {
-		flushUpTo = m.current.flushedIdx + 1 // Flush at least one entry
-	}
-
-	// Render the entries being flushed
-	flushMsg := message{role: "agent", timeline: m.current.timeline[m.current.flushedIdx:flushUpTo]}
-	var sb strings.Builder
-	if !m.current.labelFlushed {
-		sb.WriteString(agentStyle.Render("Solo:") + "\n")
-		m.current.labelFlushed = true
-	}
-	sb.WriteString(m.renderAgentMessageBody(flushMsg))
-
-	m.current.flushedIdx = flushUpTo
-	return printfWithClear("%s", sb.String())
-}
-
-// formatDuration formats elapsed time for the status bar.
-func formatDuration(d time.Duration) string {
-	d = d.Round(time.Second)
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
-	}
-	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
-}
-
-// formatTokenCount formats token counts for display.
-// Under 1000: "386". 1000+: "1.2k", "10.5k", "100k".
-func formatTokenCount(n int) string {
-	if n < 1000 {
-		return fmt.Sprintf("%d", n)
-	}
-	return fmt.Sprintf("%.1fk", float64(n)/1000)
-}
-
-// resetGenState resets all generation-related state fields.
 func (m *model) resetGenState() {
 	m.isGenerating = false
 	m.genStartTime = time.Time{}
@@ -866,27 +670,7 @@ func (m *model) resetGenState() {
 	m.reasoningTokens = 0
 }
 
-// ─── Command hints ─────────────────────────────────────────────────────────────
-
-var commandHints = []string{
-	"· ctrl+c×2 quit",
-	"· esc interrupt",
-	"· ↑↓ history",
-	"· /help commands",
-	"· /clear context",
-	"· /status agents",
-	"· /quit exit",
-}
-
-func hintRotateCmd() tea.Cmd {
-	return tea.Tick(10*time.Second, func(t time.Time) tea.Msg { return hintRotateMsg{} })
-}
-
-// ─── Stream ───────────────────────────────────────────────────────────────────
-
-func dotCmd() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return dotMsg{} })
-}
+// ─── Stream helpers ────────────────────────
 
 func (m model) startStream(prompt string, streamID int) tea.Cmd {
 	return func() tea.Msg {
@@ -896,9 +680,6 @@ func (m model) startStream(prompt string, streamID int) tea.Cmd {
 	}
 }
 
-// waitForAgentEvent returns a tea.Cmd that blocks until an event is available
-// on evCh, then returns the event as a tea.Msg. After each event, the Update
-// handler should call waitForAgentEvent again to continue consuming.
 func waitForAgentEvent(evCh <-chan agent.AgentEvent, cancel context.CancelFunc, streamID int) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-evCh
@@ -910,7 +691,6 @@ func waitForAgentEvent(evCh <-chan agent.AgentEvent, cancel context.CancelFunc, 
 	}
 }
 
-// currentMessage returns a pointer to the last agent message (for live updates).
 func (m *model) currentMessage() *message {
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		if m.messages[i].role == "agent" {
@@ -920,7 +700,6 @@ func (m *model) currentMessage() *message {
 	return nil
 }
 
-// finalizeCurrentStream copies stream state into the message history.
 func (m *model) finalizeCurrentStream() {
 	if m.current == nil {
 		return
@@ -929,13 +708,12 @@ func (m *model) finalizeCurrentStream() {
 	if msg == nil {
 		return
 	}
-	// Flush any remaining thinking and content into timeline
 	m.current.flushContent()
 	m.current.flushThinking()
 	msg.timeline = make([]timelineEntry, len(m.current.timeline))
 	copy(msg.timeline, m.current.timeline)
 	msg.content = ""
-
+	msg.dirty = true
 	if m.streamCancel != nil {
 		m.streamCancel()
 		m.streamCancel = nil
@@ -943,180 +721,9 @@ func (m *model) finalizeCurrentStream() {
 	m.current = nil
 }
 
-// flushCompletedTurn renders any unflushed portion of the current (or just-completed)
-// agent message to scrollback. User messages are already printed on entry.
-// It calls finalizeCurrentStream internally.
-func (m *model) flushCompletedTurn() tea.Cmd {
-	// Save flush state before finalizeCurrentStream clears m.current
-	savedFlushedIdx := 0
-	labelAlreadyFlushed := false
-	if m.current != nil {
-		savedFlushedIdx = m.current.flushedIdx
-		labelAlreadyFlushed = m.current.labelFlushed
-	}
+// ─── History (in history.go) ─────
 
-	m.finalizeCurrentStream()
-
-	agentMsg := m.currentMessage()
-	if agentMsg == nil {
-		return nil
-	}
-
-	// Skip if agent message is empty (e.g. cancelled before any output)
-	if len(agentMsg.timeline) == 0 && agentMsg.content == "" {
-		m.messages = nil
-		return nil
-	}
-
-	var sb strings.Builder
-
-	if savedFlushedIdx < len(agentMsg.timeline) {
-		// There are unflushed timeline entries
-		if !labelAlreadyFlushed {
-			sb.WriteString(agentStyle.Render("Solo:") + "\n")
-		}
-		remainingMsg := message{role: "agent", timeline: agentMsg.timeline[savedFlushedIdx:]}
-		sb.WriteString(m.renderAgentMessageBody(remainingMsg))
-	} else if !labelAlreadyFlushed {
-		// Nothing was incrementally flushed — render the complete message
-		sb.WriteString(m.renderAgentMessage(*agentMsg))
-	}
-
-	m.messages = nil
-
-	if sb.Len() == 0 {
-		return nil
-	}
-	return printfWithClear("%s", sb.String())
-}
-
-// ─── History ──────────────────────────────────────────────────────────────────
-
-func (m *model) addHistory(line string) {
-	if line == "" || (len(m.history) > 0 && m.history[len(m.history)-1] == line) {
-		return
-	}
-	m.history = append(m.history, line)
-	m.historyIdx = 0
-	m.historyDraft = ""
-	appendHistory(line)
-}
-
-// navHistory navigates the input history. dir=-1 = older (up), dir=1 = newer (down).
-func (m *model) navHistory(dir int) {
-	if len(m.history) == 0 || m.isGenerating || m.confirmState != nil {
-		return
-	}
-
-	// Save current input as draft when starting history browsing
-	if m.historyIdx == 0 && dir < 0 {
-		m.historyDraft = m.textInput.Value()
-	}
-
-	newIdx := m.historyIdx - dir // up(-1) increases idx, down(1) decreases
-	if newIdx < 0 {
-		newIdx = 0
-	}
-	if newIdx > len(m.history) {
-		newIdx = len(m.history)
-	}
-
-	// Already at boundary
-	if newIdx == m.historyIdx {
-		return
-	}
-
-	m.historyIdx = newIdx
-
-	if m.historyIdx == 0 {
-		// Back to present — restore draft
-		m.textInput.SetValue(m.historyDraft)
-	} else {
-		// Show historical entry (from end)
-		m.textInput.SetValue(m.history[len(m.history)-m.historyIdx])
-	}
-	m.textInput.CursorEnd()
-}
-
-// ─── String helpers ───────────────────────────────────────────────────────────
-
-func truncate(s string, max int) string {
-	s = strings.ReplaceAll(s, "\n", "↵")
-	s = strings.ReplaceAll(s, "\r", "")
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	return string(runes[:max]) + "…"
-}
-
-// formatToolBlock renders a toolBlock for display.
-func formatToolBlock(tb toolBlock) string {
-	ta := parseToolArgs(tb.args)
-	var displayArg string
-	if ta.Path != "" {
-		displayArg = ta.Path
-	} else if ta.Command != "" {
-		displayArg = ta.Command
-	} else if ta.File != "" {
-		displayArg = ta.File
-	}
-
-	if tb.done {
-		var durHint string
-		if tb.duration > 0 {
-			durHint = fmt.Sprintf(" · %s", tb.duration.Round(time.Millisecond))
-		}
-		if tb.err != nil {
-			return fmt.Sprintf("✗ %s(%s) failed: %s", tb.name, displayArg, truncate(tb.err.Error(), 50))
-		}
-		if tb.lineCount > 0 {
-			return fmt.Sprintf("✓ %s(%s) %d lines%s", tb.name, displayArg, tb.lineCount, durHint)
-		}
-		if displayArg != "" {
-			return fmt.Sprintf("✓ %s(%s)%s", tb.name, displayArg, durHint)
-		}
-		return fmt.Sprintf("✓ %s%s", tb.name, durHint)
-	}
-
-	if displayArg != "" {
-		return fmt.Sprintf("⚙ %s(%s)", tb.name, displayArg)
-	}
-	return fmt.Sprintf("⚙ %s", tb.name)
-}
-
-// ─── Logo ─────────────────────────────────────────────────────────────────────
-
-func renderLogo(version string) string {
-	if version == "" {
-		return ""
-	}
-
-	logoLines := []string{
-		" ╭──╮ ╭──╮ ",
-		" ╰──╮ │  │  soloqueue",
-		" ╰──╯ ╰──┼  " + version,
-		"         ╰ ",
-	}
-
-	// Gradient: violet → pink
-	startR, startG, startB := uint8(167), uint8(139), uint8(250)
-	endR, endG, endB := uint8(244), uint8(114), uint8(182)
-
-	var sb strings.Builder
-	for i, line := range logoLines {
-		ratio := float64(i) / float64(len(logoLines)-1)
-		r := startR + uint8(float64(endR-startR)*ratio)
-		g := startG + uint8(float64(endG-startG)*ratio)
-		b := startB + uint8(float64(endB-startB)*ratio)
-		hex := fmt.Sprintf("#%02X%02X%02X", r, g, b)
-		sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render(line) + "\n")
-	}
-	sb.WriteString(dimStyle.Render("session ready — type your question or /help") + "\n\n")
-	return sb.String()
-}
-
-// ─── Confirm handling ─────────────────────────────────────────────────────────
+// ─── Confirm handling ──────────────────────
 
 func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	if m.confirmState == nil {
@@ -1124,8 +731,6 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	}
 	cs := m.confirmState
 	choice := cs.options[cs.selected]
-
-	// Map display text back to agent choice
 	var agentChoice string
 	switch {
 	case strings.HasPrefix(choice, "[y]"):
@@ -1137,96 +742,10 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	default:
 		agentChoice = choice
 	}
-
 	return m, func() tea.Msg {
 		return confirmResultMsg{callID: cs.callID, choice: agentChoice}
 	}
 }
 
-// ─── History persistence ─────────────────────────────────────────────────────
+// ─── History persistence (in history.go) ─────
 
-const maxHistory = 20
-
-// historyFile returns the path to the history file (~/.soloqueue/history).
-func historyFile() string {
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		home = "/tmp"
-	}
-	return filepath.Join(home, ".soloqueue", "history")
-}
-
-// loadHistory reads history from ~/.soloqueue/history and returns a slice of
-// historical input strings. Silently ignores read errors (file not found, etc.)
-func loadHistory() []string {
-	path := historyFile()
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	var history []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimRight(scanner.Text(), "\n\r")
-		if line != "" {
-			history = append(history, line)
-		}
-	}
-	return history
-}
-
-// appendHistory appends a new entry to the history file. If the last entry is
-// identical, it is not appended. The file is truncated to maxHistory entries.
-func appendHistory(entry string) {
-	if entry == "" {
-		return
-	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(historyFile())
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return
-	}
-
-	// Read existing entries
-	var history []string
-	f, err := os.OpenFile(historyFile(), os.O_RDONLY, 0644)
-	if err == nil {
-		defer f.Close()
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			line := strings.TrimRight(scanner.Text(), "\n\r")
-			if line != "" {
-				history = append(history, line)
-			}
-		}
-		f.Close()
-	}
-
-	// Deduplicate adjacent identical entries
-	if len(history) > 0 && history[len(history)-1] == entry {
-		return
-	}
-
-	// Append new entry
-	history = append(history, entry)
-
-	// Truncate to maxHistory
-	if len(history) > maxHistory {
-		history = history[len(history)-maxHistory:]
-	}
-
-	// Write back
-	file, err := os.OpenFile(historyFile(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	writer := bufio.NewWriter(file)
-	for _, h := range history {
-		fmt.Fprintln(writer, h)
-	}
-	writer.Flush()
-}

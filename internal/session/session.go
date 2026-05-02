@@ -148,6 +148,14 @@ func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 	return s.cw
 }
 
+// CW returns the underlying ContextWindow pointer without locking.
+// Safe for read-only access: the cw pointer is set at construction time
+// and never changes. Use this in hot paths (e.g., UI tick) to avoid
+// contending with Session.mu.
+func (s *Session) CW() *ctxwin.ContextWindow {
+	return s.cw
+}
+
 // Clear 执行软清除：追加 /clear 控制事件到 timeline，重置 ContextWindow
 //
 // 不删除任何持久化数据。ContextWindow 仅保留 system prompt。
@@ -595,8 +603,8 @@ func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 	m.mu.Unlock()
 
 	if s != nil {
-		s.Close()
 		_ = s.Agent.Stop(stopTimeout)
+		s.Close()
 	}
 
 	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed")

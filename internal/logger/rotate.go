@@ -25,6 +25,7 @@ type rotateWriter struct {
 	curDate  string // "2025-04-21"
 	dir      string
 	prefix   string
+	closed   bool
 
 	mu sync.Mutex
 }
@@ -63,6 +64,7 @@ func newRotateWriter(dir, prefix string, byDate bool, maxSizeMB, maxDays, maxFil
 }
 
 // Write 写入一行 JSON（追加 \n）
+// After Close, writes are silently discarded.
 func (rw *rotateWriter) Write(p []byte) (int, error) {
 	if rw.byDate {
 		return rw.writeByDate(p)
@@ -75,6 +77,7 @@ func (rw *rotateWriter) Close() error {
 	if rw.byDate {
 		rw.mu.Lock()
 		defer rw.mu.Unlock()
+		rw.closed = true
 		if rw.current != nil {
 			return rw.current.Close()
 		}
@@ -89,6 +92,10 @@ func (rw *rotateWriter) Close() error {
 func (rw *rotateWriter) writeByDate(p []byte) (int, error) {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
+
+	if rw.closed {
+		return 0, nil
+	}
 
 	// 检查是否需要切换到新日期的文件
 	if today() != rw.curDate {
