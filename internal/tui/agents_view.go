@@ -178,7 +178,32 @@ func agentTreeLine(a *agent.Agent, indent string, width int) string {
 	if model != "" {
 		line += "\n" + dimStyle.Render(indent+"  "+truncate(model, max(width-len(indent)-4, 6)))
 	}
+	if lvl := a.EffectiveTaskLevel(); lvl != "" {
+		line += " " + levelBadgeStyle.Render(compactLevel(lvl))
+	}
 	return line + "\n"
+}
+
+// levelBadgeStyle renders task level as a compact colored badge.
+var levelBadgeStyle = lipgloss.NewStyle().
+	Foreground(colorText).
+	Background(colorPrimary).
+	Padding(0, 1)
+
+// compactLevel shortens level labels for sidebar display.
+func compactLevel(lvl string) string {
+	switch lvl {
+	case "L0-Conversation":
+		return "L0"
+	case "L1-SimpleSingleFile":
+		return "L1"
+	case "L2-MediumMultiFile":
+		return "L2"
+	case "L3-ComplexRefactoring":
+		return "L3"
+	default:
+		return lvl
+	}
 }
 
 func sectionLine(title string) string {

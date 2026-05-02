@@ -9,7 +9,6 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/coder/websocket v1.8.14
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/muesli/termenv v0.16.0

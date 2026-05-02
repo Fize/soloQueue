@@ -37,6 +37,14 @@ var (
 	ErrSessionClosed = errors.New("session: closed")
 )
 
+// CurrentLevel returns the classification level of the last routed task.
+// Returns "" if no task has been routed yet or routing is disabled.
+func (s *Session) CurrentLevel() string {
+	s.lastLevelMu.RLock()
+	defer s.lastLevelMu.RUnlock()
+	return s.lastLevel
+}
+
 // ─── TaskRouter Interface ─────────────────────────────────────────────────────
 
 // RouteResult is a minimal routing decision passed to the session layer.
@@ -45,6 +53,7 @@ type RouteResult struct {
 	ModelID         string // API model to use (e.g., "deepseek-v4-pro")
 	ThinkingEnabled bool   // whether to enable thinking mode
 	ReasoningEffort string // "high" | "max" | ""
+	Level           string // classification level label (e.g., "L1-SimpleSingleFile")
 }
 
 // TaskRouterFunc classifies a user prompt and returns model routing parameters.
@@ -84,6 +93,9 @@ type Session struct {
 	turnMu            sync.Mutex   // 保护 turnDone 的创建和关闭
 	turnDone          chan struct{} // 当异步委派所在轮次完成时关闭
 	turnDoneClosed    bool         // 防止重复关闭 turnDone
+
+	lastLevel   string        // last classified task level (L0-L3)
+	lastLevelMu sync.RWMutex  // protects lastLevel
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -308,13 +320,18 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				"model_id", result.ModelID,
 				"thinking_enabled", result.ThinkingEnabled,
 				"reasoning_effort", result.ReasoningEffort,
+				"level", result.Level,
 			)
 			s.Agent.SetModelOverride(&agent.ModelParams{
 				ProviderID:      result.ProviderID,
 				ModelID:         result.ModelID,
 				ThinkingEnabled: result.ThinkingEnabled,
 				ReasoningEffort: result.ReasoningEffort,
+				Level:           result.Level,
 			})
+			s.lastLevelMu.Lock()
+			s.lastLevel = result.Level
+			s.lastLevelMu.Unlock()
 		} else {
 			s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
 				"session_id", s.ID,

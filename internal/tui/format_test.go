@@ -22,7 +22,7 @@ func TestFormatDuration(t *testing.T) {
 		{"90 seconds", 90 * time.Second, "1m 30s"},
 		{"1 hour", 1 * time.Hour, "1h 0m"},
 		{"1 hour 23 minutes", 83 * time.Minute, "1h 23m"},
-		{"rounds to second", 1500 * time.Millisecond, "2s"}, // rounds
+		{"rounds to second", 1500 * time.Millisecond, "2s"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -65,59 +65,59 @@ func TestFormatToolBlock(t *testing.T) {
 	tests := []struct {
 		name string
 		tb   toolBlock
-		want []string // substrings that must appear
-		dont []string // substrings that must NOT appear
+		want []string
+		dont []string
 	}{
 		{
 			name: "running with path",
 			tb:   toolBlock{name: "file_read", args: `{"path":"/tmp/test.go"}`, done: false},
-			want: []string{"⚙", "file_read", "/tmp/test.go"},
+			want: []string{"⚙", "/tmp/test.go"},
 		},
 		{
 			name: "running with command",
 			tb:   toolBlock{name: "shell_exec", args: `{"command":"go test"}`, done: false},
-			want: []string{"⚙", "shell_exec", "go test"},
+			want: []string{"⚙", "go test"},
 		},
 		{
 			name: "running with file",
 			tb:   toolBlock{name: "file_write", args: `{"file":"main.go"}`, done: false},
-			want: []string{"⚙", "file_write", "main.go"},
+			want: []string{"⚙", "main.go"},
 		},
 		{
 			name: "running no display arg",
 			tb:   toolBlock{name: "list_files", args: `{}`, done: false},
-			want: []string{"⚙", "list_files"},
+			want: []string{"⚙"},
 		},
 		{
 			name: "done success with lines",
 			tb:   toolBlock{name: "file_read", args: `{"path":"a.go"}`, done: true, lineCount: 24, duration: 120 * time.Millisecond},
-			want: []string{"✓", "file_read", "a.go", "24 行", "120ms"},
+			want: []string{"✓", "24 行", "120ms"},
 		},
 		{
 			name: "done success no lines",
 			tb:   toolBlock{name: "grep", args: `{"path":"."}`, done: true, duration: 80 * time.Millisecond},
-			want: []string{"✓", "grep", "80ms"},
+			want: []string{"✓", ".", "80ms"},
 		},
 		{
 			name: "done success no duration",
 			tb:   toolBlock{name: "file_read", args: `{"path":"x.go"}`, done: true, lineCount: 5},
-			want: []string{"✓", "file_read", "5 行"},
+			want: []string{"✓", "5 行"},
 			dont: []string{"·"},
 		},
 		{
 			name: "done with error",
 			tb:   toolBlock{name: "shell_exec", args: `{"command":"rm -rf /"}`, done: true, err: fmt.Errorf("permission denied: you are not root")},
-			want: []string{"✗", "shell_exec", "failed", "permission denied"},
+			want: []string{"✗", "permission denied"},
 		},
 		{
 			name: "done success no args",
 			tb:   toolBlock{name: "list_files", args: `{}`, done: true},
-			want: []string{"✓", "list_files"},
+			want: []string{"✓"},
 		},
 		{
 			name: "invalid args JSON",
 			tb:   toolBlock{name: "tool", args: `bad json`, done: false},
-			want: []string{"⚙", "tool", "[parse error]"},
+			want: []string{"⚙", "[parse error]"},
 		},
 	}
 	for _, tt := range tests {

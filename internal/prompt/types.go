@@ -1,25 +1,26 @@
 package prompt
 
-// LeaderInfo 描述一个可用的 Team Leader。
-// 主 Agent 只需知道每个团队"能做什么"（Description），
-// 不需要知道团队有什么工具——工具是实现细节，由团队内部自行管理。
+// LeaderInfo describes an available Team Leader.
+// The main agent only needs to know what each team can do (Description),
+// not what tools they have — tools are implementation details managed internally.
 type LeaderInfo struct {
-	Name             string     // 例如 "dev"
-	Description      string     // 例如 "全栈开发工程师，负责前后端开发与架构设计"
-	Group            string     // 例如 "DevOps"
-	GroupDescription string     // 团队描述（来自 group 文件的 body）
-	MatchedWorkspace *Workspace // 按当前 cwd 匹配的 workspace，可能为 nil
+	Name             string     // e.g. "dev"
+	Description      string     // e.g. "Full-stack developer, responsible for frontend/backend development"
+	Group            string     // e.g. "DevOps"
+	GroupDescription string     // Group description (from group file body)
+	MatchedWorkspace *Workspace // Workspace matched by cwd, may be nil
 }
 
-// ProfileAnswers 用户对个性化问卷的回答。
+// ProfileAnswers holds the user's responses to the personalization questionnaire.
 type ProfileAnswers struct {
-	Name        string // 称呼，默认 "SoloQueue"
-	Gender      string // 性别，默认 "中性"
-	Personality string // 性格，默认 "直接"
-	CommStyle   string // 沟通偏好，默认 "简短"
+	Name        string // Assistant name, defaults to "SoloQueue"
+	Gender      string // Gender, defaults to "female"
+	Personality string // Personality, defaults to "playful"
+	CommStyle   string // Communication style, defaults to "casual"
+	Preset      string // Preset character name; when non-empty, skips the questionnaire and uses the preset profile
 }
 
-// DefaultProfileAnswers 返回全默认值的 ProfileAnswers。
+// DefaultProfileAnswers returns ProfileAnswers with all defaults.
 func DefaultProfileAnswers() ProfileAnswers {
 	return ProfileAnswers{
 		Name:        "SoloQueue",
@@ -29,8 +30,27 @@ func DefaultProfileAnswers() ProfileAnswers {
 	}
 }
 
-// ProfileNeededError profile.md 缺失时返回此错误，
-// 由调用方处理交互式问卷流程。
+// ProfilePreset defines a preset character profile.
+type ProfilePreset struct {
+	Name        string // Character name
+	Description string // One-line description
+	Gender      string // Gender
+}
+
+// PresetProfiles returns all available preset characters.
+func PresetProfiles() []ProfilePreset {
+	return []ProfilePreset{
+		{Name: "韩立", Description: "寡言冷静，谨慎果决的散修", Gender: "male"},
+		{Name: "极阴老祖", Description: "霸道威严，千年修为的魔道巨擘", Gender: "male"},
+		{Name: "南宫婉", Description: "清冷疏离，道心坚定的掩月宗仙子", Gender: "female"},
+		{Name: "玄骨上人", Description: "阴鸷深算，视苍生为药引的老魔", Gender: "male"},
+		{Name: "元瑶", Description: "柔婉坚韧，重情重义的修仙者", Gender: "female"},
+		{Name: "紫灵", Description: "含蓄精炼，算尽利弊的布局者", Gender: "female"},
+	}
+}
+
+// ProfileNeededError is returned when profile.md is missing.
+// The caller handles the interactive questionnaire flow.
 type ProfileNeededError struct {
 	RoleID string
 }

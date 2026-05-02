@@ -46,7 +46,7 @@ type Definition struct {
 
 	// MaxIterations 是 tool-use 循环的最大轮数（一次 Ask 内允许的 LLM.Chat 次数）
 	//
-	// <= 0 使用 DefaultMaxIterations（10）。
+	// <= 0 使用 DefaultMaxIterations（100）。
 	// 无 tools 时循环第一轮就退出（LLM 不返回 tool_calls），此值不生效。
 	MaxIterations int
 
@@ -146,5 +146,9 @@ type ModelParams struct {
 
 	// ReasoningEffort controls the reasoning depth: "high", "max", or "" (disabled).
 	ReasoningEffort string
+
+	// Level is the classification level label for this task (e.g., "L1-SimpleSingleFile").
+	// Set by the task router for L1; may be set from delegation context for L2/L3.
+	Level string
 }
 

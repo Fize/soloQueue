@@ -10,6 +10,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 		"profile content",
 		"user context",
 		"routing table",
+		"team management",
 		"rules content",
 	)
 
@@ -22,6 +23,9 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "<available_teams>\nrouting table\n</available_teams>") {
 		t.Error("missing or incorrect available_teams section")
 	}
+	if !strings.Contains(result, "<team_management>\nteam management\n</team_management>") {
+		t.Error("missing or incorrect team_management section")
+	}
 	if !strings.Contains(result, "<rules>\nrules content\n</rules>") {
 		t.Error("missing or incorrect rules section")
 	}
@@ -32,6 +36,7 @@ func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 		"profile content",
 		"",
 		"routing table",
+		"team management",
 		"rules content",
 	)
 

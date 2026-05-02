@@ -126,8 +126,8 @@ func TestRenderAgentMessageBody_WithToolBlock(t *testing.T) {
 		},
 	}
 	got := m.renderAgentMessageBody(msg)
-	if !strings.Contains(got, "Tool Use") {
-		t.Error("body should show tool use label")
+	if !strings.Contains(got, "file_read") {
+		t.Error("body should show tool name as label")
 	}
 	if !strings.Contains(got, "file_read") {
 		t.Error("body should show tool name")

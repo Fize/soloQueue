@@ -33,6 +33,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/tui"
 )
 
@@ -360,6 +361,7 @@ func buildRuntimeStack(
 	if err != nil {
 		return nil, fmt.Errorf("docker sandbox init failed: is Docker running? %w", err)
 	}
+	dockerSandbox.SetLogger(log)
 	if err := dockerSandbox.Start(context.Background()); err != nil {
 		return nil, fmt.Errorf("docker sandbox start failed: is Docker running? %w", err)
 	}
@@ -367,7 +369,9 @@ func buildRuntimeStack(
 		"image", "debian:bookworm-slim", "mounts", len(sandboxMounts))
 
 	// 注入 DockerExecutor 到 tools 配置
-	toolsCfg.Executor = sandbox.NewDockerExecutor(dockerSandbox)
+	executor := sandbox.NewDockerExecutor(dockerSandbox)
+	executor.SetLogger(log)
+	toolsCfg.Executor = executor
 
 	return &runtimeStack{
 		llmClient:     llmClient,
@@ -437,7 +441,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		MaxTokens:       sb.rt.defaultModel.Generation.MaxTokens,
 		ReasoningEffort: sb.rt.defaultModel.Thinking.ReasoningEffort,
 		ThinkingEnabled: sb.rt.defaultModel.Thinking.Enabled,
-		MaxIterations:   10,
+		MaxIterations:   1000,
 		ContextWindow:   sb.rt.defaultModel.ContextWindow,
 		SystemPrompt:    sb.rt.systemPrompt,
 	}
@@ -458,7 +462,24 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := sb.rt.toolsCfg
 	sessionToolsCfg.Logger = sessLog
-	allTools := tools.WithFallbackPrefix(tools.Build(sessionToolsCfg))
+	baseTools := tools.Build(sessionToolsCfg)
+
+	// Auto-reload: wrap file-writing tools so writes to agents/ or groups/ dirs
+	// trigger automatic parsing and instantiation.
+	autoReloadCfg := &team.AutoReloadConfig{
+		AgentsDir:    filepath.Join(sb.workDir, "agents"),
+		GroupsDir:    filepath.Join(sb.workDir, "groups"),
+		AgentFactory: sb.rt.agentFactory,
+		Logger:       sessLog,
+	}
+	for i, t := range baseTools {
+		switch t.Name() {
+		case "Write", "Edit", "MultiWrite", "MultiEdit":
+			baseTools[i] = team.WrapWithAutoReload(t, autoReloadCfg)
+		}
+	}
+
+	allTools := tools.WithFallbackPrefix(baseTools)
 		for _, l := range sb.rt.leaders {
 			leader := l // capture loop variable
 			dt := tools.NewDelegateTool(leader.Name, leader.Description, 5*time.Minute, sb.rt.agentRegistry, sessLog)
@@ -514,6 +535,24 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		agent.WithToolTimeout("web_search", 15*time.Second),
 	)
 	sb.rt.agentRegistry.Register(a)
+
+	// Set the OnLeaderCreated hook after agent construction so the closure
+	// can reference 'a'. The hook fires when a leader agent file is written
+	// and auto-instantiated — it dynamically registers a delegate_* tool on L1.
+	autoReloadCfg.OnLeaderCreated = func(ctx context.Context, name string, ag *agent.Agent) {
+		dt := tools.NewDelegateTool(name, name+" team leader", 5*time.Minute, sb.rt.agentRegistry, sessLog)
+		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
+			a, ok := sb.rt.agentRegistry.Get(name)
+			if !ok {
+				return nil, fmt.Errorf("leader %q not found in registry", name)
+			}
+			return &agent.LocatableAdapter{Agent: a}, nil
+		}
+		if err := a.RegisterTool(dt); err != nil {
+			sessLog.Error(logger.CatActor, "register delegate tool for new leader failed",
+				"leader", name, "err", err)
+		}
+	}
 
 	// Timeline writer + push hook
 	tlDir := filepath.Join(sb.workDir, "logs", "timelines", effectiveTeam)
@@ -608,6 +647,7 @@ func buildRouterFunc(rt *runtimeStack) session.TaskRouterFunc {
 			ModelID:         decision.ModelID,
 			ThinkingEnabled: decision.ThinkingEnabled,
 			ReasoningEffort: decision.ReasoningEffort,
+			Level:           decision.Level.String(),
 		}, nil
 	}
 }
@@ -810,8 +850,31 @@ func buildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 	}
 }
 
-// promptProfileQuestions 在 TUI 启动前执行交互式问卷，收集用户个性化设定。
+// promptProfileQuestions runs the interactive onboarding questionnaire before TUI startup.
+// It first shows the preset character list; selecting a preset skips the detailed questionnaire,
+// while selecting Custom continues to the original flow.
 func promptProfileQuestions() prompt.ProfileAnswers {
+	presets := prompt.PresetProfiles()
+
+	fmt.Println(prompt.PresetSelectionPrompt())
+	fmt.Println()
+
+	choice := readLineWithDefault("Enter number (1-7)", "7")
+
+	// Parse preset selection
+	if choice != "" && choice != "7" {
+		for i, p := range presets {
+			if choice == fmt.Sprintf("%d", i+1) {
+				return prompt.ProfileAnswers{
+					Name:   p.Name,
+					Gender: p.Gender,
+					Preset: p.Name,
+				}
+			}
+		}
+	}
+
+	// Custom mode: continue with the original questionnaire
 	answers := prompt.DefaultProfileAnswers()
 
 	fmt.Println(prompt.ProfilePromptText())
@@ -825,7 +888,7 @@ func promptProfileQuestions() prompt.ProfileAnswers {
 	return answers
 }
 
-// readLineWithDefault 读取一行输入，空行则返回默认值。
+// readLineWithDefault reads a line of input, returning the default if the line is empty.
 func readLineWithDefault(prompt, def string) string {
 	fmt.Printf("%s [%s] ", prompt, def)
 	scanner := bufio.NewScanner(os.Stdin)

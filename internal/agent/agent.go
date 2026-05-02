@@ -244,6 +244,14 @@ func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Con
 	}
 }
 
+// RegisterTool registers a tool into the agent's ToolRegistry at runtime.
+func (a *Agent) RegisterTool(t tools.Tool) error {
+	if a.tools == nil {
+		return fmt.Errorf("agent %q: ToolRegistry is nil", a.Def.ID)
+	}
+	return a.tools.Register(t)
+}
+
 // PendingDelegations 返回当前等待中的异步委托轮次数量
 func (a *Agent) PendingDelegations() int {
 	a.turnMu.RLock()
@@ -298,6 +306,16 @@ func (a *Agent) EffectiveModelID() string {
 		return mp.ModelID
 	}
 	return a.Def.ModelID
+}
+
+// EffectiveTaskLevel returns the task classification level from the current
+// per-ask override. Returns "" if no override is active or no level is set.
+// Thread-safe (atomic pointer load).
+func (a *Agent) EffectiveTaskLevel() string {
+	if mp := a.modelOverride.Load(); mp != nil {
+		return mp.Level
+	}
+	return ""
 }
 
 // NewAgent 构造未 Start 的 agent
