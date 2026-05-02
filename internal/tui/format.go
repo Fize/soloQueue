@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"charm.land/lipgloss/v2"
 )
 
 // ─── Formatting utilities ───────────────────────────────────────────────────
@@ -74,6 +76,13 @@ func parseToolArgs(argsJSON string) toolArgs {
 	return args
 }
 
+func renderToolLabel(name string) string {
+	return lipgloss.NewStyle().
+		Foreground(colorTool).
+		Bold(true).
+		Render("▎ " + name)
+}
+
 func formatToolBlock(tb toolBlock) string {
 	ta := parseToolArgs(tb.args)
 	var displayArg string
@@ -84,23 +93,25 @@ func formatToolBlock(tb toolBlock) string {
 	} else if ta.File != "" {
 		displayArg = ta.File
 	}
-	// Trim displayArg to keep output compact
 	displayArg = truncate(displayArg, 30)
 	if !tb.done {
-		return "⚙ " + tb.name + "(" + displayArg + ")"
+		if displayArg != "" {
+			return "⚙ " + displayArg
+		}
+		return "⚙"
 	}
 	var durHint string
 	if tb.duration > 0 {
-		durHint = tb.duration.Round(time.Millisecond).String()
+		durHint = " " + tb.duration.Round(time.Millisecond).String()
 	}
 	if tb.err != nil {
-		return "✗ " + tb.name + " failed: " + truncate(tb.err.Error(), 30)
+		return "✗ " + truncate(tb.err.Error(), 40)
 	}
 	if tb.lineCount > 0 {
-		return "✓ " + tb.name + "(" + displayArg + ") " + fmt.Sprintf("%d 行", tb.lineCount) + durHint
+		return "✓ " + fmt.Sprintf("%d 行", tb.lineCount) + durHint
 	}
 	if displayArg != "" {
-		return "✓ " + tb.name + "(" + displayArg + ")" + durHint
+		return "✓ " + displayArg + durHint
 	}
-	return "✓ " + tb.name + durHint
+	return "✓" + durHint
 }

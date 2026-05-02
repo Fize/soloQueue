@@ -441,7 +441,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		MaxTokens:       sb.rt.defaultModel.Generation.MaxTokens,
 		ReasoningEffort: sb.rt.defaultModel.Thinking.ReasoningEffort,
 		ThinkingEnabled: sb.rt.defaultModel.Thinking.Enabled,
-		MaxIterations:   10,
+		MaxIterations:   1000,
 		ContextWindow:   sb.rt.defaultModel.ContextWindow,
 		SystemPrompt:    sb.rt.systemPrompt,
 	}
@@ -647,6 +647,7 @@ func buildRouterFunc(rt *runtimeStack) session.TaskRouterFunc {
 			ModelID:         decision.ModelID,
 			ThinkingEnabled: decision.ThinkingEnabled,
 			ReasoningEffort: decision.ReasoningEffort,
+			Level:           decision.Level.String(),
 		}, nil
 	}
 }
