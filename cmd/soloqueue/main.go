@@ -728,7 +728,7 @@ func serveCmd() *cobra.Command {
 			mgr := session.NewSessionManager(factory, log)
 			mgr.SetRouter(buildRouterFunc(rt))
 
-			sess, err := mgr.Init(context.Background(), "")
+			_, err = mgr.Init(context.Background(), "")
 			if err != nil {
 				return fmt.Errorf("init session: %w", err)
 			}
@@ -737,7 +737,7 @@ func serveCmd() *cobra.Command {
 				os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			mux := server.NewMux(sess, rt.taskRouter, log)
+			mux := server.NewMux(log)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,
