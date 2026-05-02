@@ -360,6 +360,7 @@ func buildRuntimeStack(
 	if err != nil {
 		return nil, fmt.Errorf("docker sandbox init failed: is Docker running? %w", err)
 	}
+	dockerSandbox.SetLogger(log)
 	if err := dockerSandbox.Start(context.Background()); err != nil {
 		return nil, fmt.Errorf("docker sandbox start failed: is Docker running? %w", err)
 	}
@@ -367,7 +368,9 @@ func buildRuntimeStack(
 		"image", "debian:bookworm-slim", "mounts", len(sandboxMounts))
 
 	// 注入 DockerExecutor 到 tools 配置
-	toolsCfg.Executor = sandbox.NewDockerExecutor(dockerSandbox)
+	executor := sandbox.NewDockerExecutor(dockerSandbox)
+	executor.SetLogger(log)
+	toolsCfg.Executor = executor
 
 	return &runtimeStack{
 		llmClient:     llmClient,
