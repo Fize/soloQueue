@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // writeFileTool 原子写入单个文件
@@ -28,7 +30,7 @@ type writeFileTool struct {
 	logger *logger.Logger
 }
 
-func newWriteFileTool(cfg Config) *writeFileTool { return &writeFileTool{cfg: cfg, logger: cfg.Logger} }
+func newWriteFileTool(cfg Config) *writeFileTool { ensureExecutor(&cfg); return &writeFileTool{cfg: cfg, logger: cfg.Logger} }
 
 func (writeFileTool) Name() string { return "Write" }
 
@@ -104,7 +106,17 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 		return "", fmt.Errorf("%w: %d bytes > %d", ErrContentTooLarge, len(content), cfg.MaxWriteSize)
 	}
 
-	created, err := atomicWrite(abs, []byte(content), overwrite)
+	// 检查父目录是否存在
+	dir := filepath.Dir(abs)
+	fi, err := cfg.Executor.Stat(context.Background(), dir)
+	if err != nil || !fi.IsDir {
+		return "", fmt.Errorf("%w: %s", ErrParentDirMissing, dir)
+	}
+
+	wr, err := cfg.Executor.WriteFile(context.Background(), abs, []byte(content), sandbox.WriteFileOptions{
+		Overwrite: overwrite,
+		MaxSize:   cfg.MaxWriteSize,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +124,7 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 	out := writeFileResult{
 		Path:    abs,
 		Size:    int64(len(content)),
-		Created: created,
+		Created: wr.Created,
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
