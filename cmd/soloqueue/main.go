@@ -810,8 +810,31 @@ func buildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 	}
 }
 
-// promptProfileQuestions 在 TUI 启动前执行交互式问卷，收集用户个性化设定。
+// promptProfileQuestions runs the interactive onboarding questionnaire before TUI startup.
+// It first shows the preset character list; selecting a preset skips the detailed questionnaire,
+// while selecting Custom continues to the original flow.
 func promptProfileQuestions() prompt.ProfileAnswers {
+	presets := prompt.PresetProfiles()
+
+	fmt.Println(prompt.PresetSelectionPrompt())
+	fmt.Println()
+
+	choice := readLineWithDefault("Enter number (1-7)", "7")
+
+	// Parse preset selection
+	if choice != "" && choice != "7" {
+		for i, p := range presets {
+			if choice == fmt.Sprintf("%d", i+1) {
+				return prompt.ProfileAnswers{
+					Name:   p.Name,
+					Gender: p.Gender,
+					Preset: p.Name,
+				}
+			}
+		}
+	}
+
+	// Custom mode: continue with the original questionnaire
 	answers := prompt.DefaultProfileAnswers()
 
 	fmt.Println(prompt.ProfilePromptText())
@@ -825,7 +848,7 @@ func promptProfileQuestions() prompt.ProfileAnswers {
 	return answers
 }
 
-// readLineWithDefault 读取一行输入，空行则返回默认值。
+// readLineWithDefault reads a line of input, returning the default if the line is empty.
 func readLineWithDefault(prompt, def string) string {
 	fmt.Printf("%s [%s] ", prompt, def)
 	scanner := bufio.NewScanner(os.Stdin)
