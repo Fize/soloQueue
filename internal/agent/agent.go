@@ -308,6 +308,16 @@ func (a *Agent) EffectiveModelID() string {
 	return a.Def.ModelID
 }
 
+// EffectiveTaskLevel returns the task classification level from the current
+// per-ask override. Returns "" if no override is active or no level is set.
+// Thread-safe (atomic pointer load).
+func (a *Agent) EffectiveTaskLevel() string {
+	if mp := a.modelOverride.Load(); mp != nil {
+		return mp.Level
+	}
+	return ""
+}
+
 // NewAgent 构造未 Start 的 agent
 //
 // log 可以为 nil（此时日志调用被跳过）。

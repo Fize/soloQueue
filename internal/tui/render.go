@@ -101,13 +101,17 @@ func (m *model) renderAgentMessageBody(msg message) string {
 					compacted = append(compacted, line)
 				}
 				text = strings.TrimRight(strings.Join(compacted, "\n"), "\n")
-				sb.WriteString(thinkStyle.Render(text) + "\n")
+					maxThinkW := m.viewport.Width()
+					if maxThinkW > 80 {
+						maxThinkW = 80
+					}
+				sb.WriteString(thinkStyle.Width(maxThinkW).Render(text) + "\n")
 			}
 		case timelineContent:
 			sb.WriteString(m.renderContent(entry.text) + "\n")
 		case timelineTool:
 			if entry.tool != nil {
-				sb.WriteString(toolLabelStyle + "\n")
+				sb.WriteString(renderToolLabel(entry.tool.name) + "\n")
 				sb.WriteString(toolCollapsedStyle.Render(formatToolBlock(*entry.tool)) + "\n")
 			}
 		}

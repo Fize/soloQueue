@@ -40,7 +40,7 @@ var (
 	ErrStopTimeout = errors.New("agent: stop timeout")
 
 	// ErrMaxIterations runOnce 的 tool-use 循环超过 Definition.MaxIterations
-	ErrMaxIterations = errors.New("agent: max tool iterations exceeded")
+	ErrMaxIterations = errors.New("agent: too many tool calls without finishing — rephrase your request or split it into smaller steps")
 )
 
 
