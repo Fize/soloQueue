@@ -6,15 +6,15 @@ import (
 	"strings"
 )
 
-// buildRoutingTable 从 LeaderInfo 列表动态构建路由表文本。
-// 主 Agent 只需知道每个团队"能做什么"，不需要知道工具细节。
-// 有 group 信息时按 group 分区展示（区块式），无 group 时退化为旧格式（一行式）。
+// buildRoutingTable dynamically builds routing table text from a LeaderInfo list.
+// The primary Agent only needs to know what each team "can do", not the tool details.
+// When group info is present, display partitioned by group (block format); without group, fall back to old format (inline).
 func buildRoutingTable(leaders []LeaderInfo) string {
 	if len(leaders) == 0 {
 		return "No Team Leaders are currently available. You must handle all tasks yourself."
 	}
 
-	// 按 Group 排序保证输出稳定
+	// Sort by Group to ensure stable output
 	sorted := make([]LeaderInfo, len(leaders))
 	copy(sorted, leaders)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -27,7 +27,7 @@ func buildRoutingTable(leaders []LeaderInfo) string {
 	var b strings.Builder
 	b.WriteString("Team Leaders you can delegate tasks to (use the corresponding delegate tool):\n")
 
-	// 判断是否有任何 leader 有 group 描述信息
+	// Determine if any leader has group description info
 	hasGroupInfo := false
 	for _, l := range sorted {
 		if l.Group != "" && l.GroupDescription != "" {
@@ -37,7 +37,7 @@ func buildRoutingTable(leaders []LeaderInfo) string {
 	}
 
 	if hasGroupInfo {
-		// 区块式：按 group 分区展示
+		// Block format: display partitioned by group
 		var currentGroup string
 		for _, l := range sorted {
 			if l.Group != currentGroup {
@@ -57,7 +57,7 @@ func buildRoutingTable(leaders []LeaderInfo) string {
 			}
 		}
 	} else {
-		// 旧格式：一行式（向后兼容）
+		// Old format: inline (backward compatible)
 		for _, l := range sorted {
 			toolName := "delegate_" + l.Name
 			if l.Group != "" {

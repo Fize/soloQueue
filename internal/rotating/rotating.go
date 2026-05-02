@@ -1,11 +1,11 @@
-// Package rotating 提供按大小轮转的文件写入器
+// Package rotating provides a size-based rotating file writer
 //
-// 当文件超过 maxSize 时，执行重命名链轮转：
+// When the file exceeds maxSize, perform rename chain rotation:
 //
 //	{base}.jsonl → {base}.1.jsonl, {base}.1.jsonl → {base}.2.jsonl, ...
 //
-// 当轮转文件数超过 maxFiles 时，删除最老的文件。
-// 被 logger 和 timeline 包共同使用。
+// When the number of rotated files exceeds maxFiles, delete the oldest file.
+// Used by both logger and timeline packages.
 package rotating
 
 import (
@@ -20,23 +20,23 @@ import (
 
 // ─── Writer ──────────────────────────────────────────────────────────────────
 
-// Writer 是按大小轮转的文件写入器
+// Writer is a size-based rotating file writer
 type Writer struct {
 	mu       sync.Mutex
 	dir      string
-	baseName string // e.g. "timeline"（不含扩展名）
+	baseName string // e.g. "timeline" (without extension)
 	current  *os.File
 	curSize  int64
-	maxSize  int64 // 单文件最大字节数，0=不限
-	maxFiles int   // 保留的轮转文件数（不含活跃文件），0=不限
+	maxSize  int64 // Max bytes per file, 0=unlimited
+	maxFiles int   // Number of rotated files to keep (excluding active), 0=unlimited
 	closed   bool
 }
 
-// Open 创建或追加打开轮转文件
+// Open creates or appends to a rotating file
 //
-// dir 为文件所在目录（自动创建），baseName 为文件名前缀（如 "timeline"）。
-// maxSize 为单文件最大字节数（0=不限），maxFiles 为保留的轮转文件数（0=不限）。
-// 文件命名规则：活跃文件 {baseName}.jsonl，轮转文件 {baseName}.jsonl.1, {baseName}.jsonl.2, ...
+// dir is the file directory (auto-created), baseName is the file prefix (e.g. "timeline").
+// maxSize is max bytes per file (0=unlimited), maxFiles is number of rotated files to keep (0=unlimited).
+// Naming: active file {baseName}.jsonl, rotated files {baseName}.jsonl.1, {baseName}.jsonl.2, ...
 func Open(dir, baseName string, maxSize int64, maxFiles int) (*Writer, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create dir %s: %w", dir, err)
@@ -56,7 +56,7 @@ func Open(dir, baseName string, maxSize int64, maxFiles int) (*Writer, error) {
 	return w, nil
 }
 
-// Write 写入数据（自动追加 \n），超限时触发轮转
+// Write writes data (auto-appends \n), triggers rotation when limit exceeded
 // After Close, writes are silently discarded.
 func (w *Writer) Write(p []byte) (int, error) {
 	w.mu.Lock()
@@ -74,7 +74,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 	if err != nil {
 		return n, err
 	}
-	// 追加换行
+	// Append newline
 	if len(p) == 0 || p[len(p)-1] != '\n' {
 		if _, err := w.current.Write([]byte("\n")); err != nil {
 			return n, err
@@ -87,7 +87,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// Close 关闭当前文件
+// Close closes the current file
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -98,23 +98,23 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// CurrentPath 返回当前活跃文件路径
+// CurrentPath returns the current active file path
 func (w *Writer) CurrentPath() string {
 	return w.activePath()
 }
 
-// SetMaxSize 动态设置单文件最大字节数
+// SetMaxSize dynamically sets max bytes per file
 //
-// 主要用于测试。生产代码应在 Open 时指定。
+// Mainly for testing. Production code should specify at Open.
 func (w *Writer) SetMaxSize(maxSize int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.maxSize = maxSize
 }
 
-// ─── 内部方法 ────────────────────────────────────────────────────────────────
+// ─── Internal methods ─────────────────────────────────────────────────────────
 
-// open 打开或追加到当前活跃文件
+// open opens or appends to the current active file
 func (w *Writer) open() error {
 	path := w.activePath()
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -135,7 +135,7 @@ func (w *Writer) open() error {
 	return nil
 }
 
-// rotateIfNeeded 检查是否需要轮转
+// rotateIfNeeded checks if rotation is needed
 func (w *Writer) rotateIfNeeded() error {
 	if w.maxSize > 0 && w.curSize >= w.maxSize {
 		return w.rollSize()
@@ -143,7 +143,7 @@ func (w *Writer) rotateIfNeeded() error {
 	return nil
 }
 
-// rollSize 按大小滚动：将当前文件依次重命名，然后打开新文件
+// rollSize rolls by size: rename current file sequentially, then open new file
 func (w *Writer) rollSize() error {
 	if w.current != nil {
 		if err := w.current.Close(); err != nil {
@@ -154,7 +154,7 @@ func (w *Writer) rollSize() error {
 
 	base := w.basePath()
 
-	// 找最大编号
+	// Find max number
 	maxN := 0
 	for {
 		p := fmt.Sprintf("%s.%d", base, maxN+1)
@@ -167,7 +167,7 @@ func (w *Writer) rollSize() error {
 		}
 	}
 
-	// 从高到低依次重命名
+	// Rename from high to low
 	for i := maxN; i >= 1; i-- {
 		if err := os.Rename(fmt.Sprintf("%s.%d", base, i), fmt.Sprintf("%s.%d", base, i+1)); err != nil {
 			return fmt.Errorf("rotate rename %s.%d: %w", base, i, err)
@@ -177,13 +177,13 @@ func (w *Writer) rollSize() error {
 		return fmt.Errorf("rotate rename %s: %w", base, err)
 	}
 
-	// 删除超出 maxFiles 的旧文件
+	// Delete old files exceeding maxFiles
 	w.trimFiles()
 
 	return w.open()
 }
 
-// trimFiles 删除超过 maxFiles 的轮转文件
+// trimFiles deletes rotated files exceeding maxFiles
 func (w *Writer) trimFiles() {
 	if w.maxFiles <= 0 {
 		return
@@ -198,22 +198,22 @@ func (w *Writer) trimFiles() {
 	}
 }
 
-// activePath 返回当前活跃文件路径
+// activePath returns the current active file path
 func (w *Writer) activePath() string {
 	return filepath.Join(w.dir, w.baseName+".jsonl")
 }
 
-// basePath 返回不带编号的基础路径（用于轮转重命名）
+// basePath returns the base path without number (for rotation renaming)
 func (w *Writer) basePath() string {
 	return filepath.Join(w.dir, w.baseName+".jsonl")
 }
 
-// ─── 文件列表 ────────────────────────────────────────────────────────────────
+// ─── File listing ─────────────────────────────────────────────────────────────
 
-// ListFiles 返回所有轮转文件路径（从最老到最新）
+// ListFiles returns all rotated file paths (oldest to newest)
 //
-// 扫描 dir 下匹配 {baseName}.jsonl、{baseName}.jsonl.1、... 的文件，
-// 按编号从小到大排列（最老 → 最新）。
+// Scans dir for files matching {baseName}.jsonl, {baseName}.jsonl.1, ...,
+// sorted by number (oldest → newest).
 func ListFiles(dir, baseName string) ([]string, error) {
 	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(baseName) + `\.jsonl(?:\.(\d+))?$`)
 
@@ -227,7 +227,7 @@ func ListFiles(dir, baseName string) ([]string, error) {
 
 	type fileEntry struct {
 		path string
-		num  int // 0 = 活跃文件（无编号），1/2/... = 轮转文件
+		num  int // 0 = active file (no number), 1/2/... = rotated files
 	}
 	var files []fileEntry
 
@@ -249,24 +249,24 @@ func ListFiles(dir, baseName string) ([]string, error) {
 		})
 	}
 
-	// 按编号排序：编号小的更老（先写入的）
+	// Sort by number: smaller numbers are older (written first)
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].num < files[j].num
 	})
 
-	// 对于轮转文件，编号大的反而更老（.5 比 .1 更早写入），
-	// 但 .0（活跃文件）是最新的。需要重新考虑排序：
-	// 实际时间顺序：.5（最老）→ .4 → .3 → .2 → .1 → .0（最新）
-	// 所以编号大的先读取
+	// For rotated files, higher numbers are actually older (.5 written before .1),
+	// but .0 (active file) is newest. Need to reconsider sorting:
+	// Actual time order: .5 (oldest) → .4 → .3 → .2 → .1 → .0 (newest)
+	// So higher numbers read first
 	sort.Slice(files, func(i, j int) bool {
-		// 编号 0（活跃）排在最后
+		// Number 0 (active) comes last
 		if files[i].num == 0 {
 			return false
 		}
 		if files[j].num == 0 {
 			return true
 		}
-		// 编号大的更老，排前面
+		// Higher numbers are older, come first
 		return files[i].num > files[j].num
 	})
 
