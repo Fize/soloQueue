@@ -769,6 +769,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			ModelID:         override.ModelID,
 			ThinkingEnabled: override.ThinkingEnabled,
 			ReasoningEffort: override.ReasoningEffort,
+			Level:           override.Level,
 		})
 	}
 

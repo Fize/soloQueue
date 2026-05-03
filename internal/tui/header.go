@@ -22,7 +22,7 @@ func (m model) renderHeader(ly layout) string {
 
 	switch {
 	case m.quitCount > 0:
-		parts = append(parts, errorStyle.Render("✗ confirm exit: press Ctrl+C again"))
+		parts = append(parts, dimStyle.Render("◇ press Ctrl+C again to exit"))
 	case m.sandboxErr != "":
 		parts = append(parts, errorStyle.Render("✗ "+m.sandboxErr))
 	case m.errMsg != "":

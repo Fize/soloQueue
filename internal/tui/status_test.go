@@ -36,7 +36,7 @@ func TestRenderStatus_L1Only(t *testing.T) {
 	if !strings.Contains(text, "Agent Status") {
 		t.Error("missing 'Agent Status' header")
 	}
-	if !strings.Contains(text, "L1 Session Agents") {
+	if !strings.Contains(text, "A1 Session Agents") {
 		t.Error("missing 'L1 Session Agents' section")
 	}
 	if !strings.Contains(text, "main") {
@@ -49,7 +49,7 @@ func TestRenderStatus_L1Only(t *testing.T) {
 		t.Error("missing total count")
 	}
 	// Should not show L2 section when no supervisors
-	if strings.Contains(text, "L2 Domain Leaders") {
+	if strings.Contains(text, "A2 Domain Leaders") {
 		t.Error("should not show L2 section with no supervisors")
 	}
 }
@@ -64,26 +64,27 @@ func TestRenderStatus_L2WithNoChildren(t *testing.T) {
 
 	text := renderStatus(r, supervisors)
 
-	if !strings.Contains(text, "L2 Domain Leaders") {
-		t.Error("missing 'L2 Domain Leaders' section")
+	if !strings.Contains(text, "A2 Domain Leaders") {
+		t.Error("missing 'A2 Domain Leaders' section")
 	}
 	if !strings.Contains(text, "DevLead") {
 		t.Error("missing L2 agent name 'DevLead'")
 	}
-	if !strings.Contains(text, "no active workers") {
-		t.Error("missing 'no active workers' for L2 with no children")
+	if !strings.Contains(text, "A3 Workers") {
+		t.Error("missing 'A3 Workers' section")
+	}
+	if !strings.Contains(text, "(none)") {
+		t.Error("A3 section with no children should show '(none)'")
 	}
 	// L2 should NOT appear in L1 section
-	if strings.Contains(text, "L1 Session Agents") && strings.Contains(text, "DevLead") {
-		// L1 section may exist but should not contain DevLead
-		// We need to check more precisely
+	if strings.Contains(text, "A1 Session Agents") && strings.Contains(text, "DevLead") {
 		lines := strings.Split(text, "\n")
 		inL1Section := false
 		for _, line := range lines {
-			if strings.Contains(line, "L1 Session Agents") {
+			if strings.Contains(line, "A1 Session Agents") {
 				inL1Section = true
 			}
-			if strings.Contains(line, "L2 Domain Leaders") {
+			if strings.Contains(line, "A2 Domain Leaders") {
 				inL1Section = false
 			}
 			if inL1Section && strings.Contains(line, "DevLead") {
@@ -92,7 +93,6 @@ func TestRenderStatus_L2WithNoChildren(t *testing.T) {
 		}
 	}
 }
-
 func TestRenderStatus_L1L2Mixed(t *testing.T) {
 	r := agent.NewRegistry(nil)
 	l1Agent := agent.NewAgent(agent.Definition{ID: "session-1", Name: "UserSession"}, &fakeLLMForTUI{}, nil)
@@ -105,11 +105,14 @@ func TestRenderStatus_L1L2Mixed(t *testing.T) {
 
 	text := renderStatus(r, supervisors)
 
-	if !strings.Contains(text, "L1 Session Agents") {
-		t.Error("missing L1 section")
+	if !strings.Contains(text, "A1 Session Agents") {
+		t.Error("missing A1 section")
 	}
-	if !strings.Contains(text, "L2 Domain Leaders") {
-		t.Error("missing L2 section")
+	if !strings.Contains(text, "A2 Domain Leaders") {
+		t.Error("missing A2 section")
+	}
+	if !strings.Contains(text, "A3 Workers") {
+		t.Error("missing A3 section")
 	}
 	if !strings.Contains(text, "Total: 2 agents") {
 		t.Error("missing correct total count")

@@ -57,9 +57,10 @@ type RouteResult struct {
 }
 
 // TaskRouterFunc classifies a user prompt and returns model routing parameters.
+// priorLevel is the session's current task level string ("" if none).
 // Used to inject the router without creating import cycles.
 // Returns error if classification fails; caller proceeds with defaults.
-type TaskRouterFunc func(ctx context.Context, prompt string) (RouteResult, error)
+type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error)
 
 // ─── Session ──────────────────────────────────────────────────────────────
 
@@ -94,8 +95,10 @@ type Session struct {
 	turnDone          chan struct{} // 当异步委派所在轮次完成时关闭
 	turnDoneClosed    bool          // 防止重复关闭 turnDone
 
-	lastLevel   string       // last classified task level (L0-L3)
-	lastLevelMu sync.RWMutex // protects lastLevel
+	lastLevel      string       // last classified task level (L0-L3)
+	lastLevelMu    sync.RWMutex // protects lastLevel and levelLocked
+	levelLocked    bool         // true when user explicitly locked level via /l0-/l3
+	lastRouteResult RouteResult // cached route result for locked mode (model params preserved)
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -322,7 +325,47 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 
 	// ── Task routing: classify prompt and set model override ──
 	if s.Router != nil {
-		if result, err := s.Router(ctx, prompt); err == nil {
+		// Check for explicit level lock/unlock commands (/l0, /l1, /l2, /l3)
+		if newLevel, isLock := parseLevelLockCommand(prompt); isLock {
+			s.lastLevelMu.Lock()
+			s.levelLocked = true
+			s.lastLevel = newLevel
+			s.lastLevelMu.Unlock()
+			s.logger.DebugContext(ctx, logger.CatApp, "task level locked by user",
+				"session_id", s.ID,
+				"level", newLevel,
+			)
+		}
+
+		s.lastLevelMu.RLock()
+		locked := s.levelLocked
+		priorLevel := s.lastLevel
+		cachedResult := s.lastRouteResult
+		s.lastLevelMu.RUnlock()
+
+		var result RouteResult
+		var err error
+
+		if locked && !isLevelLockCommand(prompt) {
+			// Locked: skip routing, reuse cached model params
+			result = cachedResult
+			s.logger.DebugContext(ctx, logger.CatApp, "task routing skipped (level locked)",
+				"session_id", s.ID,
+				"level", result.Level,
+			)
+		} else {
+			result, err = s.Router(ctx, prompt, priorLevel)
+			if err != nil {
+				s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
+					"session_id", s.ID,
+					"err", err.Error(),
+				)
+				// Don't return — proceed with defaults (no model override)
+				result = RouteResult{}
+			}
+		}
+
+		if result.Level != "" {
 			s.logger.DebugContext(ctx, logger.CatApp, "task router applied model override",
 				"session_id", s.ID,
 				"provider_id", result.ProviderID,
@@ -340,12 +383,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			})
 			s.lastLevelMu.Lock()
 			s.lastLevel = result.Level
+			s.lastRouteResult = result
 			s.lastLevelMu.Unlock()
-		} else {
-			s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
-				"session_id", s.ID,
-				"err", err.Error(),
-			)
 		}
 	}
 
@@ -652,4 +691,37 @@ func newSessionID() string {
 		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
 	}
 	return strings.ToLower(hex.EncodeToString(b[:]))
+}
+
+// ─── Level lock helpers ─────────────────────────────────────────────────────
+
+// levelLockCommands maps slash commands to level labels.
+var levelLockCommands = map[string]string{
+	"l0":    "L0-Conversation",
+	"chat":  "L0-Conversation",
+	"l1":    "L1-SimpleSingleFile",
+	"l2":    "L2-MediumMultiFile",
+	"l3":    "L3-ComplexRefactoring",
+	"max":   "L3-ComplexRefactoring",
+	"expert": "L3-ComplexRefactoring",
+}
+
+// parseLevelLockCommand checks if prompt starts with a level-lock command.
+// Returns (levelLabel, true) if found, ("", false) otherwise.
+func parseLevelLockCommand(prompt string) (string, bool) {
+	trimmed := strings.TrimSpace(prompt)
+	for cmd, label := range levelLockCommands {
+		prefix := "/" + cmd
+		if strings.HasPrefix(trimmed, prefix+" ") || trimmed == prefix {
+			return label, true
+		}
+	}
+	return "", false
+}
+
+// isLevelLockCommand returns true if prompt is a level-lock command
+// (including when followed by content, e.g., "/l2 analyze this").
+func isLevelLockCommand(prompt string) bool {
+	_, ok := parseLevelLockCommand(prompt)
+	return ok
 }

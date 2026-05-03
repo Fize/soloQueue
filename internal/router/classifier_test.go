@@ -58,7 +58,7 @@ func TestDefaultClassifier_Classify(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			result, err := classifier.Classify(ctx, tt.prompt)
+			result, err := classifier.Classify(ctx, tt.prompt, LevelUnknown)
 
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -83,7 +83,7 @@ func TestDefaultClassifier_WithDisabledFastTrack(t *testing.T) {
 	classifier := NewDefaultClassifier(config, nil, "", nil)
 
 	ctx := context.Background()
-	result, err := classifier.Classify(ctx, "Explain closures")
+	result, err := classifier.Classify(ctx, "Explain closures", LevelUnknown)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -102,26 +102,100 @@ func TestClassificationResultDetails(t *testing.T) {
 	ctx := context.Background()
 
 	// Test that we capture file paths
-	result, _ := classifier.Classify(ctx, "Fix bugs in auth.go and service.go")
+	result, _ := classifier.Classify(ctx, "Fix bugs in auth.go and service.go", LevelUnknown)
 	if len(result.DetectedFilePaths) < 2 {
 		t.Errorf("expected to detect 2 files, got %d: %v",
 			len(result.DetectedFilePaths), result.DetectedFilePaths)
 	}
 
 	// Test that we capture slash commands
-	result, _ = classifier.Classify(ctx, "/read main.go read the main entry point")
+	result, _ = classifier.Classify(ctx, "/read main.go read the main entry point", LevelUnknown)
 	if result.SlashCommand != "read" {
 		t.Errorf("expected slash command 'read', got %q", result.SlashCommand)
 	}
 
 	// Test that reason is always provided
-	result, _ = classifier.Classify(ctx, "Some task")
+	result, _ = classifier.Classify(ctx, "Some task", LevelUnknown)
 	if result.Reason == "" {
 		t.Errorf("expected reason to be provided")
 	}
 
 	// RecommendedModel is now filled by Router.Route(), not by the classifier directly.
 	// Classifier output leaves it empty; Router populates it from config.
+}
+
+// ─── Hybrid sticky logic tests ──────────────────────────────────────────────
+
+func TestHybridLogic_LowConfidenceInheritsPrior(t *testing.T) {
+	config := DefaultClassifierConfig()
+	config.FastTrackConfidenceThreshold = 85
+	classifier := NewDefaultClassifier(config, nil, "", nil)
+
+	// "再次测试" alone would classify as L1 with low confidence
+	// But with priorLevel=L3, it should inherit L3
+	ctx := context.Background()
+	result, err := classifier.Classify(ctx, "再次测试", LevelComplexRefactoring)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Level != LevelComplexRefactoring {
+		t.Errorf("expected L3 (inherited from prior), got %v (confidence=%d, reason=%s)",
+			result.Level, result.Confidence, result.Reason)
+	}
+}
+
+func TestHybridLogic_HighConfidenceOverridesPrior(t *testing.T) {
+	config := DefaultClassifierConfig()
+	config.FastTrackConfidenceThreshold = 85
+	classifier := NewDefaultClassifier(config, nil, "", nil)
+
+	// "hello, how are you?" has high confidence for L0
+	// Even with priorLevel=L3, it should stay L0 (clear conversation)
+	ctx := context.Background()
+	result, err := classifier.Classify(ctx, "hello, how are you?", LevelComplexRefactoring)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Level != LevelConversation {
+		t.Errorf("expected L0 (high confidence overrides prior), got %v (confidence=%d, reason=%s)",
+			result.Level, result.Confidence, result.Reason)
+	}
+}
+
+func TestHybridLogic_MediumConfidenceKeepsHigherPrior(t *testing.T) {
+	config := DefaultClassifierConfig()
+	config.FastTrackConfidenceThreshold = 85
+	classifier := NewDefaultClassifier(config, nil, "", nil)
+
+	// "run the tests" has medium confidence for L1
+	// With priorLevel=L3, it should stay at L3
+	ctx := context.Background()
+	result, err := classifier.Classify(ctx, "运行测试", LevelComplexRefactoring)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should be at least L2 or higher (inherited from L3)
+	if result.Level < LevelMediumMultiFile {
+		t.Errorf("expected >= L2 (inherited from prior L3), got %v (confidence=%d, reason=%s)",
+			result.Level, result.Confidence, result.Reason)
+	}
+}
+
+func TestHybridLogic_NoPriorLevelNormalClassify(t *testing.T) {
+	config := DefaultClassifierConfig()
+	classifier := NewDefaultClassifier(config, nil, "", nil)
+
+	// Without prior level, normal classification applies
+	ctx := context.Background()
+	result, err := classifier.Classify(ctx, "再次测试", LevelUnknown)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should classify normally (L0 or L1)
+	if result.Level > LevelMediumMultiFile {
+		t.Errorf("expected L0-L2 (no prior), got %v (confidence=%d, reason=%s)",
+			result.Level, result.Confidence, result.Reason)
+	}
 }
 
 func TestConfidenceThresholds(t *testing.T) {
@@ -139,7 +213,7 @@ func TestConfidenceThresholds(t *testing.T) {
 	ctx := context.Background()
 
 	// This should have high confidence from fast-track
-	result, _ := classifier.Classify(ctx, "Explain how closures work in JavaScript")
+	result, _ := classifier.Classify(ctx, "Explain how closures work in JavaScript", LevelUnknown)
 	if result.Confidence < config.FastTrackConfidenceThreshold {
 		t.Logf("Note: low confidence result %d may trigger LLM classification if enabled",
 			result.Confidence)
