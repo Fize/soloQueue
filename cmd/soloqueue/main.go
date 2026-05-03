@@ -25,6 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/router"
@@ -96,6 +97,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			agentFactory := buildSessionFactory(rt, workDir, settings, false /* TUI: no console log */)
 			mgr := session.NewSessionManager(agentFactory, log)
 			mgr.SetRouter(buildRouterFunc(rt))
+			mgr.SetMemoryHook(buildMemoryHook(rt))
 
 			defer mgr.Shutdown(5 * time.Second)
 
@@ -157,8 +159,9 @@ type runtimeStack struct {
 	rulesCreated  bool
 	taskRouter    *router.Router // 任务路由分类器（TUI + serve 共用）
 	skillRegistry *skill.SkillRegistry
-	dockerSandbox sandbox.Sandbox   // Docker 沙盒（L3 工具执行隔离底座）
-	sandboxMounts []sandbox.Mount // 沙盒挂载列表（延迟启动用）
+	dockerSandbox  sandbox.Sandbox   // Docker 沙盒（L3 工具执行隔离底座）
+	sandboxMounts  []sandbox.Mount // 沙盒挂载列表（延迟启动用）
+	memoryManager  *memory.Manager // 短期记忆管理器
 }
 
 // shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent，并销毁 Docker 沙盒。
@@ -274,7 +277,16 @@ func buildRuntimeStack(
 		allTemplates = nil
 	}
 
-	systemPrompt, err := promptCfg.BuildPrompt(leaders)
+	// ── Short-term Memory Manager ─────────────────────────────────
+	memoryDir := filepath.Join(workDir, "memory")
+	fastModel := cfg.DefaultModelByRole("fast")
+	fastModelID := ""
+	if fastModel != nil {
+		fastModelID = fastModel.ID
+	}
+	memoryMgr := memory.NewManager(memoryDir, llmClient, fastModelID, log)
+
+	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
 	}
@@ -388,6 +400,7 @@ func buildRuntimeStack(
 		skillRegistry: skillReg,
 		dockerSandbox: nil,
 		sandboxMounts: sandboxMounts,
+		memoryManager: memoryMgr,
 	}, nil
 }
 
@@ -412,6 +425,33 @@ func startSandbox(ctx context.Context, mounts []sandbox.Mount, log *logger.Logge
 }
 
 // --- Session factory ---
+
+// formatCtxwinMessages converts ctxwin messages to a plain-text representation
+// suitable for memory summarization. Skips system messages.
+func formatCtxwinMessages(msgs []ctxwin.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		switch m.Role {
+		case ctxwin.RoleSystem:
+			continue
+		case ctxwin.RoleUser:
+			b.WriteString("User: ")
+		case ctxwin.RoleAssistant:
+			b.WriteString("Assistant: ")
+		case ctxwin.RoleTool:
+			b.WriteString("Tool(" + m.Name + "): ")
+		default:
+			b.WriteString(string(m.Role) + ": ")
+		}
+		content := m.Content
+		if len(content) > 2000 {
+			content = content[:2000] + "...(truncated)"
+		}
+		b.WriteString(content)
+		b.WriteString("\n\n")
+	}
+	return b.String()
+}
 
 // sessionBuilder encapsulates session creation logic, replacing the
 // 140-line closure in buildSessionFactory with a testable struct.
@@ -577,7 +617,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
-	summaryHook := func(summary string) {
+	summaryHook := func(summary string, msgs []ctxwin.Message) {
 		if err := tl.AppendControl(&timeline.ControlPayload{
 			Action:  "summary",
 			Reason:  "auto_compact",
@@ -585,6 +625,13 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
 				"err", err, "agent_id", agentID)
+		}
+		// Record to short-term memory (fire-and-forget, non-blocking)
+		if sb.rt.memoryManager != nil {
+			go func() {
+				text := formatCtxwinMessages(msgs)
+				_ = sb.rt.memoryManager.Record(context.Background(), text)
+			}()
 		}
 	}
 
@@ -689,6 +736,17 @@ func buildRouterFunc(rt *runtimeStack) session.TaskRouterFunc {
 			ReasoningEffort: decision.ReasoningEffort,
 			Level:           decision.Level.String(),
 		}, nil
+	}
+}
+
+// buildMemoryHook creates a session.MemoryHook that records conversation segments
+// to the short-term memory system using the fast model for summarization.
+func buildMemoryHook(rt *runtimeStack) session.MemoryHook {
+	if rt.memoryManager == nil {
+		return nil
+	}
+	return func(ctx context.Context, conversationText string) {
+		_ = rt.memoryManager.Record(ctx, conversationText)
 	}
 }
 
@@ -815,6 +873,7 @@ func serveCmd() *cobra.Command {
 			factory := buildSessionFactory(rt, workDir, settings, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, log)
 			mgr.SetRouter(buildRouterFunc(rt))
+			mgr.SetMemoryHook(buildMemoryHook(rt))
 
 			_, err = mgr.Init(context.Background(), "")
 			if err != nil {

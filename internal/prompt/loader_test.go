@@ -89,7 +89,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 		{Name: "dev", Description: "开发工程师", Group: "DevOps"},
 	}
 
-	result, err := cfg.BuildPrompt(leaders)
+	result, err := cfg.BuildPrompt(leaders, "")
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	cfg.EnsureFiles()
 	// 不创建 user.md
 
-	result, err := cfg.BuildPrompt(nil)
+	result, err := cfg.BuildPrompt(nil, "")
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
