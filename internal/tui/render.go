@@ -51,11 +51,13 @@ func (m *model) renderContent(text string) string {
 	if m.renderer == nil {
 		return contentStyle.Render(text)
 	}
-	rendered, err := m.renderer.Render(text)
+	// Prepend "\n" so the real content never starts at column 0, preventing
+	// glamour from clipping the first CJK character in certain terminals.
+	rendered, err := m.renderer.Render("\n" + text)
 	if err != nil {
 		return contentStyle.Render(text)
 	}
-	return strings.Trim(rendered, "\n")
+	return strings.TrimLeft(rendered, "\n")
 }
 
 func (m *model) renderMessage(msg message) string {

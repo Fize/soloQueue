@@ -35,7 +35,9 @@ func (s sidebar) AgentInspector(width, height int, m model, showAgents bool) str
 
 	b.WriteString(paneTitleStyle.Render(" RUNTIME ") + "\n")
 	phase := "ready"
-	if m.isGenerating {
+	if m.loading {
+		phase = "initializing..."
+	} else if m.isGenerating {
 		phase = m.genPhase.String()
 	}
 	b.WriteString(kvLine("phase", phase, width))

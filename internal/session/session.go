@@ -90,12 +90,12 @@ type Session struct {
 	// 此时 inFlight 会被释放，允许用户发送新消息
 	// 新消息的 CW push 会被延迟到 turnDone 信号后，保证 CW 顺序正确
 	delegationPending atomic.Bool
-	turnMu            sync.Mutex   // 保护 turnDone 的创建和关闭
+	turnMu            sync.Mutex    // 保护 turnDone 的创建和关闭
 	turnDone          chan struct{} // 当异步委派所在轮次完成时关闭
-	turnDoneClosed    bool         // 防止重复关闭 turnDone
+	turnDoneClosed    bool          // 防止重复关闭 turnDone
 
-	lastLevel   string        // last classified task level (L0-L3)
-	lastLevelMu sync.RWMutex  // protects lastLevel
+	lastLevel   string       // last classified task level (L0-L3)
+	lastLevelMu sync.RWMutex // protects lastLevel
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -181,7 +181,7 @@ func (s *Session) Clear() error {
 			Action: "clear",
 			Reason: "user_command",
 		}); err != nil {
-		s.logger.LogError(context.Background(), logger.CatApp, "session clear failed", err)
+			s.logger.LogError(context.Background(), logger.CatApp, "session clear failed", err)
 			return fmt.Errorf("session: clear: %w", err)
 		}
 	}
@@ -233,7 +233,6 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	duration := time.Since(start).Milliseconds()
 
 	if err != nil {
-		// 失败：移除刚 push 的 user prompt
 		s.mu.Lock()
 		s.cw.PopLast()
 		s.mu.Unlock()
@@ -246,7 +245,17 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		return "", err
 	}
 
-	// 成功：push assistant reply（含 reasoning_content，DeepSeek thinking mode 跨轮必须回传）
+	// Empty assistant reply with no tool calls is invalid for LLM API.
+	// Skip the push but keep the user prompt so LLM retains context.
+	if reply == "" {
+		s.logger.WarnContext(ctx, logger.CatApp, "ask: empty assistant reply skipped",
+			"session_id", s.ID,
+			"duration_ms", duration,
+			"reasoning_len", len(reasoningContent),
+		)
+		return "", fmt.Errorf("session: assistant returned empty reply")
+	}
+
 	s.mu.Lock()
 	opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(reasoningContent)}
 	s.cw.Push(ctxwin.RoleAssistant, reply, opts...)
@@ -444,14 +453,23 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		}
 	done:
 		if gotDone {
-			s.mu.Lock()
-			opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
-			s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
-			s.mu.Unlock()
+			if finalContent != "" {
+				s.mu.Lock()
+				opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
+				s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
+				s.mu.Unlock()
 
-			s.logger.DebugContext(ctx, logger.CatApp, "askstream: assistant reply pushed to context window",
-				"session_id", s.ID,
-			)
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream: assistant reply pushed to context window",
+					"session_id", s.ID,
+				)
+			} else {
+				// Empty assistant reply — invalid for LLM API.
+				// Skip the push but keep the user prompt for context.
+				s.logger.WarnContext(ctx, logger.CatApp, "askstream: empty assistant reply skipped",
+					"session_id", s.ID,
+					"reasoning_len", len(finalReasoning),
+				)
+			}
 		}
 		// 委派轮次完成：关闭 turnDone 通道，通知等待的新消息
 		s.closeTurnDone()

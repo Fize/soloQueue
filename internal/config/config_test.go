@@ -19,7 +19,7 @@ import (
 
 func TestMergeTOML_PartialOverride(t *testing.T) {
 	base := Settings{
-		Session: SessionConfig{ReplaySegments: 3, TimelineMaxFileMB: 50, TimelineMaxFiles: 5},
+		Session: SessionConfig{TimelineMaxFileMB: 50, TimelineMaxFiles: 5},
 		Log:     LogConfig{Level: "info", Console: true},
 	}
 	patch := `[log]
@@ -35,8 +35,8 @@ level = "debug"
 	if !result.Log.Console {
 		t.Errorf("log.console = false, want true (preserved)")
 	}
-	if result.Session.ReplaySegments != 3 {
-		t.Errorf("session.replaySegments = %d, want 3 (preserved)", result.Session.ReplaySegments)
+	if result.Session.TimelineMaxFileMB != 50 {
+		t.Errorf("session.timelineMaxFileMB = %d, want 50 (preserved)", result.Session.TimelineMaxFileMB)
 	}
 }
 
@@ -152,16 +152,16 @@ unknownField = "xxx"
 }
 
 func TestMergeTOML_NumericTypes(t *testing.T) {
-	base := Settings{Session: SessionConfig{ReplaySegments: 100}}
+	base := Settings{Session: SessionConfig{TimelineMaxFileMB: 100}}
 	patch := `[session]
-replaySegments = 7200
+timelineMaxFileMB = 7200
 `
 	result, err := MergeTOML(base, []byte(patch))
 	if err != nil {
 		t.Fatalf("MergeTOML: %v", err)
 	}
-	if result.Session.ReplaySegments != 7200 {
-		t.Errorf("replaySegments = %d, want 7200", result.Session.ReplaySegments)
+	if result.Session.TimelineMaxFileMB != 7200 {
+		t.Errorf("timelineMaxFileMB = %d, want 7200", result.Session.TimelineMaxFileMB)
 	}
 }
 
@@ -506,7 +506,7 @@ func TestLoader_OnChange_CallbackCanCallSet_NoDeadlock(t *testing.T) {
 	done := make(chan struct{}, 1)
 	loader.OnChange(func(old, new Settings) {
 		if atomic.AddInt32(&callCount, 1) == 1 {
-			_ = loader.Set(func(s *Settings) { s.Session.ReplaySegments = 7 })
+			_ = loader.Set(func(s *Settings) { s.Session.TimelineMaxFileMB = 7 })
 			select {
 			case done <- struct{}{}:
 			default:
@@ -726,7 +726,7 @@ func TestLoader_ConcurrentGetAndSet(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
 				_ = loader.Set(func(s *Settings) {
-					s.Session.ReplaySegments = 14
+					s.Session.TimelineMaxFileMB = 14
 				})
 			}
 		}(i)

@@ -21,15 +21,24 @@ import (
 
 // ─── Config ─────────────────────────────────
 
+// SandboxInitMsg delivers the result of async sandbox + session initialization
+// to the TUI. If Err is non-nil, Sess is nil and the TUI displays the error.
+// If both are nil, initialization succeeded but produced no session.
+type SandboxInitMsg struct {
+	Sess *session.Session
+	Err  error
+}
+
 type Config struct {
-	Session      *session.Session
-	ModelID      string
-	Version      string
-	RulesCreated bool
-	RulesPath    string
-	Registry     *agent.Registry
-	Supervisors  []*agent.Supervisor
-	Skills       *skill.SkillRegistry
+	Session       *session.Session
+	ModelID       string
+	Version       string
+	RulesCreated  bool
+	RulesPath     string
+	Registry      *agent.Registry
+	Supervisors   []*agent.Supervisor
+	Skills        *skill.SkillRegistry
+	SandboxInitCh <-chan SandboxInitMsg // async sandbox + session init channel
 }
 
 // ─── Data types ──────────────────────────────
@@ -170,6 +179,8 @@ type model struct {
 	showAgents   bool
 	copyMode     bool
 	confirmState *confirmState
+	loading      bool   // true while waiting for sandbox + session init
+	sandboxErr   string // sandbox init error message
 }
 
 // ─── Run (public entry point) ────────────────
@@ -216,6 +227,17 @@ func Run(cfg Config) error {
 	m.sess = cfg.Session
 	m.renderer = m.newRenderer()
 
+	// If sandbox init is deferred, start in loading state.
+	if cfg.SandboxInitCh != nil {
+		m.loading = true
+		ta.Placeholder = "Sandbox initializing..."
+	}
+
+	// Replay history from context window into TUI chat display
+	if m.sess != nil {
+		m.replayHistoryIntoMessages()
+	}
+
 	p := tea.NewProgram(m)
 	_, runErr := p.Run()
 
@@ -226,6 +248,9 @@ func Run(cfg Config) error {
 
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textarea.Blink, agentTickCmd(agentTickInterval(false))}
+	if m.loading && m.cfg.SandboxInitCh != nil {
+		cmds = append(cmds, waitForSandboxInit(m.cfg.SandboxInitCh))
+	}
 	if m.cfg.RulesCreated && m.cfg.RulesPath != "" {
 		notice := fmt.Sprintf("rules.md not found — default created at %s. Feel free to edit it anytime.", m.cfg.RulesPath)
 		m.messages = append(m.messages, message{role: "agent", content: notice})
@@ -323,6 +348,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.GotoBottom()
 		return m, nil
 
+	case SandboxInitMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.sandboxErr = summarizeError(msg.Err)
+			m.textArea.Placeholder = "Sandbox failed — /quit to exit"
+			m.resizeViewport()
+			m.rebuildViewportContent()
+			return m, nil
+		}
+		m.sess = msg.Sess
+		m.sandboxErr = ""
+		m.textArea.Placeholder = "Type a message..."
+		m.resizeViewport()
+		m.replayHistoryIntoMessages()
+		m.rebuildViewportContent()
+		m.viewport.GotoBottom()
+		return m, nil
+
 	case tea.KeyPressMsg:
 		if msg.String() != "ctrl+c" && m.quitCount > 0 {
 			m.quitCount = 0
@@ -374,7 +417,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.confirmState != nil {
 				return m.handleConfirmEnter()
 			}
-			if m.isGenerating || strings.TrimSpace(m.textArea.Value()) == "" {
+			if m.loading || m.isGenerating || strings.TrimSpace(m.textArea.Value()) == "" {
 				return m, nil
 			}
 			input := strings.TrimSpace(m.textArea.Value())
@@ -525,7 +568,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinnerMsg:
-		if m.isGenerating {
+		if m.isGenerating || m.loading {
 			if !m.copyMode {
 				m.spinner.Next()
 			}
@@ -593,6 +636,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// renderSpacer returns a blank line, preserving the vertical pane separator
+// in two-pane mode so the │ line doesn't break between sections.
+func (m *model) renderSpacer(ly layout) string {
+	if ly.mode == layoutTwoPane && m.showAgents {
+		return strings.Repeat(" ", ly.leftW) + paneBorderStyle.Render("│")
+	}
+	return ""
+}
+
 // ─── View ───────────────────────────────────────
 
 func (m model) View() tea.View {
@@ -602,14 +654,14 @@ func (m model) View() tea.View {
 	composer := m.renderComposer(ly)
 	footer := m.renderFooter(ly)
 
-	fullView := lipgloss.JoinVertical(lipgloss.Left, body, header, composer, footer)
+	fullView := lipgloss.JoinVertical(lipgloss.Left, body, m.renderSpacer(ly), header, m.renderSpacer(ly), composer, footer)
 	v := tea.NewView(fullView)
 	if !m.copyMode {
 		c := m.textArea.Cursor()
 		if c != nil {
 			// Count actual rendered lines above the textarea.
-			// body + header (no composer title line anymore)
-			c.Y += lineCount(body) + lineCount(header)
+			// body + spacer + header + spacer
+			c.Y += lineCount(body) + 1 + lineCount(header) + 1
 			// If sidebar is visible, offset X for sidebar width + separator
 			if ly.mode == layoutTwoPane && m.showAgents {
 				c.X += ly.leftW + 1
@@ -702,6 +754,16 @@ func waitForAgentEvent(evCh <-chan agent.AgentEvent, cancel context.CancelFunc, 
 			return streamDoneMsg{streamID: streamID}
 		}
 		return agentEventMsg{event: ev, evCh: evCh, cancel: cancel, streamID: streamID}
+	}
+}
+
+func waitForSandboxInit(ch <-chan SandboxInitMsg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return SandboxInitMsg{Err: fmt.Errorf("sandbox init channel closed unexpectedly")}
+		}
+		return msg
 	}
 }
 
