@@ -62,6 +62,10 @@ type RouteResult struct {
 // Returns error if classification fails; caller proceeds with defaults.
 type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error)
 
+// MemoryHook is called when conversation context is being discarded (compaction or /clear).
+// conversationText is a plain-text representation of the messages being forgotten.
+type MemoryHook func(ctx context.Context, conversationText string)
+
 // ─── Session ──────────────────────────────────────────────────────────────
 
 // Session 是一个对话会话
@@ -95,10 +99,12 @@ type Session struct {
 	turnDone          chan struct{} // 当异步委派所在轮次完成时关闭
 	turnDoneClosed    bool          // 防止重复关闭 turnDone
 
-	lastLevel      string       // last classified task level (L0-L3)
+	lastLevel       string       // last classified task level (L0-L3)
 	lastLevelMu    sync.RWMutex // protects lastLevel and levelLocked
 	levelLocked    bool         // true when user explicitly locked level via /l0-/l3
 	lastRouteResult RouteResult // cached route result for locked mode (model params preserved)
+
+	memoryHook MemoryHook // optional callback for short-term memory (nil = disabled)
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -171,12 +177,24 @@ func (s *Session) CW() *ctxwin.ContextWindow {
 	return s.cw
 }
 
+// SetMemoryHook sets the optional callback for short-term memory recording.
+// The hook is called when conversation context is discarded via compaction or /clear.
+func (s *Session) SetMemoryHook(hook MemoryHook) {
+	s.memoryHook = hook
+}
+
 // Clear 执行软清除：追加 /clear 控制事件到 timeline，重置 ContextWindow
 //
 // 不删除任何持久化数据。ContextWindow 仅保留 system prompt。
 func (s *Session) Clear() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	// Snapshot messages for memory recording before clearing
+	var memoryText string
+	if s.memoryHook != nil {
+		payload := s.cw.BuildPayload()
+		memoryText = formatPayloadForMemory(payload)
+	}
 
 	// 追加 /clear 控制事件到 timeline
 	if s.tl != nil {
@@ -184,6 +202,7 @@ func (s *Session) Clear() error {
 			Action: "clear",
 			Reason: "user_command",
 		}); err != nil {
+			s.mu.Unlock()
 			s.logger.LogError(context.Background(), logger.CatApp, "session clear failed", err)
 			return fmt.Errorf("session: clear: %w", err)
 		}
@@ -191,6 +210,12 @@ func (s *Session) Clear() error {
 
 	// 重置 ContextWindow（保留 system prompt）
 	s.cw.Reset()
+	s.mu.Unlock()
+
+	// Call memory hook outside lock
+	if s.memoryHook != nil && memoryText != "" {
+		s.memoryHook(context.Background(), memoryText)
+	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session cleared",
 		"session_id", s.ID,
@@ -585,6 +610,7 @@ type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwi
 type SessionManager struct {
 	factory    AgentFactory
 	routerFunc TaskRouterFunc
+	memoryHook MemoryHook
 	logger     *logger.Logger
 
 	mu      sync.Mutex
@@ -611,6 +637,12 @@ func NewSessionManager(factory AgentFactory, l *logger.Logger) *SessionManager {
 // Must be called before Init(). Not thread-safe for setup.
 func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
 	m.routerFunc = fn
+}
+
+// SetMemoryHook sets the callback for short-term memory recording.
+// Must be called before Init(). Not thread-safe for setup.
+func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
+	m.memoryHook = hook
 }
 
 // Init 创建唯一 session；重复调用返回已存在的 session
@@ -643,6 +675,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 
 	if m.routerFunc != nil {
 		s.Router = m.routerFunc
+	}
+	if m.memoryHook != nil {
+		s.memoryHook = m.memoryHook
 	}
 
 	m.mu.Lock()
@@ -724,4 +759,31 @@ func parseLevelLockCommand(prompt string) (string, bool) {
 func isLevelLockCommand(prompt string) bool {
 	_, ok := parseLevelLockCommand(prompt)
 	return ok
+}
+
+// formatPayloadForMemory converts ctxwin payload messages to a plain-text string
+// suitable for short-term memory summarization. Skips system messages.
+func formatPayloadForMemory(payload []ctxwin.PayloadMessage) string {
+	var b strings.Builder
+	for _, m := range payload {
+		switch m.Role {
+		case "system":
+			continue
+		case "user":
+			b.WriteString("User: ")
+		case "assistant":
+			b.WriteString("Assistant: ")
+		case "tool":
+			b.WriteString("Tool(" + m.Name + "): ")
+		default:
+			b.WriteString(m.Role + ": ")
+		}
+		content := m.Content
+		if len(content) > 2000 {
+			content = content[:2000] + "...(truncated)"
+		}
+		b.WriteString(content)
+		b.WriteString("\n\n")
+	}
+	return b.String()
 }
