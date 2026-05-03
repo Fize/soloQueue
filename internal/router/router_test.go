@@ -56,7 +56,7 @@ func TestRouter_Route(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			decision, err := router.Route(ctx, tt.prompt)
+			decision, err := router.Route(ctx, tt.prompt, LevelUnknown)
 
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -92,7 +92,7 @@ func TestRouter_Warnings(t *testing.T) {
 	router := NewRouter(classifier, modelService, nil)
 
 	ctx := context.Background()
-	decision, _ := router.Route(ctx, "Run rm -rf on the old backup")
+	decision, _ := router.Route(ctx, "Run rm -rf on the old backup", LevelUnknown)
 
 	if len(decision.Warnings) == 0 {
 		t.Errorf("expected warnings for dangerous operation, got none")

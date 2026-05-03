@@ -663,8 +663,22 @@ func buildRouterFunc(rt *runtimeStack) session.TaskRouterFunc {
 		return nil
 	}
 	rtr := rt.taskRouter
-	return func(ctx context.Context, prompt string) (session.RouteResult, error) {
-		decision, err := rtr.Route(ctx, prompt)
+	return func(ctx context.Context, prompt string, priorLevel string) (session.RouteResult, error) {
+		// Parse priorLevel string to router.ClassificationLevel
+		var pl router.ClassificationLevel
+		switch priorLevel {
+		case "L0-Conversation":
+			pl = router.LevelConversation
+		case "L1-SimpleSingleFile":
+			pl = router.LevelSimpleSingleFile
+		case "L2-MediumMultiFile":
+			pl = router.LevelMediumMultiFile
+		case "L3-ComplexRefactoring":
+			pl = router.LevelComplexRefactoring
+		default:
+			pl = router.LevelUnknown
+		}
+		decision, err := rtr.Route(ctx, prompt, pl)
 		if err != nil {
 			return session.RouteResult{}, err
 		}

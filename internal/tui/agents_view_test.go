@@ -46,8 +46,8 @@ func supervisorWithChildren(l2 *agent.Agent, reg *agent.Registry, log *logger.Lo
 func TestCounts_NoRegistry(t *testing.T) {
 	s := newSidebar(nil, nil)
 	c := s.counts()
-	if c.l1 != 0 || c.l2 != 0 || c.l3 != 0 {
-		t.Errorf("nil registry should have zero counts, got l1=%d l2=%d l3=%d", c.l1, c.l2, c.l3)
+	if c.a1 != 0 || c.a2 != 0 || c.a3 != 0 {
+		t.Errorf("nil registry should have zero counts, got a1=%d a2=%d a3=%d", c.a1, c.a2, c.a3)
 	}
 	if c.run != 0 || c.idle != 0 || c.off != 0 || c.stop != 0 {
 		t.Errorf("nil registry should have zero state counts, got run=%d idle=%d off=%d stop=%d", c.run, c.idle, c.off, c.stop)
@@ -62,8 +62,8 @@ func TestCounts_L1Only(t *testing.T) {
 
 	s := newSidebar(reg, nil)
 	c := s.counts()
-	if c.l1 != 1 {
-		t.Errorf("expected l1=1, got %d", c.l1)
+	if c.a1 != 1 {
+		t.Errorf("expected a1=1, got %d", c.a1)
 	}
 	// Agent not started → StateStopped → counted as off
 	if c.off != 1 {
@@ -84,23 +84,23 @@ func TestCounts_L2WithL3Children(t *testing.T) {
 
 	s := newSidebar(reg, []*agent.Supervisor{sv})
 	c := s.counts()
-	if c.l2 != 1 {
-		t.Errorf("expected l2=1, got %d", c.l2)
+	if c.a2 != 1 {
+		t.Errorf("expected a2=1, got %d", c.a2)
 	}
-	if c.l3 != 1 {
-		t.Errorf("expected l3=1, got %d", c.l3)
+	if c.a3 != 1 {
+		t.Errorf("expected a3=1, got %d", c.a3)
 	}
 	// Agents not started → StateStopped → counted as off
 	if c.off != 2 {
-		t.Errorf("expected off=2 (l2+l3 not started), got %d", c.off)
+		t.Errorf("expected off=2 (a2+a3 not started), got %d", c.off)
 	}
 }
 
 func TestCounts_NilSupervisor(t *testing.T) {
 	s := newSidebar(nil, []*agent.Supervisor{nil})
 	c := s.counts()
-	if c.l2 != 0 {
-		t.Errorf("nil supervisor should not count as l2, got %d", c.l2)
+	if c.a2 != 0 {
+		t.Errorf("nil supervisor should not count as a2, got %d", c.a2)
 	}
 }
 
@@ -108,8 +108,8 @@ func TestCounts_NilSupervisorAgent(t *testing.T) {
 	sv := agent.NewSupervisor(nil, nil, nil)
 	s := newSidebar(nil, []*agent.Supervisor{sv})
 	c := s.counts()
-	if c.l2 != 0 {
-		t.Errorf("supervisor with nil agent should not count as l2, got %d", c.l2)
+	if c.a2 != 0 {
+		t.Errorf("supervisor with nil agent should not count as a2, got %d", c.a2)
 	}
 }
 
@@ -161,7 +161,7 @@ func TestCountState_UnknownFallsToOff(t *testing.T) {
 func TestAgentSummary_NoAgents(t *testing.T) {
 	s := newSidebar(nil, nil)
 	got := s.AgentSummary(40)
-	if !strings.Contains(got, "L1:0") {
+	if !strings.Contains(got, "A1:0") {
 		t.Error("AgentSummary should show L1:0 for nil registry")
 	}
 }
@@ -174,7 +174,7 @@ func TestAgentSummary_WithAgents(t *testing.T) {
 
 	s := newSidebar(reg, nil)
 	got := s.AgentSummary(60)
-	if !strings.Contains(got, "L1:1") {
+	if !strings.Contains(got, "A1:1") {
 		t.Error("AgentSummary should show L1:1")
 	}
 }
@@ -263,7 +263,7 @@ func TestRenderAgentTreeContent_L1Only(t *testing.T) {
 
 	s := newSidebar(reg, nil)
 	got := s.renderAgentTreeContent(40, 20, true)
-	if !strings.Contains(got, "L1 Session Agents") {
+	if !strings.Contains(got, "A1 Session Agents") {
 		t.Error("should show L1 section header")
 	}
 	if !strings.Contains(got, "Main") {
@@ -284,14 +284,17 @@ func TestRenderAgentTreeContent_L2WithChildren(t *testing.T) {
 	s := newSidebar(reg, []*agent.Supervisor{sv})
 
 	got := s.renderAgentTreeContent(40, 20, true)
-	if !strings.Contains(got, "L2 Domain Leaders") {
-		t.Error("should show L2 section header")
+	if !strings.Contains(got, "A2 Domain Leaders") {
+		t.Error("should show A2 section header")
 	}
 	if !strings.Contains(got, "DevLead") {
-		t.Error("should show L2 agent name")
+		t.Error("should show A2 agent name")
+	}
+	if !strings.Contains(got, "A3 Workers") {
+		t.Error("should show A3 section header")
 	}
 	if !strings.Contains(got, "Coder") {
-		t.Error("should show L3 child name")
+		t.Error("should show A3 child name")
 	}
 }
 
@@ -318,8 +321,11 @@ func TestRenderAgentTreeContent_NoL2Children(t *testing.T) {
 
 	s := newSidebar(reg, []*agent.Supervisor{sv})
 	got := s.renderAgentTreeContent(40, 20, true)
-	if !strings.Contains(got, "no active workers") {
-		t.Error("L2 with no children should show 'no active workers'")
+	if !strings.Contains(got, "A3 Workers") {
+		t.Error("should show A3 Workers section")
+	}
+	if !strings.Contains(got, "(none)") {
+		t.Error("A3 section with no children should show '(none)'")
 	}
 }
 

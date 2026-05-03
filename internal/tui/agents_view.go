@@ -10,13 +10,13 @@ import (
 )
 
 type agentCounts struct {
-	l1, l2, l3           int
+	a1, a2, a3           int
 	run, idle, off, stop int
 }
 
 func (s sidebar) AgentSummary(width int) string {
 	c := s.counts()
-	text := fmt.Sprintf("Agents L1:%d L2:%d L3:%d RUN:%d IDLE:%d OFF:%d", c.l1, c.l2, c.l3, c.run, c.idle, c.off)
+	text := fmt.Sprintf("Agents A1:%d A2:%d A3:%d RUN:%d IDLE:%d OFF:%d", c.a1, c.a2, c.a3, c.run, c.idle, c.off)
 	return paneStyle(width).Render(truncate(text, max(width-2, 1)))
 }
 
@@ -91,8 +91,17 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 		}
 	}
 
+	// Collect A3 workers from all supervisors
+	var a3 []*agent.Agent
+	for _, sv := range s.supervisors {
+		if sv == nil {
+			continue
+		}
+		a3 = append(a3, sv.Children()...)
+	}
+
 	var b strings.Builder
-	b.WriteString(sectionLine("L1 Session Agents") + "\n")
+	b.WriteString(sectionLine("A1 Session Agents") + "\n")
 	if len(l1) == 0 {
 		b.WriteString(dimStyle.Render("  (none)") + "\n")
 	}
@@ -100,7 +109,7 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 		b.WriteString(agentTreeLine(a, "  ", width))
 	}
 
-	b.WriteString(sectionLine("L2 Domain Leaders") + "\n")
+	b.WriteString(sectionLine("A2 Domain Leaders") + "\n")
 	if len(s.supervisors) == 0 {
 		b.WriteString(dimStyle.Render("  (none)") + "\n")
 	}
@@ -109,18 +118,14 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 			continue
 		}
 		b.WriteString(agentTreeLine(sv.Agent(), "  ", width))
-		children := sv.Children()
-		if len(children) == 0 {
-			b.WriteString(dimStyle.Render("    └─ (no active workers)") + "\n")
-			continue
-		}
-		for i, child := range children {
-			prefix := "    ├─ "
-			if i == len(children)-1 {
-				prefix = "    └─ "
-			}
-			b.WriteString(agentTreeLine(child, prefix, width))
-		}
+	}
+
+	b.WriteString(sectionLine("A3 Workers") + "\n")
+	if len(a3) == 0 {
+		b.WriteString(dimStyle.Render("  (none)") + "\n")
+	}
+	for _, child := range a3 {
+		b.WriteString(agentTreeLine(child, "  ", width))
 	}
 	return fitLines(b.String(), height)
 }
@@ -138,19 +143,19 @@ func (s sidebar) counts() agentCounts {
 			continue
 		}
 		if a := sv.Agent(); a != nil {
-			c.l2++
+			c.a2++
 			l2IDs[a.Def.ID] = true
 			countState(&c, a.State())
 		}
 		for _, child := range sv.Children() {
-			c.l3++
+			c.a3++
 			l3IDs[child.Def.ID] = true
 			countState(&c, child.State())
 		}
 	}
 	for _, a := range registered {
 		if !l2IDs[a.Def.ID] && !l3IDs[a.Def.ID] {
-			c.l1++
+			c.a1++
 			countState(&c, a.State())
 		}
 	}

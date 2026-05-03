@@ -134,8 +134,20 @@ func (a *Agent) execToolsWithAsync(
 			}
 		}
 
+		// 注入 model override 到 context，使 DelegateTool 能传播给子 Agent
+		asyncCtx := ctx
+		if override := a.modelOverride.Load(); override != nil {
+			asyncCtx = iface.ContextWithModelOverride(asyncCtx, &iface.ModelOverrideParams{
+				ProviderID:      override.ProviderID,
+				ModelID:         override.ModelID,
+				ThinkingEnabled: override.ThinkingEnabled,
+				ReasoningEffort: override.ReasoningEffort,
+				Level:           override.Level,
+			})
+		}
+
 		// 调用 ExecuteAsync 获取意图（不启动 goroutine）
-		action, err := at.ExecuteAsync(ctx, tc.Function.Arguments)
+		action, err := at.ExecuteAsync(asyncCtx, tc.Function.Arguments)
 		if err != nil {
 			results[i] = "error: " + err.Error()
 			continue
