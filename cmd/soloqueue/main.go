@@ -99,20 +99,33 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 			defer mgr.Shutdown(5 * time.Second)
 
-			sess, err := mgr.Init(context.Background(), "")
-			if err != nil {
-				return fmt.Errorf("init session: %w", err)
-			}
+			// Start TUI immediately; sandbox + session init run in background.
+			// The TUI shows a loading indicator until the session is delivered.
+			sandboxCh := make(chan tui.SandboxInitMsg, 1)
+
+			go func() {
+				sb, executor, err := startSandbox(context.Background(), rt.sandboxMounts, log)
+				if err != nil {
+					sandboxCh <- tui.SandboxInitMsg{Err: err}
+					return
+				}
+				rt.dockerSandbox = sb
+				rt.toolsCfg.Executor = executor
+
+				sess, err := mgr.Init(context.Background(), "")
+				sandboxCh <- tui.SandboxInitMsg{Sess: sess, Err: err}
+			}()
 
 			return tui.Run(tui.Config{
-				Session:      sess,
-				ModelID:      rt.defaultModel.ID,
-				Version:      version,
-				RulesCreated: rt.rulesCreated,
-				RulesPath:    rt.promptCfg.RulesPath(),
-				Registry:     rt.agentRegistry,
-				Supervisors:  rt.supervisors,
-				Skills:       rt.skillRegistry,
+				Session:       nil,
+				SandboxInitCh: sandboxCh,
+				ModelID:       rt.defaultModel.ID,
+				Version:       version,
+				RulesCreated:  rt.rulesCreated,
+				RulesPath:     rt.promptCfg.RulesPath(),
+				Registry:      rt.agentRegistry,
+				Supervisors:   rt.supervisors,
+				Skills:        rt.skillRegistry,
 			})
 		},
 	}
@@ -144,7 +157,8 @@ type runtimeStack struct {
 	rulesCreated  bool
 	taskRouter    *router.Router // 任务路由分类器（TUI + serve 共用）
 	skillRegistry *skill.SkillRegistry
-	dockerSandbox sandbox.Sandbox // Docker 沙盒（L3 工具执行隔离底座）
+	dockerSandbox sandbox.Sandbox   // Docker 沙盒（L3 工具执行隔离底座）
+	sandboxMounts []sandbox.Mount // 沙盒挂载列表（延迟启动用）
 }
 
 // shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent，并销毁 Docker 沙盒。
@@ -340,8 +354,7 @@ func buildRuntimeStack(
 		}
 	}
 
-	// ── Docker Sandbox ───────────────────────────────────────────────────
-	// 固定挂载 ~/.soloqueue + 所有 team workspace 路径
+	// ── Docker Sandbox mounts (sandbox is started asynchronously by caller) ──
 	var sandboxMounts []sandbox.Mount
 	seen := make(map[string]bool)
 	seen[workDir] = true
@@ -356,22 +369,6 @@ func buildRuntimeStack(
 			sandboxMounts = append(sandboxMounts, sandbox.Mount{HostPath: p})
 		}
 	}
-
-	dockerSandbox, err := sandbox.NewDockerSandbox(sandboxMounts)
-	if err != nil {
-		return nil, fmt.Errorf("docker sandbox init failed: is Docker running? %w", err)
-	}
-	dockerSandbox.SetLogger(log)
-	if err := dockerSandbox.Start(context.Background()); err != nil {
-		return nil, fmt.Errorf("docker sandbox start failed: is Docker running? %w", err)
-	}
-	log.Info(logger.CatApp, "docker sandbox started",
-		"image", "debian:bookworm-slim", "mounts", len(sandboxMounts))
-
-	// 注入 DockerExecutor 到 tools 配置
-	executor := sandbox.NewDockerExecutor(dockerSandbox)
-	executor.SetLogger(log)
-	toolsCfg.Executor = executor
 
 	return &runtimeStack{
 		llmClient:     llmClient,
@@ -389,8 +386,29 @@ func buildRuntimeStack(
 		rulesCreated:  rulesCreated,
 		taskRouter:    taskRouter,
 		skillRegistry: skillReg,
-		dockerSandbox: dockerSandbox,
+		dockerSandbox: nil,
+		sandboxMounts: sandboxMounts,
 	}, nil
+}
+
+// startSandbox creates and starts a Docker sandbox, returning it along with
+// a configured DockerExecutor. It is called asynchronously so the TUI can
+// start immediately while the sandbox initializes in the background.
+func startSandbox(ctx context.Context, mounts []sandbox.Mount, log *logger.Logger) (sandbox.Sandbox, *sandbox.DockerExecutor, error) {
+	dockerSandbox, err := sandbox.NewDockerSandbox(mounts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("docker sandbox init failed: is Docker running? %w", err)
+	}
+	dockerSandbox.SetLogger(log)
+	if err := dockerSandbox.Start(ctx); err != nil {
+		return nil, nil, fmt.Errorf("docker sandbox start failed: is Docker running? %w", err)
+	}
+	log.Info(logger.CatApp, "docker sandbox started",
+		"image", "debian:bookworm-slim", "mounts", len(mounts))
+
+	executor := sandbox.NewDockerExecutor(dockerSandbox)
+	executor.SetLogger(log)
+	return dockerSandbox, executor, nil
 }
 
 // --- Session factory ---
@@ -404,7 +422,6 @@ type sessionBuilder struct {
 	consoleLog bool
 	tlMaxBytes int64
 	tlMaxFiles int
-	replaySegs int
 }
 
 func newSessionBuilder(
@@ -420,7 +437,6 @@ func newSessionBuilder(
 		consoleLog: consoleLog,
 		tlMaxBytes: int64(config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024,
 		tlMaxFiles: config.DefaultInt(settings.Session.TimelineMaxFiles, 5),
-		replaySegs: config.DefaultInt(settings.Session.ReplaySegments, 3),
 	}
 }
 
@@ -561,6 +577,17 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
+	summaryHook := func(summary string) {
+		if err := tl.AppendControl(&timeline.ControlPayload{
+			Action:  "summary",
+			Reason:  "auto_compact",
+			Content: summary,
+		}); err != nil {
+			sessLog.Error(logger.CatActor, "timeline summary append failed",
+				"err", err, "agent_id", agentID)
+		}
+	}
+
 	pushHook := func(msg ctxwin.Message) {
 		var toolCalls []timeline.ToolCallRec
 		for _, tc := range msg.ToolCalls {
@@ -593,20 +620,19 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		0,
 		sb.rt.tokenizer,
 		ctxwin.WithPushHook(pushHook),
+		ctxwin.WithSummaryHook(summaryHook),
 		ctxwin.WithCompactor(sb.rt.compactor),
 	)
 	if def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 	}
 
-	// Replay history segments
-	if sb.replaySegs > 0 {
-		segments, err := timeline.ReadLastSegments(tlDir, "timeline", sb.replaySegs)
-		if err == nil && len(segments) > 0 {
-			cw.SetReplayMode(true)
-			timeline.ReplayInto(cw, segments)
-			cw.SetReplayMode(false)
-		}
+	// Replay history segments (always enabled)
+	segments, err := timeline.ReadLastSegments(tlDir, "timeline")
+	if err == nil && len(segments) > 0 {
+		cw.SetReplayMode(true)
+		timeline.ReplayInto(cw, segments)
+		cw.SetReplayMode(false)
 	}
 
 	if err := a.Start(context.Background()); err != nil {
@@ -763,6 +789,14 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			defer rt.shutdown()
+
+			// serve mode: start sandbox synchronously before session init
+			sb, executor, err := startSandbox(context.Background(), rt.sandboxMounts, log)
+			if err != nil {
+				return err
+			}
+			rt.dockerSandbox = sb
+			rt.toolsCfg.Executor = executor
 
 			factory := buildSessionFactory(rt, workDir, settings, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, log)

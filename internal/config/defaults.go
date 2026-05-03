@@ -5,7 +5,6 @@ package config
 func DefaultSettings() Settings {
 	return Settings{
 		Session: SessionConfig{
-			ReplaySegments:    3,
 			TimelineMaxFileMB: 50,
 			TimelineMaxFiles:  5,
 		},

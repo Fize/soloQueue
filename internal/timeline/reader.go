@@ -20,16 +20,14 @@ type Segment struct {
 
 // ─── ReadLastSegments ────────────────────────────────────────────────────────
 
-// ReadLastSegments 读取所有轮转文件，返回最后一个 /clear 之后的 segment
+// ReadLastSegments 读取所有轮转文件，返回最后一个截断点之后的 segment
 //
-// /clear 是截断点：replay 遇到 /clear 就终止，只 replay /clear 之后的内容。
-// 如果最近的事件就是 /clear（之后没有新消息），返回 nil。
-// n 参数保留兼容，当前未使用（/clear 截断语义下只返回最后一段）。
-func ReadLastSegments(dir, baseName string, n int) ([]Segment, error) {
-	if n <= 0 {
-		return nil, nil
-	}
-
+// 截断点优先级（从后往前找第一个）：
+//   - /clear：只返回之后的消息
+//   - summary：返回 summary 内容（system 消息）+ 之后的消息
+//
+// 如果最近的控制事件是 /clear 且之后没有新消息，返回 nil。
+func ReadLastSegments(dir, baseName string) ([]Segment, error) {
 	files, err := rotating.ListFiles(dir, baseName)
 	if err != nil {
 		return nil, fmt.Errorf("timeline: list files: %w", err)
@@ -43,7 +41,6 @@ func ReadLastSegments(dir, baseName string, n int) ([]Segment, error) {
 	for _, path := range files {
 		events, err := readFile(path)
 		if err != nil {
-			// 跳过损坏的文件，不中断整体回放
 			continue
 		}
 		allEvents = append(allEvents, events...)
@@ -53,19 +50,37 @@ func ReadLastSegments(dir, baseName string, n int) ([]Segment, error) {
 		return nil, nil
 	}
 
-	// 从后往前找到最后一个 /clear 的位置
-	lastClearIdx := -1
+	// 从后往前找到最后一个截断点（/clear 或 summary）
+	lastCutIdx := -1
+	var lastCutAction string
+	var lastCutContent string
 	for i := len(allEvents) - 1; i >= 0; i-- {
 		evt := allEvents[i]
-		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "clear" {
-			lastClearIdx = i
+		if evt.EventType == EventControl && evt.Control != nil {
+			switch evt.Control.Action {
+			case "clear", "summary":
+				lastCutIdx = i
+				lastCutAction = evt.Control.Action
+				lastCutContent = evt.Control.Content
+			}
+		}
+		if lastCutIdx != -1 {
 			break
 		}
 	}
 
-	// 只取最后一个 /clear 之后的消息事件
+	startIdx := lastCutIdx + 1
 	var msgs []MessagePayload
-	startIdx := lastClearIdx + 1
+
+	// 如果是 summary 截断点，先插入 summary 内容作为 system 消息
+	if lastCutAction == "summary" && lastCutContent != "" {
+		msgs = append(msgs, MessagePayload{
+			Role:    "system",
+			Content: "[Conversation Summary]\n" + lastCutContent,
+		})
+	}
+
+	// 收集截断点之后的消息
 	for i := startIdx; i < len(allEvents); i++ {
 		if allEvents[i].EventType == EventMessage && allEvents[i].Message != nil {
 			msgs = append(msgs, *allEvents[i].Message)
@@ -128,10 +143,6 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 	}
 
 	for _, msg := range msgs {
-		// 跳过 system prompt，factory 已 push
-		if msg.Role == string(ctxwin.RoleSystem) {
-			continue
-		}
 
 		// 如果有 pending group，检查当前消息是否为其 tool result
 		if pending != nil && !pending.allFound {
@@ -161,6 +172,12 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 		// 如果 pending.allFound == true，先 flush 再处理当前消息
 		if pending != nil && pending.allFound {
 			flushPending()
+		}
+
+		// 跳过无效 assistant 消息（content 为空且无 tool_calls）。
+		// 这种消息会导致 LLM API 返回 HTTP 400 "Invalid assistant"。
+		if msg.Role == string(ctxwin.RoleAssistant) && msg.Content == "" && len(msg.ToolCalls) == 0 {
+			continue
 		}
 
 		// 当前消息是 assistant(tool_calls)？开启新的 pending group

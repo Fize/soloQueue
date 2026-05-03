@@ -26,7 +26,6 @@ type Settings struct {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	ReplaySegments    int `json:"replaySegments"`    // Number of replay segments, default 3
 	TimelineMaxFileMB int `json:"timelineMaxFileMB"` // Single file limit MB, default 50
 	TimelineMaxFiles  int `json:"timelineMaxFiles"`  // Number of rotating files, default 5
 }

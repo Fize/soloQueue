@@ -95,6 +95,9 @@ func WithToolCalls(tcs []llm.ToolCall) PushOption {
 // replayMode 期间 Hook 不会被调用，避免双重写入。
 type PushHook func(msg Message)
 
+// SummaryHook 在异步压缩完成后被调用（用于持久化 summary 到 timeline）
+type SummaryHook func(summary string)
+
 // ─── Option ─────────────────────────────────────────────────────────────────
 
 // Option 配置 ContextWindow 的可选行为
@@ -103,6 +106,11 @@ type Option func(*ContextWindow)
 // WithPushHook 设置 Push 完成后的回调
 func WithPushHook(hook PushHook) Option {
 	return func(cw *ContextWindow) { cw.pushHook = hook }
+}
+
+// WithSummaryHook 设置异步压缩完成后的回调
+func WithSummaryHook(hook SummaryHook) Option {
+	return func(cw *ContextWindow) { cw.summaryHook = hook }
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -138,6 +146,7 @@ type ContextWindow struct {
 	tokenizer     *Tokenizer   // shared, immutable after init
 	compactor     Compactor    // context compressor (may be nil)
 	pushHook      PushHook     // callback after Push (may be nil)
+	summaryHook   SummaryHook  // callback after compaction (may be nil)
 	replayMode    bool         // disable pushHook during replay
 	log           *logger.Logger // optional logger for message tracking
 	summarizing   atomic.Bool  // true while async compression is in progress
@@ -489,6 +498,11 @@ func (cw *ContextWindow) asyncCompact() {
 		}
 	}
 	cw.Unlock()
+
+	// Persist summary to timeline (outside lock)
+	if cw.summaryHook != nil {
+		cw.summaryHook(summary)
+	}
 }
 
 // ─── Internal ───────────────────────────────────────────────────────────────
