@@ -9,6 +9,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	result := assembleWithXML(
 		"profile content",
 		"user context",
+		"",
 		"routing table",
 		"team management",
 		"rules content",
@@ -34,6 +35,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 	result := assembleWithXML(
 		"profile content",
+		"",
 		"",
 		"routing table",
 		"team management",
