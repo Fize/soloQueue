@@ -71,20 +71,24 @@ type RouteDecision struct {
 	Warnings []string
 }
 
-// Route analyzes a user prompt and returns a routing decision
+// Route analyzes a user prompt and returns a routing decision.
+//
+// priorLevel is the session's current task level (LevelUnknown if none).
+// When set, the classifier applies hybrid sticky logic to prevent level
+// oscillation for short follow-up messages within a larger task context.
 //
 // The decision includes:
 // - The classification level (L0-L3)
 // - The recommended model ID resolved from config
 // - Thinking configuration (enabled + effort level)
 // - Any warnings or special handling notes
-func (r *Router) Route(ctx context.Context, prompt string) (RouteDecision, error) {
+func (r *Router) Route(ctx context.Context, prompt string, priorLevel ClassificationLevel) (RouteDecision, error) {
 	decision := RouteDecision{
 		Warnings: []string{},
 	}
 
 	// Classify the prompt
-	classification, err := r.classifier.Classify(ctx, prompt)
+	classification, err := r.classifier.Classify(ctx, prompt, priorLevel)
 	if err != nil {
 		return decision, fmt.Errorf("classification failed: %w", err)
 	}

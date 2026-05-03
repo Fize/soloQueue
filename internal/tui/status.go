@@ -48,7 +48,7 @@ func renderStatus(registry *agent.Registry, supervisors []*agent.Supervisor) str
 	}
 
 	// ── L1 Session Agents ──────────────────────────────────────────────────
-	sb.WriteString(sectionHeader("L1 Session Agents"))
+	sb.WriteString(sectionHeader("A1 Session Agents"))
 	if len(l1Agents) == 0 {
 		sb.WriteString(dimStyle.Render("  (none)") + "\n")
 	}
@@ -57,28 +57,33 @@ func renderStatus(registry *agent.Registry, supervisors []*agent.Supervisor) str
 	}
 	sb.WriteString("\n")
 
-	// ── L2 Domain Leaders + L3 Workers ──────────────────────────────────────
+	// ── A2 Domain Leaders ──────────────────────────────────────────────────
 	if len(supervisors) > 0 {
-		sb.WriteString(sectionHeader("L2 Domain Leaders"))
+		sb.WriteString(sectionHeader("A2 Domain Leaders"))
 		for _, sv := range supervisors {
 			l2 := sv.Agent()
 			if l2 == nil {
 				continue
 			}
 			sb.WriteString(renderAgentLine(l2, "  "))
+		}
+		sb.WriteString("\n")
+	}
 
-			children := sv.Children()
-			if len(children) == 0 {
-				sb.WriteString(dimStyle.Render("    └─ (no active workers)") + "\n")
-			} else {
-				for i, child := range children {
-					prefix := "    ├─ "
-					if i == len(children)-1 {
-						prefix = "    └─ "
-					}
-					sb.WriteString(renderAgentLine(child, prefix))
-				}
-			}
+	// ── A3 Workers ──────────────────────────────────────────────────────────
+	var a3Agents []*agent.Agent
+	for _, sv := range supervisors {
+		if sv != nil {
+			a3Agents = append(a3Agents, sv.Children()...)
+		}
+	}
+	if len(supervisors) > 0 {
+		sb.WriteString(sectionHeader("A3 Workers"))
+		if len(a3Agents) == 0 {
+			sb.WriteString(dimStyle.Render("  (none)") + "\n")
+		}
+		for _, child := range a3Agents {
+			sb.WriteString(renderAgentLine(child, "  "))
 		}
 		sb.WriteString("\n")
 	}

@@ -82,6 +82,7 @@ type ModelOverrideParams struct {
 	ModelID         string // API model name (e.g., "deepseek-v4-pro")
 	ThinkingEnabled bool   // enable thinking/reasoning mode
 	ReasoningEffort string // "high" | "max" | ""
+	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
 }
 
 // ModelOverridable is optionally implemented by Locatable targets that

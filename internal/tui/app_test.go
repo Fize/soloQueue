@@ -854,7 +854,7 @@ func TestView_WithQuitCount(t *testing.T) {
 	m := newTestModel()
 	m.width = 100
 	m.quitCount = 1
-	if !strings.Contains(m.View().Content, "confirm exit") {
+	if !strings.Contains(m.View().Content, "Ctrl+C again to exit") {
 		t.Error("View should show quit confirmation")
 	}
 }
