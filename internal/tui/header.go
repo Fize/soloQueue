@@ -23,6 +23,8 @@ func (m model) renderHeader(ly layout) string {
 	switch {
 	case m.quitCount > 0:
 		parts = append(parts, errorStyle.Render("✗ confirm exit: press Ctrl+C again"))
+	case m.sandboxErr != "":
+		parts = append(parts, errorStyle.Render("✗ "+m.sandboxErr))
 	case m.errMsg != "":
 		parts = append(parts, errorStyle.Render("✗ "+m.errMsg))
 	case m.cancelReason != "":
@@ -44,6 +46,8 @@ func (m model) renderHeader(ly layout) string {
 		if m.reasoningTokens > 0 {
 			parts = append(parts, fmt.Sprintf("think %s", formatTokenCount(m.reasoningTokens)))
 		}
+	case m.loading:
+		parts = append(parts, infoStyle.Render(m.spinner.Current()+" initializing sandbox..."))
 	default:
 		parts = append(parts, successStyle.Render("◇ ready"))
 		if m.cfg.ModelID != "" {

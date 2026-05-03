@@ -39,6 +39,7 @@ var (
 	clearStatusStyle   lipgloss.Style
 	statusStyle        lipgloss.Style
 	hintStyle          lipgloss.Style
+	infoStyle          lipgloss.Style
 	confirmHighlight   lipgloss.Style
 	confirmNormal      lipgloss.Style
 	headerStyle        lipgloss.Style
@@ -119,14 +120,21 @@ func applyTheme(darkBg bool) {
 		Padding(0, 1)
 
 	hintStyle = lipgloss.NewStyle().Foreground(colorHint)
+	infoStyle = lipgloss.NewStyle().Foreground(colorInfo).Bold(true)
 
 	confirmHighlight = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	confirmNormal = lipgloss.NewStyle().Foreground(colorText)
-	headerStyle = lipgloss.NewStyle().Foreground(colorText).Background(colorStatusBg).Padding(0, 1)
+	headerStyle = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorStatusBg).
+		Padding(0, 1).
+		BorderTop(true).
+		BorderBottom(true).
+		BorderForeground(colorBorder)
 	footerStyle = lipgloss.NewStyle().Foreground(colorHint).Background(colorStatusBg).Padding(0, 1)
 	paneTitleStyle = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
 	paneBorderStyle = lipgloss.NewStyle().Foreground(colorBorder)
-	composerStyle = lipgloss.NewStyle().Foreground(colorText).BorderTop(true).BorderForeground(colorBorder)
+	composerStyle = lipgloss.NewStyle().Foreground(colorText).BorderForeground(colorBorder)
 	copyModeStyle = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 	timestampStyle = lipgloss.NewStyle().Foreground(colorMuted)
 

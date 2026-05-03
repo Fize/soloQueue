@@ -221,7 +221,7 @@ func TestWriter_Rotation(t *testing.T) {
 
 func TestReadLastSegments_NoFiles(t *testing.T) {
 	dir := t.TempDir()
-	segs, err := ReadLastSegments(dir, "timeline", 3)
+	segs, err := ReadLastSegments(dir, "timeline")
 	if err != nil {
 		t.Fatalf("ReadLastSegments: %v", err)
 	}
@@ -230,14 +230,14 @@ func TestReadLastSegments_NoFiles(t *testing.T) {
 	}
 }
 
-func TestReadLastSegments_NegativeN(t *testing.T) {
+func TestReadLastSegments_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	segs, err := ReadLastSegments(dir, "timeline", -1)
+	segs, err := ReadLastSegments(dir, "timeline")
 	if err != nil {
 		t.Fatalf("ReadLastSegments: %v", err)
 	}
 	if len(segs) != 0 {
-		t.Errorf("expected 0 segments for n<=0, got %d", len(segs))
+		t.Errorf("expected 0 segments for empty dir, got %d", len(segs))
 	}
 }
 
@@ -248,7 +248,7 @@ func TestReadLastSegments_NoClear_OneSegment(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline", 3)
+	segs, err := ReadLastSegments(dir, "timeline")
 	if err != nil {
 		t.Fatalf("ReadLastSegments: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestReadLastSegments_WithClear_OnlyAfterLastClear(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q3"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline", 3)
+	segs, err := ReadLastSegments(dir, "timeline")
 	if err != nil {
 		t.Fatalf("ReadLastSegments: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestReadLastSegments_ClearAtEnd_NoSegment(t *testing.T) {
 	w.AppendControl(&ControlPayload{Action: "clear"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline", 3)
+	segs, err := ReadLastSegments(dir, "timeline")
 	if err != nil {
 		t.Fatalf("ReadLastSegments: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestReadLastSegments_ClearMiddle_OnlyAfterClear(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline", 10)
+	segs, err := ReadLastSegments(dir, "timeline")
 	if err != nil {
 		t.Fatalf("ReadLastSegments: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestSplitSegments_IgnoresNilControl(t *testing.T) {
 
 // ─── ReplayInto ──────────────────────────────────────────────────────────────
 
-func TestReplayInto_SkipsSystemPrompt(t *testing.T) {
+func TestReplayInto_SystemMessagesPassedThrough(t *testing.T) {
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 
@@ -427,9 +427,10 @@ func TestReplayInto_SkipsSystemPrompt(t *testing.T) {
 	ReplayInto(cw, segments)
 	cw.SetReplayMode(false)
 
-	// system prompt should be skipped (factory already pushes it)
-	if cw.Len() != 2 {
-		t.Errorf("cw.Len() = %d, want 2 (system skipped)", cw.Len())
+	// System messages in the segment (e.g. compaction summaries) are pushed to CW.
+	// The factory handles pushing the initial system prompt separately.
+	if cw.Len() != 3 {
+		t.Errorf("cw.Len() = %d, want 3 (system + user + assistant)", cw.Len())
 	}
 }
 
@@ -667,6 +668,35 @@ func TestReplayInto_MultipleSegments(t *testing.T) {
 	}
 }
 
+func TestReplayInto_SkipsEmptyAssistant(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{
+		{
+			Messages: []MessagePayload{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "", ReasoningContent: "thinking only, no output"},
+				{Role: "user", Content: "continue"},
+			},
+		},
+	}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	if cw.Len() != 2 {
+		t.Fatalf("cw.Len() = %d, want 2 (empty assistant skipped)", cw.Len())
+	}
+	msg, ok := cw.MessageAt(0)
+	if !ok || msg.Role != "user" || msg.Content != "hello" {
+		t.Errorf("msg[0] = %+v, want user:hello", msg)
+	}
+	msg, ok = cw.MessageAt(1)
+	if !ok || msg.Role != "user" || msg.Content != "continue" {
+		t.Errorf("msg[1] = %+v, want user:continue", msg)
+	}
+}
+
 func TestReplayInto_EmptySegments(t *testing.T) {
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
@@ -691,7 +721,7 @@ func TestWriteThenRead_RoundTrip(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "new topic"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline", 5)
+	segs, err := ReadLastSegments(dir, "timeline")
 	if err != nil {
 		t.Fatalf("ReadLastSegments: %v", err)
 	}
@@ -725,43 +755,49 @@ func TestWriteThenReplay_RoundTrip(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1", ReasoningContent: "thinking..."})
 	w.Close()
 
-	segs, _ := ReadLastSegments(dir, "timeline", 3)
+	segs, _ := ReadLastSegments(dir, "timeline")
 
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
 	ReplayInto(cw, segs)
 	cw.SetReplayMode(false)
 
-	// 4 messages (system skipped)
-	if cw.Len() != 4 {
-		t.Fatalf("cw.Len() = %d, want 4", cw.Len())
+	// 5 messages (system is now passed through)
+	if cw.Len() != 5 {
+		t.Fatalf("cw.Len() = %d, want 5", cw.Len())
 	}
 
-	// 验证 user
+	// 验证 system
 	m0, _ := cw.MessageAt(0)
-	if m0.Role != ctxwin.RoleUser || m0.Content != "q1" {
+	if m0.Role != ctxwin.RoleSystem || m0.Content != "system" {
 		t.Errorf("msg[0] = %+v", m0)
 	}
 
-	// 验证 assistant with tool_calls
+	// 验证 user
 	m1, _ := cw.MessageAt(1)
-	if len(m1.ToolCalls) != 1 {
-		t.Fatalf("msg[1] tool_calls len = %d", len(m1.ToolCalls))
+	if m1.Role != ctxwin.RoleUser || m1.Content != "q1" {
+		t.Errorf("msg[1] = %+v", m1)
 	}
-	if m1.ToolCalls[0].ID != "tc-1" || m1.ToolCalls[0].Function.Name != "read_file" {
-		t.Errorf("msg[1] tool_call = %+v", m1.ToolCalls[0])
+
+	// 验证 assistant with tool_calls
+	m2, _ := cw.MessageAt(2)
+	if len(m2.ToolCalls) != 1 {
+		t.Fatalf("msg[2] tool_calls len = %d", len(m2.ToolCalls))
+	}
+	if m2.ToolCalls[0].ID != "tc-1" || m2.ToolCalls[0].Function.Name != "read_file" {
+		t.Errorf("msg[2] tool_call = %+v", m2.ToolCalls[0])
 	}
 
 	// 验证 tool result
-	m2, _ := cw.MessageAt(2)
-	if m2.Role != ctxwin.RoleTool || m2.ToolCallID != "tc-1" {
-		t.Errorf("msg[2] = %+v", m2)
+	m3, _ := cw.MessageAt(3)
+	if m3.Role != ctxwin.RoleTool || m3.ToolCallID != "tc-1" {
+		t.Errorf("msg[3] = %+v", m3)
 	}
 
 	// 验证 assistant with reasoning
-	m3, _ := cw.MessageAt(3)
-	if m3.Content != "a1" || m3.ReasoningContent != "thinking..." {
-		t.Errorf("msg[3] = %+v", m3)
+	m4, _ := cw.MessageAt(4)
+	if m4.Content != "a1" || m4.ReasoningContent != "thinking..." {
+		t.Errorf("msg[4] = %+v", m4)
 	}
 }
 

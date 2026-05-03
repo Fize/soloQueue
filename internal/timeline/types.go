@@ -57,8 +57,9 @@ type MessagePayload struct {
 
 // ControlPayload 控制事件载荷
 type ControlPayload struct {
-	Action string `json:"action"`           // "clear" | 未来: "auto_clear"
-	Reason string `json:"reason,omitempty"` // 触发原因
+	Action  string `json:"action"`            // "clear" | "summary"
+	Reason  string `json:"reason,omitempty"`  // 触发原因
+	Content string `json:"content,omitempty"` // summary 文本（action="summary" 时）
 }
 
 // ─── ToolCallRec ────────────────────────────────────────────────────────────
