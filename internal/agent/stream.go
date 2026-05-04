@@ -105,6 +105,7 @@ func (a *Agent) processStreamEvents(
 					slog.Int64("duration_ms", durMs),
 				)
 				a.emit(ctx, out, ErrorEvent{Err: ev.Err})
+				a.RecordError(ev.Err)
 				return ev.Err
 			}
 		}
@@ -248,6 +249,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				slog.Int("iter", iter),
 				slog.Int64("duration_ms", durMs),
 			)
+			a.RecordError(err)
 			a.emit(ctx, out, ErrorEvent{Err: err})
 			return
 		}
@@ -309,6 +311,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
 		slog.Int("max_iter", maxIter),
 	)
+		a.RecordError(ErrMaxIterations)
 	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
 	return false
 }
@@ -455,13 +458,14 @@ func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.Context
 
 // runOnceStreamWithHistoryFromIter resumes the tool loop from a given
 // iteration. Called by resumeTurn after async delegation completes.
+// Returns true if the stream loop yielded (another async delegation started).
 func (a *Agent) runOnceStreamWithHistoryFromIter(
 	ctx context.Context,
 	cw *ctxwin.ContextWindow,
 	out chan<- AgentEvent,
 	startIter int,
-) {
-	a.streamLoop(ctx, out, &historyStrategy{cw: cw}, startIter)
+) bool {
+	return a.streamLoop(ctx, out, &historyStrategy{cw: cw}, startIter)
 }
 
 // emit 向 out 发送一个 AgentEvent；ctx 取消时放弃发送并返回 false
@@ -746,17 +750,20 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	toolCtx = tools.WithConfirmForwarder(toolCtx, forwarder)
 
 	// Start relay goroutine: only forward ToolNeedsConfirmEvent to parent.
-	//
-	// IMPORTANT: Only relay ToolNeedsConfirmEvent! Relaying ContentDeltaEvent
-	// or DoneEvent would pollute the parent's out channel, causing Session
-	// to mistake L3's DoneEvent for L2's → ContextWindow sequence corruption
-	// → LLM API HTTP 400.
+	// IMPORTANT: Only relay ToolNeedsConfirmEvent and ErrorEvent! Relaying
+	// ContentDeltaEvent or DoneEvent would pollute the parent out channel,
+	// causing Session to mistake L3 DoneEvent for L2's → ContextWindow
+	// sequence corruption → LLM API HTTP 400. ErrorEvent is safe because
+// it carries no content/done signals.
 	relayDone := make(chan struct{})
 	go func() {
 		defer close(relayDone)
 		for ev := range relayCh {
 			if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
 				a.emit(ctx, out, ev.(AgentEvent))
+			}
+			if ee, isError := ev.(ErrorEvent); isError {
+				a.emit(ctx, out, ee)
 			}
 		}
 	}()
