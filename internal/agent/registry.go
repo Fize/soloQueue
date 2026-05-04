@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -91,7 +92,7 @@ func (r *Registry) Get(id string) (*Agent, bool) {
 	return a, ok
 }
 
-// List returns a snapshot slice of all current agents
+// List returns a snapshot slice of all current agents, sorted by name for stable display.
 //
 // The returned slice is independent of the internal map; modifying it doesn't affect registry;
 // slice elements are still *Agent pointers.
@@ -102,6 +103,13 @@ func (r *Registry) List() []*Agent {
 	for _, a := range r.agents {
 		out = append(out, a)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		ni, nj := out[i].Def.Name, out[j].Def.Name
+		if ni != nj {
+			return ni < nj
+		}
+		return out[i].Def.ID < out[j].Def.ID
+	})
 	return out
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type Supervisor struct {
 	factory  AgentFactory
 	children map[string]*childSlot
 	childMu  sync.RWMutex
+	group    string // team group name for matching workers during auto-reload
 	log      *logger.Logger
 }
 
@@ -153,7 +155,7 @@ func (s *Supervisor) ReapAll(timeout time.Duration) []error {
 	return errs
 }
 
-// Children 返回当前所有子 Agent 的快照
+// Children 返回当前所有子 Agent 的快照，按名称排序以保证稳定显示。
 func (s *Supervisor) Children() []*Agent {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
@@ -162,8 +164,32 @@ func (s *Supervisor) Children() []*Agent {
 	for _, slot := range s.children {
 		agents = append(agents, slot.agent)
 	}
+	sort.Slice(agents, func(i, j int) bool {
+		ni, nj := agents[i].Def.Name, agents[j].Def.Name
+		if ni != nj {
+			return ni < nj
+		}
+		return agents[i].Def.ID < agents[j].Def.ID
+	})
 	return agents
 }
+
+// AdoptChild adds an already-created agent to the supervisor's children map.
+// Used by auto-reload to track hot-instantiated workers without going through SpawnChild.
+func (s *Supervisor) AdoptChild(child *Agent) {
+	s.childMu.Lock()
+	s.children[child.Def.ID] = &childSlot{
+		agent:     child,
+		createdAt: time.Now(),
+	}
+	s.childMu.Unlock()
+}
+
+// SetGroup sets the team group name, used to match workers to their leader during auto-reload.
+func (s *Supervisor) SetGroup(g string) { s.group = g }
+
+// Group returns the team group name.
+func (s *Supervisor) Group() string { return s.group }
 
 // Agent 返回 Supervisor 管理的 L2 Agent
 func (s *Supervisor) Agent() *Agent { return s.agent }

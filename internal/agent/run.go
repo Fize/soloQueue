@@ -44,6 +44,7 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 			return
 		case jb := <-mailbox:
 			a.state.Store(int32(StateProcessing))
+			a.ResetErrors()
 			jb(ctx)
 			a.state.Store(int32(StateIdle))
 		}
@@ -82,6 +83,7 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 			return
 		case pj := <-pm.HighCh():
 			a.state.Store(int32(StateProcessing))
+			a.ResetErrors()
 			pj.job(ctx)
 			a.state.Store(int32(StateIdle))
 			continue
@@ -99,10 +101,12 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 			return
 		case pj := <-pm.HighCh():
 			a.state.Store(int32(StateProcessing))
+			a.ResetErrors()
 			pj.job(ctx)
 			a.state.Store(int32(StateIdle))
 		case pj := <-pm.NormalCh():
 			a.state.Store(int32(StateProcessing))
+			a.ResetErrors()
 			pj.job(ctx)
 			a.state.Store(int32(StateIdle))
 		}

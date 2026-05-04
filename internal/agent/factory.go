@@ -210,7 +210,20 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	}
 
 	// 2. 构建内置 tools
-	allTools := tools.Build(f.toolsCfg)
+	// 若 agent 属于某个 team，将 team workspace 路径加入 AllowedDirs，
+	// 使 Glob / Read / Grep 等工具能访问项目文件。
+	agentToolsCfg := f.toolsCfg
+	if tmpl.Group != "" {
+		if gf, ok := f.groups[tmpl.Group]; ok {
+			wsPaths := workspacePaths(gf)
+			if len(wsPaths) > 0 {
+				agentToolsCfg.AllowedDirs = make([]string, 0, len(f.toolsCfg.AllowedDirs)+len(wsPaths))
+				agentToolsCfg.AllowedDirs = append(agentToolsCfg.AllowedDirs, f.toolsCfg.AllowedDirs...)
+				agentToolsCfg.AllowedDirs = append(agentToolsCfg.AllowedDirs, wsPaths...)
+			}
+		}
+	}
+	allTools := tools.Build(agentToolsCfg)
 
 	// 2b. L2 领导者：注入同组 L3 Worker 的 delegate 工具
 	if tmpl.IsLeader {
@@ -340,6 +353,17 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	}
 
 	return templates, nil
+}
+
+// workspacePaths 返回 group 配置中所有 workspace 的绝对路径。
+func workspacePaths(gf prompt.GroupFile) []string {
+	paths := make([]string, 0, len(gf.Frontmatter.Workspaces))
+	for _, ws := range gf.Frontmatter.Workspaces {
+		if ws.Path != "" {
+			paths = append(paths, ws.Path)
+		}
+	}
+	return paths
 }
 
 // sameGroupWorkers 返回与 tmpl 同组的所有非 Leader agent 模板。

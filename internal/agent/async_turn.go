@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -209,6 +210,9 @@ func (a *Agent) execToolsWithAsync(
 					if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
 						a.emit(turnState.callerCtx, turnState.out, ev.(AgentEvent))
 					}
+					if ee, isError := ev.(ErrorEvent); isError {
+						a.emit(turnState.callerCtx, turnState.out, ee)
+					}
 				}
 			}()
 
@@ -295,6 +299,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 		toolResult := result.content
 		if result.err != nil {
 			toolResult = "error: " + result.err.Error()
+			a.RecordError(result.err)
 		}
 		task.turn.results[task.callIndex] = toolResult
 
@@ -313,6 +318,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			toolResult := result.content
 			if result.err != nil {
 				toolResult = "error: " + result.err.Error()
+			a.RecordError(result.err)
 			}
 			task.turn.results[task.callIndex] = toolResult
 
@@ -325,6 +331,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			// Genuinely cancelled — fill a synthetic error result and
 			// ensure resumeTurn is still triggered so out gets closed.
 			task.turn.results[task.callIndex] = "error: delegation cancelled"
+			a.RecordError(errors.New("delegation cancelled"))
 			if task.turn.pending.Add(-1) == 0 {
 				a.submitHighPriority(func(ctx context.Context) {
 					a.resumeTurn(task.turn)
@@ -363,11 +370,24 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	})
 
 	// 继续工具循环
-	a.continueToolLoop(turn.callerCtx, turn.out, turn.cw, turn.iter+1)
+	yielded := a.continueToolLoop(turn.callerCtx, turn.out, turn.cw, turn.iter+1)
 
-	// Final streamLoop completed — cancel the merged context that was
-	// kept alive for resumeTurn. This prevents context leak.
-	if turn.cancelMerged != nil {
+	// Manage the merged context lifecycle.
+	//
+	// Normal path: continueToolLoop completes fully → cancel merged ctx to
+	// prevent leak.
+	//
+	// Nested async path: continueToolLoop yielded again (another async
+	// delegation started in this stream loop). The new asyncTurnState has
+	// the same callerCtx (merged) but does NOT have cancelMerged set
+	// (saveAsyncCancel is only called by the outer AskStreamWithHistory,
+	// not by the inner continueToolLoop). Transfer our cancelMerged to
+	// the new turn so it can cancel on its own completion.
+	if yielded {
+		if turn.cancelMerged != nil {
+			a.saveAsyncCancel(turn.callerCtx, turn.cancelMerged)
+		}
+	} else if turn.cancelMerged != nil {
 		turn.cancelMerged()
 	}
 }
@@ -375,14 +395,15 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 // continueToolLoop 从指定 iter 开始继续工具循环
 //
 // 逻辑与 runOnceStreamWithHistory 的 for 循环一致，但从 startIter 开始。
+// Returns true if the stream loop yielded (another async delegation started).
 func (a *Agent) continueToolLoop(
 	ctx context.Context,
 	out chan<- AgentEvent,
 	cw *ctxwin.ContextWindow,
 	startIter int,
-) {
+) bool {
 	// 复用 runOnceStreamWithHistory 的循环体
-	a.runOnceStreamWithHistoryFromIter(ctx, cw, out, startIter)
+	return a.runOnceStreamWithHistoryFromIter(ctx, cw, out, startIter)
 }
 
 // generateCorrID 生成一个唯一的 correlation ID
