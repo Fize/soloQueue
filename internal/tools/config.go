@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
@@ -110,6 +111,11 @@ type Config struct {
 	// Executor 是所有工具的执行底座，所有宿主机交互必须通过它。
 	// nil 时 Build 会自动注入 LocalExecutor（保障测试和本地开发场景）。
 	Executor sandbox.Executor
+
+	// ── 长期记忆 ──────────────────────────────────────────────
+	// PermanentManager 为长期记忆管理器（nil = 未启用）。
+	// Remember / RecallMemory 工具仅在非 nil 时生效。
+	PermanentManager *permanent.Manager
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────
@@ -138,6 +144,8 @@ func Build(cfg Config) []Tool {
 		newHTTPFetchTool(cfg),
 		newShellExecTool(cfg),
 		newWebSearchTool(cfg),
+		newRememberTool(cfg),
+		newRecallMemoryTool(cfg),
 	}
 }
 

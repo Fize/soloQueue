@@ -53,6 +53,18 @@ func (s *GlobalService) DefaultEmbeddingModel() *EmbeddingModel {
 	return nil
 }
 
+// EmbeddingProviderByID looks up an Embedding Provider by ID.
+func (s *GlobalService) EmbeddingProviderByID(id string) *EmbeddingProvider {
+	settings := s.Get()
+	for i := range settings.Embedding.Providers {
+		p := settings.Embedding.Providers[i]
+		if p.ID == id {
+			return &p
+		}
+	}
+	return nil
+}
+
 // ProviderByID looks up an LLM Provider by ID
 func (s *GlobalService) ProviderByID(id string) *LLMProvider {
 	settings := s.Get()
