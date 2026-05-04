@@ -81,26 +81,26 @@ func TestRecord_MergesWithExisting(t *testing.T) {
 func TestRecord_CleansUpOldFiles(t *testing.T) {
 	mgr, dir := newTestManager(t)
 
-	// Create an old file
-	oldDate := time.Now().AddDate(0, 0, -5).Format("2006-01-02")
+	// Create a file older than 7 days (should be cleaned up)
+	oldDate := time.Now().AddDate(0, 0, -10).Format("2006-01-02")
 	oldPath := filepath.Join(dir, oldDate+".md")
 	_ = os.MkdirAll(dir, 0755)
 	_ = os.WriteFile(oldPath, []byte("# "+oldDate+"\nold content"), 0644)
 
-	// Create a recent file (yesterday)
-	recentDate := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	// Create a recent file within 7 days (should survive)
+	recentDate := time.Now().AddDate(0, 0, -5).Format("2006-01-02")
 	recentPath := filepath.Join(dir, recentDate+".md")
 	_ = os.WriteFile(recentPath, []byte("# "+recentDate+"\nrecent content"), 0644)
 
 	// Record a new entry — should trigger cleanup
 	_ = mgr.Record(context.Background(), "User: hello")
 
-	// Old file should be deleted
+	// Old file (10 days) should be deleted
 	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
 		t.Errorf("old file %s should be deleted", oldPath)
 	}
 
-	// Recent file should still exist
+	// Recent file (5 days) should still exist
 	if _, err := os.Stat(recentPath); os.IsNotExist(err) {
 		t.Errorf("recent file %s should still exist", recentPath)
 	}

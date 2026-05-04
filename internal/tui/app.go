@@ -39,6 +39,7 @@ type Config struct {
 	Supervisors   []*agent.Supervisor
 	Skills        *skill.SkillRegistry
 	SandboxInitCh <-chan SandboxInitMsg // async sandbox + session init channel
+	NotifyCh      <-chan string         // background task notifications
 }
 
 // ─── Data types ──────────────────────────────
@@ -108,6 +109,11 @@ type streamState struct {
 }
 
 // ─── Bubble Tea messages ──────────────────────
+
+// systemNotifyMsg carries a background task notification to the TUI.
+type systemNotifyMsg struct {
+	message string
+}
 
 type agentEventMsg struct {
 	event    agent.AgentEvent
@@ -239,6 +245,14 @@ func Run(cfg Config) error {
 	}
 
 	p := tea.NewProgram(m)
+
+	if cfg.NotifyCh != nil {
+		go func() {
+			for msg := range cfg.NotifyCh {
+				p.Send(systemNotifyMsg{message: msg})
+			}
+		}()
+	}
 	_, runErr := p.Run()
 
 	return runErr
@@ -615,6 +629,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sidebar.spinner.Next()
 		}
 		return m, agentTickCmd(agentTickInterval(m.isGenerating))
+
+		case systemNotifyMsg:
+			m.messages = append(m.messages, message{role: "system", content: msg.message})
+			m.resizeViewport()
+			m.rebuildViewportContent()
+			m.viewport.GotoBottom()
+			return m, nil
 	}
 
 	if m.confirmState == nil {

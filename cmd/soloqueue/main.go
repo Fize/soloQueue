@@ -21,12 +21,15 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
@@ -128,6 +131,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				Registry:      rt.agentRegistry,
 				Supervisors:   rt.supervisors,
 				Skills:        rt.skillRegistry,
+				NotifyCh:      rt.permNotifyCh,
 			})
 		},
 	}
@@ -161,7 +165,10 @@ type runtimeStack struct {
 	skillRegistry *skill.SkillRegistry
 	dockerSandbox  sandbox.Sandbox   // Docker 沙盒（L3 工具执行隔离底座）
 	sandboxMounts  []sandbox.Mount // 沙盒挂载列表（延迟启动用）
-	memoryManager  *memory.Manager // 短期记忆管理器
+	memoryManager   *memory.Manager   // 短期记忆管理器
+	permanentMemory *permanent.Manager // 长期记忆管理器
+	permScheduler   *permanent.Scheduler
+	permNotifyCh    chan string
 }
 
 // shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent，并销毁 Docker 沙盒。
@@ -286,7 +293,52 @@ func buildRuntimeStack(
 	}
 	memoryMgr := memory.NewManager(memoryDir, llmClient, fastModelID, log)
 
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir)
+		// ── Permanent Memory Manager ──────────────────────────────────────────
+		var permanentMgr *permanent.Manager
+		var permScheduler *permanent.Scheduler
+		permNotifyCh := make(chan string, 8)
+		var permContent string
+
+		if settings.Embedding.Enabled {
+			embModel := cfg.DefaultEmbeddingModel()
+			if embModel != nil && embModel.Enabled {
+				embProvider := cfg.EmbeddingProviderByID(embModel.ProviderID)
+				if embProvider != nil && embProvider.Enabled {
+					apiKey := os.Getenv(embProvider.APIKeyEnv)
+					embClient, embErr := embedding.NewOpenAI(embedding.OpenAIConfig{
+						BaseURL:   embProvider.BaseURL,
+						APIKey:    apiKey,
+						ModelID:   embModel.Name,
+						Dimension: embModel.Dimension,
+					})
+					if embErr == nil {
+						store, storeErr := vectorstore.NewSQLiteStore(filepath.Join(workDir, "permanent_memory", "entries.db"))
+						if storeErr == nil {
+							permanentMgr = permanent.NewManager(store, embClient, memoryDir, log)
+							permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
+								log.Error(logger.CatApp, msg)
+								select {
+								case permNotifyCh <- msg:
+								default:
+								}
+							})
+							go permScheduler.Run(context.Background())
+
+							recentText, _ := memoryMgr.ReadRecentMemory(7)
+							permContent, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
+						toolsCfg.PermanentManager = permanentMgr
+						} else {
+							log.Warn(logger.CatApp, "permanent memory: failed to create vector store", "err", storeErr)
+						}
+					} else {
+						log.Warn(logger.CatApp, "permanent memory: failed to create embedder", "err", embErr)
+					}
+				}
+			}
+		}
+
+
+	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, permContent)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
 	}
@@ -401,6 +453,9 @@ func buildRuntimeStack(
 		dockerSandbox: nil,
 		sandboxMounts: sandboxMounts,
 		memoryManager: memoryMgr,
+		permanentMemory: permanentMgr,
+		permScheduler:   permScheduler,
+		permNotifyCh:    permNotifyCh,
 	}, nil
 }
 
