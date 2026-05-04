@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	maxAgeDays = 3
+	maxAgeDays = 7
 )
 
 // Manager writes short-term memory summaries to daily markdown files.
