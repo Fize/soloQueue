@@ -82,6 +82,12 @@ type Agent struct {
 	// and auto-cleared when the ask completes. Thread-safe via atomic pointer.
 	modelOverride atomic.Pointer[ModelParams]
 
+	// Error tracking for observability — surfaced in TUI sidebar.
+	// Reset at the start of each job. Written by streamLoop (LLM errors)
+	// and watchDelegatedTask (delegation failures).
+	errCount atomic.Int32
+	lastErr  atomic.Value // string
+
 	// 观察（无锁）
 	state   atomic.Int32 // State
 	exitErr atomic.Value // errHolder
@@ -314,6 +320,36 @@ func (a *Agent) EffectiveModelID() string {
 func (a *Agent) EffectiveTaskLevel() string {
 	if mp := a.modelOverride.Load(); mp != nil {
 		return mp.Level
+	}
+	return ""
+}
+
+// RecordError increments the error counter and stores the error message.
+// Thread-safe (atomic). Called from streamLoop (LLM errors) and
+// watchDelegatedTask (delegation failures).
+func (a *Agent) RecordError(err error) {
+	a.errCount.Add(1)
+	a.lastErr.Store(err.Error())
+}
+
+// ResetErrors clears the per-job error counters. Called at the start of
+// each new job in run.go.
+func (a *Agent) ResetErrors() {
+	a.errCount.Store(0)
+	a.lastErr.Store("")
+}
+
+// ErrorCount returns the number of errors recorded in the current job.
+func (a *Agent) ErrorCount() int32 {
+	return a.errCount.Load()
+}
+
+// LastError returns the most recent error message, or "" if none.
+func (a *Agent) LastError() string {
+	if v := a.lastErr.Load(); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
 	}
 	return ""
 }

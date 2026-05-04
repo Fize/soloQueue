@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -55,6 +56,13 @@ func (s sidebar) AgentInspector(width, height int, m model, showAgents bool) str
 		}
 	}
 	b.WriteString(kvLine("context", fmt.Sprintf("%d%%", pct), width))
+	if totalErrs, lastErr := s.aggregateErrors(); totalErrs > 0 {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  %d error(s)", totalErrs)))
+		if lastErr != "" {
+			b.WriteString(dimStyle.Render(" — " + truncate(lastErr, max(width-16, 10))))
+		}
+		b.WriteString("\n")
+	}
 	return fitLines(paneStyle(width).Render(b.String()), height)
 }
 
@@ -65,14 +73,34 @@ func (s sidebar) renderAgentTree(width, height int, compact bool) string {
 	return fitLines(paneStyle(width).Render(b.String()), height)
 }
 
+func sortSupervisors(supervisors []*agent.Supervisor) []*agent.Supervisor {
+	sorted := make([]*agent.Supervisor, len(supervisors))
+	copy(sorted, supervisors)
+	sort.Slice(sorted, func(i, j int) bool {
+		ni, nj := "", ""
+		if a := sorted[i].Agent(); a != nil {
+			ni = a.Def.Name
+		}
+		if a := sorted[j].Agent(); a != nil {
+			nj = a.Def.Name
+		}
+		if ni != nj {
+			return ni < nj
+		}
+		return ni < nj
+	})
+	return sorted
+}
+
 func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string {
 	registered := []*agent.Agent{}
 	if s.registry != nil {
 		registered = s.registry.List()
 	}
+	supervisors := sortSupervisors(s.supervisors)
 	l2IDs := make(map[string]bool)
 	l3IDs := make(map[string]bool)
-	for _, sv := range s.supervisors {
+	for _, sv := range supervisors {
 		if sv == nil {
 			continue
 		}
@@ -93,7 +121,7 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 
 	// Collect A3 workers from all supervisors
 	var a3 []*agent.Agent
-	for _, sv := range s.supervisors {
+	for _, sv := range supervisors {
 		if sv == nil {
 			continue
 		}
@@ -110,10 +138,10 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 	}
 
 	b.WriteString(sectionLine("A2 Domain Leaders") + "\n")
-	if len(s.supervisors) == 0 {
+	if len(supervisors) == 0 {
 		b.WriteString(dimStyle.Render("  (none)") + "\n")
 	}
-	for _, sv := range s.supervisors {
+	for _, sv := range supervisors {
 		if sv == nil || sv.Agent() == nil {
 			continue
 		}
@@ -162,6 +190,40 @@ func (s sidebar) counts() agentCounts {
 	return c
 }
 
+func (s sidebar) aggregateErrors() (total int32, last string) {
+	seen := make(map[string]bool)
+	for _, a := range s.allAgents() {
+		if seen[a.Def.ID] {
+			continue
+		}
+		seen[a.Def.ID] = true
+		if ec := a.ErrorCount(); ec > 0 {
+			total += ec
+			if le := a.LastError(); le != "" {
+				last = le
+			}
+		}
+	}
+	return
+}
+
+func (s sidebar) allAgents() []*agent.Agent {
+	var out []*agent.Agent
+	if s.registry != nil {
+		out = append(out, s.registry.List()...)
+	}
+	for _, sv := range s.supervisors {
+		if sv == nil {
+			continue
+		}
+		if a := sv.Agent(); a != nil {
+			out = append(out, a)
+		}
+		out = append(out, sv.Children()...)
+	}
+	return out
+}
+
 func countState(c *agentCounts, s agent.State) {
 	switch s {
 	case agent.StateProcessing:
@@ -187,6 +249,9 @@ func agentTreeLine(a *agent.Agent, indent string, width int) string {
 	}
 	if lvl := a.EffectiveTaskLevel(); lvl != "" {
 		line += " " + levelBadgeStyle.Render(compactLevel(lvl))
+	}
+	if ec := a.ErrorCount(); ec > 0 {
+		line += " " + errorStyle.Render(fmt.Sprintf("✗%d", ec))
 	}
 	return line + "\n"
 }

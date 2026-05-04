@@ -375,6 +375,7 @@ func buildRuntimeStack(
 		// Wire L2's DelegateTools to spawn L3 through Supervisor.SpawnChild
 		// so L3 children are tracked and visible in the TUI sidebar.
 		sv.WireSpawnFns(allTemplates)
+		sv.SetGroup(tmpl.Group)
 		supervisors = append(supervisors, sv)
 	}
 
@@ -426,7 +427,16 @@ func buildRuntimeStack(
 	for _, gf := range groups {
 		for _, ws := range gf.Frontmatter.Workspaces {
 			p := ws.Path
-			if p == "" || p == "@default" || seen[p] {
+			if p == "" || p == "@default" {
+				continue
+			}
+			// Expand ~ prefix for Docker mounts
+			if strings.HasPrefix(p, "~/") || p == "~" {
+				if home, err := os.UserHomeDir(); err == nil {
+					p = filepath.Join(home, p[1:])
+				}
+			}
+			if seen[p] {
 				continue
 			}
 			seen[p] = true
@@ -582,6 +592,16 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		GroupsDir:    filepath.Join(sb.workDir, "groups"),
 		AgentFactory: sb.rt.agentFactory,
 		Logger:       sessLog,
+		OnWorkerCreated: func(ctx context.Context, name, group string, ag *agent.Agent) {
+			for _, sv := range sb.rt.supervisors {
+				if sv.Group() == group {
+					sv.AdoptChild(ag)
+					sessLog.Info(logger.CatActor, "auto-reload: worker adopted",
+						"name", name, "group", group)
+					return
+				}
+			}
+		},
 	}
 	for i, t := range baseTools {
 		switch t.Name() {
@@ -650,7 +670,14 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	// Set the OnLeaderCreated hook after agent construction so the closure
 	// can reference 'a'. The hook fires when a leader agent file is written
 	// and auto-instantiated — it dynamically registers a delegate_* tool on L1.
-	autoReloadCfg.OnLeaderCreated = func(ctx context.Context, name string, ag *agent.Agent) {
+	autoReloadCfg.OnLeaderCreated = func(ctx context.Context, name, group string, ag *agent.Agent) {
+		sv := agent.NewSupervisor(ag, sb.rt.agentFactory, sessLog)
+		sv.WireSpawnFns(sb.rt.allTemplates)
+		sv.SetGroup(group)
+		sb.rt.supervisors = append(sb.rt.supervisors, sv)
+		sessLog.Info(logger.CatActor, "auto-reload: leader supervisor created",
+			"name", name, "group", group)
+
 		dt := tools.NewDelegateTool(name, name+" team leader", 5*time.Minute, sb.rt.agentRegistry, sessLog)
 		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
 			a, ok := sb.rt.agentRegistry.Get(name)
