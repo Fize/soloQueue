@@ -62,7 +62,7 @@ func TestRenderStatus_L2WithNoChildren(t *testing.T) {
 	sv := agent.NewSupervisor(l2Agent, nil, nil)
 	supervisors := []*agent.Supervisor{sv}
 
-	text := renderStatus(r, supervisors)
+	text := renderStatus(r, func() []*agent.Supervisor { return supervisors })
 
 	if !strings.Contains(text, "A2 Domain Leaders") {
 		t.Error("missing 'A2 Domain Leaders' section")
@@ -103,7 +103,7 @@ func TestRenderStatus_L1L2Mixed(t *testing.T) {
 	sv := agent.NewSupervisor(l2Agent, nil, nil)
 	supervisors := []*agent.Supervisor{sv}
 
-	text := renderStatus(r, supervisors)
+	text := renderStatus(r, func() []*agent.Supervisor { return supervisors })
 
 	if !strings.Contains(text, "A1 Session Agents") {
 		t.Error("missing A1 section")

@@ -11,10 +11,10 @@ import (
 // ─── Agent sidebar data model ────────────────────────────────────────────────
 
 type sidebar struct {
-	visible     bool
-	registry    *agent.Registry
-	supervisors []*agent.Supervisor
-	spinner     spinner
+	visible       bool
+	registry      *agent.Registry
+	supervisorsFn func() []*agent.Supervisor
+	spinner       spinner
 }
 
 // agentTickMsg is sent periodically to refresh agent state snapshots.
@@ -32,13 +32,21 @@ func agentTickInterval(isGenerating bool) time.Duration {
 	return 2 * time.Second
 }
 
-func newSidebar(registry *agent.Registry, supervisors []*agent.Supervisor) sidebar {
+func newSidebar(registry *agent.Registry, supervisorsFn func() []*agent.Supervisor) sidebar {
 	return sidebar{
-		visible:     true, // default visible; Ctrl+A or /agents collapses it
-		registry:    registry,
-		supervisors: supervisors,
-		spinner:     newSpinner(),
+		visible:       true, // default visible; Ctrl+A or /agents collapses it
+		registry:      registry,
+		supervisorsFn: supervisorsFn,
+		spinner:       newSpinner(),
 	}
+}
+
+// getSupervisors returns the current supervisor list via the live function, or nil.
+func (s sidebar) getSupervisors() []*agent.Supervisor {
+	if s.supervisorsFn == nil {
+		return nil
+	}
+	return s.supervisorsFn()
 }
 
 // Toggle switches sidebar visibility.

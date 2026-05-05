@@ -106,7 +106,7 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 	if s.registry != nil {
 		registered = s.registry.List()
 	}
-	supervisors := sortSupervisors(s.supervisors)
+	supervisors := sortSupervisors(s.getSupervisors())
 
 	// Template IDs that belong to L2 leaders (includes dynamically created instances).
 	l2TemplateIDs := make(map[string]bool)
@@ -209,7 +209,7 @@ func (s sidebar) counts() agentCounts {
 
 	// Template IDs that belong to L2 leaders.
 	l2TemplateIDs := make(map[string]bool)
-	for _, sv := range s.supervisors {
+	for _, sv := range s.getSupervisors() {
 		if sv == nil {
 			continue
 		}
@@ -225,7 +225,7 @@ func (s sidebar) counts() agentCounts {
 
 	// Template IDs for L3 workers.
 	l3TemplateIDs := make(map[string]bool)
-	for _, sv := range s.supervisors {
+	for _, sv := range s.getSupervisors() {
 		if sv == nil {
 			continue
 		}
@@ -268,7 +268,7 @@ func (s sidebar) allAgents() []*agent.Agent {
 	if s.registry != nil {
 		out = append(out, s.registry.List()...)
 	}
-	for _, sv := range s.supervisors {
+	for _, sv := range s.getSupervisors() {
 		if sv == nil {
 			continue
 		}
