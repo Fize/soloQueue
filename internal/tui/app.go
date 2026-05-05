@@ -36,7 +36,7 @@ type Config struct {
 	RulesCreated  bool
 	RulesPath     string
 	Registry      *agent.Registry
-	Supervisors   []*agent.Supervisor
+	SupervisorsFn func() []*agent.Supervisor
 	Skills        *skill.SkillRegistry
 	SandboxInitCh <-chan SandboxInitMsg // async sandbox + session init channel
 	NotifyCh      <-chan string         // background task notifications
@@ -202,7 +202,7 @@ func Run(cfg Config) error {
 		ctx:        ctx,
 		messages:   []message{},
 		history:    loadHistory(),
-		sidebar:    newSidebar(cfg.Registry, cfg.Supervisors),
+		sidebar:    newSidebar(cfg.Registry, cfg.SupervisorsFn),
 		spinner:    newSpinner(),
 		focus:      focusComposer,
 		showAgents: true,
