@@ -4,22 +4,15 @@ import (
 	"time"
 )
 
-// Role 区分系统内置 agent 和用户创建 agent
 type Role string
 
 const (
-	RoleSystem Role = "system"
-	RoleUser   Role = "user"
+	RoleUser Role = "user"
 )
 
-// Kind 描述 agent 的行为类型
-//
-// 本 phase 仅保留 KindChat / KindCustom 作为占位；真正的行为分支
-// （code / planner / evaluator 等）等到 tool 系统落地时按需扩展。
 type Kind string
 
 const (
-	KindChat   Kind = "chat"
 	KindCustom Kind = "custom"
 )
 
@@ -120,6 +113,12 @@ const DefaultContextWindow = 128000
 // an explicit per-tool timeout via WithToolTimeout. Prevents indefinite
 // blocking when a tool hangs.
 const DefaultToolTimeout = 10 * time.Minute
+
+	// DefaultMaxConsecutiveFailures is the number of consecutive fatal streamLoop
+	// failures before the circuit breaker opens and rejects new tasks.
+	// Fatal failures include ChatStream errors, buildMessages errors, and
+	// MaxIterations exceeded. Context cancellations are excluded.
+	const DefaultMaxConsecutiveFailures = 3
 
 // ─── ModelParams (per-ask override) ─────────────────────────────────────────
 

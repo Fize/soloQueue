@@ -41,6 +41,11 @@ var (
 
 	// ErrMaxIterations runOnce 的 tool-use 循环超过 Definition.MaxIterations
 	ErrMaxIterations = errors.New("agent: too many tool calls without finishing — rephrase your request or split it into smaller steps")
+
+	// ErrCircuitBreakerOpen is returned when the agent refuses to execute a new
+	// task because the previous N consecutive attempts all failed with fatal
+	// errors (e.g., ChatStream failure). This breaks infinite retry loops.
+	ErrCircuitBreakerOpen = errors.New("agent: circuit breaker open — too many consecutive failures, task rejected")
 )
 
 

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -10,13 +11,13 @@ import (
 )
 
 type agentCounts struct {
-	l1, l2, l3           int
+	a1, a2, a3           int
 	run, idle, off, stop int
 }
 
 func (s sidebar) AgentSummary(width int) string {
 	c := s.counts()
-	text := fmt.Sprintf("Agents L1:%d L2:%d L3:%d RUN:%d IDLE:%d OFF:%d", c.l1, c.l2, c.l3, c.run, c.idle, c.off)
+	text := fmt.Sprintf("Agents A1:%d A2:%d A3:%d RUN:%d IDLE:%d OFF:%d", c.a1, c.a2, c.a3, c.run, c.idle, c.off)
 	return paneStyle(width).Render(truncate(text, max(width-2, 1)))
 }
 
@@ -55,6 +56,22 @@ func (s sidebar) AgentInspector(width, height int, m model, showAgents bool) str
 		}
 	}
 	b.WriteString(kvLine("context", fmt.Sprintf("%d%%", pct), width))
+	if m.currentIter > 0 {
+		b.WriteString(kvLine("iter", fmt.Sprintf("#%d", m.currentIter), width))
+	}
+	if m.contentDeltas > 0 {
+		b.WriteString(kvLine("content", fmt.Sprintf("%d deltas", m.contentDeltas), width))
+	}
+	if m.activeDelegations > 0 {
+		b.WriteString(kvLine("deleg", fmt.Sprintf("%d active", m.activeDelegations), width))
+	}
+	if totalErrs, lastErr := s.aggregateErrors(); totalErrs > 0 {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  %d error(s)", totalErrs)))
+		if lastErr != "" {
+			b.WriteString(dimStyle.Render(" — " + truncate(lastErr, max(width-16, 10))))
+		}
+		b.WriteString("\n")
+	}
 	return fitLines(paneStyle(width).Render(b.String()), height)
 }
 
@@ -65,34 +82,78 @@ func (s sidebar) renderAgentTree(width, height int, compact bool) string {
 	return fitLines(paneStyle(width).Render(b.String()), height)
 }
 
+func sortSupervisors(supervisors []*agent.Supervisor) []*agent.Supervisor {
+	sorted := make([]*agent.Supervisor, len(supervisors))
+	copy(sorted, supervisors)
+	sort.Slice(sorted, func(i, j int) bool {
+		ni, nj := "", ""
+		if a := sorted[i].Agent(); a != nil {
+			ni = a.Def.Name
+		}
+		if a := sorted[j].Agent(); a != nil {
+			nj = a.Def.Name
+		}
+		if ni != nj {
+			return ni < nj
+		}
+		return ni < nj
+	})
+	return sorted
+}
+
 func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string {
 	registered := []*agent.Agent{}
 	if s.registry != nil {
 		registered = s.registry.List()
 	}
-	l2IDs := make(map[string]bool)
-	l3IDs := make(map[string]bool)
-	for _, sv := range s.supervisors {
+	supervisors := sortSupervisors(s.getSupervisors())
+
+	// Template IDs that belong to L2 leaders (includes dynamically created instances).
+	l2TemplateIDs := make(map[string]bool)
+	for _, sv := range supervisors {
 		if sv == nil {
 			continue
 		}
 		if a := sv.Agent(); a != nil {
-			l2IDs[a.Def.ID] = true
-		}
-		for _, child := range sv.Children() {
-			l3IDs[child.Def.ID] = true
+			l2TemplateIDs[a.Def.ID] = true
 		}
 	}
 
+	// Template IDs that belong to L3 workers.
+	l3TemplateIDs := make(map[string]bool)
+	for _, sv := range supervisors {
+		if sv == nil {
+			continue
+		}
+		for _, child := range sv.Children() {
+			l3TemplateIDs[child.Def.ID] = true
+		}
+	}
+
+	// L1: agents whose template is neither L2 nor L3.
 	var l1 []*agent.Agent
+	// L2: all agents (including dynamically spawned) whose template is a leader template.
+	l2ByTemplate := make(map[string][]*agent.Agent)
 	for _, a := range registered {
-		if !l2IDs[a.Def.ID] && !l3IDs[a.Def.ID] {
+		tmplID := a.Def.ID
+		if l2TemplateIDs[tmplID] {
+			l2ByTemplate[tmplID] = append(l2ByTemplate[tmplID], a)
+		} else if !l3TemplateIDs[tmplID] {
 			l1 = append(l1, a)
 		}
 	}
 
+	// Collect A3 workers from all supervisors (now returns all instances).
+	var a3 []*agent.Agent
+	for _, sv := range supervisors {
+		if sv == nil {
+			continue
+		}
+		a3 = append(a3, sv.Children()...)
+	}
+
 	var b strings.Builder
-	b.WriteString(sectionLine("L1 Session Agents") + "\n")
+	b.WriteString(sectionLine("A1 Session Agents") + "\n")
 	if len(l1) == 0 {
 		b.WriteString(dimStyle.Render("  (none)") + "\n")
 	}
@@ -100,26 +161,40 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 		b.WriteString(agentTreeLine(a, "  ", width))
 	}
 
-	b.WriteString(sectionLine("L2 Domain Leaders") + "\n")
-	if len(s.supervisors) == 0 {
+	b.WriteString(sectionLine("A2 Domain Leaders") + "\n")
+	if len(l2ByTemplate) == 0 {
 		b.WriteString(dimStyle.Render("  (none)") + "\n")
 	}
-	for _, sv := range s.supervisors {
-		if sv == nil || sv.Agent() == nil {
-			continue
-		}
-		b.WriteString(agentTreeLine(sv.Agent(), "  ", width))
-		children := sv.Children()
-		if len(children) == 0 {
-			b.WriteString(dimStyle.Render("    └─ (no active workers)") + "\n")
-			continue
-		}
-		for i, child := range children {
-			prefix := "    ├─ "
-			if i == len(children)-1 {
-				prefix = "    └─ "
+	for tmplID, agents := range l2ByTemplate {
+		if len(agents) == 1 {
+			b.WriteString(agentTreeLine(agents[0], "  ", width))
+		} else {
+			// Multiple instances: show template name with count, then each instance.
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  %s ×%d", truncate(tmplID, max(width-10, 8)), len(agents))) + "\n")
+			for _, a := range agents {
+				b.WriteString(agentTreeLine(a, "    ", width))
 			}
-			b.WriteString(agentTreeLine(child, prefix, width))
+		}
+	}
+
+	b.WriteString(sectionLine("A3 Workers") + "\n")
+	if len(a3) == 0 {
+		b.WriteString(dimStyle.Render("  (none)") + "\n")
+	}
+	// Group A3 by template for multi-instance display.
+	a3ByTemplate := make(map[string][]*agent.Agent)
+	for _, child := range a3 {
+		tmplID := child.Def.ID
+		a3ByTemplate[tmplID] = append(a3ByTemplate[tmplID], child)
+	}
+	for tmplID, agents := range a3ByTemplate {
+		if len(agents) == 1 {
+			b.WriteString(agentTreeLine(agents[0], "  ", width))
+		} else {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  %s ×%d", truncate(tmplID, max(width-10, 8)), len(agents))) + "\n")
+			for _, a := range agents {
+				b.WriteString(agentTreeLine(a, "    ", width))
+			}
 		}
 	}
 	return fitLines(b.String(), height)
@@ -131,30 +206,78 @@ func (s sidebar) counts() agentCounts {
 	if s.registry != nil {
 		registered = s.registry.List()
 	}
-	l2IDs := make(map[string]bool)
-	l3IDs := make(map[string]bool)
-	for _, sv := range s.supervisors {
+
+	// Template IDs that belong to L2 leaders.
+	l2TemplateIDs := make(map[string]bool)
+	for _, sv := range s.getSupervisors() {
 		if sv == nil {
 			continue
 		}
 		if a := sv.Agent(); a != nil {
-			c.l2++
-			l2IDs[a.Def.ID] = true
-			countState(&c, a.State())
+			l2TemplateIDs[a.Def.ID] = true
 		}
+		// Count all L3 children (now a list per template).
 		for _, child := range sv.Children() {
-			c.l3++
-			l3IDs[child.Def.ID] = true
+			c.a3++
 			countState(&c, child.State())
 		}
 	}
+
+	// Template IDs for L3 workers.
+	l3TemplateIDs := make(map[string]bool)
+	for _, sv := range s.getSupervisors() {
+		if sv == nil {
+			continue
+		}
+		for _, child := range sv.Children() {
+			l3TemplateIDs[child.Def.ID] = true
+		}
+	}
+
 	for _, a := range registered {
-		if !l2IDs[a.Def.ID] && !l3IDs[a.Def.ID] {
-			c.l1++
+		if l2TemplateIDs[a.Def.ID] {
+			c.a2++
+			countState(&c, a.State())
+		} else if !l3TemplateIDs[a.Def.ID] {
+			c.a1++
 			countState(&c, a.State())
 		}
 	}
 	return c
+}
+
+func (s sidebar) aggregateErrors() (total int32, last string) {
+	seen := make(map[string]bool)
+	for _, a := range s.allAgents() {
+		if seen[a.InstanceID] {
+			continue
+		}
+		seen[a.InstanceID] = true
+		if ec := a.ErrorCount(); ec > 0 {
+			total += ec
+			if le := a.LastError(); le != "" {
+				last = le
+			}
+		}
+	}
+	return
+}
+
+func (s sidebar) allAgents() []*agent.Agent {
+	var out []*agent.Agent
+	if s.registry != nil {
+		out = append(out, s.registry.List()...)
+	}
+	for _, sv := range s.getSupervisors() {
+		if sv == nil {
+			continue
+		}
+		if a := sv.Agent(); a != nil {
+			out = append(out, a)
+		}
+		out = append(out, sv.Children()...)
+	}
+	return out
 }
 
 func countState(c *agentCounts, s agent.State) {
@@ -175,13 +298,22 @@ func agentTreeLine(a *agent.Agent, indent string, width int) string {
 	if name == "" {
 		name = a.Def.ID
 	}
-	line := indent + agentBadgeStyle(a.State()).Render(stateLabel(a.State())) + " " + lipgloss.NewStyle().Foreground(colorText).Bold(true).Render(truncate(name, max(width-len(indent)-8, 8)))
+	// Show short InstanceID suffix for disambiguation when multiple instances exist.
+	shortID := a.InstanceID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	line := indent + agentBadgeStyle(a.State()).Render(stateLabel(a.State())) + " " + lipgloss.NewStyle().Foreground(colorText).Bold(true).Render(truncate(name, max(width-len(indent)-16, 8)))
+	line += " " + dimStyle.Render(shortID)
 	model := a.EffectiveModelID()
 	if model != "" {
 		line += "\n" + dimStyle.Render(indent+"  "+truncate(model, max(width-len(indent)-4, 6)))
 	}
 	if lvl := a.EffectiveTaskLevel(); lvl != "" {
 		line += " " + levelBadgeStyle.Render(compactLevel(lvl))
+	}
+	if ec := a.ErrorCount(); ec > 0 {
+		line += " " + errorStyle.Render(fmt.Sprintf("✗%d", ec))
 	}
 	return line + "\n"
 }

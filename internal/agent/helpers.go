@@ -90,10 +90,11 @@ func ensureTraceID(ctx context.Context) context.Context {
 
 // ctxWithAgentAttrs 把 actor_id 注入 ctx，供后续 Logger 自动从 ctx 提取
 //
-// Agent 构造时 Def.ID 就固定了；每次 Ask/Submit/lifecycle 日志都应该带。
+// Uses InstanceID as the primary identifier (unique per instance),
+// and Def.ID as the template actor_id for backward-compatible log filtering.
 func (a *Agent) ctxWithAgentAttrs(ctx context.Context) context.Context {
-	if a.Def.ID != "" {
-		ctx = logger.WithActorID(ctx, a.Def.ID)
+	if a.InstanceID != "" {
+		ctx = logger.WithActorID(ctx, a.InstanceID)
 	}
 	return ctx
 }

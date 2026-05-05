@@ -69,7 +69,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		return false, nil
 
 	case "/status":
-		text := renderStatus(m.cfg.Registry, m.cfg.Supervisors)
+		text := renderStatus(m.cfg.Registry, m.cfg.SupervisorsFn)
 		m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
 		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.rebuildViewportContent()

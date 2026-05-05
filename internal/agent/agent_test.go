@@ -33,7 +33,7 @@ func newTestLogger(t *testing.T) *logger.Logger {
 // ─── RunOnce (migrated from old Agent.Run) ───────────────────────────────────
 
 func TestRunOnce_Happy(t *testing.T) {
-	def := Definition{ID: "a1", Kind: KindChat, SystemPrompt: "you are helpful"}
+	def := Definition{ID: "a1", Kind: KindCustom, SystemPrompt: "you are helpful"}
 	llm := &FakeLLM{Responses: []string{"hello"}}
 
 	reply, err := RunOnce(context.Background(), def, llm, newTestLogger(t), "hi")
@@ -96,7 +96,7 @@ func TestRunOnce_SystemPromptIncluded(t *testing.T) {
 
 	def := Definition{
 		ID:           "a1",
-		Kind:         KindChat,
+		Kind:         KindCustom,
 		ModelID:      "deepseek-chat",
 		SystemPrompt: "you are a poetic assistant",
 		Temperature:  0.4,
@@ -182,7 +182,7 @@ func TestRunOnce_LogsLLMCategory(t *testing.T) {
 	defer log.Close()
 
 	_, err = RunOnce(context.Background(),
-		Definition{ID: "a1", Kind: KindChat},
+		Definition{ID: "a1", Kind: KindCustom},
 		&FakeLLM{Responses: []string{"hi"}},
 		log.Child(slog.String("actor_id", "a1")),
 		"hello",

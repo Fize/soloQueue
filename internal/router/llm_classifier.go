@@ -91,7 +91,7 @@ func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *L
 //  4. Parse structured JSON response
 //  5. On timeout/error → return safe L1 default (never blocks the pipeline)
 //  6. On success → cache and return
-func (lc *LLMClassifier) Classify(ctx context.Context, prompt string) (ClassificationResult, error) {
+func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ ClassificationLevel) (ClassificationResult, error) {
 	// 1. Check cache
 	key := hashPrompt(prompt)
 	if cached, ok := lc.cache.Load(key); ok {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -134,8 +136,20 @@ func (a *Agent) execToolsWithAsync(
 			}
 		}
 
+		// 注入 model override 到 context，使 DelegateTool 能传播给子 Agent
+		asyncCtx := ctx
+		if override := a.modelOverride.Load(); override != nil {
+			asyncCtx = iface.ContextWithModelOverride(asyncCtx, &iface.ModelOverrideParams{
+				ProviderID:      override.ProviderID,
+				ModelID:         override.ModelID,
+				ThinkingEnabled: override.ThinkingEnabled,
+				ReasoningEffort: override.ReasoningEffort,
+				Level:           override.Level,
+			})
+		}
+
 		// 调用 ExecuteAsync 获取意图（不启动 goroutine）
-		action, err := at.ExecuteAsync(ctx, tc.Function.Arguments)
+		action, err := at.ExecuteAsync(asyncCtx, tc.Function.Arguments)
 		if err != nil {
 			results[i] = "error: " + err.Error()
 			continue
@@ -163,6 +177,11 @@ func (a *Agent) execToolsWithAsync(
 			}
 			delCtx, cancel := context.WithTimeout(turnState.callerCtx, timeout)
 			defer cancel()
+
+			a.logInfo(delCtx, logger.CatTool, "async-goroutine: starting, about to call AskStream",
+				"target_agent_id", task.targetAgentID,
+				"timeout", timeout,
+			)
 
 			// --- 注入 confirm relay（与 execToolStream 同步路径对齐） ---
 			relayCh := make(chan iface.AgentEvent, 16)
@@ -194,8 +213,30 @@ func (a *Agent) execToolsWithAsync(
 			go func() {
 				defer close(relayDone)
 				for ev := range relayCh {
+					if a.Log != nil {
+						a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: received event from relayCh",
+							"event_type", fmt.Sprintf("%T", ev),
+						)
+					}
 					if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
-						a.emit(turnState.callerCtx, turnState.out, ev.(AgentEvent))
+						if a.Log != nil {
+							a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: forwarding confirm event to L1 output")
+						}
+						if agentEv, ok := ev.(AgentEvent); ok {
+							ok := a.emit(turnState.callerCtx, turnState.out, agentEv)
+							if a.Log != nil {
+								a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: emit confirm result",
+									"ok", ok,
+								)
+							}
+						} else if a.Log != nil {
+							a.Log.WarnContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: confirm event failed AgentEvent assertion",
+								"event_type", fmt.Sprintf("%T", ev),
+							)
+						}
+					}
+					if ee, isError := ev.(ErrorEvent); isError {
+						a.emit(turnState.callerCtx, turnState.out, ee)
 					}
 				}
 			}()
@@ -203,11 +244,18 @@ func (a *Agent) execToolsWithAsync(
 			// --- 用 AskStream + 手动消费替代 Ask ---
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
+				a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream failed",
+					"target_agent_id", task.targetAgentID,
+					"err", err.Error(),
+				)
 				close(relayCh)
 				<-relayDone
 				replyCh <- delegateResult{err: err}
 				return
 			}
+			a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream succeeded, consuming events",
+				"target_agent_id", task.targetAgentID,
+			)
 
 			var content string
 			var finalErr error
@@ -223,10 +271,21 @@ func (a *Agent) execToolsWithAsync(
 
 				ec, ok := ev.(iface.EventConsumer)
 				if !ok {
+					if a.Log != nil {
+						a.Log.InfoContext(delCtx, logger.CatTool, "async-goroutine: event not EventConsumer, skipping",
+							"event_type", fmt.Sprintf("%T", ev),
+						)
+					}
 					continue
 				}
 
 				if callID, has := ec.ConfirmRequest(); has {
+					if a.Log != nil {
+						a.Log.InfoContext(delCtx, logger.CatTool, "async-goroutine: confirm request detected, firing forwarder",
+							"call_id", callID,
+							"target_agent_id", task.targetAgentID,
+						)
+					}
 					go forwarder(delCtx, callID, action.Target)
 				}
 
@@ -244,6 +303,11 @@ func (a *Agent) execToolsWithAsync(
 			close(relayCh)
 			<-relayDone
 
+			// Notify that delegation is done so the target can be reaped immediately.
+			if dn, ok := action.Target.(iface.DoneNotifier); ok {
+				dn.OnDelegationDone()
+			}
+
 			replyCh <- delegateResult{content: content, err: finalErr}
 		})
 
@@ -252,6 +316,11 @@ func (a *Agent) execToolsWithAsync(
 
 	// 第二阶段：如果有异步工具，注册状态 + 启动 goroutine
 	if turnState != nil && turnState.pending.Load() > 0 {
+		a.logInfo(ctx, logger.CatTool, "execToolsWithAsync: registering async turn and starting goroutines",
+			"agent_id", a.Def.ID,
+			"iter", iter,
+			"num_async", turnState.pending.Load(),
+		)
 		a.turnMu.Lock()
 		a.asyncTurns[iter] = turnState
 		a.turnMu.Unlock()
@@ -283,6 +352,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 		toolResult := result.content
 		if result.err != nil {
 			toolResult = "error: " + result.err.Error()
+			a.RecordError(result.err)
 		}
 		task.turn.results[task.callIndex] = toolResult
 
@@ -301,6 +371,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			toolResult := result.content
 			if result.err != nil {
 				toolResult = "error: " + result.err.Error()
+			a.RecordError(result.err)
 			}
 			task.turn.results[task.callIndex] = toolResult
 
@@ -313,6 +384,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			// Genuinely cancelled — fill a synthetic error result and
 			// ensure resumeTurn is still triggered so out gets closed.
 			task.turn.results[task.callIndex] = "error: delegation cancelled"
+			a.RecordError(errors.New("delegation cancelled"))
 			if task.turn.pending.Add(-1) == 0 {
 				a.submitHighPriority(func(ctx context.Context) {
 					a.resumeTurn(task.turn)
@@ -351,11 +423,24 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	})
 
 	// 继续工具循环
-	a.continueToolLoop(turn.callerCtx, turn.out, turn.cw, turn.iter+1)
+	yielded := a.continueToolLoop(turn.callerCtx, turn.out, turn.cw, turn.iter+1)
 
-	// Final streamLoop completed — cancel the merged context that was
-	// kept alive for resumeTurn. This prevents context leak.
-	if turn.cancelMerged != nil {
+	// Manage the merged context lifecycle.
+	//
+	// Normal path: continueToolLoop completes fully → cancel merged ctx to
+	// prevent leak.
+	//
+	// Nested async path: continueToolLoop yielded again (another async
+	// delegation started in this stream loop). The new asyncTurnState has
+	// the same callerCtx (merged) but does NOT have cancelMerged set
+	// (saveAsyncCancel is only called by the outer AskStreamWithHistory,
+	// not by the inner continueToolLoop). Transfer our cancelMerged to
+	// the new turn so it can cancel on its own completion.
+	if yielded {
+		if turn.cancelMerged != nil {
+			a.saveAsyncCancel(turn.callerCtx, turn.cancelMerged)
+		}
+	} else if turn.cancelMerged != nil {
 		turn.cancelMerged()
 	}
 }
@@ -363,14 +448,15 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 // continueToolLoop 从指定 iter 开始继续工具循环
 //
 // 逻辑与 runOnceStreamWithHistory 的 for 循环一致，但从 startIter 开始。
+// Returns true if the stream loop yielded (another async delegation started).
 func (a *Agent) continueToolLoop(
 	ctx context.Context,
 	out chan<- AgentEvent,
 	cw *ctxwin.ContextWindow,
 	startIter int,
-) {
+) bool {
 	// 复用 runOnceStreamWithHistory 的循环体
-	a.runOnceStreamWithHistoryFromIter(ctx, cw, out, startIter)
+	return a.runOnceStreamWithHistoryFromIter(ctx, cw, out, startIter)
 }
 
 // generateCorrID 生成一个唯一的 correlation ID

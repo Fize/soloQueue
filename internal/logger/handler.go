@@ -92,7 +92,7 @@ type FileHandler struct {
 	layer     Layer
 	teamID    string
 	sessionID string
-	level     slog.Level
+	levelVar  *slog.LevelVar
 	preAttrs  []slog.Attr
 	maxSizeMB int
 	maxDays   int
@@ -101,13 +101,13 @@ type FileHandler struct {
 	pool *writerPool // 共享指针：clone 后多个 handler 共用同一 writer pool
 }
 
-func newFileHandler(baseDir string, layer Layer, teamID, sessionID string, level slog.Level, maxSizeMB, maxDays, maxFiles int) *FileHandler {
+func newFileHandler(baseDir string, layer Layer, teamID, sessionID string, levelVar *slog.LevelVar, maxSizeMB, maxDays, maxFiles int) *FileHandler {
 	return &FileHandler{
 		baseDir:   baseDir,
 		layer:     layer,
 		teamID:    teamID,
 		sessionID: sessionID,
-		level:     level,
+		levelVar:  levelVar,
 		maxSizeMB: maxSizeMB,
 		maxDays:   maxDays,
 		maxFiles:  maxFiles,
@@ -116,7 +116,7 @@ func newFileHandler(baseDir string, layer Layer, teamID, sessionID string, level
 }
 
 func (h *FileHandler) Enabled(_ context.Context, level slog.Level) bool {
-	return level >= h.level
+	return level >= h.levelVar.Level()
 }
 
 func (h *FileHandler) Handle(_ context.Context, r slog.Record) error {

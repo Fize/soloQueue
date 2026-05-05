@@ -55,6 +55,9 @@ func isSlashCommandInput(input string) bool {
 }
 
 func (m model) renderComposer(ly layout) string {
+	if m.confirmState != nil {
+		return m.renderConfirmDialog(ly)
+	}
 	// Ensure the textarea uses exact width by trimming/padding as needed
 	// (BubbleTea's textarea doesn't reliably fill space on its own)
 	input := m.textArea.View()
@@ -78,4 +81,39 @@ func (m model) renderComposer(ly layout) string {
 		return strings.Join(lines, "\n")
 	}
 	return input
+}
+
+func (m model) renderConfirmDialog(ly layout) string {
+	cs := m.confirmState
+	var sb strings.Builder
+
+	// Prompt line (dimmed, with ? prefix)
+	prompt := dimStyle.Render("? " + cs.prompt)
+	sb.WriteString(prompt + "\n")
+
+	// Options with selection highlight
+	for i, opt := range cs.options {
+		line := "  " + opt
+		if i == cs.selected {
+			line = "> " + confirmHighlight.Render(opt)
+		}
+		if lipgloss.Width(line) < ly.mainW {
+			line += strings.Repeat(" ", ly.mainW-lipgloss.Width(line))
+		}
+		sb.WriteString(line + "\n")
+	}
+
+	result := sb.String()
+	if ly.mode == layoutTwoPane && m.showAgents {
+		var padding strings.Builder
+		padding.WriteString(strings.Repeat(" ", ly.leftW))
+		padding.WriteString(paneBorderStyle.Render("│"))
+
+		lines := strings.Split(result, "\n")
+		for i, l := range lines {
+			lines[i] = padding.String() + l
+		}
+		return strings.Join(lines, "\n")
+	}
+	return result
 }

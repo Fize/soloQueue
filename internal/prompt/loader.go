@@ -29,7 +29,9 @@ func (p *PromptConfig) userCtxPath() string {
 
 // BuildPrompt 组装完整系统提示词。
 // leaders 来自运行时 agent 注册数据，用于动态构建路由表。
-func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo) (string, error) {
+// recentMemory 为短期记忆目录路径（可为空，表示无历史记忆）。
+// permanentMemory 为长期记忆文本（可为空）。
+func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanentMemory string) (string, error) {
 	// 1. 加载 profile（必需）
 	profile, err := readMD(p.profilePath())
 	if err != nil {
@@ -53,7 +55,7 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo) (string, error) {
 	teamMgmt := buildTeamManagementSection(workDir)
 
 	// 6. XML 组装
-	return assembleWithXML(profile, userCtx, routingTable, teamMgmt, rules), nil
+	return assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules), nil
 }
 
 // EnsureFiles 检查并补齐缺失的 prompt 文件。

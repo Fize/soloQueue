@@ -53,6 +53,12 @@ type Locatable interface {
 
 	// Confirm responds to a pending tool confirmation request.
 	Confirm(callID string, choice string) error
+
+	// ErrorCount returns the number of tool errors in the current job.
+	ErrorCount() int32
+
+	// LastError returns the most recent error message, or "".
+	LastError() string
 }
 
 // AgentLocator looks up running Agent instances by ID.
@@ -82,6 +88,15 @@ type ModelOverrideParams struct {
 	ModelID         string // API model name (e.g., "deepseek-v4-pro")
 	ThinkingEnabled bool   // enable thinking/reasoning mode
 	ReasoningEffort string // "high" | "max" | ""
+	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
+}
+
+// DoneNotifier is optionally implemented by Locatable targets returned from
+// SpawnFn/SpawnChild. The delegation caller (sync DelegateTool.Execute or
+// async execToolsWithAsync goroutine) calls OnDelegationDone after the event
+// stream closes, signaling that the spawned agent can be reaped.
+type DoneNotifier interface {
+	OnDelegationDone()
 }
 
 // ModelOverridable is optionally implemented by Locatable targets that

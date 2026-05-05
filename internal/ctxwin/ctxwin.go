@@ -96,7 +96,8 @@ func WithToolCalls(tcs []llm.ToolCall) PushOption {
 type PushHook func(msg Message)
 
 // SummaryHook 在异步压缩完成后被调用（用于持久化 summary 到 timeline）
-type SummaryHook func(summary string)
+// messages is the snapshot of all messages before compaction (useful for memory systems).
+type SummaryHook func(summary string, messages []Message)
 
 // ─── Option ─────────────────────────────────────────────────────────────────
 
@@ -501,7 +502,7 @@ func (cw *ContextWindow) asyncCompact() {
 
 	// Persist summary to timeline (outside lock)
 	if cw.summaryHook != nil {
-		cw.summaryHook(summary)
+		cw.summaryHook(summary, msgs)
 	}
 }
 

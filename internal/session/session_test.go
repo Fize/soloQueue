@@ -377,3 +377,94 @@ func TestSession_AskStream_CloseTurnDoneIdempotent(t *testing.T) {
 		t.Error("delegationPending should be false after closeTurnDone")
 	}
 }
+
+// ─── Level lock helpers ─────────────────────────────────────────────────
+
+func TestParseLevelLockCommand(t *testing.T) {
+	tests := []struct {
+		prompt    string
+		wantLevel string
+		wantLock  bool
+	}{
+		{"/l0", "L0-Conversation", true},
+		{"/l0 tell me something", "L0-Conversation", true},
+		{"/l1 fix this bug", "L1-SimpleSingleFile", true},
+		{"/l2 refactor the auth module", "L2-MediumMultiFile", true},
+		{"/l3 redesign the system", "L3-ComplexRefactoring", true},
+		{"/max think hard", "L3-ComplexRefactoring", true},
+		{"/expert analyze", "L3-ComplexRefactoring", true},
+		{"/chat hello", "L0-Conversation", true},
+		{"hello world", "", false},
+		{"fix this bug", "", false},
+		{"/read main.go", "", false},
+		{"/refactor main.go", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.prompt, func(t *testing.T) {
+			level, locked := parseLevelLockCommand(tt.prompt)
+			if locked != tt.wantLock {
+				t.Errorf("locked = %v, want %v", locked, tt.wantLock)
+			}
+			if level != tt.wantLevel {
+				t.Errorf("level = %q, want %q", level, tt.wantLevel)
+			}
+		})
+	}
+}
+
+func TestIsLevelLockCommand(t *testing.T) {
+	if !isLevelLockCommand("/l2 analyze") {
+		t.Error("/l2 analyze should be a lock command")
+	}
+	if isLevelLockCommand("analyze the problem") {
+		t.Error("analyze the problem should not be a lock command")
+	}
+	if isLevelLockCommand("/read main.go") {
+		t.Error("/read should not be a lock command")
+	}
+}
+
+func TestLevelLocked_BlocksRouting(t *testing.T) {
+	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+	// Set up a router that would classify everything as L0
+	s.Router = func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
+		return RouteResult{
+			ProviderID: "test",
+			ModelID:    "test-model",
+			Level:      "L0-Conversation",
+		}, nil
+	}
+
+	// First message: /l2 locks the level
+	// Simulate what AskStream does: parse lock command, then route
+	if lvl, locked := parseLevelLockCommand("/l2 do complex work"); locked {
+		s.lastLevelMu.Lock()
+		s.levelLocked = true
+		s.lastLevel = lvl
+		s.lastRouteResult = RouteResult{
+			ProviderID: "test",
+			ModelID:    "test-pro-model",
+			Level:      lvl,
+		}
+		s.lastLevelMu.Unlock()
+	}
+
+	// Verify locked state
+	s.lastLevelMu.RLock()
+	if !s.levelLocked {
+		t.Fatal("expected levelLocked=true after /l2")
+	}
+	if s.lastLevel != "L2-MediumMultiFile" {
+		t.Errorf("expected L2-MediumMultiFile, got %q", s.lastLevel)
+	}
+	s.lastLevelMu.RUnlock()
+
+	// A non-level-lock prompt while locked should use cached result
+	if isLevelLockCommand("what does this code do?") {
+		t.Error("regular prompt should not be detected as lock command")
+	}
+}

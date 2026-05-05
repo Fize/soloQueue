@@ -36,9 +36,10 @@ type Config struct {
 	RulesCreated  bool
 	RulesPath     string
 	Registry      *agent.Registry
-	Supervisors   []*agent.Supervisor
+	SupervisorsFn func() []*agent.Supervisor
 	Skills        *skill.SkillRegistry
 	SandboxInitCh <-chan SandboxInitMsg // async sandbox + session init channel
+	NotifyCh      <-chan string         // background task notifications
 }
 
 // ─── Data types ──────────────────────────────
@@ -109,6 +110,11 @@ type streamState struct {
 
 // ─── Bubble Tea messages ──────────────────────
 
+// systemNotifyMsg carries a background task notification to the TUI.
+type systemNotifyMsg struct {
+	message string
+}
+
 type agentEventMsg struct {
 	event    agent.AgentEvent
 	evCh     <-chan agent.AgentEvent
@@ -156,14 +162,17 @@ type model struct {
 	renderer     *glamour.TermRenderer
 	darkBg       bool
 
-	genStartTime    time.Time
-	genPhase        genPhase
-	promptTokens    int
-	outputTokens    int
-	cacheHitTokens  int
-	cacheMissTokens int
-	reasoningTokens int
-	genSummary      string
+	genStartTime       time.Time
+	genPhase           genPhase
+	promptTokens       int
+	outputTokens       int
+	cacheHitTokens     int
+	cacheMissTokens    int
+	reasoningTokens    int
+	genSummary         string
+	activeDelegations  int // current number of in-flight async delegations
+	currentIter        int // current tool-use iteration (from IterationDoneEvent)
+	contentDeltas      int // diagnostic: number of ContentDeltaEvents received this turn
 
 	messages     []message
 	current      *streamState
@@ -193,7 +202,7 @@ func Run(cfg Config) error {
 		ctx:        ctx,
 		messages:   []message{},
 		history:    loadHistory(),
-		sidebar:    newSidebar(cfg.Registry, cfg.Supervisors),
+		sidebar:    newSidebar(cfg.Registry, cfg.SupervisorsFn),
 		spinner:    newSpinner(),
 		focus:      focusComposer,
 		showAgents: true,
@@ -239,6 +248,14 @@ func Run(cfg Config) error {
 	}
 
 	p := tea.NewProgram(m)
+
+	if cfg.NotifyCh != nil {
+		go func() {
+			for msg := range cfg.NotifyCh {
+				p.Send(systemNotifyMsg{message: msg})
+			}
+		}()
+	}
 	_, runErr := p.Run()
 
 	return runErr
@@ -615,6 +632,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sidebar.spinner.Next()
 		}
 		return m, agentTickCmd(agentTickInterval(m.isGenerating))
+
+		case systemNotifyMsg:
+			m.messages = append(m.messages, message{role: "system", content: msg.message})
+			m.resizeViewport()
+			m.rebuildViewportContent()
+			m.viewport.GotoBottom()
+			return m, nil
 	}
 
 	if m.confirmState == nil {
@@ -734,6 +758,10 @@ func (m *model) resetGenState() {
 	m.cacheHitTokens = 0
 	m.cacheMissTokens = 0
 	m.reasoningTokens = 0
+	m.activeDelegations = 0
+	m.currentIter = 0
+	m.contentDeltas = 0
+	m.confirmState = nil
 }
 
 // ─── Stream helpers ────────────────────────
