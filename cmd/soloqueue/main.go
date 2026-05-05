@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -79,8 +80,6 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 			cfg.SetLogger(log)
 
-			settings := cfg.Get()
-
 			// promptProfileQuestions は TUI モードのみ必要なので、
 			// profileSetup コールバックとして渡す
 			profileSetup := func(cfg *prompt.PromptConfig) error {
@@ -95,9 +94,9 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			defer rt.shutdown()
 
 			log.Info(logger.CatApp, "soloqueue tui starting",
-				"version", version, "model", rt.defaultModel.ID)
+				"version", version, "model", rt.readDefaultModel().ID)
 
-			agentFactory := buildSessionFactory(rt, workDir, settings, false /* TUI: no console log */)
+			agentFactory := buildSessionFactory(rt, workDir, cfg, false /* TUI: no console log */)
 			mgr := session.NewSessionManager(agentFactory, log)
 			mgr.SetRouter(buildRouterFunc(rt))
 			mgr.SetMemoryHook(buildMemoryHook(rt))
@@ -115,7 +114,9 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 					return
 				}
 				rt.dockerSandbox = sb
+				rt.cfgMu.Lock()
 				rt.toolsCfg.Executor = executor
+				rt.cfgMu.Unlock()
 
 				sess, err := mgr.Init(context.Background(), "")
 				sandboxCh <- tui.SandboxInitMsg{Sess: sess, Err: err}
@@ -124,7 +125,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			return tui.Run(tui.Config{
 				Session:       nil,
 				SandboxInitCh: sandboxCh,
-				ModelID:       rt.defaultModel.ID,
+				ModelID:       rt.readDefaultModel().ID,
 				Version:       version,
 				RulesCreated:  rt.rulesCreated,
 				RulesPath:     rt.promptCfg.RulesPath(),
@@ -148,7 +149,13 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 // runtimeStack 保存两种模式（TUI / serve）共享的运行时依赖，
 // 由 buildRuntimeStack 统一初始化，避免重复代码。
 type runtimeStack struct {
-	llmClient     agent.LLMClient
+	// 配置派生字段，受 cfgMu 保护（用于热重载）。
+	// 构造期间可直接赋值；构造完成后必须通过 read* / OnChange 写锁访问。
+	cfgMu        sync.RWMutex
+	llmClient    agent.LLMClient
+	toolsCfg     tools.Config
+	defaultModel *config.LLMModel
+
 	agentRegistry *agent.Registry
 	agentFactory  *agent.DefaultFactory
 	supervisors   []*agent.Supervisor
@@ -156,10 +163,8 @@ type runtimeStack struct {
 	allTemplates  []agent.AgentTemplate
 	systemPrompt  string
 	promptCfg     *prompt.PromptConfig
-	defaultModel  *config.LLMModel
 	tokenizer     *ctxwin.Tokenizer
 	compactor     ctxwin.Compactor // context compression engine
-	toolsCfg      tools.Config
 	rulesCreated  bool
 	taskRouter    *router.Router // 任务路由分类器（TUI + serve 共用）
 	skillRegistry *skill.SkillRegistry
@@ -169,6 +174,7 @@ type runtimeStack struct {
 	permanentMemory *permanent.Manager // 长期记忆管理器
 	permScheduler   *permanent.Scheduler
 	permNotifyCh    chan string
+	permCancel      context.CancelFunc // 取消 permanent scheduler 的 context
 }
 
 // shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent，并销毁 Docker 沙盒。
@@ -183,6 +189,27 @@ func (rt *runtimeStack) shutdown() {
 			fmt.Fprintf(os.Stderr, "warning: docker sandbox destroy failed: %v\n", err)
 		}
 	}
+}
+
+// readLLMClient 返回当前 LLM 客户端（并发安全，读取配置热重载后的最新值）。
+func (rt *runtimeStack) readLLMClient() agent.LLMClient {
+	rt.cfgMu.RLock()
+	defer rt.cfgMu.RUnlock()
+	return rt.llmClient
+}
+
+// readToolsCfg 返回当前工具配置（并发安全，读取配置热重载后的最新值）。
+func (rt *runtimeStack) readToolsCfg() tools.Config {
+	rt.cfgMu.RLock()
+	defer rt.cfgMu.RUnlock()
+	return rt.toolsCfg
+}
+
+// readDefaultModel 返回当前默认模型（并发安全，读取配置热重载后的最新值）。
+func (rt *runtimeStack) readDefaultModel() *config.LLMModel {
+	rt.cfgMu.RLock()
+	defer rt.cfgMu.RUnlock()
+	return rt.defaultModel
 }
 
 // profileSetupFn 在首次启动时写入用户 profile（TUI 用交互式问卷，serve 用默认值）
@@ -211,27 +238,7 @@ func buildRuntimeStack(
 	}
 
 	// ── LLM 客户端 ───────────────────────────────────────────────────────────
-	apiKey := provider.ResolveAPIKey()
-	if apiKey == "" {
-		log.Warn(logger.CatApp, "LLM API key not set", "env", provider.APIKeyEnv)
-	}
-	baseURL := provider.BaseURL
-	if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" && baseURL == "" {
-		baseURL = v
-	}
-	llmClient, err := deepseek.NewClient(deepseek.Config{
-		BaseURL:   baseURL,
-		APIKey:    apiKey,
-		Headers:   provider.Headers,
-		TimeoutMs: provider.TimeoutMs,
-		Retry: llm.RetryPolicy{
-			MaxRetries:   provider.Retry.MaxRetries,
-			InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
-			MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
-			Multiplier:   provider.Retry.BackoffMultiplier,
-		},
-		Log: log,
-	})
+	llmClient, err := buildLLMClient(provider, log)
 	if err != nil {
 		return nil, fmt.Errorf("build llm client: %w", err)
 	}
@@ -296,6 +303,7 @@ func buildRuntimeStack(
 		// ── Permanent Memory Manager ──────────────────────────────────────────
 		var permanentMgr *permanent.Manager
 		var permScheduler *permanent.Scheduler
+		var permCancel context.CancelFunc
 		permNotifyCh := make(chan string, 8)
 		var permContent string
 
@@ -322,7 +330,9 @@ func buildRuntimeStack(
 								default:
 								}
 							})
-							go permScheduler.Run(context.Background())
+							permCtx, cancel := context.WithCancel(context.Background())
+							permCancel = cancel
+							go permScheduler.Run(permCtx)
 
 							recentText, _ := memoryMgr.ReadRecentMemory(7)
 							permContent, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
@@ -359,25 +369,10 @@ func buildRuntimeStack(
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────
-	// 为每个 IsLeader 模板创建 L2 Agent 并用 Supervisor 管理其 L3 子 Agent 生命周期。
-	// Supervisor 在 runtimeStack.shutdown() 时负责回收所有 L3 子 Agent。
+	// L2 agents are created dynamically on first delegation (via SpawnFn).
+	// Each dynamically-created L2 is wrapped in a SelfReapableAdapter so it is
+	// reaped immediately when the delegation completes.
 	var supervisors []*agent.Supervisor
-	for _, tmpl := range allTemplates {
-		if !tmpl.IsLeader {
-			continue
-		}
-		l2Agent, _, err := agentFactory.Create(context.Background(), tmpl)
-		if err != nil {
-			log.Warn(logger.CatApp, "failed to create L2 agent", "name", tmpl.Name, "err", err)
-			continue
-		}
-		sv := agent.NewSupervisor(l2Agent, agentFactory, log)
-		// Wire L2's DelegateTools to spawn L3 through Supervisor.SpawnChild
-		// so L3 children are tracked and visible in the TUI sidebar.
-		sv.WireSpawnFns(allTemplates)
-		sv.SetGroup(tmpl.Group)
-		supervisors = append(supervisors, sv)
-	}
 
 	// ── Compactor (context compression engine) ────────────────────────────
 	// Use "fast" role model, fallback to default model
@@ -444,7 +439,7 @@ func buildRuntimeStack(
 		}
 	}
 
-	return &runtimeStack{
+	rt := &runtimeStack{
 		llmClient:     llmClient,
 		agentRegistry: agentRegistry,
 		agentFactory:  agentFactory,
@@ -466,8 +461,182 @@ func buildRuntimeStack(
 		permanentMemory: permanentMgr,
 		permScheduler:   permScheduler,
 		permNotifyCh:    permNotifyCh,
-	}, nil
+		permCancel:      permCancel,
+	}
+
+	// 注册配置热重载回调，使 runtimeStack 中的缓存配置与 cfg 保持同步。
+	cfg.OnChange(func(old, new config.Settings) {
+		rt.cfgMu.Lock()
+		defer rt.cfgMu.Unlock()
+
+		// 1. Tools 配置
+		newAllowedDirs := append([]string{workDir, cwd}, new.Tools.AllowedDirs...)
+		newToolsCfg := new.Tools.ToToolsConfig(newAllowedDirs)
+		newToolsCfg.PermanentManager = rt.toolsCfg.PermanentManager
+		newToolsCfg.Logger = rt.toolsCfg.Logger
+		newToolsCfg.Executor = rt.toolsCfg.Executor
+		rt.toolsCfg = newToolsCfg
+		if rt.agentFactory != nil {
+			rt.agentFactory.SetToolsConfig(newToolsCfg)
+		}
+
+		// 2. 默认模型
+		if newModel := cfg.DefaultModelByRole("fast"); newModel != nil {
+			rt.defaultModel = newModel
+			rt.agentFactory.SetDefaultModelID(newModel.ID)
+		}
+
+		// 3. LLM 客户端（仅在 default provider 变更时重建）
+		oldProv := findDefaultProvider(old.Providers)
+		newProv := findDefaultProvider(new.Providers)
+		if providerChanged(oldProv, newProv) {
+			if newClient, err := buildLLMClient(newProv, log); err == nil {
+				rt.llmClient = newClient
+				rt.agentFactory.SetLLMClient(newClient)
+			} else {
+				log.Warn(logger.CatConfig, "hot-reload: failed to rebuild LLM client", "err", err)
+			}
+		}
+
+		// 4. 日志级别
+		if new.Log.Level != old.Log.Level {
+			log.SetLevel(logger.ParseLogLevel(new.Log.Level))
+			log.Info(logger.CatConfig, "log level hot-reloaded", "level", new.Log.Level)
+		}
+
+		// 5. Embedding / Permanent memory
+		if embeddingConfigChanged(old.Embedding, new.Embedding) {
+			handleEmbeddingChange(rt, new.Embedding, cfg, log, workDir)
+		}
+
+		log.Info(logger.CatConfig, "config hot-reload applied")
+	})
+
+	return rt, nil
 }
+
+// ─── Hot-Reload Helpers ─────────────────────────────────────────────────────
+
+// buildLLMClient creates a DeepSeek LLM client from provider configuration.
+func buildLLMClient(provider *config.LLMProvider, log *logger.Logger) (agent.LLMClient, error) {
+	apiKey := provider.ResolveAPIKey()
+	if apiKey == "" {
+		log.Warn(logger.CatApp, "LLM API key not set", "env", provider.APIKeyEnv)
+	}
+	baseURL := provider.BaseURL
+	if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" && baseURL == "" {
+		baseURL = v
+	}
+	return deepseek.NewClient(deepseek.Config{
+		BaseURL:   baseURL,
+		APIKey:    apiKey,
+		Headers:   provider.Headers,
+		TimeoutMs: provider.TimeoutMs,
+		Retry: llm.RetryPolicy{
+			MaxRetries:   provider.Retry.MaxRetries,
+			InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
+			MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
+			Multiplier:   provider.Retry.BackoffMultiplier,
+		},
+		Log: log,
+	})
+}
+
+// findDefaultProvider returns the first provider with IsDefault=true from a slice.
+func findDefaultProvider(providers []config.LLMProvider) *config.LLMProvider {
+	for i := range providers {
+		if providers[i].IsDefault {
+			p := providers[i]
+			return &p
+		}
+	}
+	return nil
+}
+
+// providerChanged returns true if the default provider configuration changed
+// in a way that requires recreating the LLM client.
+func providerChanged(old, new *config.LLMProvider) bool {
+	if old == nil || new == nil {
+		return old != new
+	}
+	return old.BaseURL != new.BaseURL ||
+		old.APIKeyEnv != new.APIKeyEnv ||
+		old.TimeoutMs != new.TimeoutMs ||
+		old.Retry.MaxRetries != new.Retry.MaxRetries ||
+		old.Retry.InitialDelayMs != new.Retry.InitialDelayMs ||
+		old.Retry.MaxDelayMs != new.Retry.MaxDelayMs ||
+		old.Retry.BackoffMultiplier != new.Retry.BackoffMultiplier ||
+		!stringMapsEqual(old.Headers, new.Headers)
+}
+
+func stringMapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// embeddingConfigChanged returns true if the embedding configuration changed meaningfully.
+func embeddingConfigChanged(old, new config.EmbeddingConfig) bool {
+	if old.Enabled != new.Enabled {
+		return true
+	}
+	oldModel := findDefaultEmbeddingModel(old.Models)
+	newModel := findDefaultEmbeddingModel(new.Models)
+	if (oldModel == nil) != (newModel == nil) {
+		return true
+	}
+	if oldModel != nil && newModel != nil {
+		if oldModel.ID != newModel.ID || oldModel.ProviderID != newModel.ProviderID {
+			return true
+		}
+	}
+	return false
+}
+
+func findDefaultEmbeddingModel(models []config.EmbeddingModel) *config.EmbeddingModel {
+	for i := range models {
+		if models[i].IsDefault {
+			m := models[i]
+			return &m
+		}
+	}
+	return nil
+}
+
+// handleEmbeddingChange handles enabling/disabling/changing the embedding subsystem at runtime.
+func handleEmbeddingChange(rt *runtimeStack, emb config.EmbeddingConfig, cfg *config.GlobalService, log *logger.Logger, workDir string) {
+	if !emb.Enabled && rt.permanentMemory != nil {
+		// 禁用 embedding：停止 scheduler 并从 toolsCfg 中移除 PermanentManager。
+		log.Info(logger.CatConfig, "embedding disabled at runtime — stopping permanent memory scheduler")
+		if rt.permCancel != nil {
+			rt.permCancel()
+		}
+		rt.permScheduler = nil
+		rt.permanentMemory = nil
+		rt.toolsCfg.PermanentManager = nil
+		if rt.agentFactory != nil {
+			rt.agentFactory.SetToolsConfig(rt.toolsCfg)
+		}
+		return
+	}
+
+	if emb.Enabled && rt.permanentMemory == nil {
+		// 从禁用变为启用：完整热启动 embedding 子系统比较复杂，建议重启。
+		log.Info(logger.CatConfig, "embedding enabled at runtime — restart required to activate")
+		return
+	}
+
+	// 模型或 provider 变更：同样建议重启。
+	log.Info(logger.CatConfig, "embedding model/provider changed at runtime — restart required for full effect")
+}
+
+// ─── Sandbox ─────────────────────────────────────────────────────────────────
 
 // startSandbox creates and starts a Docker sandbox, returning it along with
 // a configured DockerExecutor. It is called asynchronously so the TUI can
@@ -523,25 +692,21 @@ func formatCtxwinMessages(msgs []ctxwin.Message) string {
 type sessionBuilder struct {
 	rt         *runtimeStack
 	workDir    string
-	settings   config.Settings
+	cfg        *config.GlobalService // 每次 Build() 时读最新配置，支持热重载
 	consoleLog bool
-	tlMaxBytes int64
-	tlMaxFiles int
 }
 
 func newSessionBuilder(
 	rt *runtimeStack,
 	workDir string,
-	settings config.Settings,
+	cfg *config.GlobalService,
 	consoleLog bool,
 ) *sessionBuilder {
 	return &sessionBuilder{
 		rt:         rt,
 		workDir:    workDir,
-		settings:   settings,
+		cfg:        cfg,
 		consoleLog: consoleLog,
-		tlMaxBytes: int64(config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024,
-		tlMaxFiles: config.DefaultInt(settings.Session.TimelineMaxFiles, 5),
 	}
 }
 
@@ -550,20 +715,25 @@ func newSessionBuilder(
 func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 	agentID := newAgentID()
 
-	effectiveModelID := sb.rt.defaultModel.APIModel
+	// 快照配置派生字段（并发安全，每次 Build 使用最新热重载值）。
+	defModel := sb.rt.readDefaultModel()
+	llmClient := sb.rt.readLLMClient()
+	toolsCfg := sb.rt.readToolsCfg()
+
+	effectiveModelID := defModel.APIModel
 	if effectiveModelID == "" {
-		effectiveModelID = sb.rt.defaultModel.ID
+		effectiveModelID = defModel.ID
 	}
 	def := agent.Definition{
 		ID:              agentID,
 		Kind:            agent.KindChat,
 		ModelID:         effectiveModelID,
-		Temperature:     sb.rt.defaultModel.Generation.Temperature,
-		MaxTokens:       sb.rt.defaultModel.Generation.MaxTokens,
-		ReasoningEffort: sb.rt.defaultModel.Thinking.ReasoningEffort,
-		ThinkingEnabled: sb.rt.defaultModel.Thinking.Enabled,
+		Temperature:     defModel.Generation.Temperature,
+		MaxTokens:       defModel.Generation.MaxTokens,
+		ReasoningEffort: defModel.Thinking.ReasoningEffort,
+		ThinkingEnabled: defModel.Thinking.Enabled,
 		MaxIterations:   1000,
-		ContextWindow:   sb.rt.defaultModel.ContextWindow,
+		ContextWindow:   defModel.ContextWindow,
 		SystemPrompt:    sb.rt.systemPrompt,
 	}
 
@@ -571,17 +741,18 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	if effectiveTeam == "" {
 		effectiveTeam = "default"
 	}
+	settings := sb.cfg.Get()
 	sessLog, err := logger.Session(sb.workDir, effectiveTeam, agentID,
-		logger.WithLevel(logger.ParseLogLevel(sb.settings.Log.Level)),
+		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
 		logger.WithConsole(sb.consoleLog),
-		logger.WithFile(sb.settings.Log.File),
+		logger.WithFile(settings.Log.File),
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 	}
 
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
-	sessionToolsCfg := sb.rt.toolsCfg
+	sessionToolsCfg := toolsCfg
 	sessionToolsCfg.Logger = sessLog
 	baseTools := tools.Build(sessionToolsCfg)
 
@@ -613,13 +784,45 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	allTools := tools.WithFallbackPrefix(baseTools)
 		for _, l := range sb.rt.leaders {
 			leader := l // capture loop variable
-			dt := tools.NewDelegateTool(leader.Name, leader.Description, 5*time.Minute, sb.rt.agentRegistry, sessLog)
-			dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
-				a, ok := sb.rt.agentRegistry.Get(leader.Name)
-				if !ok {
-					return nil, fmt.Errorf("leader %q not found", leader.Name)
+
+			// Find the AgentTemplate matching this leader for dynamic creation.
+			var leaderTmpl *agent.AgentTemplate
+			for i := range sb.rt.allTemplates {
+				if sb.rt.allTemplates[i].IsLeader && sb.rt.allTemplates[i].ID == leader.Name {
+					leaderTmpl = &sb.rt.allTemplates[i]
+					break
 				}
-				return &agent.LocatableAdapter{Agent: a}, nil
+			}
+
+			dt := tools.NewDelegateTool(leader.Name, leader.Description, 0, sb.rt.agentRegistry, sessLog)
+			dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
+				// Prefer an idle instance to avoid cold-start latency.
+				if loc, ok := sb.rt.agentRegistry.LocateIdle(leader.Name); ok {
+					return loc, nil
+				}
+				// No idle instance — create a new one with a unique InstanceID.
+				if leaderTmpl != nil {
+					child, _, err := sb.rt.agentFactory.Create(ctx, *leaderTmpl)
+					if err != nil {
+						return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
+					}
+
+					sv := agent.NewSupervisor(child, sb.rt.agentFactory, sessLog)
+					sv.WireSpawnFns(sb.rt.allTemplates)
+					sv.SetGroup(leaderTmpl.Group)
+					sb.rt.supervisors = append(sb.rt.supervisors, sv)
+
+					sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
+						"instance_id", child.InstanceID,
+						"name", leader.Name,
+					)
+					return agent.NewSelfReapableAdapter(child, sv), nil
+				}
+				// Fallback: any existing instance (busy but functional).
+				if loc, ok := sb.rt.agentRegistry.Locate(leader.Name); ok {
+					return loc, nil
+				}
+				return nil, fmt.Errorf("leader %q not found", leader.Name)
 			}
 			allTools = append(allTools, dt)
 		}
@@ -636,11 +839,11 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 				ModelID:      def.ModelID,
 				SystemPrompt: content,
 			}
-			forkTools := tools.Build(sb.rt.toolsCfg)
+			forkTools := tools.Build(toolsCfg)
 			if len(s.AllowedTools) > 0 {
 				forkTools = skill.FilterTools(forkTools, s.AllowedTools)
 			}
-			child := agent.NewAgent(forkDef, sb.rt.llmClient, sessLog,
+			child := agent.NewAgent(forkDef, llmClient, sessLog,
 				agent.WithTools(forkTools...),
 				agent.WithParallelTools(true),
 			)
@@ -656,7 +859,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		allTools = append(allTools, skillTool)
 	}
 
-	a := agent.NewAgent(def, sb.rt.llmClient, sessLog,
+	a := agent.NewAgent(def, llmClient, sessLog,
 		agent.WithTools(allTools...),
 		agent.WithSkills(skillList...),
 		agent.WithParallelTools(true),
@@ -678,13 +881,17 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		sessLog.Info(logger.CatActor, "auto-reload: leader supervisor created",
 			"name", name, "group", group)
 
-		dt := tools.NewDelegateTool(name, name+" team leader", 5*time.Minute, sb.rt.agentRegistry, sessLog)
+		dt := tools.NewDelegateTool(name, name+" team leader", 0, sb.rt.agentRegistry, sessLog)
 		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
-			a, ok := sb.rt.agentRegistry.Get(name)
-			if !ok {
-				return nil, fmt.Errorf("leader %q not found in registry", name)
+			// Prefer an idle instance to enable parallel delegation.
+			if loc, ok := sb.rt.agentRegistry.LocateIdle(name); ok {
+				return loc, nil
 			}
-			return &agent.LocatableAdapter{Agent: a}, nil
+			// Fallback: any instance (even if busy).
+			if loc, ok := sb.rt.agentRegistry.Locate(name); ok {
+				return loc, nil
+			}
+			return nil, fmt.Errorf("leader %q not found in registry", name)
 		}
 		if err := a.RegisterTool(dt); err != nil {
 			sessLog.Error(logger.CatActor, "register delegate tool for new leader failed",
@@ -694,7 +901,9 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 
 	// Timeline writer + push hook
 	tlDir := filepath.Join(sb.workDir, "logs", "timelines", effectiveTeam)
-	tl, err := timeline.NewWriter(tlDir, "timeline", sb.tlMaxBytes, sb.tlMaxFiles,
+	tlMaxBytes := int64(config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
+	tlMaxFiles := config.DefaultInt(settings.Session.TimelineMaxFiles, 5)
+	tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, tlMaxFiles,
 		timeline.WithWriterLogger(sessLog))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
@@ -744,8 +953,8 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 
 	// ContextWindow + system prompt
 	cw := ctxwin.NewContextWindow(
-		sb.rt.defaultModel.ContextWindow,
-		sb.rt.defaultModel.ContextWindow/10,
+		defModel.ContextWindow,
+		defModel.ContextWindow/10,
 		0,
 		sb.rt.tokenizer,
 		ctxwin.WithPushHook(pushHook),
@@ -778,10 +987,10 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 func buildSessionFactory(
 	rt *runtimeStack,
 	workDir string,
-	settings config.Settings,
+	cfg *config.GlobalService,
 	consoleLog bool,
 ) session.AgentFactory {
-	sb := newSessionBuilder(rt, workDir, settings, consoleLog)
+	sb := newSessionBuilder(rt, workDir, cfg, consoleLog)
 	return sb.Build
 }
 
@@ -950,9 +1159,11 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			rt.dockerSandbox = sb
+			rt.cfgMu.Lock()
 			rt.toolsCfg.Executor = executor
+			rt.cfgMu.Unlock()
 
-			factory := buildSessionFactory(rt, workDir, settings, settings.Log.Console)
+			factory := buildSessionFactory(rt, workDir, cfg, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, log)
 			mgr.SetRouter(buildRouterFunc(rt))
 			mgr.SetMemoryHook(buildMemoryHook(rt))

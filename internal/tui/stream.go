@@ -27,6 +27,7 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 
 	case agent.ContentDeltaEvent:
 		m.genPhase = phaseGenerating
+		m.contentDeltas++
 		// First content delta flushes any pending thinking
 		if m.current.content.Len() == 0 {
 			m.current.flushThinking()
@@ -93,7 +94,16 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		m.cacheHitTokens += e.Usage.PromptCacheHitTokens
 		m.cacheMissTokens += e.Usage.PromptCacheMissTokens
 		m.reasoningTokens += e.Usage.ReasoningTokens
+		m.currentIter = e.Iter
 		m.genPhase = phaseWaiting
+
+	case agent.DelegationStartedEvent:
+		m.activeDelegations = e.NumTasks
+
+	case agent.DelegationCompletedEvent:
+		if m.activeDelegations > 0 {
+			m.activeDelegations--
+		}
 
 	case agent.DoneEvent:
 		// handled by streamDoneMsg (channel close)

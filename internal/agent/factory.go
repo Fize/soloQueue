@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -73,13 +74,15 @@ type AgentFactory interface {
 //
 // 包含创建 Agent 所需的所有依赖。创建的 Agent 会自动注册到 Registry 并启动。
 type DefaultFactory struct {
+	mu sync.RWMutex // protects llm, toolsCfg, defaultModelID for hot-reload
+
 	registry       *Registry
 	llm            LLMClient
 	toolsCfg       tools.Config
+	defaultModelID string                         // 当 AgentTemplate.ModelID 为空时使用此默认值
 	skillDir       string
 	log            *logger.Logger
-	resolveModel   ModelResolver // nil = skip model validation (tests)
-	defaultModelID string                         // 当 AgentTemplate.ModelID 为空时使用此默认值
+	resolveModel   ModelResolver                  // nil = skip model validation (tests)
 	templates      map[string]AgentTemplate        // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
 	groups         map[string]prompt.GroupFile     // group 信息，供 L2 prompt 注入团队上下文
 }
@@ -151,6 +154,27 @@ func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
 }
 
+// SetLLMClient updates the LLM client used by future agent creations (hot-reload support).
+func (f *DefaultFactory) SetLLMClient(client LLMClient) {
+	f.mu.Lock()
+	f.llm = client
+	f.mu.Unlock()
+}
+
+// SetToolsConfig updates the tools config used by future agent creations (hot-reload support).
+func (f *DefaultFactory) SetToolsConfig(cfg tools.Config) {
+	f.mu.Lock()
+	f.toolsCfg = cfg
+	f.mu.Unlock()
+}
+
+// SetDefaultModelID updates the default model ID used by future agent creations (hot-reload support).
+func (f *DefaultFactory) SetDefaultModelID(modelID string) {
+	f.mu.Lock()
+	f.defaultModelID = modelID
+	f.mu.Unlock()
+}
+
 // Create 根据 tmpl 创建并启动一个 Agent 实例
 //
 // 流程：
@@ -163,6 +187,13 @@ func (f *DefaultFactory) Registry() *Registry {
 //  7. Start Agent
 //  8. 返回 (agent, cw, nil)
 func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent, *ctxwin.ContextWindow, error) {
+	// Snapshot hot-reloadable fields under read lock for a consistent agent creation.
+	f.mu.RLock()
+	llm := f.llm
+	toolsCfg := f.toolsCfg
+	defaultModelID := f.defaultModelID
+	f.mu.RUnlock()
+
 	// 1. 构建最终 SystemPrompt
 	var finalPrompt string
 	if tmpl.IsLeader {
@@ -187,7 +218,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	if f.resolveModel != nil {
 		modelID := tmpl.ModelID
 		if modelID == "" {
-			modelID = f.defaultModelID
+			modelID = defaultModelID
 		}
 		if modelID == "" {
 			return nil, nil, fmt.Errorf("agent %q: model ID is empty and no default model configured", tmpl.ID)
@@ -212,13 +243,13 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	// 2. 构建内置 tools
 	// 若 agent 属于某个 team，将 team workspace 路径加入 AllowedDirs，
 	// 使 Glob / Read / Grep 等工具能访问项目文件。
-	agentToolsCfg := f.toolsCfg
+	agentToolsCfg := toolsCfg
 	if tmpl.Group != "" {
 		if gf, ok := f.groups[tmpl.Group]; ok {
 			wsPaths := workspacePaths(gf)
 			if len(wsPaths) > 0 {
-				agentToolsCfg.AllowedDirs = make([]string, 0, len(f.toolsCfg.AllowedDirs)+len(wsPaths))
-				agentToolsCfg.AllowedDirs = append(agentToolsCfg.AllowedDirs, f.toolsCfg.AllowedDirs...)
+				agentToolsCfg.AllowedDirs = make([]string, 0, len(toolsCfg.AllowedDirs)+len(wsPaths))
+				agentToolsCfg.AllowedDirs = append(agentToolsCfg.AllowedDirs, toolsCfg.AllowedDirs...)
 				agentToolsCfg.AllowedDirs = append(agentToolsCfg.AllowedDirs, wsPaths...)
 			}
 		}
@@ -271,12 +302,12 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 				SystemPrompt: content,
 			}
 
-			forkTools := tools.Build(f.toolsCfg)
+			forkTools := tools.Build(toolsCfg)
 			if len(s.AllowedTools) > 0 {
 				forkTools = skill.FilterTools(forkTools, s.AllowedTools)
 			}
 
-			child := NewAgent(forkDef, f.llm, f.log,
+			child := NewAgent(forkDef, llm, f.log,
 				WithTools(forkTools...),
 				WithParallelTools(true),
 			)
@@ -303,7 +334,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	}
 
 	// 5. 创建 Agent
-	a := NewAgent(def, f.llm, f.log, opts...)
+	a := NewAgent(def, llm, f.log, opts...)
 
 	// 6. 创建 ContextWindow
 	cw := ctxwin.NewContextWindow(DefaultContextWindow, 2000, 0, ctxwin.NewTokenizer())
@@ -318,7 +349,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 
 	// 8. Start Agent
 	if err := a.Start(ctx); err != nil {
-		f.registry.Unregister(tmpl.ID)
+		f.registry.Unregister(a.InstanceID)
 		return nil, nil, fmt.Errorf("factory: start agent %q: %w", tmpl.ID, err)
 	}
 

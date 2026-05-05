@@ -13,50 +13,68 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// Registry is a concurrent-safe mapping of agent ID → Agent
+// Registry is a concurrent-safe mapping of instance ID → Agent, with a secondary
+// index by template ID for multi-instance lookup.
 //
-// Design principle: Registry only manages the map; does **not** implicitly trigger Start/Stop.
-// Lifecycle control uses explicit APIs: StartAll / StopAll / Shutdown.
+// Keys:
+//   - Primary:   InstanceID (UUID, unique per agent instance)
+//   - Secondary: Def.ID   (template/role identifier, shared by all instances of
+//                          the same template)
+//
+// This separation allows multiple agents with the same template ID to coexist,
+// enabling parallel scheduling (e.g., two "dev" L2 agents working concurrently
+// on different tasks).
+//
+// Design principle: Registry only manages the map; does **not** implicitly
+// trigger Start/Stop. Lifecycle control uses explicit APIs: StartAll / StopAll /
+// Shutdown.
 type Registry struct {
-	mu     sync.RWMutex
-	agents map[string]*Agent
-	log    *logger.Logger
+	mu        sync.RWMutex
+	agents    map[string]*Agent    // InstanceID → Agent
+	byTemplate map[string][]string // templateID (Def.ID) → []InstanceID
+	log       *logger.Logger
 }
 
 // NewRegistry constructs an empty registry
 //
-// log can be nil (log calls are skipped). After passing a logger, Register / Unregister /
-// StartAll / StopAll / Shutdown produce structured logs for tracking batch lifecycle events.
+// log can be nil (log calls are skipped). After passing a logger, Register /
+// Unregister / StartAll / StopAll / Shutdown produce structured logs for
+// tracking batch lifecycle events.
 func NewRegistry(log *logger.Logger) *Registry {
 	return &Registry{
-		agents: make(map[string]*Agent),
-		log:    log,
+		agents:     make(map[string]*Agent),
+		byTemplate: make(map[string][]string),
+		log:        log,
 	}
 }
 
-// Register adds an agent; returns ErrAgentAlreadyExists if ID already exists
-// Returns ErrAgentNil if agent is nil; ErrEmptyID if Def.ID is empty
+// Register adds an agent keyed by InstanceID (never Def.ID).
+// Multiple agents with the same Def.ID (template) can coexist.
+//
+// Returns ErrAgentNil if agent is nil; ErrEmptyID if InstanceID is empty.
 //
 // Does not start the agent — caller must explicitly call Start or use StartAll.
 func (r *Registry) Register(a *Agent) error {
 	if a == nil {
 		return ErrAgentNil
 	}
-	id := a.Def.ID
+	id := a.InstanceID
 	if id == "" {
 		return ErrEmptyID
 	}
+
 	r.mu.Lock()
-	if _, exists := r.agents[id]; exists {
-		r.mu.Unlock()
-		return ErrAgentAlreadyExists
-	}
 	r.agents[id] = a
+	tmplID := a.Def.ID
+	if tmplID != "" {
+		r.byTemplate[tmplID] = append(r.byTemplate[tmplID], id)
+	}
 	size := len(r.agents)
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry register",
-		slog.String("actor_id", id),
+		slog.String("instance_id", id),
+		slog.String("template_id", tmplID),
 		slog.String("kind", string(a.Def.Kind)),
 		slog.String("role", string(a.Def.Role)),
 		slog.Int("size", size),
@@ -64,27 +82,46 @@ func (r *Registry) Register(a *Agent) error {
 	return nil
 }
 
-// Unregister removes an ID from registry; returns true if it existed and was removed
+// Unregister removes an agent by InstanceID; returns true if it existed and
+// was removed.
 //
 // Does not stop the agent — caller must explicitly call Stop or use Shutdown.
 func (r *Registry) Unregister(id string) bool {
 	r.mu.Lock()
-	if _, exists := r.agents[id]; !exists {
+	a, exists := r.agents[id]
+	if !exists {
 		r.mu.Unlock()
 		return false
 	}
 	delete(r.agents, id)
+
+	// Clean up secondary index
+	tmplID := a.Def.ID
+	if tmplID != "" {
+		instances := r.byTemplate[tmplID]
+		for i, instID := range instances {
+			if instID == id {
+				r.byTemplate[tmplID] = append(instances[:i], instances[i+1:]...)
+				if len(r.byTemplate[tmplID]) == 0 {
+					delete(r.byTemplate, tmplID)
+				}
+				break
+			}
+		}
+	}
+
 	size := len(r.agents)
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry unregister",
-		slog.String("actor_id", id),
+		slog.String("instance_id", id),
+		slog.String("template_id", tmplID),
 		slog.Int("size", size),
 	)
 	return true
 }
 
-// Get looks up an agent; returns (nil, false) if not found
+// Get looks up an agent by InstanceID; returns (nil, false) if not found.
 func (r *Registry) Get(id string) (*Agent, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -92,10 +129,45 @@ func (r *Registry) Get(id string) (*Agent, bool) {
 	return a, ok
 }
 
-// List returns a snapshot slice of all current agents, sorted by name for stable display.
+// GetByTemplate returns all agent instances for a given template ID.
+// Returns nil if no instances exist.
+func (r *Registry) GetByTemplate(templateID string) []*Agent {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.byTemplate[templateID]
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]*Agent, 0, len(ids))
+	for _, id := range ids {
+		if a, ok := r.agents[id]; ok {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// LocateIdle finds an idle agent instance for the given template ID.
+// Returns (nil, false) if no idle instance is available.
+// This is the preferred method for SpawnFn — it reuses idle instances before
+// creating new ones.
+func (r *Registry) LocateIdle(templateID string) (iface.Locatable, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.byTemplate[templateID]
+	for _, id := range ids {
+		if a, ok := r.agents[id]; ok && a.State() == StateIdle {
+			return &LocatableAdapter{Agent: a}, true
+		}
+	}
+	return nil, false
+}
+
+// List returns a snapshot slice of all current agents, sorted by name for
+// stable display.
 //
-// The returned slice is independent of the internal map; modifying it doesn't affect registry;
-// slice elements are still *Agent pointers.
+// The returned slice is independent of the internal map; modifying it doesn't
+// affect registry; slice elements are still *Agent pointers.
 func (r *Registry) List() []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -137,7 +209,7 @@ func (r *Registry) StartAll(parent context.Context) []error {
 	var errs []error
 	for _, a := range agents {
 		if err := a.Start(parent); err != nil {
-			errs = append(errs, fmt.Errorf("agent %q: %w", a.Def.ID, err))
+			errs = append(errs, fmt.Errorf("agent %q (template %q): %w", a.InstanceID, a.Def.ID, err))
 		}
 	}
 
@@ -168,7 +240,7 @@ func (r *Registry) StopAll(timeout time.Duration) []error {
 			if errors.Is(err, ErrNotStarted) {
 				continue
 			}
-			errs = append(errs, fmt.Errorf("agent %q: %w", a.Def.ID, err))
+			errs = append(errs, fmt.Errorf("agent %q (template %q): %w", a.InstanceID, a.Def.ID, err))
 		}
 	}
 
@@ -194,9 +266,10 @@ func (r *Registry) Shutdown(timeout time.Duration) error {
 
 	stopErrs := r.StopAll(timeout)
 
-	// 清空 map
+	// 清空 maps
 	r.mu.Lock()
 	r.agents = make(map[string]*Agent)
+	r.byTemplate = make(map[string][]string)
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry shutdown done",
@@ -210,6 +283,35 @@ func (r *Registry) Shutdown(timeout time.Duration) error {
 	return errors.Join(stopErrs...)
 }
 
+// ─── AgentLocator ───────────────────────────────────────────────────────────
+
+// Locate implements iface.AgentLocator.
+//
+// Finds an idle agent instance by template ID. If no idle instance exists,
+// returns the first instance regardless of state (the caller can still use it
+// — the agent's mailbox will queue the job).
+//
+// For SpawnFn callers that want to create a new instance when none are idle,
+// use LocateIdle instead.
+func (r *Registry) Locate(id string) (iface.Locatable, bool) {
+	// First try to find an idle instance
+	if loc, ok := r.LocateIdle(id); ok {
+		return loc, true
+	}
+	// Fall back to any instance
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.byTemplate[id]
+	if len(ids) == 0 {
+		return nil, false
+	}
+	a, ok := r.agents[ids[0]]
+	if !ok {
+		return nil, false
+	}
+	return &LocatableAdapter{Agent: a}, true
+}
+
 // ─── Logging helpers ─────────────────────────────────────────────────────────
 
 func (r *Registry) logInfo(cat logger.Category, msg string, args ...any) {
@@ -217,18 +319,6 @@ func (r *Registry) logInfo(cat logger.Category, msg string, args ...any) {
 		return
 	}
 	r.log.Info(cat, msg, args...)
-}
-
-// Locate implements iface.AgentLocator.
-//
-// Returns an iface.Locatable wrapper around the Agent, used by
-// DelegateTool to find target agents without importing this package.
-func (r *Registry) Locate(id string) (iface.Locatable, bool) {
-	agent, ok := r.Get(id)
-	if !ok {
-		return nil, false
-	}
-	return &LocatableAdapter{Agent: agent}, true
 }
 
 // --- LocatableAdapter ---
@@ -256,6 +346,12 @@ func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-cha
 		for ev := range eventCh {
 			select {
 			case out <- ev:
+				if la.Agent.Log != nil {
+					la.Agent.Log.InfoContext(ctx, logger.CatTool, "locatable-adapter: relayed event",
+						"agent_id", la.Agent.Def.ID,
+						"event_type", fmt.Sprintf("%T", ev),
+					)
+				}
 			case <-ctx.Done():
 				return
 			}
