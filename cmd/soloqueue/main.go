@@ -130,7 +130,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				RulesCreated:  rt.rulesCreated,
 				RulesPath:     rt.promptCfg.RulesPath(),
 				Registry:      rt.agentRegistry,
-				Supervisors:   rt.supervisors,
+				SupervisorsFn: func() []*agent.Supervisor { return rt.supervisors },
 				Skills:        rt.skillRegistry,
 				NotifyCh:      rt.permNotifyCh,
 			})

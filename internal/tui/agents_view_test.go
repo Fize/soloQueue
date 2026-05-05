@@ -82,7 +82,7 @@ func TestCounts_L2WithL3Children(t *testing.T) {
 		agent.AgentTemplate{ID: "coder", Name: "Coder"},
 	)
 
-	s := newSidebar(reg, []*agent.Supervisor{sv})
+	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
 	c := s.counts()
 	if c.a2 != 1 {
 		t.Errorf("expected a2=1, got %d", c.a2)
@@ -97,7 +97,7 @@ func TestCounts_L2WithL3Children(t *testing.T) {
 }
 
 func TestCounts_NilSupervisor(t *testing.T) {
-	s := newSidebar(nil, []*agent.Supervisor{nil})
+	s := newSidebar(nil, func() []*agent.Supervisor { return []*agent.Supervisor{nil} })
 	c := s.counts()
 	if c.a2 != 0 {
 		t.Errorf("nil supervisor should not count as a2, got %d", c.a2)
@@ -106,7 +106,8 @@ func TestCounts_NilSupervisor(t *testing.T) {
 
 func TestCounts_NilSupervisorAgent(t *testing.T) {
 	sv := agent.NewSupervisor(nil, nil, nil)
-	s := newSidebar(nil, []*agent.Supervisor{sv})
+	svs := []*agent.Supervisor{sv}
+	s := newSidebar(nil, func() []*agent.Supervisor { return svs })
 	c := s.counts()
 	if c.a2 != 0 {
 		t.Errorf("supervisor with nil agent should not count as a2, got %d", c.a2)
@@ -281,7 +282,7 @@ func TestRenderAgentTreeContent_L2WithChildren(t *testing.T) {
 	sv := supervisorWithChildren(l2, reg, log,
 		agent.AgentTemplate{ID: "coder", Name: "Coder"},
 	)
-	s := newSidebar(reg, []*agent.Supervisor{sv})
+	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
 
 	got := s.renderAgentTreeContent(40, 20, true)
 	if !strings.Contains(got, "A2 Domain Leaders") {
@@ -305,7 +306,7 @@ func TestRenderAgentTreeContent_NoL1Agents(t *testing.T) {
 	reg.Register(l2)
 	sv := agent.NewSupervisor(l2, nil, nil)
 
-	s := newSidebar(reg, []*agent.Supervisor{sv})
+	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
 	got := s.renderAgentTreeContent(40, 20, true)
 	if !strings.Contains(got, "(none)") {
 		t.Error("L1 section with no L1 agents should show '(none)'")
@@ -319,7 +320,7 @@ func TestRenderAgentTreeContent_NoL2Children(t *testing.T) {
 	reg.Register(l2)
 	sv := agent.NewSupervisor(l2, nil, nil)
 
-	s := newSidebar(reg, []*agent.Supervisor{sv})
+	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
 	got := s.renderAgentTreeContent(40, 20, true)
 	if !strings.Contains(got, "A3 Workers") {
 		t.Error("should show A3 Workers section")

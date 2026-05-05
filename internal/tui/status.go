@@ -17,10 +17,15 @@ import (
 //   - L2 = Supervisor.Agent()
 //   - L3 = Supervisor.Children()
 //   - L1 = Registry 中排除 L2/L3 的其余 Agent
-func renderStatus(registry *agent.Registry, supervisors []*agent.Supervisor) string {
+func renderStatus(registry *agent.Registry, supervisorsFn func() []*agent.Supervisor) string {
 	var sb strings.Builder
 
 	sb.WriteString(clearStatusStyle.Render("◆  Agent Status") + "\n\n")
+
+	supervisors := []*agent.Supervisor{}
+	if supervisorsFn != nil {
+		supervisors = supervisorsFn()
+	}
 
 	if registry == nil || registry.Len() == 0 {
 		sb.WriteString(dimStyle.Render("  No agents registered") + "\n\n")
