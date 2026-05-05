@@ -487,6 +487,12 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			}
 
 			switch e := ev.(type) {
+			case agent.ToolNeedsConfirmEvent:
+				s.logger.InfoContext(ctx, logger.CatApp, "session-forwarder: confirm event received and forwarded",
+					"session_id", s.ID,
+					"call_id", e.CallID,
+					"tool_name", e.Name,
+				)
 			case agent.DelegationStartedEvent:
 				// 异步委派开始：释放 inFlight，允许用户发送新消息
 				s.logger.DebugContext(ctx, logger.CatApp, "delegation started",

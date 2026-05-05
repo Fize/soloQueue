@@ -162,14 +162,17 @@ type model struct {
 	renderer     *glamour.TermRenderer
 	darkBg       bool
 
-	genStartTime    time.Time
-	genPhase        genPhase
-	promptTokens    int
-	outputTokens    int
-	cacheHitTokens  int
-	cacheMissTokens int
-	reasoningTokens int
-	genSummary      string
+	genStartTime       time.Time
+	genPhase           genPhase
+	promptTokens       int
+	outputTokens       int
+	cacheHitTokens     int
+	cacheMissTokens    int
+	reasoningTokens    int
+	genSummary         string
+	activeDelegations  int // current number of in-flight async delegations
+	currentIter        int // current tool-use iteration (from IterationDoneEvent)
+	contentDeltas      int // diagnostic: number of ContentDeltaEvents received this turn
 
 	messages     []message
 	current      *streamState
@@ -755,6 +758,10 @@ func (m *model) resetGenState() {
 	m.cacheHitTokens = 0
 	m.cacheMissTokens = 0
 	m.reasoningTokens = 0
+	m.activeDelegations = 0
+	m.currentIter = 0
+	m.contentDeltas = 0
+	m.confirmState = nil
 }
 
 // ─── Stream helpers ────────────────────────

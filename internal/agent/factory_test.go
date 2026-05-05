@@ -174,7 +174,7 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 	}
 
 	// 验证 agent 已注册
-	if _, ok := registry.Get(tmpl.ID); !ok {
+	if _, ok := registry.Get(agent.InstanceID); !ok {
 		t.Error("agent should be registered")
 	}
 
@@ -282,7 +282,7 @@ func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 	}
 }
 
-func TestDefaultFactory_Create_RegistryError(t *testing.T) {
+func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	dir := t.TempDir()
 	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
 	if err != nil {
@@ -291,10 +291,6 @@ func TestDefaultFactory_Create_RegistryError(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-
-	// 先注册一个同名 agent，这样第二次注册会失败
-	existing := NewAgent(Definition{ID: "dup-agent"}, &FakeLLM{}, log)
-	_ = registry.Register(existing)
 
 	fakeLLM := &FakeLLM{
 		Responses: []string{"hello"},
@@ -309,18 +305,31 @@ func TestDefaultFactory_Create_RegistryError(t *testing.T) {
 	)
 
 	tmpl := AgentTemplate{
-		ID:          "dup-agent",
-		Name:        "Dup Agent",
-		SystemPrompt: "You are dup.",
+		ID:          "multi-agent",
+		Name:        "Multi Agent",
+		SystemPrompt: "You are multi.",
 	}
 
-	_, _, err = factory.Create(context.Background(), tmpl)
-	if err == nil {
-		t.Error("expected error for duplicate registration")
+	// Create first instance
+	a1, _, err := factory.Create(context.Background(), tmpl)
+	if err != nil {
+		t.Fatalf("factory.Create first: %v", err)
 	}
+	defer a1.Stop(time.Second)
 
-	// 清理
-	_ = existing.Stop(time.Second)
+	// Create second instance with same template — should succeed (different InstanceID)
+	a2, _, err := factory.Create(context.Background(), tmpl)
+	if err != nil {
+		t.Fatalf("factory.Create second with same template should succeed: %v", err)
+	}
+	defer a2.Stop(time.Second)
+
+	if a1.InstanceID == a2.InstanceID {
+		t.Error("two instances should have different InstanceIDs")
+	}
+	if registry.Len() != 2 {
+		t.Errorf("registry Len = %d, want 2", registry.Len())
+	}
 }
 
 func TestDefaultFactory_Create_StartError(t *testing.T) {

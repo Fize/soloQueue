@@ -14,7 +14,7 @@ import (
 
 const (
 	// DelegateDefaultTimeout is the default delegation task timeout.
-	DelegateDefaultTimeout = 5 * time.Minute
+	DelegateDefaultTimeout = 10 * time.Minute
 
 	// DelegateMaxTimeout is the maximum allowed delegation task timeout.
 	DelegateMaxTimeout = 15 * time.Minute
@@ -138,7 +138,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 				"leader_id", dt.LeaderID,
 			)
 		}
-		return "error: task is empty", nil
+		return "", fmt.Errorf("delegate: task is empty")
 	}
 
 	if dt.logger != nil {
@@ -164,7 +164,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 					"duration_ms", time.Since(start).Milliseconds(),
 				)
 			}
-			return fmt.Sprintf("error: failed to spawn agent '%s': %s", dt.LeaderID, err), nil
+			return "", fmt.Errorf("failed to spawn agent '%s': %w", dt.LeaderID, err)
 		}
 		isSpawned = true
 
@@ -183,7 +183,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 					"duration_ms", time.Since(start).Milliseconds(),
 				)
 			}
-			return fmt.Sprintf("error: team leader '%s' not found", dt.LeaderID), nil
+			return "", fmt.Errorf("team leader '%s' not found", dt.LeaderID)
 		}
 
 		if dt.logger != nil {
@@ -244,7 +244,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 					"duration_ms", time.Since(start).Milliseconds(),
 				)
 			}
-			return fmt.Sprintf("error: delegation to %s timed out after %s, task has been cancelled", dt.LeaderID, timeout), nil
+			return "", fmt.Errorf("delegation to %s timed out after %s", dt.LeaderID, timeout)
 		}
 
 		if dt.logger != nil {
@@ -254,7 +254,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 				"duration_ms", time.Since(start).Milliseconds(),
 			)
 		}
-		return "error: " + err.Error(), nil
+		return "", err
 	}
 
 	// 6. Consume events: relay to parent, track content/error
@@ -337,6 +337,11 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 		}
 	}
 
+	// Notify that delegation is done so the target can be reaped immediately.
+	if dn, ok := targetAgent.(iface.DoneNotifier); ok {
+		dn.OnDelegationDone()
+	}
+
 	if finalErr != nil {
 		if dt.logger != nil {
 			dt.logger.WarnContext(ctx, logger.CatTool, "delegate: finished with error",
@@ -347,6 +352,20 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 			)
 		}
 		return "", finalErr
+	}
+
+	// Check whether the child agent had tool errors even though its LLM
+	// produced a normal DoneEvent. This catches cases where L3's tools
+	// silently failed and L3's LLM compensated without surfacing errors.
+	if et, ok := targetAgent.(iface.ErrorTracker); ok {
+		if ec := et.ErrorCount(); ec > 0 {
+			prefix := fmt.Sprintf("[WARNING: worker encountered %d error(s) during execution", ec)
+			if le := et.LastError(); le != "" {
+				prefix += fmt.Sprintf("; last error: %s", le)
+			}
+			prefix += "]\n"
+			content = prefix + content
+		}
 	}
 
 	if dt.logger != nil {

@@ -15,7 +15,7 @@ import (
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 type options struct {
-	level     slog.Level
+	levelVar  *slog.LevelVar
 	console   bool
 	file      bool
 	maxSizeMB int
@@ -26,7 +26,7 @@ type options struct {
 type Option func(*options)
 
 func WithLevel(level slog.Level) Option {
-	return func(o *options) { o.level = level }
+	return func(o *options) { o.levelVar.Set(level) }
 }
 
 func WithConsole(enabled bool) Option {
@@ -43,7 +43,7 @@ func WithMaxFiles(n int) Option {
 
 func defaultOptions() options {
 	return options{
-		level:     slog.LevelInfo,
+		levelVar:  &slog.LevelVar{},
 		console:   false,
 		file:      true,
 		maxSizeMB: 50,
@@ -62,6 +62,7 @@ type Logger struct {
 	teamID    string
 	sessionID string
 	handler   *MultiHandler
+	levelVar  *slog.LevelVar // 与 handler 共享，支持运行时动态调整日志级别
 }
 
 // ─── Factory Functions ────────────────────────────────────────────────────────
@@ -87,7 +88,7 @@ func newLogger(baseDir string, layer Layer, teamID, sessionID string, opts ...Op
 		opt(&o)
 	}
 
-	handlerOpts := &slog.HandlerOptions{Level: o.level}
+	handlerOpts := &slog.HandlerOptions{Level: o.levelVar}
 
 	// Console handler
 	var consoleHandler slog.Handler
@@ -98,7 +99,7 @@ func newLogger(baseDir string, layer Layer, teamID, sessionID string, opts ...Op
 	// File handler
 	var fileHandler *FileHandler
 	if o.file {
-		fileHandler = newFileHandler(baseDir, layer, teamID, sessionID, o.level, o.maxSizeMB, o.maxDays, o.maxFiles)
+		fileHandler = newFileHandler(baseDir, layer, teamID, sessionID, o.levelVar, o.maxSizeMB, o.maxDays, o.maxFiles)
 	}
 
 	multi := newMultiHandler(consoleHandler, fileHandler)
@@ -111,6 +112,7 @@ func newLogger(baseDir string, layer Layer, teamID, sessionID string, opts ...Op
 		teamID:    teamID,
 		sessionID: sessionID,
 		handler:   multi,
+		levelVar:  o.levelVar,
 	}, nil
 }
 
@@ -149,6 +151,14 @@ func (l *Logger) WithTraceID(id string) *Logger {
 // NewTraceID 返回携带随机 8 位 hex trace_id 的子 Logger
 func (l *Logger) NewTraceID() *Logger {
 	return l.WithTraceID(randomHex(4))
+}
+
+// SetLevel 运行时动态调整日志级别，用于配置热重载。
+// levelVar 与 handler 共享，修改立即生效，并发安全。
+func (l *Logger) SetLevel(level slog.Level) {
+	if l.levelVar != nil {
+		l.levelVar.Set(level)
+	}
 }
 
 // ─── Log Methods ──────────────────────────────────────────────────────────────

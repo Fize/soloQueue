@@ -70,18 +70,3 @@ func stateLabel(s agent.State) string {
 	}
 }
 
-// stateIcon returns the icon for an agent state.
-func stateIcon(s agent.State) string {
-	switch s {
-	case agent.StateIdle:
-		return "◉"
-	case agent.StateProcessing:
-		return "◌"
-	case agent.StateStopping:
-		return "⊘"
-	case agent.StateStopped:
-		return "○"
-	default:
-		return "○"
-	}
-}

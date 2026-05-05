@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
@@ -70,6 +71,10 @@ type Agent struct {
 	// confirmStore 是会话级工具放行存储；默认内存实现，可通过 WithConfirmStore 替换。
 	confirmStore SessionConfirmStore
 
+	// InstanceID 是 Agent 实例的唯一标识（UUID），与 Def.ID（模板/角色标识）分离。
+	// 支持同一模板的多个 Agent 实例共存（并行调度）。
+	InstanceID string
+
 	// 异步委托追踪（L1 专用）
 	turnMu     sync.RWMutex
 	asyncTurns map[int]*asyncTurnState // iter → 轮次异步状态
@@ -87,6 +92,12 @@ type Agent struct {
 	// and watchDelegatedTask (delegation failures).
 	errCount atomic.Int32
 	lastErr  atomic.Value // string
+
+	// Circuit breaker: tracks consecutive fatal streamLoop failures across jobs.
+	// Incremented on ChatStream failure, buildMessages failure, and
+	// MaxIterations exceeded. Reset on successful completion (DoneEvent).
+	// When >= DefaultMaxConsecutiveFailures, streamLoop refuses to run.
+	consecutiveFailures atomic.Int32
 
 	// 观察（无锁）
 	state   atomic.Int32 // State
@@ -232,6 +243,14 @@ func WithPriorityMailbox() Option {
 	}
 }
 
+// WithInstanceID overrides the auto-generated UUID instance ID.
+// Primarily for deterministic testing.
+func WithInstanceID(id string) Option {
+	return func(a *Agent) {
+		a.InstanceID = id
+	}
+}
+
 // SetDelegateSpawnFn replaces the SpawnFn on the DelegateTool with the given
 // leaderID. This is used after Supervisor creation to wire L2→L3 delegation
 // through the Supervisor so spawned L3 children are tracked.
@@ -354,6 +373,25 @@ func (a *Agent) LastError() string {
 	return ""
 }
 
+// ─── Circuit breaker ────────────────────────────────────────────────────
+
+// IncrementConsecutiveFailures increments the circuit breaker counter and
+// returns the new value. Called by streamLoop on fatal errors.
+func (a *Agent) IncrementConsecutiveFailures() int32 {
+	return a.consecutiveFailures.Add(1)
+}
+
+// ResetConsecutiveFailures resets the circuit breaker counter to 0.
+// Called by streamLoop on successful completion (DoneEvent).
+func (a *Agent) ResetConsecutiveFailures() {
+	a.consecutiveFailures.Store(0)
+}
+
+// ConsecutiveFailures returns the current circuit breaker counter.
+func (a *Agent) ConsecutiveFailures() int32 {
+	return a.consecutiveFailures.Load()
+}
+
 // NewAgent 构造未 Start 的 agent
 //
 // log 可以为 nil（此时日志调用被跳过）。
@@ -363,6 +401,7 @@ func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option)
 		Def:            def,
 		LLM:            llm,
 		Log:            log,
+		InstanceID:     uuid.NewString(),
 		mailboxCap:     DefaultMailboxCap,
 		asyncTurns:     make(map[int]*asyncTurnState),
 		pendingConfirm: make(map[string]*confirmSlot),

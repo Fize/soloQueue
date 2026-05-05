@@ -19,17 +19,18 @@ import (
 // 组合 Agent（而非嵌入），持有 L2 Agent 实例和 AgentFactory，
 // 负责 L3 子 Agent 的生命周期管理（Spawn/Reap）。
 //
+// children 是 templateID → []childSlot 的映射，支持同一模板的多个 L3 实例
+// 并行工作（每个实例拥有独立的 context window 和 mailbox）。
+//
 // L2 的 Fan-out/Fan-in 复用现有 execTools 并行机制：
 //   - L2 LLM 返回多个 delegate_* tool_calls
 //   - execTools 并行执行每个 DelegateTool
 //   - 每个 DelegateTool 同步阻塞调用 L3.Ask()
 //   - 全部完成后结果注入 L2 上下文
-//
-// Supervisor 的核心价值是生命周期管理，而非并发调度。
 type Supervisor struct {
 	agent    *Agent
 	factory  AgentFactory
-	children map[string]*childSlot
+	children map[string][]*childSlot // templateID → instances
 	childMu  sync.RWMutex
 	group    string // team group name for matching workers during auto-reload
 	log      *logger.Logger
@@ -47,22 +48,16 @@ func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supe
 	return &Supervisor{
 		agent:    agent,
 		factory:  factory,
-		children: make(map[string]*childSlot),
+		children: make(map[string][]*childSlot),
 		log:      log,
 	}
 }
 
 // SpawnChild instantiates an L3 child Agent from the given template.
+// Each call creates a new Agent instance with a unique InstanceID,
+// allowing multiple children of the same template to run concurrently.
 //
-// Flow: factory.Create → register in children map → return.
-//
-// KNOWN OVERHEAD: Each spawn pays the full Agent initialization cost
-// (Definition build, tool build, skill load, registry register,
-// ContextWindow create, agent Start goroutine). This is acceptable for
-// the current L2→L3 pattern where spawns are infrequent (triggered by
-// user tasks, not per-token). For high-frequency spawning, consider:
-//   - Agent pooling (pre-spawn N agents, reuse via Reset)
-//   - Template caching (pre-build tools once, clone per instance)
+// Flow: factory.Create → append to children[tmpl.ID] → return.
 func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate) (*Agent, error) {
 	if s.factory == nil {
 		return nil, fmt.Errorf("supervisor: no factory configured")
@@ -73,17 +68,20 @@ func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate) (*Agent
 		return nil, fmt.Errorf("supervisor: spawn child %q: %w", tmpl.ID, err)
 	}
 
-	s.childMu.Lock()
-	s.children[tmpl.ID] = &childSlot{
+	slot := &childSlot{
 		agent:     child,
 		cw:        cw,
 		createdAt: time.Now(),
 	}
+
+	s.childMu.Lock()
+	s.children[tmpl.ID] = append(s.children[tmpl.ID], slot)
 	s.childMu.Unlock()
 
 	if s.log != nil {
 		s.log.InfoContext(ctx, logger.CatActor, "supervisor spawned child",
-			"child_id", tmpl.ID,
+			"instance_id", child.InstanceID,
+			"template_id", tmpl.ID,
 			"child_name", tmpl.Name,
 		)
 	}
@@ -91,27 +89,50 @@ func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate) (*Agent
 	return child, nil
 }
 
-// ReapChild 回收一个子 Agent
+// ReapChild 回收一个子 Agent（按 InstanceID 查找）
 //
 // 彻底清理：
 //  1. Stop Agent（关闭 mailbox + cancel ctx + 等 goroutine 退出）
 //  2. Unregister from Registry（断开 Locator 引用）
 //  3. 显式释放引用（帮助 GC）
-func (s *Supervisor) ReapChild(childID string, timeout time.Duration) error {
+func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 	s.childMu.Lock()
-	slot, ok := s.children[childID]
-	delete(s.children, childID)
+	var tmplID string
+	var slot *childSlot
+	var idx int
+	found := false
+	for tid, slots := range s.children {
+		for i, sl := range slots {
+			if sl.agent.InstanceID == instanceID {
+				tmplID = tid
+				slot = sl
+				idx = i
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if found {
+		slots := s.children[tmplID]
+		s.children[tmplID] = append(slots[:idx], slots[idx+1:]...)
+		if len(s.children[tmplID]) == 0 {
+			delete(s.children, tmplID)
+		}
+	}
 	s.childMu.Unlock()
 
-	if !ok {
-		return fmt.Errorf("supervisor: child %q not found", childID)
+	if !found {
+		return fmt.Errorf("supervisor: child %q not found", instanceID)
 	}
 
 	// 1. Stop Agent
 	if err := slot.agent.Stop(timeout); err != nil {
 		if s.log != nil {
 			s.log.ErrorContext(context.Background(), logger.CatActor, "supervisor stop child failed", err,
-				"child_id", childID,
+				"instance_id", instanceID,
 			)
 		}
 		// 继续清理，不返回错误（Stop 超时不是致命错误）
@@ -119,7 +140,7 @@ func (s *Supervisor) ReapChild(childID string, timeout time.Duration) error {
 
 	// 2. Unregister from Registry
 	if s.factory != nil && s.factory.Registry() != nil {
-		s.factory.Registry().Unregister(childID)
+		s.factory.Registry().Unregister(instanceID)
 	}
 
 	// 3. 显式释放引用
@@ -128,7 +149,8 @@ func (s *Supervisor) ReapChild(childID string, timeout time.Duration) error {
 
 	if s.log != nil {
 		s.log.InfoContext(context.Background(), logger.CatActor, "supervisor reaped child",
-			"child_id", childID,
+			"instance_id", instanceID,
+			"template_id", tmplID,
 		)
 	}
 
@@ -140,15 +162,20 @@ func (s *Supervisor) ReapChild(childID string, timeout time.Duration) error {
 // 返回每个子 Agent 的回收错误（如有）。即使部分失败，也会尝试回收所有。
 func (s *Supervisor) ReapAll(timeout time.Duration) []error {
 	s.childMu.Lock()
-	ids := make([]string, 0, len(s.children))
-	for id := range s.children {
-		ids = append(ids, id)
+	type reapTarget struct {
+		instanceID string
+	}
+	var targets []reapTarget
+	for _, slots := range s.children {
+		for _, slot := range slots {
+			targets = append(targets, reapTarget{instanceID: slot.agent.InstanceID})
+		}
 	}
 	s.childMu.Unlock()
 
 	var errs []error
-	for _, id := range ids {
-		if err := s.ReapChild(id, timeout); err != nil {
+	for _, t := range targets {
+		if err := s.ReapChild(t.instanceID, timeout); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -160,9 +187,11 @@ func (s *Supervisor) Children() []*Agent {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
 
-	agents := make([]*Agent, 0, len(s.children))
-	for _, slot := range s.children {
-		agents = append(agents, slot.agent)
+	var agents []*Agent
+	for _, slots := range s.children {
+		for _, slot := range slots {
+			agents = append(agents, slot.agent)
+		}
 	}
 	sort.Slice(agents, func(i, j int) bool {
 		ni, nj := agents[i].Def.Name, agents[j].Def.Name
@@ -174,14 +203,16 @@ func (s *Supervisor) Children() []*Agent {
 	return agents
 }
 
-// AdoptChild adds an already-created agent to the supervisor's children map.
-// Used by auto-reload to track hot-instantiated workers without going through SpawnChild.
+// AdoptChild adds an already-created agent to the supervisor's children map
+// under its template ID. Used by auto-reload to track hot-instantiated workers
+// without going through SpawnChild.
 func (s *Supervisor) AdoptChild(child *Agent) {
 	s.childMu.Lock()
-	s.children[child.Def.ID] = &childSlot{
+	tmplID := child.Def.ID
+	s.children[tmplID] = append(s.children[tmplID], &childSlot{
 		agent:     child,
 		createdAt: time.Now(),
-	}
+	})
 	s.childMu.Unlock()
 }
 
@@ -198,8 +229,14 @@ func (s *Supervisor) Agent() *Agent { return s.agent }
 func (s *Supervisor) ChildCount() int {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
-	return len(s.children)
+	count := 0
+	for _, slots := range s.children {
+		count += len(slots)
+	}
+	return count
 }
+
+// ─── WireSpawnFns ──────────────────────────────────────────────────────────
 
 // WireSpawnFns rewires the L2 agent's DelegateTools to use Supervisor.SpawnChild
 // instead of direct factory.Create. This ensures L3 children spawned via
@@ -219,7 +256,10 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 			if err != nil {
 				return nil, err
 			}
-			return &LocatableAdapter{Agent: child}, nil
+			return &reapableAdapter{
+				LocatableAdapter: &LocatableAdapter{Agent: child},
+				supervisor:       s,
+			}, nil
 		})
 	}
 }
@@ -236,7 +276,10 @@ func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, ta
 		if err != nil {
 			return nil, err
 		}
-		return &LocatableAdapter{Agent: child}, nil
+		return &reapableAdapter{
+			LocatableAdapter: &LocatableAdapter{Agent: child},
+			supervisor:       s,
+		}, nil
 	}
 }
 
@@ -258,3 +301,51 @@ func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) 
 	}
 	return s.SpawnFnFor(*tmpl)
 }
+
+// ─── Reapable adapters ─────────────────────────────────────────────────────
+
+// reapableAdapter wraps a LocatableAdapter with a DoneNotifier that reaps the
+// child from the supervisor when delegation completes. Used for L3 workers.
+type reapableAdapter struct {
+	*LocatableAdapter
+	supervisor *Supervisor
+}
+
+func (ra *reapableAdapter) OnDelegationDone() {
+	ra.supervisor.ReapChild(ra.Agent.InstanceID, 10*time.Second)
+}
+
+// Compile-time interface checks.
+var _ iface.Locatable = (*reapableAdapter)(nil)
+var _ iface.ModelOverridable = (*reapableAdapter)(nil)
+var _ iface.DoneNotifier = (*reapableAdapter)(nil)
+
+// NewSelfReapableAdapter creates a SelfReapableAdapter that reaps the entire
+// supervisor (L2 + all children) when delegation completes.
+func NewSelfReapableAdapter(agent *Agent, sv *Supervisor) *SelfReapableAdapter {
+	return &SelfReapableAdapter{
+		LocatableAdapter: &LocatableAdapter{Agent: agent},
+		supervisor:       sv,
+	}
+}
+
+// SelfReapableAdapter wraps a LocatableAdapter with a DoneNotifier that reaps
+// the entire supervisor (L2 + all children) when delegation completes.
+// Used for dynamically created L2 agents (SpawnFn in main.go).
+type SelfReapableAdapter struct {
+	*LocatableAdapter
+	supervisor *Supervisor
+}
+
+func (ra *SelfReapableAdapter) OnDelegationDone() {
+	ra.supervisor.ReapAll(10 * time.Second)
+	ra.supervisor.Agent().Stop(10 * time.Second)
+	if ra.supervisor.factory != nil && ra.supervisor.factory.Registry() != nil {
+		ra.supervisor.factory.Registry().Unregister(ra.Agent.InstanceID)
+	}
+}
+
+// Compile-time interface checks.
+var _ iface.Locatable = (*SelfReapableAdapter)(nil)
+var _ iface.ModelOverridable = (*SelfReapableAdapter)(nil)
+var _ iface.DoneNotifier = (*SelfReapableAdapter)(nil)

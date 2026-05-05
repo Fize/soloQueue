@@ -36,35 +36,6 @@ func TestSidebar_Toggle(t *testing.T) {
 	}
 }
 
-// ─── stateIcon all states ───────────────────────────────────────────────────
-
-func TestStateIcon_AllStates(t *testing.T) {
-	tests := []struct {
-		state agent.State
-		icon  string
-	}{
-		{agent.StateIdle, "◉"},
-		{agent.StateProcessing, "◌"},
-		{agent.StateStopping, "⊘"},
-		{agent.StateStopped, "○"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.state.String(), func(t *testing.T) {
-			got := stateIcon(tt.state)
-			if got != tt.icon {
-				t.Errorf("stateIcon(%s) = %q, want %q", tt.state, got, tt.icon)
-			}
-		})
-	}
-}
-
-func TestStateIcon_UnknownState(t *testing.T) {
-	got := stateIcon(agent.State(99))
-	if got != "○" {
-		t.Errorf("stateIcon(unknown) = %q, want ○", got)
-	}
-}
-
 // ─── stateLabel ─────────────────────────────────────────────────────────────
 
 func TestStateLabel_AllStates(t *testing.T) {

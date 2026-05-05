@@ -17,6 +17,11 @@ func newBareAgent(id string) *Agent {
 	return NewAgent(Definition{ID: id}, &FakeLLM{}, nil)
 }
 
+func newBareAgentWithInstance(tmplID, instanceID string) *Agent {
+	a := NewAgent(Definition{ID: tmplID}, &FakeLLM{}, nil, WithInstanceID(instanceID))
+	return a
+}
+
 func TestRegistry_RegisterGet(t *testing.T) {
 	r := NewRegistry(nil)
 	a := newBareAgent("a1")
@@ -24,7 +29,7 @@ func TestRegistry_RegisterGet(t *testing.T) {
 	if err := r.Register(a); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	got, ok := r.Get("a1")
+	got, ok := r.Get(a.InstanceID)
 	if !ok {
 		t.Fatal("Get returned not-found")
 	}
@@ -41,21 +46,33 @@ func TestRegistry_Register_Nil(t *testing.T) {
 	}
 }
 
-func TestRegistry_Register_EmptyID(t *testing.T) {
+func TestRegistry_Register_EmptyInstanceID(t *testing.T) {
 	r := NewRegistry(nil)
-	err := r.Register(newBareAgent(""))
+	a := NewAgent(Definition{ID: "tmpl"}, &FakeLLM{}, nil, WithInstanceID(""))
+	err := r.Register(a)
 	if !errors.Is(err, ErrEmptyID) {
 		t.Errorf("err = %v, want ErrEmptyID", err)
 	}
 }
 
-func TestRegistry_Register_Duplicate(t *testing.T) {
+func TestRegistry_Register_SameTemplateDifferentInstance(t *testing.T) {
 	r := NewRegistry(nil)
-	_ = r.Register(newBareAgent("a1"))
+	a1 := newBareAgentWithInstance("dev", "inst-1")
+	a2 := newBareAgentWithInstance("dev", "inst-2")
 
-	err := r.Register(newBareAgent("a1"))
-	if !errors.Is(err, ErrAgentAlreadyExists) {
-		t.Errorf("err = %v, want ErrAgentAlreadyExists", err)
+	if err := r.Register(a1); err != nil {
+		t.Fatalf("Register a1: %v", err)
+	}
+	if err := r.Register(a2); err != nil {
+		t.Fatalf("Register a2 with same template should succeed: %v", err)
+	}
+	if r.Len() != 2 {
+		t.Errorf("Len = %d, want 2", r.Len())
+	}
+	// Both should be found by template
+	byTmpl := r.GetByTemplate("dev")
+	if len(byTmpl) != 2 {
+		t.Errorf("GetByTemplate len = %d, want 2", len(byTmpl))
 	}
 }
 
@@ -69,16 +86,17 @@ func TestRegistry_Get_NotFound(t *testing.T) {
 
 func TestRegistry_Unregister(t *testing.T) {
 	r := NewRegistry(nil)
-	_ = r.Register(newBareAgent("a1"))
+	a := newBareAgent("a1")
+	_ = r.Register(a)
 
-	if !r.Unregister("a1") {
+	if !r.Unregister(a.InstanceID) {
 		t.Error("Unregister should return true for existing id")
 	}
-	if _, ok := r.Get("a1"); ok {
+	if _, ok := r.Get(a.InstanceID); ok {
 		t.Error("agent should be removed")
 	}
 	// 再次 Unregister 返回 false
-	if r.Unregister("a1") {
+	if r.Unregister(a.InstanceID) {
 		t.Error("Unregister non-existing should return false")
 	}
 }
@@ -88,12 +106,14 @@ func TestRegistry_Len(t *testing.T) {
 	if r.Len() != 0 {
 		t.Errorf("empty Len = %d", r.Len())
 	}
-	_ = r.Register(newBareAgent("a1"))
-	_ = r.Register(newBareAgent("a2"))
+	a1 := newBareAgentWithInstance("a1", "inst-a1")
+	a2 := newBareAgentWithInstance("a2", "inst-a2")
+	_ = r.Register(a1)
+	_ = r.Register(a2)
 	if r.Len() != 2 {
 		t.Errorf("Len = %d, want 2", r.Len())
 	}
-	_ = r.Unregister("a1")
+	_ = r.Unregister(a1.InstanceID)
 	if r.Len() != 1 {
 		t.Errorf("after Unregister, Len = %d, want 1", r.Len())
 	}
@@ -133,13 +153,14 @@ func TestRegistry_ConcurrentRegisterGet(t *testing.T) {
 	const N = 100
 	var wg sync.WaitGroup
 
-	// N 并发 Register 不同 ID
+	// N 并发 Register 不同 InstanceID
 	var registered atomic.Int32
 	for i := 0; i < N; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if err := r.Register(newBareAgent(fmt.Sprintf("agent-%d", i))); err == nil {
+			a := newBareAgentWithInstance(fmt.Sprintf("agent-%d", i), fmt.Sprintf("inst-%d", i))
+			if err := r.Register(a); err == nil {
 				registered.Add(1)
 			}
 		}(i)
@@ -150,7 +171,7 @@ func TestRegistry_ConcurrentRegisterGet(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, _ = r.Get(fmt.Sprintf("agent-%d", i%N))
+			_, _ = r.Get(fmt.Sprintf("inst-%d", i%N))
 		}(i)
 	}
 
@@ -173,29 +194,32 @@ func TestRegistry_ConcurrentRegisterGet(t *testing.T) {
 	}
 }
 
-func TestRegistry_ConcurrentRegisterDuplicate(t *testing.T) {
-	// 多 goroutine 同时 Register 同一个 ID：只有 1 个成功
+func TestRegistry_ConcurrentRegisterSameTemplate(t *testing.T) {
+	// Multiple goroutines Register the same template ID — all should succeed
+	// since each gets a unique InstanceID.
 	r := NewRegistry(nil)
 	const N = 50
 
-	var successCount atomic.Int32
 	var wg sync.WaitGroup
 	for i := 0; i < N; i++ {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
-			if err := r.Register(newBareAgent("same-id")); err == nil {
-				successCount.Add(1)
+			a := newBareAgentWithInstance("same-template", fmt.Sprintf("inst-%d", i))
+			if err := r.Register(a); err != nil {
+				t.Errorf("Register %d: %v", i, err)
 			}
-		}()
+		}(i)
 	}
 	wg.Wait()
 
-	if got := successCount.Load(); got != 1 {
-		t.Errorf("only 1 Register should succeed, got %d", got)
+	// All N should succeed (different InstanceIDs)
+	if r.Len() != N {
+		t.Errorf("Len = %d, want %d", r.Len(), N)
 	}
-	if r.Len() != 1 {
-		t.Errorf("Len = %d, want 1", r.Len())
+	byTmpl := r.GetByTemplate("same-template")
+	if len(byTmpl) != N {
+		t.Errorf("GetByTemplate len = %d, want %d", len(byTmpl), N)
 	}
 }
 
@@ -209,14 +233,16 @@ func TestRegistry_ConcurrentRegisterUnregister(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			id := fmt.Sprintf("churn-%d", i)
+			instID := fmt.Sprintf("inst-churn-%d", i)
+			tmplID := fmt.Sprintf("tmpl-%d", i)
 			for {
 				select {
 				case <-stop:
 					return
 				default:
-					_ = r.Register(newBareAgent(id))
-					r.Unregister(id)
+					a := newBareAgentWithInstance(tmplID, instID)
+					_ = r.Register(a)
+					r.Unregister(instID)
 				}
 			}
 		}(i)
@@ -233,6 +259,35 @@ func TestRegistry_ConcurrentRegisterUnregister(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestRegistry_LocateIdle(t *testing.T) {
+	r := NewRegistry(nil)
+	a1 := newBareAgentWithInstance("dev", "inst-1")
+	_ = r.Register(a1)
+	_ = a1.Start(context.Background())
+	t.Cleanup(func() { _ = a1.Stop(time.Second) })
+	waitForState(t, a1, 200*time.Millisecond, StateIdle)
+
+	loc, ok := r.LocateIdle("dev")
+	if !ok {
+		t.Fatal("LocateIdle should find idle instance")
+	}
+	if loc == nil {
+		t.Fatal("LocateIdle returned nil locatable")
+	}
+
+	// Register a second instance that's idle too
+	a2 := newBareAgentWithInstance("dev", "inst-2")
+	_ = r.Register(a2)
+	_ = a2.Start(context.Background())
+	t.Cleanup(func() { _ = a2.Stop(time.Second) })
+	waitForState(t, a2, 200*time.Millisecond, StateIdle)
+
+	byTmpl := r.GetByTemplate("dev")
+	if len(byTmpl) != 2 {
+		t.Errorf("GetByTemplate len = %d, want 2", len(byTmpl))
+	}
 }
 
 // ─── Batch lifecycle ────────────────────────────────────────────────────────
@@ -263,7 +318,7 @@ func TestRegistry_StartAll_StopAll(t *testing.T) {
 	}
 	for _, a := range r.List() {
 		if got := a.State(); got != StateStopped {
-			t.Errorf("after StopAll, agent %q state = %s, want stopped", a.Def.ID, got)
+			t.Errorf("after StopAll, agent %q state = %s, want stopped", a.InstanceID, got)
 		}
 	}
 }
@@ -305,8 +360,11 @@ func TestRegistry_StopAll_SkipNotStarted(t *testing.T) {
 
 func TestRegistry_Shutdown_UnregistersAndStops(t *testing.T) {
 	r := NewRegistry(nil)
+	var agentIDs []string
 	for i := 0; i < 3; i++ {
-		_ = r.Register(newAgentForReg(fmt.Sprintf("a-%d", i)))
+		a := newAgentForReg(fmt.Sprintf("a-%d", i))
+		agentIDs = append(agentIDs, a.InstanceID)
+		_ = r.Register(a)
 	}
 	_ = r.StartAll(context.Background())
 
@@ -358,7 +416,7 @@ func waitForState(t *testing.T, a *Agent, timeout time.Duration, want State) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("agent %q: state = %s, want %s (timeout %v)", a.Def.ID, a.State(), want, timeout)
+	t.Fatalf("agent %q: state = %s, want %s (timeout %v)", a.InstanceID, a.State(), want, timeout)
 }
 
 // ─── Logging ────────────────────────────────────────────────────────────────
@@ -378,7 +436,7 @@ func TestRegistry_LogsRegisterUnregister(t *testing.T) {
 	if err := r.Register(a); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if ok := r.Unregister("a-log-1"); !ok {
+	if ok := r.Unregister(a.InstanceID); !ok {
 		t.Fatal("Unregister should succeed")
 	}
 
@@ -397,4 +455,3 @@ func TestRegistry_LogsRegisterUnregister(t *testing.T) {
 		t.Errorf("expected 'actor' category log from registry operations")
 	}
 }
-

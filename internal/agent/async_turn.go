@@ -10,6 +10,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -177,6 +178,11 @@ func (a *Agent) execToolsWithAsync(
 			delCtx, cancel := context.WithTimeout(turnState.callerCtx, timeout)
 			defer cancel()
 
+			a.logInfo(delCtx, logger.CatTool, "async-goroutine: starting, about to call AskStream",
+				"target_agent_id", task.targetAgentID,
+				"timeout", timeout,
+			)
+
 			// --- 注入 confirm relay（与 execToolStream 同步路径对齐） ---
 			relayCh := make(chan iface.AgentEvent, 16)
 
@@ -207,8 +213,27 @@ func (a *Agent) execToolsWithAsync(
 			go func() {
 				defer close(relayDone)
 				for ev := range relayCh {
+					if a.Log != nil {
+						a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: received event from relayCh",
+							"event_type", fmt.Sprintf("%T", ev),
+						)
+					}
 					if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
-						a.emit(turnState.callerCtx, turnState.out, ev.(AgentEvent))
+						if a.Log != nil {
+							a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: forwarding confirm event to L1 output")
+						}
+						if agentEv, ok := ev.(AgentEvent); ok {
+							ok := a.emit(turnState.callerCtx, turnState.out, agentEv)
+							if a.Log != nil {
+								a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: emit confirm result",
+									"ok", ok,
+								)
+							}
+						} else if a.Log != nil {
+							a.Log.WarnContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: confirm event failed AgentEvent assertion",
+								"event_type", fmt.Sprintf("%T", ev),
+							)
+						}
 					}
 					if ee, isError := ev.(ErrorEvent); isError {
 						a.emit(turnState.callerCtx, turnState.out, ee)
@@ -219,11 +244,18 @@ func (a *Agent) execToolsWithAsync(
 			// --- 用 AskStream + 手动消费替代 Ask ---
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
+				a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream failed",
+					"target_agent_id", task.targetAgentID,
+					"err", err.Error(),
+				)
 				close(relayCh)
 				<-relayDone
 				replyCh <- delegateResult{err: err}
 				return
 			}
+			a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream succeeded, consuming events",
+				"target_agent_id", task.targetAgentID,
+			)
 
 			var content string
 			var finalErr error
@@ -239,10 +271,21 @@ func (a *Agent) execToolsWithAsync(
 
 				ec, ok := ev.(iface.EventConsumer)
 				if !ok {
+					if a.Log != nil {
+						a.Log.InfoContext(delCtx, logger.CatTool, "async-goroutine: event not EventConsumer, skipping",
+							"event_type", fmt.Sprintf("%T", ev),
+						)
+					}
 					continue
 				}
 
 				if callID, has := ec.ConfirmRequest(); has {
+					if a.Log != nil {
+						a.Log.InfoContext(delCtx, logger.CatTool, "async-goroutine: confirm request detected, firing forwarder",
+							"call_id", callID,
+							"target_agent_id", task.targetAgentID,
+						)
+					}
 					go forwarder(delCtx, callID, action.Target)
 				}
 
@@ -260,6 +303,11 @@ func (a *Agent) execToolsWithAsync(
 			close(relayCh)
 			<-relayDone
 
+			// Notify that delegation is done so the target can be reaped immediately.
+			if dn, ok := action.Target.(iface.DoneNotifier); ok {
+				dn.OnDelegationDone()
+			}
+
 			replyCh <- delegateResult{content: content, err: finalErr}
 		})
 
@@ -268,6 +316,11 @@ func (a *Agent) execToolsWithAsync(
 
 	// 第二阶段：如果有异步工具，注册状态 + 启动 goroutine
 	if turnState != nil && turnState.pending.Load() > 0 {
+		a.logInfo(ctx, logger.CatTool, "execToolsWithAsync: registering async turn and starting goroutines",
+			"agent_id", a.Def.ID,
+			"iter", iter,
+			"num_async", turnState.pending.Load(),
+		)
 		a.turnMu.Lock()
 		a.asyncTurns[iter] = turnState
 		a.turnMu.Unlock()
