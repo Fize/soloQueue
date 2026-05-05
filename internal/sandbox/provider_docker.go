@@ -266,10 +266,33 @@ func (d *DockerSandbox) Exec(ctx context.Context, cmd string) (stdout []byte, st
 	}
 	defer attachResp.Close()
 
-	// 读取全部输出（stdout + stderr 多路复用）
-	all, err := io.ReadAll(attachResp.Reader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("sandbox: exec read: %w", err)
+	// 在 goroutine 中读取输出，使 context 取消能中断阻塞的 I/O。
+	// Docker hijacked 连接不响应 Go context；关闭连接会触发 daemon
+	// 清理 exec 进程并使 ReadAll 返回错误。
+	type execOut struct {
+		all []byte
+		err error
+	}
+	outCh := make(chan execOut, 1)
+	go func() {
+		all, err := io.ReadAll(attachResp.Reader)
+		outCh <- execOut{all, err}
+	}()
+
+	var all []byte
+	select {
+	case out := <-outCh:
+		if out.err != nil {
+			return nil, nil, fmt.Errorf("sandbox: exec read: %w", out.err)
+		}
+		all = out.all
+	case <-ctx.Done():
+		attachResp.Close()
+		if d.log != nil {
+			d.log.WarnContext(ctx, logger.CatTool, "sandbox: exec cancelled, closing hijacked connection",
+				"command", cmd, "reason", ctx.Err().Error())
+		}
+		return nil, nil, fmt.Errorf("sandbox: exec cancelled: %w", ctx.Err())
 	}
 
 	// Docker 使用 MultiplexedStream：每帧 8 字节头（1 字节 stream type + 3 字节 padding + 4 字节 size）

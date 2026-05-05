@@ -121,6 +121,12 @@ const DefaultContextWindow = 128000
 // blocking when a tool hangs.
 const DefaultToolTimeout = 10 * time.Minute
 
+	// DefaultMaxConsecutiveFailures is the number of consecutive fatal streamLoop
+	// failures before the circuit breaker opens and rejects new tasks.
+	// Fatal failures include ChatStream errors, buildMessages errors, and
+	// MaxIterations exceeded. Context cancellations are excluded.
+	const DefaultMaxConsecutiveFailures = 3
+
 // ─── ModelParams (per-ask override) ─────────────────────────────────────────
 
 // ModelParams captures per-ask model parameter overrides.

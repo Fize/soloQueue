@@ -185,6 +185,16 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		return
 	}
 
+
+	// Circuit breaker: refuse to run if too many consecutive failures.
+	if cf := a.ConsecutiveFailures(); cf >= DefaultMaxConsecutiveFailures {
+		a.logError(ctx, logger.CatLLM, "circuit breaker open — too many consecutive failures",
+			ErrCircuitBreakerOpen,
+			slog.Int("consecutive_failures", int(cf)),
+		)
+		a.emit(ctx, out, ErrorEvent{Err: ErrCircuitBreakerOpen})
+		return false
+	}
 	specs := a.ToolSpecs()
 
 	maxIter := a.Def.MaxIterations
@@ -209,6 +219,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			a.logError(ctx, logger.CatLLM, "build messages failed", err,
 				slog.Int("iter", iter),
 			)
+			a.IncrementConsecutiveFailures()
 			a.emit(ctx, out, ErrorEvent{Err: err})
 			return
 		}
@@ -250,6 +261,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				slog.Int64("duration_ms", durMs),
 			)
 			a.RecordError(err)
+			a.IncrementConsecutiveFailures()
 			a.emit(ctx, out, ErrorEvent{Err: err})
 			return
 		}
@@ -291,10 +303,16 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				slog.Int("content_len", acc.content.Len()),
 				slog.Int("reasoning_len", acc.reasoning.Len()),
 			)
-			a.emit(ctx, out, DoneEvent{
+			
+			a.ResetConsecutiveFailures()
+			ok := a.emit(ctx, out, DoneEvent{
 				Content:          acc.content.String(),
 				ReasoningContent: acc.reasoning.String(),
 			})
+			a.logInfo(ctx, logger.CatLLM, "done event emitted",
+				slog.Bool("ok", ok),
+				slog.Int("content_len", acc.content.Len()),
+			)
 			return
 		}
 
@@ -306,12 +324,13 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 	// Max iterations exceeded
 	a.logInfo(ctx, logger.CatLLM, "agent turn done (max iterations)",
-		slog.Int("total_iters", maxIter),
+			slog.Int("total_iters", maxIter),
 	)
 	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
-		slog.Int("max_iter", maxIter),
+			slog.Int("max_iter", maxIter),
 	)
-		a.RecordError(ErrMaxIterations)
+	a.IncrementConsecutiveFailures()
+	a.RecordError(ErrMaxIterations)
 	a.emit(ctx, out, ErrorEvent{Err: ErrMaxIterations})
 	return false
 }
@@ -640,7 +659,12 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			needsConfirm, prompt := c.CheckConfirmation(args)
 			if needsConfirm {
 				options := c.ConfirmationOptions(args)
-				if !a.emit(ctx, out, ToolNeedsConfirmEvent{
+				a.logInfo(ctx, logger.CatTool, "execToolStream: emitting confirm event",
+					slog.String("tool_name", name),
+					slog.String("call_id", tc.ID),
+					slog.String("agent_id", a.Def.ID),
+				)
+				emitted := a.emit(ctx, out, ToolNeedsConfirmEvent{
 					Iter:           iter,
 					CallID:         tc.ID,
 					Name:           name,
@@ -648,7 +672,13 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 					Prompt:         prompt,
 					Options:        options,
 					AllowInSession: c.SupportsSessionWhitelist(),
-				}) {
+				})
+				a.logInfo(ctx, logger.CatTool, "execToolStream: confirm event emit result",
+					slog.String("tool_name", name),
+					slog.String("call_id", tc.ID),
+					slog.Bool("emitted", emitted),
+				)
+				if !emitted {
 					return "error: " + ctx.Err().Error()
 				}
 
@@ -664,6 +694,9 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 					a.confirmMu.Lock()
 					delete(a.pendingConfirm, tc.ID)
 					a.confirmMu.Unlock()
+					if ctx.Err() == context.DeadlineExceeded {
+						a.RecordError(ctx.Err())
+					}
 					return "error: " + ctx.Err().Error()
 				}
 

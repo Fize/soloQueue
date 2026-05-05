@@ -85,6 +85,24 @@ type ModelOverrideParams struct {
 	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
 }
 
+// ErrorTracker provides error observability for delegation targets.
+//
+// Implemented by agent.Agent. DelegateTool uses this via type assertion
+// after consuming the child's event stream to detect whether the child
+// encountered tool errors even though its LLM produced a normal DoneEvent.
+type ErrorTracker interface {
+	ErrorCount() int32
+	LastError() string
+}
+
+// DoneNotifier is optionally implemented by Locatable targets returned from
+// SpawnFn/SpawnChild. The delegation caller (sync DelegateTool.Execute or
+// async execToolsWithAsync goroutine) calls OnDelegationDone after the event
+// stream closes, signaling that the spawned agent can be reaped.
+type DoneNotifier interface {
+	OnDelegationDone()
+}
+
 // ModelOverridable is optionally implemented by Locatable targets that
 // support per-ask model override propagation during delegation.
 //
