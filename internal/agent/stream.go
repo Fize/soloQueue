@@ -715,7 +715,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 					})
 					return result
 				}
-				cc := confirmChoice(choice)
+				cc := tools.ConfirmChoice(choice)
 				if cc == choiceAllowInSession {
 					a.confirmStore.Confirm(name)
 					cc = choiceApprove

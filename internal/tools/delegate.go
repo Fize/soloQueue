@@ -357,15 +357,13 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	// Check whether the child agent had tool errors even though its LLM
 	// produced a normal DoneEvent. This catches cases where L3's tools
 	// silently failed and L3's LLM compensated without surfacing errors.
-	if et, ok := targetAgent.(iface.ErrorTracker); ok {
-		if ec := et.ErrorCount(); ec > 0 {
-			prefix := fmt.Sprintf("[WARNING: worker encountered %d error(s) during execution", ec)
-			if le := et.LastError(); le != "" {
-				prefix += fmt.Sprintf("; last error: %s", le)
-			}
-			prefix += "]\n"
-			content = prefix + content
+	if ec := targetAgent.ErrorCount(); ec > 0 {
+		prefix := fmt.Sprintf("[WARNING: worker encountered %d error(s) during execution", ec)
+		if le := targetAgent.LastError(); le != "" {
+			prefix += fmt.Sprintf("; last error: %s", le)
 		}
+		prefix += "]\n"
+		content = prefix + content
 	}
 
 	if dt.logger != nil {
