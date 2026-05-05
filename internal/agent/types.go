@@ -4,22 +4,15 @@ import (
 	"time"
 )
 
-// Role 区分系统内置 agent 和用户创建 agent
 type Role string
 
 const (
-	RoleSystem Role = "system"
-	RoleUser   Role = "user"
+	RoleUser Role = "user"
 )
 
-// Kind 描述 agent 的行为类型
-//
-// 本 phase 仅保留 KindChat / KindCustom 作为占位；真正的行为分支
-// （code / planner / evaluator 等）等到 tool 系统落地时按需扩展。
 type Kind string
 
 const (
-	KindChat   Kind = "chat"
 	KindCustom Kind = "custom"
 )
 
