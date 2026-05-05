@@ -112,11 +112,7 @@ func (a *Agent) SkillCatalog() string {
 	return b.String()
 }
 
-// confirmChoice 方便内部代码引用 tools.ConfirmChoice
-type confirmChoice = tools.ConfirmChoice
-
 const (
-	choiceDeny           = tools.ChoiceDeny
 	choiceApprove        = tools.ChoiceApprove
 	choiceAllowInSession = tools.ChoiceAllowInSession
 )

@@ -53,6 +53,12 @@ type Locatable interface {
 
 	// Confirm responds to a pending tool confirmation request.
 	Confirm(callID string, choice string) error
+
+	// ErrorCount returns the number of tool errors in the current job.
+	ErrorCount() int32
+
+	// LastError returns the most recent error message, or "".
+	LastError() string
 }
 
 // AgentLocator looks up running Agent instances by ID.
@@ -83,16 +89,6 @@ type ModelOverrideParams struct {
 	ThinkingEnabled bool   // enable thinking/reasoning mode
 	ReasoningEffort string // "high" | "max" | ""
 	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
-}
-
-// ErrorTracker provides error observability for delegation targets.
-//
-// Implemented by agent.Agent. DelegateTool uses this via type assertion
-// after consuming the child's event stream to detect whether the child
-// encountered tool errors even though its LLM produced a normal DoneEvent.
-type ErrorTracker interface {
-	ErrorCount() int32
-	LastError() string
 }
 
 // DoneNotifier is optionally implemented by Locatable targets returned from

@@ -726,7 +726,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	}
 	def := agent.Definition{
 		ID:              agentID,
-		Kind:            agent.KindChat,
+		Kind:            agent.KindCustom,
 		ModelID:         effectiveModelID,
 		Temperature:     defModel.Generation.Temperature,
 		MaxTokens:       defModel.Generation.MaxTokens,
