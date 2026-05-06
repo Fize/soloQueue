@@ -93,7 +93,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", ErrNoopReplace
 	}
 
-	abs, err := resolveSandbox(t.cfg.AllowedDirs, a.Path)
+	abs, err := absPath(a.Path)
 	if err != nil {
 		return "", err
 	}

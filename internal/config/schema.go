@@ -45,9 +45,6 @@ type LogConfig struct {
 // File system limits / write limits / external tools (http / shell / Tavily) policies are all here.
 // main.go will use these fields to construct internal/tools.Config and call tools.Build(cfg).
 type ToolsConfig struct {
-	// AllowedDirs sandbox whitelist (empty = prohibit all file operations)
-	AllowedDirs []string `json:"allowedDirs"`
-
 	// Read limits (0 = use compile-time built-in defaults)
 	MaxFileSize  int64 `json:"maxFileSize"`
 	MaxMatches   int   `json:"maxMatches"`

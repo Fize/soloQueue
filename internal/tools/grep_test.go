@@ -14,9 +14,8 @@ func mkGrepTool(t *testing.T, max int, lineLen int) (*grepTool, string) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs: []string{dir},
-		MaxMatches:  max,
-		MaxLineLen:  lineLen,
+		MaxMatches: max,
+		MaxLineLen: lineLen,
 	}
 	return newGrepTool(cfg), dir
 }
@@ -70,15 +69,6 @@ func TestGrep_GlobFilter(t *testing.T) {
 	}
 	if !strings.HasSuffix(res.Matches[0].File, "a.go") {
 		t.Errorf("matched wrong file: %q", res.Matches[0].File)
-	}
-}
-
-func TestGrep_DirOutsideSandbox(t *testing.T) {
-	tool, _ := mkGrepTool(t, 100, 200)
-	raw, _ := json.Marshal(grepArgs{Pattern: "x", Dir: "/etc"})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
 	}
 }
 

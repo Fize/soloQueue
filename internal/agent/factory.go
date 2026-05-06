@@ -79,12 +79,12 @@ type DefaultFactory struct {
 	registry       *Registry
 	llm            LLMClient
 	toolsCfg       tools.Config
-	defaultModelID string                         // 当 AgentTemplate.ModelID 为空时使用此默认值
+	defaultModelID string // 当 AgentTemplate.ModelID 为空时使用此默认值
 	skillDir       string
 	log            *logger.Logger
-	resolveModel   ModelResolver                  // nil = skip model validation (tests)
-	templates      map[string]AgentTemplate        // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
-	groups         map[string]prompt.GroupFile     // group 信息，供 L2 prompt 注入团队上下文
+	resolveModel   ModelResolver               // nil = skip model validation (tests)
+	templates      map[string]AgentTemplate    // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
+	groups         map[string]prompt.GroupFile // group 信息，供 L2 prompt 注入团队上下文
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -210,7 +210,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		Kind:            KindCustom,
 		ModelID:         tmpl.ModelID,
 		SystemPrompt:    finalPrompt,
-		ReasoningEffort: "", // populated below if resolver is set
+		ReasoningEffort: "",                 // populated below if resolver is set
 		ExplicitModel:   tmpl.ModelID != "", // template explicitly set model → don't override
 	}
 
@@ -241,19 +241,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	}
 
 	// 2. 构建内置 tools
-	// 若 agent 属于某个 team，将 team workspace 路径加入 AllowedDirs，
-	// 使 Glob / Read / Grep 等工具能访问项目文件。
 	agentToolsCfg := toolsCfg
-	if tmpl.Group != "" {
-		if gf, ok := f.groups[tmpl.Group]; ok {
-			wsPaths := workspacePaths(gf)
-			if len(wsPaths) > 0 {
-				agentToolsCfg.AllowedDirs = make([]string, 0, len(toolsCfg.AllowedDirs)+len(wsPaths))
-				agentToolsCfg.AllowedDirs = append(agentToolsCfg.AllowedDirs, toolsCfg.AllowedDirs...)
-				agentToolsCfg.AllowedDirs = append(agentToolsCfg.AllowedDirs, wsPaths...)
-			}
-		}
-	}
 	allTools := tools.Build(agentToolsCfg)
 
 	// 2b. L2 领导者：注入同组 L3 Worker 的 delegate 工具
@@ -370,16 +358,16 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	var templates []AgentTemplate
 	for _, af := range agentFiles {
 		fm := af.Frontmatter
-			tmpl := AgentTemplate{
-				ID:           fm.Name,
-				Name:         fm.Name,
-				Description:  fm.Description,
-				SystemPrompt: af.Body,
-				ModelID:      fm.Model,
-				IsLeader:     fm.IsLeader,
-				Group:        fm.Group,
-				MCPServers:   fm.MCPServers,
-			}
+		tmpl := AgentTemplate{
+			ID:           fm.Name,
+			Name:         fm.Name,
+			Description:  fm.Description,
+			SystemPrompt: af.Body,
+			ModelID:      fm.Model,
+			IsLeader:     fm.IsLeader,
+			Group:        fm.Group,
+			MCPServers:   fm.MCPServers,
+		}
 		templates = append(templates, tmpl)
 	}
 

@@ -51,10 +51,6 @@ func buildRoutingTable(leaders []LeaderInfo) string {
 
 			toolName := "delegate_" + l.Name
 			fmt.Fprintf(&b, "- Leader: %s → call %s(task=\"...\")\n", l.Name, toolName)
-
-			if l.MatchedWorkspace != nil {
-				fmt.Fprintf(&b, "- Workspace: %s\n", l.MatchedWorkspace.Path)
-			}
 		}
 	} else {
 		// Old format: inline (backward compatible)

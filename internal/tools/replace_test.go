@@ -10,7 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -19,7 +18,6 @@ func mkReplaceTool(t *testing.T, maxFile, maxWrite int64) (*replaceTool, string)
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs:  []string{dir},
 		MaxFileSize:  maxFile,
 		MaxWriteSize: maxWrite,
 	}
@@ -30,7 +28,6 @@ func mkMultiReplaceTool(t *testing.T, maxEdits int, maxFile, maxWrite int64) (*m
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs:     []string{dir},
 		MaxFileSize:     maxFile,
 		MaxWriteSize:    maxWrite,
 		MaxReplaceEdits: maxEdits,
@@ -132,15 +129,6 @@ func TestReplace_EmptyOldString(t *testing.T) {
 	_, err := tool.Execute(context.Background(), string(raw))
 	if err == nil || !strings.Contains(err.Error(), "old_string is empty") {
 		t.Errorf("err = %v, want old_string is empty", err)
-	}
-}
-
-func TestReplace_OutOfSandbox(t *testing.T) {
-	tool, _ := mkReplaceTool(t, 1024, 1024)
-	raw, _ := json.Marshal(replaceArgs{Path: "/etc/passwd", OldString: "a", NewString: "b"})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
 	}
 }
 
@@ -369,20 +357,6 @@ func TestMultiReplace_ContentTooLargeAfter(t *testing.T) {
 	}
 }
 
-func TestMultiReplace_OutOfSandbox(t *testing.T) {
-	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
-	raw, _ := json.Marshal(multiReplaceArgs{
-		Path: "/etc/passwd",
-		Edits: []replaceEdit{
-			{OldString: "a", NewString: "b"},
-		},
-	})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
-	}
-}
-
 func TestMultiReplace_NoopInEdit(t *testing.T) {
 	tool, dir := mkMultiReplaceTool(t, 10, 1024, 1024)
 	path := filepath.Join(dir, "a.txt")
@@ -538,7 +512,7 @@ func TestMultiReplace_CheckConfirmation_InvalidJSON(t *testing.T) {
 func TestMultiReplace_ConfirmationOptions_Binary(t *testing.T) {
 	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)
 	raw, _ := json.Marshal(multiReplaceArgs{
-		Path: "a.go",
+		Path:  "a.go",
 		Edits: []replaceEdit{{OldString: "x", NewString: "y"}},
 	})
 	if opts := tool.ConfirmationOptions(string(raw)); opts != nil {

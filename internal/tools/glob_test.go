@@ -13,7 +13,6 @@ func mkGlobTool(t *testing.T, max int) (*globTool, string) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs:  []string{dir},
 		MaxGlobItems: max,
 	}
 	return newGlobTool(cfg), dir
@@ -77,15 +76,6 @@ func TestGlob_InvalidPattern(t *testing.T) {
 	_, err := tool.Execute(context.Background(), string(raw))
 	if err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Errorf("err = %v, want invalid", err)
-	}
-}
-
-func TestGlob_OutOfSandbox(t *testing.T) {
-	tool, _ := mkGlobTool(t, 1000)
-	raw, _ := json.Marshal(globArgs{Pattern: "**/*", Dir: "/etc"})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
 	}
 }
 
