@@ -50,8 +50,8 @@ type reloadWrapper struct {
 	cfg   *AutoReloadConfig
 }
 
-func (w *reloadWrapper) Name() string             { return w.inner.Name() }
-func (w *reloadWrapper) Description() string       { return w.inner.Description() }
+func (w *reloadWrapper) Name() string                { return w.inner.Name() }
+func (w *reloadWrapper) Description() string         { return w.inner.Description() }
 func (w *reloadWrapper) Parameters() json.RawMessage { return w.inner.Parameters() }
 
 func (w *reloadWrapper) Execute(ctx context.Context, args string) (string, error) {
@@ -129,9 +129,9 @@ var (
 
 // pathArgs is a generic struct for extracting the "path" field from tool args.
 type pathArgs struct {
-	Path  string           `json:"path"`
-	Files []pathArgs       `json:"files"`
-	Edits []pathArgs       `json:"edits"`
+	Path  string     `json:"path"`
+	Files []pathArgs `json:"files"`
+	Edits []pathArgs `json:"edits"`
 }
 
 func extractPaths(args string) []string {

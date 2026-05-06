@@ -345,5 +345,3 @@ func (cw *ContextWindow) findTurnEnd(start int) int {
 	}
 	return len(cw.messages)
 }
-
-

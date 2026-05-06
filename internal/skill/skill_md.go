@@ -28,13 +28,13 @@ func SetPackageLogger(l *logger.Logger) {
 //
 // 对齐 Claude Code 的 Skill frontmatter 字段。
 type SkillMDConfig struct {
-	Name                  string `yaml:"name"`
-	Description           string `yaml:"description"`
-	AllowedTools          string `yaml:"allowed-tools"`
-	DisableModelInvocation bool  `yaml:"disable-model-invocation"`
-	UserInvocable         *bool  `yaml:"user-invocable"` // 指针区分"未设置"和"false"
-	Context               string `yaml:"context"`
-	Agent                 string `yaml:"agent"`
+	Name                   string `yaml:"name"`
+	Description            string `yaml:"description"`
+	AllowedTools           string `yaml:"allowed-tools"`
+	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
+	UserInvocable          *bool  `yaml:"user-invocable"` // 指针区分"未设置"和"false"
+	Context                string `yaml:"context"`
+	Agent                  string `yaml:"agent"`
 }
 
 // ParseSkillMD 解析单个 SKILL.md 文件
@@ -91,17 +91,17 @@ func ParseSkillMD(path string) (*Skill, error) {
 	absPath, _ := filepath.Abs(path)
 
 	return &Skill{
-		ID:                    name,
-		Description:           desc,
-		Instructions:          strings.TrimSpace(body),
-		AllowedTools:          allowedTools,
+		ID:                     name,
+		Description:            desc,
+		Instructions:           strings.TrimSpace(body),
+		AllowedTools:           allowedTools,
 		DisableModelInvocation: cfg.DisableModelInvocation,
-		UserInvocable:         userInvocable,
-		Context:               cfg.Context,
-		Agent:                 cfg.Agent,
-		Category:              SkillUser,
-		FilePath:              absPath,
-		Dir:                   filepath.Dir(absPath),
+		UserInvocable:          userInvocable,
+		Context:                cfg.Context,
+		Agent:                  cfg.Agent,
+		Category:               SkillUser,
+		FilePath:               absPath,
+		Dir:                    filepath.Dir(absPath),
 	}, nil
 }
 

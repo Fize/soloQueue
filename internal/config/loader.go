@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
 	"github.com/fsnotify/fsnotify"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
@@ -47,8 +47,8 @@ type Loader[T any] struct {
 
 	errHandler func(error)
 	errMu      sync.RWMutex
-	
-	log        *logger.Logger
+
+	log *logger.Logger
 }
 
 // callbackEntry 关联一个 OnChange 注册的回调和它的取消 ID
@@ -97,7 +97,7 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 	start := time.Now()
 	result := l.defaults
 	successCount := 0
-	
+
 	if l.log != nil {
 		l.log.DebugContext(ctx, logger.CatConfig, "config load started",
 			"num_paths", len(l.paths),
@@ -329,7 +329,7 @@ func (l *Loader[T]) watchLoop() {
 	if l.log != nil {
 		l.log.DebugContext(context.Background(), logger.CatConfig, "config watch loop started")
 	}
-	
+
 	for {
 		select {
 		case event, ok := <-l.watcher.Events:
@@ -384,13 +384,13 @@ func (l *Loader[T]) scheduleReload() {
 	if l.debTimer != nil {
 		l.debTimer.Stop()
 	}
-	
+
 	if l.log != nil {
 		l.log.DebugContext(context.Background(), logger.CatConfig, "config reload scheduled",
 			"debounce_ms", 200,
 		)
 	}
-	
+
 	l.debTimer = time.AfterFunc(200*time.Millisecond, func() {
 		if l.log != nil {
 			l.log.DebugContext(context.Background(), logger.CatConfig, "config hot-reload triggered after debounce")

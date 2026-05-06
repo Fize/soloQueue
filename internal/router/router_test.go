@@ -12,12 +12,12 @@ func TestRouter_Route(t *testing.T) {
 	router := NewRouter(classifier, modelService, nil)
 
 	tests := []struct {
-		name            string
-		prompt          string
-		expectedLevel   ClassificationLevel
-		expectedModel   string
-		expectedThink   bool
-		expectedEffort  string
+		name           string
+		prompt         string
+		expectedLevel  ClassificationLevel
+		expectedModel  string
+		expectedThink  bool
+		expectedEffort string
 	}{
 		{
 			name:           "Conversation routes to flash (no thinking)",

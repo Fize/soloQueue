@@ -148,17 +148,17 @@ const (
 type ContextWindow struct {
 	sync.RWMutex
 	messages      []Message
-	maxTokens     int          // hard waterline: physical capacity limit
-	bufferTokens  int          // reserved for model output (from config)
-	summaryTokens int          // soft waterline: triggers async compression
-	currentTokens int          // real-time token count; exact after Calibrate
-	tokenizer     *Tokenizer   // shared, immutable after init
-	compactor     Compactor    // context compressor (may be nil)
-	pushHook      PushHook     // callback after Push (may be nil)
-	summaryHook   SummaryHook  // callback after compaction (may be nil)
-	replayMode    bool         // disable pushHook during replay
+	maxTokens     int            // hard waterline: physical capacity limit
+	bufferTokens  int            // reserved for model output (from config)
+	summaryTokens int            // soft waterline: triggers async compression
+	currentTokens int            // real-time token count; exact after Calibrate
+	tokenizer     *Tokenizer     // shared, immutable after init
+	compactor     Compactor      // context compressor (may be nil)
+	pushHook      PushHook       // callback after Push (may be nil)
+	summaryHook   SummaryHook    // callback after compaction (may be nil)
+	replayMode    bool           // disable pushHook during replay
 	log           *logger.Logger // optional logger for message tracking
-	summarizing   atomic.Bool  // true while async compression is in progress
+	summarizing   atomic.Bool    // true while async compression is in progress
 }
 
 // NewContextWindow creates a context window
