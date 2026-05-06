@@ -84,8 +84,8 @@ func ParseAgentFile(path string) (*AgentFile, error) {
 
 // LoadLeaders 扫描 agents 目录，返回所有 is_leader=true 的 agent。
 // 仅提取 Name/Description/Group，不提取 Skills（主 Agent 不需要知道工具细节）。
-// 如果传入 groups，会填充 GroupDescription、MatchedWorkspace。
-func LoadLeaders(agentsDir string, groups map[string]GroupFile, cwd string) ([]LeaderInfo, error) {
+// 如果传入 groups，会填充 GroupDescription。
+func LoadLeaders(agentsDir string, groups map[string]GroupFile) ([]LeaderInfo, error) {
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read agents dir %s: %w", agentsDir, err)
@@ -113,7 +113,6 @@ func LoadLeaders(agentsDir string, groups map[string]GroupFile, cwd string) ([]L
 			// 填充 group 信息
 			if gf, ok := groups[af.Frontmatter.Group]; ok {
 				li.GroupDescription = gf.Body
-				li.MatchedWorkspace = matchWorkspace(cwd, gf.Frontmatter.Workspaces)
 			}
 
 			leaders = append(leaders, li)
@@ -121,17 +120,6 @@ func LoadLeaders(agentsDir string, groups map[string]GroupFile, cwd string) ([]L
 	}
 
 	return leaders, nil
-}
-
-// matchWorkspace 根据当前工作目录匹配 group 的 workspace。
-// 如果没有精确匹配，返回 nil。
-func matchWorkspace(cwd string, workspaces []Workspace) *Workspace {
-	for i := range workspaces {
-		if workspaces[i].Path == cwd {
-			return &workspaces[i]
-		}
-	}
-	return nil
 }
 
 // LoadAgentFiles 扫描 agents 目录，返回所有解析后的 AgentFile

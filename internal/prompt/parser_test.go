@@ -74,7 +74,7 @@ group: DevOps
 ---
 body`), 0o644)
 
-	leaders, err := LoadLeaders(dir, nil, "")
+	leaders, err := LoadLeaders(dir, nil)
 	if err != nil {
 		t.Fatalf("LoadLeaders: %v", err)
 	}
@@ -93,7 +93,7 @@ body`), 0o644)
 func TestLoadLeaders_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
-	leaders, err := LoadLeaders(dir, nil, "")
+	leaders, err := LoadLeaders(dir, nil)
 	if err != nil {
 		t.Fatalf("LoadLeaders: %v", err)
 	}
@@ -143,7 +143,7 @@ body`), 0o644)
 	}
 
 	// 加载 leaders（传入 groups）
-	leaders, err := LoadLeaders(agentsDir, groups, "/Users/test/kumquat")
+	leaders, err := LoadLeaders(agentsDir, groups)
 	if err != nil {
 		t.Fatalf("LoadLeaders: %v", err)
 	}
@@ -154,12 +154,6 @@ body`), 0o644)
 	l := leaders[0]
 	if l.GroupDescription != "开发团队，专注前后端开发" {
 		t.Errorf("GroupDescription = %q, want %q", l.GroupDescription, "开发团队，专注前后端开发")
-	}
-	if l.MatchedWorkspace == nil {
-		t.Fatal("MatchedWorkspace = nil, want non-nil")
-	}
-	if l.MatchedWorkspace.Name != "kumquat" {
-		t.Errorf("MatchedWorkspace.Name = %q, want %q", l.MatchedWorkspace.Name, "kumquat")
 	}
 }
 

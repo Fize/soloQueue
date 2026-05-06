@@ -272,12 +272,28 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 //
 // Called before each API request. Returns a new slice; caller can safely modify.
 // Agent package is responsible for converting PayloadMessage to agent.LLMMessage.
+//
+// Safety: filters out orphaned tool messages (role=tool without a preceding
+// assistant(tool_calls) with matching tool_call_id). This defends against
+// CW corruption from async delegation timing or truncation bugs.
 func (cw *ContextWindow) BuildPayload() []PayloadMessage {
 	cw.RLock()
 	defer cw.RUnlock()
 
+	// First pass: collect valid tool_call_ids from assistant messages
+	validIDs := make(map[string]bool, len(cw.messages))
+	for _, m := range cw.messages {
+		for _, tc := range m.ToolCalls {
+			validIDs[tc.ID] = true
+		}
+	}
+
 	out := make([]PayloadMessage, 0, len(cw.messages))
 	for _, m := range cw.messages {
+		// Skip orphaned tool messages: role=tool but no matching tool_call_id
+		if m.Role == RoleTool && m.ToolCallID != "" && !validIDs[m.ToolCallID] {
+			continue
+		}
 		out = append(out, PayloadMessage{
 			Role:             string(m.Role),
 			Content:          m.Content,

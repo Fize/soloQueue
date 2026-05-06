@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -19,7 +18,6 @@ func mkWriteFileTool(t *testing.T, maxSize int64) (*writeFileTool, string) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs:  []string{dir},
 		MaxWriteSize: maxSize,
 	}
 	return newWriteFileTool(cfg), dir
@@ -43,7 +41,6 @@ func mkMultiWriteTool(t *testing.T, files int, totalBytes int64) (*multiWriteToo
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs:        []string{dir},
 		MaxWriteSize:       1 << 20,
 		MaxMultiWriteFiles: files,
 		MaxMultiWriteBytes: totalBytes,
@@ -113,12 +110,78 @@ func TestWriteFile_ParentDirMissing(t *testing.T) {
 	}
 }
 
-func TestWriteFile_OutOfSandbox(t *testing.T) {
-	tool, _ := mkWriteFileTool(t, 1024)
-	raw, _ := json.Marshal(writeFileArgs{Path: "/etc/evil.txt", Content: "x"})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
+func TestWriteFile_PlanDirAutoMkdirAll(t *testing.T) {
+	dir := t.TempDir()
+	planDir := filepath.Join(dir, "plan")
+	cfg := Config{
+		MaxWriteSize: 1024,
+		PlanDir:      planDir,
+	}
+	tool := newWriteFileTool(cfg)
+
+	// Write to a subdirectory under plan/ that doesn't exist yet
+	path := filepath.Join(planDir, "feature-name", "design.md")
+	res, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "# Design"})
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !res.Created {
+		t.Error("created should be true")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "# Design" {
+		t.Errorf("content = %q", got)
+	}
+}
+
+func TestWriteFile_PlanDirAutoMkdirAll_NestedPath(t *testing.T) {
+	dir := t.TempDir()
+	planDir := filepath.Join(dir, "plan")
+	cfg := Config{
+		MaxWriteSize: 1024,
+		PlanDir:      planDir,
+	}
+	tool := newWriteFileTool(cfg)
+
+	// Write to a deeply nested path under plan/
+	path := filepath.Join(planDir, "deep", "nested", "subdir", "doc.md")
+	res, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "deep"})
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !res.Created {
+		t.Error("created should be true")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "deep" {
+		t.Errorf("content = %q", got)
+	}
+}
+
+func TestWriteFile_PlanDirNotSet_StillRejectsMissingParent(t *testing.T) {
+	// When PlanDir is empty, missing parent should still be rejected
+	tool, dir := mkWriteFileTool(t, 1024)
+	path := filepath.Join(dir, "nonexist", "a.txt")
+	_, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "x"})
+	if err == nil || !strings.Contains(err.Error(), "parent directory missing") {
+		t.Errorf("err = %v, want parent dir missing", err)
+	}
+}
+
+func TestWriteFile_PlanDir_OutsidePlanDir_StillRejectsMissingParent(t *testing.T) {
+	dir := t.TempDir()
+	planDir := filepath.Join(dir, "plan")
+	cfg := Config{
+		MaxWriteSize: 1024,
+		PlanDir:      planDir,
+	}
+	tool := newWriteFileTool(cfg)
+
+	// Writing outside plan dir with missing parent should still fail
+	path := filepath.Join(dir, "outside", "a.txt")
+	_, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "x"})
+	if err == nil || !strings.Contains(err.Error(), "parent directory missing") {
+		t.Errorf("err = %v, want parent dir missing", err)
 	}
 }
 
@@ -410,26 +473,6 @@ func TestMultiWrite_PartialFailures(t *testing.T) {
 	}
 }
 
-// TestMultiWrite_SandboxVerifiedUpfront: any sandbox-invalid entry → entire
-// call rejected (security-first).
-func TestMultiWrite_SandboxVerifiedUpfront(t *testing.T) {
-	tool, dir := mkMultiWriteTool(t, 10, 1024)
-	raw, _ := json.Marshal(multiWriteArgs{
-		Files: []writeFileArgs{
-			{Path: filepath.Join(dir, "a.txt"), Content: "A"},
-			{Path: "/etc/bad.txt", Content: "evil"},
-		},
-	})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
-	}
-	// first file must NOT have been written (entire call rejected)
-	if _, statErr := os.Stat(filepath.Join(dir, "a.txt")); statErr == nil {
-		t.Error("first file was written despite sandbox rejection of second")
-	}
-}
-
 func TestMultiWrite_TooManyFiles(t *testing.T) {
 	tool, dir := mkMultiWriteTool(t, 2, 1024)
 	raw, _ := json.Marshal(multiWriteArgs{
@@ -478,7 +521,7 @@ func TestMultiWrite_OverwriteFalseMixed(t *testing.T) {
 	raw, _ := json.Marshal(multiWriteArgs{
 		Files: []writeFileArgs{
 			{Path: existing, Content: "new", Overwrite: ptrBool(false)}, // fails
-			{Path: filepath.Join(dir, "b.txt"), Content: "B"},            // ok
+			{Path: filepath.Join(dir, "b.txt"), Content: "B"},           // ok
 		},
 	})
 	out, err := tool.Execute(context.Background(), string(raw))

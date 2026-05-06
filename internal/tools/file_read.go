@@ -17,19 +17,21 @@ import (
 //	  "path": "...absolute or relative path..."
 //	}
 //
-// 沙箱：路径必须落在 Config.AllowedDirs 任一根之内。
 // 限制：MaxFileSize（超出返回 ErrFileTooLarge）；含 NUL 字节返回 ErrBinaryContent。
 type fileReadTool struct {
 	cfg    Config
 	logger *logger.Logger
 }
 
-func newFileReadTool(cfg Config) *fileReadTool { ensureExecutor(&cfg); return &fileReadTool{cfg: cfg, logger: cfg.Logger} }
+func newFileReadTool(cfg Config) *fileReadTool {
+	ensureExecutor(&cfg)
+	return &fileReadTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (fileReadTool) Name() string { return "Read" }
 
 func (fileReadTool) Description() string {
-	return "Read a UTF-8 text file within the workspace sandbox. Returns {path,size,content}. " +
+	return "Read a UTF-8 text file and return {path,size,content}. " +
 		"Binary files and files larger than the configured limit are rejected."
 }
 
@@ -37,7 +39,7 @@ func (fileReadTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "path":{"type":"string","description":"Absolute path, or relative to the process CWD; must resolve inside AllowedDirs"}
+    "path":{"type":"string","description":"Absolute path, or relative to the process CWD"}
   },
   "required":["path"]
 }`)
@@ -66,7 +68,7 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	abs, err := resolveSandbox(t.cfg.AllowedDirs, a.Path)
+	abs, err := absPath(a.Path)
 	if err != nil {
 		return "", err
 	}

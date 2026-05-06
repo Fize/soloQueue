@@ -10,14 +10,13 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
-// globTool 在沙箱目录下按 doublestar pattern 找文件
+// globTool 在目录下按 doublestar pattern 找文件
 //
 // Schema:
 //
 //	{"pattern":"**/*.go", "dir":"..."}
 //
 // 行为：
-//   - dir 必须落在 AllowedDirs
 //   - 使用 doublestar.Glob(os.DirFS(dir), pattern)；支持 **、{}、? 等
 //   - 匹配数 > MaxGlobItems 时截断并返回 truncated=true
 //   - 返回路径**相对 dir**（用 "/" 分隔，跨平台一致）
@@ -26,12 +25,15 @@ type globTool struct {
 	logger *logger.Logger
 }
 
-func newGlobTool(cfg Config) *globTool { ensureExecutor(&cfg); return &globTool{cfg: cfg, logger: cfg.Logger} }
+func newGlobTool(cfg Config) *globTool {
+	ensureExecutor(&cfg)
+	return &globTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (globTool) Name() string { return "Glob" }
 
 func (globTool) Description() string {
-	return "Find files by doublestar glob (supports **) under dir within the sandbox. " +
+	return "Find files by doublestar glob (supports **) under dir. " +
 		"Returns {files:[...relative paths...], truncated}."
 }
 
@@ -40,7 +42,7 @@ func (globTool) Parameters() json.RawMessage {
   "type":"object",
   "properties":{
     "pattern":{"type":"string","description":"doublestar glob, e.g. **/*.go"},
-    "dir":{"type":"string","description":"Root dir; must be inside AllowedDirs"}
+    "dir":{"type":"string","description":"Root directory to search"}
   },
   "required":["pattern","dir"]
 }`)
@@ -72,7 +74,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	absDir, err := resolveSandbox(t.cfg.AllowedDirs, a.Dir)
+	absDir, err := absPath(a.Dir)
 	if err != nil {
 		return "", err
 	}

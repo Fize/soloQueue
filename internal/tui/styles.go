@@ -49,6 +49,7 @@ var (
 	composerStyle      lipgloss.Style
 	copyModeStyle      lipgloss.Style
 	timestampStyle     lipgloss.Style
+	teamBadgeStyle     lipgloss.Style
 )
 
 func init() {
@@ -101,7 +102,6 @@ func applyTheme(darkBg bool) {
 	foldedStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	successStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 
-
 	toolCollapsedStyle = lipgloss.NewStyle().
 		Foreground(colorMuted).
 		PaddingLeft(2)
@@ -137,6 +137,10 @@ func applyTheme(darkBg bool) {
 	composerStyle = lipgloss.NewStyle().Foreground(colorText).BorderForeground(colorBorder)
 	copyModeStyle = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 	timestampStyle = lipgloss.NewStyle().Foreground(colorMuted)
+
+	teamBadgeStyle = lipgloss.NewStyle().
+		Foreground(colorText).
+		Bold(true)
 
 }
 

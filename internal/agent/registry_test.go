@@ -425,7 +425,7 @@ func waitForState(t *testing.T, a *Agent, timeout time.Duration, want State) {
 // Register / Unregister / Shutdown 的结构化事件
 func TestRegistry_LogsRegisterUnregister(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "team", "sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}

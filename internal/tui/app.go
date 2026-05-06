@@ -14,6 +14,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -40,6 +41,11 @@ type Config struct {
 	Skills        *skill.SkillRegistry
 	SandboxInitCh <-chan SandboxInitMsg // async sandbox + session init channel
 	NotifyCh      <-chan string         // background task notifications
+
+	// Static template data for sidebar agent tree (available before any agent runs).
+	Templates     []agent.AgentTemplate
+	Groups        map[string]prompt.GroupFile
+	AssistantName string // name parsed from profile.md for L1 display
 }
 
 // ─── Data types ──────────────────────────────
@@ -162,17 +168,17 @@ type model struct {
 	renderer     *glamour.TermRenderer
 	darkBg       bool
 
-	genStartTime       time.Time
-	genPhase           genPhase
-	promptTokens       int
-	outputTokens       int
-	cacheHitTokens     int
-	cacheMissTokens    int
-	reasoningTokens    int
-	genSummary         string
-	activeDelegations  int // current number of in-flight async delegations
-	currentIter        int // current tool-use iteration (from IterationDoneEvent)
-	contentDeltas      int // diagnostic: number of ContentDeltaEvents received this turn
+	genStartTime      time.Time
+	genPhase          genPhase
+	promptTokens      int
+	outputTokens      int
+	cacheHitTokens    int
+	cacheMissTokens   int
+	reasoningTokens   int
+	genSummary        string
+	activeDelegations int // current number of in-flight async delegations
+	currentIter       int // current tool-use iteration (from IterationDoneEvent)
+	contentDeltas     int // diagnostic: number of ContentDeltaEvents received this turn
 
 	messages     []message
 	current      *streamState
@@ -202,7 +208,7 @@ func Run(cfg Config) error {
 		ctx:        ctx,
 		messages:   []message{},
 		history:    loadHistory(),
-		sidebar:    newSidebar(cfg.Registry, cfg.SupervisorsFn),
+		sidebar:    newSidebar(cfg.Registry, cfg.SupervisorsFn, cfg.Templates, cfg.Groups, cfg.AssistantName),
 		spinner:    newSpinner(),
 		focus:      focusComposer,
 		showAgents: true,
@@ -628,12 +634,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, agentTickCmd(agentTickInterval(m.isGenerating))
 
-		case systemNotifyMsg:
-			m.messages = append(m.messages, message{role: "system", content: msg.message})
-			m.resizeViewport()
-			m.rebuildViewportContent()
-			m.viewport.GotoBottom()
-			return m, nil
+	case systemNotifyMsg:
+		m.messages = append(m.messages, message{role: "system", content: msg.message})
+		m.resizeViewport()
+		m.rebuildViewportContent()
+		m.viewport.GotoBottom()
+		return m, nil
 	}
 
 	if m.confirmState == nil {
@@ -847,4 +853,3 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 }
 
 // ─── History persistence (in history.go) ─────
-

@@ -165,7 +165,8 @@ func roleDefault(role string) string {
 
 // ─── Init & DefaultWorkDir ────────────────────────────────────────────────────
 
-// DefaultWorkDir returns ~/.soloqueue, creating it if it doesn't exist
+// DefaultWorkDir returns ~/.soloqueue, creating it if it doesn't exist.
+// It also creates the ~/.soloqueue/plan/ subdirectory for design documents.
 func DefaultWorkDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -175,7 +176,26 @@ func DefaultWorkDir() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create work dir %s: %w", dir, err)
 	}
+	// Create plan subdirectory for design documents
+	planDir := filepath.Join(dir, "plan")
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		return "", fmt.Errorf("create plan dir %s: %w", planDir, err)
+	}
 	return dir, nil
+}
+
+// PlanDir returns the absolute path to ~/.soloqueue/plan/.
+// It creates the directory if it doesn't exist.
+func PlanDir() (string, error) {
+	workDir, err := DefaultWorkDir()
+	if err != nil {
+		return "", err
+	}
+	planDir := filepath.Join(workDir, "plan")
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		return "", fmt.Errorf("create plan dir %s: %w", planDir, err)
+	}
+	return planDir, nil
 }
 
 // Init creates a GlobalService and completes loading, hot-reloading, and initial save

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
@@ -21,7 +22,6 @@ import (
 //	}
 //
 // 安全：
-//   - 沙箱：path 必须落在 AllowedDirs
 //   - 大小：len(content) > MaxWriteSize → ErrContentTooLarge
 //   - 父目录必须已存在（不自动 MkdirAll；避免 LLM 误造目录树）
 //   - 原子性：atomicWrite(tmp + rename)；失败无残留 tmp
@@ -30,12 +30,15 @@ type writeFileTool struct {
 	logger *logger.Logger
 }
 
-func newWriteFileTool(cfg Config) *writeFileTool { ensureExecutor(&cfg); return &writeFileTool{cfg: cfg, logger: cfg.Logger} }
+func newWriteFileTool(cfg Config) *writeFileTool {
+	ensureExecutor(&cfg)
+	return &writeFileTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (writeFileTool) Name() string { return "Write" }
 
 func (writeFileTool) Description() string {
-	return "Atomically write a UTF-8 text file within the sandbox. " +
+	return "Atomically write a UTF-8 text file. " +
 		"Fails if the parent directory doesn't exist. " +
 		"Returns {path,size,created}."
 }
@@ -97,7 +100,7 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 
 // writeFileImpl 是内部实现；multi_write 直接调用以保证语义一致
 func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, error) {
-	abs, err := resolveSandbox(cfg.AllowedDirs, path)
+	abs, err := absPath(path)
 	if err != nil {
 		return "", err
 	}
@@ -110,7 +113,14 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 	dir := filepath.Dir(abs)
 	fi, err := cfg.Executor.Stat(context.Background(), dir)
 	if err != nil || !fi.IsDir {
-		return "", fmt.Errorf("%w: %s", ErrParentDirMissing, dir)
+		// If the target path is under PlanDir, auto-create intermediate directories
+		if cfg.PlanDir != "" && strings.HasPrefix(abs, cfg.PlanDir+string(filepath.Separator)) {
+			if mkdirErr := ensureDir(cfg.Executor, dir); mkdirErr != nil {
+				return "", fmt.Errorf("auto-create plan dir %s: %w", dir, mkdirErr)
+			}
+		} else {
+			return "", fmt.Errorf("%w: %s", ErrParentDirMissing, dir)
+		}
 	}
 
 	wr, err := cfg.Executor.WriteFile(context.Background(), abs, []byte(content), sandbox.WriteFileOptions{
@@ -130,11 +140,46 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 	return string(b), nil
 }
 
+// ensureDir creates the directory (and any missing parents) via the Executor.
+// It uses RunCommand("mkdir -p") which works for both LocalExecutor and DockerExecutor.
+func ensureDir(exec sandbox.Executor, dir string) error {
+	_, err := exec.RunCommand(context.Background(), "mkdir -p "+shellQuoteDir(dir), sandbox.RunCommandOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// shellQuoteDir quotes a directory path for safe shell usage.
+// Wraps in single quotes, escaping any embedded single quotes.
+func shellQuoteDir(s string) string {
+	// Replace ' with '\'' (end quote, escaped quote, start quote)
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // CheckConfirmation 实现 Confirmable：写文件始终需要确认。
 func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 	var a writeFileArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return true, fmt.Sprintf("Write file (unable to parse args). Allow?")
+		if t.logger != nil {
+			preview := raw
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			t.logger.Error(logger.CatTool, "CheckConfirmation: json.Unmarshal failed",
+				"error", err.Error(),
+				"raw_len", len(raw),
+				"raw_preview", preview,
+			)
+		}
+		// 尝试从 raw 中至少提取 path（JSON 前半截通常包含 path 字段）
+		var partial struct {
+			Path string `json:"path"`
+		}
+		if e := json.Unmarshal([]byte(raw), &partial); e == nil && partial.Path != "" {
+			return true, fmt.Sprintf("Write to %q (truncated, %d bytes). Allow?", partial.Path, len(raw))
+		}
+		return true, fmt.Sprintf("Write file (truncated args, %d bytes: %v). Allow?", len(raw), err)
 	}
 	size := len(a.Content)
 	var sizeStr string

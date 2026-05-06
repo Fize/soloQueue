@@ -32,7 +32,7 @@ type Config struct {
 	// Headers 额外 HTTP header（通常用于代理 / 自定义路由）
 	Headers map[string]string
 
-	// TimeoutMs HTTP 请求超时（毫秒）；0 默认 120_000 (2min)
+	// TimeoutMs HTTP 请求超时（毫秒）；0 默认 600_000 (10min)
 	TimeoutMs int
 
 	// Retry 重试策略；零值不重试
@@ -68,7 +68,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		timeout := 120 * time.Second
+		timeout := 10 * time.Minute
 		if cfg.TimeoutMs > 0 {
 			timeout = time.Duration(cfg.TimeoutMs) * time.Millisecond
 		}

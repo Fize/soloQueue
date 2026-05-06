@@ -746,7 +746,7 @@ func TestClient_WithTimeoutMs(t *testing.T) {
 func TestChatStream_WithLogger(t *testing.T) {
 	// 覆盖 logger 非 nil 的路径（logStart + logError）
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "team", "sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
 		t.Fatalf("new logger: %v", err)
 	}

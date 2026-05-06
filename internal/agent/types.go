@@ -45,7 +45,7 @@ type Definition struct {
 
 	// ContextWindow 是模型的上下文窗口大小（token 数），用于 Overflow 硬限检查。
 	// 对应 config.LLMModel.ContextWindow。
-	// <= 0 时使用兜底默认值 128000。
+	// <= 0 时使用兜底默认值 1048576 (1M tokens)。
 	ContextWindow int
 
 	// ExplicitModel indicates this agent's model was explicitly configured
@@ -107,7 +107,7 @@ const DefaultMaxIterations = 100
 
 // DefaultContextWindow is the fallback context window size (tokens).
 // Used when Definition.ContextWindow is unset (<= 0).
-const DefaultContextWindow = 128000
+const DefaultContextWindow = 1048576
 
 // DefaultToolTimeout is the fallback timeout for tools that do not have
 // an explicit per-tool timeout via WithToolTimeout. Prevents indefinite

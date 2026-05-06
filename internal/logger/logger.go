@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"runtime"
 	"time"
 )
@@ -50,35 +49,28 @@ func defaultOptions() options {
 
 // ─── Logger ───────────────────────────────────────────────────────────────────
 
-// Logger 是三层日志封装，每个 Logger 绑定到一个 Layer
+// Logger 封装 slog.Logger，所有日志统一写入 system 目录
 type Logger struct {
-	inner     *slog.Logger
-	layer     Layer
-	baseDir   string
-	teamID    string
-	sessionID string
-	handler   *MultiHandler
-	levelVar  *slog.LevelVar // 与 handler 共享，支持运行时动态调整日志级别
+	inner    *slog.Logger
+	baseDir  string
+	handler  *MultiHandler
+	levelVar *slog.LevelVar // 与 handler 共享，支持运行时动态调整日志级别
 }
 
 // ─── Factory Functions ────────────────────────────────────────────────────────
 
-// System 创建 system 层 Logger
+// New 创建 Logger，所有日志统一写入 {baseDir}/logs/system/
+func New(baseDir string, opts ...Option) (*Logger, error) {
+	return newLogger(baseDir, opts...)
+}
+
+// System 创建 system 层 Logger（别名，等价于 New）
+// Deprecated: 使用 New 代替
 func System(baseDir string, opts ...Option) (*Logger, error) {
-	return newLogger(baseDir, LayerSystem, "", "", opts...)
+	return newLogger(baseDir, opts...)
 }
 
-// Team 创建 team 层 Logger
-func Team(baseDir, teamID string, opts ...Option) (*Logger, error) {
-	return newLogger(baseDir, LayerTeam, teamID, "", opts...)
-}
-
-// Session 创建 session 层 Logger
-func Session(baseDir, teamID, sessionID string, opts ...Option) (*Logger, error) {
-	return newLogger(baseDir, LayerSession, teamID, sessionID, opts...)
-}
-
-func newLogger(baseDir string, layer Layer, teamID, sessionID string, opts ...Option) (*Logger, error) {
+func newLogger(baseDir string, opts ...Option) (*Logger, error) {
 	o := defaultOptions()
 	for _, opt := range opts {
 		opt(&o)
@@ -95,20 +87,17 @@ func newLogger(baseDir string, layer Layer, teamID, sessionID string, opts ...Op
 	// File handler
 	var fileHandler *FileHandler
 	if o.file {
-		fileHandler = newFileHandler(baseDir, layer, teamID, sessionID, o.levelVar, o.maxSizeMB, o.maxDays, o.maxFiles)
+		fileHandler = newFileHandler(baseDir, o.levelVar, o.maxSizeMB, o.maxDays, o.maxFiles)
 	}
 
 	multi := newMultiHandler(consoleHandler, fileHandler)
 	inner := slog.New(multi)
 
 	return &Logger{
-		inner:     inner,
-		layer:     layer,
-		baseDir:   baseDir,
-		teamID:    teamID,
-		sessionID: sessionID,
-		handler:   multi,
-		levelVar:  o.levelVar,
+		inner:    inner,
+		baseDir:  baseDir,
+		handler:  multi,
+		levelVar: o.levelVar,
 	}, nil
 }
 
@@ -130,12 +119,10 @@ func (l *Logger) Child(attrs ...slog.Attr) *Logger {
 		args[i] = a
 	}
 	return &Logger{
-		inner:     l.inner.With(args...),
-		layer:     l.layer,
-		baseDir:   l.baseDir,
-		teamID:    l.teamID,
-		sessionID: l.sessionID,
-		handler:   l.handler,
+		inner:    l.inner.With(args...),
+		baseDir:  l.baseDir,
+		handler:  l.handler,
+		levelVar: l.levelVar,
 	}
 }
 
@@ -226,17 +213,15 @@ func (l *Logger) LogDuration(ctx context.Context, cat Category, msg string, fn f
 	return err
 }
 
-// Close 关闭文件 handler（刷新缓冲）并清理 session 日志目录
+// Close 关闭文件 handler（刷新缓冲）
 func (l *Logger) Close() error {
-	err := l.handler.close()
+	return l.handler.close()
+}
 
-	// 清理 session 层日志目录，避免磁盘累积
-	if l.layer == LayerSession && l.baseDir != "" && l.teamID != "" && l.sessionID != "" {
-		dir := filepath.Join(l.baseDir, "logs", "sessions", l.teamID, l.sessionID)
-		_ = os.RemoveAll(dir)
-	}
-
-	return err
+// CloseAndCleanup 关闭文件 handler
+// Deprecated: 使用 Close 代替
+func (l *Logger) CloseAndCleanup() error {
+	return l.Close()
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────

@@ -296,6 +296,26 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			return
 		}
 
+		// Guard: if finish_reason is "length", the output was truncated.
+		// Any partially-accumulated tool_calls are incomplete (JSON will be
+		// malformed), so discard them and treat as a content-only response
+		// with an error hint for the LLM to retry with shorter output.
+		if acc.finish == llm.FinishLength && len(toolCalls) > 0 {
+			a.logError(ctx, logger.CatLLM, "tool_calls truncated due to max_tokens",
+				fmt.Errorf("finish_reason=length with %d partial tool_calls; discarding", len(toolCalls)),
+				slog.Int("iter", iter),
+				slog.Int("completion_tokens", acc.usage.CompletionTokens),
+			)
+			// Replace truncated tool_calls with an error message so the LLM
+			// knows it hit the limit and should produce shorter output.
+			toolCalls = nil
+			if acc.content.Len() == 0 {
+				acc.content.WriteString("[error] Output truncated (max_tokens reached). " +
+					"Your tool_call arguments were incomplete. " +
+					"Please retry with shorter content or split into multiple writes.")
+			}
+		}
+
 		// Exit: LLM produced no tool calls → return final content
 		if len(toolCalls) == 0 {
 			a.logInfo(ctx, logger.CatLLM, "agent turn done",
