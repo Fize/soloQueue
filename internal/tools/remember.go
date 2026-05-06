@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -29,14 +30,16 @@ func (rememberTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "content":{"type":"string","description":"The information to save. Be concise but include all key details."}
+    "content":{"type":"string","description":"The information to save. Be concise but include all key details."},
+    "timestamp":{"type":"string","description":"Optional. The time this information is about, in YYYY-MM-DD HH:MM format. Use the actual time the event occurred or was discussed, not the current time. If omitted, defaults to now."}
   },
   "required":["content"]
 }`)
 }
 
 type rememberArgs struct {
-	Content string `json:"content"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
 }
 
 type rememberResult struct {
@@ -61,7 +64,16 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	if err := t.cfg.PermanentManager.Remember(ctx, a.Content); err != nil {
+	var at time.Time
+	if a.Timestamp != "" {
+		var err error
+		at, err = time.Parse("2006-01-02 15:04", a.Timestamp)
+		if err != nil {
+			return "", fmt.Errorf("invalid timestamp format, expected YYYY-MM-DD HH:MM: %w", err)
+		}
+	}
+
+	if err := t.cfg.PermanentManager.Remember(ctx, a.Content, at); err != nil {
 		return "", err
 	}
 
