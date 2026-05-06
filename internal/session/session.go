@@ -768,6 +768,7 @@ func isLevelLockCommand(prompt string) bool {
 
 // formatPayloadForMemory converts ctxwin payload messages to a plain-text string
 // suitable for short-term memory summarization. Skips system messages.
+// Emits [timestamp] headers at each user turn so the LLM can group events chronologically.
 func formatPayloadForMemory(payload []ctxwin.PayloadMessage) string {
 	var b strings.Builder
 	for _, m := range payload {
@@ -775,6 +776,9 @@ func formatPayloadForMemory(payload []ctxwin.PayloadMessage) string {
 		case "system":
 			continue
 		case "user":
+			if !m.Timestamp.IsZero() {
+				b.WriteString("[" + m.Timestamp.Format("2006-01-02 15:04") + "]\n")
+			}
 			b.WriteString("User: ")
 		case "assistant":
 			b.WriteString("Assistant: ")

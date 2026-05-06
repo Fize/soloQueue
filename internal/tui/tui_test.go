@@ -4,54 +4,129 @@ import (
 	"testing"
 )
 
-// Test_parseToolArgs tests JSON argument parsing
-func Test_parseToolArgs(t *testing.T) {
+// Test_toolDisplay tests tool argument display extraction
+func Test_toolDisplay(t *testing.T) {
 	tests := []struct {
-		name        string
-		argsJSON    string
-		wantPath    string
-		wantCommand string
-		wantFile    string
+		name     string
+		toolName string
+		argsJSON string
+		want     string
 	}{
 		{
-			name:     "parse path arg",
-			argsJSON: `{"path": "/home/user/test.go", "other": "value"}`,
-			wantPath: "/home/user/test.go",
+			name:     "Bash command",
+			toolName: "Bash",
+			argsJSON: `{"command": "ls -la"}`,
+			want:     "ls -la",
 		},
 		{
-			name:        "parse command arg",
-			argsJSON:    `{"command": "ls -la", "timeout": 30}`,
-			wantCommand: "ls -la",
+			name:     "Read path",
+			toolName: "Read",
+			argsJSON: `{"path": "/tmp/test.go"}`,
+			want:     "/tmp/test.go",
 		},
 		{
-			name:     "parse file arg",
-			argsJSON: `{"file": "README.md"}`,
-			wantFile: "README.md",
+			name:     "Write path",
+			toolName: "Write",
+			argsJSON: `{"path": "/home/user/main.go"}`,
+			want:     "/home/user/main.go",
+		},
+		{
+			name:     "Edit path",
+			toolName: "Edit",
+			argsJSON: `{"path": "src/app.go"}`,
+			want:     "src/app.go",
+		},
+		{
+			name:     "Glob pattern with dir",
+			toolName: "Glob",
+			argsJSON: `{"pattern": "*.go", "dir": "/src"}`,
+			want:     "*.go  in /src",
+		},
+		{
+			name:     "Grep pattern",
+			toolName: "Grep",
+			argsJSON: `{"pattern": "func main"}`,
+			want:     "func main",
+		},
+		{
+			name:     "WebFetch URL",
+			toolName: "WebFetch",
+			argsJSON: `{"url": "https://example.com"}`,
+			want:     "https://example.com",
+		},
+		{
+			name:     "WebSearch query",
+			toolName: "WebSearch",
+			argsJSON: `{"query": "golang patterns"}`,
+			want:     "golang patterns",
+		},
+		{
+			name:     "delegate_* task",
+			toolName: "delegate_frontend",
+			argsJSON: `{"task": "Fix the login page styling"}`,
+			want:     "Fix the login page styling",
+		},
+		{
+			name:     "MultiWrite single file",
+			toolName: "MultiWrite",
+			argsJSON: `{"files": [{"path": "a.go"}]}`,
+			want:     "a.go",
+		},
+		{
+			name:     "MultiWrite multiple files",
+			toolName: "MultiWrite",
+			argsJSON: `{"files": [{"path": "a.go"}, {"path": "b.go"}]}`,
+			want:     "a.go, b.go",
+		},
+		{
+			name:     "MultiEdit path",
+			toolName: "MultiEdit",
+			argsJSON: `{"path": "main.go"}`,
+			want:     "main.go",
+		},
+		{
+			name:     "Remember content (truncated)",
+			toolName: "Remember",
+			argsJSON: `{"content": "The user prefers tabs over spaces in all Go files"}`,
+			want:     "The user prefers tabs over spaces in all Go files",
+		},
+		{
+			name:     "RecallMemory query",
+			toolName: "RecallMemory",
+			argsJSON: `{"query": "user coding style"}`,
+			want:     "user coding style",
+		},
+		{
+			name:     "fallback path field",
+			toolName: "UnknownTool",
+			argsJSON: `{"path": "/some/file.txt"}`,
+			want:     "/some/file.txt",
+		},
+		{
+			name:     "fallback command field",
+			toolName: "UnknownTool",
+			argsJSON: `{"command": "make build"}`,
+			want:     "make build",
 		},
 		{
 			name:     "empty JSON",
+			toolName: "Bash",
 			argsJSON: `{}`,
+			want:     "",
 		},
 		{
 			name:     "invalid JSON",
-			argsJSON: `invalid json`,
-			wantPath:    "[parse error]",
-			wantCommand: "[parse error]",
-			wantFile:    "[parse error]",
+			toolName: "Bash",
+			argsJSON: `bad json`,
+			want:     "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseToolArgs(tt.argsJSON)
-			if got.Path != tt.wantPath {
-				t.Errorf("parseToolArgs() got Path = %v, want %v", got.Path, tt.wantPath)
-			}
-			if got.Command != tt.wantCommand {
-				t.Errorf("parseToolArgs() got Command = %v, want %v", got.Command, tt.wantCommand)
-			}
-			if got.File != tt.wantFile {
-				t.Errorf("parseToolArgs() got File = %v, want %v", got.File, tt.wantFile)
+			got := toolDisplay(tt.toolName, tt.argsJSON)
+			if got != tt.want {
+				t.Errorf("toolDisplay(%q) = %q, want %q", tt.argsJSON, got, tt.want)
 			}
 		})
 	}

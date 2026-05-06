@@ -45,6 +45,7 @@ func NewWriter(dir, baseName string, maxBytes int64, maxFiles int, opts ...Write
 // AppendMessage 追加消息事件
 func (w *Writer) AppendMessage(msg *MessagePayload) error {
 	evt := newEvent(EventMessage)
+	msg.Timestamp = evt.Timestamp
 	evt.Message = msg
 	return w.writeEvent(evt)
 }

@@ -201,6 +201,134 @@ func TestMessageAtOutOfBounds(t *testing.T) {
 	}
 }
 
+func TestBuildPayload_OrphanedToolMessageSkipped(t *testing.T) {
+	// A tool message without a matching assistant(tool_calls) should be skipped.
+	cw := newTestCW(100000, 2000)
+	cw.Push(RoleSystem, "System")
+	cw.Push(RoleUser, "What time is it?")
+	cw.Push(RoleAssistant, "Let me check.", WithToolCalls([]llm.ToolCall{
+		{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "get_time", Arguments: `{}`}},
+	}))
+	cw.Push(RoleTool, `{"time":"12:00"}`, WithToolCallID("call_1"), WithToolName("get_time"))
+	// Orphaned tool message — no matching assistant(tool_calls)
+	cw.Push(RoleTool, `{"temp":"22C"}`, WithToolCallID("call_orphan"), WithToolName("get_temp"))
+
+	payload := cw.BuildPayload()
+	// Should have 4 messages: system, user, assistant(tool_calls), tool result.
+	// The orphaned tool message with call_orphan is skipped.
+	if len(payload) != 4 {
+		t.Fatalf("len(payload) = %d, want 4", len(payload))
+	}
+	last := payload[len(payload)-1]
+	if last.Role != string(RoleTool) || last.ToolCallID != "call_1" {
+		t.Errorf("last msg = %q/%q, want tool/call_1", last.Role, last.ToolCallID)
+	}
+}
+
+func TestBuildPayload_OrphanedAssistantToolCallsSkipped(t *testing.T) {
+	// An assistant(tool_calls) without any tool result messages should be skipped.
+	cw := newTestCW(100000, 2000)
+	cw.Push(RoleSystem, "System")
+	cw.Push(RoleUser, "Question 1")
+	cw.Push(RoleAssistant, "Answer 1")
+	cw.Push(RoleUser, "Question 2")
+	// Assistant makes a tool call, but no tool result ever appears
+	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
+		{ID: "orphan-1", Type: "function", Function: llm.FunctionCall{Name: "search", Arguments: `{}`}},
+	}))
+
+	payload := cw.BuildPayload()
+	// Should have 4 messages, orphaned assistant skipped
+	if len(payload) != 4 {
+		t.Fatalf("len(payload) = %d, want 4", len(payload))
+	}
+	for _, p := range payload {
+		if len(p.ToolCalls) > 0 {
+			t.Errorf("unexpected tool_calls in payload: %v", p.ToolCalls)
+		}
+	}
+}
+
+func TestBuildPayload_PartialToolResultsSkipped(t *testing.T) {
+	// Assistant with 2 tool_calls but only 1 tool result — all skipped.
+	cw := newTestCW(100000, 2000)
+	cw.Push(RoleSystem, "System")
+	cw.Push(RoleUser, "Search and read")
+	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
+		{ID: "tc-1", Type: "function", Function: llm.FunctionCall{Name: "search", Arguments: `{}`}},
+		{ID: "tc-2", Type: "function", Function: llm.FunctionCall{Name: "read", Arguments: `{}`}},
+	}))
+	cw.Push(RoleTool, "search result", WithToolCallID("tc-1"), WithToolName("search"))
+	// tc-2 result missing — partial
+	cw.Push(RoleUser, "Next question")
+	cw.Push(RoleAssistant, "Final answer")
+
+	payload := cw.BuildPayload()
+	// Should have 4 messages: system, user, user, assistant
+	// Orphaned assistant tool_calls + partial tool result both skipped
+	if len(payload) != 4 {
+		t.Fatalf("len(payload) = %d, want 4", len(payload))
+	}
+	for _, p := range payload {
+		if p.Role == string(RoleTool) && p.ToolCallID == "tc-1" {
+			t.Errorf("partial tool result tc-1 should have been skipped")
+		}
+	}
+}
+
+func TestBuildPayload_CompleteToolCallsKept(t *testing.T) {
+	// Assistant with tool_calls and all tool results present — all kept.
+	cw := newTestCW(100000, 2000)
+	cw.Push(RoleSystem, "System")
+	cw.Push(RoleUser, "Read file")
+	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
+		{ID: "tc-a", Type: "function", Function: llm.FunctionCall{Name: "read", Arguments: `{}`}},
+		{ID: "tc-b", Type: "function", Function: llm.FunctionCall{Name: "search", Arguments: `{}`}},
+	}))
+	cw.Push(RoleTool, "read result", WithToolCallID("tc-a"), WithToolName("read"))
+	cw.Push(RoleTool, "search result", WithToolCallID("tc-b"), WithToolName("search"))
+	cw.Push(RoleUser, "Next question")
+
+	payload := cw.BuildPayload()
+	// Should have 6 messages: all kept
+	if len(payload) != 6 {
+		t.Fatalf("len(payload) = %d, want 6", len(payload))
+	}
+}
+
+func TestBuildPayload_MixedCompleteAndIncomplete(t *testing.T) {
+	// First tool call pair is complete, second is incomplete.
+	// Only the complete pair should survive.
+	cw := newTestCW(100000, 2000)
+	cw.Push(RoleSystem, "System")
+	cw.Push(RoleUser, "Q1")
+	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
+		{ID: "good-1", Type: "function", Function: llm.FunctionCall{Name: "get_time", Arguments: `{}`}},
+	}))
+	cw.Push(RoleTool, "12:00", WithToolCallID("good-1"), WithToolName("get_time"))
+	cw.Push(RoleAssistant, "The time is 12:00")
+	cw.Push(RoleUser, "Q2 — canceled during tool")
+	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
+		{ID: "bad-1", Type: "function", Function: llm.FunctionCall{Name: "search", Arguments: `{}`}},
+	}))
+	// No tool result for bad-1 — user canceled during execution
+
+	payload := cw.BuildPayload()
+	// Should have 6 messages (system, user, assistant w/tool_calls, tool result, assistant, user)
+	// Orphaned assistant(bad-1) skipped
+	if len(payload) != 6 {
+		t.Fatalf("len(payload) = %d, want 6", len(payload))
+	}
+	// Verify no orphaned assistant with tool_calls remains
+	for _, p := range payload {
+		for _, tc := range p.ToolCalls {
+			if tc.ID == "bad-1" {
+				t.Errorf("orphaned assistant tool_calls bad-1 should have been skipped")
+			}
+		}
+	}
+}
+
 func TestPushTriggersEviction(t *testing.T) {
 	// 小窗口：maxTokens=100, bufferTokens=20, 有效容量=80
 	cw := newTestCW(100, 20)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -211,8 +212,9 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 }
 
 // pushMessage 将单条消息 push 到 ContextWindow
+// ts 为 timeline event 的原始时间戳，用于保留消息的原始时间信息。
 func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
-	opts := make([]ctxwin.PushOption, 0, 4)
+	opts := make([]ctxwin.PushOption, 0, 5)
 	if msg.ReasoningContent != "" {
 		opts = append(opts, ctxwin.WithReasoningContent(msg.ReasoningContent))
 	}
@@ -238,6 +240,11 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 			}
 		}
 		opts = append(opts, ctxwin.WithToolCalls(tcs))
+	}
+	if msg.Timestamp != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp); err == nil {
+			opts = append(opts, ctxwin.WithTimestamp(ts))
+		}
 	}
 
 	cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)

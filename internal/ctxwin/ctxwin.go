@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 
@@ -25,6 +26,7 @@ type PayloadMessage struct {
 	Name             string
 	ToolCallID       string
 	ToolCalls        []llm.ToolCall
+	Timestamp        time.Time // 消息原始时间戳（用于 memory 等需要时间上下文的场景）
 }
 
 // ─── MessageRole ────────────────────────────────────────────────────────────
@@ -55,6 +57,7 @@ type Message struct {
 	Name             string         // 工具名（role=tool）
 	ToolCallID       string         // 工具调用 ID（role=tool）
 	ToolCalls        []llm.ToolCall // role=assistant 时的 tool_calls
+	Timestamp        time.Time      // 消息 push 时的时间戳；replay 时从 timeline event 恢复
 }
 
 // ─── PushOption ─────────────────────────────────────────────────────────────
@@ -85,6 +88,11 @@ func WithToolCallID(id string) PushOption {
 // WithToolCalls 设置工具调用列表（role=assistant 时使用）
 func WithToolCalls(tcs []llm.ToolCall) PushOption {
 	return func(m *Message) { m.ToolCalls = tcs }
+}
+
+// WithTimestamp 设置消息的时间戳（用于 timeline replay 恢复原始时间）
+func WithTimestamp(ts time.Time) PushOption {
+	return func(m *Message) { m.Timestamp = ts }
 }
 
 // ─── PushHook ───────────────────────────────────────────────────────────────
@@ -199,7 +207,7 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	cw.Lock()
 	defer cw.Unlock()
 
-	msg := Message{Role: role, Content: content}
+	msg := Message{Role: role, Content: content, Timestamp: time.Now()}
 	for _, opt := range opts {
 		opt(&msg)
 	}
@@ -273,25 +281,76 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 // Called before each API request. Returns a new slice; caller can safely modify.
 // Agent package is responsible for converting PayloadMessage to agent.LLMMessage.
 //
-// Safety: filters out orphaned tool messages (role=tool without a preceding
-// assistant(tool_calls) with matching tool_call_id). This defends against
-// CW corruption from async delegation timing or truncation bugs.
+// Safety: filters out incomplete tool_call/tool_result pairs. This defends
+// against CW corruption from async delegation timing, truncation bugs, or
+// user cancellation during tool execution. Both directions are handled:
+//   - tool messages without a preceding assistant(tool_calls)
+//   - assistant(tool_calls) without complete tool result messages
 func (cw *ContextWindow) BuildPayload() []PayloadMessage {
 	cw.RLock()
 	defer cw.RUnlock()
 
-	// First pass: collect valid tool_call_ids from assistant messages
-	validIDs := make(map[string]bool, len(cw.messages))
-	for _, m := range cw.messages {
-		for _, tc := range m.ToolCalls {
-			validIDs[tc.ID] = true
+	return filterCompletePairs(cw.messages)
+}
+
+// filterCompletePairs filters out incomplete tool_call/tool_result pairs from
+// a message list. It ensures that every tool message has a matching
+// assistant(tool_calls), and every assistant(tool_calls) has all its tool
+// results present. Messages not involved in tool interactions pass through
+// unchanged.
+//
+// The same filtering logic is applied in timeline.replaySegment for replay
+// paths, but the replay path uses a streaming algorithm (buffering pending
+// groups) while this function uses a three-pass scan suitable for snapshot reads.
+func filterCompletePairs(msgs []Message) []PayloadMessage {
+	// Pass 1: record which tool_call_ids have tool result messages
+	hasResult := make(map[string]bool, len(msgs))
+	for _, m := range msgs {
+		if m.Role == RoleTool && m.ToolCallID != "" {
+			hasResult[m.ToolCallID] = true
 		}
 	}
 
-	out := make([]PayloadMessage, 0, len(cw.messages))
-	for _, m := range cw.messages {
-		// Skip orphaned tool messages: role=tool but no matching tool_call_id
-		if m.Role == RoleTool && m.ToolCallID != "" && !validIDs[m.ToolCallID] {
+	// Pass 2: determine which tool_call_ids belong to complete assistant(tool_calls).
+	// An assistant is complete only when ALL its tool_call_ids have results.
+	// tool_call_ids from complete groups are stored in valid.
+	valid := make(map[string]bool, len(msgs))
+	for _, m := range msgs {
+		if len(m.ToolCalls) == 0 {
+			continue
+		}
+		allComplete := true
+		for _, tc := range m.ToolCalls {
+			if !hasResult[tc.ID] {
+				allComplete = false
+				break
+			}
+		}
+		if allComplete {
+			for _, tc := range m.ToolCalls {
+				valid[tc.ID] = true
+			}
+		}
+	}
+
+	// Pass 3: emit only messages that form valid conversations
+	out := make([]PayloadMessage, 0, len(msgs))
+	for _, m := range msgs {
+		// Skip assistant(tool_calls) whose results are not all present
+		if len(m.ToolCalls) > 0 {
+			allValid := true
+			for _, tc := range m.ToolCalls {
+				if !valid[tc.ID] {
+					allValid = false
+					break
+				}
+			}
+			if !allValid {
+				continue
+			}
+		}
+		// Skip tool messages whose tool_call_id does not belong to a complete assistant
+		if m.Role == RoleTool && m.ToolCallID != "" && !valid[m.ToolCallID] {
 			continue
 		}
 		out = append(out, PayloadMessage{
@@ -301,6 +360,7 @@ func (cw *ContextWindow) BuildPayload() []PayloadMessage {
 			Name:             m.Name,
 			ToolCallID:       m.ToolCallID,
 			ToolCalls:        m.ToolCalls,
+			Timestamp:        m.Timestamp,
 		})
 	}
 	return out

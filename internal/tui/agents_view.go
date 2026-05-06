@@ -27,15 +27,33 @@ func (s sidebar) AgentRail(width, height int) string {
 	return s.renderAgentTree(width, height, false)
 }
 
-func (s sidebar) AgentInspector(width, height int, m model, showAgents bool) string {
-	var b strings.Builder
+func (s *sidebar) AgentInspector(width, height int, m model, showAgents bool) string {
+	// Build the runtime section first so we know how many lines it occupies.
+	runtimeContent := s.buildRuntimeSection(width, m)
+	runtimeLines := lineCount(runtimeContent)
 
-	if showAgents {
-		b.WriteString(paneTitleStyle.Render(" AGENTS ") + "\n")
-		b.WriteString(s.renderAgentTreeContent(width, height/2, true))
-		b.WriteString("\n")
+	// Reserve height for the team viewport.
+	teamH := height - runtimeLines
+	if teamH < 1 {
+		teamH = 1
 	}
 
+	contentW := max(width-2, 1)
+	s.ResizeTeamViewport(contentW, teamH)
+
+	if showAgents {
+		agentsContent := paneTitleStyle.Render(" AGENTS ") + "\n" + s.renderAgentTreeContent(width, 0, true)
+		s.teamViewport.SetContent(paneStyle(width).Render(agentsContent))
+	} else {
+		s.teamViewport.SetContent("")
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, s.teamViewport.View(), runtimeContent)
+}
+
+// buildRuntimeSection renders the RUNTIME status block (used by AgentInspector).
+func (s sidebar) buildRuntimeSection(width int, m model) string {
+	var b strings.Builder
 	b.WriteString(paneTitleStyle.Render(" RUNTIME ") + "\n")
 	phase := "ready"
 	if m.loading {
@@ -74,7 +92,7 @@ func (s sidebar) AgentInspector(width, height int, m model, showAgents bool) str
 		}
 		b.WriteString("\n")
 	}
-	return fitLines(paneStyle(width).Render(b.String()), height)
+	return paneStyle(width).Render(b.String())
 }
 
 func (s sidebar) renderAgentTree(width, height int, compact bool) string {
@@ -214,6 +232,9 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 		}
 	}
 
+	if height <= 0 {
+		return b.String()
+	}
 	return fitLines(b.String(), height)
 }
 
