@@ -15,7 +15,10 @@ type rememberTool struct {
 	logger *logger.Logger
 }
 
-func newRememberTool(cfg Config) *rememberTool { ensureExecutor(&cfg); return &rememberTool{cfg: cfg, logger: cfg.Logger} }
+func newRememberTool(cfg Config) *rememberTool {
+	ensureExecutor(&cfg)
+	return &rememberTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (rememberTool) Name() string { return "Remember" }
 
