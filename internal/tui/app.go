@@ -526,6 +526,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseWheelMsg:
+		// Route scroll to sidebar team viewport when mouse is in the left pane.
+		if m.showAgents {
+			ly := m.computeLayout()
+			if ly.mode == layoutTwoPane && msg.Mouse().X < ly.leftW {
+				m.sidebar.teamViewport, _ = m.sidebar.teamViewport.Update(msg)
+				return m, nil
+			}
+		}
 		var c tea.Cmd
 		m.viewport, c = m.viewport.Update(msg)
 		return m, c
@@ -546,8 +554,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if _, ok := msg.event.(agent.DelegationStartedEvent); ok {
 			m.isGenerating = false
 		}
+		wasAtBottom := m.viewport.AtBottom()
 		m.rebuildViewportContent()
-		m.viewport.GotoBottom()
+		if wasAtBottom {
+			m.viewport.GotoBottom()
+		}
 		return m, waitForAgentEvent(msg.evCh, msg.cancel, msg.streamID)
 
 	case streamDoneMsg:

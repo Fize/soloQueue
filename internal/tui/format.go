@@ -60,22 +60,6 @@ type toolExecInfo struct {
 	tb     *toolBlock
 }
 
-// toolArgs defines the common structure for tool arguments.
-type toolArgs struct {
-	Path    string `json:"path,omitempty"`
-	Command string `json:"command,omitempty"`
-	File    string `json:"file,omitempty"`
-}
-
-// parseToolArgs parses JSON-formatted tool arguments.
-func parseToolArgs(argsJSON string) toolArgs {
-	var args toolArgs
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return toolArgs{Path: "[parse error]", Command: "[parse error]", File: "[parse error]"}
-	}
-	return args
-}
-
 func renderToolLabel(name string) string {
 	return lipgloss.NewStyle().
 		Foreground(colorTool).
@@ -83,35 +67,176 @@ func renderToolLabel(name string) string {
 		Render("▎ " + name)
 }
 
-func formatToolBlock(tb toolBlock) string {
-	ta := parseToolArgs(tb.args)
-	var displayArg string
-	if ta.Path != "" {
-		displayArg = ta.Path
-	} else if ta.Command != "" {
-		displayArg = ta.Command
-	} else if ta.File != "" {
-		displayArg = ta.File
+// ─── Tool argument display ──────────────────────────────────────────────────
+
+// toolDisplay extracts a human-readable summary of tool arguments
+// based on the tool name. Returns empty string if nothing meaningful
+// can be extracted.
+func toolDisplay(name, argsJSON string) string {
+	switch name {
+	case "Bash":
+		var a struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Command != "" {
+			return a.Command
+		}
+	case "Read":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Path != "" {
+			return a.Path
+		}
+	case "Write":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Path != "" {
+			return a.Path
+		}
+	case "Edit":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Path != "" {
+			return a.Path
+		}
+	case "MultiEdit":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Path != "" {
+			return a.Path
+		}
+	case "MultiWrite":
+		var a struct {
+			Files []struct {
+				Path string `json:"path"`
+			} `json:"files"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && len(a.Files) > 0 {
+			var paths []string
+			for _, f := range a.Files {
+				paths = append(paths, f.Path)
+			}
+			return strings.Join(paths, ", ")
+		}
+	case "Glob":
+		var a struct {
+			Pattern string `json:"pattern"`
+			Dir     string `json:"dir"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Pattern != "" {
+			if a.Dir != "" {
+				return a.Pattern + "  in " + a.Dir
+			}
+			return a.Pattern
+		}
+	case "Grep":
+		var a struct {
+			Pattern string `json:"pattern"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Pattern != "" {
+			return a.Pattern
+		}
+	case "WebFetch":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.URL != "" {
+			return a.URL
+		}
+	case "WebSearch":
+		var a struct {
+			Query string `json:"query"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Query != "" {
+			return a.Query
+		}
+	case "Remember":
+		var a struct {
+			Content string `json:"content"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Content != "" {
+			return truncate(a.Content, 60)
+		}
+	case "RecallMemory":
+		var a struct {
+			Query string `json:"query"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Query != "" {
+			return a.Query
+		}
+	default:
+		if strings.HasPrefix(name, "delegate_") {
+			var a struct {
+				Task string `json:"task"`
+			}
+			if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Task != "" {
+				return truncate(a.Task, 80)
+			}
+		}
 	}
-	displayArg = truncate(displayArg, 30)
+	// Fallback: extract common fields
+	return parseToolDisplay(argsJSON)
+}
+
+// parseToolDisplay is the generic fallback that tries common field names.
+func parseToolDisplay(argsJSON string) string {
+	var m map[string]any
+	if json.Unmarshal([]byte(argsJSON), &m) != nil {
+		return ""
+	}
+	// Try common fields in priority order
+	for _, key := range []string{"path", "command", "query", "url", "pattern", "task", "content", "file"} {
+		if v, ok := m[key]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// ─── Tool block formatting ──────────────────────────────────────────────────
+
+func formatToolBlock(tb toolBlock) string {
+	display := toolDisplay(tb.name, tb.args)
+	display = truncate(display, 60)
+
 	if !tb.done {
-		if displayArg != "" {
-			return "⚙ " + displayArg
+		if display != "" {
+			return "⚙ " + display
 		}
 		return "⚙"
 	}
-	var durHint string
+
+	var durStr string
 	if tb.duration > 0 {
-		durHint = " " + tb.duration.Round(time.Millisecond).String()
+		durStr = " · " + tb.duration.Round(time.Millisecond).String()
 	}
+
 	if tb.err != nil {
-		return "✗ " + truncate(tb.err.Error(), 40)
+		errMsg := truncate(tb.err.Error(), 40)
+		if display != "" {
+			return "✗ " + display + " — " + errMsg
+		}
+		return "✗ " + errMsg
 	}
+
+	var detail string
 	if tb.lineCount > 0 {
-		return "✓ " + fmt.Sprintf("%d 行", tb.lineCount) + durHint
+		detail = fmt.Sprintf("%d行", tb.lineCount)
 	}
-	if displayArg != "" {
-		return "✓ " + displayArg + durHint
+	if display != "" {
+		if detail != "" {
+			return "✓ " + display + " · " + detail + durStr
+		}
+		return "✓ " + display + durStr
 	}
-	return "✓" + durHint
+	if detail != "" {
+		return "✓ " + detail + durStr
+	}
+	return "✓" + durStr
 }

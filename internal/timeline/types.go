@@ -51,6 +51,7 @@ type MessagePayload struct {
 	ToolCalls        []ToolCallRec `json:"tool_calls,omitempty"`    // role=assistant 时的 tool_calls
 	IsEphemeral      bool          `json:"ephemeral,omitempty"`     // 标记冗长工具输出
 	AgentID          string        `json:"agent_id,omitempty"`      // 多智能体预留
+	Timestamp        string        `json:"ts,omitempty"`            // 消息原始时间（RFC3339Nano）
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────
