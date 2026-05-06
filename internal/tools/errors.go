@@ -8,9 +8,6 @@ var (
 	// ErrInvalidArgs JSON 解析失败 / 字段缺失 / 字段值无意义
 	ErrInvalidArgs = errors.New("tools: invalid arguments")
 
-	// ErrPathOutOfSandbox 路径不在 AllowedDirs 任一沙箱内
-	ErrPathOutOfSandbox = errors.New("tools: path out of sandbox")
-
 	// ErrFileTooLarge 目标文件超 MaxFileSize
 	ErrFileTooLarge = errors.New("tools: file too large")
 

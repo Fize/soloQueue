@@ -14,8 +14,7 @@ func DefaultSettings() Settings {
 			File:    true,
 		},
 		Tools: ToolsConfig{
-			// AllowedDirs 默认空：serveCmd 启动时注入 workDir/cwd
-			MaxFileSize:        1 << 20,  // 1 MiB
+			MaxFileSize:        1 << 20, // 1 MiB
 			MaxMatches:         100,
 			MaxLineLen:         500,
 			MaxGlobItems:       1000,

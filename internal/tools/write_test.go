@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -19,7 +18,6 @@ func mkWriteFileTool(t *testing.T, maxSize int64) (*writeFileTool, string) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs:  []string{dir},
 		MaxWriteSize: maxSize,
 	}
 	return newWriteFileTool(cfg), dir
@@ -43,7 +41,6 @@ func mkMultiWriteTool(t *testing.T, files int, totalBytes int64) (*multiWriteToo
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs:        []string{dir},
 		MaxWriteSize:       1 << 20,
 		MaxMultiWriteFiles: files,
 		MaxMultiWriteBytes: totalBytes,
@@ -110,15 +107,6 @@ func TestWriteFile_ParentDirMissing(t *testing.T) {
 	_, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "x"})
 	if err == nil || !strings.Contains(err.Error(), "parent directory missing") {
 		t.Errorf("err = %v, want parent dir missing", err)
-	}
-}
-
-func TestWriteFile_OutOfSandbox(t *testing.T) {
-	tool, _ := mkWriteFileTool(t, 1024)
-	raw, _ := json.Marshal(writeFileArgs{Path: "/etc/evil.txt", Content: "x"})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
 	}
 }
 
@@ -410,26 +398,6 @@ func TestMultiWrite_PartialFailures(t *testing.T) {
 	}
 }
 
-// TestMultiWrite_SandboxVerifiedUpfront: any sandbox-invalid entry → entire
-// call rejected (security-first).
-func TestMultiWrite_SandboxVerifiedUpfront(t *testing.T) {
-	tool, dir := mkMultiWriteTool(t, 10, 1024)
-	raw, _ := json.Marshal(multiWriteArgs{
-		Files: []writeFileArgs{
-			{Path: filepath.Join(dir, "a.txt"), Content: "A"},
-			{Path: "/etc/bad.txt", Content: "evil"},
-		},
-	})
-	_, err := tool.Execute(context.Background(), string(raw))
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
-	}
-	// first file must NOT have been written (entire call rejected)
-	if _, statErr := os.Stat(filepath.Join(dir, "a.txt")); statErr == nil {
-		t.Error("first file was written despite sandbox rejection of second")
-	}
-}
-
 func TestMultiWrite_TooManyFiles(t *testing.T) {
 	tool, dir := mkMultiWriteTool(t, 2, 1024)
 	raw, _ := json.Marshal(multiWriteArgs{
@@ -478,7 +446,7 @@ func TestMultiWrite_OverwriteFalseMixed(t *testing.T) {
 	raw, _ := json.Marshal(multiWriteArgs{
 		Files: []writeFileArgs{
 			{Path: existing, Content: "new", Overwrite: ptrBool(false)}, // fails
-			{Path: filepath.Join(dir, "b.txt"), Content: "B"},            // ok
+			{Path: filepath.Join(dir, "b.txt"), Content: "B"},           // ok
 		},
 	})
 	out, err := tool.Execute(context.Background(), string(raw))

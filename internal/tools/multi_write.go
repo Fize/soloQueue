@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
 )
 
 // multiWriteTool 批量写多个文件（尽力而为，非全原子）
@@ -21,10 +20,9 @@ import (
 //
 // 语义：
 //   - 整体预检：
-//       * len(files) == 0       → ErrEmptyInput
-//       * len(files) > MaxMultiWriteFiles → ErrTooManyFiles
-//       * Σ len(content) > MaxMultiWriteBytes → ErrTotalBytesTooLarge
-//       * 任一 path 沙箱外      → 立刻返回 ErrPathOutOfSandbox（整体拒绝）
+//   - len(files) == 0       → ErrEmptyInput
+//   - len(files) > MaxMultiWriteFiles → ErrTooManyFiles
+//   - Σ len(content) > MaxMultiWriteBytes → ErrTotalBytesTooLarge
 //   - 预检通过后**串行**逐文件调 writeFileImpl；
 //     单文件失败只影响该条目（status=error），其他继续写。
 //   - 返回 {files:[{path,status,size,created,err}], summary:{total,ok,error}}
@@ -32,7 +30,10 @@ type multiWriteTool struct {
 	cfg Config
 }
 
-func newMultiWriteTool(cfg Config) *multiWriteTool { ensureExecutor(&cfg); return &multiWriteTool{cfg: cfg} }
+func newMultiWriteTool(cfg Config) *multiWriteTool {
+	ensureExecutor(&cfg)
+	return &multiWriteTool{cfg: cfg}
+}
 
 func (multiWriteTool) Name() string { return "MultiWrite" }
 
@@ -120,13 +121,6 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 	}
 	if total > maxBytes {
 		return "", fmt.Errorf("%w: %d > %d", ErrTotalBytesTooLarge, total, maxBytes)
-	}
-
-	// 预检：沙箱硬边界（任一路径越界 → 整体拒绝）
-	for i, f := range a.Files {
-		if _, err := resolveSandbox(t.cfg.AllowedDirs, f.Path); err != nil {
-			return "", fmt.Errorf("files[%d]: %w", i, err)
-		}
 	}
 
 	// 通过预检后，逐文件独立写

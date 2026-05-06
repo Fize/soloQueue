@@ -10,13 +10,13 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
-// grepTool 在沙箱目录下按 Go 正则搜索
+// grepTool 在目录下按 Go 正则搜索
 //
 // Schema:
 //
 //	{
 //	  "pattern":"...",           // Go regexp
-//	  "dir":"...",               // 必须落在 AllowedDirs
+//	  "dir":"...",               // 搜索根目录
 //	  "glob":"**/*.go"           // 可选文件名过滤（doublestar）
 //	}
 //
@@ -35,12 +35,15 @@ type grepTool struct {
 	logger *logger.Logger
 }
 
-func newGrepTool(cfg Config) *grepTool { ensureExecutor(&cfg); return &grepTool{cfg: cfg, logger: cfg.Logger} }
+func newGrepTool(cfg Config) *grepTool {
+	ensureExecutor(&cfg)
+	return &grepTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (grepTool) Name() string { return "Grep" }
 
 func (grepTool) Description() string {
-	return "Search for a Go-regex pattern across files under dir (within the sandbox). " +
+	return "Search for a Go-regex pattern across files under dir. " +
 		"Optionally filter file names with a doublestar glob. " +
 		"Returns {matches:[{file,line,text}],truncated}. Binary files are skipped."
 }
@@ -50,7 +53,7 @@ func (grepTool) Parameters() json.RawMessage {
   "type":"object",
   "properties":{
     "pattern":{"type":"string","description":"Go regexp pattern"},
-    "dir":{"type":"string","description":"Directory to search; must be inside AllowedDirs"},
+    "dir":{"type":"string","description":"Directory to search"},
     "glob":{"type":"string","description":"Optional file-name pattern (doublestar, supports **)"}
   },
   "required":["pattern","dir"]
@@ -95,7 +98,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("%w: invalid pattern: %v", ErrInvalidArgs, err)
 	}
 
-	absDir, err := resolveSandbox(t.cfg.AllowedDirs, a.Dir)
+	absDir, err := absPath(a.Dir)
 	if err != nil {
 		return "", err
 	}

@@ -8,7 +8,6 @@ import (
 
 func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.AllowedDirs = []string{t.TempDir()}
 	list := Build(cfg)
 	if len(list) != 10 {
 		t.Errorf("Build returned %d tools, want 10", len(list))
@@ -26,7 +25,6 @@ func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 
 func TestBuild_ReturnsUniqueToolNames(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.AllowedDirs = []string{t.TempDir()}
 	seen := map[string]bool{}
 	for _, tool := range Build(cfg) {
 		if seen[tool.Name()] {
@@ -40,7 +38,6 @@ func TestBuild_ReturnsUniqueToolNames(t *testing.T) {
 // carries a description string (LLM reads this to pick the right tool).
 func TestBuild_AllToolsHaveNonEmptyDescription(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.AllowedDirs = []string{t.TempDir()}
 	for _, tool := range Build(cfg) {
 		if tool.Description() == "" {
 			t.Errorf("tool %q has empty Description", tool.Name())

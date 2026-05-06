@@ -21,7 +21,6 @@ import (
 //	}
 //
 // 安全：
-//   - 沙箱：path 必须落在 AllowedDirs
 //   - 大小：len(content) > MaxWriteSize → ErrContentTooLarge
 //   - 父目录必须已存在（不自动 MkdirAll；避免 LLM 误造目录树）
 //   - 原子性：atomicWrite(tmp + rename)；失败无残留 tmp
@@ -30,12 +29,15 @@ type writeFileTool struct {
 	logger *logger.Logger
 }
 
-func newWriteFileTool(cfg Config) *writeFileTool { ensureExecutor(&cfg); return &writeFileTool{cfg: cfg, logger: cfg.Logger} }
+func newWriteFileTool(cfg Config) *writeFileTool {
+	ensureExecutor(&cfg)
+	return &writeFileTool{cfg: cfg, logger: cfg.Logger}
+}
 
 func (writeFileTool) Name() string { return "Write" }
 
 func (writeFileTool) Description() string {
-	return "Atomically write a UTF-8 text file within the sandbox. " +
+	return "Atomically write a UTF-8 text file. " +
 		"Fails if the parent directory doesn't exist. " +
 		"Returns {path,size,created}."
 }
@@ -97,7 +99,7 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 
 // writeFileImpl 是内部实现；multi_write 直接调用以保证语义一致
 func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, error) {
-	abs, err := resolveSandbox(cfg.AllowedDirs, path)
+	abs, err := absPath(path)
 	if err != nil {
 		return "", err
 	}

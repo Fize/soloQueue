@@ -9,12 +9,11 @@ import (
 	"testing"
 )
 
-// helper: construct a Read tool backed by a temp sandbox
+// helper: construct a Read tool backed by a temp dir
 func mkFileReadTool(t *testing.T, maxSize int64) (*fileReadTool, string) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := Config{
-		AllowedDirs: []string{dir},
 		MaxFileSize: maxSize,
 	}
 	return newFileReadTool(cfg), dir
@@ -42,15 +41,6 @@ func TestFileRead_Happy(t *testing.T) {
 	}
 	if res.Path != path {
 		t.Errorf("path = %q, want %q", res.Path, path)
-	}
-}
-
-func TestFileRead_OutOfSandbox(t *testing.T) {
-	tool, _ := mkFileReadTool(t, 1024)
-	args := `{"path":"/etc/passwd"}`
-	_, err := tool.Execute(context.Background(), args)
-	if err == nil || !strings.Contains(err.Error(), "out of sandbox") {
-		t.Errorf("err = %v, want out-of-sandbox", err)
 	}
 }
 
