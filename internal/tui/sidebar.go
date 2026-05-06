@@ -3,6 +3,7 @@ package tui
 import (
 	"time"
 
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
@@ -21,6 +22,9 @@ type sidebar struct {
 	templates     []agent.AgentTemplate
 	groups        map[string]prompt.GroupFile
 	assistantName string // name parsed from profile.md for L1 agent
+
+	// teamViewport provides scrollable team tree in the left sidebar.
+	teamViewport viewport.Model
 }
 
 // agentTickMsg is sent periodically to refresh agent state snapshots.
@@ -39,6 +43,8 @@ func agentTickInterval(isGenerating bool) time.Duration {
 }
 
 func newSidebar(registry *agent.Registry, supervisorsFn func() []*agent.Supervisor, templates []agent.AgentTemplate, groups map[string]prompt.GroupFile, assistantName string) sidebar {
+	vp := viewport.New(viewport.WithWidth(24), viewport.WithHeight(10))
+	vp.SoftWrap = false
 	return sidebar{
 		visible:       true, // default visible; Ctrl+A or /agents collapses it
 		registry:      registry,
@@ -47,6 +53,7 @@ func newSidebar(registry *agent.Registry, supervisorsFn func() []*agent.Supervis
 		templates:     templates,
 		groups:        groups,
 		assistantName: assistantName,
+		teamViewport:  vp,
 	}
 }
 
@@ -69,6 +76,23 @@ func (s sidebar) Width() int {
 		return 26
 	}
 	return 0
+}
+
+// ResizeTeamViewport updates the team viewport dimensions.
+func (s *sidebar) ResizeTeamViewport(width, height int) {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	s.teamViewport.SetWidth(width)
+	s.teamViewport.SetHeight(height)
+}
+
+// UpdateTeamViewport delegates messages to the team viewport (e.g., mouse scroll).
+func (s *sidebar) UpdateTeamViewport(msg tea.Msg) {
+	s.teamViewport, _ = s.teamViewport.Update(msg)
 }
 
 // stateLabel returns the short display label for an agent state.

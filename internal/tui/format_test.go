@@ -69,57 +69,109 @@ func TestFormatToolBlock(t *testing.T) {
 		dont []string
 	}{
 		{
-			name: "running with path",
-			tb:   toolBlock{name: "file_read", args: `{"path":"/tmp/test.go"}`, done: false},
+			name: "Bash running",
+			tb:   toolBlock{name: "Bash", args: `{"command":"go test ./..."}`, done: false},
+			want: []string{"⚙", "go test ./..."},
+		},
+		{
+			name: "Read running with path",
+			tb:   toolBlock{name: "Read", args: `{"path":"/tmp/test.go"}`, done: false},
 			want: []string{"⚙", "/tmp/test.go"},
 		},
 		{
-			name: "running with command",
-			tb:   toolBlock{name: "shell_exec", args: `{"command":"go test"}`, done: false},
-			want: []string{"⚙", "go test"},
+			name: "Write running with path",
+			tb:   toolBlock{name: "Write", args: `{"path":"src/main.go"}`, done: false},
+			want: []string{"⚙", "src/main.go"},
 		},
 		{
-			name: "running with file",
-			tb:   toolBlock{name: "file_write", args: `{"file":"main.go"}`, done: false},
-			want: []string{"⚙", "main.go"},
+			name: "Edit running with path",
+			tb:   toolBlock{name: "Edit", args: `{"path":"app.go"}`, done: false},
+			want: []string{"⚙", "app.go"},
+		},
+		{
+			name: "Glob running with pattern",
+			tb:   toolBlock{name: "Glob", args: `{"pattern":"*.go","dir":"/src"}`, done: false},
+			want: []string{"⚙", "*.go"},
+		},
+		{
+			name: "Grep running with pattern",
+			tb:   toolBlock{name: "Grep", args: `{"pattern":"func main"}`, done: false},
+			want: []string{"⚙", "func main"},
+		},
+		{
+			name: "WebFetch running with URL",
+			tb:   toolBlock{name: "WebFetch", args: `{"url":"https://api.example.com/data"}`, done: false},
+			want: []string{"⚙", "https://api.example.com/data"},
+		},
+		{
+			name: "WebSearch running with query",
+			tb:   toolBlock{name: "WebSearch", args: `{"query":"Go generics"}`, done: false},
+			want: []string{"⚙", "Go generics"},
+		},
+		{
+			name: "delegate_* running with task",
+			tb:   toolBlock{name: "delegate_frontend", args: `{"task":"Fix login page"}`, done: false},
+			want: []string{"⚙", "Fix login page"},
 		},
 		{
 			name: "running no display arg",
-			tb:   toolBlock{name: "list_files", args: `{}`, done: false},
+			tb:   toolBlock{name: "Bash", args: `{}`, done: false},
 			want: []string{"⚙"},
+			dont: []string{"⚙ "}, // no trailing space
 		},
 		{
-			name: "done success with lines",
-			tb:   toolBlock{name: "file_read", args: `{"path":"a.go"}`, done: true, lineCount: 24, duration: 120 * time.Millisecond},
-			want: []string{"✓", "24 行", "120ms"},
+			name: "done success with lines and duration",
+			tb:   toolBlock{name: "Read", args: `{"path":"a.go"}`, done: true, lineCount: 24, duration: 120 * time.Millisecond},
+			want: []string{"✓", "a.go", "24行", "120ms"},
 		},
 		{
-			name: "done success no lines",
-			tb:   toolBlock{name: "grep", args: `{"path":"."}`, done: true, duration: 80 * time.Millisecond},
-			want: []string{"✓", ".", "80ms"},
+			name: "done success with file path and duration",
+			tb:   toolBlock{name: "Read", args: `{"path":"main.go"}`, done: true, duration: 80 * time.Millisecond},
+			want: []string{"✓", "main.go", "80ms"},
+		},
+		{
+			name: "done success with command (Bash), no lines",
+			tb:   toolBlock{name: "Bash", args: `{"command":"make build"}`, done: true, duration: 1 * time.Second},
+			want: []string{"✓", "make build", "1s"},
 		},
 		{
 			name: "done success no duration",
-			tb:   toolBlock{name: "file_read", args: `{"path":"x.go"}`, done: true, lineCount: 5},
-			want: []string{"✓", "5 行"},
-			dont: []string{"·"},
+			tb:   toolBlock{name: "Read", args: `{"path":"x.go"}`, done: true, lineCount: 5},
+			want: []string{"✓", "x.go", "5行"},
 		},
 		{
-			name: "done with error",
-			tb:   toolBlock{name: "shell_exec", args: `{"command":"rm -rf /"}`, done: true, err: fmt.Errorf("permission denied: you are not root")},
-			want: []string{"✗", "permission denied"},
+			name: "done success - Bash with lines",
+			tb:   toolBlock{name: "Bash", args: `{"command":"ls"}`, done: true, lineCount: 3, duration: 50 * time.Millisecond},
+			want: []string{"✓", "ls", "3行", "50ms"},
+		},
+		{
+			name: "done with error - Bash permission denied",
+			tb:   toolBlock{name: "Bash", args: `{"command":"rm -rf /"}`, done: true, err: fmt.Errorf("permission denied: you are not root")},
+			want: []string{"✗", "rm -rf /", "permission denied"},
+		},
+		{
+			name: "done with error - Read file not found",
+			tb:   toolBlock{name: "Read", args: `{"path":"missing.go"}`, done: true, err: fmt.Errorf("no such file")},
+			want: []string{"✗", "missing.go", "no such file"},
+		},
+		{
+			name: "done with error - no args",
+			tb:   toolBlock{name: "Bash", args: `{}`, done: true, err: fmt.Errorf("something went wrong")},
+			want: []string{"✗", "something went wrong"},
+			dont: []string{"—"}, // no display arg → no separator
 		},
 		{
 			name: "done success no args",
-			tb:   toolBlock{name: "list_files", args: `{}`, done: true},
+			tb:   toolBlock{name: "Bash", args: `{}`, done: true},
 			want: []string{"✓"},
 		},
 		{
-			name: "invalid args JSON",
-			tb:   toolBlock{name: "tool", args: `bad json`, done: false},
-			want: []string{"⚙", "[parse error]"},
+			name: "done success - WebFetch with lines",
+			tb:   toolBlock{name: "WebFetch", args: `{"url":"https://go.dev"}`, done: true, lineCount: 120, duration: 850 * time.Millisecond},
+			want: []string{"✓", "https://go.dev", "120行", "850ms"},
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := formatToolBlock(tt.tb)
