@@ -43,9 +43,9 @@ func newTestManager(t *testing.T, store vectorstore.VectorStore, embedder embedd
 func newTestStore(t *testing.T) (vectorstore.VectorStore, string) {
 	t.Helper()
 	dir := t.TempDir()
-	store, err := vectorstore.NewFileStore(filepath.Join(dir, "entries.jsonl"))
+	store, err := vectorstore.NewSQLiteStore(filepath.Join(dir, "entries.db"))
 	if err != nil {
-		t.Fatalf("NewFileStore: %v", err)
+		t.Fatalf("NewSQLiteStore: %v", err)
 	}
 	return store, dir
 }

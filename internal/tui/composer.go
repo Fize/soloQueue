@@ -41,10 +41,6 @@ func composerLineCountForValue(value string, width int, maxLines int) int {
 	return count
 }
 
-func composerLineCount(value string, width int, maxLines int) int {
-	return composerLineCountForValue(value, width, maxLines)
-}
-
 func isMultilineInput(input string) bool {
 	return strings.Contains(input, "\n")
 }

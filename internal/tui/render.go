@@ -74,10 +74,6 @@ func (m *model) renderMessage(msg message) string {
 	return ""
 }
 
-func (m *model) renderAgentMessage(msg message) string {
-	return m.renderAgentMessageBody(msg)
-}
-
 func (m *model) renderAgentMessageBody(msg message) string {
 	var sb strings.Builder
 	var lastKind timelineKind = -1

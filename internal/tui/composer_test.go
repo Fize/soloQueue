@@ -7,14 +7,14 @@ import (
 
 func TestComposerLineCountCapsPastedContent(t *testing.T) {
 	value := strings.Repeat("line\n", 50)
-	got := composerLineCount(value, 80, 8)
+	got := composerLineCountForValue(value, 80, 8)
 	if got != 8 {
-		t.Errorf("composerLineCount pasted 50 lines = %d, want cap 8", got)
+		t.Errorf("composerLineCountForValue pasted 50 lines = %d, want cap 8", got)
 	}
 }
 
 func TestComposerLineCountWrapsLongLine(t *testing.T) {
-	got := composerLineCount(strings.Repeat("x", 25), 10, 8)
+	got := composerLineCountForValue(strings.Repeat("x", 25), 10, 8)
 	if got != 3 {
 		t.Errorf("wrapped line count = %d, want 3", got)
 	}

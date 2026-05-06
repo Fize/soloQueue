@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"unicode/utf8"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -313,11 +312,4 @@ func (cw *ContextWindow) findTurnEnd(start int) int {
 	return len(cw.messages)
 }
 
-// ─── 辅助 ───────────────────────────────────────────────────────────────────
 
-// runeCount 返回字符串的 rune 数量（utf8 字符数）
-//
-// 用于 charLevelTruncate 的调试/测试。
-func runeCount(s string) int {
-	return utf8.RuneCountInString(s)
-}

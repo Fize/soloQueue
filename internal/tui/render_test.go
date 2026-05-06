@@ -73,17 +73,6 @@ func TestRenderMessage_EmptyRole(t *testing.T) {
 	}
 }
 
-// ─── renderAgentMessage ─────────────────────────────────────────────────────
-
-func TestRenderAgentMessage(t *testing.T) {
-	m := newTestModel()
-	msg := message{role: "agent", content: "response", timeline: []timelineEntry{}}
-	got := m.renderAgentMessage(msg)
-	if got == "" {
-		t.Error("should not be empty")
-	}
-}
-
 // ─── renderAgentMessageBody ─────────────────────────────────────────────────
 
 func TestRenderAgentMessageBody_Content(t *testing.T) {
@@ -281,34 +270,4 @@ func TestInvalidateMessageCache_Empty(t *testing.T) {
 	m.invalidateMessageCache() // should not panic
 }
 
-// ─── renderLogo ─────────────────────────────────────────────────────────────
 
-func TestRenderLogo(t *testing.T) {
-	got := renderLogo("v0.1.0")
-	if !strings.Contains(got, "soloqueue") {
-		t.Error("logo should contain 'soloqueue'")
-	}
-	if !strings.Contains(got, "v0.1.0") {
-		t.Error("logo should contain version")
-	}
-	if !strings.Contains(got, "session ready") {
-		t.Error("logo should contain 'session ready'")
-	}
-}
-
-func TestRenderLogo_EmptyVersion(t *testing.T) {
-	got := renderLogo("")
-	if got != "" {
-		t.Errorf("logo with empty version should return empty string, got %q", got)
-	}
-}
-
-func TestRenderLogo_DifferentVersions(t *testing.T) {
-	tests := []string{"v1.0.0", "v0.0.1-alpha", "2.0.0-beta+build"}
-	for _, v := range tests {
-		got := renderLogo(v)
-		if !strings.Contains(got, v) {
-			t.Errorf("logo should contain version %q", v)
-		}
-	}
-}

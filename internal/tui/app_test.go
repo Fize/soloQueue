@@ -71,7 +71,7 @@ func TestSummarizeError(t *testing.T) {
 	}
 }
 
-// ─── layout / computeLayout / chromeLines ───────────────────────────────────
+// ─── layout / computeLayout ────────────────────────────────────────────────
 
 func TestComputeLayout(t *testing.T) {
 	m := newTestModel()
@@ -94,15 +94,7 @@ func TestComputeLayout(t *testing.T) {
 	}
 }
 
-func TestChromeLines(t *testing.T) {
-	m := newTestModel()
-	got := m.chromeLines()
-	if got <= 0 {
-		t.Errorf("chromeLines() = %d, want positive", got)
-	}
-}
-
-// ─── resetGenState ──────────────────────────────────────────────────────────
+// ─── resetGenState
 
 func TestResetGenState(t *testing.T) {
 	m := &model{
