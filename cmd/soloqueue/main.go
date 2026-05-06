@@ -80,8 +80,8 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 			cfg.SetLogger(log)
 
-			// promptProfileQuestions は TUI モードのみ必要なので、
-			// profileSetup コールバックとして渡す
+			// promptProfileQuestions is only needed in TUI mode,
+			// so pass it as the profileSetup callback
 			profileSetup := func(cfg *prompt.PromptConfig) error {
 				answers := promptProfileQuestions()
 				return cfg.WriteProfile(answers)
@@ -149,11 +149,11 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 // ─── runtimeStack ─────────────────────────────────────────────────────────────
 
-// runtimeStack 保存两种模式（TUI / serve）共享的运行时依赖，
-// 由 buildRuntimeStack 统一初始化，避免重复代码。
+// runtimeStack holds runtime dependencies shared by both modes (TUI / serve),
+// initialized once by buildRuntimeStack to avoid duplication.
 type runtimeStack struct {
-	// 配置派生字段，受 cfgMu 保护（用于热重载）。
-	// 构造期间可直接赋值；构造完成后必须通过 read* / OnChange 写锁访问。
+	// Configuration-derived fields, protected by cfgMu (for hot-reload).
+	// May be assigned directly during construction; afterwards must be accessed via read* / OnChange with write lock.
 	cfgMu        sync.RWMutex
 	llmClient    agent.LLMClient
 	toolsCfg     tools.Config
@@ -170,18 +170,18 @@ type runtimeStack struct {
 	tokenizer       *ctxwin.Tokenizer
 	compactor       ctxwin.Compactor // context compression engine
 	rulesCreated    bool
-	taskRouter      *router.Router // 任务路由分类器（TUI + serve 共用）
+	taskRouter      *router.Router 	// Task router classifier (shared by TUI + serve)
 	skillRegistry   *skill.SkillRegistry
-	dockerSandbox   sandbox.Sandbox    // Docker 沙盒（L3 工具执行隔离底座）
-	sandboxMounts   []sandbox.Mount    // 沙盒挂载列表（延迟启动用）
-	memoryManager   *memory.Manager    // 短期记忆管理器
-	permanentMemory *permanent.Manager // 长期记忆管理器
+	dockerSandbox   sandbox.Sandbox    	// Docker sandbox (L3 tool execution isolation base)
+	sandboxMounts   []sandbox.Mount    	// Sandbox mount list (for deferred startup)
+	memoryManager   *memory.Manager    	// Short-term memory manager
+	permanentMemory *permanent.Manager 	// Permanent memory manager
 	permScheduler   *permanent.Scheduler
 	permNotifyCh    chan string
-	permCancel      context.CancelFunc // 取消 permanent scheduler 的 context
+	permCancel      context.CancelFunc 	// Cancel function for permanent scheduler context
 }
 
-// shutdown 优雅回收所有 L2 Supervisor 管理的子 Agent，并销毁 Docker 沙盒。
+// shutdown gracefully reaps all child Agents managed by L2 Supervisors and destroys the Docker sandbox.
 func (rt *runtimeStack) shutdown() {
 	for _, sv := range rt.supervisors {
 		_ = sv.ReapAll(5 * time.Second)
@@ -195,36 +195,36 @@ func (rt *runtimeStack) shutdown() {
 	}
 }
 
-// readLLMClient 返回当前 LLM 客户端（并发安全，读取配置热重载后的最新值）。
+// readLLMClient returns the current LLM client (concurrency-safe, reads the latest hot-reloaded config value).
 func (rt *runtimeStack) readLLMClient() agent.LLMClient {
 	rt.cfgMu.RLock()
 	defer rt.cfgMu.RUnlock()
 	return rt.llmClient
 }
 
-// readToolsCfg 返回当前工具配置（并发安全，读取配置热重载后的最新值）。
+// readToolsCfg returns the current tools config (concurrency-safe, reads the latest hot-reloaded config value).
 func (rt *runtimeStack) readToolsCfg() tools.Config {
 	rt.cfgMu.RLock()
 	defer rt.cfgMu.RUnlock()
 	return rt.toolsCfg
 }
 
-// readDefaultModel 返回当前默认模型（并发安全，读取配置热重载后的最新值）。
+// readDefaultModel returns the current default model (concurrency-safe, reads the latest hot-reloaded config value).
 func (rt *runtimeStack) readDefaultModel() *config.LLMModel {
 	rt.cfgMu.RLock()
 	defer rt.cfgMu.RUnlock()
 	return rt.defaultModel
 }
 
-// profileSetupFn 在首次启动时写入用户 profile（TUI 用交互式问卷，serve 用默认值）
+// profileSetupFn writes the user profile on first startup (interactive questionnaire for TUI, defaults for serve)
 type profileSetupFn func(cfg *prompt.PromptConfig) error
 
-// buildRuntimeStack 初始化两种模式共用的运行时栈：
+// buildRuntimeStack initializes the runtime stack shared by both modes:
 //
-//  1. LLM 客户端（DeepSeek）
-//  2. Prompt 系统（EnsureFiles + BuildPrompt）
+//  1. LLM client (DeepSeek)
+//  2. Prompt system (EnsureFiles + BuildPrompt)
 //  3. Agent Registry + DefaultFactory
-//  4. L2 Supervisor 列表（IsLeader 模板各一个）
+//  4. L2 Supervisor list (one per IsLeader template)
 func buildRuntimeStack(
 	workDir string,
 	cfg *config.GlobalService,
@@ -241,16 +241,16 @@ func buildRuntimeStack(
 		return nil, errors.New("no default model configured (fast role)")
 	}
 
-	// ── LLM 客户端 ───────────────────────────────────────────────────────────
+	// ── LLM Client ──────────────────────────────────────────────────────────────
 	llmClient, err := buildLLMClient(provider, log)
 	if err != nil {
 		return nil, fmt.Errorf("build llm client: %w", err)
 	}
 
-	// ── Tools 配置 ────────────────────────────────────────────────────────────
+	// ── Tools Config ───────────────────────────────────────────────────────────
 	toolsCfg := settings.Tools.ToToolsConfig()
 
-	// ── Prompt 系统 ───────────────────────────────────────────────────────────
+	// ── Prompt System ──────────────────────────────────────────────────────────
 	promptCfg := &prompt.PromptConfig{
 		RoleID:  "main_assistant",
 		BaseDir: filepath.Join(workDir, "prompts"),
@@ -278,7 +278,7 @@ func buildRuntimeStack(
 		groups = nil
 	}
 
-	// ── Leaders + Agent 模板 ──────────────────────────────────────────────────
+	// ── Leaders + Agent Templates ────────────────────────────────────────────────
 	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), groups)
 	if err != nil {
 		log.Warn(logger.CatApp, "failed to load leaders", "err", err)
@@ -407,8 +407,8 @@ func buildRuntimeStack(
 	classifier := router.NewDefaultClassifier(classifierConfig, llmClient, classifierModel, log)
 	taskRouter := router.NewRouter(classifier, cfg, log)
 
-	// 加载全局 skill registry（TUI slash 命令和 session 共用）
-	// 支持多目录优先级：plugin < user < project
+	// Load global skill registry (shared by TUI slash commands and sessions)
+	// Multi-directory priority: plugin < user < project
 	skill.SetPackageLogger(log)
 	skillDirs := map[string]string{
 		"user": filepath.Join(workDir, "skills"),
@@ -471,12 +471,12 @@ func buildRuntimeStack(
 		permCancel:      permCancel,
 	}
 
-	// 注册配置热重载回调，使 runtimeStack 中的缓存配置与 cfg 保持同步。
+	// Register config hot-reload callback to keep runtimeStack's cached config in sync with cfg.
 	cfg.OnChange(func(old, new config.Settings) {
 		rt.cfgMu.Lock()
 		defer rt.cfgMu.Unlock()
 
-		// 1. Tools 配置
+		// 1. Tools config
 		newToolsCfg := new.Tools.ToToolsConfig()
 		newToolsCfg.PermanentManager = rt.toolsCfg.PermanentManager
 		newToolsCfg.Logger = rt.toolsCfg.Logger
@@ -487,13 +487,13 @@ func buildRuntimeStack(
 			rt.agentFactory.SetToolsConfig(newToolsCfg)
 		}
 
-		// 2. 默认模型
+		// 2. Default model
 		if newModel := cfg.DefaultModelByRole("fast"); newModel != nil {
 			rt.defaultModel = newModel
 			rt.agentFactory.SetDefaultModelID(newModel.ID)
 		}
 
-		// 3. LLM 客户端（仅在 default provider 变更时重建）
+		// 3. LLM client (only rebuild when default provider changes)
 		oldProv := findDefaultProvider(old.Providers)
 		newProv := findDefaultProvider(new.Providers)
 		if providerChanged(oldProv, newProv) {
@@ -505,7 +505,7 @@ func buildRuntimeStack(
 			}
 		}
 
-		// 4. 日志级别
+		// 4. Log level
 		if new.Log.Level != old.Log.Level {
 			log.SetLevel(logger.ParseLogLevel(new.Log.Level))
 			log.Info(logger.CatConfig, "log level hot-reloaded", "level", new.Log.Level)
@@ -619,7 +619,7 @@ func findDefaultEmbeddingModel(models []config.EmbeddingModel) *config.Embedding
 // handleEmbeddingChange handles enabling/disabling/changing the embedding subsystem at runtime.
 func handleEmbeddingChange(rt *runtimeStack, emb config.EmbeddingConfig, cfg *config.GlobalService, log *logger.Logger, workDir string) {
 	if !emb.Enabled && rt.permanentMemory != nil {
-		// 禁用 embedding：停止 scheduler 并从 toolsCfg 中移除 PermanentManager。
+			// Disable embedding: stop scheduler and remove PermanentManager from toolsCfg.
 		log.Info(logger.CatConfig, "embedding disabled at runtime — stopping permanent memory scheduler")
 		if rt.permCancel != nil {
 			rt.permCancel()
@@ -634,12 +634,12 @@ func handleEmbeddingChange(rt *runtimeStack, emb config.EmbeddingConfig, cfg *co
 	}
 
 	if emb.Enabled && rt.permanentMemory == nil {
-		// 从禁用变为启用：完整热启动 embedding 子系统比较复杂，建议重启。
+		// Transition from disabled to enabled: full hot-start of embedding subsystem is complex, restart recommended.
 		log.Info(logger.CatConfig, "embedding enabled at runtime — restart required to activate")
 		return
 	}
 
-	// 模型或 provider 变更：同样建议重启。
+	// Model or provider changed: restart recommended as well.
 	log.Info(logger.CatConfig, "embedding model/provider changed at runtime — restart required for full effect")
 }
 
@@ -669,6 +669,7 @@ func startSandbox(ctx context.Context, mounts []sandbox.Mount, log *logger.Logge
 
 // formatCtxwinMessages converts ctxwin messages to a plain-text representation
 // suitable for memory summarization. Skips system messages.
+// Emits [timestamp] headers at each user turn so the LLM can group events chronologically.
 func formatCtxwinMessages(msgs []ctxwin.Message) string {
 	var b strings.Builder
 	for _, m := range msgs {
@@ -676,6 +677,9 @@ func formatCtxwinMessages(msgs []ctxwin.Message) string {
 		case ctxwin.RoleSystem:
 			continue
 		case ctxwin.RoleUser:
+			if !m.Timestamp.IsZero() {
+				b.WriteString("[" + m.Timestamp.Format("2006-01-02 15:04") + "]\n")
+			}
 			b.WriteString("User: ")
 		case ctxwin.RoleAssistant:
 			b.WriteString("Assistant: ")
@@ -699,7 +703,7 @@ func formatCtxwinMessages(msgs []ctxwin.Message) string {
 type sessionBuilder struct {
 	rt         *runtimeStack
 	workDir    string
-	cfg        *config.GlobalService // 每次 Build() 时读最新配置，支持热重载
+	cfg        *config.GlobalService // reads latest config on each Build() call, supporting hot-reload
 	consoleLog bool
 }
 
@@ -722,7 +726,7 @@ func newSessionBuilder(
 func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 	agentID := newAgentID()
 
-	// 快照配置派生字段（并发安全，每次 Build 使用最新热重载值）。
+	// Snapshot configuration-derived fields (concurrency-safe, each Build uses latest hot-reload values).
 	defModel := sb.rt.readDefaultModel()
 	llmClient := sb.rt.readLLMClient()
 	toolsCfg := sb.rt.readToolsCfg()
@@ -835,12 +839,12 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		allTools = append(allTools, dt)
 	}
 
-	// Skills: 使用全局 skillRegistry
+	// Skills: use the global skillRegistry
 	skillList := sb.rt.skillRegistry.Skills()
 
-	// SkillTool: 仅在有 skill 时注册
+	// SkillTool: only register when skills exist
 	if sb.rt.skillRegistry.Len() > 0 {
-		// Fork spawn 函数：创建临时子 agent 执行 fork 模式的 skill
+		// Fork spawn function: creates a temporary child agent to execute a fork-mode skill
 		forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
 			forkDef := agent.Definition{
 				ID:           fmt.Sprintf("skill-fork-%s", s.ID),
@@ -1150,7 +1154,7 @@ func serveCmd() *cobra.Command {
 
 			settings := cfg.Get()
 
-			// serve 模式无交互终端，使用默认 profile
+			// serve mode has no interactive terminal, use default profile
 			profileSetup := func(cfg *prompt.PromptConfig) error {
 				return cfg.WriteProfile(prompt.DefaultProfileAnswers())
 			}
@@ -1309,7 +1313,7 @@ func readLineWithDefault(prompt, def string) string {
 	return def
 }
 
-// initLogger 根据当前配置创建 system 层 Logger。
+// initLogger creates a system-level Logger based on the current configuration.
 func initLogger(workDir string, cfg *config.GlobalService, console bool) (*logger.Logger, error) {
 	settings := cfg.Get()
 
