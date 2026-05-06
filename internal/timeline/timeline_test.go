@@ -630,16 +630,17 @@ func TestReplayInto_WithEphemeral(t *testing.T) {
 	segments := []Segment{
 		{
 			Messages: []MessagePayload{
-				{Role: "tool", Content: "large output", IsEphemeral: true},
+				{Role: "assistant", Content: "", ToolCalls: []ToolCallRec{{ID: "tc1", Type: "function", Name: "search", Arguments: "{}"}}},
+				{Role: "tool", Content: "large output", IsEphemeral: true, ToolCallID: "tc1"},
 			},
 		},
 	}
 	ReplayInto(cw, segments)
 	cw.SetReplayMode(false)
 
-	msg, ok := cw.MessageAt(0)
+	msg, ok := cw.MessageAt(1)
 	if !ok {
-		t.Fatal("message at index 0 not found")
+		t.Fatal("tool message not found at index 1")
 	}
 	if !msg.IsEphemeral {
 		t.Error("ephemeral flag not set")
