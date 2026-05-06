@@ -277,11 +277,6 @@ func (m model) Init() tea.Cmd {
 
 // ─── Layout sizing ─────────────────────────────
 
-func (m *model) chromeLines() int {
-	ly := m.computeLayout()
-	return ly.headerH + ly.composerH + ly.footerH
-}
-
 func (m *model) resizeViewport() {
 	ly := m.computeLayout()
 	// SetWidth triggers DynamicHeight recalculation, so call it first.

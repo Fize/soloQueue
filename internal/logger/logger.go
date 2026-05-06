@@ -37,10 +37,6 @@ func WithFile(enabled bool) Option {
 	return func(o *options) { o.file = enabled }
 }
 
-func WithMaxFiles(n int) Option {
-	return func(o *options) { o.maxFiles = n }
-}
-
 func defaultOptions() options {
 	return options{
 		levelVar:  &slog.LevelVar{},
