@@ -1,8 +1,20 @@
-// Package server exposes SoloQueue's REST API.
+// Package server exposes SoloQueue's REST API using chi router.
 //
 // Routes:
 //
 //	GET /healthz → {"status":"ok"}
+//	GET /api/plans → list plans
+//	GET /api/plans/{id} → get plan detail
+//	PUT /api/plans/{id} → update plan
+//	DELETE /api/plans/{id} → delete plan
+//	PATCH /api/plans/{id}/status → change plan status
+//	GET /api/plans/{id}/todos → list todo items
+//	PUT /api/plans/{id}/todos/{todoId} → update todo item
+//	DELETE /api/plans/{id}/todos/{todoId} → delete todo item
+//	PATCH /api/plans/{id}/todos/{todoId}/toggle → toggle completion
+//	POST /api/plans/{id}/todos/reorder → reorder todo items
+//	GET /api/todos/{id}/dependencies → get dependency graph
+//	PUT /api/todos/{id}/dependencies → set dependencies
 package server
 
 import (
@@ -10,42 +22,310 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/todo"
 )
 
 // Mux is the root HTTP handler.
 type Mux struct {
-	log *logger.Logger
-	mux *http.ServeMux
+	log          *logger.Logger
+	mux          chi.Router
+	todoStore    *todo.Store
+	accessLogger *httpAccessLogger
 }
 
 // NewMux creates a new HTTP handler with registered routes.
-func NewMux(log *logger.Logger) *Mux {
+// workDir is the soloqueue data directory (usually ~/.soloqueue).
+// todoStore may be nil; if nil, /api/* routes return 503.
+func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store) *Mux {
+	r := chi.NewRouter()
+
+	// Global middleware
+	r.Use(middleware.Recoverer)
+
 	m := &Mux{
-		log: log,
-		mux: http.NewServeMux(),
+		log:       log,
+		mux:       r,
+		todoStore: todoStore,
 	}
 
-	m.mux.HandleFunc("GET /healthz", m.handleHealth)
+	// HTTP access logger — writes to logs/http/ with 1-day rotation, 50MB max
+	accessLogDir := filepath.Join(workDir, "logs", "http")
+	al, err := newHTTPAccessLogger(accessLogDir, 50, 1)
+	if err != nil && log != nil {
+		log.ErrorContext(context.Background(), logger.CatHTTP, "failed to create access logger", "err", err.Error())
+	}
+	if al != nil {
+		m.accessLogger = al
+		r.Use(al.Middleware)
+	}
+
+	// Health check
+	r.Get("/healthz", m.handleHealth)
+
+	// Plan routes (read / update / delete only — creation is via LLM tools)
+	r.Route("/api/plans", func(r chi.Router) {
+		r.Get("/", m.handleListPlans)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Get("/", m.handleGetPlan)
+			r.Put("/", m.handleUpdatePlan)
+			r.Delete("/", m.handleDeletePlan)
+			r.Patch("/status", m.handleUpdatePlanStatus)
+
+			// Todo item routes (read / update / delete only)
+			r.Route("/todos", func(r chi.Router) {
+				r.Get("/", m.handleListTodos)
+				r.Post("/reorder", m.handleReorderTodos)
+				r.Route("/{todoId}", func(r chi.Router) {
+					r.Put("/", m.handleUpdateTodo)
+					r.Delete("/", m.handleDeleteTodo)
+					r.Patch("/toggle", m.handleToggleTodo)
+				})
+			})
+		})
+	})
+
+	// Dependency routes
+	r.Route("/api/todos/{id}/dependencies", func(r chi.Router) {
+		r.Get("/", m.handleGetDependencies)
+		r.Put("/", m.handleSetDependencies)
+	})
 
 	return m
 }
 
 // ServeHTTP implements http.Handler.
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			m.logError(r.Context(), "panic in handler", fmt.Errorf("%v", rec))
-			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-		}
-	}()
 	m.mux.ServeHTTP(w, r)
 }
+
+// ─── Health ─────────────────────────────────────────────────────────────────
 
 func (m *Mux) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// ─── Plan Handlers ──────────────────────────────────────────────────────────
+
+func (m *Mux) handleListPlans(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	status := r.URL.Query().Get("status")
+	svc := todo.NewService(m.todoStore)
+	plans, err := svc.ListPlans(r.Context(), status)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if plans == nil {
+		plans = []todo.Plan{}
+	}
+	m.writeJSON(w, http.StatusOK, todo.PlanListResponse{Plans: plans, Total: len(plans)})
+}
+
+func (m *Mux) handleGetPlan(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	svc := todo.NewService(m.todoStore)
+	plan, err := svc.GetPlan(r.Context(), id)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, plan)
+}
+
+func (m *Mux) handleUpdatePlan(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var req todo.UpdatePlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	svc := todo.NewService(m.todoStore)
+	plan, err := svc.UpdatePlan(r.Context(), id, req)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, plan)
+}
+
+func (m *Mux) handleDeletePlan(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	svc := todo.NewService(m.todoStore)
+	if err := svc.DeletePlan(r.Context(), id); err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
+func (m *Mux) handleUpdatePlanStatus(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	svc := todo.NewService(m.todoStore)
+	plan, err := svc.UpdatePlanStatus(r.Context(), id, todo.PlanStatus(req.Status))
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, plan)
+}
+
+// ─── Todo Item Handlers ─────────────────────────────────────────────────────
+
+func (m *Mux) handleListTodos(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	planID := chi.URLParam(r, "id")
+	svc := todo.NewService(m.todoStore)
+	todos, err := svc.ListTodoItems(r.Context(), planID)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if todos == nil {
+		todos = []todo.TodoItemWithDeps{}
+	}
+	m.writeJSON(w, http.StatusOK, todo.TodoListResponse{Todos: todos, Total: len(todos)})
+}
+
+func (m *Mux) handleUpdateTodo(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	todoID := chi.URLParam(r, "todoId")
+	var req todo.UpdateTodoRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	svc := todo.NewService(m.todoStore)
+	item, err := svc.UpdateTodoItem(r.Context(), todoID, req)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, item)
+}
+
+func (m *Mux) handleDeleteTodo(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	todoID := chi.URLParam(r, "todoId")
+	svc := todo.NewService(m.todoStore)
+	if err := svc.DeleteTodoItem(r.Context(), todoID); err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": todoID})
+}
+
+func (m *Mux) handleToggleTodo(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	todoID := chi.URLParam(r, "todoId")
+	svc := todo.NewService(m.todoStore)
+	item, err := svc.ToggleTodoItem(r.Context(), todoID)
+	if err != nil {
+		m.writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, item)
+}
+
+func (m *Mux) handleReorderTodos(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	planID := chi.URLParam(r, "id")
+	var req todo.ReorderTodosRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	svc := todo.NewService(m.todoStore)
+	if err := svc.ReorderTodoItems(r.Context(), planID, req.IDs); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{"reordered": len(req.IDs)})
+}
+
+// ─── Dependency Handlers ────────────────────────────────────────────────────
+
+func (m *Mux) handleGetDependencies(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	todoID := chi.URLParam(r, "id")
+	svc := todo.NewService(m.todoStore)
+	deps, err := svc.GetDependencies(r.Context(), todoID)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, deps)
+}
+
+func (m *Mux) handleSetDependencies(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	todoID := chi.URLParam(r, "id")
+	var req todo.SetDependenciesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	svc := todo.NewService(m.todoStore)
+	if err := svc.SetDependencies(r.Context(), todoID, req.DependsOn); err != nil {
+		m.writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, req)
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 func (m *Mux) writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")

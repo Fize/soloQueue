@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -37,6 +38,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/tui"
 	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
@@ -103,6 +105,25 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 			defer mgr.Shutdown(5 * time.Second)
 
+			// Start embedded HTTP server on a random port for the TUI sidebar API.
+			// The address is displayed in the RUNTIME section of the left sidebar.
+			var httpServerAddr string
+			httpListener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				log.Warn(logger.CatApp, "failed to start HTTP server", "err", err)
+			} else {
+				httpServerAddr = fmt.Sprintf("http://%s", httpListener.Addr().String())
+				httpMux := server.NewMux(workDir, log, rt.todoStore)
+				rt.httpServer = &http.Server{Handler: httpMux}
+				rt.httpListener = httpListener
+				go func() {
+					log.Info(logger.CatApp, "HTTP API server started", "addr", httpServerAddr)
+					if err := rt.httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
+						log.Warn(logger.CatApp, "HTTP server error", "err", err)
+					}
+				}()
+			}
+
 			// Start TUI immediately; sandbox + session init run in background.
 			// The TUI shows a loading indicator until the session is delivered.
 			sandboxCh := make(chan tui.SandboxInitMsg, 1)
@@ -123,19 +144,20 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			}()
 
 			return tui.Run(tui.Config{
-				Session:       nil,
-				SandboxInitCh: sandboxCh,
-				ModelID:       rt.readDefaultModel().ID,
-				Version:       version,
-				RulesCreated:  rt.rulesCreated,
-				RulesPath:     rt.promptCfg.RulesPath(),
-				Registry:      rt.agentRegistry,
-				SupervisorsFn: func() []*agent.Supervisor { return rt.supervisors },
-				Skills:        rt.skillRegistry,
-				NotifyCh:      rt.permNotifyCh,
-				AssistantName: prompt.ReadProfileName(rt.promptCfg),
-				Templates:     rt.allTemplates,
-				Groups:        rt.groups,
+				Session:        nil,
+				SandboxInitCh:  sandboxCh,
+				ModelID:        rt.readDefaultModel().ID,
+				Version:        version,
+				RulesCreated:   rt.rulesCreated,
+				RulesPath:      rt.promptCfg.RulesPath(),
+				Registry:       rt.agentRegistry,
+				SupervisorsFn:  func() []*agent.Supervisor { return rt.supervisors },
+				Skills:         rt.skillRegistry,
+				NotifyCh:       rt.permNotifyCh,
+				AssistantName:  prompt.ReadProfileName(rt.promptCfg),
+				Templates:      rt.allTemplates,
+				Groups:         rt.groups,
+				HTTPServerAddr: httpServerAddr,
 			})
 		},
 	}
@@ -179,6 +201,9 @@ type runtimeStack struct {
 	permScheduler   *permanent.Scheduler
 	permNotifyCh    chan string
 	permCancel      context.CancelFunc // Cancel function for permanent scheduler context
+	todoStore       *todo.Store        // Todo plan/task store
+	httpServer      *http.Server       // Embedded HTTP API server (TUI mode)
+	httpListener    net.Listener       // Listener for the HTTP server
 }
 
 // shutdown gracefully reaps all child Agents managed by L2 Supervisors and destroys the Docker sandbox.
@@ -192,6 +217,11 @@ func (rt *runtimeStack) shutdown() {
 		if err := rt.dockerSandbox.Destroy(destroyCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: docker sandbox destroy failed: %v\n", err)
 		}
+	}
+	if rt.httpServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = rt.httpServer.Shutdown(shutdownCtx)
 	}
 }
 
@@ -353,6 +383,16 @@ func buildRuntimeStack(
 		toolsCfg.PlanDir = planDir
 	}
 
+	// ── Todo Store ──────────────────────────────────────────────────────
+	// Reuses the permanent_memory entries.db for plan/todo persistence.
+	todoDBPath := filepath.Join(workDir, "permanent_memory", "entries.db")
+	todoStore, storeErr := todo.NewStore(todoDBPath)
+	if storeErr != nil {
+		log.Warn(logger.CatApp, "failed to create todo store", "err", storeErr)
+	} else {
+		toolsCfg.TodoStore = todoStore
+	}
+
 	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
@@ -468,6 +508,7 @@ func buildRuntimeStack(
 		permScheduler:   permScheduler,
 		permNotifyCh:    permNotifyCh,
 		permCancel:      permCancel,
+		todoStore:       todoStore,
 	}
 
 	// Register config hot-reload callback to keep runtimeStack's cached config in sync with cfg.
@@ -1193,7 +1234,7 @@ func serveCmd() *cobra.Command {
 				os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			mux := server.NewMux(log)
+			mux := server.NewMux(workDir, log, rt.todoStore)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,
