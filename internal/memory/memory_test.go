@@ -141,11 +141,14 @@ func TestBuildMergePrompt_EmptyExisting(t *testing.T) {
 	if !strings.Contains(prompt, "User: test") {
 		t.Error("prompt should contain conversation text")
 	}
-	if !strings.Contains(prompt, now.Format("2006-01-02")) {
+	// Date should appear in the # header (today's date).
+	if !strings.Contains(prompt, time.Now().Format("2006-01-02")) {
 		t.Error("prompt should contain date")
 	}
-	if !strings.Contains(prompt, now.Format("2006-01-02 15:04")) {
-		t.Error("prompt should contain full time")
+	// The recordedAt time should NOT be used as a header anymore —
+	// timestamps come from [markers] in the conversation text.
+	if strings.Contains(prompt, now.Format("15:04")) {
+		t.Error("prompt should NOT contain recordedAt time as a header")
 	}
 }
 
@@ -164,6 +167,10 @@ func TestBuildMergePrompt_WithExisting(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "COMPLETE merged file") {
 		t.Error("prompt should ask for complete merged file")
+	}
+	// The recordedAt time should NOT appear as a header.
+	if strings.Contains(prompt, now.Format("15:04")) {
+		t.Error("prompt should NOT contain recordedAt time")
 	}
 }
 
