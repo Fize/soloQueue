@@ -25,8 +25,8 @@ const (
 
 // Event 是 JSONL 中每一行的顶层结构
 type Event struct {
-	Timestamp string         `json:"ts"`
-	EventType EventType      `json:"type"`
+	Timestamp string          `json:"ts"`
+	EventType EventType       `json:"type"`
 	Message   *MessagePayload `json:"msg,omitempty"`
 	Control   *ControlPayload `json:"ctrl,omitempty"`
 }
@@ -43,15 +43,15 @@ func newEvent(et EventType) Event {
 
 // MessagePayload 消息事件载荷
 type MessagePayload struct {
-	Role             string        `json:"role"`                    // system/user/assistant/tool
-	Content          string        `json:"content"`                 // 消息内容
-	ReasoningContent string        `json:"reasoning,omitempty"`     // DeepSeek reasoning
-	Name             string        `json:"name,omitempty"`          // 工具名（role=tool）
-	ToolCallID       string        `json:"tool_call_id,omitempty"`  // 工具调用 ID（role=tool）
-	ToolCalls        []ToolCallRec `json:"tool_calls,omitempty"`    // role=assistant 时的 tool_calls
-	IsEphemeral      bool          `json:"ephemeral,omitempty"`     // 标记冗长工具输出
-	AgentID          string        `json:"agent_id,omitempty"`      // 多智能体预留
-	Timestamp        string        `json:"ts,omitempty"`            // 消息原始时间（RFC3339Nano）
+	Role             string        `json:"role"`                   // system/user/assistant/tool
+	Content          string        `json:"content"`                // 消息内容
+	ReasoningContent string        `json:"reasoning,omitempty"`    // DeepSeek reasoning
+	Name             string        `json:"name,omitempty"`         // 工具名（role=tool）
+	ToolCallID       string        `json:"tool_call_id,omitempty"` // 工具调用 ID（role=tool）
+	ToolCalls        []ToolCallRec `json:"tool_calls,omitempty"`   // role=assistant 时的 tool_calls
+	IsEphemeral      bool          `json:"ephemeral,omitempty"`    // 标记冗长工具输出
+	AgentID          string        `json:"agent_id,omitempty"`     // 多智能体预留
+	Timestamp        string        `json:"ts,omitempty"`           // 消息原始时间（RFC3339Nano）
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────

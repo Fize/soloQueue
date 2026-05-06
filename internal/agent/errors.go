@@ -47,5 +47,3 @@ var (
 	// errors (e.g., ChatStream failure). This breaks infinite retry loops.
 	ErrCircuitBreakerOpen = errors.New("agent: circuit breaker open — too many consecutive failures, task rejected")
 )
-
-

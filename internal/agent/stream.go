@@ -69,7 +69,7 @@ func (a *Agent) processStreamEvents(
 					if !a.emit(ctx, out, ContentDeltaEvent{
 						Iter: iter, Delta: ev.ContentDelta,
 					}) {
-					return ctx.Err()
+						return ctx.Err()
 					}
 				}
 				if ev.ReasoningContentDelta != "" {
@@ -184,7 +184,6 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		})
 		return
 	}
-
 
 	// Circuit breaker: refuse to run if too many consecutive failures.
 	if cf := a.ConsecutiveFailures(); cf >= DefaultMaxConsecutiveFailures {
@@ -323,7 +322,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				slog.Int("content_len", acc.content.Len()),
 				slog.Int("reasoning_len", acc.reasoning.Len()),
 			)
-			
+
 			a.ResetConsecutiveFailures()
 			ok := a.emit(ctx, out, DoneEvent{
 				Content:          acc.content.String(),
@@ -344,10 +343,10 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 	// Max iterations exceeded
 	a.logInfo(ctx, logger.CatLLM, "agent turn done (max iterations)",
-			slog.Int("total_iters", maxIter),
+		slog.Int("total_iters", maxIter),
 	)
 	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
-			slog.Int("max_iter", maxIter),
+		slog.Int("max_iter", maxIter),
 	)
 	a.IncrementConsecutiveFailures()
 	a.RecordError(ErrMaxIterations)
@@ -807,7 +806,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	// ContentDeltaEvent or DoneEvent would pollute the parent out channel,
 	// causing Session to mistake L3 DoneEvent for L2's → ContextWindow
 	// sequence corruption → LLM API HTTP 400. ErrorEvent is safe because
-// it carries no content/done signals.
+	// it carries no content/done signals.
 	relayDone := make(chan struct{})
 	go func() {
 		defer close(relayDone)

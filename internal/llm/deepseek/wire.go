@@ -22,29 +22,29 @@ import (
 // 注意：DeepSeek V4 不再支持 temperature 参数，wireRequest 中已移除。
 
 type wireRequest struct {
-	Model            string           `json:"model"`
-	Messages         []wireMessage    `json:"messages"`
-	TopP             *float64         `json:"top_p,omitempty"`
-	MaxTokens        *int             `json:"max_tokens,omitempty"`
-	FrequencyPenalty *float64         `json:"frequency_penalty,omitempty"`
-	PresencePenalty  *float64         `json:"presence_penalty,omitempty"`
-	Stop             []string         `json:"stop,omitempty"`
-	Stream           bool             `json:"stream"`
-	StreamOptions    *wireStreamOpts  `json:"stream_options,omitempty"`
-	Tools            []wireToolDef    `json:"tools,omitempty"`
-	ToolChoice       string           `json:"tool_choice,omitempty"`
-	ResponseFormat   *wireRespFormat  `json:"response_format,omitempty"`
-	ReasoningEffort  *string          `json:"reasoning_effort,omitempty"`
-	Thinking         *wireThinking    `json:"thinking,omitempty"`
+	Model            string          `json:"model"`
+	Messages         []wireMessage   `json:"messages"`
+	TopP             *float64        `json:"top_p,omitempty"`
+	MaxTokens        *int            `json:"max_tokens,omitempty"`
+	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64        `json:"presence_penalty,omitempty"`
+	Stop             []string        `json:"stop,omitempty"`
+	Stream           bool            `json:"stream"`
+	StreamOptions    *wireStreamOpts `json:"stream_options,omitempty"`
+	Tools            []wireToolDef   `json:"tools,omitempty"`
+	ToolChoice       string          `json:"tool_choice,omitempty"`
+	ResponseFormat   *wireRespFormat `json:"response_format,omitempty"`
+	ReasoningEffort  *string         `json:"reasoning_effort,omitempty"`
+	Thinking         *wireThinking   `json:"thinking,omitempty"`
 }
 
 type wireMessage struct {
-	Role            string           `json:"role"`
-	Content         string           `json:"content"`
-	ReasoningContent string           `json:"reasoning_content,omitempty"`
-	Name            string           `json:"name,omitempty"`
-	ToolCallID      string           `json:"tool_call_id,omitempty"`
-	ToolCalls       []wireToolCall  `json:"tool_calls,omitempty"`
+	Role             string         `json:"role"`
+	Content          string         `json:"content"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	Name             string         `json:"name,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
+	ToolCalls        []wireToolCall `json:"tool_calls,omitempty"`
 }
 
 type wireToolCall struct {
@@ -122,12 +122,12 @@ type wireDeltaFunctionArg struct {
 }
 
 type wireUsage struct {
-	PromptTokens          int                      `json:"prompt_tokens"`
-	CompletionTokens      int                      `json:"completion_tokens"`
-	TotalTokens           int                      `json:"total_tokens"`
-	PromptCacheHitTokens  int                      `json:"prompt_cache_hit_tokens,omitempty"`
-	PromptCacheMissTokens int                      `json:"prompt_cache_miss_tokens,omitempty"`
-	CompletionDetails     *wireCompletionDetails   `json:"completion_tokens_details,omitempty"`
+	PromptTokens          int                    `json:"prompt_tokens"`
+	CompletionTokens      int                    `json:"completion_tokens"`
+	TotalTokens           int                    `json:"total_tokens"`
+	PromptCacheHitTokens  int                    `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens int                    `json:"prompt_cache_miss_tokens,omitempty"`
+	CompletionDetails     *wireCompletionDetails `json:"completion_tokens_details,omitempty"`
 }
 
 type wireCompletionDetails struct {

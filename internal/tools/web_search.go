@@ -107,10 +107,10 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	httpResp, err := t.cfg.Executor.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
 		form.Encode(),
 		sandbox.HTTPOptions{
-			Timeout:      t.cfg.WebSearchTimeout,
-			MaxBody:      2 << 20,
-			ContentType:  "application/x-www-form-urlencoded",
-			Headers:      map[string]string{"User-Agent": "Mozilla/5.0 (compatible; SoloQueue/1.0)"},
+			Timeout:     t.cfg.WebSearchTimeout,
+			MaxBody:     2 << 20,
+			ContentType: "application/x-www-form-urlencoded",
+			Headers:     map[string]string{"User-Agent": "Mozilla/5.0 (compatible; SoloQueue/1.0)"},
 		},
 	)
 	if err != nil {

@@ -18,8 +18,8 @@ import (
 // Embeddings are serialized as little-endian float32 BLOBs.
 // Writes are serialized via mutex; reads are concurrent.
 type SQLiteStore struct {
-	db  *sql.DB
-	mu  sync.Mutex // serializes Upsert calls (SQLite single-writer)
+	db *sql.DB
+	mu sync.Mutex // serializes Upsert calls (SQLite single-writer)
 }
 
 // NewSQLiteStore opens or creates a SQLite-backed vector store.

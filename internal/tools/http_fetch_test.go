@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 )
 
 func mkHTTPTool(t *testing.T, cfgMut func(*Config)) *httpFetchTool {

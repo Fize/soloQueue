@@ -44,7 +44,7 @@ func TestIntegration_FullRoutingFlow(t *testing.T) {
 			// Create classifier and router
 			config := ClassifierConfig{
 				EnableFastTrack:              true,
-				EnableLLMClassification:     false,
+				EnableLLMClassification:      false,
 				FastTrackConfidenceThreshold: 75,
 			}
 			classifier := NewDefaultClassifier(config, nil, "", nil)
@@ -103,7 +103,7 @@ func TestIntegration_ConfidenceThreshold(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config := ClassifierConfig{
 				EnableFastTrack:              true,
-				EnableLLMClassification:     false,
+				EnableLLMClassification:      false,
 				FastTrackConfidenceThreshold: tt.threshold,
 			}
 			classifier := NewDefaultClassifier(config, nil, "", nil)
@@ -131,9 +131,9 @@ func TestIntegration_ModelMappingAccuracy(t *testing.T) {
 	// expert  → ID=deepseek-v4-pro-max, API=deepseek-v4-pro
 	levels := map[ClassificationLevel]string{
 		LevelConversation:       "deepseek-v4-flash",
-		LevelSimpleSingleFile:   "deepseek-v4-flash",     // universal → APIModel=deepseek-v4-flash
-		LevelMediumMultiFile:    "deepseek-v4-pro",       // superior → ID=deepseek-v4-pro
-		LevelComplexRefactoring: "deepseek-v4-pro",       // expert → APIModel=deepseek-v4-pro
+		LevelSimpleSingleFile:   "deepseek-v4-flash", // universal → APIModel=deepseek-v4-flash
+		LevelMediumMultiFile:    "deepseek-v4-pro",   // superior → ID=deepseek-v4-pro
+		LevelComplexRefactoring: "deepseek-v4-pro",   // expert → APIModel=deepseek-v4-pro
 	}
 
 	mockService := NewMockModelService()

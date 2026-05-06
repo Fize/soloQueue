@@ -19,13 +19,13 @@ type rotateWriter struct {
 	rw *rotating.Writer
 
 	// byDate 模式：自行管理
-	byDate   bool
-	maxDays  int
-	current  *os.File
-	curDate  string // "2025-04-21"
-	dir      string
-	prefix   string
-	closed   bool
+	byDate  bool
+	maxDays int
+	current *os.File
+	curDate string // "2025-04-21"
+	dir     string
+	prefix  string
+	closed  bool
 
 	mu sync.Mutex
 }

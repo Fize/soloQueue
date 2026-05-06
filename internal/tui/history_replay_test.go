@@ -61,7 +61,7 @@ func TestLoadMessagesFromHistory_WithToolCalls(t *testing.T) {
 		{Role: "system", Content: "system prompt"},
 		{Role: "user", Content: "read file"},
 		{
-			Role:            "assistant",
+			Role:             "assistant",
 			ReasoningContent: "need to read",
 			ToolCalls: []llm.ToolCall{
 				{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "file_read", Arguments: `{"path":"/tmp/x"}`}},

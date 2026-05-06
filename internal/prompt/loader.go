@@ -30,8 +30,8 @@ func (p *PromptConfig) userCtxPath() string {
 
 // BuildPrompt 组装完整系统提示词。
 // leaders 来自运行时 agent 注册数据，用于动态构建路由表。
-// recentMemory 为短期记忆目录路径（可为空，表示无历史记忆）。
-// permanentMemory 为长期记忆文本（可为空）。
+// recentMemory 为短期记忆目录路径（可为空，表示无历史记忆；非空时注入使用说明和路径）。
+// permanentMemory 为长期记忆标志（非空时注入 RecallMemory/Remember 工具使用说明）。
 func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanentMemory, planDir string) (string, error) {
 	// 1. 加载 profile（必需）
 	profile, err := readMD(p.profilePath())

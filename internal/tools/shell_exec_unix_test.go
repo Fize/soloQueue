@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 )
 
 func mkShellTool(t *testing.T, confirm []string, timeout time.Duration, maxOut int64) *shellExecTool {

@@ -269,5 +269,3 @@ func TestInvalidateMessageCache_Empty(t *testing.T) {
 	m := &model{messages: []message{}}
 	m.invalidateMessageCache() // should not panic
 }
-
-

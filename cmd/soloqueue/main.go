@@ -170,15 +170,15 @@ type runtimeStack struct {
 	tokenizer       *ctxwin.Tokenizer
 	compactor       ctxwin.Compactor // context compression engine
 	rulesCreated    bool
-	taskRouter      *router.Router 	// Task router classifier (shared by TUI + serve)
+	taskRouter      *router.Router // Task router classifier (shared by TUI + serve)
 	skillRegistry   *skill.SkillRegistry
-	dockerSandbox   sandbox.Sandbox    	// Docker sandbox (L3 tool execution isolation base)
-	sandboxMounts   []sandbox.Mount    	// Sandbox mount list (for deferred startup)
-	memoryManager   *memory.Manager    	// Short-term memory manager
-	permanentMemory *permanent.Manager 	// Permanent memory manager
+	dockerSandbox   sandbox.Sandbox    // Docker sandbox (L3 tool execution isolation base)
+	sandboxMounts   []sandbox.Mount    // Sandbox mount list (for deferred startup)
+	memoryManager   *memory.Manager    // Short-term memory manager
+	permanentMemory *permanent.Manager // Permanent memory manager
 	permScheduler   *permanent.Scheduler
 	permNotifyCh    chan string
-	permCancel      context.CancelFunc 	// Cancel function for permanent scheduler context
+	permCancel      context.CancelFunc // Cancel function for permanent scheduler context
 }
 
 // shutdown gracefully reaps all child Agents managed by L2 Supervisors and destroys the Docker sandbox.
@@ -304,7 +304,6 @@ func buildRuntimeStack(
 	var permScheduler *permanent.Scheduler
 	var permCancel context.CancelFunc
 	permNotifyCh := make(chan string, 8)
-	var permContent string
 
 	if settings.Embedding.Enabled {
 		embModel := cfg.DefaultEmbeddingModel()
@@ -334,7 +333,7 @@ func buildRuntimeStack(
 						go permScheduler.Run(permCtx)
 
 						recentText, _ := memoryMgr.ReadRecentMemory(7)
-						permContent, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
+						_, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
 						toolsCfg.PermanentManager = permanentMgr
 					} else {
 						log.Warn(logger.CatApp, "permanent memory: failed to create vector store", "err", storeErr)
@@ -354,7 +353,7 @@ func buildRuntimeStack(
 		toolsCfg.PlanDir = planDir
 	}
 
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, permContent, planDir)
+	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
 	}
@@ -619,7 +618,7 @@ func findDefaultEmbeddingModel(models []config.EmbeddingModel) *config.Embedding
 // handleEmbeddingChange handles enabling/disabling/changing the embedding subsystem at runtime.
 func handleEmbeddingChange(rt *runtimeStack, emb config.EmbeddingConfig, cfg *config.GlobalService, log *logger.Logger, workDir string) {
 	if !emb.Enabled && rt.permanentMemory != nil {
-			// Disable embedding: stop scheduler and remove PermanentManager from toolsCfg.
+		// Disable embedding: stop scheduler and remove PermanentManager from toolsCfg.
 		log.Info(logger.CatConfig, "embedding disabled at runtime — stopping permanent memory scheduler")
 		if rt.permCancel != nil {
 			rt.permCancel()

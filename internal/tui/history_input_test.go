@@ -106,8 +106,8 @@ func TestNavHistory_ConfirmState(t *testing.T) {
 
 func TestNavHistory_Navigate(t *testing.T) {
 	m := &model{
-		history:      []string{"first", "second", "third"},
-		textArea:     newTestTextarea("", 80),
+		history:  []string{"first", "second", "third"},
+		textArea: newTestTextarea("", 80),
 	}
 
 	// Navigate back
