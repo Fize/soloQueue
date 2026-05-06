@@ -187,17 +187,7 @@ func WithParallelTools(enabled bool) Option {
 	}
 }
 
-// WithConfirmStore 替换默认的内存会话确认存储。
-//
-// 用于测试 mock，或未来接入 Redis/DB 持久化。
-// nil store 会被忽略（保持默认内存实现）。
-func WithConfirmStore(store SessionConfirmStore) Option {
-	return func(a *Agent) {
-		if store != nil {
-			a.confirmStore = store
-		}
-	}
-}
+
 
 // WithToolTimeout 给指定 tool.Name() 设置 Execute 的超时时长
 //

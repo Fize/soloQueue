@@ -274,28 +274,4 @@ func readFile(path string) ([]Event, error) {
 	return events, scanner.Err()
 }
 
-// splitSegments 按控制事件 /clear 分割成 segments
-func splitSegments(events []Event) []Segment {
-	var segments []Segment
-	var current Segment
 
-	for _, evt := range events {
-		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "clear" {
-			// /clear：结束当前 segment，开始新的
-			segments = append(segments, current)
-			current = Segment{}
-			continue
-		}
-
-		if evt.EventType == EventMessage && evt.Message != nil {
-			current.Messages = append(current.Messages, *evt.Message)
-		}
-	}
-
-	// 最后一个 segment（没有 /clear 结尾）
-	if len(current.Messages) > 0 {
-		segments = append(segments, current)
-	}
-
-	return segments
-}

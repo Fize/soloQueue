@@ -51,13 +51,6 @@ func defaultInt64(v, def int64) int64 {
 	return v
 }
 
-func defaultString(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
-}
-
 func msToDuration(ms int, def time.Duration) time.Duration {
 	if ms <= 0 {
 		return def
