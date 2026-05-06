@@ -654,7 +654,7 @@ func startSandbox(ctx context.Context, mounts []sandbox.Mount, log *logger.Logge
 	}
 	dockerSandbox.SetLogger(log)
 	if err := dockerSandbox.Start(ctx); err != nil {
-		return nil, nil, fmt.Errorf("docker sandbox start failed: is Docker running? %w", err)
+		return nil, nil, fmt.Errorf("docker sandbox start failed: %w", err)
 	}
 	log.Info(logger.CatApp, "docker sandbox started",
 		"image", "debian:bookworm-slim", "mounts", len(mounts))
@@ -668,17 +668,22 @@ func startSandbox(ctx context.Context, mounts []sandbox.Mount, log *logger.Logge
 
 // formatCtxwinMessages converts ctxwin messages to a plain-text representation
 // suitable for memory summarization. Skips system messages.
-// Emits [timestamp] headers at each user turn so the LLM can group events chronologically.
+// Emits [timestamp] headers for every role when the timestamp changes, so the LLM
+// can create ## entries with accurate per-conversation-segment timestamps.
 func formatCtxwinMessages(msgs []ctxwin.Message) string {
 	var b strings.Builder
+	var lastTS time.Time
 	for _, m := range msgs {
-		switch m.Role {
-		case ctxwin.RoleSystem:
+		if m.Role == ctxwin.RoleSystem {
 			continue
+		}
+		// Emit timestamp when it changes (new turn boundary), regardless of role.
+		if !m.Timestamp.IsZero() && !m.Timestamp.Equal(lastTS) {
+			b.WriteString("[" + m.Timestamp.Format("2006-01-02 15:04") + "]\n")
+			lastTS = m.Timestamp
+		}
+		switch m.Role {
 		case ctxwin.RoleUser:
-			if !m.Timestamp.IsZero() {
-				b.WriteString("[" + m.Timestamp.Format("2006-01-02 15:04") + "]\n")
-			}
 			b.WriteString("User: ")
 		case ctxwin.RoleAssistant:
 			b.WriteString("Assistant: ")
