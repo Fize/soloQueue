@@ -20,15 +20,15 @@ func (tc ToolsConfig) ToToolsConfig() tools.Config {
 
 		HTTPAllowedHosts: tc.HTTPAllowedHosts,
 		HTTPMaxBody:      defaultInt64(tc.HTTPMaxBody, 5<<20),
-		HTTPTimeout:      msToDuration(tc.HTTPTimeoutMs, 10*time.Second),
+		HTTPTimeout:      msToDuration(tc.HTTPTimeoutMs, 10*time.Minute),
 		HTTPBlockPrivate: tc.HTTPBlockPrivate,
 
 		ShellBlockRegexes:   tc.ShellBlockRegexes,
 		ShellConfirmRegexes: tc.ShellConfirmRegexes,
-		ShellTimeout:        msToDuration(tc.ShellTimeoutMs, 30*time.Second),
+		ShellTimeout:        msToDuration(tc.ShellTimeoutMs, 10*time.Minute),
 		ShellMaxOutput:      defaultInt64(tc.ShellMaxOutput, 256<<10),
 
-		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 15*time.Second),
+		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 10*time.Minute),
 	}
 }
 

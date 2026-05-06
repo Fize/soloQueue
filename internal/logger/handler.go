@@ -89,9 +89,6 @@ type writerPool struct {
 // FileHandler 将日志按 category 路由到对应的 rotateWriter
 type FileHandler struct {
 	baseDir   string
-	layer     Layer
-	teamID    string
-	sessionID string
 	levelVar  *slog.LevelVar
 	preAttrs  []slog.Attr
 	maxSizeMB int
@@ -101,12 +98,9 @@ type FileHandler struct {
 	pool *writerPool // 共享指针：clone 后多个 handler 共用同一 writer pool
 }
 
-func newFileHandler(baseDir string, layer Layer, teamID, sessionID string, levelVar *slog.LevelVar, maxSizeMB, maxDays, maxFiles int) *FileHandler {
+func newFileHandler(baseDir string, levelVar *slog.LevelVar, maxSizeMB, maxDays, maxFiles int) *FileHandler {
 	return &FileHandler{
 		baseDir:   baseDir,
-		layer:     layer,
-		teamID:    teamID,
-		sessionID: sessionID,
 		levelVar:  levelVar,
 		maxSizeMB: maxSizeMB,
 		maxDays:   maxDays,
@@ -182,7 +176,6 @@ func (h *FileHandler) buildEntry(r slog.Record, cat Category) map[string]any {
 	entry := map[string]any{
 		"ts":       r.Time.UTC().Format(time.RFC3339Nano),
 		"level":    r.Level.String(),
-		"layer":    string(h.layer),
 		"category": string(cat),
 		"msg":      r.Message,
 	}
@@ -199,13 +192,6 @@ func (h *FileHandler) buildEntry(r slog.Record, cat Category) map[string]any {
 		applyAttr(entry, ctx, a)
 		return true
 	})
-
-	if h.teamID != "" {
-		entry["team_id"] = h.teamID
-	}
-	if h.sessionID != "" {
-		entry["session_id"] = h.sessionID
-	}
 
 	if len(ctx) > 0 {
 		entry["ctx"] = ctx
@@ -249,13 +235,12 @@ func (h *FileHandler) extractCategory(r slog.Record) Category {
 	return cat
 }
 
-// defaultCategory 返回该 layer 的第一个 category 作为兜底
+// defaultCategory 返回第一个 category 作为兜底
 func (h *FileHandler) defaultCategory() Category {
-	cats := layerCategories[h.layer]
-	if len(cats) == 0 {
+	if len(systemCategories) == 0 {
 		return CatApp
 	}
-	return cats[0]
+	return systemCategories[0]
 }
 
 // getOrCreateWriter 按 category 惰性创建 rotateWriter
@@ -267,9 +252,8 @@ func (h *FileHandler) getOrCreateWriter(cat Category) (*rotateWriter, error) {
 		return w, nil
 	}
 
-	dir := h.logDir(cat)
-	byDate := h.layer != LayerSession
-	w, err := newRotateWriter(dir, string(cat), byDate, h.maxSizeMB, h.maxDays, h.maxFiles)
+	dir := h.logDir()
+	w, err := newRotateWriter(dir, string(cat), true, h.maxSizeMB, h.maxDays, h.maxFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -277,19 +261,7 @@ func (h *FileHandler) getOrCreateWriter(cat Category) (*rotateWriter, error) {
 	return w, nil
 }
 
-// logDir 根据 layer / category 构建日志目录路径
-//
-// system:  {baseDir}/logs/system/
-// team:    {baseDir}/logs/teams/{teamID}/
-// session: {baseDir}/logs/sessions/{teamID}/{sessionID}/
-func (h *FileHandler) logDir(cat Category) string {
-	_ = cat // 目录按 layer 分，文件名按 category 分
-	switch h.layer {
-	case LayerTeam:
-		return filepath.Join(h.baseDir, "logs", "teams", h.teamID)
-	case LayerSession:
-		return filepath.Join(h.baseDir, "logs", "sessions", h.teamID, h.sessionID)
-	default:
-		return filepath.Join(h.baseDir, "logs", "system")
-	}
+// logDir 返回日志目录路径：{baseDir}/logs/system/
+func (h *FileHandler) logDir() string {
+	return filepath.Join(h.baseDir, "logs", "system")
 }

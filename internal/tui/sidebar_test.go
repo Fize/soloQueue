@@ -9,7 +9,7 @@ import (
 // ─── sidebar basics ─────────────────────────────────────────────────────────
 
 func TestSidebar_DefaultVisible(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	if !s.visible {
 		t.Error("sidebar should be visible by default")
 	}
@@ -19,7 +19,7 @@ func TestSidebar_DefaultVisible(t *testing.T) {
 }
 
 func TestSidebar_Toggle(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	s.Toggle()
 	if s.visible {
 		t.Error("sidebar should be hidden after one toggle")

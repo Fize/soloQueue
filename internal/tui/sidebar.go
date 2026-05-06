@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 )
 
 // ─── Agent sidebar data model ────────────────────────────────────────────────
@@ -15,6 +16,11 @@ type sidebar struct {
 	registry      *agent.Registry
 	supervisorsFn func() []*agent.Supervisor
 	spinner       spinner
+
+	// Static template data for tree rendering (no running agents needed).
+	templates     []agent.AgentTemplate
+	groups        map[string]prompt.GroupFile
+	assistantName string // name parsed from profile.md for L1 agent
 }
 
 // agentTickMsg is sent periodically to refresh agent state snapshots.
@@ -32,12 +38,15 @@ func agentTickInterval(isGenerating bool) time.Duration {
 	return 2 * time.Second
 }
 
-func newSidebar(registry *agent.Registry, supervisorsFn func() []*agent.Supervisor) sidebar {
+func newSidebar(registry *agent.Registry, supervisorsFn func() []*agent.Supervisor, templates []agent.AgentTemplate, groups map[string]prompt.GroupFile, assistantName string) sidebar {
 	return sidebar{
 		visible:       true, // default visible; Ctrl+A or /agents collapses it
 		registry:      registry,
 		supervisorsFn: supervisorsFn,
 		spinner:       newSpinner(),
+		templates:     templates,
+		groups:        groups,
+		assistantName: assistantName,
 	}
 }
 
@@ -77,4 +86,3 @@ func stateLabel(s agent.State) string {
 		return "UNK"
 	}
 }
-

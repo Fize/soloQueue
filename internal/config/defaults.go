@@ -24,7 +24,7 @@ func DefaultSettings() Settings {
 			MaxReplaceEdits:    50,
 
 			HTTPMaxBody:      5 << 20, // 5 MiB
-			HTTPTimeoutMs:    10000,
+			HTTPTimeoutMs:    600000,
 			HTTPBlockPrivate: true,
 
 			// ShellBlockRegexes 默认空 = 无黑名单限制
@@ -38,10 +38,10 @@ func DefaultSettings() Settings {
 				`^\s*format\b`,
 				`^\s*diskpart\b`,
 			},
-			ShellTimeoutMs: 30000,
+			ShellTimeoutMs: 600000,
 			ShellMaxOutput: 256 << 10,
 
-			WebSearchTimeoutMs: 15000,
+			WebSearchTimeoutMs: 600000,
 		},
 		Providers: []LLMProvider{
 			{
@@ -51,7 +51,7 @@ func DefaultSettings() Settings {
 				APIKeyEnv: "DEEPSEEK_API_KEY",
 				Enabled:   true,
 				IsDefault: true,
-				TimeoutMs: 120000,
+				TimeoutMs: 600000,
 				Retry: RetryConfig{
 					MaxRetries:        3,
 					InitialDelayMs:    1000,
@@ -96,7 +96,7 @@ func DefaultSettings() Settings {
 				Enabled:       true,
 				Generation: GenerationParams{
 					Temperature: 0,
-					MaxTokens:   8192,
+					MaxTokens:   16384,
 				},
 				Thinking: ThinkingConfig{
 					Enabled:         true,

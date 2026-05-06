@@ -10,7 +10,7 @@ import (
 // userCtx 为空时跳过 <user_context> 段。
 // recentMemory 为空时跳过 <recent_memory> 段。
 // permanentMemory 为空时跳过 <permanent_memory> 段。
-func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules string) string {
+func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", strings.TrimSpace(profile))
@@ -33,6 +33,11 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", strings.TrimSpace(teamMgmt))
 
 	fmt.Fprintf(&b, "\n\n<rules>\n%s\n</rules>", strings.TrimSpace(rules))
+
+	// Plan Before Action section
+	if planDir != "" {
+		fmt.Fprintf(&b, "\n\n<plan_before_action>\nYou MUST follow the \"Plan Before Action\" rule for any task that involves file modifications, code changes, or system alterations.\n\n## Plan Directory\nAll design documents MUST be saved to: %s/<feature-name>.md\n\n## Design Document Structure\nEvery design document MUST contain:\n- **Goal**: What the task aims to achieve\n- **Approach**: How you plan to implement it\n- **Impact**: What files/modules will be affected\n- **Steps**: Ordered list of implementation steps\n\n## Decision Rule\nWhen a delegated team (L2) presents a plan:\n- If you can evaluate and decide → approve or reject autonomously\n- If the decision has significant trade-offs or risks → present the options to the user and let them decide\n\n## Procedure\n1. When you receive a task that involves changes, ensure a design document is written to the plan directory first.\n2. Review the plan from L2. If straightforward, approve it. If uncertain, escalate to the user.\n3. Only after approval, instruct L2 to proceed with execution.\n4. Purely informational tasks (reading files, searching, answering questions) do NOT require a plan.\n</plan_before_action>", planDir)
+	}
 
 	return b.String()
 }

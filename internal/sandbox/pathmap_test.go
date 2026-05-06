@@ -5,15 +5,15 @@ import "testing"
 func TestPathMap(t *testing.T) {
 	mounts := []Mount{
 		{HostPath: "/Users/xiaobaitu/.soloqueue", ContainerPath: "/root/.soloqueue"},
-		{HostPath: "/Users/xiaobaitu/github/project-a", ContainerPath: "/root/projects/project-a"},
+		{HostPath: "/Users/xiaobaitu/github/project-a", ContainerPath: "/Users/xiaobaitu/github/project-a"},
 	}
 	pm := NewPathMap(mounts)
 
 	tests := []struct {
-		name   string
-		input  string
-		toC    string // expected container path
-		toH    string // expected host path
+		name  string
+		input string
+		toC   string // expected container path
+		toH   string // expected host path
 	}{
 		{
 			name:  "main workdir",
@@ -24,7 +24,7 @@ func TestPathMap(t *testing.T) {
 		{
 			name:  "project workspace",
 			input: "/Users/xiaobaitu/github/project-a/src/main.go",
-			toC:   "/root/projects/project-a/src/main.go",
+			toC:   "/Users/xiaobaitu/github/project-a/src/main.go",
 			toH:   "/Users/xiaobaitu/github/project-a/src/main.go",
 		},
 		{
@@ -56,19 +56,19 @@ func TestPathMap(t *testing.T) {
 func TestPathMapLongestPrefix(t *testing.T) {
 	// When multiple prefixes match, longest should win
 	mounts := []Mount{
-		{HostPath: "/a", ContainerPath: "/ca"},
-		{HostPath: "/a/b", ContainerPath: "/cb"},
+		{HostPath: "/a", ContainerPath: "/a"},
+		{HostPath: "/a/b", ContainerPath: "/a/b"},
 	}
 	pm := NewPathMap(mounts)
 
 	got := pm.ToContainerPath("/a/b/file.txt")
-	want := "/cb/file.txt"
+	want := "/a/b/file.txt"
 	if got != want {
 		t.Errorf("ToContainerPath = %q, want %q", got, want)
 	}
 
 	got = pm.ToContainerPath("/a/other.txt")
-	want = "/ca/other.txt"
+	want = "/a/other.txt"
 	if got != want {
 		t.Errorf("ToContainerPath = %q, want %q", got, want)
 	}

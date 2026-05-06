@@ -18,61 +18,36 @@ import (
 
 func TestValidCategory(t *testing.T) {
 	tests := []struct {
-		layer Layer
-		cat   Category
-		want  bool
+		cat  Category
+		want bool
 	}{
-		{LayerSystem, CatApp, true},
-		{LayerSystem, CatConfig, true},
-		{LayerSystem, CatHTTP, true},
-		{LayerSystem, CatWS, true},
-		{LayerSystem, CatLLM, true},
-		{LayerSystem, CatTeam, false},
-		{LayerTeam, CatTeam, true},
-		{LayerTeam, CatAgent, true},
-		{LayerTeam, CatApp, false},
-		{LayerTeam, CatLLM, false},
-		{LayerSession, CatLLM, true},
-		{LayerSession, CatActor, true},
-		{LayerSession, CatTool, true},
-		{LayerSession, CatMessages, true},
-		{LayerSession, CatAgent, false},
-		{LayerSession, CatApp, true},
-		{Layer("unknown"), CatApp, false},
-		{LayerSystem, Category("bogus"), false},
+		{CatApp, true},
+		{CatConfig, true},
+		{CatHTTP, true},
+		{CatWS, true},
+		{CatLLM, true},
+		{CatTeam, true},
+		{CatAgent, true},
+		{CatActor, true},
+		{CatTool, true},
+		{CatMessages, true},
+		{Category("bogus"), false},
+		{Category(""), false},
 	}
 	for _, tt := range tests {
-		got := ValidCategory(tt.layer, tt.cat)
+		got := ValidCategory(tt.cat)
 		if got != tt.want {
-			t.Errorf("ValidCategory(%q, %q) = %v, want %v", tt.layer, tt.cat, got, tt.want)
+			t.Errorf("ValidCategory(%q) = %v, want %v", tt.cat, got, tt.want)
 		}
 	}
 }
 
-func TestLayerForCategory(t *testing.T) {
-	tests := []struct {
-		cat     Category
-		wantLay Layer
-		wantOk  bool
-	}{
-		{CatApp, LayerSystem, true},
-		{CatConfig, LayerSystem, true},
-		{CatHTTP, LayerSystem, true},
-		{CatWS, LayerSystem, true},
-		{CatTeam, LayerTeam, true},
-		{CatAgent, LayerTeam, true},
-	// CatLLM belongs to both system and session; primary layer is session
-		{CatLLM, LayerSession, true},
-		{CatActor, LayerSession, true},
-		{CatTool, LayerSession, true},
-		{CatMessages, LayerSession, true},
-		{Category("unknown"), "", false},
-		{Category(""), "", false},
-	}
-	for _, tt := range tests {
-		gotLay, gotOk := LayerForCategory(tt.cat)
-		if gotLay != tt.wantLay || gotOk != tt.wantOk {
-			t.Errorf("LayerForCategory(%q) = %v, %v; want %v, %v", tt.cat, gotLay, gotOk, tt.wantLay, tt.wantOk)
+func TestLayerForCategory_Removed(t *testing.T) {
+	// LayerForCategory has been removed; all categories are now in the system layer.
+	// Verify ValidCategory works for all known categories.
+	for _, cat := range systemCategories {
+		if !ValidCategory(cat) {
+			t.Errorf("ValidCategory(%q) = false, want true", cat)
 		}
 	}
 }
@@ -100,12 +75,13 @@ func TestSystemLogger_WritesJSONL(t *testing.T) {
 	checkJSONLFile(t, filepath.Join(dir, "logs", "system", "http-"+today()+".jsonl"), 1)
 }
 
-func TestTeamLogger_PathAndWrite(t *testing.T) {
+func TestTeamLogger_NowSystemPath(t *testing.T) {
+	// Team logger has been removed; all logs go to system directory.
+	// Verify team/agent categories write to system directory.
 	dir := t.TempDir()
-	teamID := "team-xyz-123"
-	log, err := Team(dir, teamID, WithConsole(false))
+	log, err := System(dir, WithConsole(false))
 	if err != nil {
-		t.Fatalf("Team(): %v", err)
+		t.Fatalf("System(): %v", err)
 	}
 
 	log.Info(CatTeam, "team created", "memberCount", 3)
@@ -113,51 +89,45 @@ func TestTeamLogger_PathAndWrite(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	// 验证目录是 logs/teams/{teamID}/
-	teamFile := filepath.Join(dir, "logs", "teams", teamID, "team-"+today()+".jsonl")
+	// 验证目录是 logs/system/
+	teamFile := filepath.Join(dir, "logs", "system", "team-"+today()+".jsonl")
 	checkJSONLFile(t, teamFile, 1)
 
-	agentFile := filepath.Join(dir, "logs", "teams", teamID, "agent-"+today()+".jsonl")
+	agentFile := filepath.Join(dir, "logs", "system", "agent-"+today()+".jsonl")
 	checkJSONLFile(t, agentFile, 1)
 
-	// 验证 team_id 出现在 JSONL 顶层
+	// 验证 layer 字段不再出现
 	entry := readFirstEntry(t, teamFile)
-	if entry["team_id"] != teamID {
-		t.Errorf("team_id field = %v, want %q", entry["team_id"], teamID)
-	}
-	if entry["layer"] != "team" {
-		t.Errorf("layer = %v, want team", entry["layer"])
+	if _, has := entry["layer"]; has {
+		t.Errorf("layer field should not appear, got: %v", entry["layer"])
 	}
 }
 
-func TestSessionLogger_WritesJSONL(t *testing.T) {
+func TestSessionLogger_NowSystemPath(t *testing.T) {
+	// Session logger has been removed; all logs go to system directory.
+	// Verify session-specific categories write to system directory.
 	dir := t.TempDir()
-	log, err := Session(dir, "team-1", "session-1", WithConsole(false))
+	log, err := System(dir, WithConsole(false))
 	if err != nil {
-		t.Fatalf("Session(): %v", err)
+		t.Fatalf("System(): %v", err)
 	}
 
 	log.Info(CatLLM, "llm call", "model", "deepseek-chat")
 	log.Debug(CatActor, "actor message")
 	time.Sleep(20 * time.Millisecond)
 
-	// Check files before Close (Close cleans up session dir)
-	llmFile := filepath.Join(dir, "logs", "sessions", "team-1", "session-1", "llm.jsonl")
+	llmFile := filepath.Join(dir, "logs", "system", "llm-"+today()+".jsonl")
 	checkJSONLFile(t, llmFile, 1)
 	entry := readFirstEntry(t, llmFile)
-	if entry["session_id"] != "session-1" {
-		t.Errorf("session_id = %v, want session-1", entry["session_id"])
+	// session_id/team_id should not appear by default (only if explicitly passed as attrs)
+	if _, has := entry["session_id"]; has {
+		t.Errorf("session_id should not appear by default, got: %v", entry["session_id"])
 	}
-	if entry["team_id"] != "team-1" {
-		t.Errorf("team_id = %v, want team-1", entry["team_id"])
+	if _, has := entry["team_id"]; has {
+		t.Errorf("team_id should not appear by default, got: %v", entry["team_id"])
 	}
 
 	_ = log.Close()
-
-	// Verify directory is cleaned up
-	if _, err := os.Stat(filepath.Join(dir, "logs", "sessions", "team-1", "session-1")); !os.IsNotExist(err) {
-		t.Error("session log directory should be removed after Close")
-	}
 }
 
 // ─── Level Filtering ─────────────────────────────────────────────────────────
@@ -240,21 +210,21 @@ func TestLogger_InvalidCategory_FallbackAndNoPanic(t *testing.T) {
 		t.Fatalf("System(): %v", err)
 	}
 
-	// CatTeam 属于 team 层，对 system 层是非法的；不应 panic 也不应 fallback
+	// Unknown category should not panic
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("logging invalid category panicked: %v", r)
 		}
 	}()
 
-	log.Info(CatTeam, "wrong layer category")
+	log.Info(Category("bogus"), "unknown category")
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
 	// 不 fallback：日志按原始 category 写入对应文件
-	teamFile := filepath.Join(dir, "logs", "system", "team-"+today()+".jsonl")
-	if _, err := os.Stat(teamFile); err != nil {
-		t.Errorf("expected log in team-*.jsonl (category used as-is), stat err: %v", err)
+	bogusFile := filepath.Join(dir, "logs", "system", "bogus-"+today()+".jsonl")
+	if _, err := os.Stat(bogusFile); err != nil {
+		t.Errorf("expected log in bogus-*.jsonl (category used as-is), stat err: %v", err)
 	}
 }
 

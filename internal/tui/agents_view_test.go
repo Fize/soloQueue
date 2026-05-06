@@ -8,6 +8,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 )
 
 // ─── fakeFactoryForTUI ─────────────────────────────────────────────────────
@@ -41,10 +42,11 @@ func supervisorWithChildren(l2 *agent.Agent, reg *agent.Registry, log *logger.Lo
 	}
 	return sv
 }
+
 // ─── counts ─────────────────────────────────────────────────────────────────
 
 func TestCounts_NoRegistry(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	c := s.counts()
 	if c.a1 != 0 || c.a2 != 0 || c.a3 != 0 {
 		t.Errorf("nil registry should have zero counts, got a1=%d a2=%d a3=%d", c.a1, c.a2, c.a3)
@@ -60,7 +62,7 @@ func TestCounts_L1Only(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{ID: "session-1", Name: "MainSession", ModelID: "ds-v4"}, &fakeLLMForTUI{}, log)
 	reg.Register(a)
 
-	s := newSidebar(reg, nil)
+	s := newSidebar(reg, nil, nil, nil, "")
 	c := s.counts()
 	if c.a1 != 1 {
 		t.Errorf("expected a1=1, got %d", c.a1)
@@ -82,7 +84,8 @@ func TestCounts_L2WithL3Children(t *testing.T) {
 		agent.AgentTemplate{ID: "coder", Name: "Coder"},
 	)
 
-	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
+	supervisors := []*agent.Supervisor{sv}
+	s := newSidebar(reg, func() []*agent.Supervisor { return supervisors }, nil, nil, "")
 	c := s.counts()
 	if c.a2 != 1 {
 		t.Errorf("expected a2=1, got %d", c.a2)
@@ -97,7 +100,7 @@ func TestCounts_L2WithL3Children(t *testing.T) {
 }
 
 func TestCounts_NilSupervisor(t *testing.T) {
-	s := newSidebar(nil, func() []*agent.Supervisor { return []*agent.Supervisor{nil} })
+	s := newSidebar(nil, func() []*agent.Supervisor { return []*agent.Supervisor{nil} }, nil, nil, "")
 	c := s.counts()
 	if c.a2 != 0 {
 		t.Errorf("nil supervisor should not count as a2, got %d", c.a2)
@@ -107,7 +110,7 @@ func TestCounts_NilSupervisor(t *testing.T) {
 func TestCounts_NilSupervisorAgent(t *testing.T) {
 	sv := agent.NewSupervisor(nil, nil, nil)
 	svs := []*agent.Supervisor{sv}
-	s := newSidebar(nil, func() []*agent.Supervisor { return svs })
+	s := newSidebar(nil, func() []*agent.Supervisor { return svs }, nil, nil, "")
 	c := s.counts()
 	if c.a2 != 0 {
 		t.Errorf("supervisor with nil agent should not count as a2, got %d", c.a2)
@@ -118,10 +121,10 @@ func TestCounts_NilSupervisorAgent(t *testing.T) {
 
 func TestCountState_AllStates(t *testing.T) {
 	tests := []struct {
-		state   agent.State
-		wantRun int
+		state    agent.State
+		wantRun  int
 		wantIdle int
-		wantOff int
+		wantOff  int
 		wantStop int
 	}{
 		{agent.StateProcessing, 1, 0, 0, 0},
@@ -160,10 +163,10 @@ func TestCountState_UnknownFallsToOff(t *testing.T) {
 // ─── AgentSummary ───────────────────────────────────────────────────────────
 
 func TestAgentSummary_NoAgents(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	got := s.AgentSummary(40)
-	if !strings.Contains(got, "A1:0") {
-		t.Error("AgentSummary should show L1:0 for nil registry")
+	if !strings.Contains(got, "Teams:0") {
+		t.Error("AgentSummary should show Teams:0 for nil registry")
 	}
 }
 
@@ -173,17 +176,17 @@ func TestAgentSummary_WithAgents(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{ID: "s1", Name: "Session", ModelID: "m1"}, &fakeLLMForTUI{}, log)
 	reg.Register(a)
 
-	s := newSidebar(reg, nil)
+	s := newSidebar(reg, nil, nil, nil, "")
 	got := s.AgentSummary(60)
-	if !strings.Contains(got, "A1:1") {
-		t.Error("AgentSummary should show L1:1")
+	if !strings.Contains(got, "Agents:1") {
+		t.Error("AgentSummary should show Agents:1")
 	}
 }
 
 // ─── AgentRail ──────────────────────────────────────────────────────────────
 
 func TestAgentRail_NoAgents(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	got := s.AgentRail(40, 10)
 	if !strings.Contains(got, "TEAM") {
 		t.Error("AgentRail should contain TEAM header")
@@ -198,7 +201,7 @@ func TestAgentInspector_ShowAgents(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{ID: "s1", Name: "Session", ModelID: "m1"}, &fakeLLMForTUI{}, log)
 	reg.Register(a)
 
-	s := newSidebar(reg, nil)
+	s := newSidebar(reg, nil, nil, nil, "")
 	m := newTestModel()
 	m.sidebar = s
 
@@ -215,7 +218,7 @@ func TestAgentInspector_ShowAgents(t *testing.T) {
 }
 
 func TestAgentInspector_HideAgents(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	m := newTestModel()
 	m.sidebar = s
 
@@ -229,7 +232,7 @@ func TestAgentInspector_HideAgents(t *testing.T) {
 }
 
 func TestAgentInspector_GeneratingPhase(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	m := newTestModel()
 	m.sidebar = s
 	m.isGenerating = true
@@ -242,7 +245,7 @@ func TestAgentInspector_GeneratingPhase(t *testing.T) {
 }
 
 func TestAgentInspector_WithTokens(t *testing.T) {
-	s := newSidebar(nil, nil)
+	s := newSidebar(nil, nil, nil, nil, "")
 	m := newTestModel()
 	m.sidebar = s
 	m.promptTokens = 1000
@@ -262,10 +265,10 @@ func TestRenderAgentTreeContent_L1Only(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{ID: "s1", Name: "Main", ModelID: "ds-v4"}, &fakeLLMForTUI{}, log)
 	reg.Register(a)
 
-	s := newSidebar(reg, nil)
+	s := newSidebar(reg, nil, nil, nil, "")
 	got := s.renderAgentTreeContent(40, 20, true)
-	if !strings.Contains(got, "A1 Session Agents") {
-		t.Error("should show L1 section header")
+	if !strings.Contains(got, "A1 Session") {
+		t.Error("should show A1 Session section header")
 	}
 	if !strings.Contains(got, "Main") {
 		t.Error("should show L1 agent name")
@@ -282,17 +285,15 @@ func TestRenderAgentTreeContent_L2WithChildren(t *testing.T) {
 	sv := supervisorWithChildren(l2, reg, log,
 		agent.AgentTemplate{ID: "coder", Name: "Coder"},
 	)
-	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
+	supervisors := []*agent.Supervisor{sv}
+	s := newSidebar(reg, func() []*agent.Supervisor { return supervisors }, nil, nil, "")
 
 	got := s.renderAgentTreeContent(40, 20, true)
-	if !strings.Contains(got, "A2 Domain Leaders") {
-		t.Error("should show A2 section header")
+	if !strings.Contains(got, "Teams") {
+		t.Error("should show Teams section header")
 	}
 	if !strings.Contains(got, "DevLead") {
 		t.Error("should show A2 agent name")
-	}
-	if !strings.Contains(got, "A3 Workers") {
-		t.Error("should show A3 section header")
 	}
 	if !strings.Contains(got, "Coder") {
 		t.Error("should show A3 child name")
@@ -306,10 +307,11 @@ func TestRenderAgentTreeContent_NoL1Agents(t *testing.T) {
 	reg.Register(l2)
 	sv := agent.NewSupervisor(l2, nil, nil)
 
-	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
+	supervisors := []*agent.Supervisor{sv}
+	s := newSidebar(reg, func() []*agent.Supervisor { return supervisors }, nil, nil, "MyAssistant")
 	got := s.renderAgentTreeContent(40, 20, true)
-	if !strings.Contains(got, "(none)") {
-		t.Error("L1 section with no L1 agents should show '(none)'")
+	if !strings.Contains(got, "MyAssistant") {
+		t.Error("L1 section with no L1 agents should show assistant name")
 	}
 }
 
@@ -320,13 +322,11 @@ func TestRenderAgentTreeContent_NoL2Children(t *testing.T) {
 	reg.Register(l2)
 	sv := agent.NewSupervisor(l2, nil, nil)
 
-	supervisors := []*agent.Supervisor{sv}; s := newSidebar(reg, func() []*agent.Supervisor { return supervisors })
+	supervisors := []*agent.Supervisor{sv}
+	s := newSidebar(reg, func() []*agent.Supervisor { return supervisors }, nil, nil, "")
 	got := s.renderAgentTreeContent(40, 20, true)
-	if !strings.Contains(got, "A3 Workers") {
-		t.Error("should show A3 Workers section")
-	}
-	if !strings.Contains(got, "(none)") {
-		t.Error("A3 section with no children should show '(none)'")
+	if !strings.Contains(got, "Teams") {
+		t.Error("should show Teams section")
 	}
 }
 
@@ -394,5 +394,78 @@ func TestFitLines_Padding(t *testing.T) {
 	lines := strings.Split(got, "\n")
 	if len(lines) != 5 {
 		t.Errorf("expected 5 lines (padded), got %d", len(lines))
+	}
+}
+
+// ─── Static template tree rendering ────────────────────────────────────────
+
+func TestRenderAgentTreeContent_StaticTemplatesNoRuntime(t *testing.T) {
+	// When no agents are running, the tree should still show template names from static config.
+	templates := []agent.AgentTemplate{
+		{ID: "lead", Name: "TeamLead", Group: "dev", IsLeader: true},
+		{ID: "coder", Name: "Coder", Group: "dev"},
+		{ID: "tester", Name: "Tester", Group: "dev"},
+	}
+	s := newSidebar(nil, nil, templates, map[string]prompt.GroupFile{"dev": {}}, "MyBot")
+	got := s.renderAgentTreeContent(40, 20, true)
+	if !strings.Contains(got, "MyBot") {
+		t.Error("should show assistant name for A1")
+	}
+	if !strings.Contains(got, "TeamLead") {
+		t.Error("should show leader template name")
+	}
+	if !strings.Contains(got, "Coder") {
+		t.Error("should show worker template name")
+	}
+	if !strings.Contains(got, "Tester") {
+		t.Error("should show worker template name")
+	}
+}
+
+func TestRenderAgentTreeContent_StaticTemplatesWithRuntime(t *testing.T) {
+	// When agents are running, runtime state should be overlaid on template tree.
+	log, _ := logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+	reg := agent.NewRegistry(log)
+
+	templates := []agent.AgentTemplate{
+		{ID: "lead", Name: "TeamLead", Group: "dev", IsLeader: true},
+		{ID: "coder", Name: "Coder", Group: "dev"},
+	}
+
+	l2 := agent.NewAgent(agent.Definition{ID: "lead", Name: "TeamLead"}, &fakeLLMForTUI{}, log)
+	reg.Register(l2)
+
+	sv := supervisorWithChildren(l2, reg, log,
+		agent.AgentTemplate{ID: "coder", Name: "Coder"},
+	)
+	supervisors := []*agent.Supervisor{sv}
+
+	s := newSidebar(reg, func() []*agent.Supervisor { return supervisors }, templates, map[string]prompt.GroupFile{"dev": {}}, "")
+	got := s.renderAgentTreeContent(40, 20, true)
+	if !strings.Contains(got, "TeamLead") {
+		t.Error("should show leader name with runtime state")
+	}
+	if !strings.Contains(got, "Coder") {
+		t.Error("should show worker name with runtime state")
+	}
+}
+
+// ─── Assistant name display ────────────────────────────────────────────────
+
+func TestRenderAgentTreeContent_AssistantName(t *testing.T) {
+	// A1 section should display the assistant name when no L1 agents are running.
+	s := newSidebar(nil, nil, nil, nil, "SuperBot")
+	got := s.renderAgentTreeContent(40, 20, true)
+	if !strings.Contains(got, "SuperBot") {
+		t.Error("A1 section should show assistant name 'SuperBot'")
+	}
+}
+
+func TestRenderAgentTreeContent_DefaultAssistantName(t *testing.T) {
+	// When no assistant name is provided, should show "Assistant".
+	s := newSidebar(nil, nil, nil, nil, "")
+	got := s.renderAgentTreeContent(40, 20, true)
+	if !strings.Contains(got, "Assistant") {
+		t.Error("A1 section should show default name 'Assistant'")
 	}
 }

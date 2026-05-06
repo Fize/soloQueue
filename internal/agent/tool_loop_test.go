@@ -332,7 +332,7 @@ func TestAgent_WithTools_EmptyIsNoop(t *testing.T) {
 
 func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "team", "sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 		[]byte(`"tool_name":"echo"`),
 		[]byte(`"tool_call_id":"call_1"`),
 		[]byte(`"trace_id":"trace-xyz"`),
-		[]byte(`"actor_id":"demo-agent"`),
+		[]byte(`"actor_id":"` + a.InstanceID + `"`),
 	} {
 		if !bytes.Contains(toolData, need) {
 			t.Errorf("tool.jsonl missing %s\ncontent:\n%s", need, toolData)
