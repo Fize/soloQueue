@@ -89,7 +89,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 		{Name: "dev", Description: "开发工程师", Group: "DevOps"},
 	}
 
-	result, err := cfg.BuildPrompt(leaders, "", "")
+	result, err := cfg.BuildPrompt(leaders, "", "", "/home/user/.soloqueue/plan")
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
@@ -113,6 +113,12 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	if !contains(result, "测试用户") {
 		t.Error("missing user context")
 	}
+	if !contains(result, "<plan_before_action>") {
+		t.Error("missing <plan_before_action> section when planDir is provided")
+	}
+	if !contains(result, "/home/user/.soloqueue/plan") {
+		t.Error("missing plan directory path in plan_before_action section")
+	}
 }
 
 func TestBuildPrompt_NoUserCtx(t *testing.T) {
@@ -123,7 +129,7 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	cfg.EnsureFiles()
 	// 不创建 user.md
 
-	result, err := cfg.BuildPrompt(nil, "", "")
+	result, err := cfg.BuildPrompt(nil, "", "", "/home/user/.soloqueue/plan")
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
@@ -133,6 +139,136 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	}
 	if !contains(result, "No Team Leaders") {
 		t.Error("should contain fallback routing message for empty leaders")
+	}
+	if !contains(result, "<plan_before_action>") {
+		t.Error("missing <plan_before_action> section when planDir is provided")
+	}
+}
+
+func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
+
+	cfg.WriteProfile(DefaultProfileAnswers())
+	cfg.EnsureFiles()
+
+	result, err := cfg.BuildPrompt(nil, "", "", "")
+	if err != nil {
+		t.Fatalf("BuildPrompt: %v", err)
+	}
+
+	if contains(result, "<plan_before_action>") {
+		t.Error("should not contain <plan_before_action> when planDir is empty")
+	}
+}
+
+func TestBuildPrompt_DockerSandboxPath(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
+
+	// 创建所有必要文件
+	cfg.WriteProfile(DefaultProfileAnswers())
+	cfg.EnsureFiles()
+
+	// 创建 user.md
+	os.MkdirAll(filepath.Join(dir, "global"), 0o755)
+	os.WriteFile(filepath.Join(dir, "global", "user.md"), []byte("测试用户"), 0o644)
+
+	leaders := []LeaderInfo{
+		{Name: "dev", Description: "开发工程师", Group: "DevOps"},
+	}
+
+	// 模拟 Docker 沙箱模式：路径应替换为容器内路径 /root/.soloqueue/plan/
+	dockerPlanDir := "/root/.soloqueue/plan"
+	result, err := cfg.BuildPrompt(leaders, "", "", dockerPlanDir)
+	if err != nil {
+		t.Fatalf("BuildPrompt: %v", err)
+	}
+
+	// 验证 plan_before_action 段存在
+	if !contains(result, "<plan_before_action>") {
+		t.Error("missing <plan_before_action> section when planDir is provided")
+	}
+
+	// 验证 Docker 沙箱模式下路径替换为容器内路径
+	if !contains(result, "/root/.soloqueue/plan") {
+		t.Error("plan directory path should be replaced to Docker container path /root/.soloqueue/plan")
+	}
+
+	// 验证宿主机路径不应出现（Docker 沙箱模式下替换为容器路径）
+	if contains(result, dir+"/plan") {
+		t.Error("host path should not appear in Docker sandbox mode, should be replaced with container path")
+	}
+}
+
+func TestExtractProfileName(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "custom profile",
+			content: "You are 小Q, a personal assistant and the single point of interaction for the user.",
+			want:    "小Q",
+		},
+		{
+			name:    "preset profile with English name",
+			content: "You are 韩立 (Han Li), a personal assistant and the single point of interaction for the user.",
+			want:    "韩立 (Han Li)",
+		},
+		{
+			name:    "default name",
+			content: "You are SoloQueue, a personal assistant and the single point of interaction for the user.",
+			want:    "SoloQueue",
+		},
+		{
+			name:    "no You are prefix",
+			content: "This is a plain text without profile format.",
+			want:    "",
+		},
+		{
+			name:    "no comma after name",
+			content: "You are SoloQueue a personal assistant",
+			want:    "",
+		},
+		{
+			name:    "empty content",
+			content: "",
+			want:    "",
+		},
+		{
+			name:    "multi-name with comma separator",
+			content: "You are one of 小Q,大Q (pick whichever fits the moment), a personal assistant",
+			want:    "one of 小Q,大Q (pick whichever fits the moment)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractProfileName(tt.content)
+			if got != tt.want {
+				t.Errorf("extractProfileName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadProfileName(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
+
+	// Profile doesn't exist yet
+	if name := ReadProfileName(cfg); name != "" {
+		t.Errorf("expected empty name for missing profile, got %q", name)
+	}
+
+	// Write a profile
+	cfg.WriteProfile(ProfileAnswers{Name: "测试助手", Gender: "female", Personality: "playful", CommStyle: "casual"})
+
+	name := ReadProfileName(cfg)
+	if name != "测试助手" {
+		t.Errorf("ReadProfileName() = %q, want %q", name, "测试助手")
 	}
 }
 

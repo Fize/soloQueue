@@ -110,6 +110,81 @@ func TestWriteFile_ParentDirMissing(t *testing.T) {
 	}
 }
 
+func TestWriteFile_PlanDirAutoMkdirAll(t *testing.T) {
+	dir := t.TempDir()
+	planDir := filepath.Join(dir, "plan")
+	cfg := Config{
+		MaxWriteSize: 1024,
+		PlanDir:      planDir,
+	}
+	tool := newWriteFileTool(cfg)
+
+	// Write to a subdirectory under plan/ that doesn't exist yet
+	path := filepath.Join(planDir, "feature-name", "design.md")
+	res, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "# Design"})
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !res.Created {
+		t.Error("created should be true")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "# Design" {
+		t.Errorf("content = %q", got)
+	}
+}
+
+func TestWriteFile_PlanDirAutoMkdirAll_NestedPath(t *testing.T) {
+	dir := t.TempDir()
+	planDir := filepath.Join(dir, "plan")
+	cfg := Config{
+		MaxWriteSize: 1024,
+		PlanDir:      planDir,
+	}
+	tool := newWriteFileTool(cfg)
+
+	// Write to a deeply nested path under plan/
+	path := filepath.Join(planDir, "deep", "nested", "subdir", "doc.md")
+	res, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "deep"})
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !res.Created {
+		t.Error("created should be true")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "deep" {
+		t.Errorf("content = %q", got)
+	}
+}
+
+func TestWriteFile_PlanDirNotSet_StillRejectsMissingParent(t *testing.T) {
+	// When PlanDir is empty, missing parent should still be rejected
+	tool, dir := mkWriteFileTool(t, 1024)
+	path := filepath.Join(dir, "nonexist", "a.txt")
+	_, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "x"})
+	if err == nil || !strings.Contains(err.Error(), "parent directory missing") {
+		t.Errorf("err = %v, want parent dir missing", err)
+	}
+}
+
+func TestWriteFile_PlanDir_OutsidePlanDir_StillRejectsMissingParent(t *testing.T) {
+	dir := t.TempDir()
+	planDir := filepath.Join(dir, "plan")
+	cfg := Config{
+		MaxWriteSize: 1024,
+		PlanDir:      planDir,
+	}
+	tool := newWriteFileTool(cfg)
+
+	// Writing outside plan dir with missing parent should still fail
+	path := filepath.Join(dir, "outside", "a.txt")
+	_, err := callWriteFile(t, tool, writeFileArgs{Path: path, Content: "x"})
+	if err == nil || !strings.Contains(err.Error(), "parent directory missing") {
+		t.Errorf("err = %v, want parent dir missing", err)
+	}
+}
+
 func TestWriteFile_ContentTooLarge(t *testing.T) {
 	tool, dir := mkWriteFileTool(t, 5)
 	_, err := callWriteFile(t, tool, writeFileArgs{

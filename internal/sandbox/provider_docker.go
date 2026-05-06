@@ -3,7 +3,8 @@
 // 设计原则：
 //   - 全局唯一共享沙盒：主程序启动时创建，退出时销毁。
 //   - 不做硬性资源限制，容器默认使用宿主机全部可用算力。
-//   - 容器启动时挂载所有 team workspace 目录，保证沙盒内可访问项目文件。
+//   - 容器启动时挂载所有 workspace 目录：家目录映射到 /root/.soloqueue，
+//     其余 workspace 容器内路径与宿主机路径完全一致（1:1 映射）。
 //   - Exec 支持高并发调用（每次 exec 独立，互不阻塞）。
 package sandbox
 
@@ -52,9 +53,9 @@ type DockerSandbox struct {
 	containerID string
 	mu          sync.Mutex // protects containerID + Start/Destroy transitions
 	started     bool
-	mounts      []Mount       // 需要挂载到容器内的目录列表
-	workDir     string        // 容器内默认工作目录（~/.soloqueue 的容器内路径）
-	pathMap     *PathMap      // 宿主机 ↔ 容器路径映射
+	mounts      []Mount        // 需要挂载到容器内的目录列表
+	workDir     string         // 容器内默认工作目录（~/.soloqueue 的容器内路径）
+	pathMap     *PathMap       // 宿主机 ↔ 容器路径映射
 	log         *logger.Logger // 可选的结构化日志
 }
 
@@ -67,7 +68,7 @@ func (d *DockerSandbox) SetLogger(l *logger.Logger) {
 type Mount struct {
 	// HostPath 宿主机绝对路径。
 	HostPath string
-	// ContainerPath 容器内绝对路径。为空时默认 /root/.soloqueue（第一个 mount）或 /root/projects/<basename>。
+	// ContainerPath 容器内绝对路径。为空时默认 /root/.soloqueue（第一个 mount）或与 HostPath 一致（其余 mount）。
 	ContainerPath string
 }
 
@@ -123,7 +124,7 @@ func (pm *PathMap) ToHostPath(containerPath string) string {
 // NewDockerSandbox 创建一个新的 Docker 沙盒实例（未启动）。
 // mounts 指定需要挂载到容器内的目录列表。
 // 第一个 mount 视为主工作目录，映射到 /root/.soloqueue；
-// 其余 mount 映射到 /root/projects/<basename>。
+// 其余 mount 容器内路径与宿主机路径完全一致（1:1 映射）。
 // 自动探测 Docker / Rancher Desktop / OrbStack 的 socket 路径。
 func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 	if err := ensureDockerHost(); err != nil {
@@ -135,6 +136,8 @@ func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 	}
 
 	// 为没有指定 ContainerPath 的 mount 分配容器内路径
+	// 家目录（第一个 mount）映射到 /root/.soloqueue；
+	// 其余 mount 容器内路径与宿主机路径完全一致。
 	for i := range mounts {
 		if mounts[i].ContainerPath != "" {
 			continue
@@ -142,7 +145,7 @@ func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 		if i == 0 {
 			mounts[i].ContainerPath = "/root/.soloqueue"
 		} else {
-			mounts[i].ContainerPath = "/root/projects/" + filepath.Base(mounts[i].HostPath)
+			mounts[i].ContainerPath = mounts[i].HostPath
 		}
 	}
 
@@ -417,16 +420,16 @@ func dockerSocketCandidates() []string {
 	case "darwin":
 		// macOS: Docker Desktop / Rancher Desktop / OrbStack
 		candidates = []string{
-			"/var/run/docker.sock",                   // Docker Desktop 默认（或其它 runtime 的符号链接）
-			filepath.Join(home, ".docker/run/docker.sock"), // Docker Desktop 新版
+			"/var/run/docker.sock",                           // Docker Desktop 默认（或其它 runtime 的符号链接）
+			filepath.Join(home, ".docker/run/docker.sock"),   // Docker Desktop 新版
 			filepath.Join(home, ".orbstack/run/docker.sock"), // OrbStack
-			filepath.Join(home, ".rd/docker.sock"),          // Rancher Desktop
+			filepath.Join(home, ".rd/docker.sock"),           // Rancher Desktop
 		}
 	case "linux":
 		candidates = []string{
-			"/var/run/docker.sock",                        // 标准路径
+			"/var/run/docker.sock",                             // 标准路径
 			filepath.Join(home, ".docker/desktop/docker.sock"), // Docker Desktop on Linux
-			"/run/docker.sock",                            // 部分发行版
+			"/run/docker.sock",                                 // 部分发行版
 		}
 	default:
 		// Windows / 其它：仅尝试默认

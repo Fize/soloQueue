@@ -19,16 +19,18 @@ import (
 func newTestLogger(t *testing.T) *logger.Logger {
 	t.Helper()
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess",
+	log, err := logger.System(dir,
 		logger.WithConsole(false),
 		logger.WithLevel(slog.LevelDebug),
 	)
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	t.Cleanup(func() { _ = log.Close() })
 	return log
 }
+
+func today() string { return time.Now().Format("2006-01-02") }
 
 // ─── RunOnce (migrated from old Agent.Run) ───────────────────────────────────
 
@@ -175,9 +177,9 @@ func TestRunOnce_NilLogger_NoPanic(t *testing.T) {
 
 func TestRunOnce_LogsLLMCategory(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "team", "sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -192,7 +194,7 @@ func TestRunOnce_LogsLLMCategory(t *testing.T) {
 	}
 	_ = log.Close() // flush
 
-	path := filepath.Join(dir, "logs", "sessions", "team", "sess", "llm.jsonl")
+	path := filepath.Join(dir, "logs", "system", "llm-"+today()+".jsonl")
 	found, err := checkFileHasCategory(path, "llm")
 	if err != nil {
 		t.Fatalf("read log: %v", err)
@@ -722,7 +724,7 @@ func TestAgent_Submit_ReturnsAfterEnqueue(t *testing.T) {
 func TestAgent_Submit_FnErrorLogged(t *testing.T) {
 	// fn 返回 error 会被日志记录，但不影响 agent 继续
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "team", "sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}
@@ -751,7 +753,7 @@ func TestAgent_Submit_FnErrorLogged(t *testing.T) {
 	}
 
 	_ = log.Close() // flush
-	path := filepath.Join(dir, "logs", "sessions", "team", "sess", "actor.jsonl")
+	path := filepath.Join(dir, "logs", "system", "actor-"+today()+".jsonl")
 	found, err := checkFileHasCategory(path, "actor")
 	if err != nil {
 		t.Fatalf("read log: %v", err)

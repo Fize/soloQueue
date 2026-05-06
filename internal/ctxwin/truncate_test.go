@@ -389,6 +389,62 @@ func TestSlideFIFOWithToolCalls(t *testing.T) {
 	}
 }
 
+// TestSlideFIFOCleansOrphanToolMessages 验证 slideFIFO 删除 Turn 时会清理
+// 后续 Turn 中引用了被删 tool_call_ids 的孤 tool 消息。
+//
+// 场景复现异步委派导致的孤 tool 消息问题：
+//
+//	Turn 1: user, assistant(tool_calls: [call_1, call_2])
+//	Turn 2: user, tool(call_1), tool(call_2)  ← 孤 tool 消息
+//
+// slideFIFO 删除 Turn 1 后，Turn 2 的 tool 消息也应被清理。
+func TestSlideFIFOCleansOrphanToolMessages(t *testing.T) {
+	cw := newTestCW(100000, 2000)
+	cw.Push(RoleSystem, "System")
+
+	// Turn 1: user + assistant(tool_calls: [call_1, call_2])，无 tool 结果
+	cw.Push(RoleUser, "Delegate tasks")
+	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
+		{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`}},
+		{ID: "call_2", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`}},
+	}))
+
+	// Turn 2: 新 user + 两个孤 tool 消息（引用 Turn 1 的 call_1 和 call_2）
+	cw.Push(RoleUser, "Another message")
+	cw.Push(RoleTool, "result 1", WithToolCallID("call_1"), WithToolName("delegate"), WithEphemeral(true))
+	cw.Push(RoleTool, "result 2", WithToolCallID("call_2"), WithToolName("delegate"), WithEphemeral(true))
+
+	// Turn 3: 另一个完整 Turn（不应被删除）
+	cw.Push(RoleUser, "Last question")
+	cw.Push(RoleAssistant, "Final answer")
+
+	beforeLen := cw.Len()
+
+	// slideFIFO 删除 Turn 1，应同时清理 Turn 2 中的孤 tool 消息
+	cw.slideFIFO(0)
+
+	afterLen := cw.Len()
+	if afterLen >= beforeLen {
+		t.Errorf("Len should decrease: before=%d, after=%d", beforeLen, afterLen)
+	}
+
+	// 验证 BuildPayload 不包含孤 tool 消息
+	payload := cw.BuildPayload()
+
+	// 检查是否有 tool 消息缺少前置 assistant(tool_calls)
+	validIDs := make(map[string]bool)
+	for _, p := range payload {
+		for _, tc := range p.ToolCalls {
+			validIDs[tc.ID] = true
+		}
+	}
+	for _, p := range payload {
+		if p.Role == "tool" && p.ToolCallID != "" && !validIDs[p.ToolCallID] {
+			t.Errorf("BuildPayload should not contain orphan tool message with tool_call_id=%q", p.ToolCallID)
+		}
+	}
+}
+
 // ─── 完整淘汰流程 ───────────────────────────────────────────────────────────
 
 func TestFullEvictionFlow(t *testing.T) {

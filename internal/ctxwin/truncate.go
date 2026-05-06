@@ -226,6 +226,7 @@ func charLevelTruncate(s string, headRatio, tailRatio float64) string {
 //   - system prompt（索引 0）永远不被删除
 //   - 每次删除一个完整 Turn，保证上下文始终是完整的"问答对"序列
 //   - 只剩一个 Turn 时不删除（否则只剩 system prompt，LLM 无法工作）
+//   - 删除 Turn 时同步清理后续 Turn 中引用了被删 tool_call_ids 的孤 tool 消息
 func (cw *ContextWindow) slideFIFO(targetTokens int) {
 	turnsRemoved := 0
 	totalTokensFreed := 0
@@ -263,7 +264,17 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 			}
 			break
 		}
-		// 删除 messages[1:turnEnd]
+
+		// 收集被删 Turn 中所有 assistant 消息的 tool_call_ids
+		// 后续需清理后续 Turn 中引用了这些 ID 的孤 tool 消息
+		orphanIDs := make(map[string]bool)
+		for i := 1; i < turnEnd; i++ {
+			for _, tc := range cw.messages[i].ToolCalls {
+				orphanIDs[tc.ID] = true
+			}
+		}
+
+		// 计算被删 Turn 的 token 数
 		removedTokens := 0
 		removedCount := 0
 		for i := 1; i < turnEnd; i++ {
@@ -277,15 +288,38 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 				"messages_in_turn", removedCount,
 				"tokens_freed", removedTokens,
 				"tokens_before", cw.currentTokens,
-				"tokens_after", cw.currentTokens - removedTokens,
+				"tokens_after", cw.currentTokens-removedTokens,
 				"target_tokens", targetTokens,
 			)
 		}
 
+		// 删除 messages[1:turnEnd]
 		cw.messages = append(cw.messages[:1], cw.messages[turnEnd:]...)
 		cw.currentTokens -= removedTokens
 		turnsRemoved++
 		totalTokensFreed += removedTokens
+
+		// 清理后续 Turn 中的孤 tool 消息（引用了被删 assistant 的 tool_call_id）
+		if len(orphanIDs) > 0 {
+			orphanRemoved := 0
+			cleaned := cw.messages[:1]
+			for i := 1; i < len(cw.messages); i++ {
+				msg := cw.messages[i]
+				if msg.Role == RoleTool && orphanIDs[msg.ToolCallID] {
+					cw.currentTokens -= msg.Tokens
+					totalTokensFreed += msg.Tokens
+					orphanRemoved++
+					continue
+				}
+				cleaned = append(cleaned, msg)
+			}
+			cw.messages = cleaned
+			if cw.log != nil && orphanRemoved > 0 {
+				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: removed orphan tool messages",
+					"count", orphanRemoved,
+				)
+			}
+		}
 	}
 
 	if turnsRemoved > 0 && cw.log != nil {

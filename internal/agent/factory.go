@@ -197,9 +197,9 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	// 1. 构建最终 SystemPrompt
 	var finalPrompt string
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups)
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, toolsCfg.PlanDir)
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl)
+		finalPrompt = buildL3SystemPrompt(tmpl, toolsCfg.PlanDir)
 	}
 
 	// 2. 构建 Definition
@@ -325,7 +325,12 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	a := NewAgent(def, llm, f.log, opts...)
 
 	// 6. 创建 ContextWindow
-	cw := ctxwin.NewContextWindow(DefaultContextWindow, 2000, 0, ctxwin.NewTokenizer())
+	//   使用模型配置的上下文窗口大小；未配置时使用 DefaultContextWindow
+	maxTokens := def.ContextWindow
+	if maxTokens <= 0 {
+		maxTokens = DefaultContextWindow
+	}
+	cw := ctxwin.NewContextWindow(maxTokens, 2000, 0, ctxwin.NewTokenizer())
 	if a.Def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}
@@ -473,6 +478,28 @@ Every task you delegate to a Worker MUST include all context the Worker needs to
 - Any dependencies or related files the Worker should be aware of
 BAD: "Fix the CSS bug in the login page"
 GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/frontend/src/components/Login.tsx. The CSS module is at /workspace/frontend/src/styles/login.module.css. The bug: the submit button overlaps the password field on mobile viewports. Workspace: /workspace"
+
+# 9. Plan Before Execution
+Before executing any task that involves file modifications, code changes, or system alterations, you MUST:
+1. Write a design document to the plan directory: {{PLAN_DIR}}/<feature-name>.md
+2. Present the plan to L1 and wait for explicit approval.
+
+The design document MUST contain:
+- Goal: What the task aims to achieve
+- Approach: How you plan to implement it
+- Impact: What files/modules will be affected
+- Steps: Ordered list of implementation steps
+
+Do NOT proceed with delegation or execution until L1 confirms the plan. Only purely informational tasks (reading files, searching, answering questions) may proceed without approval.
+BAD: L1 delegates "fix the login bug" → you immediately delegate sub-tasks to workers without presenting a plan.
+GOOD: L1 delegates "fix the login bug" → you write a plan document to {{PLAN_DIR}}/fix-login-bug.md → you present "Plan: 1) Read login.go to locate the bug, 2) Fix the null pointer on line 42, 3) Verify the fix. Proceed?" → wait for L1 approval → then delegate to workers.
+
+# 10. Escalation Decision Rule
+When uncertain about a decision during task execution:
+- If you CAN make a reasonable decision based on context → decide autonomously and proceed.
+- If you CANNOT make a reasonable decision (ambiguous requirements, multiple valid approaches with significant trade-offs, risk of unintended consequences) → escalate to L1 for a decision.
+BAD: You are unsure which database migration strategy to use → you pick one arbitrarily.
+GOOD: You are unsure which database migration strategy to use → you escalate to L1 with options and trade-offs.
 `
 
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
@@ -480,7 +507,7 @@ GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/f
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (动态能力区): Team Context + 同组 Agents 目录 + MCP Servers
 // Segment 3 (框架强制区): 不可篡改的底层契约
-func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile) string {
+func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir string) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -547,7 +574,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 3: 框架强制区 ──────────────────────────────
-	b.WriteString(l2EnforcedDirectives)
+	b.WriteString(strings.ReplaceAll(l2EnforcedDirectives, "{{PLAN_DIR}}", planDir))
 
 	return b.String()
 }
@@ -571,13 +598,35 @@ GOOD: Task is "fix the null pointer on line 42" → you fix ONLY the null pointe
 Your output (results, summaries, error reports) MUST be in English. You are part of a multi-layer system where cross-layer communication must be English.
 BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
+
+# 3. Plan Before Action
+Before executing any task that involves file modifications, code changes, or system alterations, you MUST:
+1. Write a design document to the plan directory: {{PLAN_DIR}}/<feature-name>.md
+2. Report the plan back to L2 and wait for approval before proceeding.
+
+The design document MUST contain:
+- Goal: What the task aims to achieve
+- Approach: How you plan to implement it
+- Impact: What files/modules will be affected
+- Steps: Ordered list of implementation steps
+
+Only purely informational tasks (reading files, searching) may proceed without a plan document.
+BAD: L2 delegates "fix the null pointer" → you immediately start modifying files.
+GOOD: L2 delegates "fix the null pointer" → you write a plan document to {{PLAN_DIR}}/fix-null-pointer.md → you report the plan to L2 → wait for approval → then execute.
+
+# 4. Escalation Decision Rule
+When uncertain about a decision during execution:
+- If you CAN make a reasonable decision based on context → decide autonomously and proceed.
+- If you CANNOT make a reasonable decision → escalate to L2 for a decision.
+BAD: You are unsure about the correct API contract → you guess and implement.
+GOOD: You are unsure about the correct API contract → you report back to L2 with the ambiguity.
 `
 
 // buildL3SystemPrompt 为 L3 Worker 构建两段式 System Prompt。
 //
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (框架强制区): 不可篡改的底层契约
-func buildL3SystemPrompt(tmpl AgentTemplate) string {
+func buildL3SystemPrompt(tmpl AgentTemplate, planDir string) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -591,7 +640,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate) string {
 	}
 
 	// ── Segment 2: 框架强制区 ──────────────────────────────
-	b.WriteString(l3EnforcedDirectives)
+	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
 
 	return b.String()
 }
