@@ -38,5 +38,3 @@ func renderSidebarLogo(width int, version string) string {
 
 	return fitLines(sb.String(), sidebarLogoLines)
 }
-
-

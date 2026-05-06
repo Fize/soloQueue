@@ -19,7 +19,7 @@ import (
 // Keys:
 //   - Primary:   InstanceID (UUID, unique per agent instance)
 //   - Secondary: Def.ID   (template/role identifier, shared by all instances of
-//                          the same template)
+//     the same template)
 //
 // This separation allows multiple agents with the same template ID to coexist,
 // enabling parallel scheduling (e.g., two "dev" L2 agents working concurrently
@@ -29,10 +29,10 @@ import (
 // trigger Start/Stop. Lifecycle control uses explicit APIs: StartAll / StopAll /
 // Shutdown.
 type Registry struct {
-	mu        sync.RWMutex
-	agents    map[string]*Agent    // InstanceID → Agent
+	mu         sync.RWMutex
+	agents     map[string]*Agent   // InstanceID → Agent
 	byTemplate map[string][]string // templateID (Def.ID) → []InstanceID
-	log       *logger.Logger
+	log        *logger.Logger
 }
 
 // NewRegistry constructs an empty registry

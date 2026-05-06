@@ -111,9 +111,9 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 		Model:           lc.model,
 		Temperature:     0, // deterministic
 		MaxTokens:       llmClassifierMaxTokens,
-		ThinkingEnabled: false,    // critical: no CoT for speed
-		ResponseJSON:    true,     // force JSON output format
-		ReasoningEffort: "",       // no reasoning
+		ThinkingEnabled: false, // critical: no CoT for speed
+		ResponseJSON:    true,  // force JSON output format
+		ReasoningEffort: "",    // no reasoning
 		Messages: []agent.LLMMessage{
 			{Role: "system", Content: llmClassifierSystemPrompt},
 			{Role: "user", Content: prompt},
@@ -204,9 +204,9 @@ func parseLLMClassifyResponse(content string) ClassificationResult {
 	}
 
 	return ClassificationResult{
-		Level:            level,
-		Confidence:       confidence,
-		Reason:           reason,
+		Level:      level,
+		Confidence: confidence,
+		Reason:     reason,
 	}
 }
 
