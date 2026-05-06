@@ -13,7 +13,6 @@
 // 典型用法：
 //
 //	cfg := tools.Config{
-//	    AllowedDirs:  []string{"/srv/workspace"},
 //	    MaxFileSize:  1 << 20,
 //	    MaxWriteSize: 1 << 20,
 //	}
@@ -34,15 +33,8 @@ import (
 // Config 是所有内置工具的共享配置
 //
 // 零值语义：所有字段留零值时，Build 仍可调用，但与文件系统 / 网络相关的
-// 工具会在 Execute 时按"最严格"处理（例如 AllowedDirs 为空 → 任何路径都被
-// ErrPathOutOfSandbox 拒绝）。生产代码应在 main.go 显式填充。
+// 工具会在 Execute 时按"最严格"处理。生产代码应在 main.go 显式填充。
 type Config struct {
-	// ── 文件系统共享 ────────────────────────────────────────────────
-
-	// AllowedDirs 沙箱根目录列表。读 / 写 / grep / glob 的路径都必须落在其一之内。
-	// 空列表 = 禁止所有文件操作（安全默认）。
-	AllowedDirs []string
-
 	// ── 读限制 ────────────────────────────────────────────────────
 
 	// MaxFileSize Read 单文件上限（字节）

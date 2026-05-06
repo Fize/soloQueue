@@ -7,10 +7,8 @@ import (
 )
 
 // ToToolsConfig 将 config.ToolsConfig 转换为 tools.Config。
-// allowedDirs 会与配置中的 AllowedDirs 合并作为沙箱白名单。
-func (tc ToolsConfig) ToToolsConfig(allowedDirs []string) tools.Config {
+func (tc ToolsConfig) ToToolsConfig() tools.Config {
 	return tools.Config{
-		AllowedDirs:        allowedDirs,
 		MaxFileSize:        defaultInt64(tc.MaxFileSize, 1<<20),
 		MaxMatches:         DefaultInt(tc.MaxMatches, 100),
 		MaxLineLen:         DefaultInt(tc.MaxLineLen, 500),

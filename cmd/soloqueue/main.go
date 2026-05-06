@@ -30,16 +30,16 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
-	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
+	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
-	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/tui"
+	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
 )
 
 const version = "0.1.0"
@@ -59,8 +59,8 @@ func rootCmd() *cobra.Command {
 
 Run without subcommands for interactive TUI mode.
 Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
-		SilenceUsage:   true,
-		SilenceErrors:  true,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workDir, err := config.DefaultWorkDir()
 			if err != nil {
@@ -156,21 +156,21 @@ type runtimeStack struct {
 	toolsCfg     tools.Config
 	defaultModel *config.LLMModel
 
-	agentRegistry *agent.Registry
-	agentFactory  *agent.DefaultFactory
-	supervisors   []*agent.Supervisor
-	leaders       []prompt.LeaderInfo
-	allTemplates  []agent.AgentTemplate
-	systemPrompt  string
-	promptCfg     *prompt.PromptConfig
-	tokenizer     *ctxwin.Tokenizer
-	compactor     ctxwin.Compactor // context compression engine
-	rulesCreated  bool
-	taskRouter    *router.Router // 任务路由分类器（TUI + serve 共用）
-	skillRegistry *skill.SkillRegistry
-	dockerSandbox  sandbox.Sandbox   // Docker 沙盒（L3 工具执行隔离底座）
-	sandboxMounts  []sandbox.Mount // 沙盒挂载列表（延迟启动用）
-	memoryManager   *memory.Manager   // 短期记忆管理器
+	agentRegistry   *agent.Registry
+	agentFactory    *agent.DefaultFactory
+	supervisors     []*agent.Supervisor
+	leaders         []prompt.LeaderInfo
+	allTemplates    []agent.AgentTemplate
+	systemPrompt    string
+	promptCfg       *prompt.PromptConfig
+	tokenizer       *ctxwin.Tokenizer
+	compactor       ctxwin.Compactor // context compression engine
+	rulesCreated    bool
+	taskRouter      *router.Router // 任务路由分类器（TUI + serve 共用）
+	skillRegistry   *skill.SkillRegistry
+	dockerSandbox   sandbox.Sandbox    // Docker 沙盒（L3 工具执行隔离底座）
+	sandboxMounts   []sandbox.Mount    // 沙盒挂载列表（延迟启动用）
+	memoryManager   *memory.Manager    // 短期记忆管理器
 	permanentMemory *permanent.Manager // 长期记忆管理器
 	permScheduler   *permanent.Scheduler
 	permNotifyCh    chan string
@@ -244,12 +244,7 @@ func buildRuntimeStack(
 	}
 
 	// ── Tools 配置 ────────────────────────────────────────────────────────────
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("get working directory: %w", err)
-	}
-	allowedDirs := append([]string{workDir, cwd}, settings.Tools.AllowedDirs...)
-	toolsCfg := settings.Tools.ToToolsConfig(allowedDirs)
+	toolsCfg := settings.Tools.ToToolsConfig()
 
 	// ── Prompt 系统 ───────────────────────────────────────────────────────────
 	promptCfg := &prompt.PromptConfig{
@@ -280,7 +275,7 @@ func buildRuntimeStack(
 	}
 
 	// ── Leaders + Agent 模板 ──────────────────────────────────────────────────
-	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), groups, cwd)
+	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), groups)
 	if err != nil {
 		log.Warn(logger.CatApp, "failed to load leaders", "err", err)
 		leaders = nil
@@ -300,53 +295,52 @@ func buildRuntimeStack(
 	}
 	memoryMgr := memory.NewManager(memoryDir, llmClient, fastModelID, log)
 
-		// ── Permanent Memory Manager ──────────────────────────────────────────
-		var permanentMgr *permanent.Manager
-		var permScheduler *permanent.Scheduler
-		var permCancel context.CancelFunc
-		permNotifyCh := make(chan string, 8)
-		var permContent string
+	// ── Permanent Memory Manager ──────────────────────────────────────────
+	var permanentMgr *permanent.Manager
+	var permScheduler *permanent.Scheduler
+	var permCancel context.CancelFunc
+	permNotifyCh := make(chan string, 8)
+	var permContent string
 
-		if settings.Embedding.Enabled {
-			embModel := cfg.DefaultEmbeddingModel()
-			if embModel != nil && embModel.Enabled {
-				embProvider := cfg.EmbeddingProviderByID(embModel.ProviderID)
-				if embProvider != nil && embProvider.Enabled {
-					apiKey := os.Getenv(embProvider.APIKeyEnv)
-					embClient, embErr := embedding.NewOpenAI(embedding.OpenAIConfig{
-						BaseURL:   embProvider.BaseURL,
-						APIKey:    apiKey,
-						ModelID:   embModel.Name,
-						Dimension: embModel.Dimension,
-					})
-					if embErr == nil {
-						store, storeErr := vectorstore.NewSQLiteStore(filepath.Join(workDir, "permanent_memory", "entries.db"))
-						if storeErr == nil {
-							permanentMgr = permanent.NewManager(store, embClient, memoryDir, log)
-							permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
-								log.Error(logger.CatApp, msg)
-								select {
-								case permNotifyCh <- msg:
-								default:
-								}
-							})
-							permCtx, cancel := context.WithCancel(context.Background())
-							permCancel = cancel
-							go permScheduler.Run(permCtx)
+	if settings.Embedding.Enabled {
+		embModel := cfg.DefaultEmbeddingModel()
+		if embModel != nil && embModel.Enabled {
+			embProvider := cfg.EmbeddingProviderByID(embModel.ProviderID)
+			if embProvider != nil && embProvider.Enabled {
+				apiKey := os.Getenv(embProvider.APIKeyEnv)
+				embClient, embErr := embedding.NewOpenAI(embedding.OpenAIConfig{
+					BaseURL:   embProvider.BaseURL,
+					APIKey:    apiKey,
+					ModelID:   embModel.Name,
+					Dimension: embModel.Dimension,
+				})
+				if embErr == nil {
+					store, storeErr := vectorstore.NewSQLiteStore(filepath.Join(workDir, "permanent_memory", "entries.db"))
+					if storeErr == nil {
+						permanentMgr = permanent.NewManager(store, embClient, memoryDir, log)
+						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
+							log.Error(logger.CatApp, msg)
+							select {
+							case permNotifyCh <- msg:
+							default:
+							}
+						})
+						permCtx, cancel := context.WithCancel(context.Background())
+						permCancel = cancel
+						go permScheduler.Run(permCtx)
 
-							recentText, _ := memoryMgr.ReadRecentMemory(7)
-							permContent, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
+						recentText, _ := memoryMgr.ReadRecentMemory(7)
+						permContent, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
 						toolsCfg.PermanentManager = permanentMgr
-						} else {
-							log.Warn(logger.CatApp, "permanent memory: failed to create vector store", "err", storeErr)
-						}
 					} else {
-						log.Warn(logger.CatApp, "permanent memory: failed to create embedder", "err", embErr)
+						log.Warn(logger.CatApp, "permanent memory: failed to create vector store", "err", storeErr)
 					}
+				} else {
+					log.Warn(logger.CatApp, "permanent memory: failed to create embedder", "err", embErr)
 				}
 			}
 		}
-
+	}
 
 	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, permContent)
 	if err != nil {
@@ -440,24 +434,24 @@ func buildRuntimeStack(
 	}
 
 	rt := &runtimeStack{
-		llmClient:     llmClient,
-		agentRegistry: agentRegistry,
-		agentFactory:  agentFactory,
-		supervisors:   supervisors,
-		leaders:       leaders,
-		allTemplates:  allTemplates,
-		systemPrompt:  systemPrompt,
-		promptCfg:     promptCfg,
-		defaultModel:  defaultModel,
-		tokenizer:     tok,
-		compactor:     llmCompactor,
-		toolsCfg:      toolsCfg,
-		rulesCreated:  rulesCreated,
-		taskRouter:    taskRouter,
-		skillRegistry: skillReg,
-		dockerSandbox: nil,
-		sandboxMounts: sandboxMounts,
-		memoryManager: memoryMgr,
+		llmClient:       llmClient,
+		agentRegistry:   agentRegistry,
+		agentFactory:    agentFactory,
+		supervisors:     supervisors,
+		leaders:         leaders,
+		allTemplates:    allTemplates,
+		systemPrompt:    systemPrompt,
+		promptCfg:       promptCfg,
+		defaultModel:    defaultModel,
+		tokenizer:       tok,
+		compactor:       llmCompactor,
+		toolsCfg:        toolsCfg,
+		rulesCreated:    rulesCreated,
+		taskRouter:      taskRouter,
+		skillRegistry:   skillReg,
+		dockerSandbox:   nil,
+		sandboxMounts:   sandboxMounts,
+		memoryManager:   memoryMgr,
 		permanentMemory: permanentMgr,
 		permScheduler:   permScheduler,
 		permNotifyCh:    permNotifyCh,
@@ -470,8 +464,7 @@ func buildRuntimeStack(
 		defer rt.cfgMu.Unlock()
 
 		// 1. Tools 配置
-		newAllowedDirs := append([]string{workDir, cwd}, new.Tools.AllowedDirs...)
-		newToolsCfg := new.Tools.ToToolsConfig(newAllowedDirs)
+		newToolsCfg := new.Tools.ToToolsConfig()
 		newToolsCfg.PermanentManager = rt.toolsCfg.PermanentManager
 		newToolsCfg.Logger = rt.toolsCfg.Logger
 		newToolsCfg.Executor = rt.toolsCfg.Executor
@@ -782,50 +775,50 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	}
 
 	allTools := tools.WithFallbackPrefix(baseTools)
-		for _, l := range sb.rt.leaders {
-			leader := l // capture loop variable
+	for _, l := range sb.rt.leaders {
+		leader := l // capture loop variable
 
-			// Find the AgentTemplate matching this leader for dynamic creation.
-			var leaderTmpl *agent.AgentTemplate
-			for i := range sb.rt.allTemplates {
-				if sb.rt.allTemplates[i].IsLeader && sb.rt.allTemplates[i].ID == leader.Name {
-					leaderTmpl = &sb.rt.allTemplates[i]
-					break
-				}
+		// Find the AgentTemplate matching this leader for dynamic creation.
+		var leaderTmpl *agent.AgentTemplate
+		for i := range sb.rt.allTemplates {
+			if sb.rt.allTemplates[i].IsLeader && sb.rt.allTemplates[i].ID == leader.Name {
+				leaderTmpl = &sb.rt.allTemplates[i]
+				break
 			}
-
-			dt := tools.NewDelegateTool(leader.Name, leader.Description, 0, sb.rt.agentRegistry, sessLog)
-			dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
-				// Prefer an idle instance to avoid cold-start latency.
-				if loc, ok := sb.rt.agentRegistry.LocateIdle(leader.Name); ok {
-					return loc, nil
-				}
-				// No idle instance — create a new one with a unique InstanceID.
-				if leaderTmpl != nil {
-					child, _, err := sb.rt.agentFactory.Create(ctx, *leaderTmpl)
-					if err != nil {
-						return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
-					}
-
-					sv := agent.NewSupervisor(child, sb.rt.agentFactory, sessLog)
-					sv.WireSpawnFns(sb.rt.allTemplates)
-					sv.SetGroup(leaderTmpl.Group)
-					sb.rt.supervisors = append(sb.rt.supervisors, sv)
-
-					sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
-						"instance_id", child.InstanceID,
-						"name", leader.Name,
-					)
-					return agent.NewSelfReapableAdapter(child, sv), nil
-				}
-				// Fallback: any existing instance (busy but functional).
-				if loc, ok := sb.rt.agentRegistry.Locate(leader.Name); ok {
-					return loc, nil
-				}
-				return nil, fmt.Errorf("leader %q not found", leader.Name)
-			}
-			allTools = append(allTools, dt)
 		}
+
+		dt := tools.NewDelegateTool(leader.Name, leader.Description, 0, sb.rt.agentRegistry, sessLog)
+		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
+			// Prefer an idle instance to avoid cold-start latency.
+			if loc, ok := sb.rt.agentRegistry.LocateIdle(leader.Name); ok {
+				return loc, nil
+			}
+			// No idle instance — create a new one with a unique InstanceID.
+			if leaderTmpl != nil {
+				child, _, err := sb.rt.agentFactory.Create(ctx, *leaderTmpl)
+				if err != nil {
+					return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
+				}
+
+				sv := agent.NewSupervisor(child, sb.rt.agentFactory, sessLog)
+				sv.WireSpawnFns(sb.rt.allTemplates)
+				sv.SetGroup(leaderTmpl.Group)
+				sb.rt.supervisors = append(sb.rt.supervisors, sv)
+
+				sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
+					"instance_id", child.InstanceID,
+					"name", leader.Name,
+				)
+				return agent.NewSelfReapableAdapter(child, sv), nil
+			}
+			// Fallback: any existing instance (busy but functional).
+			if loc, ok := sb.rt.agentRegistry.Locate(leader.Name); ok {
+				return loc, nil
+			}
+			return nil, fmt.Errorf("leader %q not found", leader.Name)
+		}
+		allTools = append(allTools, dt)
+	}
 
 	// Skills: 使用全局 skillRegistry
 	skillList := sb.rt.skillRegistry.Skills()

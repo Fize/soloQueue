@@ -110,7 +110,7 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 		return "", fmt.Errorf("%w: %d > %d", ErrTooManyEdits, len(a.Edits), maxEdits)
 	}
 
-	abs, err := resolveSandbox(t.cfg.AllowedDirs, a.Path)
+	abs, err := absPath(a.Path)
 	if err != nil {
 		return "", err
 	}

@@ -4,11 +4,10 @@ package prompt
 // The main agent only needs to know what each team can do (Description),
 // not what tools they have — tools are implementation details managed internally.
 type LeaderInfo struct {
-	Name             string     // e.g. "dev"
-	Description      string     // e.g. "Full-stack developer, responsible for frontend/backend development"
-	Group            string     // e.g. "DevOps"
-	GroupDescription string     // Group description (from group file body)
-	MatchedWorkspace *Workspace // Workspace matched by cwd, may be nil
+	Name             string // e.g. "dev"
+	Description      string // e.g. "Full-stack developer, responsible for frontend/backend development"
+	Group            string // e.g. "DevOps"
+	GroupDescription string // Group description (from group file body)
 }
 
 // ProfileAnswers holds the user's responses to the personalization questionnaire.
