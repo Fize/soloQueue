@@ -26,6 +26,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
+	"github.com/xiaobaitu/soloqueue/internal/todo"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -115,6 +116,12 @@ type Config struct {
 	// PermanentManager 为长期记忆管理器（nil = 未启用）。
 	// Remember / RecallMemory 工具仅在非 nil 时生效。
 	PermanentManager *permanent.Manager
+
+	// ── Todo 系统 ─────────────────────────────────────────────
+	// TodoStore 为 Todo 持久化存储（nil = 未启用）。
+	// CreatePlan, UpdatePlan, DeletePlan, AddTodoItems, DeleteTodoItems,
+	// ToggleTodo, SetTodoDependencies, ListPlans, GetPlan 工具仅在非 nil 时生效。
+	TodoStore *todo.Store
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────
@@ -132,7 +139,7 @@ func ensureExecutor(cfg *Config) {
 // 如果 cfg.Executor 为 nil，自动注入 LocalExecutor。
 func Build(cfg Config) []Tool {
 	ensureExecutor(&cfg)
-	return []Tool{
+	tools := []Tool{
 		newFileReadTool(cfg),
 		newGrepTool(cfg),
 		newGlobTool(cfg),
@@ -146,6 +153,20 @@ func Build(cfg Config) []Tool {
 		newRememberTool(cfg),
 		newRecallMemoryTool(cfg),
 	}
+	if cfg.TodoStore != nil {
+		tools = append(tools,
+			newCreatePlanTool(cfg),
+			newUpdatePlanTool(cfg),
+			newDeletePlanTool(cfg),
+			newAddTodoItemsTool(cfg),
+			newDeleteTodoItemsTool(cfg),
+			newToggleTodoTool(cfg),
+			newSetTodoDependenciesTool(cfg),
+			newListPlansTool(cfg),
+			newGetPlanTool(cfg),
+		)
+	}
+	return tools
 }
 
 // ─── Default Config ─────────────────────────────────────────────────────
