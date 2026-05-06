@@ -78,6 +78,22 @@ type PathMap struct {
 	containerToHost map[string]string // 前缀映射：容器前缀 → 宿主机前缀
 }
 
+// deduplicateByContainerPath removes mounts with duplicate ContainerPath,
+// keeping the first occurrence. This prevents Docker "Duplicate mount point"
+// errors when different HostPaths map to the same container path.
+func deduplicateByContainerPath(mounts []Mount) []Mount {
+	seen := make(map[string]bool)
+	result := make([]Mount, 0, len(mounts))
+	for _, m := range mounts {
+		if seen[m.ContainerPath] {
+			continue
+		}
+		seen[m.ContainerPath] = true
+		result = append(result, m)
+	}
+	return result
+}
+
 // NewPathMap 从挂载列表构建路径映射。
 func NewPathMap(mounts []Mount) *PathMap {
 	pm := &PathMap{
@@ -148,6 +164,9 @@ func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 			mounts[i].ContainerPath = mounts[i].HostPath
 		}
 	}
+
+	// 按 ContainerPath 去重（多个 HostPath 可能映射到同一容器路径）
+	mounts = deduplicateByContainerPath(mounts)
 
 	workDir := "/root/.soloqueue"
 	if len(mounts) > 0 {
@@ -220,7 +239,13 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 	)
 	if err != nil {
 		if d.log != nil {
-			d.log.LogError(ctx, logger.CatApp, "sandbox: create container failed", err, "image", imageName)
+			// Log the mounts to help diagnose "Duplicate mount point" errors
+			mountsLog := make([]string, len(d.mounts))
+			for i, m := range d.mounts {
+				mountsLog[i] = m.HostPath + ":" + m.ContainerPath
+			}
+			d.log.LogError(ctx, logger.CatApp, "sandbox: create container failed",
+				err, "image", imageName, "mounts", mountsLog)
 		}
 		return fmt.Errorf("sandbox: create container: %w", err)
 	}
