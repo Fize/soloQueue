@@ -46,6 +46,10 @@ type Config struct {
 	Templates     []agent.AgentTemplate
 	Groups        map[string]prompt.GroupFile
 	AssistantName string // name parsed from profile.md for L1 display
+
+	// HTTPServerAddr is the address of the embedded HTTP API server.
+	// When non-empty, it is displayed in the RUNTIME sidebar section.
+	HTTPServerAddr string
 }
 
 // ─── Data types ──────────────────────────────
@@ -189,13 +193,14 @@ type model struct {
 	historyIdx   int
 	historyDraft string
 
-	sidebar      sidebar
-	focus        focusMode
-	showAgents   bool
-	copyMode     bool
-	confirmState *confirmState
-	loading      bool   // true while waiting for sandbox + session init
-	sandboxErr   string // sandbox init error message
+	sidebar        sidebar
+	focus          focusMode
+	showAgents     bool
+	copyMode       bool
+	confirmState   *confirmState
+	loading        bool   // true while waiting for sandbox + session init
+	sandboxErr     string // sandbox init error message
+	httpServerAddr string // embedded HTTP API server address
 }
 
 // ─── Run (public entry point) ────────────────
@@ -204,14 +209,15 @@ func Run(cfg Config) error {
 	ctx := context.Background()
 
 	m := model{
-		cfg:        cfg,
-		ctx:        ctx,
-		messages:   []message{},
-		history:    loadHistory(),
-		sidebar:    newSidebar(cfg.Registry, cfg.SupervisorsFn, cfg.Templates, cfg.Groups, cfg.AssistantName),
-		spinner:    newSpinner(),
-		focus:      focusComposer,
-		showAgents: true,
+		cfg:            cfg,
+		ctx:            ctx,
+		messages:       []message{},
+		history:        loadHistory(),
+		sidebar:        newSidebar(cfg.Registry, cfg.SupervisorsFn, cfg.Templates, cfg.Groups, cfg.AssistantName),
+		spinner:        newSpinner(),
+		focus:          focusComposer,
+		showAgents:     true,
+		httpServerAddr: cfg.HTTPServerAddr,
 	}
 
 	m.darkBg = termenv.HasDarkBackground()

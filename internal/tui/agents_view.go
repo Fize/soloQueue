@@ -62,6 +62,9 @@ func (s sidebar) buildRuntimeSection(width int, m model) string {
 		phase = m.genPhase.String()
 	}
 	b.WriteString(kvLine("phase", phase, width))
+	if m.httpServerAddr != "" {
+		b.WriteString(kvLine("api", m.httpServerAddr, width))
+	}
 	if m.promptTokens > 0 || m.outputTokens > 0 {
 		b.WriteString(kvLine("tokens", fmt.Sprintf("↓%s ↑%s", formatTokenCount(m.promptTokens), formatTokenCount(m.outputTokens)), width))
 	}

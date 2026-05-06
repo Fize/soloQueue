@@ -10,7 +10,7 @@ import (
 
 func startTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	mux := NewMux(nil)
+	mux := NewMux(t.TempDir(), nil, nil)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
