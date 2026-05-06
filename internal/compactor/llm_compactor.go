@@ -56,10 +56,10 @@ Rules:
 - Keep the summary as compact as possible while retaining all essential information
 - Output only the summary, no meta-commentary`
 
-// CompactorOption 是 LLMCompactor 的可选配置
+// CompactorOption is an optional configuration for LLMCompactor.
 type CompactorOption func(*LLMCompactor)
 
-// WithLogger 设置 compactor 的日志实例
+// WithLogger sets the logger instance for the compactor.
 func WithLogger(l *logger.Logger) CompactorOption {
 	return func(c *LLMCompactor) { c.logger = l }
 }
