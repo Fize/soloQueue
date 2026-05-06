@@ -25,7 +25,7 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 	}
 
 	if permanentMemory != "" {
-		fmt.Fprintf(&b, "\n\n<permanent_memory>\nThe following are important memories from conversations older than 7 days. They may be relevant to the current context. Consider them when responding.\n\n%s\n</permanent_memory>", strings.TrimSpace(permanentMemory))
+		fmt.Fprintf(&b, "\n\n<permanent_memory>\nThe following are condensed summaries from conversations older than 7 days, auto-migrated from short-term memory. Each entry is a single-line factual note with the date it was originally recorded. These may be relevant to the current context.\n\nHow to use them:\n- Treat them as reliable but potentially stale — the user's preferences or project state may have changed since they were recorded\n- Reference them when the user asks about past decisions, preferences, or project history\n- If a memory seems out of date, ask the user for clarification rather than blindly following it\n- You can save NEW information to permanent memory using the Remember tool\n\n%s\n</permanent_memory>", strings.TrimSpace(permanentMemory))
 	}
 
 	fmt.Fprintf(&b, "\n\n<available_teams>\n%s\n</available_teams>", strings.TrimSpace(routingTable))

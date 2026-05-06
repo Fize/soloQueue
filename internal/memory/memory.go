@@ -168,10 +168,12 @@ func (m *Manager) cleanupOldFiles() {
 }
 
 // buildMergePrompt creates a prompt that asks the fast model to merge new
-// conversation content into the existing daily memory file.
+// conversation content into the existing daily memory file. The conversationText
+// already contains [YYYY-MM-DD HH:MM] timestamp markers at each turn boundary;
+// the LLM should use these markers (NOT the recordedAt time) to create ## entries.
 func buildMergePrompt(existing, conversationText string, recordedAt time.Time) string {
-	fullTime := recordedAt.Format("2006-01-02 15:04")
-	date := recordedAt.Format("2006-01-02")
+	_ = recordedAt // only used for awareness, not as a header timestamp
+	date := time.Now().Format("2006-01-02")
 
 	if existing == "" {
 		return fmt.Sprintf(`You are a conversation archivist. Create a concise, index-like summary for today's memory file.
@@ -179,8 +181,15 @@ func buildMergePrompt(existing, conversationText string, recordedAt time.Time) s
 Format:
 # %s
 
-## %s
+## 2026-01-15 14:22 — 14:35
 - bullet points summarizing what happened
+
+The conversation text below has [YYYY-MM-DD HH:MM] markers at turn boundaries. Use the earliest marker in a task as the ## header time. If a task spans multiple turns, add the last marker's time as a range (e.g. "14:22 — 14:35").
+
+Grouping rules:
+- Multiple turns about the SAME task or topic → merge into ONE entry (even across different timestamps)
+- A DIFFERENT task or topic → create a separate entry
+- A clear break or new subject after a long gap → new entry
 
 Focus on:
 - What the user asked or wanted
@@ -188,10 +197,10 @@ Focus on:
 - Key files or code that were modified
 - Important outcomes or decisions
 
-Be brief. Keep it under 200 words. Use bullet points.
+Be brief. Use bullet points.
 
 Conversation:
-%s`, date, fullTime, conversationText)
+%s`, date, conversationText)
 	}
 
 	return fmt.Sprintf(`You are a conversation archivist. Merge the new conversation segment into today's existing memory file.
@@ -199,18 +208,20 @@ Conversation:
 Existing memory:
 %s
 
-New conversation segment (recorded at %s):
+New conversation segment:
 %s
 
 Instructions:
-- Merge related topics together; remove duplicate or redundant information
-- Preserve the existing memory file format (# DATE header, ## DATETIME entries)
-- Add a new ## %s entry for the new segment
-- Consolidate entries that cover the same topic into fewer, clearer bullets
+- The conversation text has [YYYY-MM-DD HH:MM] markers at turn boundaries
+- Merge multiple turns about the SAME task/topic into ONE entry (even if timestamps differ)
+- Only create separate ## entries for genuinely different tasks or topics
+- Use the earliest marker's time as the ## header; if the task spans multiple turns, add the last marker's time as a range (e.g. "14:22 — 14:35")
+- If the new segment continues a topic already in the existing file, merge into that existing entry
+- Preserve other existing ## entries unchanged
 - Keep it concise and index-like — under 300 words total
 - Use bullet points
 
-Output the COMPLETE merged file content (including the # DATE header and all ## entries).`, existing, fullTime, conversationText, fullTime)
+Output the COMPLETE merged file content (including the # DATE header and all ## entries).`, existing, conversationText)
 }
 
 // MessagesToText converts ctxwin payload messages to a plain-text format suitable

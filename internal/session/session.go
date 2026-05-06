@@ -768,25 +768,30 @@ func isLevelLockCommand(prompt string) bool {
 
 // formatPayloadForMemory converts ctxwin payload messages to a plain-text string
 // suitable for short-term memory summarization. Skips system messages.
-// Emits [timestamp] headers at each user turn so the LLM can group events chronologically.
+// Emits [timestamp] headers at each role transition so the LLM can group events
+// chronologically by when they actually occurred.
 func formatPayloadForMemory(payload []ctxwin.PayloadMessage) string {
 	var b strings.Builder
+	var lastTS time.Time
 	for _, m := range payload {
 		switch m.Role {
 		case "system":
 			continue
 		case "user":
-			if !m.Timestamp.IsZero() {
-				b.WriteString("[" + m.Timestamp.Format("2006-01-02 15:04") + "]\n")
-			}
-			b.WriteString("User: ")
 		case "assistant":
-			b.WriteString("Assistant: ")
 		case "tool":
-			b.WriteString("Tool(" + m.Name + "): ")
 		default:
-			b.WriteString(m.Role + ": ")
 		}
+		// Emit timestamp when it changes (new turn boundary), regardless of role.
+		if !m.Timestamp.IsZero() && !m.Timestamp.Equal(lastTS) {
+			b.WriteString("[" + m.Timestamp.Format("2006-01-02 15:04") + "]\n")
+			lastTS = m.Timestamp
+		}
+		b.WriteString(roleLabel(m.Role))
+		if m.Role == "tool" {
+			b.WriteString("(" + m.Name + ")")
+		}
+		b.WriteString(": ")
 		content := m.Content
 		if len(content) > 2000 {
 			content = content[:2000] + "...(truncated)"
@@ -795,4 +800,18 @@ func formatPayloadForMemory(payload []ctxwin.PayloadMessage) string {
 		b.WriteString("\n\n")
 	}
 	return b.String()
+}
+
+// roleLabel returns a capitalized display label for a message role.
+func roleLabel(role string) string {
+	switch role {
+	case "user":
+		return "User"
+	case "assistant":
+		return "Assistant"
+	case "tool":
+		return "Tool"
+	default:
+		return role
+	}
 }
