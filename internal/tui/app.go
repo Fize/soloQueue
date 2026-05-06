@@ -396,16 +396,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+c":
-			if m.isGenerating {
-				if m.streamCancel != nil {
-					m.streamCancel()
-				}
-				m.resetGenState()
-				m.current = nil
-				m.resizeViewport()
-				m.rebuildViewportContent()
-				m.viewport.GotoBottom()
-				return m, nil
+			if m.cancelCurrent() {
+				return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} })
 			}
 			m.quitCount++
 			if m.quitCount >= 2 {
@@ -419,15 +411,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = focusComposer
 				return m, nil
 			}
-			if m.isGenerating {
-				if m.streamCancel != nil {
-					m.streamCancel()
-				}
-				m.cancelReason = "Esc"
-				m.resetGenState()
-				m.current = nil
-				m.rebuildViewportContent()
-				m.viewport.GotoBottom()
+			if m.cancelCurrent() {
 				return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return clearCancelMsg{} })
 			}
 
@@ -774,6 +758,62 @@ func (m *model) resetGenState() {
 	m.currentIter = 0
 	m.contentDeltas = 0
 	m.confirmState = nil
+}
+
+// cancelCurrent cancels the most relevant running task in two stages:
+// Stage 1: Cancel A1 (session agent) if it's generating.
+// Stage 2: Cancel A2/A3 supervisors' running children.
+// Returns true if something was cancelled.
+func (m *model) cancelCurrent() bool {
+	// Stage 1: Cancel A1 if it's generating.
+	if m.isGenerating {
+		if m.streamCancel != nil {
+			m.streamCancel()
+		}
+		m.cancelReason = "Esc"
+		m.resetGenState()
+		m.current = nil
+		m.resizeViewport()
+		m.rebuildViewportContent()
+		m.viewport.GotoBottom()
+		return true
+	}
+
+	// Stage 2: Cancel A2/A3 supervisors with running children.
+	if m.cancelAllSupervisors() {
+		m.cancelReason = "Esc"
+		m.resizeViewport()
+		m.rebuildViewportContent()
+		return true
+	}
+
+	return false
+}
+
+// cancelAllSupervisors stops all running children across all supervisors.
+// Returns true if at least one child was stopped.
+func (m *model) cancelAllSupervisors() bool {
+	if m.cfg.SupervisorsFn == nil {
+		return false
+	}
+	supervisors := m.cfg.SupervisorsFn()
+	if supervisors == nil {
+		return false
+	}
+	stopped := false
+	for _, sv := range supervisors {
+		if sv == nil {
+			continue
+		}
+		for _, child := range sv.Children() {
+			if child.State() == agent.StateProcessing {
+				if err := sv.ReapChild(child.InstanceID, 10*time.Second); err == nil {
+					stopped = true
+				}
+			}
+		}
+	}
+	return stopped
 }
 
 // ─── Stream helpers ────────────────────────
