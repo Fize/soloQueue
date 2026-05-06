@@ -167,6 +167,10 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 			// 当前消息不是 pending group 的 tool result
 			// → pending group 的 tool results 不完整，丢弃
 			pending = nil
+			// 如果当前消息是 tool 消息，跳过它（没有 preceding assistant(tool_calls)）
+			if msg.Role == string(ctxwin.RoleTool) {
+				continue
+			}
 		}
 
 		// 如果 pending.allFound == true，先 flush 再处理当前消息
@@ -190,6 +194,11 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 				assistant:   &msg,
 				toolCallIDs: ids,
 			}
+			continue
+		}
+
+		// 跳过 orphaned tool 消息（role=tool 但没有对应的 pending group）
+		if msg.Role == string(ctxwin.RoleTool) {
 			continue
 		}
 
