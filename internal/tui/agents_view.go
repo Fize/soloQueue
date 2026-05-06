@@ -17,7 +17,9 @@ type agentCounts struct {
 
 func (s sidebar) AgentSummary(width int) string {
 	c := s.counts()
-	text := fmt.Sprintf("Agents A1:%d A2:%d A3:%d RUN:%d IDLE:%d OFF:%d", c.a1, c.a2, c.a3, c.run, c.idle, c.off)
+	teamCount := len(s.orderedGroupNames(s.getSupervisors()))
+	total := c.a1 + c.a2 + c.a3
+	text := fmt.Sprintf("Teams:%d Agents:%d RUN:%d IDLE:%d OFF:%d", teamCount, total, c.run, c.idle, c.off)
 	return paneStyle(width).Render(truncate(text, max(width-2, 1)))
 }
 
@@ -108,7 +110,8 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 	}
 	supervisors := sortSupervisors(s.getSupervisors())
 
-	// Template IDs that belong to L2 leaders (includes dynamically created instances).
+	// Build runtime agent lookup maps keyed by template ID.
+	// l2TemplateIDs: IDs of L2 leader agents (from supervisors).
 	l2TemplateIDs := make(map[string]bool)
 	for _, sv := range supervisors {
 		if sv == nil {
@@ -119,7 +122,7 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 		}
 	}
 
-	// Template IDs that belong to L3 workers.
+	// l3TemplateIDs: IDs of L3 worker agents.
 	l3TemplateIDs := make(map[string]bool)
 	for _, sv := range supervisors {
 		if sv == nil {
@@ -130,74 +133,206 @@ func (s sidebar) renderAgentTreeContent(width, height int, compact bool) string 
 		}
 	}
 
-	// L1: agents whose template is neither L2 nor L3.
-	var l1 []*agent.Agent
-	// L2: all agents (including dynamically spawned) whose template is a leader template.
-	l2ByTemplate := make(map[string][]*agent.Agent)
+	// l1Agents: session agents (not L2 or L3).
+	var l1Agents []*agent.Agent
 	for _, a := range registered {
-		tmplID := a.Def.ID
-		if l2TemplateIDs[tmplID] {
-			l2ByTemplate[tmplID] = append(l2ByTemplate[tmplID], a)
-		} else if !l3TemplateIDs[tmplID] {
-			l1 = append(l1, a)
+		if !l2TemplateIDs[a.Def.ID] && !l3TemplateIDs[a.Def.ID] {
+			l1Agents = append(l1Agents, a)
 		}
 	}
 
-	// Collect A3 workers from all supervisors (now returns all instances).
-	var a3 []*agent.Agent
+	// agentsByTemplateID: all running agents keyed by their Def.ID for lookup.
+	agentsByTemplateID := make(map[string][]*agent.Agent)
+	for _, a := range registered {
+		agentsByTemplateID[a.Def.ID] = append(agentsByTemplateID[a.Def.ID], a)
+	}
+
+	// L3 children by template ID (for multi-instance grouping).
+	l3ByTemplate := make(map[string][]*agent.Agent)
 	for _, sv := range supervisors {
 		if sv == nil {
 			continue
 		}
-		a3 = append(a3, sv.Children()...)
+		for _, child := range sv.Children() {
+			l3ByTemplate[child.Def.ID] = append(l3ByTemplate[child.Def.ID], child)
+		}
 	}
 
 	var b strings.Builder
-	b.WriteString(sectionLine("A1 Session Agents") + "\n")
-	if len(l1) == 0 {
-		b.WriteString(dimStyle.Render("  (none)") + "\n")
+
+	// ── A1: Session Agent ──────────────────────────────────────────────────
+	b.WriteString(sectionLine("A1 Session") + "\n")
+	a1Name := s.assistantName
+	if a1Name == "" {
+		a1Name = "Assistant"
 	}
-	for _, a := range l1 {
-		b.WriteString(agentTreeLine(a, "  ", width))
+	if len(l1Agents) > 0 {
+		// Show with runtime state
+		for _, a := range l1Agents {
+			b.WriteString(agentTreeLine(a, "  ", width))
+		}
+	} else {
+		// Show static name when no agent is running yet
+		b.WriteString(dimStyle.Render("  ● "+truncate(a1Name, max(width-6, 4))) + "\n")
 	}
 
-	b.WriteString(sectionLine("A2 Domain Leaders") + "\n")
-	if len(l2ByTemplate) == 0 {
+	// ── A2/A3: Teams (grouped by group name) ───────────────────────────────
+	b.WriteString(sectionLine("Teams") + "\n")
+
+	if len(s.groups) == 0 && len(supervisors) == 0 {
 		b.WriteString(dimStyle.Render("  (none)") + "\n")
-	}
-	for tmplID, agents := range l2ByTemplate {
-		if len(agents) == 1 {
-			b.WriteString(agentTreeLine(agents[0], "  ", width))
-		} else {
-			// Multiple instances: show template name with count, then each instance.
-			b.WriteString(dimStyle.Render(fmt.Sprintf("  %s ×%d", truncate(tmplID, max(width-10, 8)), len(agents))) + "\n")
-			for _, a := range agents {
-				b.WriteString(agentTreeLine(a, "    ", width))
+	} else {
+		// Collect group names in a deterministic order.
+		// Use groups from static templates if available, fall back to supervisors.
+		groupNames := s.orderedGroupNames(supervisors)
+
+		for _, groupName := range groupNames {
+			// Group display name: use GroupFrontmatter.Name if available, else key.
+			displayName := groupName
+			if gf, ok := s.groups[groupName]; ok && gf.Frontmatter.Name != "" {
+				displayName = gf.Frontmatter.Name
+			}
+			b.WriteString("  " + teamBadgeStyle.Render("📂 "+truncate(displayName, max(width-8, 4))) + "\n")
+
+			// Templates belonging to this group: leader first, then workers.
+			leaderTmpls, workerTmpls := s.templatesByGroup(groupName)
+
+			// Render leader templates
+			for _, tmpl := range leaderTmpls {
+				s.renderTemplateWithInstances(&b, tmpl, "    ", "★ ", width, agentsByTemplateID)
+			}
+
+			// Render worker templates
+			for _, tmpl := range workerTmpls {
+				s.renderTemplateWithInstances(&b, tmpl, "    ", "  ", width, l3ByTemplate)
+			}
+
+			// If no static templates, try to render from runtime supervisors
+			if len(leaderTmpls) == 0 && len(workerTmpls) == 0 {
+				s.renderRuntimeTeam(&b, groupName, "    ", width, supervisors, l3ByTemplate)
 			}
 		}
 	}
 
-	b.WriteString(sectionLine("A3 Workers") + "\n")
-	if len(a3) == 0 {
-		b.WriteString(dimStyle.Render("  (none)") + "\n")
-	}
-	// Group A3 by template for multi-instance display.
-	a3ByTemplate := make(map[string][]*agent.Agent)
-	for _, child := range a3 {
-		tmplID := child.Def.ID
-		a3ByTemplate[tmplID] = append(a3ByTemplate[tmplID], child)
-	}
-	for tmplID, agents := range a3ByTemplate {
-		if len(agents) == 1 {
-			b.WriteString(agentTreeLine(agents[0], "  ", width))
-		} else {
-			b.WriteString(dimStyle.Render(fmt.Sprintf("  %s ×%d", truncate(tmplID, max(width-10, 8)), len(agents))) + "\n")
-			for _, a := range agents {
-				b.WriteString(agentTreeLine(a, "    ", width))
-			}
-		}
-	}
 	return fitLines(b.String(), height)
+}
+
+// orderedGroupNames returns a deterministic list of group names.
+// It merges groups from static templates and runtime supervisors.
+func (s sidebar) orderedGroupNames(supervisors []*agent.Supervisor) []string {
+	seen := make(map[string]bool)
+	var names []string
+
+	// First from static templates
+	for _, tmpl := range s.templates {
+		if tmpl.Group != "" && !seen[tmpl.Group] {
+			seen[tmpl.Group] = true
+			names = append(names, tmpl.Group)
+		}
+	}
+
+	// Then from runtime supervisors (may have groups not in templates)
+	for _, sv := range supervisors {
+		if sv == nil {
+			continue
+		}
+		g := sv.Group()
+		// If supervisor has no group, use its agent name as fallback group name
+		if g == "" {
+			if a := sv.Agent(); a != nil && a.Def.Name != "" {
+				g = a.Def.Name
+			} else if a := sv.Agent(); a != nil && a.Def.ID != "" {
+				g = a.Def.ID
+			}
+		}
+		if g != "" && !seen[g] {
+			seen[g] = true
+			names = append(names, g)
+		}
+	}
+
+	sort.Strings(names)
+	return names
+}
+
+// templatesByGroup returns leader and worker templates for a given group.
+func (s sidebar) templatesByGroup(group string) (leaders, workers []agent.AgentTemplate) {
+	for _, tmpl := range s.templates {
+		if tmpl.Group != group {
+			continue
+		}
+		if tmpl.IsLeader {
+			leaders = append(leaders, tmpl)
+		} else {
+			workers = append(workers, tmpl)
+		}
+	}
+	// Sort by name for deterministic output
+	sort.Slice(leaders, func(i, j int) bool { return leaders[i].Name < leaders[j].Name })
+	sort.Slice(workers, func(i, j int) bool { return workers[i].Name < workers[j].Name })
+	return
+}
+
+// renderTemplateWithInstances renders a template line with its runtime instances.
+// When no instances are running, shows only the template name (no state badge).
+// When multiple instances exist, shows "Name ×N" with expanded instance list.
+func (s sidebar) renderTemplateWithInstances(b *strings.Builder, tmpl agent.AgentTemplate, indent, prefix string, width int, agentsByTmplID map[string][]*agent.Agent) {
+	instances := agentsByTmplID[tmpl.ID]
+
+	if len(instances) == 0 {
+		// Static display: template name only, no state badge
+		name := tmpl.Name
+		if name == "" {
+			name = tmpl.ID
+		}
+		b.WriteString(dimStyle.Render(indent+prefix+truncate(name, max(width-len(indent)-len(prefix)-2, 4))) + "\n")
+		return
+	}
+
+	if len(instances) == 1 {
+		// Single instance: show full agent line
+		b.WriteString(agentTreeLine(instances[0], indent, width))
+		return
+	}
+
+	// Multiple instances: show "Name ×N" then expanded list
+	name := tmpl.Name
+	if name == "" {
+		name = tmpl.ID
+	}
+	// Sort instances by InstanceID for deterministic ordering
+	sort.Slice(instances, func(i, j int) bool { return instances[i].InstanceID < instances[j].InstanceID })
+	b.WriteString(dimStyle.Render(fmt.Sprintf("%s%s%s ×%d", indent, prefix, truncate(name, max(width-len(indent)-len(prefix)-10, 4)), len(instances))) + "\n")
+	for _, a := range instances {
+		b.WriteString(agentTreeLine(a, indent+"  ", width))
+	}
+}
+
+// renderRuntimeTeam renders a team from runtime supervisor data when no static templates exist.
+func (s sidebar) renderRuntimeTeam(b *strings.Builder, group, indent string, width int, supervisors []*agent.Supervisor, l3ByTemplate map[string][]*agent.Agent) {
+	for _, sv := range supervisors {
+		if sv == nil {
+			continue
+		}
+		// Match group using same fallback logic as orderedGroupNames
+		g := sv.Group()
+		if g == "" {
+			if a := sv.Agent(); a != nil && a.Def.Name != "" {
+				g = a.Def.Name
+			} else if a := sv.Agent(); a != nil && a.Def.ID != "" {
+				g = a.Def.ID
+			}
+		}
+		if g != group {
+			continue
+		}
+		if a := sv.Agent(); a != nil {
+			b.WriteString(agentTreeLine(a, indent, width))
+		}
+		for _, child := range sv.Children() {
+			b.WriteString(agentTreeLine(child, indent+"  ", width))
+		}
+	}
 }
 
 func (s sidebar) counts() agentCounts {

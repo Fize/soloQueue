@@ -25,7 +25,7 @@ type PreprocessConfig struct {
 // DefaultPreprocessConfig default preprocessing configuration
 func DefaultPreprocessConfig() PreprocessConfig {
 	return PreprocessConfig{
-		ShellTimeout: 30 * time.Second,
+		ShellTimeout: 10 * time.Minute,
 	}
 }
 

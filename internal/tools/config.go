@@ -104,6 +104,13 @@ type Config struct {
 	// nil 时 Build 会自动注入 LocalExecutor（保障测试和本地开发场景）。
 	Executor sandbox.Executor
 
+	// ── Plan Directory ─────────────────────────────────────────────
+	// PlanDir is the absolute path to the plan directory (~/.soloqueue/plan/).
+	// When non-empty, writeFileImpl will auto-create intermediate directories
+	// under this prefix (instead of returning ErrParentDirMissing).
+	// Set by main.go via config.PlanDir().
+	PlanDir string
+
 	// ── 长期记忆 ──────────────────────────────────────────────
 	// PermanentManager 为长期记忆管理器（nil = 未启用）。
 	// Remember / RecallMemory 工具仅在非 nil 时生效。
@@ -159,12 +166,12 @@ func DefaultConfig() Config {
 		MaxReplaceEdits:    50,
 
 		HTTPMaxBody:      5 << 20,
-		HTTPTimeout:      10 * time.Second,
+		HTTPTimeout:      10 * time.Minute,
 		HTTPBlockPrivate: true,
 
-		ShellTimeout:   30 * time.Second,
+		ShellTimeout:   10 * time.Minute,
 		ShellMaxOutput: 256 << 10,
 
-		WebSearchTimeout: 15 * time.Second,
+		WebSearchTimeout: 10 * time.Minute,
 	}
 }

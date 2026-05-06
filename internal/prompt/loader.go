@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // PromptConfig 定义了当前实例化哪个主 Agent 的 prompt 配置。
@@ -31,7 +32,7 @@ func (p *PromptConfig) userCtxPath() string {
 // leaders 来自运行时 agent 注册数据，用于动态构建路由表。
 // recentMemory 为短期记忆目录路径（可为空，表示无历史记忆）。
 // permanentMemory 为长期记忆文本（可为空）。
-func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanentMemory string) (string, error) {
+func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanentMemory, planDir string) (string, error) {
 	// 1. 加载 profile（必需）
 	profile, err := readMD(p.profilePath())
 	if err != nil {
@@ -55,7 +56,7 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanent
 	teamMgmt := buildTeamManagementSection(workDir)
 
 	// 6. XML 组装
-	return assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules), nil
+	return assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir), nil
 }
 
 // EnsureFiles 检查并补齐缺失的 prompt 文件。
@@ -122,6 +123,50 @@ func readMD(path string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// ReadProfileName reads profile.md and extracts the assistant name.
+// It looks for the pattern "You are <name>," at the beginning of the file.
+// Returns empty string if the file doesn't exist or no name is found.
+func ReadProfileName(promptCfg *PromptConfig) string {
+	data, err := os.ReadFile(promptCfg.profilePath())
+	if err != nil {
+		return ""
+	}
+	return extractProfileName(string(data))
+}
+
+// extractProfileName parses the assistant name from profile.md content.
+// The profile starts with "You are <name>, ..." — we extract <name>.
+func extractProfileName(content string) string {
+	const prefix = "You are "
+	idx := strings.Index(content, prefix)
+	if idx == -1 {
+		return ""
+	}
+	after := content[idx+len(prefix):]
+	// Find the comma that separates the name from the role description.
+	// The role description typically starts with " a " or " an " after the comma,
+	// e.g. "You are 小Q, a personal assistant" or "You are one of 小Q,大Q, an assistant".
+	// We look for ", a " or ", an " to avoid splitting on commas within the name itself.
+	for _, sep := range []string{", a ", ", an "} {
+		if commaIdx := strings.Index(after, sep); commaIdx != -1 {
+			name := strings.TrimSpace(after[:commaIdx])
+			if name != "" {
+				return name
+			}
+		}
+	}
+	// Fallback: simple comma split for patterns like "You are Name, something"
+	commaIdx := strings.Index(after, ",")
+	if commaIdx == -1 {
+		return ""
+	}
+	name := strings.TrimSpace(after[:commaIdx])
+	if name == "" {
+		return ""
+	}
+	return name
 }
 
 // fileExists 检查文件是否存在。

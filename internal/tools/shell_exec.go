@@ -164,7 +164,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 
 	timeout := t.cfg.ShellTimeout
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = 10 * time.Minute
 	}
 	maxOut := t.cfg.ShellMaxOutput
 	if maxOut <= 0 {

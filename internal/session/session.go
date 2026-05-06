@@ -100,9 +100,9 @@ type Session struct {
 	turnDoneClosed    bool          // 防止重复关闭 turnDone
 
 	lastLevel       string       // last classified task level (L0-L3)
-	lastLevelMu    sync.RWMutex // protects lastLevel and levelLocked
-	levelLocked    bool         // true when user explicitly locked level via /l0-/l3
-	lastRouteResult RouteResult // cached route result for locked mode (model params preserved)
+	lastLevelMu     sync.RWMutex // protects lastLevel and levelLocked
+	levelLocked     bool         // true when user explicitly locked level via /l0-/l3
+	lastRouteResult RouteResult  // cached route result for locked mode (model params preserved)
 
 	memoryHook MemoryHook // optional callback for short-term memory (nil = disabled)
 }
@@ -115,10 +115,9 @@ type Session struct {
 func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl *timeline.Writer, l *logger.Logger) *Session {
 	if l == nil {
 		var err error
-		l, err = logger.Session("/tmp", teamID, id, logger.WithConsole(false), logger.WithFile(false))
+		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
 		if err != nil {
-			// Fallback to system logger if session logger creation fails
-			l, _ = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
+			panic(err)
 		}
 	}
 
@@ -567,7 +566,7 @@ func (s *Session) Close() {
 		s.tl.Close()
 	}
 
-	// 关闭 session 日志并清理 session 日志目录
+	// 关闭 session 日志
 	if err := s.logger.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "session close: logger close error: %v\n", err)
 	}
@@ -738,12 +737,12 @@ func newSessionID() string {
 
 // levelLockCommands maps slash commands to level labels.
 var levelLockCommands = map[string]string{
-	"l0":    "L0-Conversation",
-	"chat":  "L0-Conversation",
-	"l1":    "L1-SimpleSingleFile",
-	"l2":    "L2-MediumMultiFile",
-	"l3":    "L3-ComplexRefactoring",
-	"max":   "L3-ComplexRefactoring",
+	"l0":     "L0-Conversation",
+	"chat":   "L0-Conversation",
+	"l1":     "L1-SimpleSingleFile",
+	"l2":     "L2-MediumMultiFile",
+	"l3":     "L3-ComplexRefactoring",
+	"max":    "L3-ComplexRefactoring",
 	"expert": "L3-ComplexRefactoring",
 }
 

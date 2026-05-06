@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -129,9 +130,9 @@ func TestLoadAgentTemplates_MissingFrontmatter(t *testing.T) {
 func TestDefaultFactory_Create_Success(t *testing.T) {
 	// 创建临时目录用于日志
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -189,9 +190,9 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 
 func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -245,9 +246,9 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 
 func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -284,9 +285,9 @@ func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 
 func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -305,8 +306,8 @@ func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	)
 
 	tmpl := AgentTemplate{
-		ID:          "multi-agent",
-		Name:        "Multi Agent",
+		ID:           "multi-agent",
+		Name:         "Multi Agent",
 		SystemPrompt: "You are multi.",
 	}
 
@@ -339,9 +340,9 @@ func TestDefaultFactory_Create_StartError(t *testing.T) {
 	// 我们需要 mock 一个会失败的情况
 
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -359,8 +360,8 @@ func TestDefaultFactory_Create_StartError(t *testing.T) {
 	)
 
 	tmpl := AgentTemplate{
-		ID:          "test-agent",
-		Name:        "Test Agent",
+		ID:           "test-agent",
+		Name:         "Test Agent",
 		SystemPrompt: "You are a test agent.",
 	}
 
@@ -387,9 +388,9 @@ func setupTestFactory(t *testing.T) (*DefaultFactory, *Registry, *FakeLLM) {
 	t.Helper()
 
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	t.Cleanup(func() { _ = log.Close() })
 
@@ -422,8 +423,8 @@ func TestDefaultFactory_Create_ContextWindow(t *testing.T) {
 	factory, _, _ := setupTestFactory(t)
 
 	tmpl := AgentTemplate{
-		ID:          "cw-test",
-		Name:        "CW Test",
+		ID:           "cw-test",
+		Name:         "CW Test",
 		SystemPrompt: "You are a test agent.",
 	}
 
@@ -465,9 +466,9 @@ This is a test skill.
 		t.Fatalf("write skill: %v", err)
 	}
 
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -485,8 +486,8 @@ This is a test skill.
 	)
 
 	tmpl := AgentTemplate{
-		ID:          "skill-agent",
-		Name:        "Skill Agent",
+		ID:           "skill-agent",
+		Name:         "Skill Agent",
 		SystemPrompt: "You are a skill agent.",
 	}
 
@@ -524,8 +525,8 @@ func TestNewDefaultFactory_NilLogger(t *testing.T) {
 
 	// 尝试创建 agent（nil logger 不应该 panic）
 	tmpl := AgentTemplate{
-		ID:          "nil-logger",
-		Name:        "Nil Logger",
+		ID:           "nil-logger",
+		Name:         "Nil Logger",
 		SystemPrompt: "You are a test.",
 	}
 
@@ -540,9 +541,9 @@ func TestNewDefaultFactory_NilLogger(t *testing.T) {
 
 func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -596,9 +597,9 @@ func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
 
 func TestDefaultFactory_Create_EmptyModel(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -631,9 +632,9 @@ func TestDefaultFactory_Create_EmptyModel(t *testing.T) {
 
 func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -692,9 +693,9 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 	// Without resolver, any model ID is accepted (backward compat / tests)
 	dir := t.TempDir()
-	log, err := logger.Session(dir, "test-team", "test-sess", logger.WithConsole(false))
+	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
-		t.Fatalf("logger.Session: %v", err)
+		t.Fatalf("logger.System: %v", err)
 	}
 	defer log.Close()
 
@@ -775,7 +776,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		"designer": otherTmpl,
 	}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, nil)
+	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan")
 
 	// Segment 1: user-defined
 	if !strings.Contains(prompt, "You are a dev supervisor.") {
@@ -799,5 +800,296 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "need_clarification") {
 		t.Error("L2 prompt should contain need_clarification format")
+	}
+}
+
+// ─── L2/L3 Enforced Directives: "Plan Before Action" rule tests ───────────
+
+func TestL2EnforcedDirectives_ContainsPlanBeforeExecutionRule(t *testing.T) {
+	if !strings.Contains(l2EnforcedDirectives, "Plan Before Execution") {
+		t.Error("l2EnforcedDirectives should contain 'Plan Before Execution' rule")
+	}
+}
+
+func TestL2EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
+	if !strings.Contains(l2EnforcedDirectives, "{{PLAN_DIR}}") {
+		t.Error("l2EnforcedDirectives should contain '{{PLAN_DIR}}' placeholder")
+	}
+}
+
+func TestL2EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
+	// 验证方案文档结构约定在 L2 enforced directives 中体现
+	if !strings.Contains(l2EnforcedDirectives, "Goal") {
+		t.Error("l2EnforcedDirectives should contain 'Goal' in design document structure")
+	}
+	if !strings.Contains(l2EnforcedDirectives, "Approach") {
+		t.Error("l2EnforcedDirectives should contain 'Approach' in design document structure")
+	}
+	if !strings.Contains(l2EnforcedDirectives, "Impact") {
+		t.Error("l2EnforcedDirectives should contain 'Impact' in design document structure")
+	}
+	if !strings.Contains(l2EnforcedDirectives, "Steps") {
+		t.Error("l2EnforcedDirectives should contain 'Steps' in design document structure")
+	}
+}
+
+func TestL3EnforcedDirectives_ContainsPlanBeforeActionRule(t *testing.T) {
+	if !strings.Contains(l3EnforcedDirectives, "Plan Before Action") {
+		t.Error("l3EnforcedDirectives should contain 'Plan Before Action' rule")
+	}
+}
+
+func TestL3EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
+	if !strings.Contains(l3EnforcedDirectives, "{{PLAN_DIR}}") {
+		t.Error("l3EnforcedDirectives should contain '{{PLAN_DIR}}' placeholder")
+	}
+}
+
+func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
+	// 验证方案文档结构约定在 L3 enforced directives 中体现
+	if !strings.Contains(l3EnforcedDirectives, "Goal") {
+		t.Error("l3EnforcedDirectives should contain 'Goal' in design document structure")
+	}
+	if !strings.Contains(l3EnforcedDirectives, "Approach") {
+		t.Error("l3EnforcedDirectives should contain 'Approach' in design document structure")
+	}
+	if !strings.Contains(l3EnforcedDirectives, "Impact") {
+		t.Error("l3EnforcedDirectives should contain 'Impact' in design document structure")
+	}
+	if !strings.Contains(l3EnforcedDirectives, "Steps") {
+		t.Error("l3EnforcedDirectives should contain 'Steps' in design document structure")
+	}
+}
+
+// ─── buildL2SystemPrompt / buildL3SystemPrompt: plan-related tests ────────
+
+func TestBuildL2SystemPrompt_ContainsPlanDirPath(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev": devTmpl,
+	}
+
+	groups := map[string]prompt.GroupFile{}
+
+	planDir := "/home/user/.soloqueue/plan"
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir)
+
+	// 验证 L2 prompt 中包含 plan 目录路径
+	if !strings.Contains(prompt, planDir) {
+		t.Errorf("L2 prompt should contain plan directory path %q", planDir)
+	}
+}
+
+func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev": devTmpl,
+	}
+
+	groups := map[string]prompt.GroupFile{}
+
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "")
+
+	// 空 planDir 时，plan 相关规则不应出现（需求 4.1、5.2）
+	// TODO: 当前实现未做条件剔除，l2EnforcedDirectives 中的 "Plan Before Execution"
+	// 等文本仍会出现。待实现修复后此测试才能通过。
+	if strings.Contains(prompt, "<plan_before_action>") {
+		t.Error("L2 prompt should not contain <plan_before_action> when planDir is empty")
+	}
+	if strings.Contains(prompt, "Plan Before Execution") {
+		t.Error("L2 prompt should not contain 'Plan Before Execution' when planDir is empty (requirement 4.1, 5.2)")
+	}
+	if strings.Contains(prompt, "{{PLAN_DIR}}") {
+		t.Error("L2 prompt should not contain unreplaced {{PLAN_DIR}} placeholder")
+	}
+}
+
+func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev": devTmpl,
+	}
+
+	groups := map[string]prompt.GroupFile{}
+
+	planDir := "/home/user/.soloqueue/plan"
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir)
+
+	// 验证 Goal/Approach/Impact/Steps 结构约定在 L2 prompt 中体现
+	if !strings.Contains(prompt, "Goal") {
+		t.Error("L2 prompt should contain 'Goal' in design document structure")
+	}
+	if !strings.Contains(prompt, "Approach") {
+		t.Error("L2 prompt should contain 'Approach' in design document structure")
+	}
+	if !strings.Contains(prompt, "Impact") {
+		t.Error("L2 prompt should contain 'Impact' in design document structure")
+	}
+	if !strings.Contains(prompt, "Steps") {
+		t.Error("L2 prompt should contain 'Steps' in design document structure")
+	}
+}
+
+func TestBuildL3SystemPrompt_ContainsPlanBeforeActionRule(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+
+	planDir := "/home/user/.soloqueue/plan"
+	prompt := buildL3SystemPrompt(tmpl, planDir)
+
+	// 验证 L3 prompt 中包含 "Plan Before Action" 规则
+	if !strings.Contains(prompt, "Plan Before Action") {
+		t.Error("L3 prompt should contain 'Plan Before Action' rule")
+	}
+}
+
+func TestBuildL3SystemPrompt_ContainsPlanDirPath(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+
+	planDir := "/home/user/.soloqueue/plan"
+	prompt := buildL3SystemPrompt(tmpl, planDir)
+
+	// 验证 L3 prompt 中包含 plan 目录路径
+	if !strings.Contains(prompt, planDir) {
+		t.Errorf("L3 prompt should contain plan directory path %q", planDir)
+	}
+}
+
+func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+
+	prompt := buildL3SystemPrompt(tmpl, "")
+
+	// 空 planDir 时，plan 相关规则和路径不应出现（需求 5.4、5.5）
+	// TODO: 当前实现未做条件剔除，{{PLAN_DIR}} 被替换为空字符串后，
+	// "Plan Before Action" 等文本仍会出现。待实现修复后此测试才能通过。
+	if strings.Contains(prompt, "Plan Before Action") {
+		t.Error("L3 prompt should not contain 'Plan Before Action' when planDir is empty (requirement 5.4)")
+	}
+	if strings.Contains(prompt, "<plan_before_action>") {
+		t.Error("L3 prompt should not contain <plan_before_action> when planDir is empty")
+	}
+	if strings.Contains(prompt, "{{PLAN_DIR}}") {
+		t.Error("L3 prompt should not contain unreplaced {{PLAN_DIR}} placeholder")
+	}
+}
+
+func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+
+	planDir := "/home/user/.soloqueue/plan"
+	prompt := buildL3SystemPrompt(tmpl, planDir)
+
+	// 验证 Goal/Approach/Impact/Steps 结构约定在 L3 prompt 中体现
+	if !strings.Contains(prompt, "Goal") {
+		t.Error("L3 prompt should contain 'Goal' in design document structure")
+	}
+	if !strings.Contains(prompt, "Approach") {
+		t.Error("L3 prompt should contain 'Approach' in design document structure")
+	}
+	if !strings.Contains(prompt, "Impact") {
+		t.Error("L3 prompt should contain 'Impact' in design document structure")
+	}
+	if !strings.Contains(prompt, "Steps") {
+		t.Error("L3 prompt should contain 'Steps' in design document structure")
+	}
+}
+
+func TestBuildL2SystemPrompt_DockerSandboxPath(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev": devTmpl,
+	}
+
+	groups := map[string]prompt.GroupFile{}
+
+	// Docker 沙箱模式：planDir 应替换为容器内路径
+	dockerPlanDir := "/root/.soloqueue/plan"
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, dockerPlanDir)
+
+	// 验证 L2 prompt 中包含 Docker 容器内的 plan 目录路径
+	if !strings.Contains(prompt, dockerPlanDir) {
+		t.Errorf("L2 prompt should contain Docker container plan directory path %q", dockerPlanDir)
+	}
+
+	// 验证宿主机路径不应出现
+	hostPlanDir := "/home/user/.soloqueue/plan"
+	if strings.Contains(prompt, hostPlanDir) {
+		t.Error("L2 prompt should not contain host path in Docker sandbox mode")
+	}
+}
+
+func TestBuildL3SystemPrompt_DockerSandboxPath(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+
+	// Docker 沙箱模式：planDir 应替换为容器内路径
+	dockerPlanDir := "/root/.soloqueue/plan"
+	prompt := buildL3SystemPrompt(tmpl, dockerPlanDir)
+
+	// 验证 L3 prompt 中包含 Docker 容器内的 plan 目录路径
+	if !strings.Contains(prompt, dockerPlanDir) {
+		t.Errorf("L3 prompt should contain Docker container plan directory path %q", dockerPlanDir)
+	}
+
+	// 验证宿主机路径不应出现
+	hostPlanDir := "/home/user/.soloqueue/plan"
+	if strings.Contains(prompt, hostPlanDir) {
+		t.Error("L3 prompt should not contain host path in Docker sandbox mode")
 	}
 }

@@ -39,7 +39,7 @@ func NewOpenAI(cfg OpenAIConfig) (*OpenAIClient, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		timeout := 120 * time.Second
+		timeout := 10 * time.Minute
 		if cfg.TimeoutMs > 0 {
 			timeout = time.Duration(cfg.TimeoutMs) * time.Millisecond
 		}

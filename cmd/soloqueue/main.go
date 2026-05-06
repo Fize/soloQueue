@@ -133,6 +133,9 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				SupervisorsFn: func() []*agent.Supervisor { return rt.supervisors },
 				Skills:        rt.skillRegistry,
 				NotifyCh:      rt.permNotifyCh,
+				AssistantName: prompt.ReadProfileName(rt.promptCfg),
+				Templates:     rt.allTemplates,
+				Groups:        rt.groups,
 			})
 		},
 	}
@@ -161,6 +164,7 @@ type runtimeStack struct {
 	supervisors     []*agent.Supervisor
 	leaders         []prompt.LeaderInfo
 	allTemplates    []agent.AgentTemplate
+	groups          map[string]prompt.GroupFile
 	systemPrompt    string
 	promptCfg       *prompt.PromptConfig
 	tokenizer       *ctxwin.Tokenizer
@@ -342,7 +346,15 @@ func buildRuntimeStack(
 		}
 	}
 
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, permContent)
+	// ── Plan Directory ───────────────────────────────────────────────────
+	planDir, planErr := config.PlanDir()
+	if planErr != nil {
+		log.Warn(logger.CatApp, "failed to create plan directory", "err", planErr)
+	} else {
+		toolsCfg.PlanDir = planDir
+	}
+
+	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, permContent, planDir)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
 	}
@@ -440,6 +452,7 @@ func buildRuntimeStack(
 		supervisors:     supervisors,
 		leaders:         leaders,
 		allTemplates:    allTemplates,
+		groups:          groups,
 		systemPrompt:    systemPrompt,
 		promptCfg:       promptCfg,
 		defaultModel:    defaultModel,
@@ -468,6 +481,7 @@ func buildRuntimeStack(
 		newToolsCfg.PermanentManager = rt.toolsCfg.PermanentManager
 		newToolsCfg.Logger = rt.toolsCfg.Logger
 		newToolsCfg.Executor = rt.toolsCfg.Executor
+		newToolsCfg.PlanDir = rt.toolsCfg.PlanDir
 		rt.toolsCfg = newToolsCfg
 		if rt.agentFactory != nil {
 			rt.agentFactory.SetToolsConfig(newToolsCfg)
@@ -719,6 +733,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 	}
 	def := agent.Definition{
 		ID:              agentID,
+		Name:            prompt.ReadProfileName(sb.rt.promptCfg),
 		Kind:            agent.KindCustom,
 		ModelID:         effectiveModelID,
 		Temperature:     defModel.Generation.Temperature,
@@ -735,7 +750,7 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		effectiveTeam = "default"
 	}
 	settings := sb.cfg.Get()
-	sessLog, err := logger.Session(sb.workDir, effectiveTeam, agentID,
+	sessLog, err := logger.System(sb.workDir,
 		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
 		logger.WithConsole(sb.consoleLog),
 		logger.WithFile(settings.Log.File),
