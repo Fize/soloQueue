@@ -9,8 +9,8 @@ import (
 func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 	cfg := DefaultConfig()
 	list := Build(cfg)
-	if len(list) != 10 {
-		t.Errorf("Build returned %d tools, want 10", len(list))
+	if len(list) != 12 {
+		t.Errorf("Build returned %d tools, want 12", len(list))
 	}
 	hasWebSearch := false
 	for _, tool := range list {

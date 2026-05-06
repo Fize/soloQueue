@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 )
 
@@ -48,9 +49,6 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 			m.resetGenState()
 			m.current = nil
 		}
-		if m.sess != nil {
-			_ = m.sess.Clear()
-		}
 		m.messages = nil
 		m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
 		text := "◆  context cleared"
@@ -58,6 +56,11 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		m.resizeViewport()
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
+		// Clear session asynchronously to avoid blocking the TUI event loop.
+		// session.Clear() may be slow: mutex lock, timeline append, memory hook.
+		if m.sess != nil {
+			return false, clearSessionCmd(m.sess)
+		}
 		return false, nil
 
 	case "/version":
@@ -140,4 +143,14 @@ func (m *model) startStreamFromInput(displayInput string, streamInput string) te
 	m.rebuildViewportContent()
 	m.viewport.GotoBottom()
 	return m.startStream(streamInput, sid)
+}
+
+// clearSessionCmd runs session.Clear() asynchronously to avoid blocking the
+// TUI event loop. session.Clear() can be slow because it locks the session
+// mutex, appends a control event to the timeline, and calls a memory hook.
+func clearSessionCmd(sess *session.Session) tea.Cmd {
+	return func() tea.Msg {
+		_ = sess.Clear()
+		return nil
+	}
 }

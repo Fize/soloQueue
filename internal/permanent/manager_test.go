@@ -37,7 +37,7 @@ func (f *fixedEmbedder) Dimension() int { return f.dim }
 
 func newTestManager(t *testing.T, store vectorstore.VectorStore, embedder embedding.Embedder, memoryDir string) *Manager {
 	t.Helper()
-	return NewManager(store, embedder, memoryDir, nil)
+	return NewManager(store, embedder, nil, "", memoryDir, nil)
 }
 
 func newTestStore(t *testing.T) (vectorstore.VectorStore, string) {
@@ -56,6 +56,7 @@ func TestMigrate_EmptyDir(t *testing.T) {
 	emb := &fixedEmbedder{dim: 4, vec: []float32{1, 0, 0, 0}}
 	mgr := newTestManager(t, store, emb, memoryDir)
 
+	// Without LLM, Migrate returns 0 entries but no error on empty dir.
 	count, err := mgr.Migrate(context.Background())
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
@@ -81,28 +82,19 @@ func TestMigrate_MigratesExpiredFiles(t *testing.T) {
 	recentPath := filepath.Join(memoryDir, recentDate+".md")
 	_ = os.WriteFile(recentPath, []byte("# "+recentDate+"\nrecent"), 0644)
 
-	count, err := mgr.Migrate(context.Background())
-	if err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("expected 1 migrated, got %d", count)
+	// Without LLM configured, Migrate errors on expired file with content.
+	_, err := mgr.Migrate(context.Background())
+	if err == nil {
+		t.Fatal("expected error when LLM is nil")
 	}
 
-	// Old file should be deleted
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Error("expired file should be deleted")
+	// Expired file should NOT be deleted on error.
+	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+		t.Error("expired file should remain after failed migration")
 	}
 	// Recent file should remain
 	if _, err := os.Stat(recentPath); os.IsNotExist(err) {
 		t.Error("recent file should still exist")
-	}
-
-	// Store should have the entry
-	ctx := context.Background()
-	storeCount, _ := store.Count(ctx)
-	if storeCount != 1 {
-		t.Errorf("expected 1 entry in store, got %d", storeCount)
 	}
 }
 
@@ -148,6 +140,7 @@ func TestMigrate_SkipsEmptyFile(t *testing.T) {
 	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
 		t.Error("empty expired file should be deleted")
 	}
+	// Empty file doesn't reach LLM, so no error.
 }
 
 func TestQueryForPrompt_NoResults(t *testing.T) {

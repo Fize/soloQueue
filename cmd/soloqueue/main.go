@@ -321,7 +321,7 @@ func buildRuntimeStack(
 				if embErr == nil {
 					store, storeErr := vectorstore.NewSQLiteStore(filepath.Join(workDir, "permanent_memory", "entries.db"))
 					if storeErr == nil {
-						permanentMgr = permanent.NewManager(store, embClient, memoryDir, log)
+						permanentMgr = permanent.NewManager(store, embClient, nil, "", memoryDir, log)
 						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
 							log.Error(logger.CatApp, msg)
 							select {
