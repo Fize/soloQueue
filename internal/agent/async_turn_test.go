@@ -23,9 +23,9 @@ type mockAsyncTool struct {
 	actionErr error
 }
 
-func (m *mockAsyncTool) Name() string                        { return m.name }
-func (m *mockAsyncTool) Description() string                 { return "mock async tool" }
-func (m *mockAsyncTool) Parameters() json.RawMessage          { return json.RawMessage(`{}`) }
+func (m *mockAsyncTool) Name() string                { return m.name }
+func (m *mockAsyncTool) Description() string         { return "mock async tool" }
+func (m *mockAsyncTool) Parameters() json.RawMessage { return json.RawMessage(`{}`) }
 func (m *mockAsyncTool) Execute(ctx context.Context, args string) (string, error) {
 	return "sync-result", nil
 }
@@ -456,10 +456,10 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 	pending.Store(0)
 
 	turnState := &asyncTurnState{
-		agentID:   "l1",
-		out:       out,
-		cw:        cw,
-		iter:      0,
+		agentID: "l1",
+		out:     out,
+		cw:      cw,
+		iter:    0,
 		toolCalls: []llm.ToolCall{
 			{
 				Type: "function",
@@ -470,8 +470,8 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 				},
 			},
 		},
-		results: []string{"async-result"},
-		pending: pending,
+		results:   []string{"async-result"},
+		pending:   pending,
 		callerCtx: context.Background(),
 	}
 
@@ -639,9 +639,9 @@ type mockSyncTool struct {
 	result string
 }
 
-func (m *mockSyncTool) Name() string                        { return m.name }
-func (m *mockSyncTool) Description() string                 { return "mock sync tool" }
-func (m *mockSyncTool) Parameters() json.RawMessage          { return json.RawMessage(`{}`) }
+func (m *mockSyncTool) Name() string                { return m.name }
+func (m *mockSyncTool) Description() string         { return "mock sync tool" }
+func (m *mockSyncTool) Parameters() json.RawMessage { return json.RawMessage(`{}`) }
 func (m *mockSyncTool) Execute(ctx context.Context, args string) (string, error) {
 	return m.result, nil
 }

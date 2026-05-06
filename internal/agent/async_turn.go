@@ -61,8 +61,8 @@ type asyncTurnState struct {
 	// The slice header (len/cap/ptr) is never modified after creation.
 	// This pattern is safe per the Go memory model for non-overlapping
 	// writes to different indices of a fixed-size slice.
-	results []string
-	pending   atomic.Int32  // 还剩几个异步调用未完成
+	results   []string
+	pending   atomic.Int32 // 还剩几个异步调用未完成
 	callerCtx context.Context
 
 	// cancelMerged holds the cancel function for the merged context.
@@ -371,7 +371,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			toolResult := result.content
 			if result.err != nil {
 				toolResult = "error: " + result.err.Error()
-			a.RecordError(result.err)
+				a.RecordError(result.err)
 			}
 			task.turn.results[task.callIndex] = toolResult
 

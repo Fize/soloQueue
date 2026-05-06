@@ -638,4 +638,3 @@ func buildEscalationRules() []EscalationRule {
 
 	return rules
 }
-

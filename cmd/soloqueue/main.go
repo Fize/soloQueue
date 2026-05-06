@@ -304,7 +304,6 @@ func buildRuntimeStack(
 	var permScheduler *permanent.Scheduler
 	var permCancel context.CancelFunc
 	permNotifyCh := make(chan string, 8)
-	var permContent string
 
 	if settings.Embedding.Enabled {
 		embModel := cfg.DefaultEmbeddingModel()
@@ -334,7 +333,7 @@ func buildRuntimeStack(
 						go permScheduler.Run(permCtx)
 
 						recentText, _ := memoryMgr.ReadRecentMemory(7)
-						permContent, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
+						_, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
 						toolsCfg.PermanentManager = permanentMgr
 					} else {
 						log.Warn(logger.CatApp, "permanent memory: failed to create vector store", "err", storeErr)
@@ -354,7 +353,7 @@ func buildRuntimeStack(
 		toolsCfg.PlanDir = planDir
 	}
 
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, permContent, planDir)
+	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
 	}

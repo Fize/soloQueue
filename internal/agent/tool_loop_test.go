@@ -142,7 +142,7 @@ func TestAgent_Ask_ToolNotFound_FedBackAsError(t *testing.T) {
 	var capturedContent string
 	fake := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
-			ID: "call_1",
+			ID:       "call_1",
 			Function: llm.FunctionCall{Name: "ghost", Arguments: `{}`},
 		}}},
 		Responses: []string{"ok"},
@@ -213,7 +213,7 @@ func TestAgent_Ask_MaxIterations(t *testing.T) {
 	turns := make([][]llm.ToolCall, 10)
 	for i := range turns {
 		turns[i] = []llm.ToolCall{{
-			ID: fmt.Sprintf("c%d", i),
+			ID:       fmt.Sprintf("c%d", i),
 			Function: llm.FunctionCall{Name: "loop", Arguments: `{}`},
 		}}
 	}
@@ -246,7 +246,7 @@ func TestAgent_Ask_DefaultMaxIterations(t *testing.T) {
 	turns := make([][]llm.ToolCall, 120)
 	for i := range turns {
 		turns[i] = []llm.ToolCall{{
-			ID: fmt.Sprintf("c%d", i),
+			ID:       fmt.Sprintf("c%d", i),
 			Function: llm.FunctionCall{Name: "loop", Arguments: `{}`},
 		}}
 	}
@@ -342,7 +342,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 	echo.result = "ok"
 	fake := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
-			ID: "call_1",
+			ID:       "call_1",
 			Function: llm.FunctionCall{Name: "echo", Arguments: `{"m":"hi"}`},
 		}}},
 		Responses: []string{"final"},

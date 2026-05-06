@@ -339,7 +339,7 @@ func TestChatStream_CtxCancel_DuringStream(t *testing.T) {
 func TestChatStream_APIError_401_NotRetried(t *testing.T) {
 	srv, rec := newFakeDeepSeek(t, script{
 		Status: 401,
-		Body: `{"error":{"message":"Invalid API key","type":"authentication_error","code":"invalid_api_key"}}`,
+		Body:   `{"error":{"message":"Invalid API key","type":"authentication_error","code":"invalid_api_key"}}`,
 	})
 	c := newClient(t, srv, func(cfg *Config) {
 		cfg.Retry = llm.RetryPolicy{MaxRetries: 3, InitialDelay: 10 * time.Millisecond}

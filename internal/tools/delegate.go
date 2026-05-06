@@ -56,8 +56,8 @@ var delegateParamsSchema = json.RawMessage(`{
 //
 // If the two modes diverge significantly, split into separate types.
 type DelegateTool struct {
-	LeaderID string        // target agent identifier (e.g., "dev")
-	Desc     string        // leader description (for Tool.Description)
+	LeaderID string // target agent identifier (e.g., "dev")
+	Desc     string // leader description (for Tool.Description)
 	Timeout  time.Duration
 	logger   *logger.Logger // optional logger for delegation tracking
 

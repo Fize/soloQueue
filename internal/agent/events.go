@@ -119,7 +119,7 @@ type DelegationCompletedEvent struct {
 
 // --- iface.AgentEvent marker (all types satisfy iface.AgentEvent) ---
 
-func (ContentDeltaEvent) IsAgentEvent()       {}
+func (ContentDeltaEvent) IsAgentEvent()        {}
 func (ReasoningDeltaEvent) IsAgentEvent()      {}
 func (ToolCallDeltaEvent) IsAgentEvent()       {}
 func (ToolExecStartEvent) IsAgentEvent()       {}
@@ -133,16 +133,16 @@ func (DelegationCompletedEvent) IsAgentEvent() {}
 
 // --- agent-internal sealed marker ---
 
-func (ContentDeltaEvent) agentEvent()       {}
-func (ReasoningDeltaEvent) agentEvent()     {}
-func (ToolCallDeltaEvent) agentEvent()      {}
-func (ToolExecStartEvent) agentEvent()      {}
-func (ToolExecDoneEvent) agentEvent()       {}
-func (ToolNeedsConfirmEvent) agentEvent()   {}
-func (IterationDoneEvent) agentEvent()      {}
-func (DoneEvent) agentEvent()               {}
-func (ErrorEvent) agentEvent()              {}
-func (DelegationStartedEvent) agentEvent()  {}
+func (ContentDeltaEvent) agentEvent()        {}
+func (ReasoningDeltaEvent) agentEvent()      {}
+func (ToolCallDeltaEvent) agentEvent()       {}
+func (ToolExecStartEvent) agentEvent()       {}
+func (ToolExecDoneEvent) agentEvent()        {}
+func (ToolNeedsConfirmEvent) agentEvent()    {}
+func (IterationDoneEvent) agentEvent()       {}
+func (DoneEvent) agentEvent()                {}
+func (ErrorEvent) agentEvent()               {}
+func (DelegationStartedEvent) agentEvent()   {}
 func (DelegationCompletedEvent) agentEvent() {}
 
 // --- iface.EventConsumer implementation ---
@@ -151,67 +151,67 @@ func (DelegationCompletedEvent) agentEvent() {}
 // returns (value, true); all others return (zero, false).
 
 // ContentDeltaEvent → ContentDelta
-func (e ContentDeltaEvent) ContentDelta() (string, bool)  { return e.Delta, true }
-func (e ContentDeltaEvent) DoneContent() (string, bool)   { return "", false }
-func (e ContentDeltaEvent) Error() (error, bool)          { return nil, false }
+func (e ContentDeltaEvent) ContentDelta() (string, bool)   { return e.Delta, true }
+func (e ContentDeltaEvent) DoneContent() (string, bool)    { return "", false }
+func (e ContentDeltaEvent) Error() (error, bool)           { return nil, false }
 func (e ContentDeltaEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // ReasoningDeltaEvent → none (not consumed by DelegateTool)
-func (e ReasoningDeltaEvent) ContentDelta() (string, bool)  { return "", false }
-func (e ReasoningDeltaEvent) DoneContent() (string, bool)   { return "", false }
-func (e ReasoningDeltaEvent) Error() (error, bool)          { return nil, false }
+func (e ReasoningDeltaEvent) ContentDelta() (string, bool)   { return "", false }
+func (e ReasoningDeltaEvent) DoneContent() (string, bool)    { return "", false }
+func (e ReasoningDeltaEvent) Error() (error, bool)           { return nil, false }
 func (e ReasoningDeltaEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // ToolCallDeltaEvent → none
-func (e ToolCallDeltaEvent) ContentDelta() (string, bool)  { return "", false }
-func (e ToolCallDeltaEvent) DoneContent() (string, bool)   { return "", false }
-func (e ToolCallDeltaEvent) Error() (error, bool)          { return nil, false }
+func (e ToolCallDeltaEvent) ContentDelta() (string, bool)   { return "", false }
+func (e ToolCallDeltaEvent) DoneContent() (string, bool)    { return "", false }
+func (e ToolCallDeltaEvent) Error() (error, bool)           { return nil, false }
 func (e ToolCallDeltaEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // ToolExecStartEvent → none
-func (e ToolExecStartEvent) ContentDelta() (string, bool)  { return "", false }
-func (e ToolExecStartEvent) DoneContent() (string, bool)   { return "", false }
-func (e ToolExecStartEvent) Error() (error, bool)          { return nil, false }
+func (e ToolExecStartEvent) ContentDelta() (string, bool)   { return "", false }
+func (e ToolExecStartEvent) DoneContent() (string, bool)    { return "", false }
+func (e ToolExecStartEvent) Error() (error, bool)           { return nil, false }
 func (e ToolExecStartEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // ToolExecDoneEvent → none
-func (e ToolExecDoneEvent) ContentDelta() (string, bool)  { return "", false }
-func (e ToolExecDoneEvent) DoneContent() (string, bool)   { return "", false }
-func (e ToolExecDoneEvent) Error() (error, bool)          { return nil, false }
+func (e ToolExecDoneEvent) ContentDelta() (string, bool)   { return "", false }
+func (e ToolExecDoneEvent) DoneContent() (string, bool)    { return "", false }
+func (e ToolExecDoneEvent) Error() (error, bool)           { return nil, false }
 func (e ToolExecDoneEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // IterationDoneEvent → none
-func (e IterationDoneEvent) ContentDelta() (string, bool)  { return "", false }
-func (e IterationDoneEvent) DoneContent() (string, bool)   { return "", false }
-func (e IterationDoneEvent) Error() (error, bool)          { return nil, false }
+func (e IterationDoneEvent) ContentDelta() (string, bool)   { return "", false }
+func (e IterationDoneEvent) DoneContent() (string, bool)    { return "", false }
+func (e IterationDoneEvent) Error() (error, bool)           { return nil, false }
 func (e IterationDoneEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // DoneEvent → DoneContent
-func (e DoneEvent) ContentDelta() (string, bool)  { return "", false }
-func (e DoneEvent) DoneContent() (string, bool)   { return e.Content, true }
-func (e DoneEvent) Error() (error, bool)          { return nil, false }
+func (e DoneEvent) ContentDelta() (string, bool)   { return "", false }
+func (e DoneEvent) DoneContent() (string, bool)    { return e.Content, true }
+func (e DoneEvent) Error() (error, bool)           { return nil, false }
 func (e DoneEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // ToolNeedsConfirmEvent → ConfirmRequest
-func (e ToolNeedsConfirmEvent) ContentDelta() (string, bool)  { return "", false }
-func (e ToolNeedsConfirmEvent) DoneContent() (string, bool)   { return "", false }
-func (e ToolNeedsConfirmEvent) Error() (error, bool)          { return nil, false }
+func (e ToolNeedsConfirmEvent) ContentDelta() (string, bool)   { return "", false }
+func (e ToolNeedsConfirmEvent) DoneContent() (string, bool)    { return "", false }
+func (e ToolNeedsConfirmEvent) Error() (error, bool)           { return nil, false }
 func (e ToolNeedsConfirmEvent) ConfirmRequest() (string, bool) { return e.CallID, true }
 
 // ErrorEvent → Error
-func (e ErrorEvent) ContentDelta() (string, bool)  { return "", false }
-func (e ErrorEvent) DoneContent() (string, bool)   { return "", false }
-func (e ErrorEvent) Error() (error, bool)          { return e.Err, true }
+func (e ErrorEvent) ContentDelta() (string, bool)   { return "", false }
+func (e ErrorEvent) DoneContent() (string, bool)    { return "", false }
+func (e ErrorEvent) Error() (error, bool)           { return e.Err, true }
 func (e ErrorEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // DelegationStartedEvent → none
-func (e DelegationStartedEvent) ContentDelta() (string, bool)  { return "", false }
-func (e DelegationStartedEvent) DoneContent() (string, bool)   { return "", false }
-func (e DelegationStartedEvent) Error() (error, bool)          { return nil, false }
+func (e DelegationStartedEvent) ContentDelta() (string, bool)   { return "", false }
+func (e DelegationStartedEvent) DoneContent() (string, bool)    { return "", false }
+func (e DelegationStartedEvent) Error() (error, bool)           { return nil, false }
 func (e DelegationStartedEvent) ConfirmRequest() (string, bool) { return "", false }
 
 // DelegationCompletedEvent → none
-func (e DelegationCompletedEvent) ContentDelta() (string, bool)  { return "", false }
-func (e DelegationCompletedEvent) DoneContent() (string, bool)   { return "", false }
-func (e DelegationCompletedEvent) Error() (error, bool)          { return nil, false }
+func (e DelegationCompletedEvent) ContentDelta() (string, bool)   { return "", false }
+func (e DelegationCompletedEvent) DoneContent() (string, bool)    { return "", false }
+func (e DelegationCompletedEvent) Error() (error, bool)           { return nil, false }
 func (e DelegationCompletedEvent) ConfirmRequest() (string, bool) { return "", false }

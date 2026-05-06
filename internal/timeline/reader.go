@@ -120,9 +120,9 @@ func ReplayInto(cw *ctxwin.ContextWindow, segments []Segment) {
 func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 	// pending: 等待 tool result 的 assistant(tool_calls) 及已收集的 tool results
 	type pendingGroup struct {
-		assistant  *MessagePayload
-		toolCallIDs map[string]bool   // 需要的 tool_call_id → 是否已到达
-		toolResults []MessagePayload  // 已到达的 tool result 消息
+		assistant   *MessagePayload
+		toolCallIDs map[string]bool  // 需要的 tool_call_id → 是否已到达
+		toolResults []MessagePayload // 已到达的 tool result 消息
 		allFound    bool
 	}
 
@@ -280,5 +280,3 @@ func readFile(path string) ([]Event, error) {
 
 	return events, scanner.Err()
 }
-
-

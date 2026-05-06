@@ -370,7 +370,7 @@ func (e *DockerExecutor) HTTPPost(ctx context.Context, url string, body string, 
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-// shellQuote 将字符串用单引号包裹，内部单引号转义为 '\''
+// shellQuote 将字符串用单引号包裹，内部单引号转义为 '\”
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

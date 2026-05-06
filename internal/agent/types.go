@@ -114,11 +114,11 @@ const DefaultContextWindow = 1048576
 // blocking when a tool hangs.
 const DefaultToolTimeout = 10 * time.Minute
 
-	// DefaultMaxConsecutiveFailures is the number of consecutive fatal streamLoop
-	// failures before the circuit breaker opens and rejects new tasks.
-	// Fatal failures include ChatStream errors, buildMessages errors, and
-	// MaxIterations exceeded. Context cancellations are excluded.
-	const DefaultMaxConsecutiveFailures = 3
+// DefaultMaxConsecutiveFailures is the number of consecutive fatal streamLoop
+// failures before the circuit breaker opens and rejects new tasks.
+// Fatal failures include ChatStream errors, buildMessages errors, and
+// MaxIterations exceeded. Context cancellations are excluded.
+const DefaultMaxConsecutiveFailures = 3
 
 // ─── ModelParams (per-ask override) ─────────────────────────────────────────
 
@@ -150,4 +150,3 @@ type ModelParams struct {
 	// Set by the task router for L1; may be set from delegation context for L2/L3.
 	Level string
 }
-
