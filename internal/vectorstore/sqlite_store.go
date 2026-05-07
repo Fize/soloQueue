@@ -1,17 +1,16 @@
 package vectorstore
 
 import (
+	"container/heap"
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"log"
 	"math"
-	"os"
-	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
 // SQLiteStore stores memory entries in a SQLite database.
@@ -19,40 +18,46 @@ import (
 // Writes are serialized via mutex; reads are concurrent.
 type SQLiteStore struct {
 	db *sql.DB
-	mu sync.Mutex // serializes Upsert calls (SQLite single-writer)
+	mu *sync.Mutex // serializes writes (SQLite single-writer); may be shared with other stores
+	// ownsDB indicates whether Close should close the underlying *sql.DB.
+	// When a caller injects a shared DB via NewSQLiteStoreFromDB, ownership
+	// stays with the caller and ownsDB is false.
+	ownsDB   bool
+	sharedDB *sqlitedb.DB // non-nil only when this store owns the *sqlitedb.DB (path-based constructor)
 }
 
-// NewSQLiteStore opens or creates a SQLite-backed vector store.
+// NewSQLiteStore opens or creates a SQLite-backed vector store that owns
+// its own connection. Prefer NewSQLiteStoreFromDB when the same database
+// file is shared with other stores (e.g. the todo store).
 func NewSQLiteStore(path string) (*SQLiteStore, error) {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL")
+	shared, err := sqlitedb.Open(path)
 	if err != nil {
 		return nil, err
 	}
-
-	s := &SQLiteStore{db: db}
-
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS memories (
-		id TEXT PRIMARY KEY,
-		content TEXT NOT NULL,
-		embedding BLOB NOT NULL,
-		timestamp TEXT NOT NULL,
-		source TEXT NOT NULL DEFAULT ''
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	return s, nil
+	return &SQLiteStore{
+		db:       shared.DB,
+		mu:       &shared.WMu,
+		ownsDB:   true,
+		sharedDB: shared,
+	}, nil
 }
 
-// Close closes the database connection.
+// NewSQLiteStoreFromDB wires the vector store onto an externally managed
+// shared database. The caller owns db and is responsible for closing it.
+// mu must be the write mutex shared by all stores on the same file so that
+// writes are serialized across stores (SQLite allows only one writer).
+func NewSQLiteStoreFromDB(db *sql.DB, mu *sync.Mutex) *SQLiteStore {
+	return &SQLiteStore{db: db, mu: mu, ownsDB: false}
+}
+
+// Close releases resources owned by this store. When the store was created
+// via NewSQLiteStoreFromDB it does NOT close the underlying database,
+// because the caller retains ownership.
 func (s *SQLiteStore) Close() error {
-	return s.db.Close()
+	if s.ownsDB && s.sharedDB != nil {
+		return s.sharedDB.Close()
+	}
+	return nil
 }
 
 // Upsert inserts or replaces a memory entry.
@@ -78,6 +83,15 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if topK <= 0 {
+		return []MemoryEntry{}, nil
+	}
+
+	// Pre-normalize the query vector once to avoid recomputing its norm
+	// for every row. We compute dot(queryNorm, b) / normB per row, which
+	// is numerically equivalent to the original CosineSimilarity formula
+	// up to float32 rounding.
+	queryNorm, queryHasNorm := normalizeVector(embedding)
 
 	rows, err := s.db.QueryContext(ctx, `SELECT id, content, embedding, timestamp, source FROM memories`)
 	if err != nil {
@@ -85,43 +99,96 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 	}
 	defer rows.Close()
 
-	type scored struct {
-		entry MemoryEntry
-		score float32
-	}
+	h := &scoredHeap{}
+	heap.Init(h)
 
-	var results []scored
+	// Reusable decode buffer for rows that do NOT make it into the heap.
+	// Rows that DO enter the heap get their own copy (we still need to
+	// return entry.Embedding in the result, preserving the original
+	// Query semantics). Size is fixed on first decode.
+	var buf []float32
+	var scanned, kept int
 	for rows.Next() {
-		var entry MemoryEntry
-		var embedBlob []byte
-		var ts string
-		if err := rows.Scan(&entry.ID, &entry.Content, &embedBlob, &ts, &entry.Source); err != nil {
+		scanned++
+		var (
+			id, content, source string
+			embedBlob           []byte
+			ts                  string
+		)
+		if err := rows.Scan(&id, &content, &embedBlob, &ts, &source); err != nil {
+			log.Printf("vectorstore: skip row due to scan error: %v", err)
 			continue
 		}
-		entry.Timestamp, _ = time.Parse(time.RFC3339, ts)
-		entry.Embedding = decodeEmbedding(embedBlob)
 
-		sim := CosineSimilarity(embedding, entry.Embedding)
-		if sim >= minSimilarity {
-			results = append(results, scored{entry: entry, score: sim})
+		// Decode embedding into buf (allocate/resize once).
+		n := len(embedBlob) / 4
+		if n == 0 {
+			// Row has no embedding: skip but log (same outcome as before,
+			// since CosineSimilarity would return 0 and fail threshold
+			// for any positive minSimilarity; logging helps diagnose).
+			log.Printf("vectorstore: skip row id=%q due to empty embedding", id)
+			continue
+		}
+		if cap(buf) < n {
+			buf = make([]float32, n)
+		} else {
+			buf = buf[:n]
+		}
+		for i := 0; i < n; i++ {
+			buf[i] = math.Float32frombits(binary.LittleEndian.Uint32(embedBlob[i*4:]))
+		}
+
+		// Compute similarity. If dimensions mismatch or either norm is
+		// zero, similarity is 0 (same as CosineSimilarity).
+		var sim float32
+		if queryHasNorm && len(queryNorm) == n {
+			dot, normB := dotAndNormB(queryNorm, buf)
+			if normB > 0 {
+				sim = float32(dot / normB)
+			}
+		}
+
+		if sim < minSimilarity {
+			continue
+		}
+
+		// Candidate qualifies. If heap not full, push. Otherwise only
+		// replace the min if strictly better.
+		if h.Len() < topK {
+			entry := MemoryEntry{
+				ID:        id,
+				Content:   content,
+				Embedding: append([]float32(nil), buf...),
+				Source:    source,
+			}
+			entry.Timestamp, _ = time.Parse(time.RFC3339, ts)
+			heap.Push(h, scored{entry: entry, score: sim})
+			kept++
+		} else if sim > (*h)[0].score {
+			entry := MemoryEntry{
+				ID:        id,
+				Content:   content,
+				Embedding: append([]float32(nil), buf...),
+				Source:    source,
+			}
+			entry.Timestamp, _ = time.Parse(time.RFC3339, ts)
+			(*h)[0] = scored{entry: entry, score: sim}
+			heap.Fix(h, 0)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].score > results[j].score
-	})
-
-	if topK > len(results) {
-		topK = len(results)
+	// Drain heap into descending-order slice.
+	size := h.Len()
+	out := make([]MemoryEntry, size)
+	for i := size - 1; i >= 0; i-- {
+		out[i] = heap.Pop(h).(scored).entry
 	}
 
-	out := make([]MemoryEntry, topK)
-	for i := 0; i < topK; i++ {
-		out[i] = results[i].entry
-	}
+	log.Printf("vectorstore: Query scanned=%d kept=%d returned=%d topK=%d minSim=%.4f",
+		scanned, kept, len(out), topK, minSimilarity)
 	return out, nil
 }
 
@@ -162,3 +229,63 @@ func decodeEmbedding(b []byte) []float32 {
 
 // Compile-time check
 var _ VectorStore = (*SQLiteStore)(nil)
+
+// --- internal helpers for Query (kept package-private) ---
+
+// scored pairs an entry with its similarity score.
+type scored struct {
+	entry MemoryEntry
+	score float32
+}
+
+// scoredHeap is a min-heap of scored items (smallest score at index 0).
+// Used by Query to maintain the top-K largest scores in O(n log K).
+type scoredHeap []scored
+
+func (h scoredHeap) Len() int            { return len(h) }
+func (h scoredHeap) Less(i, j int) bool  { return h[i].score < h[j].score }
+func (h scoredHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *scoredHeap) Push(x interface{}) { *h = append(*h, x.(scored)) }
+func (h *scoredHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
+}
+
+// normalizeVector returns a unit-length copy of v. The second return
+// value is false when v has zero norm (or is empty), meaning any cosine
+// similarity against it is 0.
+func normalizeVector(v []float32) ([]float32, bool) {
+	if len(v) == 0 {
+		return nil, false
+	}
+	var sq float64
+	for _, x := range v {
+		sq += float64(x) * float64(x)
+	}
+	if sq == 0 {
+		return nil, false
+	}
+	inv := 1.0 / math.Sqrt(sq)
+	out := make([]float32, len(v))
+	for i, x := range v {
+		out[i] = float32(float64(x) * inv)
+	}
+	return out, true
+}
+
+// dotAndNormB returns (dot(aNorm, b), |b|) in one pass. aNorm is assumed
+// to be already unit-normalized; only b's norm is computed. Both slices
+// must have the same length (checked by the caller).
+func dotAndNormB(aNorm, b []float32) (float64, float64) {
+	var dot, sqB float64
+	for i := range aNorm {
+		ai := float64(aNorm[i])
+		bi := float64(b[i])
+		dot += ai * bi
+		sqB += bi * bi
+	}
+	return dot, math.Sqrt(sqB)
+}

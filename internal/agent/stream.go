@@ -810,6 +810,15 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	relayDone := make(chan struct{})
 	go func() {
 		defer close(relayDone)
+		defer func() {
+			if r := recover(); r != nil {
+				if a.Log != nil {
+					a.Log.ErrorContext(ctx, logger.CatTool, "stream tool relay goroutine panic recovered",
+						"panic", fmt.Sprintf("%v", r),
+					)
+				}
+			}
+		}()
 		for ev := range relayCh {
 			if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
 				a.emit(ctx, out, ev.(AgentEvent))

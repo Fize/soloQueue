@@ -95,7 +95,7 @@ func (s State) String() string {
 //
 // 值的选择：8 足够吸收短时突发；满了的 Ask 会阻塞（有 ctx 兜底），不丢消息。
 // 需要更大容量的场景通过 WithMailboxCap(N) 指定。
-const DefaultMailboxCap = 8
+const DefaultMailboxCap = 16
 
 // DefaultMaxIterations is the default maximum number of tool-use loop
 // iterations per Ask call.
@@ -103,7 +103,7 @@ const DefaultMailboxCap = 8
 // 100 accommodates complex multi-step tasks and delegation resumption.
 // Typical tasks: 2-4 rounds; with delegation: 10-20 rounds.
 // Exceeding 100 strongly suggests the LLM is looping or tools are misconfigured.
-const DefaultMaxIterations = 100
+const DefaultMaxIterations = 200
 
 // DefaultContextWindow is the fallback context window size (tokens).
 // Used when Definition.ContextWindow is unset (<= 0).

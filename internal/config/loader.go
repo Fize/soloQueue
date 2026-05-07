@@ -268,7 +268,17 @@ func (l *Loader[T]) Watch() error {
 		}
 	}
 
-	go l.watchLoop()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if l.log != nil {
+					l.log.ErrorContext(context.Background(), logger.CatConfig, "config watchLoop goroutine panic recovered",
+						"panic", fmt.Sprintf("%v", r))
+				}
+			}
+		}()
+		l.watchLoop()
+	}()
 	return nil
 }
 
