@@ -91,7 +91,7 @@ func (m *model) addHistory(line string) {
 }
 
 func (m *model) navHistory(dir int) {
-	if len(m.history) == 0 || m.isGenerating || m.confirmState != nil {
+	if len(m.history) == 0 || m.isGenerating || len(m.confirmQueue) > 0 {
 		return
 	}
 	if m.historyIdx == 0 && dir < 0 {
