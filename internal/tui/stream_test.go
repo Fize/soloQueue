@@ -82,11 +82,11 @@ func TestHandleToolConfirm_WithOptions(t *testing.T) {
 	m := &model{}
 	ev := agent.ToolNeedsConfirmEvent{CallID: "call-1", Prompt: "Allow file write?", Options: []string{"yes", "no"}}
 	m.handleToolConfirm(ev)
-	if m.confirmState == nil || m.confirmState.callID != "call-1" {
-		t.Error("confirmState should be set with correct callID")
+	if len(m.confirmQueue) == 0 || m.confirmQueue[0].callID != "call-1" {
+		t.Error("confirmQueue should be set with correct callID")
 	}
-	if len(m.confirmState.options) != 2 || m.confirmState.selected != 0 {
-		t.Error("confirmState options wrong")
+	if len(m.confirmQueue[0].options) != 2 || m.confirmQueue[0].selected != 0 {
+		t.Error("confirmQueue options wrong")
 	}
 }
 
@@ -94,7 +94,7 @@ func TestHandleToolConfirm_BinaryChoice(t *testing.T) {
 	m := &model{}
 	ev := agent.ToolNeedsConfirmEvent{CallID: "call-2", Prompt: "Run command?"}
 	m.handleToolConfirm(ev)
-	if m.confirmState == nil || len(m.confirmState.options) < 2 {
+	if len(m.confirmQueue) == 0 || len(m.confirmQueue[0].options) < 2 {
 		t.Error("binary options should have at least 2 choices")
 	}
 }
@@ -103,11 +103,11 @@ func TestHandleToolConfirm_AllowInSession(t *testing.T) {
 	m := &model{}
 	ev := agent.ToolNeedsConfirmEvent{CallID: "call-3", Prompt: "Run command?", AllowInSession: true}
 	m.handleToolConfirm(ev)
-	if m.confirmState == nil || len(m.confirmState.options) != 3 {
-		t.Errorf("with AllowInSession, options = %d, want 3", len(m.confirmState.options))
+	if len(m.confirmQueue) == 0 || len(m.confirmQueue[0].options) != 3 {
+		t.Errorf("with AllowInSession, options = %d, want 3", len(m.confirmQueue[0].options))
 	}
 	found := false
-	for _, opt := range m.confirmState.options {
+	for _, opt := range m.confirmQueue[0].options {
 		if strings.HasPrefix(opt, "[a]") {
 			found = true
 		}
@@ -317,8 +317,8 @@ func TestHandleAgentEvent_ToolNeedsConfirm(t *testing.T) {
 	m := newTestModel()
 	m.current = &streamState{toolExecMap: make(map[string]*toolExecInfo)}
 	m.handleAgentEvent(agent.ToolNeedsConfirmEvent{CallID: "c1", Prompt: "Allow?", Options: []string{"yes", "no"}})
-	if m.confirmState == nil || m.confirmState.callID != "c1" {
-		t.Error("confirmState should be set")
+	if len(m.confirmQueue) == 0 || m.confirmQueue[0].callID != "c1" {
+		t.Error("confirmQueue should be set")
 	}
 }
 

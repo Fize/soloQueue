@@ -128,7 +128,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			}
 		}
 
-		dt := tools.NewDelegateTool(leader.Name, leader.Description, 0, b.RT.AgentRegistry, sessLog)
+		dt := tools.NewDelegateTool(leader.Name, leader.Description, 20*time.Minute, b.RT.AgentRegistry, sessLog)
 		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
 			// Prefer an idle instance to avoid cold-start latency.
 			if loc, ok := b.RT.AgentRegistry.LocateIdle(leader.Name); ok {
@@ -198,9 +198,15 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		agent.WithSkills(skillList...),
 		agent.WithParallelTools(true),
 		agent.WithPriorityMailbox(),
-		agent.WithToolTimeout("shell_exec", 30*time.Second),
-		agent.WithToolTimeout("http_fetch", 10*time.Second),
-		agent.WithToolTimeout("web_search", 15*time.Second),
+		agent.WithToolTimeout("Glob", 30*time.Second),
+		agent.WithToolTimeout("Grep", 30*time.Second),
+		agent.WithToolTimeout("Read", 30*time.Second),
+		agent.WithToolTimeout("Write", 30*time.Second),
+		agent.WithToolTimeout("Edit", 30*time.Second),
+		agent.WithToolTimeout("MultiWrite", 30*time.Second),
+		agent.WithToolTimeout("MultiEdit", 30*time.Second),
+		agent.WithToolTimeout("WebFetch", 10*time.Minute),
+		agent.WithToolTimeout("WebSearch", 10*time.Minute),
 	)
 	b.RT.AgentRegistry.Register(a)
 
@@ -215,7 +221,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		sessLog.Info(logger.CatActor, "auto-reload: leader supervisor created",
 			"name", name, "group", group)
 
-		dt := tools.NewDelegateTool(name, name+" team leader", 0, b.RT.AgentRegistry, sessLog)
+		dt := tools.NewDelegateTool(name, name+" team leader", 20*time.Minute, b.RT.AgentRegistry, sessLog)
 		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
 			// Prefer an idle instance to enable parallel delegation.
 			if loc, ok := b.RT.AgentRegistry.LocateIdle(name); ok {

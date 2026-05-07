@@ -332,13 +332,13 @@ func TestHandleConfirmEnter_NilState(t *testing.T) {
 	m := newTestModel()
 	_, cmd := m.handleConfirmEnter()
 	if cmd != nil {
-		t.Error("nil confirmState should return nil cmd")
+		t.Error("empty confirmQueue should return nil cmd")
 	}
 }
 
 func TestHandleConfirmEnter_Approve(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"[y] confirm", "[n] deny"}, selected: 0}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"[y] confirm", "[n] deny"}, selected: 0}}
 	_, cmd := m.handleConfirmEnter()
 	crm := cmd().(confirmResultMsg)
 	if crm.callID != "c1" || crm.choice != "yes" {
@@ -348,7 +348,7 @@ func TestHandleConfirmEnter_Approve(t *testing.T) {
 
 func TestHandleConfirmEnter_Deny(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"[y] confirm", "[n] deny"}, selected: 1}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"[y] confirm", "[n] deny"}, selected: 1}}
 	_, cmd := m.handleConfirmEnter()
 	crm := cmd().(confirmResultMsg)
 	if crm.choice != "" {
@@ -358,7 +358,7 @@ func TestHandleConfirmEnter_Deny(t *testing.T) {
 
 func TestHandleConfirmEnter_AllowInSession(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"[y] confirm", "[n] deny", "[a] allow in session"}, selected: 2}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"[y] confirm", "[n] deny", "[a] allow in session"}, selected: 2}}
 	_, cmd := m.handleConfirmEnter()
 	crm := cmd().(confirmResultMsg)
 	if crm.choice != "allow-in-session" {
@@ -368,7 +368,7 @@ func TestHandleConfirmEnter_AllowInSession(t *testing.T) {
 
 func TestHandleConfirmEnter_CustomOption(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"option A", "option B"}, selected: 1}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"option A", "option B"}, selected: 1}}
 	_, cmd := m.handleConfirmEnter()
 	crm := cmd().(confirmResultMsg)
 	if crm.choice != "option B" {
@@ -453,10 +453,10 @@ func TestUpdate_EscDuringGeneration(t *testing.T) {
 
 func TestUpdate_EnterWithConfirmState(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"[y] confirm", "[n] deny"}, selected: 0}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"[y] confirm", "[n] deny"}, selected: 0}}
 	_, cmd := m.Update(keyPress("enter"))
 	if cmd == nil {
-		t.Error("Enter with confirmState should return a cmd")
+		t.Error("Enter with confirmQueue should return a cmd")
 	}
 }
 
@@ -500,31 +500,31 @@ func TestUpdate_CtrlA_ToggleAgentsPane(t *testing.T) {
 
 func TestUpdate_UpWithConfirmState(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"a", "b", "c"}, selected: 1}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"a", "b", "c"}, selected: 1}}
 	updated, _ := m.Update(keyPress("up"))
 	um := updated.(model)
-	if um.confirmState.selected != 0 {
-		t.Errorf("selected = %d, want 0 after up", um.confirmState.selected)
+	if um.confirmQueue[0].selected != 0 {
+		t.Errorf("selected = %d, want 0 after up", um.confirmQueue[0].selected)
 	}
 }
 
 func TestUpdate_UpWithConfirmStateAtTop(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"a", "b"}, selected: 0}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"a", "b"}, selected: 0}}
 	updated, _ := m.Update(keyPress("up"))
 	um := updated.(model)
-	if um.confirmState.selected != 0 {
-		t.Errorf("selected should stay at 0, got %d", um.confirmState.selected)
+	if um.confirmQueue[0].selected != 0 {
+		t.Errorf("selected should stay at 0, got %d", um.confirmQueue[0].selected)
 	}
 }
 
 func TestUpdate_DownWithConfirmState(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"a", "b", "c"}, selected: 1}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"a", "b", "c"}, selected: 1}}
 	updated, _ := m.Update(keyPress("down"))
 	um := updated.(model)
-	if um.confirmState.selected != 2 {
-		t.Errorf("selected = %d, want 2 after down", um.confirmState.selected)
+	if um.confirmQueue[0].selected != 2 {
+		t.Errorf("selected = %d, want 2 after down", um.confirmQueue[0].selected)
 	}
 }
 
@@ -748,10 +748,10 @@ func TestUpdate_ResetQuitMsg(t *testing.T) {
 
 func TestUpdate_ConfirmResultMsg_NilConfirmState(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = nil
+	m.confirmQueue = nil
 	um, _ := m.Update(confirmResultMsg{callID: "c1", choice: "approve"})
-	if um.(model).confirmState != nil {
-		t.Error("confirmState should remain nil")
+	if len(um.(model).confirmQueue) != 0 {
+		t.Error("confirmQueue should remain empty")
 	}
 }
 
@@ -774,14 +774,14 @@ func TestUpdate_AgentTickMsg(t *testing.T) {
 
 func TestUpdate_TextAreaPassthrough(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = nil
+	m.confirmQueue = nil
 	updated, _ := m.Update(keyPress("x"))
 	_ = updated.(model)
 }
 
 func TestUpdate_TextAreaPassthrough_WithConfirm(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = &confirmState{callID: "c1", options: []string{"a"}, selected: 0}
+	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"a"}, selected: 0}}
 	updated, _ := m.Update(keyPress("x"))
 	_ = updated.(model)
 }
@@ -918,7 +918,7 @@ var _ = fmt.Sprintf
 
 func TestUpdate_PasteMsg_ForwardedToTextarea(t *testing.T) {
 	m := newTestModel()
-	m.confirmState = nil
+	m.confirmQueue = nil
 	m.isGenerating = false
 	updated, _ := m.Update(tea.PasteMsg{Content: "hello world"})
 	um := updated.(model)
