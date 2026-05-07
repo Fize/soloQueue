@@ -46,7 +46,3 @@ soloqueue/
 ├── go.mod
 └── go.sum
 ```
-
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Go](https://marketplace.visualstudio.com/items?itemName=golang.go)
