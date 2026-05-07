@@ -21,7 +21,7 @@ type sidebar struct {
 	// Static template data for tree rendering (no running agents needed).
 	templates     []agent.AgentTemplate
 	groups        map[string]prompt.GroupFile
-	assistantName string // name parsed from profile.md for L1 agent
+	assistantName string // name parsed from soul.md for L1 agent
 
 	// teamViewport provides scrollable team tree in the left sidebar.
 	teamViewport viewport.Model

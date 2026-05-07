@@ -62,7 +62,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			// so pass it as the profileSetup callback
 			profileSetup := func(cfg *prompt.PromptConfig) error {
 				answers := promptProfileQuestions()
-				return cfg.WriteProfile(answers)
+				return cfg.WriteSoul(answers)
 			}
 
 			rt, err := runtime.Build(workDir, cfg, log, profileSetup)
@@ -138,7 +138,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				SupervisorsFn:  func() []*agent.Supervisor { return rt.Supervisors },
 				Skills:         rt.SkillRegistry,
 				NotifyCh:       rt.PermNotifyCh,
-				AssistantName:  prompt.ReadProfileName(rt.PromptCfg),
+				AssistantName:  prompt.ReadSoulName(rt.PromptCfg),
 				Templates:      rt.AllTemplates,
 				Groups:         rt.Groups,
 				HTTPServerAddr: httpServerAddr,

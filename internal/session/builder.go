@@ -56,7 +56,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	}
 	def := agent.Definition{
 		ID:              agentID,
-		Name:            prompt.ReadProfileName(b.RT.PromptCfg),
+		Name:            prompt.ReadSoulName(b.RT.PromptCfg),
 		Kind:            agent.KindCustom,
 		ModelID:         effectiveModelID,
 		Temperature:     defModel.Generation.Temperature,
