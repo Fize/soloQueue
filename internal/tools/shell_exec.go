@@ -21,7 +21,7 @@ import (
 //   - Command 命中 ShellBlockRegexes → 直接拒绝
 //   - Command 命中 ShellConfirmRegexes + confirmed=false → 需要用户确认
 //   - /bin/sh -c <command>
-//   - ShellTimeout 通过 exec.CommandContext；超时子进程收到 SIGKILL
+//   - 超时由上游 context（DefaultToolTimeout）控制，子进程收到 SIGKILL
 //   - stdout/stderr 各自限 ShellMaxOutput 字节（超出截断，truncated=true）
 //   - 用户可选 Stdin（string）→ 写入 cmd stdin
 //
@@ -162,17 +162,12 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 	start := time.Now()
 
-	timeout := t.cfg.ShellTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
 	maxOut := t.cfg.ShellMaxOutput
 	if maxOut <= 0 {
 		maxOut = 256 << 10
 	}
 
 	res, err := t.cfg.Executor.RunCommand(ctx, a.Command, sandbox.RunCommandOptions{
-		Timeout:   timeout,
 		Stdin:     a.Stdin,
 		MaxOutput: maxOut,
 	})
