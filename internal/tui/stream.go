@@ -89,6 +89,8 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 		}
 
 	case agent.IterationDoneEvent:
+		m.current.flushContent()
+		m.current.flushThinking()
 		m.promptTokens += e.Usage.PromptTokens
 		m.outputTokens += e.Usage.CompletionTokens
 		m.cacheHitTokens += e.Usage.PromptCacheHitTokens
