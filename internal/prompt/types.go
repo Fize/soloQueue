@@ -31,9 +31,9 @@ func DefaultProfileAnswers() ProfileAnswers {
 // SoulNeededError is returned when soul.md is missing.
 // The caller handles the interactive questionnaire flow.
 type SoulNeededError struct {
-	RoleID string
+	RoleID string // Kept for backward compatibility, now refers to "default" role
 }
 
 func (e *SoulNeededError) Error() string {
-	return "soul.md not found for role: " + e.RoleID
+	return "soul.md not found in roles directory"
 }
