@@ -303,6 +303,11 @@ func (d *DockerSandbox) Exec(ctx context.Context, cmd string) (stdout []byte, st
 	}
 	outCh := make(chan execOut, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				outCh <- execOut{nil, fmt.Errorf("exec I/O goroutine panic: %v", r)}
+			}
+		}()
 		all, err := io.ReadAll(attachResp.Reader)
 		outCh <- execOut{all, err}
 	}()

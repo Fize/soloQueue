@@ -117,6 +117,11 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				rt.httpServer = &http.Server{Handler: httpMux}
 				rt.httpListener = httpListener
 				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Error(logger.CatApp, "HTTP server goroutine panic recovered", fmt.Errorf("panic: %v", r))
+						}
+					}()
 					log.Info(logger.CatApp, "HTTP API server started", "addr", httpServerAddr)
 					if err := rt.httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
 						log.Warn(logger.CatApp, "HTTP server error", "err", err)
@@ -129,6 +134,11 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			sandboxCh := make(chan tui.SandboxInitMsg, 1)
 
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error(logger.CatApp, "sandbox init goroutine panic recovered", fmt.Errorf("panic: %v", r))
+					}
+				}()
 				sb, executor, err := startSandbox(context.Background(), rt.sandboxMounts, log)
 				if err != nil {
 					sandboxCh <- tui.SandboxInitMsg{Err: err}

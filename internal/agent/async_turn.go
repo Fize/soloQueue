@@ -212,6 +212,11 @@ func (a *Agent) execToolsWithAsync(
 			relayDone := make(chan struct{})
 			go func() {
 				defer close(relayDone)
+				defer func() {
+					if r := recover(); r != nil {
+						a.RecordError(fmt.Errorf("relay goroutine panic: %v", r))
+					}
+				}()
 				for ev := range relayCh {
 					if a.Log != nil {
 						a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: received event from relayCh",
@@ -286,7 +291,14 @@ func (a *Agent) execToolsWithAsync(
 							"target_agent_id", task.targetAgentID,
 						)
 					}
-					go forwarder(delCtx, callID, action.Target)
+					go func(fc context.Context, cid string, target iface.Locatable) {
+						defer func() {
+							if r := recover(); r != nil {
+								a.RecordError(fmt.Errorf("forwarder goroutine panic: %v", r))
+							}
+						}()
+						forwarder(fc, cid, target)
+					}(delCtx, callID, action.Target)
 				}
 
 				if delta, has := ec.ContentDelta(); has {
@@ -327,12 +339,26 @@ func (a *Agent) execToolsWithAsync(
 
 		// 启动所有异步 goroutine（状态已绝对安全落盘）
 		for _, action := range asyncActions {
-			go action()
+			go func(act func()) {
+				defer func() {
+					if r := recover(); r != nil {
+						a.RecordError(fmt.Errorf("async action goroutine panic: %v", r))
+					}
+				}()
+				act()
+			}(action)
 		}
 
 		// 启动结果回收 goroutine（每个 delegatedTask 一个）
 		for _, task := range tasks {
-			go a.watchDelegatedTask(task)
+			go func(t *delegatedTask) {
+				defer func() {
+					if r := recover(); r != nil {
+						a.RecordError(fmt.Errorf("watchDelegatedTask goroutine panic: %v", r))
+					}
+				}()
+				a.watchDelegatedTask(t)
+			}(task)
 		}
 	}
 
