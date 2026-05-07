@@ -8,18 +8,17 @@ import (
 	"time"
 )
 
-func mkShellTool(t *testing.T, confirm []string, timeout time.Duration, maxOut int64) *shellExecTool {
+func mkShellTool(t *testing.T, confirm []string, maxOut int64) *shellExecTool {
 	t.Helper()
 	cfg := Config{
 		ShellConfirmRegexes: confirm,
-		ShellTimeout:        timeout,
 		ShellMaxOutput:      maxOut,
 	}
 	return newShellExecTool(cfg)
 }
 
 func TestShell_HappyEcho(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "echo ok"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -36,7 +35,7 @@ func TestShell_HappyEcho(t *testing.T) {
 }
 
 func TestShell_NonZeroExit(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "exit 7"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -50,7 +49,7 @@ func TestShell_NonZeroExit(t *testing.T) {
 }
 
 func TestShell_Stderr(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: `echo err>&2`})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -75,10 +74,12 @@ func TestShell_BlockList(t *testing.T) {
 }
 
 func TestShell_Timeout(t *testing.T) {
-	tool := mkShellTool(t, nil, 50*time.Millisecond, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
 	raw, _ := json.Marshal(shellExecArgs{Command: "sleep 5"})
 	start := time.Now()
-	_, err := tool.Execute(context.Background(), string(raw))
+	_, err := tool.Execute(ctx, string(raw))
 	elapsed := time.Since(start)
 	if err == nil || !strings.Contains(err.Error(), "timeout") {
 		t.Errorf("err = %v, want timeout", err)
@@ -89,7 +90,7 @@ func TestShell_Timeout(t *testing.T) {
 }
 
 func TestShell_CtxCancel(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -103,7 +104,7 @@ func TestShell_CtxCancel(t *testing.T) {
 }
 
 func TestShell_Stdin(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "cat", Stdin: "piped input"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -117,10 +118,12 @@ func TestShell_Stdin(t *testing.T) {
 }
 
 func TestShell_OutputTruncation(t *testing.T) {
-	tool := mkShellTool(t, nil, 500*time.Millisecond, 100)
+	tool := mkShellTool(t, nil, 100)
 	// "yes" prints "y\n" forever; timeout kicks it, but truncation should fire first
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	raw, _ := json.Marshal(shellExecArgs{Command: "yes"})
-	out, err := tool.Execute(context.Background(), string(raw))
+	out, err := tool.Execute(ctx, string(raw))
 	// either timeout or execution returns a result; we care about truncation when not a hard error
 	if err == nil {
 		var r shellExecResult
@@ -135,7 +138,7 @@ func TestShell_OutputTruncation(t *testing.T) {
 }
 
 func TestShell_EmptyCommand(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: ""})
 	_, err := tool.Execute(context.Background(), string(raw))
 	if err == nil {
@@ -155,7 +158,7 @@ func TestShell_InvalidRegex(t *testing.T) {
 }
 
 func TestShell_InvalidJSON(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	_, err := tool.Execute(context.Background(), `{not json`)
 	if err == nil {
 		t.Error("invalid JSON should error")
@@ -163,7 +166,7 @@ func TestShell_InvalidJSON(t *testing.T) {
 }
 
 func TestShell_MetadataInterface(t *testing.T) {
-	tool := mkShellTool(t, nil, 5*time.Second, 1<<20)
+	tool := mkShellTool(t, nil, 1<<20)
 	if tool.Name() != "Bash" {
 		t.Errorf("Name = %q", tool.Name())
 	}

@@ -66,7 +66,6 @@ type ToolsConfig struct {
 	// Bash
 	ShellBlockRegexes   []string `json:"shellBlockRegexes"`
 	ShellConfirmRegexes []string `json:"shellConfirmRegexes"`
-	ShellTimeoutMs      int      `json:"shellTimeoutMs"`
 	ShellMaxOutput      int64    `json:"shellMaxOutput"`
 
 	// WebSearch

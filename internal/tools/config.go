@@ -86,10 +86,7 @@ type Config struct {
 	// ShellConfirmRegexes 命令确认名单正则（命中后需用户确认）
 	ShellConfirmRegexes []string
 
-	// ShellTimeout 子进程超时
-	ShellTimeout time.Duration
-
-	// ShellMaxOutput stdout + stderr 各自上限（字节）
+	// ShellMaxOutput shell 输出最大字节数（stdout/stderr 各自截断）
 	ShellMaxOutput int64
 
 	// ── WebSearch ─────────────────────────────────────────────
@@ -190,7 +187,6 @@ func DefaultConfig() Config {
 		HTTPTimeout:      10 * time.Minute,
 		HTTPBlockPrivate: true,
 
-		ShellTimeout:   10 * time.Minute,
 		ShellMaxOutput: 256 << 10,
 
 		WebSearchTimeout: 10 * time.Minute,
