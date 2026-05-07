@@ -297,7 +297,20 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 
 		// Route confirmation requests to parent agent
 		if callID, has := ec.ConfirmRequest(); has && hasConfirmFwd {
-			go confirmFwd(delCtx, callID, targetAgent)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if dt.logger != nil {
+							dt.logger.ErrorContext(ctx, logger.CatTool, "delegate confirmFwd goroutine panic recovered",
+								"leader_id", dt.LeaderID,
+								"call_id", callID,
+								"panic", fmt.Sprintf("%v", r),
+							)
+						}
+					}
+				}()
+				confirmFwd(delCtx, callID, targetAgent)
+			}()
 
 			if dt.logger != nil {
 				dt.logger.DebugContext(ctx, logger.CatTool, "delegate: confirmation forwarded",

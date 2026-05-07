@@ -46,3 +46,16 @@ func (t *Tokenizer) Count(text string) int {
 	}
 	return len(t.enc.Encode(text, nil, nil))
 }
+
+// EstimateByLen 基于字符长度快速估算 token 数，不调用 BPE 编码。
+//
+// 用于截断后重新估算 token 数等对精度要求不高的场景。
+// 比率：每 token ≈ 3.3 bytes（cl100k_base 对中英混合的经验值）。
+// 误差可接受，因为 Calibrate 会在下次 API 调用时校准。
+func (t *Tokenizer) EstimateByLen(text string) int {
+	if text == "" {
+		return 0
+	}
+	// 3.3 bytes/token，向上取整避免低估
+	return (len(text) + 2) / 3
+}

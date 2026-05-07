@@ -164,7 +164,16 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 	}
 
 	ch := make(chan llm.Event, 16)
-	go c.streamLoop(ctx, httpResp, ch)
+	go func(ctx context.Context, resp *http.Response, ch chan<- llm.Event) {
+		defer func() {
+			if r := recover(); r != nil {
+				c.logError(ctx, "streamLoop panic recovered", fmt.Errorf("panic: %v", r))
+				close(ch)
+				resp.Body.Close()
+			}
+		}()
+		c.streamLoop(ctx, resp, ch)
+	}(ctx, httpResp, ch)
 	return ch, nil
 }
 
