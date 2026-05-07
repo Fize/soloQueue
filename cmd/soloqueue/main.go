@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/xiaobaitu/soloqueue/cmd/soloqueue/cli"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -58,10 +59,10 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 			cfg.SetLogger(log)
 
-			// promptProfileQuestions is only needed in TUI mode,
+			// cli.PromptProfileQuestions is only needed in TUI mode,
 			// so pass it as the profileSetup callback
 			profileSetup := func(cfg *prompt.PromptConfig) error {
-				answers := promptProfileQuestions()
+				answers := cli.PromptProfileQuestions()
 				return cfg.WriteSoul(answers)
 			}
 
@@ -146,9 +147,9 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 		},
 	}
 
-	root.AddCommand(versionCmd())
-	root.AddCommand(serveCmd())
-	root.AddCommand(cleanupCmd())
+	root.AddCommand(cli.VersionCmd(version))
+	root.AddCommand(cli.ServeCmd(version))
+	root.AddCommand(cli.CleanupCmd())
 
 	return root
 }
