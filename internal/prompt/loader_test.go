@@ -8,10 +8,10 @@ import (
 
 func TestEnsureFiles_CreatesRules(t *testing.T) {
 	dir := t.TempDir()
-	// 预先创建 profile.md，这样 EnsureFiles 不会返回 ProfileNeededError
+	// Pre-create soul.md so that EnsureFiles doesn't return SoulNeededError.
 	roleDir := filepath.Join(dir, "roles", "main_assistant")
 	os.MkdirAll(roleDir, 0o755)
-	os.WriteFile(filepath.Join(roleDir, "profile.md"), []byte("test profile"), 0o644)
+	os.WriteFile(filepath.Join(roleDir, "soul.md"), []byte("test soul"), 0o644)
 
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 	rulesCreated, err := cfg.EnsureFiles()
@@ -22,7 +22,7 @@ func TestEnsureFiles_CreatesRules(t *testing.T) {
 		t.Error("rulesCreated should be true when rules.md is newly created")
 	}
 
-	// 验证 rules.md 被创建
+	// Verify that rules.md was created.
 	data, err := os.ReadFile(cfg.RulesPath())
 	if err != nil {
 		t.Fatalf("read rules.md: %v", err)
@@ -32,18 +32,18 @@ func TestEnsureFiles_CreatesRules(t *testing.T) {
 	}
 }
 
-func TestEnsureFiles_ProfileNeeded(t *testing.T) {
+func TestEnsureFiles_SoulNeeded(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
 	_, err := cfg.EnsureFiles()
 	if err == nil {
-		t.Fatal("expected ProfileNeededError")
+		t.Fatal("expected SoulNeededError")
 	}
 
-	var profileErr *ProfileNeededError
-	if !errorAs(err, &profileErr) {
-		t.Fatalf("expected ProfileNeededError, got %T: %v", err, err)
+	var soulErr *SoulNeededError
+	if !errorAs(err, &soulErr) {
+		t.Fatalf("expected SoulNeededError, got %T: %v", err, err)
 	}
 }
 
@@ -51,9 +51,9 @@ func TestEnsureFiles_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
-	// 首次：写 profile，然后 EnsureFiles
+	// First: write soul, then EnsureFiles.
 	answers := DefaultProfileAnswers()
-	cfg.WriteProfile(answers)
+	cfg.WriteSoul(answers)
 
 	rulesCreated1, err := cfg.EnsureFiles()
 	if err != nil {
@@ -63,7 +63,7 @@ func TestEnsureFiles_Idempotent(t *testing.T) {
 		t.Error("first call should create rules")
 	}
 
-	// 第二次：rules 已存在
+	// Second: rules already exist.
 	rulesCreated2, err := cfg.EnsureFiles()
 	if err != nil {
 		t.Fatalf("second EnsureFiles: %v", err)
@@ -77,11 +77,11 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
-	// 创建所有必要文件
-	cfg.WriteProfile(DefaultProfileAnswers())
+	// Create all required files.
+	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
 
-	// 创建 user.md
+	// Create user.md
 	os.MkdirAll(filepath.Join(dir, "global"), 0o755)
 	os.WriteFile(filepath.Join(dir, "global", "user.md"), []byte("测试用户"), 0o644)
 
@@ -94,7 +94,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
 
-	// 验证 XML 组装
+	// Verify XML assembly.
 	if !contains(result, "<identity>") {
 		t.Error("missing <identity> tag")
 	}
@@ -125,9 +125,9 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
-	cfg.WriteProfile(DefaultProfileAnswers())
+	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
-	// 不创建 user.md
+	// Do not create user.md.
 
 	result, err := cfg.BuildPrompt(nil, "", "", "/home/user/.soloqueue/plan")
 	if err != nil {
@@ -149,7 +149,7 @@ func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
-	cfg.WriteProfile(DefaultProfileAnswers())
+	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
 
 	result, err := cfg.BuildPrompt(nil, "", "", "")
@@ -166,11 +166,11 @@ func TestBuildPrompt_DockerSandboxPath(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
-	// 创建所有必要文件
-	cfg.WriteProfile(DefaultProfileAnswers())
+	// Create all required files.
+	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
 
-	// 创建 user.md
+	// Create user.md
 	os.MkdirAll(filepath.Join(dir, "global"), 0o755)
 	os.WriteFile(filepath.Join(dir, "global", "user.md"), []byte("测试用户"), 0o644)
 
@@ -178,42 +178,42 @@ func TestBuildPrompt_DockerSandboxPath(t *testing.T) {
 		{Name: "dev", Description: "开发工程师", Group: "DevOps"},
 	}
 
-	// 模拟 Docker 沙箱模式：路径应替换为容器内路径 /root/.soloqueue/plan/
+	// Simulate Docker sandbox mode: path should be replaced with the in-container path /root/.soloqueue/plan/.
 	dockerPlanDir := "/root/.soloqueue/plan"
 	result, err := cfg.BuildPrompt(leaders, "", "", dockerPlanDir)
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
 
-	// 验证 plan_before_action 段存在
+	// Verify that the plan_before_action section exists.
 	if !contains(result, "<plan_before_action>") {
 		t.Error("missing <plan_before_action> section when planDir is provided")
 	}
 
-	// 验证 Docker 沙箱模式下路径替换为容器内路径
+	// Verify that the Docker sandbox mode path is replaced with the container path.
 	if !contains(result, "/root/.soloqueue/plan") {
 		t.Error("plan directory path should be replaced to Docker container path /root/.soloqueue/plan")
 	}
 
-	// 验证宿主机路径不应出现（Docker 沙箱模式下替换为容器路径）
+	// Verify that the host path does not appear (replaced with the container path in Docker sandbox mode).
 	if contains(result, dir+"/plan") {
 		t.Error("host path should not appear in Docker sandbox mode, should be replaced with container path")
 	}
 }
 
-func TestExtractProfileName(t *testing.T) {
+func TestExtractSoulName(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
 		want    string
 	}{
 		{
-			name:    "custom profile",
+			name:    "custom soul",
 			content: "You are 小Q, a personal assistant and the single point of interaction for the user.",
 			want:    "小Q",
 		},
 		{
-			name:    "preset profile with English name",
+			name:    "preset soul with English name",
 			content: "You are 韩立 (Han Li), a personal assistant and the single point of interaction for the user.",
 			want:    "韩立 (Han Li)",
 		},
@@ -224,7 +224,7 @@ func TestExtractProfileName(t *testing.T) {
 		},
 		{
 			name:    "no You are prefix",
-			content: "This is a plain text without profile format.",
+			content: "This is a plain text without soul format.",
 			want:    "",
 		},
 		{
@@ -246,33 +246,33 @@ func TestExtractProfileName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractProfileName(tt.content)
+			got := extractSoulName(tt.content)
 			if got != tt.want {
-				t.Errorf("extractProfileName() = %q, want %q", got, tt.want)
+				t.Errorf("extractSoulName() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestReadProfileName(t *testing.T) {
+func TestReadSoulName(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
-	// Profile doesn't exist yet
-	if name := ReadProfileName(cfg); name != "" {
-		t.Errorf("expected empty name for missing profile, got %q", name)
+	// Soul doesn't exist yet.
+	if name := ReadSoulName(cfg); name != "" {
+		t.Errorf("expected empty name for missing soul, got %q", name)
 	}
 
-	// Write a profile
-	cfg.WriteProfile(ProfileAnswers{Name: "测试助手", Gender: "female", Personality: "playful", CommStyle: "casual"})
+	// Write a soul.
+	cfg.WriteSoul(ProfileAnswers{Name: "测试助手", Gender: "female", Personality: "playful", CommStyle: "casual"})
 
-	name := ReadProfileName(cfg)
+	name := ReadSoulName(cfg)
 	if name != "测试助手" {
-		t.Errorf("ReadProfileName() = %q, want %q", name, "测试助手")
+		t.Errorf("ReadSoulName() = %q, want %q", name, "测试助手")
 	}
 }
 
-func TestWriteProfile(t *testing.T) {
+func TestWriteSoul(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RoleID: "main_assistant", BaseDir: dir}
 
@@ -282,17 +282,17 @@ func TestWriteProfile(t *testing.T) {
 		Personality: "playful",
 		CommStyle:   "casual",
 	}
-	if err := cfg.WriteProfile(answers); err != nil {
-		t.Fatalf("WriteProfile: %v", err)
+	if err := cfg.WriteSoul(answers); err != nil {
+		t.Fatalf("WriteSoul: %v", err)
 	}
 
-	data, err := os.ReadFile(cfg.profilePath())
+	data, err := os.ReadFile(cfg.soulPath())
 	if err != nil {
-		t.Fatalf("read profile: %v", err)
+		t.Fatalf("read soul: %v", err)
 	}
 	content := string(data)
 	if !contains(content, "You are 小Q") {
-		t.Error("profile should contain custom name")
+		t.Error("soul should contain custom name")
 	}
 }
 
@@ -303,16 +303,16 @@ func errorAs(err error, target interface{}) bool {
 }
 
 func errorAsStd(err error, target interface{}) bool {
-	// 简单使用标准 errors.As 的逻辑
+	// Simple reuse of the standard errors.As logic.
 	type errorAs interface {
 		As(interface{}) bool
 	}
 	if e, ok := err.(errorAs); ok {
 		return e.As(target)
 	}
-	// Fallback: direct type assertion
-	if ptr, ok := target.(**ProfileNeededError); ok {
-		if pe, ok := err.(*ProfileNeededError); ok {
+	// Fallback: direct type assertion.
+	if ptr, ok := target.(**SoulNeededError); ok {
+		if pe, ok := err.(*SoulNeededError); ok {
 			*ptr = pe
 			return true
 		}
