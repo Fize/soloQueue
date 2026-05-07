@@ -77,18 +77,7 @@ func (m *model) renderMessage(msg message) string {
 func (m *model) renderAgentMessageBody(msg message) string {
 	var sb strings.Builder
 	var lastKind timelineKind = -1
-	contentRendered := false // true once msg.content has been placed before the first tool
 	for _, entry := range msg.timeline {
-		// Render still-buffering LLM content before the first tool entry so that
-		// LLM output (thinking + content) always appears above tool calls.
-		if entry.kind == timelineTool && !contentRendered && msg.content != "" {
-			if lastKind >= 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString(m.renderContent(msg.content) + "\n")
-			contentRendered = true
-		}
-
 		if lastKind >= 0 && lastKind != entry.kind {
 			sb.WriteString("\n")
 		}
@@ -126,7 +115,8 @@ func (m *model) renderAgentMessageBody(msg message) string {
 		}
 		lastKind = entry.kind
 	}
-	if !contentRendered && msg.content != "" {
+	// Buffer content is the most recently arrived text — always append at the end
+	if msg.content != "" {
 		if lastKind >= 0 && lastKind != timelineContent {
 			sb.WriteString("\n")
 		}
