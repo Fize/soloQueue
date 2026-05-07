@@ -66,8 +66,8 @@ func Build(
 
 	// ── Prompt System ──────────────────────────────────────────────────────────
 	promptCfg := &prompt.PromptConfig{
-		RoleID:  "main_assistant",
-		BaseDir: filepath.Join(workDir, "prompts"),
+		RolesDir:  filepath.Join(workDir, "roles"),
+		GlobalDir: filepath.Join(workDir, "prompts", "global"),
 	}
 	rulesCreated, err := promptCfg.EnsureFiles()
 	if err != nil {

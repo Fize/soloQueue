@@ -7,25 +7,25 @@ import (
 	"strings"
 )
 
-// PromptConfig specifies which main Agent's prompt configuration is currently instantiated.
+// PromptConfig specifies the prompt configuration for the main Agent.
 type PromptConfig struct {
-	RoleID  string // e.g. "main_assistant"
-	BaseDir string // e.g. "/Users/xxx/.soloqueue/prompts"
+	RolesDir  string // e.g. "/Users/xxx/.soloqueue/roles"
+	GlobalDir string // e.g. "/Users/xxx/.soloqueue/prompts/global"
 }
 
-// soulPath returns the soul.md path for the current role.
+// soulPath returns the soul.md path.
 func (p *PromptConfig) soulPath() string {
-	return filepath.Join(p.BaseDir, "roles", p.RoleID, "soul.md")
+	return filepath.Join(p.RolesDir, "soul.md")
 }
 
-// RulesPath returns the rules.md path for the current role.
+// RulesPath returns the rules.md path.
 func (p *PromptConfig) RulesPath() string {
-	return filepath.Join(p.BaseDir, "roles", p.RoleID, "rules.md")
+	return filepath.Join(p.RolesDir, "rules.md")
 }
 
 // userCtxPath returns the global/user.md path.
 func (p *PromptConfig) userCtxPath() string {
-	return filepath.Join(p.BaseDir, "global", "user.md")
+	return filepath.Join(p.GlobalDir, "user.md")
 }
 
 // BuildPrompt assembles the complete system prompt.
@@ -52,7 +52,8 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanent
 	routingTable := buildRoutingTable(leaders)
 
 	// 5. Team management guide
-	workDir := filepath.Dir(p.BaseDir) // BaseDir = <workDir>/prompts
+	// Get workDir from RolesDir: RolesDir = <workDir>/.soloqueue/roles
+	workDir := filepath.Dir(filepath.Dir(p.RolesDir))
 	teamMgmt := buildTeamManagementSection(workDir)
 
 	// 6. Assemble XML
@@ -69,8 +70,8 @@ func (p *PromptConfig) EnsureFiles() (bool, error) {
 
 	// Make sure the directory structure exists.
 	dirs := []string{
-		filepath.Join(p.BaseDir, "global"),
-		filepath.Join(p.BaseDir, "roles", p.RoleID),
+		p.GlobalDir,
+		p.RolesDir,
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -84,7 +85,7 @@ func (p *PromptConfig) EnsureFiles() (bool, error) {
 		return false, err
 	}
 	if !soulExists {
-		return false, &SoulNeededError{RoleID: p.RoleID}
+		return false, &SoulNeededError{RoleID: "default"}
 	}
 
 	// Check rules.md
@@ -105,8 +106,7 @@ func (p *PromptConfig) EnsureFiles() (bool, error) {
 // WriteSoul writes the soul.md file based on the user's questionnaire answers.
 func (p *PromptConfig) WriteSoul(answers ProfileAnswers) error {
 	// Ensure the directory exists.
-	dir := filepath.Dir(p.soulPath())
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.RolesDir, 0o755); err != nil {
 		return fmt.Errorf("create soul dir: %w", err)
 	}
 	content := BuildProfile(answers)

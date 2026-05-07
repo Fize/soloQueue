@@ -4,26 +4,25 @@ This directory contains ready-to-use **soul profiles** — system prompts that d
 identity, voice, and behavior of the L1 (top-level) assistant in SoloQueue.
 
 Each file in this directory is a self-contained character profile. You can drop any of
-them into your assistant's role directory as `soul.md` and the assistant will adopt that
+them into your assistant's roles directory as `soul.md` and the assistant will adopt that
 persona on the next launch.
 
 ## How a Soul Is Loaded
 
-On startup, SoloQueue looks for the active role's soul at:
+On startup, SoloQueue looks for the soul at:
 
 ```
-<BaseDir>/roles/<RoleID>/soul.md
+<workDir>/.soloqueue/roles/soul.md
 ```
 
-- `<BaseDir>` is the prompts base directory (typically `<workDir>/prompts`).
-- `<RoleID>` is the active role identifier (e.g. `main_assistant`).
+- `<workDir>` is the project working directory.
 
 If `soul.md` is missing, SoloQueue launches the onboarding questionnaire and writes a
 generic profile based on your answers. To use one of the profiles here instead, just copy
 it into place **before** starting the app:
 
 ```bash
-cp docs/roles/hanli.md <BaseDir>/roles/<RoleID>/soul.md
+cp docs/roles/hanli.md <workDir>/.soloqueue/roles/soul.md
 ```
 
 You can also open `soul.md` in any editor at any time and paste in the content of one of
@@ -75,5 +74,5 @@ name. For example `You are Han Li, a personal assistant...` yields the display n
 
 - These files are **samples**, not runtime data. Editing them in place will not affect an
   already-configured assistant — you still need to copy or paste the content into
-  `soul.md` for the relevant role.
+  `soul.md` in the roles directory.
 - Feel free to fork, mix, and remix. A soul is just a Markdown document.
