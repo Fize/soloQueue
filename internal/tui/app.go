@@ -45,7 +45,7 @@ type Config struct {
 	// Static template data for sidebar agent tree (available before any agent runs).
 	Templates     []agent.AgentTemplate
 	Groups        map[string]prompt.GroupFile
-	AssistantName string // name parsed from profile.md for L1 display
+	AssistantName string // name parsed from soul.md for L1 display
 
 	// HTTPServerAddr is the address of the embedded HTTP API server.
 	// When non-empty, it is displayed in the RUNTIME sidebar section.

@@ -71,10 +71,10 @@ func Build(
 	}
 	rulesCreated, err := promptCfg.EnsureFiles()
 	if err != nil {
-		var profileErr *prompt.ProfileNeededError
+		var profileErr *prompt.SoulNeededError
 		if errors.As(err, &profileErr) {
 			if writeErr := profileSetup(promptCfg); writeErr != nil {
-				return nil, fmt.Errorf("write profile: %w", writeErr)
+				return nil, fmt.Errorf("write soul: %w", writeErr)
 			}
 			rulesCreated, err = promptCfg.EnsureFiles()
 			if err != nil {
