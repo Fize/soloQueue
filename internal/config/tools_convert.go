@@ -25,7 +25,6 @@ func (tc ToolsConfig) ToToolsConfig() tools.Config {
 
 		ShellBlockRegexes:   tc.ShellBlockRegexes,
 		ShellConfirmRegexes: tc.ShellConfirmRegexes,
-		ShellTimeout:        msToDuration(tc.ShellTimeoutMs, 10*time.Minute),
 		ShellMaxOutput:      defaultInt64(tc.ShellMaxOutput, 256<<10),
 
 		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 10*time.Minute),

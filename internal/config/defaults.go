@@ -38,7 +38,6 @@ func DefaultSettings() Settings {
 				`^\s*format\b`,
 				`^\s*diskpart\b`,
 			},
-			ShellTimeoutMs: 600000,
 			ShellMaxOutput: 256 << 10,
 
 			WebSearchTimeoutMs: 600000,
