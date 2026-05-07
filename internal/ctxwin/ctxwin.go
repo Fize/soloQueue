@@ -267,7 +267,17 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 				"waterline_exceeded_pct", float64(cw.currentTokens-cw.summaryTokens)*100.0/float64(cw.summaryTokens),
 			)
 		}
-		go cw.asyncCompact()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					if cw.log != nil {
+						cw.log.ErrorContext(context.Background(), logger.CatMessages, "asyncCompact panic recovered", fmt.Errorf("panic: %v", r))
+					}
+					cw.summarizing.Store(false)
+				}
+			}()
+			cw.asyncCompact()
+		}()
 	}
 
 	// Push hook (not called during replay)
