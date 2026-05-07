@@ -67,9 +67,10 @@ func (cw *ContextWindow) truncateMiddleOut() bool {
 		}
 		msg.Content = newContent
 
-		// 重新計算 token（包含 Content + ReasoningContent）
+		// 重新估算 token（用字符长度快速估算，避免截断路径上的 BPE 开销）
+		// Calibrate 会在下次 API 调用时用精确值校准
 		oldTokens := msg.Tokens
-		newTokens := cw.tokenizer.Count(msg.Content) + cw.tokenizer.Count(msg.ReasoningContent)
+		newTokens := cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
 		savedTokens := oldTokens - newTokens
 		cw.currentTokens -= savedTokens
 		msg.Tokens = newTokens
@@ -142,7 +143,7 @@ func tryJSONObjectTruncate(content string, tokenizer *Tokenizer) string {
 		if !ok || !largeFields[key] {
 			continue
 		}
-		if tokenizer.Count(strVal) < largeFieldTokenThreshold {
+		if tokenizer.EstimateByLen(strVal) < largeFieldTokenThreshold {
 			continue
 		}
 		obj[key] = charLevelTruncate(strVal, 0.10, 0.20)
@@ -165,7 +166,7 @@ func tryJSONObjectTruncate(content string, tokenizer *Tokenizer) string {
 // 保留前 10% + 后 20% 的元素，中间替换为省略标记字符串。
 // v1 限制：数组元素如果是对象，保留完整对象，不做递归截断。
 // 返回 "" 表示 JSON 解析失败、元素太少或无需截断。
-func tryJSONArrayTruncate(content string, tokenizer *Tokenizer) string {
+func tryJSONArrayTruncate(content string, _ *Tokenizer) string {
 	var arr []any
 	if err := json.Unmarshal([]byte(content), &arr); err != nil {
 		return ""

@@ -263,6 +263,9 @@ func Run(cfg Config) error {
 
 	if cfg.NotifyCh != nil {
 		go func() {
+			defer func() {
+				_ = recover() // prevent TUI notification relay from crashing the process
+			}()
 			for msg := range cfg.NotifyCh {
 				p.Send(systemNotifyMsg{message: msg})
 			}
