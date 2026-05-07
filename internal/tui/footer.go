@@ -7,7 +7,7 @@ func (m model) renderFooter(ly layout) string {
 	switch {
 	case m.copyMode:
 		text = "COPY MODE · select text in terminal · esc return"
-	case m.confirmState != nil:
+	case len(m.confirmQueue) > 0:
 		text = "↑/↓ choose · enter confirm · esc back"
 	case m.isGenerating:
 		text = "esc interrupt · ^C cancel · ^Y copy"

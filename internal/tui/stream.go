@@ -121,26 +121,27 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 // ─── Tool confirmation ────────────────────────────────────────────────────────
 
 func (m *model) handleToolConfirm(e agent.ToolNeedsConfirmEvent) {
+	const maxConfirmQueue = 16
+	if len(m.confirmQueue) >= maxConfirmQueue {
+		return // overflow protection; agent will timeout gracefully
+	}
+
+	var opts []string
 	if len(e.Options) > 0 {
-		m.confirmState = &confirmState{
-			callID:   e.CallID,
-			prompt:   e.Prompt,
-			options:  e.Options,
-			selected: 0,
-		}
+		opts = e.Options
 	} else {
 		// Binary choice
-		items := []string{"[y] confirm", "[n] deny"}
+		opts = []string{"[y] confirm", "[n] deny"}
 		if e.AllowInSession {
-			items = append(items, "[a] allow in session")
-		}
-		m.confirmState = &confirmState{
-			callID:   e.CallID,
-			prompt:   e.Prompt,
-			options:  items,
-			selected: 0,
+			opts = append(opts, "[a] allow in session")
 		}
 	}
+	m.confirmQueue = append(m.confirmQueue, confirmState{
+		callID:   e.CallID,
+		prompt:   e.Prompt,
+		options:  opts,
+		selected: 0,
+	})
 }
 
 // flushThinking pushes any buffered thinking text into the timeline as a new entry.

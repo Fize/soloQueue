@@ -13,11 +13,11 @@ import (
 // --- Delegate constants ---
 
 const (
-	// DelegateDefaultTimeout is the default delegation task timeout.
-	DelegateDefaultTimeout = 10 * time.Minute
+	// DelegateDefaultTimeout is the default delegation task timeout (L3 worker).
+	DelegateDefaultTimeout = 15 * time.Minute
 
-	// DelegateMaxTimeout is the maximum allowed delegation task timeout.
-	DelegateMaxTimeout = 15 * time.Minute
+	// DelegateMaxTimeout is the maximum allowed delegation task timeout (L2 supervisor).
+	DelegateMaxTimeout = 20 * time.Minute
 )
 
 // --- DelegateTool ---

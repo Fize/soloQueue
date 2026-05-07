@@ -112,7 +112,7 @@ const DefaultContextWindow = 1048576
 // DefaultToolTimeout is the fallback timeout for tools that do not have
 // an explicit per-tool timeout via WithToolTimeout. Prevents indefinite
 // blocking when a tool hangs.
-const DefaultToolTimeout = 10 * time.Minute
+const DefaultToolTimeout = 5 * time.Minute
 
 // DefaultMaxConsecutiveFailures is the number of consecutive fatal streamLoop
 // failures before the circuit breaker opens and rejects new tasks.

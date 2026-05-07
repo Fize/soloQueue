@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -248,7 +249,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	if tmpl.IsLeader {
 		for _, peer := range f.sameGroupWorkers(tmpl) {
 			peer := peer // capture loop variable
-			dt := tools.NewDelegateTool(peer.ID, peer.Description, tools.DelegateDefaultTimeout, nil, f.log)
+			dt := tools.NewDelegateTool(peer.ID, peer.Description, 15*time.Minute, nil, f.log)
 			dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
 				child, _, err := f.Create(ctx, peer)
 				if err != nil {
@@ -315,6 +316,17 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		WithTools(allTools...),
 		WithSkills(skillList...),
 		WithParallelTools(true),
+		// File operation tools: 30s
+		WithToolTimeout("Glob", 30*time.Second),
+		WithToolTimeout("Grep", 30*time.Second),
+		WithToolTimeout("Read", 30*time.Second),
+		WithToolTimeout("Write", 30*time.Second),
+		WithToolTimeout("Edit", 30*time.Second),
+		WithToolTimeout("MultiWrite", 30*time.Second),
+		WithToolTimeout("MultiEdit", 30*time.Second),
+		// Network tools: 10min
+		WithToolTimeout("WebFetch", 10*time.Minute),
+		WithToolTimeout("WebSearch", 10*time.Minute),
 	}
 	if tmpl.IsLeader {
 		// L2 可以启用 PriorityMailbox，用于接收 L3 结果的高优先级投递

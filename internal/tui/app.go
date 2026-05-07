@@ -197,7 +197,7 @@ type model struct {
 	focus          focusMode
 	showAgents     bool
 	copyMode       bool
-	confirmState   *confirmState
+	confirmQueue   []confirmState // FIFO queue of pending tool confirmations
 	loading        bool   // true while waiting for sandbox + session init
 	sandboxErr     string // sandbox init error message
 	httpServerAddr string // embedded HTTP API server address
@@ -425,7 +425,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter":
-			if m.confirmState != nil {
+			if len(m.confirmQueue) > 0 {
 				return m.handleConfirmEnter()
 			}
 			if m.loading || m.isGenerating || strings.TrimSpace(m.textArea.Value()) == "" {
@@ -478,9 +478,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "up":
-			if m.confirmState != nil {
-				if m.confirmState.selected > 0 {
-					m.confirmState.selected--
+			if len(m.confirmQueue) > 0 {
+				if m.confirmQueue[0].selected > 0 {
+					m.confirmQueue[0].selected--
 				}
 				return m, nil
 			}
@@ -492,9 +492,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case "down":
-			if m.confirmState != nil {
-				if m.confirmState.selected < len(m.confirmState.options)-1 {
-					m.confirmState.selected++
+			if len(m.confirmQueue) > 0 {
+				if m.confirmQueue[0].selected < len(m.confirmQueue[0].options)-1 {
+					m.confirmQueue[0].selected++
 				}
 				return m, nil
 			}
@@ -507,7 +507,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.PasteMsg:
-		if m.confirmState == nil {
+		if len(m.confirmQueue) == 0 {
 			m.textArea, cmd = m.textArea.Update(msg)
 			newH := visualLineCount(m.textArea)
 			if newH != m.textArea.Height() {
@@ -615,16 +615,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case confirmResultMsg:
-		if m.confirmState != nil {
-			if err := m.sess.Agent.Confirm(msg.callID, msg.choice); err != nil {
-				errText := fmt.Sprintf("✗ confirm error: %s", summarizeError(err))
-				m.messages = append(m.messages, message{role: "agent", content: errText})
-				m.confirmState = nil
-				m.rebuildViewportContent()
-				m.viewport.GotoBottom()
-				return m, nil
-			}
-			m.confirmState = nil
+		if m.sess == nil {
+			return m, nil
+		}
+		if err := m.sess.Agent.Confirm(msg.callID, msg.choice); err != nil {
+			errText := fmt.Sprintf("✗ confirm error: %s", summarizeError(err))
+			m.messages = append(m.messages, message{role: "agent", content: errText})
+			m.rebuildViewportContent()
+			m.viewport.GotoBottom()
+			return m, nil
 		}
 		return m, nil
 
@@ -646,7 +645,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.confirmState == nil {
+	if len(m.confirmQueue) == 0 {
 		// Any key not handled above resets history navigation state.
 		if _, ok := msg.(tea.KeyPressMsg); ok && m.historyIdx > 0 {
 			m.historyIdx = 0
@@ -766,7 +765,7 @@ func (m *model) resetGenState() {
 	m.activeDelegations = 0
 	m.currentIter = 0
 	m.contentDeltas = 0
-	m.confirmState = nil
+	m.confirmQueue = nil
 }
 
 // cancelCurrent cancels the most relevant running task in two stages:
@@ -891,10 +890,10 @@ func (m *model) finalizeCurrentStream() {
 // ─── Confirm handling ──────────────────────
 
 func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
-	if m.confirmState == nil {
+	if len(m.confirmQueue) == 0 {
 		return m, nil
 	}
-	cs := m.confirmState
+	cs := m.confirmQueue[0]
 	choice := cs.options[cs.selected]
 	var agentChoice string
 	switch {
@@ -907,6 +906,8 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	default:
 		agentChoice = choice
 	}
+	// Pop head of queue
+	m.confirmQueue = m.confirmQueue[1:]
 	return m, func() tea.Msg {
 		return confirmResultMsg{callID: cs.callID, choice: agentChoice}
 	}

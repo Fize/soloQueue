@@ -313,30 +313,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		return nil, ErrSessionClosed
 	}
 
-	// 如果有异步委派正在进行，等待其完成后再操作 CW
-	// 这保证了 CW 中的消息顺序：委派结果在前，新用户消息在后
-	if s.delegationPending.Load() {
-		s.logger.DebugContext(ctx, logger.CatApp, "askstream waiting for delegation completion",
-			"session_id", s.ID,
-		)
-		s.turnMu.Lock()
-		td := s.turnDone
-		closed := s.turnDoneClosed
-		s.turnMu.Unlock()
-		if td != nil && !closed {
-			select {
-			case <-td:
-				s.logger.DebugContext(ctx, logger.CatApp, "delegation completed, proceeding with askstream",
-					"session_id", s.ID,
-				)
-			case <-ctx.Done():
-				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled while waiting for delegation",
-					"session_id", s.ID,
-				)
-				return nil, ctx.Err()
-			}
-		}
-	}
+	// L1 异步委派期间不阻塞新消息。Agent mailbox 保证 job 串行执行：
+	// resumeTurn（高优先级）会先于新消息 job 执行，CW 排序自然正确。
 
 	if !s.inFlight.CompareAndSwap(0, 1) {
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session busy")
@@ -442,6 +420,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		defer close(out)
 		defer s.inFlight.Store(0)
 		defer s.touch()
+		defer s.closeTurnDone() // 确保无论退出路径如何，turnDone 都会被关闭（幂等安全）
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.ErrorContext(ctx, logger.CatApp, "session event processor panic recovered",

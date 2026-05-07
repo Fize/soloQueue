@@ -306,7 +306,7 @@ func TestSession_AskStream_DelegationReleasesInFlight(t *testing.T) {
 	}
 }
 
-func TestSession_AskStream_DelegationPendingBlocksCWPush(t *testing.T) {
+func TestSession_AskStream_DelegationPendingDoesNotBlock(t *testing.T) {
 	fake := &agent.FakeLLM{
 		StreamDeltas: [][]string{{"first"}, {"second"}},
 		Delay:        500 * time.Millisecond, // slow LLM so forwarder doesn't finish first
@@ -324,35 +324,21 @@ func TestSession_AskStream_DelegationPendingBlocksCWPush(t *testing.T) {
 	s.newTurnDone()
 	s.inFlight.Store(0)
 
-	// Second AskStream should block on turnDone but eventually succeed
+	// Second AskStream should NOT block — it should proceed immediately
 	gotSecond := make(chan error, 1)
 	go func() {
 		_, err := s.AskStream(context.Background(), "two")
 		gotSecond <- err
 	}()
 
-	// Give it time to reach the turnDone wait
-	time.Sleep(50 * time.Millisecond)
-
-	// Before closing turnDone, second stream should still be waiting
-	select {
-	case err := <-gotSecond:
-		t.Fatalf("second AskStream should have blocked, but got: %v", err)
-	default:
-		// Expected: still blocked
-	}
-
-	// Close turnDone — should unblock
-	s.closeTurnDone()
-
-	// Now second AskStream should succeed
+	// Should succeed quickly (not block)
 	select {
 	case err := <-gotSecond:
 		if err != nil {
-			t.Errorf("second AskStream after unblock: %v", err)
+			t.Errorf("second AskStream should succeed during delegation, got: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Error("second AskStream timed out after unblock")
+		t.Error("second AskStream blocked during delegation — should not block")
 	}
 
 	// Drain first stream

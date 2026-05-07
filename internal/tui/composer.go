@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -51,7 +52,7 @@ func isSlashCommandInput(input string) bool {
 }
 
 func (m model) renderComposer(ly layout) string {
-	if m.confirmState != nil {
+	if len(m.confirmQueue) > 0 {
 		return m.renderConfirmDialog(ly)
 	}
 	// Ensure the textarea uses exact width by trimming/padding as needed
@@ -80,11 +81,15 @@ func (m model) renderComposer(ly layout) string {
 }
 
 func (m model) renderConfirmDialog(ly layout) string {
-	cs := m.confirmState
+	cs := m.confirmQueue[0]
 	var sb strings.Builder
 
 	// Prompt line (dimmed, with ? prefix)
-	prompt := dimStyle.Render("? " + cs.prompt)
+	queueHint := ""
+	if len(m.confirmQueue) > 1 {
+		queueHint = fmt.Sprintf(" (%d/%d)", 1, len(m.confirmQueue))
+	}
+	prompt := dimStyle.Render("? " + cs.prompt + queueHint)
 	sb.WriteString(prompt + "\n")
 
 	// Options with selection highlight

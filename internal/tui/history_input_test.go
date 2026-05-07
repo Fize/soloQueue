@@ -96,7 +96,7 @@ func TestNavHistory_Generating(t *testing.T) {
 func TestNavHistory_ConfirmState(t *testing.T) {
 	m := &model{
 		history:      []string{"a", "b"},
-		confirmState: &confirmState{},
+		confirmQueue: []confirmState{{}},
 	}
 	m.navHistory(-1) // should be no-op
 	if m.historyIdx != 0 {
