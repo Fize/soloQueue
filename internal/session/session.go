@@ -442,6 +442,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		defer close(out)
 		defer s.inFlight.Store(0)
 		defer s.touch()
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.ErrorContext(ctx, logger.CatApp, "session event processor panic recovered",
+					"session_id", s.ID,
+					"panic", fmt.Sprintf("%v", r),
+				)
+			}
+		}()
 
 		var finalContent string
 		var finalReasoning string

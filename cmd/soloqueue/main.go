@@ -36,6 +36,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
@@ -212,6 +213,7 @@ type runtimeStack struct {
 	permNotifyCh    chan string
 	permCancel      context.CancelFunc // Cancel function for permanent scheduler context
 	todoStore       *todo.Store        // Todo plan/task store
+	sharedDB        *sqlitedb.DB       // Shared SQLite connection reused by vectorstore + todo stores
 	httpServer      *http.Server       // Embedded HTTP API server (TUI mode)
 	httpListener    net.Listener       // Listener for the HTTP server
 }
@@ -232,6 +234,13 @@ func (rt *runtimeStack) shutdown() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = rt.httpServer.Shutdown(shutdownCtx)
+	}
+	// Close the shared SQLite DB last so any flush performed by the stores
+	// above (e.g. future scheduled writes) can still reach disk.
+	if rt.sharedDB != nil {
+		if err := rt.sharedDB.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: shared sqlite db close failed: %v\n", err)
+		}
 	}
 }
 
@@ -339,6 +348,18 @@ func buildRuntimeStack(
 	}
 	memoryMgr := memory.NewManager(memoryDir, llmClient, fastModelID, log)
 
+	// ── Shared SQLite DB ──────────────────────────────────────────────────
+	// Both the permanent memory vector store and the todo/plan store persist
+	// into the same physical file (permanent_memory/entries.db). Opening it
+	// once here (with centralized migrations in the sqlitedb package) avoids
+	// racing DDL and lets the two stores share a single write mutex so that
+	// SQLite's single-writer invariant is respected across stores.
+	sharedDBPath := filepath.Join(workDir, "permanent_memory", "entries.db")
+	sharedDB, sharedDBErr := sqlitedb.Open(sharedDBPath)
+	if sharedDBErr != nil {
+		return nil, fmt.Errorf("open shared sqlite db: %w", sharedDBErr)
+	}
+
 	// ── Permanent Memory Manager ──────────────────────────────────────────
 	var permanentMgr *permanent.Manager
 	var permScheduler *permanent.Scheduler
@@ -358,8 +379,8 @@ func buildRuntimeStack(
 					Dimension: embModel.Dimension,
 				})
 				if embErr == nil {
-					store, storeErr := vectorstore.NewSQLiteStore(filepath.Join(workDir, "permanent_memory", "entries.db"))
-					if storeErr == nil {
+					store := vectorstore.NewSQLiteStoreFromDB(sharedDB.DB, &sharedDB.WMu)
+					{
 						permanentMgr = permanent.NewManager(store, embClient, nil, "", memoryDir, log)
 						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
 							log.Error(logger.CatApp, msg)
@@ -370,13 +391,19 @@ func buildRuntimeStack(
 						})
 						permCtx, cancel := context.WithCancel(context.Background())
 						permCancel = cancel
-						go permScheduler.Run(permCtx)
+						go func() {
+							defer func() {
+								if r := recover(); r != nil {
+									log.Error(logger.CatApp, "permScheduler goroutine panic recovered",
+										"panic", fmt.Sprintf("%v", r))
+								}
+							}()
+							permScheduler.Run(permCtx)
+						}()
 
 						recentText, _ := memoryMgr.ReadRecentMemory(7)
 						_, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
 						toolsCfg.PermanentManager = permanentMgr
-					} else {
-						log.Warn(logger.CatApp, "permanent memory: failed to create vector store", "err", storeErr)
 					}
 				} else {
 					log.Warn(logger.CatApp, "permanent memory: failed to create embedder", "err", embErr)
@@ -394,14 +421,10 @@ func buildRuntimeStack(
 	}
 
 	// ── Todo Store ──────────────────────────────────────────────────────
-	// Reuses the permanent_memory entries.db for plan/todo persistence.
-	todoDBPath := filepath.Join(workDir, "permanent_memory", "entries.db")
-	todoStore, storeErr := todo.NewStore(todoDBPath)
-	if storeErr != nil {
-		log.Warn(logger.CatApp, "failed to create todo store", "err", storeErr)
-	} else {
-		toolsCfg.TodoStore = todoStore
-	}
+	// Reuses the shared entries.db opened above so plans, todos and permanent
+	// memories all coexist on a single connection pool and migration pipeline.
+	todoStore := todo.NewStoreFromDB(sharedDB.DB, &sharedDB.WMu)
+	toolsCfg.TodoStore = todoStore
 
 	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
 	if err != nil {
@@ -519,6 +542,7 @@ func buildRuntimeStack(
 		permNotifyCh:    permNotifyCh,
 		permCancel:      permCancel,
 		todoStore:       todoStore,
+		sharedDB:        sharedDB,
 	}
 
 	// Register config hot-reload callback to keep runtimeStack's cached config in sync with cfg.
@@ -987,6 +1011,12 @@ func (sb *sessionBuilder) Build(ctx context.Context, teamID string) (*agent.Agen
 		// Record to short-term memory (fire-and-forget, non-blocking)
 		if sb.rt.memoryManager != nil {
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
+							"panic", fmt.Sprintf("%v", r))
+					}
+				}()
 				text := formatCtxwinMessages(msgs)
 				_ = sb.rt.memoryManager.Record(context.Background(), text)
 			}()
@@ -1251,6 +1281,12 @@ func serveCmd() *cobra.Command {
 			}
 
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error(logger.CatApp, "shutdown goroutine panic recovered",
+							"panic", fmt.Sprintf("%v", r))
+					}
+				}()
 				<-rootCtx.Done()
 				log.Info(logger.CatApp, "shutdown signal received")
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

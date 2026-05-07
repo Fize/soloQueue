@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -19,7 +20,19 @@ func RunOnce(ctx context.Context, def Definition, client LLMClient, log *logger.
 	a := &Agent{Def: def, LLM: client, Log: log}
 
 	out := make(chan AgentEvent, 64)
-	go a.runOnceStream(ctx, prompt, out)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if log != nil {
+					log.ErrorContext(ctx, logger.CatApp, "runOnceStream goroutine panic recovered",
+						"panic", fmt.Sprintf("%v", r))
+				}
+				// Note: out is already closed by streamLoop's defer before
+				// the panic propagates here. No need to close again.
+			}
+		}()
+		a.runOnceStream(ctx, prompt, out)
+	}()
 
 	var (
 		b            strings.Builder

@@ -343,6 +343,16 @@ func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-cha
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
 		defer close(out)
+		defer func() {
+			if r := recover(); r != nil {
+				if la.Agent.Log != nil {
+					la.Agent.Log.ErrorContext(ctx, logger.CatTool, "registry relay goroutine panic recovered",
+						"agent_id", la.Agent.Def.ID,
+						"panic", fmt.Sprintf("%v", r),
+					)
+				}
+			}
+		}()
 		for ev := range eventCh {
 			select {
 			case out <- ev:

@@ -4,48 +4,60 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
 // Store manages plan/todo persistence in a SQLite database.
 // Writes are serialized via mutex; reads are concurrent.
-// The store reuses the existing entries.db or creates it on first access.
+// The store can either own its *sql.DB (opened from a file path via NewStore),
+// or share it with other stores via NewStoreFromDB — in the latter case the
+// write mutex is shared as well so that writes are serialized across all
+// stores pointing at the same SQLite file.
 type Store struct {
 	db *sql.DB
-	mu sync.Mutex // serializes writes (SQLite single-writer)
+	mu *sync.Mutex // serializes writes (SQLite single-writer); may be shared with other stores
+	// ownsDB indicates whether Close should close the underlying *sql.DB.
+	ownsDB   bool
+	sharedDB *sqlitedb.DB // non-nil only when this store owns the connection (path-based constructor)
 }
 
 // NewStore opens or creates a SQLite-backed todo store at the given path.
-// The database file is shared with the permanent memory vector store.
+// The caller does not share the database with other components; use
+// NewStoreFromDB when the same file is also used by, e.g., the permanent
+// memory vector store.
 func NewStore(path string) (*Store, error) {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("todo store: create dir: %w", err)
-	}
-
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_foreign_keys=ON")
+	shared, err := sqlitedb.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("todo store: open db: %w", err)
 	}
-
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("todo store: migrate: %w", err)
-	}
-
-	return s, nil
+	return &Store{
+		db:       shared.DB,
+		mu:       &shared.WMu,
+		ownsDB:   true,
+		sharedDB: shared,
+	}, nil
 }
 
-// Close closes the database connection.
+// NewStoreFromDB wires the todo store onto an externally managed shared
+// database. The caller owns db and is responsible for closing it. mu must
+// be the write mutex shared by all stores on the same file so that writes
+// are serialized across stores (SQLite allows only one writer).
+func NewStoreFromDB(db *sql.DB, mu *sync.Mutex) *Store {
+	return &Store{db: db, mu: mu, ownsDB: false}
+}
+
+// Close releases resources owned by this store. When the store was created
+// via NewStoreFromDB it does NOT close the underlying database, because the
+// caller retains ownership.
 func (s *Store) Close() error {
-	return s.db.Close()
+	if s.ownsDB && s.sharedDB != nil {
+		return s.sharedDB.Close()
+	}
+	return nil
 }
 
 // DB returns the underlying *sql.DB. Used by friends in the server package
@@ -55,43 +67,9 @@ func (s *Store) DB() *sql.DB {
 }
 
 // ─── Migration ──────────────────────────────────────────────────────────────
-
-func (s *Store) migrate() error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS plans (
-		id TEXT PRIMARY KEY,
-		title TEXT NOT NULL,
-		content TEXT NOT NULL DEFAULT '',
-		status TEXT NOT NULL DEFAULT 'plan' CHECK(status IN ('plan','running','done')),
-		tags TEXT NOT NULL DEFAULT '',
-		creator TEXT NOT NULL DEFAULT '',
-		created_at TEXT NOT NULL,
-		updated_at TEXT NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS todo_items (
-		id TEXT PRIMARY KEY,
-		plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
-		content TEXT NOT NULL,
-		completed INTEGER NOT NULL DEFAULT 0,
-		sort_order INTEGER NOT NULL DEFAULT 0,
-		created_at TEXT NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS todo_dependencies (
-		todo_id TEXT NOT NULL REFERENCES todo_items(id) ON DELETE CASCADE,
-		depends_on TEXT NOT NULL REFERENCES todo_items(id) ON DELETE CASCADE,
-		PRIMARY KEY (todo_id, depends_on)
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_todo_plan ON todo_items(plan_id);
-	CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
-	CREATE INDEX IF NOT EXISTS idx_todo_deps_todo ON todo_dependencies(todo_id);
-	CREATE INDEX IF NOT EXISTS idx_todo_deps_depends ON todo_dependencies(depends_on);
-	`
-	_, err := s.db.Exec(schema)
-	return err
-}
+// Schema migrations are centralized in the sqlitedb package so that the
+// todo store and the vector store do not race on CREATE TABLE / CREATE INDEX
+// when they share the same database file. Nothing to do here.
 
 // ─── Plan CRUD ──────────────────────────────────────────────────────────────
 
