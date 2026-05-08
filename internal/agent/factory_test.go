@@ -647,7 +647,7 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 				APIModel:        "deepseek-v4-flash",
 				ContextWindow:   1048576,
 				Temperature:     0,
-				MaxTokens:       8192,
+				MaxTokens:       16384,
 				ThinkingEnabled: true,
 				ReasoningEffort: "high",
 			}, nil
@@ -679,8 +679,8 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 	if agent.Def.ContextWindow != 1048576 {
 		t.Errorf("ContextWindow = %d, want 1048576", agent.Def.ContextWindow)
 	}
-	if agent.Def.MaxTokens != 8192 {
-		t.Errorf("MaxTokens = %d, want 8192", agent.Def.MaxTokens)
+	if agent.Def.MaxTokens != 16384 {
+		t.Errorf("MaxTokens = %d, want 16384", agent.Def.MaxTokens)
 	}
 	if !agent.Def.ThinkingEnabled {
 		t.Error("ThinkingEnabled should be true")
