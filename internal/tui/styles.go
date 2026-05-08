@@ -49,6 +49,7 @@ var (
 	composerStyle      lipgloss.Style
 	copyModeStyle      lipgloss.Style
 	timestampStyle     lipgloss.Style
+	mutedStyle        lipgloss.Style
 	teamBadgeStyle     lipgloss.Style
 )
 
@@ -113,6 +114,9 @@ func applyTheme(darkBg bool) {
 		Foreground(colorInfo).
 		Bold(true).
 		PaddingLeft(2)
+
+	mutedStyle = lipgloss.NewStyle().
+		Foreground(colorMuted)
 
 	statusStyle = lipgloss.NewStyle().
 		Foreground(colorText).

@@ -5,8 +5,9 @@ package config
 func DefaultSettings() Settings {
 	return Settings{
 		Session: SessionConfig{
-			TimelineMaxFileMB: 50,
-			TimelineMaxFiles:  5,
+			TimelineMaxFileMB:      50,
+			TimelineMaxFiles:       5,
+			ContextIdleThresholdMin: 30, // default 30 minutes
 		},
 		Log: LogConfig{
 			Level:   "info",

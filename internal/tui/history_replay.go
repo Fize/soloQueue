@@ -10,7 +10,8 @@ import (
 //
 // It groups assistant(tool_calls) + tool results + assistant(final) into a single
 // agent message with a timeline, matching the streaming display format.
-func loadMessagesFromHistory(history []agent.LLMMessage) []message {
+// If isHistory is true, marks all messages as historical (rendered with muted style).
+func loadMessagesFromHistory(history []agent.LLMMessage, isHistory bool) []message {
 	if len(history) == 0 {
 		return nil
 	}
@@ -37,15 +38,16 @@ func loadMessagesFromHistory(history []agent.LLMMessage) []message {
 		case "user":
 			flushPending()
 			msgs = append(msgs, message{
-				role:    "user",
-				content: h.Content,
-				dirty:   true,
+				role:      "user",
+				content:   h.Content,
+				dirty:     true,
+				isHistory: isHistory,
 			})
 
-		case "assistant":
+		case "assitant":
 			if len(h.ToolCalls) > 0 {
 				flushPending()
-				pending = &message{role: "agent"}
+				pending = &message{role: "agent", isHistory: isHistory}
 				if h.ReasoningContent != "" {
 					pending.timeline = append(pending.timeline, timelineEntry{
 						kind: timelineThinking,
@@ -86,7 +88,7 @@ func loadMessagesFromHistory(history []agent.LLMMessage) []message {
 			} else {
 				// Standalone assistant reply — content in timeline, msg.content stays ""
 				flushPending()
-				agMsg := message{role: "agent", dirty: true}
+				agMsg := message{role: "agent", dirty: true, isHistory: isHistory}
 				if h.ReasoningContent != "" {
 					agMsg.timeline = append(agMsg.timeline, timelineEntry{
 						kind: timelineThinking,
@@ -138,12 +140,13 @@ func hasUnfilledTools(msg *message) bool {
 
 // replayHistoryIntoMessages loads session history into the model's message list.
 // Called once after session initialization to display past conversation in the TUI.
-func (m *model) replayHistoryIntoMessages() {
+// isHistory: if true, marks all loaded messages as historical (rendered with muted style).
+func (m *model) replayHistoryIntoMessages(isHistory bool) {
 	if m.sess == nil {
 		return
 	}
 	history := m.sess.History()
-	msgs := loadMessagesFromHistory(history)
+	msgs := loadMessagesFromHistory(history, isHistory)
 	if len(msgs) == 0 {
 		return
 	}

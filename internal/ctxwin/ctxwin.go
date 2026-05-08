@@ -483,6 +483,22 @@ func (cw *ContextWindow) Reset() {
 	}
 }
 
+// CurrentTokens returns the current token count of the context window.
+// Thread-safe (read-locked).
+func (cw *ContextWindow) CurrentTokens() int {
+	cw.RLock()
+	defer cw.RUnlock()
+	return cw.currentTokens
+}
+
+// SummaryTokens returns the soft waterline threshold for triggering async compression.
+// Thread-safe (read-locked).
+func (cw *ContextWindow) SummaryTokens() int {
+	cw.RLock()
+	defer cw.RUnlock()
+	return cw.summaryTokens
+}
+
 // SetReplayMode enables or disables replay mode.
 //
 // During replay, Push hooks are not called to avoid double writes.
