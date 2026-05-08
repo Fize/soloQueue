@@ -156,6 +156,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				Templates:      rt.AllTemplates,
 				Groups:         rt.Groups,
 				HTTPServerAddr: httpServerAddr,
+				ContextIdleThresholdMin: cfg.Get().Session.ContextIdleThresholdMin,
 			})
 		},
 	}

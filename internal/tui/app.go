@@ -50,6 +50,10 @@ type Config struct {
 	// HTTPServerAddr is the address of the embedded HTTP API server.
 	// When non-empty, it is displayed in the RUNTIME sidebar section.
 	HTTPServerAddr string
+
+	// ContextIdleThresholdMin is the idle timeout (minutes) for auto-clearing context.
+	// Read from config at startup.
+	ContextIdleThresholdMin int
 }
 
 // ─── Data types ──────────────────────────────
@@ -99,6 +103,7 @@ type message struct {
 	dirty     bool      // true if content changed since last render
 	rendered  string    // cached rendered output
 	timestamp time.Time // when the message was created
+	isHistory bool      // true if message is from replayed history (context cleared)
 }
 
 type confirmState struct {
@@ -197,10 +202,11 @@ type model struct {
 	focus          focusMode
 	showAgents     bool
 	copyMode       bool
-	confirmQueue   []confirmState // FIFO queue of pending tool confirmations
-	loading        bool   // true while waiting for sandbox + session init
-	sandboxErr     string // sandbox init error message
-	httpServerAddr string // embedded HTTP API server address
+	confirmQueue    []confirmState // FIFO queue of pending tool confirmations
+	loading         bool   // true while waiting for sandbox + session init
+	sandboxErr      string // sandbox init error message
+	httpServerAddr  string // embedded HTTP API server address
+	contextCleared bool   // true if context was silently cleared on startup
 }
 
 // ─── Run (public entry point) ────────────────
@@ -252,11 +258,6 @@ func Run(cfg Config) error {
 	if cfg.SandboxInitCh != nil {
 		m.loading = true
 		ta.Placeholder = "Sandbox initializing..."
-	}
-
-	// Replay history from context window into TUI chat display
-	if m.sess != nil {
-		m.replayHistoryIntoMessages()
 	}
 
 	p := tea.NewProgram(m)
@@ -387,8 +388,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sess = msg.Sess
 		m.sandboxErr = ""
 		m.textArea.Placeholder = "Type a message..."
+
+		// Check idle timeout and clear context if needed
+		m.checkIdleTimeout()
+
 		m.resizeViewport()
-		m.replayHistoryIntoMessages()
+		m.replayHistoryIntoMessages(m.contextCleared)
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
 		return m, nil
@@ -914,3 +919,34 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 }
 
 // ─── History persistence (in history.go) ─────
+
+// checkIdleTimeout checks if the session's last message is older than
+// the configured threshold. If so, and token count is high enough,
+// silently clears the context and triggers memory hook.
+func (m *model) checkIdleTimeout() {
+	if m.sess == nil {
+		return
+	}
+
+	thresholdMin := m.cfg.ContextIdleThresholdMin
+	if thresholdMin <= 0 {
+		thresholdMin = 30 // default 30 minutes
+	}
+	timeout := time.Duration(thresholdMin) * time.Minute
+
+	minTokens := m.sess.CW().SummaryTokens() / 100
+	if minTokens < 4096 {
+		minTokens = 4096
+	}
+	if minTokens > 16384 {
+		minTokens = 16384
+	}
+
+	if m.sess.ShouldClearContext(timeout, minTokens) {
+		m.sess.ClearSilent()
+		m.contextCleared = true
+
+		notice := fmt.Sprintf("Context cleared (idle > %d min, tokens saved). History is shown as reference only.", thresholdMin)
+		m.messages = append(m.messages, message{role: "system", content: notice, dirty: true})
+	}
+}
