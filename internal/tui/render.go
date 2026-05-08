@@ -19,6 +19,7 @@ func formatTimestamp(name string, ts time.Time) string {
 }
 
 // renderUserMessage renders a user message with right-aligned green text.
+// If msg.isHistory is true, uses muted style (gray) instead.
 func renderUserMessage(msg message, vpWidth int) string {
 	// Timestamp label: "You · 14:30" — right-aligned above the message
 	ts := formatTimestamp("You", msg.timestamp)
@@ -30,7 +31,12 @@ func renderUserMessage(msg message, vpWidth int) string {
 	}
 
 	// Right-align each line of the styled text
-	text := userStyle.Render(msg.content)
+	var text string
+	if msg.isHistory {
+		text = mutedStyle.Render(msg.content)
+	} else {
+		text = userStyle.Render(msg.content)
+	}
 	lines := strings.Split(text, "\n")
 	var sb strings.Builder
 	for i, line := range lines {
@@ -88,7 +94,11 @@ func (m *model) renderAgentMessageBody(msg message) string {
 		case timelineThinking:
 			text := strings.TrimSpace(entry.text)
 			if text != "" {
-				sb.WriteString(thinkLabelStyle + "\n")
+				if msg.isHistory {
+					sb.WriteString(mutedStyle.Render("▎ Thinking (history)"))
+				} else {
+					sb.WriteString(thinkLabelStyle + "\n")
+				}
 				// Collapse consecutive blank lines in thinking text for compact display
 				lines := strings.Split(text, "\n")
 				var compacted []string
@@ -103,14 +113,27 @@ func (m *model) renderAgentMessageBody(msg message) string {
 				if maxThinkW > 80 {
 					maxThinkW = 80
 				}
-				sb.WriteString(thinkStyle.Width(maxThinkW).Render(text) + "\n")
+				if msg.isHistory {
+					sb.WriteString(mutedStyle.Width(maxThinkW).Render(text) + "\n")
+				} else {
+					sb.WriteString(thinkStyle.Width(maxThinkW).Render(text) + "\n")
+				}
 			}
 		case timelineContent:
-			sb.WriteString(m.renderContent(entry.text) + "\n")
+			if msg.isHistory {
+				sb.WriteString(mutedStyle.Render(entry.text) + "\n")
+			} else {
+				sb.WriteString(m.renderContent(entry.text) + "\n")
+			}
 		case timelineTool:
 			if entry.tool != nil {
-				sb.WriteString(renderToolLabel(entry.tool.name) + "\n")
-				sb.WriteString(toolCollapsedStyle.Render(formatToolBlock(*entry.tool)) + "\n")
+				if msg.isHistory {
+					sb.WriteString(mutedStyle.Render(entry.tool.name) + "\n")
+					sb.WriteString(mutedStyle.Render(formatToolBlock(*entry.tool)) + "\n")
+				} else {
+					sb.WriteString(renderToolLabel(entry.tool.name) + "\n")
+					sb.WriteString(toolCollapsedStyle.Render(formatToolBlock(*entry.tool)) + "\n")
+				}
 			}
 		}
 		lastKind = entry.kind
@@ -120,7 +143,11 @@ func (m *model) renderAgentMessageBody(msg message) string {
 		if lastKind >= 0 && lastKind != timelineContent {
 			sb.WriteString("\n")
 		}
-		sb.WriteString(m.renderContent(msg.content) + "\n")
+		if msg.isHistory {
+			sb.WriteString(mutedStyle.Render(msg.content) + "\n")
+		} else {
+			sb.WriteString(m.renderContent(msg.content) + "\n")
+		}
 	}
 	return sb.String()
 }

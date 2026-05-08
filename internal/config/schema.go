@@ -26,8 +26,9 @@ type Settings struct {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	TimelineMaxFileMB int `json:"timelineMaxFileMB"` // Single file limit MB, default 50
-	TimelineMaxFiles  int `json:"timelineMaxFiles"`  // Number of rotating files, default 5
+	TimelineMaxFileMB      int `json:"timelineMaxFileMB"`      // Single file limit MB, default 50
+	TimelineMaxFiles       int `json:"timelineMaxFiles"`       // Number of rotating files, default 5
+	ContextIdleThresholdMin int `json:"contextIdleThresholdMin"` // Auto-clear idle context (minutes), default 30
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────
