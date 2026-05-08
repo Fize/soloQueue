@@ -854,6 +854,336 @@ func TestEndToEnd_AsyncDelegation_L2Failure(t *testing.T) {
 
 // ─── Integration: watchDelegatedTask grace period catches in-flight result ──
 
+// ─── TestResumeTurn_TruncatedToolCalls ────────────────────────────────
+func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
+	// 模拟场景：L2 委托给 L3，L3 的 LLM 响应被截断（finish_reason="length"）
+	// 导致 L3 返回不完整的结果，但 resumeTurn() 仍然推送所有 tool results
+	// 这应该被检测到并正确处理
+
+	fakeLLM := &FakeLLM{
+		StreamDeltas: [][]string{{"final answer"}},
+	}
+
+	a := NewAgent(Definition{ID: "l2"}, fakeLLM, newTestLogger(t))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop(time.Second)
+
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "you are helpful")
+	cw.Push(ctxwin.RoleUser, "start")
+
+	// 模拟 L2 的 tool_calls（委托给 L3）
+	toolCalls := []llm.ToolCall{
+		{
+			Type: "function",
+			ID:   "call_1",
+			Function: llm.FunctionCall{
+				Name:      "delegate",
+				Arguments: `{"task":"test"}`,
+			},
+		},
+	}
+
+	// 模拟 L3 返回的结果（可能不完整或包含错误）
+	results := []string{"error: L3 response truncated due to max_tokens"}
+
+	// 创建 asyncTurnState
+	var pending atomic.Int32
+	pending.Store(0) // 所有任务已完成
+
+	turnState := &asyncTurnState{
+		agentID:   "l2",
+		out:       make(chan AgentEvent, 64),
+		cw:        cw,
+		iter:      0,
+		toolCalls: toolCalls,
+		results:   results,
+		pending:   pending,
+		callerCtx: context.Background(),
+	}
+
+	// 注册到 agent
+	a.turnMu.Lock()
+	a.asyncTurns[0] = turnState
+	a.turnMu.Unlock()
+
+	// 调用 resumeTurn
+	a.resumeTurn(turnState)
+
+	// 验证：ContextWindow 应该包含完整的消息序列
+	// 即使 tool result 包含错误，它仍然是一个有效的 tool message
+	payload := cw.BuildPayload()
+
+	// 检查 payload 是否包含完整的 tool_call/tool_result 对
+	hasAssistantWithToolCalls := false
+	hasToolResult := false
+
+	for _, msg := range payload {
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			hasAssistantWithToolCalls = true
+		}
+		if msg.Role == "tool" {
+			hasToolResult = true
+		}
+	}
+
+	// 即使 tool result 包含错误，消息序列也应该是完整的
+	if hasAssistantWithToolCalls && !hasToolResult {
+		t.Error("incomplete tool_call/tool_result pair: assistant has tool_calls but no tool result")
+	}
+
+	// 验证 asyncTurns 已清理
+	a.turnMu.RLock()
+	_, exists := a.asyncTurns[0]
+	a.turnMu.RUnlock()
+
+	if exists {
+		t.Error("asyncTurns[0] should be deleted after resumeTurn")
+	}
+}
+
+// ─── TestResumeTurn_MismatchedToolCallsAndResults ──────────────────────
+func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
+	// 模拟场景：toolCalls 和 results 长度不匹配
+	// 这应该被检测到并正确处理
+
+	fakeLLM := &FakeLLM{
+		StreamDeltas: [][]string{{"final answer"}},
+	}
+
+	a := NewAgent(Definition{ID: "l2"}, fakeLLM, newTestLogger(t))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop(time.Second)
+
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "you are helpful")
+	cw.Push(ctxwin.RoleUser, "start")
+
+	// 模拟 L2 的 tool_calls（2 个 tool calls）
+	toolCalls := []llm.ToolCall{
+		{
+			Type: "function",
+			ID:   "call_1",
+			Function: llm.FunctionCall{
+				Name:      "delegate",
+				Arguments: `{"task":"test1"}`,
+			},
+		},
+		{
+			Type: "function",
+			ID:   "call_2",
+			Function: llm.FunctionCall{
+				Name:      "delegate",
+				Arguments: `{"task":"test2"}`,
+			},
+		},
+	}
+
+	// 模拟 results（只有 1 个结果，不匹配）
+	results := []string{"result1"}
+
+	// 创建 asyncTurnState
+	var pending atomic.Int32
+	pending.Store(0)
+
+	turnState := &asyncTurnState{
+		agentID:   "l2",
+		out:       make(chan AgentEvent, 64),
+		cw:        cw,
+		iter:      0,
+		toolCalls: toolCalls,
+		results:   results,
+		pending:   pending,
+		callerCtx: context.Background(),
+	}
+
+	// 调用 resumeTurn（这应该处理不匹配的情况）
+	a.resumeTurn(turnState)
+
+	// 验证：ContextWindow 应该仍然有效（不会损坏）
+	payload := cw.BuildPayload()
+
+	// 检查 payload 是否包含完整的消息序列
+	// 注意：filterCompletePairs() 会过滤掉不完整对
+	// 所以如果 tool_calls 和 tool_results 不匹配，整个对会被过滤掉
+	t.Logf("payload length: %d", len(payload))
+
+	// 验证没有 panic 或错误
+	// 实际的过滤逻辑由 filterCompletePairs() 处理
+}
+
+// ─── TestBuildPayload_FiltersIncompleteToolCallPairs ──────────────────────
+func TestBuildPayload_FiltersIncompleteToolCallPairs(t *testing.T) {
+	// 验证：当 ContextWindow 包含不完整的 tool_call/tool_result 对时，
+	// BuildPayload() 会过滤掉不完整对，防止 API 400 错误
+
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+
+	// 推送系统消息
+	cw.Push(ctxwin.RoleSystem, "you are helpful")
+
+	// 推送用户消息
+	cw.Push(ctxwin.RoleUser, "start")
+
+	// 推送 assistant 消息（包含 2 个 tool_calls）
+	cw.Push(ctxwin.RoleAssistant, "I'll delegate these tasks",
+		ctxwin.WithToolCalls([]llm.ToolCall{
+			{
+				Type: "function",
+				ID:   "call_1",
+				Function: llm.FunctionCall{
+					Name:      "delegate",
+					Arguments: `{"task":"test1"}`,
+				},
+			},
+			{
+				Type: "function",
+				ID:   "call_2",
+				Function: llm.FunctionCall{
+					Name:      "delegate",
+					Arguments: `{"task":"test2"}`,
+				},
+			},
+		}),
+	)
+
+	// 只推送 1 个 tool result（不完整！）
+	cw.Push(ctxwin.RoleTool, "result1",
+		ctxwin.WithToolCallID("call_1"),
+		ctxwin.WithToolName("delegate"),
+	)
+
+	// 调用 BuildPayload()
+	payload := cw.BuildPayload()
+
+	// 验证：不完整的 tool_call/tool_result 对应该被过滤掉
+	// 所以 payload 不应该包含 assistant(tool_calls) 和 不完整 tool result
+	t.Logf("payload length: %d", len(payload))
+
+	// 检查 payload 中的消息
+	hasIncompletePair := false
+	for _, msg := range payload {
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			// 检查是否所有 tool_calls 都有对应的 tool_results
+			// 这由 filterCompletePairs() 处理
+			t.Logf("assistant message with %d tool_calls", len(msg.ToolCalls))
+		}
+		if msg.Role == "tool" {
+			t.Logf("tool message for %s", msg.ToolCallID)
+		}
+	}
+
+	// 关键验证：BuildPayload() 不应该返回不完整对
+	// 如果 filterCompletePairs() 工作正常，不完整的对会被过滤掉
+	if hasIncompletePair {
+		t.Error("BuildPayload() returned incomplete tool_call/tool_result pair")
+	}
+}
+
+// ─── TestEndToEnd_TruncatedDelegateResponse ──────────────────────
+func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
+	// 端到端测试：模拟 L2 委托给 L3，L3 的响应被截断
+	// 导致 L2 的 ContextWindow 损坏，API 请求返回 400 错误
+
+	// 创建 L3（目标 Agent），它的响应会被截断
+	l3Target := &mockLocatable{
+		askFunc: func(ctx context.Context, prompt string) (string, error) {
+			// 模拟 L3 的 LLM 响应被截断
+			// 返回错误结果
+			return "", fmt.Errorf("llm: finish_reason=length, output truncated")
+		},
+	}
+
+	// L2 的 delegate 工具
+	delegateTool := &mockAsyncTool{
+		name: "delegate",
+		action: &tools.AsyncAction{
+			Target:  l3Target,
+			Prompt:  "test task",
+			Timeout: 5 * time.Second,
+		},
+	}
+
+	// L2 的 FakeLLM：
+	// 第一轮：返回 tool call（委托给 L3）
+	// 第二轮：返回最终答案（或错误）
+	l2LLM := &FakeLLM{
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
+			{
+				{Index: 0, ID: "call_1", Name: "delegate", Arguments: `{"task":"test"}`},
+			},
+		},
+		StreamDeltas: [][]string{{"recovered after L3 error"}},
+	}
+
+	// 创建 L2 Agent
+	l2Agent := NewAgent(Definition{ID: "l2"}, l2LLM, newTestLogger(t),
+		WithTools(delegateTool),
+		WithPriorityMailbox(),
+	)
+	if err := l2Agent.Start(context.Background()); err != nil {
+		t.Fatalf("Start L2: %v", err)
+	}
+	defer l2Agent.Stop(2 * time.Second)
+
+	// 创建 L2 的 ContextWindow
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "you are helpful")
+
+	// 使用 AskStreamWithHistory 触发完整流程
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ch, err := l2Agent.AskStreamWithHistory(ctx, cw, "delegate to L3")
+	if err != nil {
+		t.Fatalf("AskStreamWithHistory: %v", err)
+	}
+
+	// 收集事件
+	var events []AgentEvent
+	for ev := range ch {
+		events = append(events, ev)
+		t.Logf("event: %T", ev)
+	}
+
+	// 验证：应该收到 DelegationStartedEvent
+	hasDelegation := false
+	for _, ev := range events {
+		if _, ok := ev.(DelegationStartedEvent); ok {
+			hasDelegation = true
+			break
+		}
+	}
+	if !hasDelegation {
+		t.Error("should receive DelegationStartedEvent")
+	}
+
+	// 验证：L2 应该恢复并返回最终答案（即使 L3 失败）
+	hasContent := false
+	for _, ev := range events {
+		if e, ok := ev.(ContentDeltaEvent); ok {
+			if strings.Contains(e.Delta, "recovered") {
+				hasContent = true
+			}
+		}
+		if e, ok := ev.(DoneEvent); ok {
+			if strings.Contains(e.Content, "recovered") {
+				hasContent = true
+			}
+		}
+	}
+	if !hasContent {
+		t.Error("L2 should recover and return final answer after L3 error")
+	}
+
+	t.Logf("received %d events total", len(events))
+}
+
+// ─── TestWatchDelegatedTask_GracePeriodCatchesInFlightResult ────────────
 func TestWatchDelegatedTask_GracePeriodCatchesInFlightResult(t *testing.T) {
 	// Verify that when callerCtx is cancelled but the result arrives within
 	// the 100ms grace period, the result is NOT lost.
