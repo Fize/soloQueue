@@ -241,9 +241,9 @@ func TestAgent_Ask_MaxIterations(t *testing.T) {
 }
 
 func TestAgent_Ask_DefaultMaxIterations(t *testing.T) {
-	// 不设 MaxIterations，默认 DefaultMaxIterations
 	tool := newFakeTool("loop")
-	turns := make([][]llm.ToolCall, 120)
+	n := 10
+	turns := make([][]llm.ToolCall, n+1)
 	for i := range turns {
 		turns[i] = []llm.ToolCall{{
 			ID:       fmt.Sprintf("c%d", i),
@@ -252,13 +252,22 @@ func TestAgent_Ask_DefaultMaxIterations(t *testing.T) {
 	}
 	fake := &FakeLLM{ToolCallsByTurn: turns}
 
-	a := startedAgentWithTools(t, fake, tool)
+	a := NewAgent(Definition{
+		ID:            "maxiter-agent",
+		ModelID:       "fake",
+		MaxIterations: n,
+	}, fake, nil, WithTools(tool))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
 	_, err := a.Ask(context.Background(), "")
 	if !errors.Is(err, ErrMaxIterations) {
 		t.Fatalf("err = %v, want ErrMaxIterations", err)
 	}
-	if fake.ToolCallCount() != DefaultMaxIterations {
-		t.Errorf("LLM called %d times, want %d", fake.ToolCallCount(), DefaultMaxIterations)
+	if fake.ToolCallCount() != n {
+		t.Errorf("LLM called %d times, want %d", fake.ToolCallCount(), n)
 	}
 }
 
@@ -371,10 +380,10 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 
 	_ = log.Close() // flush
 
-	base := filepath.Join(dir, "logs", "sessions", "team", "sess")
+	base := filepath.Join(dir, "logs", "system")
 
 	// tool.jsonl：应含 tool_name / tool_call_id / trace_id / actor_id
-	toolData, err := os.ReadFile(filepath.Join(base, "tool.jsonl"))
+	toolData, err := os.ReadFile(filepath.Join(base, "tool-"+today()+".jsonl"))
 	if err != nil {
 		t.Fatalf("read tool.jsonl: %v", err)
 	}
@@ -390,7 +399,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 	}
 
 	// llm.jsonl：应有 2 条 "llm chat done"（iter=0 含 tool_calls=1，iter=1 tool_calls=0）
-	llmData, err := os.ReadFile(filepath.Join(base, "llm.jsonl"))
+	llmData, err := os.ReadFile(filepath.Join(base, "llm-"+today()+".jsonl"))
 	if err != nil {
 		t.Fatalf("read llm.jsonl: %v", err)
 	}

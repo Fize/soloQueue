@@ -20,15 +20,15 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 	defer func() {
 		if r := recover(); r != nil {
 			err := fmt.Errorf("agent panic: %v", r)
-			a.exitErr.Store(errHolder{err: err})
+			a.setRuntimeExitErr(err)
 			a.logError(ctx, logger.CatActor, "agent run goroutine panic", err)
-			a.state.Store(int32(StateStopped))
+			a.setRuntimeState(StateStopped)
 			close(done)
 			// panic 已记录到 exitErr，caller 通过 Err() 可获取；
 			// 不再 re-panic：re-panic 会跳过 close(done)，导致 caller 永远阻塞在 Done()
 		} else {
 			a.logInfo(ctx, logger.CatActor, "agent run goroutine stopped")
-			a.state.Store(int32(StateStopped))
+			a.setRuntimeState(StateStopped)
 			close(done)
 		}
 	}()
@@ -36,17 +36,17 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 	for {
 		select {
 		case <-ctx.Done():
-			a.state.Store(int32(StateStopping))
+			a.setRuntimeState(StateStopping)
 			drained := a.drainMailbox(ctx, mailbox)
 			a.logInfo(ctx, logger.CatActor, "agent run loop exit",
 				slog.Int("drained_jobs", drained),
 			)
 			return
 		case jb := <-mailbox:
-			a.state.Store(int32(StateProcessing))
+			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			jb(ctx)
-			a.state.Store(int32(StateIdle))
+			a.setRuntimeState(StateIdle)
 		}
 	}
 }
@@ -60,13 +60,13 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 	defer func() {
 		if r := recover(); r != nil {
 			err := fmt.Errorf("agent panic: %v", r)
-			a.exitErr.Store(errHolder{err: err})
+			a.setRuntimeExitErr(err)
 			a.logError(ctx, logger.CatActor, "agent run goroutine panic", err)
-			a.state.Store(int32(StateStopped))
+			a.setRuntimeState(StateStopped)
 			close(done)
 		} else {
 			a.logInfo(ctx, logger.CatActor, "agent run goroutine stopped")
-			a.state.Store(int32(StateStopped))
+			a.setRuntimeState(StateStopped)
 			close(done)
 		}
 	}()
@@ -75,17 +75,17 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 		// 优先检查 highCh（非阻塞）
 		select {
 		case <-ctx.Done():
-			a.state.Store(int32(StateStopping))
+			a.setRuntimeState(StateStopping)
 			drained := a.drainPriorityMailbox(ctx, pm)
 			a.logInfo(ctx, logger.CatActor, "agent run loop exit",
 				slog.Int("drained_jobs", drained),
 			)
 			return
 		case pj := <-pm.HighCh():
-			a.state.Store(int32(StateProcessing))
+			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			pj.job(ctx)
-			a.state.Store(int32(StateIdle))
+			a.setRuntimeState(StateIdle)
 			continue
 		default:
 		}
@@ -93,22 +93,22 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 		// highCh 无消息时，同时等 highCh + normalCh
 		select {
 		case <-ctx.Done():
-			a.state.Store(int32(StateStopping))
+			a.setRuntimeState(StateStopping)
 			drained := a.drainPriorityMailbox(ctx, pm)
 			a.logInfo(ctx, logger.CatActor, "agent run loop exit",
 				slog.Int("drained_jobs", drained),
 			)
 			return
 		case pj := <-pm.HighCh():
-			a.state.Store(int32(StateProcessing))
+			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			pj.job(ctx)
-			a.state.Store(int32(StateIdle))
+			a.setRuntimeState(StateIdle)
 		case pj := <-pm.NormalCh():
-			a.state.Store(int32(StateProcessing))
+			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			pj.job(ctx)
-			a.state.Store(int32(StateIdle))
+			a.setRuntimeState(StateIdle)
 		}
 	}
 }

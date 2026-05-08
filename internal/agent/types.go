@@ -150,3 +150,36 @@ type ModelParams struct {
 	// Set by the task router for L1; may be set from delegation context for L2/L3.
 	Level string
 }
+
+// ─── Runtime observability ───────────────────────────────────────────────
+
+// agentRuntime bundles all per-agent mutable runtime state under a single
+// sync.RWMutex. This replaces the previous scattered atomic fields and adds
+// work-tracking fields for the inspect_agent tool and Watch() method.
+type agentRuntime struct {
+	state              State
+	errCount           int32
+	lastErr            string
+	consecutiveFailures int32
+	exitErr            error
+
+	prompt    string
+	iter      int32
+	tool      string
+	toolArgs  string
+	startedAt time.Time
+}
+
+// WorkStatus is the public snapshot returned by Agent.CurrentWork().
+type WorkStatus struct {
+	State               State  `json:"state"`
+	Prompt              string `json:"prompt"`
+	Iteration           int    `json:"iteration"`
+	CurrentTool         string `json:"current_tool,omitempty"`
+	CurrentToolArgs     string `json:"current_tool_args,omitempty"`
+	Elapsed             string `json:"elapsed"`
+	ErrorCount          int    `json:"error_count"`
+	LastError           string `json:"last_error,omitempty"`
+	ConsecutiveFailures int    `json:"consecutive_failures"`
+	PendingDelegations  int    `json:"pending_delegations"`
+}

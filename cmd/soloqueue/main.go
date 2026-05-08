@@ -70,8 +70,6 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			if err != nil {
 				return err
 			}
-			defer rt.Shutdown()
-
 			log.Info(logger.CatApp, "soloqueue tui starting",
 				"version", version, "model", rt.ReadDefaultModel().ID)
 
@@ -80,7 +78,22 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 
-			defer mgr.Shutdown(5 * time.Second)
+			// Run shutdown concurrently so a slow Docker destroy or
+			// agent stop doesn't block the process exit after the TUI
+			// has already restored the terminal.
+			defer func() {
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					mgr.Shutdown(3 * time.Second)
+					rt.Shutdown()
+				}()
+				select {
+				case <-done:
+				case <-time.After(4 * time.Second):
+					log.Warn(logger.CatApp, "shutdown timed out, exiting")
+				}
+			}()
 
 			// Start embedded HTTP server on a random port for the TUI sidebar API.
 			var httpServerAddr string

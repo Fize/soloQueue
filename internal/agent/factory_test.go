@@ -806,58 +806,62 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 // ─── L2/L3 Enforced Directives: "Plan Before Action" rule tests ───────────
 
 func TestL2EnforcedDirectives_ContainsPlanBeforeExecutionRule(t *testing.T) {
-	if !strings.Contains(l2EnforcedDirectives, "Plan Before Execution") {
-		t.Error("l2EnforcedDirectives should contain 'Plan Before Execution' rule")
+	combined := l2EnforcedDirectives + l2EnforcedPlanSection + l2EnforcedPostPlan
+	if !strings.Contains(combined, "Plan Before Execution") {
+		t.Error("L2 enforced directives should contain 'Plan Before Execution' rule")
 	}
 }
 
 func TestL2EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
-	if !strings.Contains(l2EnforcedDirectives, "{{PLAN_DIR}}") {
-		t.Error("l2EnforcedDirectives should contain '{{PLAN_DIR}}' placeholder")
+	combined := l2EnforcedDirectives + l2EnforcedPlanSection + l2EnforcedPostPlan
+	if !strings.Contains(combined, "{{PLAN_DIR}}") {
+		t.Error("L2 enforced directives should contain '{{PLAN_DIR}}' placeholder")
 	}
 }
 
 func TestL2EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
-	// 验证方案文档结构约定在 L2 enforced directives 中体现
-	if !strings.Contains(l2EnforcedDirectives, "Goal") {
-		t.Error("l2EnforcedDirectives should contain 'Goal' in design document structure")
+	combined := l2EnforcedDirectives + l2EnforcedPlanSection + l2EnforcedPostPlan
+	if !strings.Contains(combined, "Goal") {
+		t.Error("L2 enforced directives should contain 'Goal' in design document structure")
 	}
-	if !strings.Contains(l2EnforcedDirectives, "Approach") {
-		t.Error("l2EnforcedDirectives should contain 'Approach' in design document structure")
+	if !strings.Contains(combined, "Approach") {
+		t.Error("L2 enforced directives should contain 'Approach' in design document structure")
 	}
-	if !strings.Contains(l2EnforcedDirectives, "Impact") {
-		t.Error("l2EnforcedDirectives should contain 'Impact' in design document structure")
+	if !strings.Contains(combined, "Impact") {
+		t.Error("L2 enforced directives should contain 'Impact' in design document structure")
 	}
-	if !strings.Contains(l2EnforcedDirectives, "Steps") {
-		t.Error("l2EnforcedDirectives should contain 'Steps' in design document structure")
+	if !strings.Contains(combined, "Steps") {
+		t.Error("L2 enforced directives should contain 'Steps' in design document structure")
 	}
 }
 
 func TestL3EnforcedDirectives_ContainsPlanBeforeActionRule(t *testing.T) {
-	if !strings.Contains(l3EnforcedDirectives, "Plan Before Action") {
-		t.Error("l3EnforcedDirectives should contain 'Plan Before Action' rule")
+	combined := l3EnforcedDirectives + l3EnforcedPlanSection + l3EnforcedPostPlan
+	if !strings.Contains(combined, "Plan Before Action") {
+		t.Error("L3 enforced directives should contain 'Plan Before Action' rule")
 	}
 }
 
 func TestL3EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
-	if !strings.Contains(l3EnforcedDirectives, "{{PLAN_DIR}}") {
-		t.Error("l3EnforcedDirectives should contain '{{PLAN_DIR}}' placeholder")
+	combined := l3EnforcedDirectives + l3EnforcedPlanSection + l3EnforcedPostPlan
+	if !strings.Contains(combined, "{{PLAN_DIR}}") {
+		t.Error("L3 enforced directives should contain '{{PLAN_DIR}}' placeholder")
 	}
 }
 
 func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
-	// 验证方案文档结构约定在 L3 enforced directives 中体现
-	if !strings.Contains(l3EnforcedDirectives, "Goal") {
-		t.Error("l3EnforcedDirectives should contain 'Goal' in design document structure")
+	combined := l3EnforcedDirectives + l3EnforcedPlanSection + l3EnforcedPostPlan
+	if !strings.Contains(combined, "Goal") {
+		t.Error("L3 enforced directives should contain 'Goal' in design document structure")
 	}
-	if !strings.Contains(l3EnforcedDirectives, "Approach") {
-		t.Error("l3EnforcedDirectives should contain 'Approach' in design document structure")
+	if !strings.Contains(combined, "Approach") {
+		t.Error("L3 enforced directives should contain 'Approach' in design document structure")
 	}
-	if !strings.Contains(l3EnforcedDirectives, "Impact") {
-		t.Error("l3EnforcedDirectives should contain 'Impact' in design document structure")
+	if !strings.Contains(combined, "Impact") {
+		t.Error("L3 enforced directives should contain 'Impact' in design document structure")
 	}
-	if !strings.Contains(l3EnforcedDirectives, "Steps") {
-		t.Error("l3EnforcedDirectives should contain 'Steps' in design document structure")
+	if !strings.Contains(combined, "Steps") {
+		t.Error("L3 enforced directives should contain 'Steps' in design document structure")
 	}
 }
 

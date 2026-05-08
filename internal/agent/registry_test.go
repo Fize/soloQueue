@@ -446,7 +446,7 @@ func TestRegistry_LogsRegisterUnregister(t *testing.T) {
 	}
 
 	_ = log.Close() // flush
-	path := filepath.Join(dir, "logs", "sessions", "team", "sess", "actor.jsonl")
+	path := filepath.Join(dir, "logs", "system", "actor-"+today()+".jsonl")
 	found, err := checkFileHasCategory(path, "actor")
 	if err != nil {
 		t.Fatalf("read log: %v", err)
