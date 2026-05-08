@@ -34,7 +34,7 @@ __pycache__
 # Go build artifacts
 .gocache/
 /soloqueue
-node_modules/*
+node_modules/
 dist
 dist-ssr
 *.tsbuildinfo
