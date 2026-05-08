@@ -33,4 +33,4 @@ __pycache__
 
 # Go build artifacts
 .gocache/
-soloqueue
+/soloqueue
