@@ -186,6 +186,7 @@ func DefaultWorkDir() (string, error) {
 
 // PlanDir returns the absolute path to ~/.soloqueue/plan/.
 // It creates the directory if it doesn't exist.
+// This is used by L1 which has no team concept.
 func PlanDir() (string, error) {
 	workDir, err := DefaultWorkDir()
 	if err != nil {
@@ -194,6 +195,24 @@ func PlanDir() (string, error) {
 	planDir := filepath.Join(workDir, "plan")
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		return "", fmt.Errorf("create plan dir %s: %w", planDir, err)
+	}
+	return planDir, nil
+}
+
+// TeamPlanDir returns the absolute path to ~/.soloqueue/plan/<team>/.
+// It creates the directory if it doesn't exist.
+// Each team has its own plan directory for isolation.
+func TeamPlanDir(team string) (string, error) {
+	workDir, err := DefaultWorkDir()
+	if err != nil {
+		return "", err
+	}
+	if team == "" {
+		team = "default"
+	}
+	planDir := filepath.Join(workDir, "plan", team)
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		return "", fmt.Errorf("create team plan dir %s: %w", planDir, err)
 	}
 	return planDir, nil
 }
