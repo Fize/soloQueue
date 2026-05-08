@@ -213,6 +213,8 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			return
 		}
 
+		a.setWorkIter(iter)
+
 		msgs, err := strat.buildMessages(a, iter)
 		if err != nil {
 			a.logError(ctx, logger.CatLLM, "build messages failed", err,
@@ -477,6 +479,8 @@ func (s *historyStrategy) promptLen() int { return len(s.prompt) }
 // runOnceStream is the execution body of AskStream (runs in the agent
 // goroutine). Uses in-memory message accumulation without ContextWindow.
 func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- AgentEvent) {
+	a.setWorkStart(prompt)
+	defer a.clearWork()
 	a.streamLoop(ctx, out, &simpleStrategy{
 		systemPrompt: a.Def.SystemPrompt,
 		prompt:       prompt,
@@ -490,8 +494,13 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 // Returns true if the stream loop yielded (async delegation started);
 // the caller must keep the context alive until resumeTurn completes.
 func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) bool {
-	defer a.ClearModelOverride() // auto-clear per-ask model override
-	return a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
+	defer a.ClearModelOverride()
+	a.setWorkStart(prompt)
+	yielded := a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
+	if !yielded {
+		a.clearWork()
+	}
+	return yielded
 }
 
 // runOnceStreamWithHistoryFromIter resumes the tool loop from a given
@@ -503,7 +512,11 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 	out chan<- AgentEvent,
 	startIter int,
 ) bool {
-	return a.streamLoop(ctx, out, &historyStrategy{cw: cw}, startIter)
+	yielded := a.streamLoop(ctx, out, &historyStrategy{cw: cw}, startIter)
+	if !yielded {
+		a.clearWork()
+	}
+	return yielded
 }
 
 // emit 向 out 发送一个 AgentEvent；ctx 取消时放弃发送并返回 false
@@ -513,6 +526,9 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 //   - buffer 满时 select { ch <- ev; <-ctx.Done() } —— 任一就绪都退出
 //   - 返回 false 表示 ctx 取消；调用方应立刻 return（通常配合 defer close(out)）
 func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) bool {
+	// Fan-out to watchers (non-blocking, drop if slow).
+	a.emitToWatchers(ev)
+
 	// 非阻塞快速路径（不检查 ctx，优先把事件发出去）
 	select {
 	case out <- ev:
@@ -638,6 +654,7 @@ func (a *Agent) execTools(
 func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, out chan<- AgentEvent) string {
 	name := tc.Function.Name
 	args := tc.Function.Arguments
+	defer a.clearWorkTool()
 
 	var tool tools.Tool
 	var ok bool
@@ -665,6 +682,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	a.emit(ctx, out, ToolExecStartEvent{
 		Iter: iter, CallID: tc.ID, Name: name, Args: args,
 	})
+	a.setWorkTool(name, args)
 
 	// ── Confirmable 检查 ───────────────────────────────────────────────
 	// 若工具实现了 Confirmable：
