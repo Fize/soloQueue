@@ -31,6 +31,8 @@ func main() {
 }
 
 func rootCmd() *cobra.Command {
+	var port int
+
 	root := &cobra.Command{
 		Use:   "soloqueue",
 		Short: "SoloQueue — AI multi-agent collaboration tool",
@@ -95,11 +97,17 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				}
 			}()
 
-			// Start embedded HTTP server on a random port for the TUI sidebar API.
+			// Start embedded HTTP server for the TUI sidebar API.
 			var httpServerAddr string
-			httpListener, err := net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				log.Warn(logger.CatApp, "failed to start HTTP server", "err", err)
+			var httpListener net.Listener
+			var listenErr error
+			if port > 0 {
+				httpListener, listenErr = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+			} else {
+				httpListener, listenErr = net.Listen("tcp", "127.0.0.1:0")
+			}
+			if listenErr != nil {
+				log.Warn(logger.CatApp, "failed to start HTTP server", "err", listenErr)
 			} else {
 				httpServerAddr = fmt.Sprintf("http://%s", httpListener.Addr().String())
 				httpMux := server.NewMux(workDir, log, rt.TodoStore)
@@ -160,6 +168,8 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			})
 		},
 	}
+
+	root.Flags().IntVarP(&port, "port", "p", 0, "HTTP server port for TUI mode (0 = random)")
 
 	root.AddCommand(cli.VersionCmd(version))
 	root.AddCommand(cli.ServeCmd(version))

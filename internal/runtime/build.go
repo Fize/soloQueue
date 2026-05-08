@@ -202,6 +202,7 @@ func Build(
 		agent.WithDefaultModelID(defaultModel.ID),
 		agent.WithTemplates(allTemplates),
 		agent.WithGroups(groups),
+		agent.WithWorkDir(workDir),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────

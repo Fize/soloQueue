@@ -47,6 +47,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store) *Mux {
 
 	// Global middleware
 	r.Use(middleware.Recoverer)
+	r.Use(corsMiddleware)
 
 	m := &Mux{
 		log:       log,
@@ -347,4 +348,22 @@ func (m *Mux) logError(ctx context.Context, msg string, err error) {
 		return
 	}
 	m.log.LogError(ctx, logger.CatHTTP, msg, err)
+}
+
+// corsMiddleware handles CORS for the TUI sidebar API accessed from the dev server.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
