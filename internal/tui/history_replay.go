@@ -44,7 +44,7 @@ func loadMessagesFromHistory(history []agent.LLMMessage, isHistory bool) []messa
 				isHistory: isHistory,
 			})
 
-		case "assitant":
+		case "assistant":
 			if len(h.ToolCalls) > 0 {
 				flushPending()
 				pending = &message{role: "agent", isHistory: isHistory}
