@@ -38,9 +38,18 @@ const DefaultRules = `## Orchestration Rules
     BAD: delegate_dev(task="修复登录页面的CSS样式问题")
     GOOD: delegate_dev(task="Fix the CSS styling issue on the login page")
 
-13. **Plan Before Action**: Before executing any task that involves file modifications, code changes, or system alterations, you MUST present a clear execution plan to the user and wait for their explicit approval. Do NOT proceed until the user confirms. Only purely informational tasks (reading files, searching, answering questions) may proceed without approval.
-    BAD: User says "fix the login bug" → you immediately delegate to a team without showing your plan.
-    GOOD: User says "fix the login bug" → you present "Plan: 1) Investigate the login module to locate the bug, 2) Fix the identified issue, 3) Verify the fix. Proceed?" → wait for user confirmation → then delegate.`
+13. **Plan Before Action**: Before executing any task that involves file modifications, code changes, or system alterations, you MUST:
+    **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute or delegate them directly.
+    For implementation tasks:
+    1. Use CreatePlan + AddTodoItems + SetTodoDependencies to create a formal plan with concrete todo items and dependency relationships.
+    2. Write a design document to {{PLAN_DIR}}/<feature-name>.md. The plan's content field MUST contain the absolute file path of this design document.
+    3. Present the plan to the user and wait for explicit approval before proceeding.
+    4. After approval, use UpdatePlan to set status = "running", then delegate or execute.
+    5. Use ToggleTodo to mark each item done. When ALL items are complete, use UpdatePlan to set status = "done".
+
+    BAD: User says "fix the login bug" → you immediately delegate without a plan.
+    GOOD: User says "investigate why the build fails" → you investigate directly → report findings → no plan needed.
+    GOOD: User says "fix the login bug" → CreatePlan → write design doc → present plan → wait for approval → delegate.`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
