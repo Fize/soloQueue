@@ -223,6 +223,63 @@ func (s *Session) Clear() error {
 	return nil
 }
 
+// LastMessageTime returns the timestamp of the last non-system message.
+// Returns zero time if no messages exist or only system prompt is present.
+func (s *Session) LastMessageTime() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	payload := s.cw.BuildPayload()
+	for i := len(payload) - 1; i >= 0; i-- {
+		if payload[i].Role != "system" {
+			return payload[i].Timestamp
+		}
+	}
+	return time.Time{}
+}
+
+// ShouldClearContext returns true if (a) the last message is older than idleTimeout,
+// AND (b) currentTokens >= minTokens. This prevents wasting tokens on short sessions.
+func (s *Session) ShouldClearContext(idleTimeout time.Duration, minTokens int) bool {
+	last := s.LastMessageTime()
+	if last.IsZero() {
+		return false
+	}
+	if time.Since(last) < idleTimeout {
+		return false
+	}
+	// Time condition met; now check token threshold
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cw.CurrentTokens() >= minTokens
+}
+
+// ClearSilent performs a "silent" clear of the context window.
+// Unlike Clear(), it does NOT write a control event to the timeline.
+// It triggers the memory hook (if set) for short-term memory storage.
+func (s *Session) ClearSilent() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Snapshot messages for memory recording
+	var memoryText string
+	if s.memoryHook != nil {
+		payload := s.cw.BuildPayload()
+		memoryText = formatPayloadForMemory(payload)
+	}
+
+	// Reset context window (preserves system prompt)
+	s.cw.Reset()
+
+	s.mu.Unlock()
+	// Call memory hook outside lock
+	if s.memoryHook != nil && memoryText != "" {
+		s.memoryHook(context.Background(), memoryText)
+	}
+	s.mu.Lock() // re-lock for defer
+
+	return nil
+}
+
 // Ask 发送一轮 prompt，返回最终 content
 //
 // 语义：
