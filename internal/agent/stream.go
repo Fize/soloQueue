@@ -310,6 +310,9 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			// Replace truncated tool_calls with an error message so the LLM
 			// knows it hit the limit and should produce shorter output.
 			toolCalls = nil
+			// CRITICAL: also clear acc.tcSlots to prevent incomplete tool_calls
+			// from leaking into the next iteration (e.g., via postIteration).
+			acc.tcSlots = make(map[int]*llm.ToolCall)
 			if acc.content.Len() == 0 {
 				acc.content.WriteString("[error] Output truncated (max_tokens reached). " +
 					"Your tool_call arguments were incomplete. " +
