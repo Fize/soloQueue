@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +84,7 @@ type DefaultFactory struct {
 	toolsCfg       tools.Config
 	defaultModelID string // 当 AgentTemplate.ModelID 为空时使用此默认值
 	skillDir       string
+	workDir        string // ~/.soloqueue, 用于根据 team 计算 planDir
 	log            *logger.Logger
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
 	templates      map[string]AgentTemplate    // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
@@ -151,6 +154,13 @@ func WithGroups(groups map[string]prompt.GroupFile) FactoryOption {
 	}
 }
 
+// WithWorkDir sets the workDir (~/.soloqueue) for computing team-specific plan directories.
+func WithWorkDir(workDir string) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.workDir = workDir
+	}
+}
+
 func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
 }
@@ -196,11 +206,20 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	f.mu.RUnlock()
 
 	// 1. 构建最终 SystemPrompt
+	// Compute team-specific planDir: ~/.soloqueue/plan/<group>/
+	// L2/L3 agents use team-isolated plan directories; L1 (no group) falls back to global PlanDir.
+	planDir := toolsCfg.PlanDir
+	if f.workDir != "" && tmpl.Group != "" {
+		teamPlanDir := filepath.Join(f.workDir, "plan", tmpl.Group)
+		if err := os.MkdirAll(teamPlanDir, 0o755); err == nil {
+			planDir = teamPlanDir
+		}
+	}
 	var finalPrompt string
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, toolsCfg.PlanDir)
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir)
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl, toolsCfg.PlanDir)
+		finalPrompt = buildL3SystemPrompt(tmpl, planDir)
 	}
 
 	// 2. 构建 Definition
@@ -494,28 +513,33 @@ GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/f
 
 const l2EnforcedPlanSection = `
 # 9. Plan Before Execution
-Before executing any task that involves file modifications, code changes, or system alterations, you MUST:
-1. Write a design document to the plan directory: {{PLAN_DIR}}/<feature-name>.md
-2. Present the plan to L1 and wait for explicit approval.
+**Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute them directly or delegate them without a plan.
 
-The design document MUST contain:
-- Goal: What the task aims to achieve
-- Approach: How you plan to implement it
-- Impact: What files/modules will be affected
-- Steps: Ordered list of implementation steps
+**For implementation tasks WITHIN your team's scope:**
+1. Use CreatePlan to create a plan. Set its content to the absolute path of the design document.
+2. Use AddTodoItems + SetTodoDependencies to define concrete steps with dependency relationships.
+3. Write the design document to {{PLAN_DIR}}/<feature-name>.md, choosing a filename that does not conflict with existing files. It MUST contain: Goal, Approach, Impact, and Steps.
+4. Present the plan to L1 and wait for explicit approval. L1 will reply "approved" when ready.
+5. After approval, use UpdatePlan to set status = "running", then delegate sub-tasks to Workers.
+6. When delegating, include a numbered task list derived from the plan's todo items, with dependencies and expected deliverables for each task. Delegate independent items to different Workers in parallel. Delegate dependent items sequentially, waiting for upstream results first.
+7. Use ToggleTodo to mark each item done. When ALL items are complete, use UpdatePlan to set status = "done".
 
-Do NOT proceed with delegation or execution until L1 confirms the plan. Only purely informational tasks (reading files, searching, answering questions) may proceed without approval.
-BAD: L1 delegates "fix the login bug" → you immediately delegate sub-tasks to workers without presenting a plan.
-GOOD: L1 delegates "fix the login bug" → you write a plan document to {{PLAN_DIR}}/fix-login-bug.md → you present "Plan: 1) Read login.go to locate the bug, 2) Fix the null pointer on line 42, 3) Verify the fix. Proceed?" → wait for L1 approval → then delegate to workers.
+**For tasks OUTSIDE your team's scope:**
+- Delegate directly to the appropriate L3 Worker without creating a plan yourself.
+- When an L3 Worker submits a plan for your review: approve it autonomously if straightforward; escalate to L1 only when the plan involves significant trade-offs or risks. Reply "approved" or "rejected: <reason>" so the Worker can proceed.
+
+Plan lifecycle: plan → running → done.
+
+BAD: L1 delegates "fix the login bug" → you immediately delegate sub-tasks without a plan.
+GOOD: L1 delegates "fix the login bug" → CreatePlan → write design doc → AddTodoItems → present plan → wait for "approved" → delegate with task list.
+GOOD: L1 delegates "translate the README" (outside scope) → delegate directly to L3 → L3 creates its own plan → you review and approve it.
 `
+
 
 const l2EnforcedPostPlan = `
 # 10. Escalation Decision Rule
-When uncertain about a decision during task execution:
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
-- If you CANNOT make a reasonable decision (ambiguous requirements, multiple valid approaches with significant trade-offs, risk of unintended consequences) → escalate to L1 for a decision.
-BAD: You are unsure which database migration strategy to use → you pick one arbitrarily.
-GOOD: You are unsure which database migration strategy to use → you escalate to L1 with options and trade-offs.
+- If you CANNOT (ambiguous requirements, significant trade-offs, risk of unintended consequences) → escalate to L1 with options and reasoning.
 `
 
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
@@ -621,28 +645,30 @@ GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
 
 const l3EnforcedPlanSection = `
 # 3. Plan Before Action
-Before executing any task that involves file modifications, code changes, or system alterations, you MUST:
-1. Write a design document to the plan directory: {{PLAN_DIR}}/<feature-name>.md
-2. Report the plan back to L2 and wait for approval before proceeding.
+**Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute them directly.
 
-The design document MUST contain:
-- Goal: What the task aims to achieve
-- Approach: How you plan to implement it
-- Impact: What files/modules will be affected
-- Steps: Ordered list of implementation steps
+**For implementation tasks:**
+1. If L2's delegation contains a numbered task list (from L2's plan), execute it directly. Use ToggleTodo to mark each item as you complete it.
+2. If L2 delegated WITHOUT a task list, create your own plan:
+   - Use CreatePlan + AddTodoItems + SetTodoDependencies to define concrete steps.
+   - Set the plan's content to the absolute path of the design document.
+   - Write the design document to {{PLAN_DIR}}/<feature-name>.md, choosing a filename that does not conflict with existing files. It MUST contain: Goal, Approach, Impact, and Steps.
+3. Report the plan to L2 and wait for approval. L2 will reply "approved" or "rejected: <reason>".
+4. After approval, use UpdatePlan to set status = "running", then execute.
+5. When ALL items are complete, use UpdatePlan to set status = "done".
 
-Only purely informational tasks (reading files, searching) may proceed without a plan document.
-BAD: L2 delegates "fix the null pointer" → you immediately start modifying files.
-GOOD: L2 delegates "fix the null pointer" → you write a plan document to {{PLAN_DIR}}/fix-null-pointer.md → you report the plan to L2 → wait for approval → then execute.
+Plan lifecycle: plan → running → done.
+
+BAD: L2 delegates a task → you immediately start modifying files without a plan.
+GOOD: L2 delegates "investigate the failing test" → you investigate directly → report findings → no plan needed.
+GOOD: L2 delegates with a task list → execute tasks in order → ToggleTodo each item → UpdatePlan to "done".
+GOOD: L2 delegates without a task list → CreatePlan → write design doc → report to L2 → wait for approval → execute.
 `
 
 const l3EnforcedPostPlan = `
 # 4. Escalation Decision Rule
-When uncertain about a decision during execution:
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
-- If you CANNOT make a reasonable decision → escalate to L2 for a decision.
-BAD: You are unsure about the correct API contract → you guess and implement.
-GOOD: You are unsure about the correct API contract → you report back to L2 with the ambiguity.
+- If you CANNOT (ambiguous requirements, significant trade-offs) → escalate to L2 with options and reasoning.
 `
 
 // buildL3SystemPrompt 为 L3 Worker 构建两段式 System Prompt。
