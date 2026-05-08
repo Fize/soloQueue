@@ -434,8 +434,16 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	a.turnMu.Unlock()
 
 	// push 所有 tool result 到 cw
+	// 添加边界检查，防止 len(toolCalls) != len(results) 时 panic
 	for i, tc := range turn.toolCalls {
-		turn.cw.Push(ctxwin.RoleTool, turn.results[i],
+		toolResult := ""
+		if i < len(turn.results) {
+			toolResult = turn.results[i]
+		} else {
+			// 结果缺失，填入错误信息
+			toolResult = fmt.Sprintf("error: tool result missing for %s", tc.ID)
+		}
+		turn.cw.Push(ctxwin.RoleTool, toolResult,
 			ctxwin.WithToolCallID(tc.ID),
 			ctxwin.WithToolName(tc.Function.Name),
 			ctxwin.WithEphemeral(true),
