@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1060,5 +1061,307 @@ func TestAgent_MailboxDepth_WithRegularMailbox(t *testing.T) {
 	}
 	if normal < 1 {
 		t.Errorf("normal = %d, want >= 1", normal)
+	}
+}
+
+// ─── Work tracking (CurrentWork) ───────────────────────────────────────
+
+func TestAgent_CurrentWork_NewAgent_IsStopped(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	w := a.CurrentWork()
+	if w.State != StateStopped {
+		t.Errorf("State = %s, want stopped", w.State)
+	}
+	if w.Iteration != 0 {
+		t.Errorf("Iteration = %d, want 0", w.Iteration)
+	}
+}
+
+func TestAgent_CurrentWork_IdleAfterStart(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}}, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	waitForState(t, a, time.Second, StateIdle)
+	w := a.CurrentWork()
+	if w.State != StateIdle {
+		t.Errorf("State = %s, want idle", w.State)
+	}
+}
+
+func TestAgent_CurrentWork_TracksPromptAndIteration(t *testing.T) {
+	blockedTool := newBlockingTool()
+	defer close(blockedTool.ch)
+
+	fake := &FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{{
+			ID:       "c1",
+			Function: llm.FunctionCall{Name: "block", Arguments: `{}`},
+		}}},
+		Responses: []string{"done"},
+	}
+	a := NewAgent(Definition{ID: "test", ModelID: "m"}, fake, nil, WithTools(blockedTool))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	go a.Ask(context.Background(), "hello world")
+	waitForState(t, a, time.Second, StateProcessing)
+
+	w := a.CurrentWork()
+	if w.Prompt != "hello world" {
+		t.Errorf("Prompt = %q, want %q", w.Prompt, "hello world")
+	}
+	if w.Iteration < 0 {
+		t.Errorf("Iteration = %d, want >= 0", w.Iteration)
+	}
+	if w.Elapsed == "" {
+		t.Errorf("Elapsed should not be empty")
+	}
+}
+
+func TestAgent_CurrentWork_TracksToolExecution(t *testing.T) {
+	blockedTool := newBlockingTool()
+	defer close(blockedTool.ch)
+
+	fake := &FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{{
+			ID:       "block1",
+			Function: llm.FunctionCall{Name: "block", Arguments: `{"arg":"val"}`},
+		}}},
+		Responses: []string{"unreached"},
+	}
+	a := NewAgent(Definition{ID: "test", ModelID: "m"}, fake, nil, WithTools(blockedTool))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	// Start a task that blocks on tool execution.
+	go a.Ask(context.Background(), "do work")
+	waitForState(t, a, time.Second, StateProcessing)
+
+	// During tool execution, CurrentWork should show the tool name.
+	w := a.CurrentWork()
+	if w.CurrentTool != "block" {
+		t.Errorf("CurrentTool = %q, want %q", w.CurrentTool, "block")
+	}
+	if w.CurrentToolArgs != `{"arg":"val"}` {
+		t.Errorf("CurrentToolArgs = %q, want %q", w.CurrentToolArgs, `{"arg":"val"}`)
+	}
+}
+
+func TestAgent_CurrentWork_ErrorTracking(t *testing.T) {
+	fake := &FakeLLM{
+		Err: errors.New("llm service unavailable"),
+	}
+	a := NewAgent(Definition{ID: "test", ModelID: "m"}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	_, _ = a.Ask(context.Background(), "make error")
+	waitForState(t, a, 2*time.Second, StateIdle)
+
+	w := a.CurrentWork()
+	if w.ErrorCount < 1 {
+		t.Errorf("ErrorCount = %d, want >= 1", w.ErrorCount)
+	}
+	if !strings.Contains(w.LastError, "llm service unavailable") {
+		t.Errorf("LastError = %q, want to contain 'llm service unavailable'", w.LastError)
+	}
+}
+
+func TestAgent_CurrentWork_ErrorAndCountConsistency(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a.RecordError(errors.New("err1"))
+	a.RecordError(errors.New("err2"))
+
+	w := a.CurrentWork()
+	if w.ErrorCount != 2 {
+		t.Errorf("ErrorCount = %d, want 2", w.ErrorCount)
+	}
+	if w.LastError != "err2" {
+		t.Errorf("LastError = %q, want %q", w.LastError, "err2")
+	}
+
+	// ResetErrors should clear both.
+	a.ResetErrors()
+	w = a.CurrentWork()
+	if w.ErrorCount != 0 {
+		t.Errorf("ErrorCount after reset = %d, want 0", w.ErrorCount)
+	}
+	if w.LastError != "" {
+		t.Errorf("LastError after reset = %q, want empty", w.LastError)
+	}
+}
+
+func TestAgent_ConsecutiveFailures_CircuitBreaker(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+
+	for i := int32(1); i <= 5; i++ {
+		if got := a.IncrementConsecutiveFailures(); got != i {
+			t.Errorf("IncrementConsecutiveFailures = %d, want %d", got, i)
+		}
+	}
+	if cf := a.ConsecutiveFailures(); cf != 5 {
+		t.Errorf("ConsecutiveFailures = %d, want 5", cf)
+	}
+
+	a.ResetConsecutiveFailures()
+	if cf := a.ConsecutiveFailures(); cf != 0 {
+		t.Errorf("ConsecutiveFailures after reset = %d, want 0", cf)
+	}
+}
+
+func TestAgent_State_LifecycleTransitions(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}}, nil)
+	if s := a.State(); s != StateStopped {
+		t.Errorf("State before Start = %s, want stopped", s)
+	}
+
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	waitForState(t, a, time.Second, StateIdle)
+
+	_, err := a.Ask(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	waitForState(t, a, time.Second, StateIdle)
+
+	if err := a.Stop(time.Second); err != nil {
+		t.Errorf("Stop: %v", err)
+	}
+	waitForState(t, a, time.Second, StateStopped)
+}
+
+func TestAgent_Err_ReturnsPanicError(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	if err := a.Err(); err != nil {
+		t.Errorf("Err on new agent should be nil, got %v", err)
+	}
+
+	a.setRuntimeExitErr(errors.New("test error"))
+	if err := a.Err(); err == nil || err.Error() != "test error" {
+		t.Errorf("Err = %v, want 'test error'", err)
+	}
+}
+
+// ─── Watch() ────────────────────────────────────────────────────────────
+
+func TestAgent_Watch_ReceivesEvents(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"hello"}}, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	waitForState(t, a, time.Second, StateIdle)
+
+	ch, cancel := a.Watch()
+	defer cancel()
+
+	go a.Ask(context.Background(), "hi")
+
+	// Collect events until DoneEvent or ErrorEvent
+	var gotContent, gotDone bool
+	for ev := range ch {
+		switch ev.(type) {
+		case ContentDeltaEvent:
+			gotContent = true
+		case DoneEvent:
+			gotDone = true
+			return
+		case ErrorEvent:
+			return
+		}
+	}
+	if !gotContent {
+		t.Error("expected ContentDeltaEvent via Watch channel")
+	}
+	if !gotDone {
+		t.Error("expected DoneEvent via Watch channel")
+	}
+}
+
+func TestAgent_Watch_CancelRemovesWatcher(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}}, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	waitForState(t, a, time.Second, StateIdle)
+
+	ch, cancel := a.Watch()
+	cancel() // immediately cancel
+
+	// Channel should be closed.
+	_, ok := <-ch
+	if ok {
+		t.Error("Watch channel should be closed after cancel")
+	}
+}
+
+func TestAgent_Watch_MultipleWatchers(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"hello"}}, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	waitForState(t, a, time.Second, StateIdle)
+
+	ch1, cancel1 := a.Watch()
+	defer cancel1()
+	ch2, cancel2 := a.Watch()
+	defer cancel2()
+
+	go a.Ask(context.Background(), "hi")
+
+	// Both watchers should receive events.
+	done1, done2 := false, false
+	for !done1 || !done2 {
+		select {
+		case ev, ok := <-ch1:
+			if !ok {
+				done1 = true
+			} else if _, isDone := ev.(DoneEvent); isDone {
+				done1 = true
+			}
+		case ev, ok := <-ch2:
+			if !ok {
+				done2 = true
+			} else if _, isDone := ev.(DoneEvent); isDone {
+				done2 = true
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for watch events")
+		}
+	}
+}
+
+func TestAgent_Watch_IdleAgentProducesNoEvents(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	waitForState(t, a, time.Second, StateIdle)
+
+	ch, cancel := a.Watch()
+	defer cancel()
+
+	// No Ask sent — no events should arrive.
+	select {
+	case ev := <-ch:
+		t.Errorf("unexpected event from idle agent: %T", ev)
+	case <-time.After(100 * time.Millisecond):
+		// expected: no events
 	}
 }

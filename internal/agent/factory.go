@@ -490,7 +490,9 @@ Every task you delegate to a Worker MUST include all context the Worker needs to
 - Any dependencies or related files the Worker should be aware of
 BAD: "Fix the CSS bug in the login page"
 GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/frontend/src/components/Login.tsx. The CSS module is at /workspace/frontend/src/styles/login.module.css. The bug: the submit button overlaps the password field on mobile viewports. Workspace: /workspace"
+`
 
+const l2EnforcedPlanSection = `
 # 9. Plan Before Execution
 Before executing any task that involves file modifications, code changes, or system alterations, you MUST:
 1. Write a design document to the plan directory: {{PLAN_DIR}}/<feature-name>.md
@@ -505,7 +507,9 @@ The design document MUST contain:
 Do NOT proceed with delegation or execution until L1 confirms the plan. Only purely informational tasks (reading files, searching, answering questions) may proceed without approval.
 BAD: L1 delegates "fix the login bug" → you immediately delegate sub-tasks to workers without presenting a plan.
 GOOD: L1 delegates "fix the login bug" → you write a plan document to {{PLAN_DIR}}/fix-login-bug.md → you present "Plan: 1) Read login.go to locate the bug, 2) Fix the null pointer on line 42, 3) Verify the fix. Proceed?" → wait for L1 approval → then delegate to workers.
+`
 
+const l2EnforcedPostPlan = `
 # 10. Escalation Decision Rule
 When uncertain about a decision during task execution:
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
@@ -587,14 +591,17 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 
 	// ── Segment 3: 框架强制区 ──────────────────────────────
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectives, "{{PLAN_DIR}}", planDir))
+	if planDir != "" {
+		b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
+	}
+	b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 
 	return b.String()
 }
 
 // ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
 
-// l3EnforcedDirectives 是 L3 Worker 框架强制区常量。
-// 利用"近因效应"放在最末，优先级最高，防止用户越权。
+// l3EnforcedDirectives is the always-included portion of the L3 enforced rules.
 const l3EnforcedDirectives = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
@@ -610,7 +617,9 @@ GOOD: Task is "fix the null pointer on line 42" → you fix ONLY the null pointe
 Your output (results, summaries, error reports) MUST be in English. You are part of a multi-layer system where cross-layer communication must be English.
 BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
+`
 
+const l3EnforcedPlanSection = `
 # 3. Plan Before Action
 Before executing any task that involves file modifications, code changes, or system alterations, you MUST:
 1. Write a design document to the plan directory: {{PLAN_DIR}}/<feature-name>.md
@@ -625,7 +634,9 @@ The design document MUST contain:
 Only purely informational tasks (reading files, searching) may proceed without a plan document.
 BAD: L2 delegates "fix the null pointer" → you immediately start modifying files.
 GOOD: L2 delegates "fix the null pointer" → you write a plan document to {{PLAN_DIR}}/fix-null-pointer.md → you report the plan to L2 → wait for approval → then execute.
+`
 
+const l3EnforcedPostPlan = `
 # 4. Escalation Decision Rule
 When uncertain about a decision during execution:
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
@@ -653,6 +664,10 @@ func buildL3SystemPrompt(tmpl AgentTemplate, planDir string) string {
 
 	// ── Segment 2: 框架强制区 ──────────────────────────────
 	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
+	if planDir != "" {
+		b.WriteString(strings.ReplaceAll(l3EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
+	}
+	b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 
 	return b.String()
 }

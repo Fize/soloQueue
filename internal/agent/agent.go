@@ -23,9 +23,6 @@ import (
 // 不对外暴露。
 type job func(ctx context.Context)
 
-// errHolder 包装 error 以便存进 atomic.Value（后者不允许存 nil）
-type errHolder struct{ err error }
-
 // ─── Agent ───────────────────────────────────────────────────────────────────
 
 // Agent 是一个绑定 LLM + 配置 + 日志的长期运行单元
@@ -87,21 +84,16 @@ type Agent struct {
 	// and auto-cleared when the ask completes. Thread-safe via atomic pointer.
 	modelOverride atomic.Pointer[ModelParams]
 
-	// Error tracking for observability — surfaced in TUI sidebar.
-	// Reset at the start of each job. Written by streamLoop (LLM errors)
-	// and watchDelegatedTask (delegation failures).
-	errCount atomic.Int32
-	lastErr  atomic.Value // string
+	// runtime bundles all mutable runtime observability state under a single
+	// RWMutex. Includes lifecycle state, error tracking, circuit breaker,
+	// exit error, and work-tracking fields. Read by TUI and inspect_agent tool;
+	// written by the agent's own goroutine (single writer).
+	runtimeMu sync.RWMutex
+	runtime   agentRuntime
 
-	// Circuit breaker: tracks consecutive fatal streamLoop failures across jobs.
-	// Incremented on ChatStream failure, buildMessages failure, and
-	// MaxIterations exceeded. Reset on successful completion (DoneEvent).
-	// When >= DefaultMaxConsecutiveFailures, streamLoop refuses to run.
-	consecutiveFailures atomic.Int32
-
-	// 观察（无锁）
-	state   atomic.Int32 // State
-	exitErr atomic.Value // errHolder
+	watchSlots []watchSlot
+	watchMu    sync.RWMutex
+	watchSeq   int64
 }
 
 // confirmSlot 是单次 tool_call 的待确认槽位
@@ -332,33 +324,35 @@ func (a *Agent) EffectiveTaskLevel() string {
 }
 
 // RecordError increments the error counter and stores the error message.
-// Thread-safe (atomic). Called from streamLoop (LLM errors) and
-// watchDelegatedTask (delegation failures).
+// Called from streamLoop (LLM errors) and watchDelegatedTask (delegation failures).
 func (a *Agent) RecordError(err error) {
-	a.errCount.Add(1)
-	a.lastErr.Store(err.Error())
+	a.runtimeMu.Lock()
+	a.runtime.errCount++
+	a.runtime.lastErr = err.Error()
+	a.runtimeMu.Unlock()
 }
 
 // ResetErrors clears the per-job error counters. Called at the start of
 // each new job in run.go.
 func (a *Agent) ResetErrors() {
-	a.errCount.Store(0)
-	a.lastErr.Store("")
+	a.runtimeMu.Lock()
+	a.runtime.errCount = 0
+	a.runtime.lastErr = ""
+	a.runtimeMu.Unlock()
 }
 
 // ErrorCount returns the number of errors recorded in the current job.
 func (a *Agent) ErrorCount() int32 {
-	return a.errCount.Load()
+	a.runtimeMu.RLock()
+	defer a.runtimeMu.RUnlock()
+	return a.runtime.errCount
 }
 
 // LastError returns the most recent error message, or "" if none.
 func (a *Agent) LastError() string {
-	if v := a.lastErr.Load(); v != nil {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
+	a.runtimeMu.RLock()
+	defer a.runtimeMu.RUnlock()
+	return a.runtime.lastErr
 }
 
 // ─── Circuit breaker ────────────────────────────────────────────────────
@@ -366,18 +360,154 @@ func (a *Agent) LastError() string {
 // IncrementConsecutiveFailures increments the circuit breaker counter and
 // returns the new value. Called by streamLoop on fatal errors.
 func (a *Agent) IncrementConsecutiveFailures() int32 {
-	return a.consecutiveFailures.Add(1)
+	a.runtimeMu.Lock()
+	a.runtime.consecutiveFailures++
+	v := a.runtime.consecutiveFailures
+	a.runtimeMu.Unlock()
+	return v
 }
 
-// ResetConsecutiveFailures resets the circuit breaker counter to 0.
-// Called by streamLoop on successful completion (DoneEvent).
 func (a *Agent) ResetConsecutiveFailures() {
-	a.consecutiveFailures.Store(0)
+	a.runtimeMu.Lock()
+	a.runtime.consecutiveFailures = 0
+	a.runtimeMu.Unlock()
 }
 
-// ConsecutiveFailures returns the current circuit breaker counter.
 func (a *Agent) ConsecutiveFailures() int32 {
-	return a.consecutiveFailures.Load()
+	a.runtimeMu.RLock()
+	defer a.runtimeMu.RUnlock()
+	return a.runtime.consecutiveFailures
+}
+
+// CurrentWork returns a consistent snapshot of the agent's current runtime
+// observability state including lifecycle state, work tracking, errors, and
+// delegation count.
+func (a *Agent) CurrentWork() WorkStatus {
+	a.runtimeMu.RLock()
+	defer a.runtimeMu.RUnlock()
+	var elapsed string
+	if !a.runtime.startedAt.IsZero() {
+		elapsed = time.Since(a.runtime.startedAt).Truncate(time.Millisecond).String()
+	}
+	return WorkStatus{
+		State:               a.runtime.state,
+		Prompt:              a.runtime.prompt,
+		Iteration:           int(a.runtime.iter),
+		CurrentTool:         a.runtime.tool,
+		CurrentToolArgs:     a.runtime.toolArgs,
+		Elapsed:             elapsed,
+		ErrorCount:          int(a.runtime.errCount),
+		LastError:           a.runtime.lastErr,
+		ConsecutiveFailures: int(a.runtime.consecutiveFailures),
+		PendingDelegations:  a.pendingDelegationsLocked(),
+	}
+}
+
+func (a *Agent) pendingDelegationsLocked() int {
+	return len(a.asyncTurns)
+}
+
+// ─── Runtime state helpers (agent goroutine only) ────────────────────────
+
+func (a *Agent) setRuntimeState(s State) {
+	a.runtimeMu.Lock()
+	a.runtime.state = s
+	a.runtimeMu.Unlock()
+}
+
+func (a *Agent) setRuntimeExitErr(err error) {
+	a.runtimeMu.Lock()
+	a.runtime.exitErr = err
+	a.runtimeMu.Unlock()
+}
+
+func (a *Agent) setWorkStart(prompt string) {
+	a.runtimeMu.Lock()
+	a.runtime.state = StateProcessing
+	a.runtime.prompt = prompt
+	a.runtime.startedAt = time.Now()
+	a.runtimeMu.Unlock()
+}
+
+func (a *Agent) setWorkIter(iter int) {
+	a.runtimeMu.Lock()
+	a.runtime.iter = int32(iter)
+	a.runtimeMu.Unlock()
+}
+
+func (a *Agent) setWorkTool(name, args string) {
+	a.runtimeMu.Lock()
+	a.runtime.tool = name
+	a.runtime.toolArgs = args
+	a.runtimeMu.Unlock()
+}
+
+func (a *Agent) clearWorkTool() {
+	a.runtimeMu.Lock()
+	a.runtime.tool = ""
+	a.runtime.toolArgs = ""
+	a.runtimeMu.Unlock()
+}
+
+func (a *Agent) clearWork() {
+	a.runtimeMu.Lock()
+	a.runtime.prompt = ""
+	a.runtime.iter = 0
+	a.runtime.tool = ""
+	a.runtime.toolArgs = ""
+	a.runtime.state = StateIdle
+	a.runtimeMu.Unlock()
+}
+
+// ─── Event subscription (Watch mode) ────────────────────────────────────
+
+type watchSlot struct {
+	ch chan AgentEvent
+	id int64
+}
+
+// Watch returns a buffered channel that receives a copy of all AgentEvent
+// produced by this agent's current (or next) job execution. Returns a cancel
+// function to unsubscribe and close the channel.
+//
+// The channel has a 64-slot buffer. If the watcher falls behind, events are
+// silently dropped (non-blocking fan-out) to avoid backpressure on the
+// primary consumer.
+//
+// Only events from the current/next streamLoop are broadcast; idle agents
+// produce no events. Call after Ask/AskStream has started.
+func (a *Agent) Watch() (<-chan AgentEvent, func()) {
+	ch := make(chan AgentEvent, 64)
+	a.watchMu.Lock()
+	defer a.watchMu.Unlock()
+	a.watchSeq++
+	id := a.watchSeq
+	a.watchSlots = append(a.watchSlots, watchSlot{ch: ch, id: id})
+	cancel := func() {
+		a.watchMu.Lock()
+		defer a.watchMu.Unlock()
+		for i, s := range a.watchSlots {
+			if s.id == id {
+				a.watchSlots = append(a.watchSlots[:i], a.watchSlots[i+1:]...)
+				close(ch)
+				return
+			}
+		}
+	}
+	return ch, cancel
+}
+
+// emitToWatchers fans out an event to all registered watchers. Non-blocking;
+// slow watchers silently drop events.
+func (a *Agent) emitToWatchers(ev AgentEvent) {
+	a.watchMu.RLock()
+	defer a.watchMu.RUnlock()
+	for _, s := range a.watchSlots {
+		select {
+		case s.ch <- ev:
+		default:
+		}
+	}
 }
 
 // NewAgent 构造未 Start 的 agent
@@ -398,7 +528,6 @@ func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option)
 	for _, opt := range opts {
 		opt(a)
 	}
-	a.state.Store(int32(StateStopped)) // 未 Start 时视为 Stopped
-	a.exitErr.Store(errHolder{})       // 初始无 error
+	a.runtime.state = StateStopped
 	return a
 }

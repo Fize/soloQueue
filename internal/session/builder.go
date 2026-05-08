@@ -146,6 +146,12 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				sv.SetGroup(leaderTmpl.Group)
 				b.RT.AddSupervisor(sv)
 
+				// Register supervisor-scoped inspect_agent for this leader.
+				if err := child.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
+					sessLog.Warn(logger.CatActor, "register inspect_agent for leader failed",
+						"name", leader.Name, "err", err)
+				}
+
 				sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
 					"instance_id", child.InstanceID,
 					"name", leader.Name,
@@ -160,6 +166,10 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}
 		allTools = append(allTools, dt)
 	}
+
+	// Add inspect_agent tool for L1 to query all agent status
+	inspectTool := tools.NewInspectAgentTool(agent.RegistryInspectQuery(b.RT.AgentRegistry))
+	allTools = append(allTools, inspectTool)
 
 	// Skills: use the global skillRegistry
 	skillList := b.RT.SkillRegistry.Skills()
@@ -220,6 +230,12 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		b.RT.AddSupervisor(sv)
 		sessLog.Info(logger.CatActor, "auto-reload: leader supervisor created",
 			"name", name, "group", group)
+
+		// Register supervisor-scoped inspect_agent for the auto-reloaded leader.
+		if err := ag.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
+			sessLog.Warn(logger.CatActor, "register inspect_agent for auto-reload leader failed",
+				"name", name, "err", err)
+		}
 
 		dt := tools.NewDelegateTool(name, name+" team leader", 20*time.Minute, b.RT.AgentRegistry, sessLog)
 		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
