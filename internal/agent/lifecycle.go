@@ -36,8 +36,8 @@ func (a *Agent) Start(parent context.Context) error {
 	// agent 自己的 ctx 也注入 actor_id，这样 run/drain 的日志也自动带
 	a.ctx = a.ctxWithAgentAttrs(a.ctx)
 	a.done = make(chan struct{})
-	a.exitErr.Store(errHolder{})
-	a.state.Store(int32(StateIdle))
+	a.setRuntimeExitErr(nil)
+	a.setRuntimeState(StateIdle)
 
 	// 每次 Start 清空会话级确认白名单（对应新 session）
 	a.confirmStore.Clear()
@@ -132,13 +132,13 @@ func (a *Agent) Done() <-chan struct{} {
 //
 // 仅在 <-Done() 之后读取才有定论。
 func (a *Agent) Err() error {
-	if v, ok := a.exitErr.Load().(errHolder); ok {
-		return v.err
-	}
-	return nil
+	a.runtimeMu.RLock()
+	defer a.runtimeMu.RUnlock()
+	return a.runtime.exitErr
 }
 
-// State 返回当前观察状态（并发安全）
 func (a *Agent) State() State {
-	return State(a.state.Load())
+	a.runtimeMu.RLock()
+	defer a.runtimeMu.RUnlock()
+	return a.runtime.state
 }
