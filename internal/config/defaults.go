@@ -67,58 +67,58 @@ func DefaultSettings() Settings {
 				Name:          "DeepSeek V4 Flash",
 				ContextWindow: 1048576,
 				Enabled:       true,
-				Generation: GenerationParams{
-					Temperature: 0,
-					MaxTokens:   8192,
-				},
+			Generation: GenerationParams{
+				Temperature: 0,
+				MaxTokens:   16384,
 			},
-			{
-				ID:            "deepseek-v4-flash-thinking",
-				ProviderID:    "deepseek",
-				APIModel:      "deepseek-v4-flash",
-				Name:          "DeepSeek V4 Flash (Thinking)",
-				ContextWindow: 1048576,
-				Enabled:       true,
-				Generation: GenerationParams{
-					Temperature: 0,
-					MaxTokens:   8192,
-				},
-				Thinking: ThinkingConfig{
-					Enabled:         true,
-					ReasoningEffort: "high",
-				},
+		},
+		{
+			ID:            "deepseek-v4-flash-thinking",
+			ProviderID:    "deepseek",
+			APIModel:      "deepseek-v4-flash",
+			Name:          "DeepSeek V4 Flash (Thinking)",
+			ContextWindow: 1048576,
+			Enabled:       true,
+			Generation: GenerationParams{
+				Temperature: 0,
+				MaxTokens:   16384,
 			},
-			{
-				ID:            "deepseek-v4-pro",
-				ProviderID:    "deepseek",
-				Name:          "DeepSeek V4 Pro",
-				ContextWindow: 1048576,
-				Enabled:       true,
-				Generation: GenerationParams{
-					Temperature: 0,
-					MaxTokens:   16384,
-				},
-				Thinking: ThinkingConfig{
-					Enabled:         true,
-					ReasoningEffort: "high",
-				},
+			Thinking: ThinkingConfig{
+				Enabled:         true,
+				ReasoningEffort: "high",
 			},
-			{
-				ID:            "deepseek-v4-pro-max",
-				ProviderID:    "deepseek",
-				APIModel:      "deepseek-v4-pro",
-				Name:          "DeepSeek V4 Pro (Max Reasoning)",
-				ContextWindow: 1048576,
-				Enabled:       true,
-				Generation: GenerationParams{
-					Temperature: 0,
-					MaxTokens:   8192,
-				},
-				Thinking: ThinkingConfig{
-					Enabled:         true,
-					ReasoningEffort: "max",
-				},
+		},
+		{
+			ID:            "deepseek-v4-pro",
+			ProviderID:    "deepseek",
+			Name:          "DeepSeek V4 Pro",
+			ContextWindow: 1048576,
+			Enabled:       true,
+			Generation: GenerationParams{
+				Temperature: 0,
+				MaxTokens:   16384,
 			},
+			Thinking: ThinkingConfig{
+				Enabled:         true,
+				ReasoningEffort: "high",
+			},
+		},
+		{
+			ID:            "deepseek-v4-pro-max",
+			ProviderID:    "deepseek",
+			APIModel:      "deepseek-v4-pro",
+			Name:          "DeepSeek V4 Pro (Max Reasoning)",
+			ContextWindow: 1048576,
+			Enabled:       true,
+			Generation: GenerationParams{
+				Temperature: 0,
+				MaxTokens:   16384,
+			},
+			Thinking: ThinkingConfig{
+				Enabled:         true,
+				ReasoningEffort: "max",
+			},
+		},
 		},
 		Embedding: EmbeddingConfig{
 			Enabled: false,
