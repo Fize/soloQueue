@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"strings"
+
+	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 )
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────
@@ -21,6 +23,29 @@ type Settings struct {
 	Models        []LLMModel          `json:"models"`
 	Embedding     EmbeddingConfig     `json:"embedding"`
 	DefaultModels DefaultModelsConfig `json:"defaultModels"`
+	QQBot         QQBotConfig         `json:"qqbot"`
+}
+
+// ─── QQ Bot ──────────────────────────────────────────────────────────────────
+
+// QQBotConfig is the configuration for QQ Bot WebSocket Gateway integration.
+type QQBotConfig struct {
+	Enabled   bool   `json:"enabled"`
+	AppID     string `json:"appId"`
+	AppSecret string `json:"appSecret"`
+	Intents   int    `json:"intents,omitempty"` // 0 = use default intents
+	Sandbox   bool   `json:"sandbox,omitempty"` // true = use sandbox API
+}
+
+// ToQQBotConfig converts config.QQBotConfig to qqbot.Config.
+func (c QQBotConfig) ToQQBotConfig() qqbot.Config {
+	return qqbot.Config{
+		Enabled:   c.Enabled,
+		AppID:     c.AppID,
+		AppSecret: c.AppSecret,
+		Intents:   c.Intents,
+		Sandbox:   c.Sandbox,
+	}
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
