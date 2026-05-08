@@ -8,7 +8,7 @@ import (
 )
 
 func TestLoadMessagesFromHistory_Empty(t *testing.T) {
-	msgs := loadMessagesFromHistory(nil)
+	msgs := loadMessagesFromHistory(nil, false)
 	if len(msgs) != 0 {
 		t.Errorf("expected 0 messages, got %d", len(msgs))
 	}
@@ -19,7 +19,7 @@ func TestLoadMessagesFromHistory_UserOnly(t *testing.T) {
 		{Role: "system", Content: "system prompt"},
 		{Role: "user", Content: "hello"},
 	}
-	msgs := loadMessagesFromHistory(history)
+	msgs := loadMessagesFromHistory(history, false)
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
@@ -34,7 +34,7 @@ func TestLoadMessagesFromHistory_AssistantWithThinking(t *testing.T) {
 		{Role: "user", Content: "question"},
 		{Role: "assistant", Content: "answer", ReasoningContent: "let me think..."},
 	}
-	msgs := loadMessagesFromHistory(history)
+	msgs := loadMessagesFromHistory(history, false)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
@@ -70,7 +70,7 @@ func TestLoadMessagesFromHistory_WithToolCalls(t *testing.T) {
 		{Role: "tool", ToolCallID: "call_1", Content: "file contents here"},
 		{Role: "assistant", Content: "the file says..."},
 	}
-	msgs := loadMessagesFromHistory(history)
+	msgs := loadMessagesFromHistory(history, false)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages (user + agent), got %d", len(msgs))
 	}
@@ -116,7 +116,7 @@ func TestLoadMessagesFromHistory_MultiTurn(t *testing.T) {
 		{Role: "user", Content: "q2"},
 		{Role: "assistant", Content: "a2", ReasoningContent: "thinking2"},
 	}
-	msgs := loadMessagesFromHistory(history)
+	msgs := loadMessagesFromHistory(history, false)
 	if len(msgs) != 4 {
 		t.Fatalf("expected 4 messages (2 pairs), got %d", len(msgs))
 	}
