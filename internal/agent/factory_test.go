@@ -801,6 +801,17 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 	if !strings.Contains(prompt, "need_clarification") {
 		t.Error("L2 prompt should contain need_clarification format")
 	}
+
+	// Segment 3: exploration artifacts
+	if !strings.Contains(prompt, "Exploration Artifacts") {
+		t.Error("L2 prompt should contain exploration artifacts rule")
+	}
+	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
+		t.Error("L2 prompt should contain /tmp/soloqueue-explore path")
+	}
+	if !strings.Contains(prompt, "same-day") {
+		t.Error("L2 prompt should mention same-day freshness window")
+	}
 }
 
 // ─── L2/L3 Enforced Directives: "Plan Before Action" rule tests ───────────
@@ -922,6 +933,14 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
 		t.Error("L2 prompt should not contain unreplaced {{PLAN_DIR}} placeholder")
 	}
+
+	// exploration artifacts should still be present even when planDir is empty
+	if !strings.Contains(prompt, "Exploration Artifacts") {
+		t.Error("L2 prompt should contain exploration artifacts rule even when planDir is empty")
+	}
+	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
+		t.Error("L2 prompt should contain /tmp/soloqueue-explore path even when planDir is empty")
+	}
 }
 
 func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
@@ -973,6 +992,17 @@ func TestBuildL3SystemPrompt_ContainsPlanBeforeActionRule(t *testing.T) {
 	if !strings.Contains(prompt, "Plan Before Action") {
 		t.Error("L3 prompt should contain 'Plan Before Action' rule")
 	}
+
+	// 验证 L3 prompt 中包含 Exploration Artifacts 规则
+	if !strings.Contains(prompt, "Exploration Artifacts") {
+		t.Error("L3 prompt should contain exploration artifacts rule")
+	}
+	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
+		t.Error("L3 prompt should contain /tmp/soloqueue-explore path")
+	}
+	if !strings.Contains(prompt, "same-day") {
+		t.Error("L3 prompt should mention same-day freshness window")
+	}
 }
 
 func TestBuildL3SystemPrompt_ContainsPlanDirPath(t *testing.T) {
@@ -1013,6 +1043,14 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 	}
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
 		t.Error("L3 prompt should not contain unreplaced {{PLAN_DIR}} placeholder")
+	}
+
+	// exploration artifacts should still be present even when planDir is empty
+	if !strings.Contains(prompt, "Exploration Artifacts") {
+		t.Error("L3 prompt should contain exploration artifacts rule even when planDir is empty")
+	}
+	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
+		t.Error("L3 prompt should contain /tmp/soloqueue-explore path even when planDir is empty")
 	}
 }
 

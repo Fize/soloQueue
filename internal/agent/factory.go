@@ -536,8 +536,38 @@ GOOD: L1 delegates "translate the README" (outside scope) → delegate directly 
 `
 
 
+const l2EnforcedExplorationSection = `
+# 10. Exploration Artifacts
+When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to /tmp/soloqueue-explore if the exploration is complex or the findings are worth sharing with other agents.
+
+## When to Save
+- Complex investigations with many files or nuanced conclusions
+- Investigations whose results may be reused by other agents in the same session
+- Simple one-off lookups can skip saving
+
+## Document Naming
+Format: /tmp/soloqueue-explore/<task-slug>_<agent-id>.md
+Examples:
+- /tmp/soloqueue-explore/explore_auth_flow_dev-leader.md
+- /tmp/soloqueue-explore/investigate_race_condition_dev-leader.md
+
+## Document Content
+- Agent: your id/name/layer
+- Created at: use current time when saving
+- Updated at: use current time when updating
+- Freshness window: same-day
+- Task: the original or summarized task description
+- Key Findings, Files Inspected, Reusable Context, Open Questions
+
+## Reuse Rules
+1. Before delegating an exploration task to L3, check /tmp/soloqueue-explore for an existing artifact with the same task-slug and your agent-id.
+2. If an artifact exists and was created today, read it first and pass its findings to the L3 Worker to avoid redundant exploration.
+3. If you create or reuse an artifact, include its path in your response to L1 so other agents can access it.
+4. When delegating to L3, you may ask the Worker to write an artifact and return its path.
+`
+
 const l2EnforcedPostPlan = `
-# 10. Escalation Decision Rule
+# 11. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
 - If you CANNOT (ambiguous requirements, significant trade-offs, risk of unintended consequences) → escalate to L1 with options and reasoning.
 `
@@ -615,6 +645,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 
 	// ── Segment 3: 框架强制区 ──────────────────────────────
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectives, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
 	if planDir != "" {
 		b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
 	}
@@ -665,6 +696,35 @@ GOOD: L2 delegates with a task list → execute tasks in order → ToggleTodo ea
 GOOD: L2 delegates without a task list → CreatePlan → write design doc → report to L2 → wait for approval → execute.
 `
 
+const l3EnforcedExplorationSection = `
+# 3. Exploration Artifacts
+When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to /tmp/soloqueue-explore if the exploration is complex or the findings are worth sharing with other agents.
+
+## When to Save
+- Complex investigations with many files or nuanced conclusions
+- Investigations whose results may be reused by other agents in the same session
+- Simple one-off lookups can skip saving
+
+## Document Naming
+Format: /tmp/soloqueue-explore/<task-slug>_<agent-id>.md
+Examples:
+- /tmp/soloqueue-explore/explore_auth_flow_backend-worker.md
+- /tmp/soloqueue-explore/investigate_race_condition_backend-worker.md
+
+## Document Content
+- Agent: your id/name/layer
+- Created at: use current time when saving
+- Updated at: use current time when updating
+- Freshness window: same-day
+- Task: the original or summarized task description
+- Key Findings, Files Inspected, Reusable Context, Open Questions
+
+## Reuse Rules
+1. Before starting a new exploration, check /tmp/soloqueue-explore for an existing artifact with the same task-slug and your agent-id.
+2. If an artifact exists and was created today, read it first and reuse its findings when appropriate.
+3. If you create or reuse an artifact, include its path in your response to L2 so other agents can access it.
+`
+
 const l3EnforcedPostPlan = `
 # 4. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
@@ -690,6 +750,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, planDir string) string {
 
 	// ── Segment 2: 框架强制区 ──────────────────────────────
 	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
 	if planDir != "" {
 		b.WriteString(strings.ReplaceAll(l3EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
 	}
