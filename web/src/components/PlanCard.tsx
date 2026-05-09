@@ -19,9 +19,9 @@ const statusIcon = {
 };
 
 const statusColor = {
-  plan: 'text-status-plan',
-  running: 'text-status-running',
-  done: 'text-status-done',
+  plan: 'text-blue-600',
+  running: 'text-amber-600',
+  done: 'text-green-600',
 };
 
 export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps) {

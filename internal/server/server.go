@@ -30,6 +30,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 )
 
@@ -43,6 +44,8 @@ type Mux struct {
 	configSvc      *config.GlobalService
 	runtimeMetrics *RuntimeMetrics
 	accessLogger   *httpAccessLogger
+	templates      []agent.AgentTemplate
+	groups         map[string]prompt.GroupFile
 }
 
 // MuxOption is a functional option for NewMux.
@@ -66,6 +69,14 @@ func WithConfigService(svc *config.GlobalService) MuxOption {
 // WithRuntimeMetrics sets the runtime metrics source for /api/runtime.
 func WithRuntimeMetrics(rm *RuntimeMetrics) MuxOption {
 	return func(m *Mux) { m.runtimeMetrics = rm }
+}
+
+// WithTemplates sets the agent templates and groups for /api/teams.
+func WithTemplates(templates []agent.AgentTemplate, groups map[string]prompt.GroupFile) MuxOption {
+	return func(m *Mux) {
+		m.templates = templates
+		m.groups = groups
+	}
 }
 
 // NewMux creates a new HTTP handler with registered routes.
@@ -134,6 +145,8 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 
 	// Agent routes
 	r.Get("/api/agents", m.handleListAgents)
+	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
+	r.Get("/api/teams", m.handleListTeams)
 	r.Get("/api/runtime", m.handleGetRuntime)
 
 	// Config routes

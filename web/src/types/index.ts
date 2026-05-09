@@ -59,6 +59,30 @@ export interface AgentListResponse {
   supervisors: SupervisorInfo[];
 }
 
+export interface AgentProfile {
+  soul: string;
+  rules: string;
+}
+
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  is_leader: boolean;
+  group: string;
+  model_id: string;
+}
+
+export interface TeamInfo {
+  name: string;
+  description: string;
+  agents: AgentTemplate[];
+}
+
+export interface TeamListResponse {
+  teams: TeamInfo[];
+}
+
 // ─── Runtime Types ───────────────────────────────────────────────────────────
 
 export interface RuntimeStatus {

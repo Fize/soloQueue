@@ -116,11 +116,12 @@ func ServeCmd(version string) *cobra.Command {
 				os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			mux := server.NewMux(workDir, log, rt.TodoStore,
-				server.WithRegistry(rt.AgentRegistry),
-				server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
-				server.WithConfigService(cfg),
-			)
+		mux := server.NewMux(workDir, log, rt.TodoStore,
+			server.WithRegistry(rt.AgentRegistry),
+			server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
+			server.WithConfigService(cfg),
+			server.WithTemplates(rt.AllTemplates, rt.Groups),
+		)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,

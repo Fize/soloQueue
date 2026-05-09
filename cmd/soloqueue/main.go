@@ -117,12 +117,13 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				// Create shared runtime metrics that the TUI writes and HTTP API reads.
 				runtimeMetrics = &server.RuntimeMetrics{HTTPAddr: httpServerAddr}
 
-				httpMux := server.NewMux(workDir, log, rt.TodoStore,
-					server.WithRegistry(rt.AgentRegistry),
-					server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
-					server.WithConfigService(cfg),
-					server.WithRuntimeMetrics(runtimeMetrics),
-				)
+			httpMux := server.NewMux(workDir, log, rt.TodoStore,
+				server.WithRegistry(rt.AgentRegistry),
+				server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
+				server.WithConfigService(cfg),
+				server.WithRuntimeMetrics(runtimeMetrics),
+				server.WithTemplates(rt.AllTemplates, rt.Groups),
+			)
 				rt.HTTPServer = &http.Server{Handler: httpMux}
 				rt.HTTPListener = httpListener
 				go func() {
