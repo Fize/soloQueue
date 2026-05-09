@@ -66,17 +66,6 @@ func (m model) renderComposer(ly layout) string {
 	}
 	input = strings.Join(lines, "\n")
 
-	if ly.mode == layoutTwoPane && m.showAgents {
-		var padding strings.Builder
-		padding.WriteString(strings.Repeat(" ", ly.leftW))
-		padding.WriteString(paneBorderStyle.Render("│"))
-
-		lines = strings.Split(input, "\n")
-		for i, l := range lines {
-			lines[i] = padding.String() + l
-		}
-		return strings.Join(lines, "\n")
-	}
 	return input
 }
 
@@ -105,16 +94,5 @@ func (m model) renderConfirmDialog(ly layout) string {
 	}
 
 	result := sb.String()
-	if ly.mode == layoutTwoPane && m.showAgents {
-		var padding strings.Builder
-		padding.WriteString(strings.Repeat(" ", ly.leftW))
-		padding.WriteString(paneBorderStyle.Render("│"))
-
-		lines := strings.Split(result, "\n")
-		for i, l := range lines {
-			lines[i] = padding.String() + l
-		}
-		return strings.Join(lines, "\n")
-	}
 	return result
 }

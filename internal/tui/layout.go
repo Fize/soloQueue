@@ -1,22 +1,12 @@
 package tui
 
 const (
-	compactBreakpoint = 90
-	minMainWidth      = 24
-	minBodyHeight     = 4
-	maxComposerLines  = 8
-)
-
-type layoutMode int
-
-const (
-	layoutCompact layoutMode = iota
-	layoutTwoPane
+	minMainWidth     = 24
+	minBodyHeight    = 4
+	maxComposerLines = 8
 )
 
 type layout struct {
-	mode layoutMode
-
 	width  int
 	height int
 
@@ -25,7 +15,6 @@ type layout struct {
 	composerH int
 	footerH   int
 
-	leftW int
 	mainW int
 
 	composerW        int
@@ -43,36 +32,22 @@ func (m *model) computeLayout() layout {
 		height = 24
 	}
 
-	mode := layoutCompact
-	if width >= compactBreakpoint {
-		mode = layoutTwoPane
-	}
-
 	maxLines := maxComposerLinesForHeight(height)
-	// Determine actual composer width based on layout mode
 	composerW := max(width-4, minMainWidth)
-	if width >= compactBreakpoint {
-		// Two-pane: composer occupies the right pane only
-		leftW := 0
-		if m.showAgents {
-			leftW = clampInt(width*22/100, 26, 34) + 1 // sidebar + separator
-		}
-		composerW = max(width-leftW-4, minMainWidth)
-	}
-	// Use textarea's DynamicHeight when available, otherwise estimate from content.
+
 	composerLines := m.textArea.Height()
 	if composerLines < 1 {
 		composerLines = composerLineCountForValue(m.textArea.Value(), composerW, maxLines)
 	}
-	composerH := composerLines // textarea lines only, no title
+	composerH := composerLines
 
 	ly := layout{
-		mode:             mode,
 		width:            width,
 		height:           height,
 		headerH:          1,
 		composerH:        composerH,
 		footerH:          1,
+		mainW:            width,
 		composerW:        composerW,
 		composerLines:    composerLines,
 		maxComposerLines: maxLines,
@@ -83,17 +58,6 @@ func (m *model) computeLayout() layout {
 		ly.bodyH = minBodyHeight
 	}
 
-	switch mode {
-	case layoutTwoPane:
-		if m.showAgents {
-			ly.leftW = clampInt(width*22/100, 26, 34)
-			ly.mainW = width - ly.leftW - 1
-		} else {
-			ly.mainW = width
-		}
-	default:
-		ly.mainW = width
-	}
 	if ly.mainW < minMainWidth {
 		ly.mainW = minMainWidth
 	}
@@ -113,14 +77,4 @@ func maxComposerLinesForHeight(height int) int {
 		return maxComposerLines
 	}
 	return maxLines
-}
-
-func clampInt(v, minV, maxV int) int {
-	if v < minV {
-		return minV
-	}
-	if v > maxV {
-		return maxV
-	}
-	return v
 }

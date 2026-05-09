@@ -14,7 +14,6 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -41,11 +40,6 @@ type Config struct {
 	Skills        *skill.SkillRegistry
 	SandboxInitCh <-chan SandboxInitMsg // async sandbox + session init channel
 	NotifyCh      <-chan string         // background task notifications
-
-	// Static template data for sidebar agent tree (available before any agent runs).
-	Templates     []agent.AgentTemplate
-	Groups        map[string]prompt.GroupFile
-	AssistantName string // name parsed from soul.md for L1 display
 
 	// HTTPServerAddr is the address of the embedded HTTP API server.
 	HTTPServerAddr string
@@ -212,9 +206,7 @@ type model struct {
 	historyIdx   int
 	historyDraft string
 
-	sidebar        sidebar
 	focus          focusMode
-	showAgents     bool
 	copyMode       bool
 	confirmQueue    []confirmState // FIFO queue of pending tool confirmations
 	loading         bool   // true while waiting for sandbox + session init
@@ -233,10 +225,8 @@ func Run(cfg Config) error {
 		ctx:            ctx,
 		messages:       []message{},
 		history:        loadHistory(),
-		sidebar:        newSidebar(cfg.Registry, cfg.SupervisorsFn, cfg.Templates, cfg.Groups, cfg.AssistantName),
 		spinner:        newSpinner(),
 		focus:          focusComposer,
-		showAgents:     true,
 		runtimeMetrics: cfg.RuntimeMetrics,
 	}
 
@@ -294,7 +284,7 @@ func Run(cfg Config) error {
 // ─── Init ─────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textarea.Blink, agentTickCmd(agentTickInterval(false))}
+	cmds := []tea.Cmd{textarea.Blink}
 	if m.loading && m.cfg.SandboxInitCh != nil {
 		cmds = append(cmds, waitForSandboxInit(m.cfg.SandboxInitCh))
 	}
@@ -491,12 +481,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.startStream(input, sid)
 			return m, tea.Sequence(cmd, spinnerCmd())
 
-		case "ctrl+a":
-			m.showAgents = !m.showAgents
-			m.resizeViewport()
-			m.rebuildViewportContent()
-			return m, nil
-
 		case "up":
 			if len(m.confirmQueue) > 0 {
 				if m.confirmQueue[0].selected > 0 {
@@ -539,14 +523,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseWheelMsg:
-		// Route scroll to sidebar team viewport when mouse is in the left pane.
-		if m.showAgents {
-			ly := m.computeLayout()
-			if ly.mode == layoutTwoPane && msg.Mouse().X < ly.leftW {
-				m.sidebar.teamViewport, _ = m.sidebar.teamViewport.Update(msg)
-				return m, nil
-			}
-		}
 		var c tea.Cmd
 		m.viewport, c = m.viewport.Update(msg)
 		return m, c
@@ -651,12 +627,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.quitCount = 0
 		return m, nil
 
-	case agentTickMsg:
-		if !m.copyMode {
-			m.sidebar.spinner.Next()
-		}
-		return m, agentTickCmd(agentTickInterval(m.isGenerating))
-
 	case systemNotifyMsg:
 		m.messages = append(m.messages, message{role: "system", content: msg.message})
 		m.resizeViewport()
@@ -684,12 +654,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// renderSpacer returns a blank line, preserving the vertical pane separator
-// in two-pane mode so the │ line doesn't break between sections.
-func (m *model) renderSpacer(ly layout) string {
-	if ly.mode == layoutTwoPane && m.showAgents {
-		return strings.Repeat(" ", ly.leftW) + paneBorderStyle.Render("│")
-	}
+// renderSpacer returns a blank line between sections.
+func (m *model) renderSpacer(_ layout) string {
 	return ""
 }
 
@@ -710,10 +676,6 @@ func (m model) View() tea.View {
 			// Count actual rendered lines above the textarea.
 			// body + spacer + header + spacer
 			c.Y += lineCount(body) + 1 + lineCount(header) + 1
-			// If sidebar is visible, offset X for sidebar width + separator
-			if ly.mode == layoutTwoPane && m.showAgents {
-				c.X += ly.leftW + 1
-			}
 		}
 		v.Cursor = c
 		v.MouseMode = tea.MouseModeCellMotion
