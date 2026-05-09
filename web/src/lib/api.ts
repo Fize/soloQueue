@@ -6,6 +6,8 @@ import type {
   AgentProfile,
   TeamListResponse,
   AppConfig,
+  ToolListResponse,
+  SkillListResponse,
 } from '@/types';
 
 const API_BASE = 'http://localhost:8765/api';
@@ -71,4 +73,14 @@ export async function getConfig(): Promise<AppConfig> {
 
 export async function updateConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
   return request<AppConfig>('/config', { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+// ─── Tools & Skills APIs ────────────────────────────────────────────────────
+
+export async function getTools(): Promise<ToolListResponse> {
+  return request<ToolListResponse>('/tools');
+}
+
+export async function getSkills(): Promise<SkillListResponse> {
+  return request<SkillListResponse>('/skills');
 }

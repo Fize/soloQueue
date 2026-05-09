@@ -121,6 +121,8 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
 			server.WithConfigService(cfg),
 			server.WithTemplates(rt.AllTemplates, rt.Groups),
+			server.WithToolsConfig(&rt.ToolsCfg),
+			server.WithSkillRegistry(rt.SkillRegistry),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.
