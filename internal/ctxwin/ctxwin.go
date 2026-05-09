@@ -563,11 +563,14 @@ func (cw *ContextWindow) asyncCompact() {
 	}
 
 	// Compress without holding any lock (allows concurrent operations)
+	compactStart := time.Now()
 	summary, err := cw.compactor.Compact(context.Background(), msgs)
+	compactDuration := time.Since(compactStart)
 	if err != nil {
 		if cw.log != nil {
 			cw.log.WarnContext(context.Background(), logger.CatMessages, "async_compact: compression failed",
 				"err", err.Error(),
+				"duration", compactDuration.String(),
 			)
 		}
 		return // compression failed, keep current state
@@ -597,6 +600,7 @@ func (cw *ContextWindow) asyncCompact() {
 				"tokens_saved", removedTokens,
 				"tokens_saved_pct", float64(removedTokens)*100.0/float64(tokensBefore),
 				"summary_len", len(summary),
+				"compact_duration", compactDuration.String(),
 			)
 		}
 	}

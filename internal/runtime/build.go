@@ -45,6 +45,7 @@ func Build(
 	log *logger.Logger,
 	profileSetup ProfileSetupFn,
 ) (*Stack, error) {
+	buildStart := time.Now()
 	settings := cfg.Get()
 	provider := cfg.DefaultProvider()
 	if provider == nil {
@@ -60,11 +61,13 @@ func Build(
 	if err != nil {
 		return nil, fmt.Errorf("build llm client: %w", err)
 	}
+	log.Debug(logger.CatApp, "build: LLM client ready", "duration", time.Since(buildStart).String())
 
 	// ── Tools Config ───────────────────────────────────────────────────────────
 	toolsCfg := settings.Tools.ToToolsConfig()
 
 	// ── Prompt System ──────────────────────────────────────────────────────────
+	promptStart := time.Now()
 	promptCfg := &prompt.PromptConfig{
 		RolesDir:  filepath.Join(workDir, "roles"),
 		GlobalDir: filepath.Join(workDir, "prompts", "global"),
@@ -84,6 +87,7 @@ func Build(
 			return nil, fmt.Errorf("ensure prompt files: %w", err)
 		}
 	}
+	log.Debug(logger.CatApp, "build: prompt system ready", "duration", time.Since(promptStart).String())
 
 	// ── Groups ─────────────────────────────────────────────────────────────
 	groups, err := prompt.LoadGroups(filepath.Join(workDir, "groups"))
@@ -114,11 +118,13 @@ func Build(
 	memoryMgr := memory.NewManager(memoryDir, llmClient, fastModelID, log)
 
 	// ── Shared SQLite DB ──────────────────────────────────────────────────
+	embStart := time.Now()
 	sharedDBPath := filepath.Join(workDir, "permanent_memory", "entries.db")
 	sharedDB, sharedDBErr := sqlitedb.Open(sharedDBPath)
 	if sharedDBErr != nil {
 		return nil, fmt.Errorf("open shared sqlite db: %w", sharedDBErr)
 	}
+	log.Debug(logger.CatApp, "build: sqlite opened", "duration", time.Since(embStart).String())
 
 	// ── Permanent Memory Manager ──────────────────────────────────────────
 	var permanentMgr *permanent.Manager
@@ -141,6 +147,7 @@ func Build(
 				if embErr == nil {
 					store := vectorstore.NewSQLiteStoreFromDB(sharedDB.DB, &sharedDB.WMu)
 					{
+						permBuildStart := time.Now()
 						permanentMgr = permanent.NewManager(store, embClient, nil, "", memoryDir, log)
 						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
 							log.Error(logger.CatApp, msg)
@@ -161,9 +168,8 @@ func Build(
 							permScheduler.Run(permCtx)
 						}()
 
-						recentText, _ := memoryMgr.ReadRecentMemory(7)
-						_, _ = permanentMgr.QueryForPrompt(context.Background(), recentText)
 						toolsCfg.PermanentManager = permanentMgr
+						log.Debug(logger.CatApp, "build: permanent memory ready", "duration", time.Since(permBuildStart).String())
 					}
 				} else {
 					log.Warn(logger.CatApp, "permanent memory: failed to create embedder", "err", embErr)
@@ -235,6 +241,7 @@ func Build(
 	taskRouter := router.NewRouter(classifier, cfg, log)
 
 	// Load global skill registry (shared by TUI slash commands and sessions)
+	skillStart := time.Now()
 	skill.SetPackageLogger(log)
 	skillDirs := map[string]string{
 		"user": filepath.Join(workDir, "skills"),
@@ -245,6 +252,7 @@ func Build(
 			_ = skillReg.Register(s)
 		}
 	}
+	log.Debug(logger.CatApp, "build: skills loaded", "duration", time.Since(skillStart).String())
 
 	// ── Docker Sandbox mounts (sandbox is started asynchronously by caller) ──
 	var sandboxMounts []sandbox.Mount
@@ -301,6 +309,7 @@ func Build(
 	// Register config hot-reload callback
 	RegisterHotReload(rt, cfg, log, workDir)
 
+	log.Debug(logger.CatApp, "build: total", "duration", time.Since(buildStart).String())
 	return rt, nil
 }
 

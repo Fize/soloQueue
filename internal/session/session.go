@@ -696,10 +696,13 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 
 // Init 创建唯一 session；重复调用返回已存在的 session
 func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, error) {
+	initStart := time.Now()
 	m.mu.Lock()
 	if m.session != nil {
 		s := m.session
 		m.mu.Unlock()
+		m.logger.DebugContext(ctx, logger.CatApp, "session init: reusing existing session",
+			"duration", time.Since(initStart).String())
 		return s, nil
 	}
 	m.mu.Unlock()
@@ -709,7 +712,11 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 		return nil, ErrSessionClosed
 	}
 
+	m.logger.InfoContext(ctx, logger.CatApp, "session init: calling factory")
+	factoryStart := time.Now()
 	a, cw, tl, err := m.factory(ctx, teamID)
+	m.logger.InfoContext(ctx, logger.CatApp, "session init: factory returned",
+		"duration", time.Since(factoryStart).String(), "err", err)
 	if err != nil {
 		m.logger.WarnContext(ctx, logger.CatApp, "session factory failed",
 			"team_id", teamID,
@@ -740,6 +747,7 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	m.logger.InfoContext(ctx, logger.CatApp, "session initialized",
 		"session_id", id,
 		"team_id", teamID,
+		"total_duration", time.Since(initStart).String(),
 	)
 
 	return s, nil

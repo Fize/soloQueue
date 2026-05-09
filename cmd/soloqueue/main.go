@@ -58,7 +58,6 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				return fmt.Errorf("init logger: %w", err)
 			}
 			defer log.Close()
-
 			cfg.SetLogger(log)
 
 			// cli.PromptProfileQuestions is only needed in TUI mode,
@@ -68,10 +67,13 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				return cfg.WriteSoul(answers)
 			}
 
+			buildStart := time.Now()
 			rt, err := runtime.Build(workDir, cfg, log, profileSetup)
 			if err != nil {
 				return err
 			}
+			log.Info(logger.CatApp, "runtime.Build done", "duration", time.Since(buildStart).String())
+
 			log.Info(logger.CatApp, "soloqueue tui starting",
 				"version", version, "model", rt.ReadDefaultModel().ID)
 
