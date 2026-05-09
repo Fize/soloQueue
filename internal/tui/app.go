@@ -138,6 +138,11 @@ type systemNotifyMsg struct {
 	message string
 }
 
+type postSandboxInitMsg struct {
+	messages       []message
+	contextCleared bool
+}
+
 type agentEventMsg struct {
 	event    agent.AgentEvent
 	evCh     <-chan agent.AgentEvent
@@ -392,14 +397,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sess = msg.Sess
 		m.sandboxErr = ""
 		m.textArea.Placeholder = "Type a message..."
-
-		// Check idle timeout and clear context if needed
-		m.checkIdleTimeout()
-
 		m.resizeViewport()
-		m.replayHistoryIntoMessages(m.contextCleared)
-		m.rebuildViewportContent()
-		m.viewport.GotoBottom()
+		return m, postSandboxInitCmd(m.sess, m.cfg.ContextIdleThresholdMin)
+
+	case postSandboxInitMsg:
+		m.contextCleared = msg.contextCleared
+		if len(msg.messages) > 0 {
+			m.messages = append(m.messages, msg.messages...)
+			m.rebuildViewportContent()
+			m.viewport.GotoBottom()
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -835,6 +842,38 @@ func waitForSandboxInit(ch <-chan SandboxInitMsg) tea.Cmd {
 			return SandboxInitMsg{Err: fmt.Errorf("sandbox init channel closed unexpectedly")}
 		}
 		return msg
+	}
+}
+
+func postSandboxInitCmd(sess *session.Session, thresholdMin int) tea.Cmd {
+	return func() tea.Msg {
+		if sess == nil {
+			return postSandboxInitMsg{}
+		}
+
+		contextCleared := false
+		var msgs []message
+		if thresholdMin <= 0 {
+			thresholdMin = 30
+		}
+		timeout := time.Duration(thresholdMin) * time.Minute
+		minTokens := sess.CW().SummaryTokens() / 100
+		if minTokens < 4096 {
+			minTokens = 4096
+		}
+		if minTokens > 16384 {
+			minTokens = 16384
+		}
+		if sess.ShouldClearContext(timeout, minTokens) {
+			_ = sess.ClearSilent()
+			contextCleared = true
+			notice := fmt.Sprintf("Context cleared (idle > %d min, tokens saved). History is shown as reference only.", thresholdMin)
+			msgs = append(msgs, message{role: "system", content: notice, dirty: true})
+		}
+
+		history := sess.History()
+		msgs = append(msgs, loadMessagesFromHistory(history, contextCleared)...)
+		return postSandboxInitMsg{messages: msgs, contextCleared: contextCleared}
 	}
 }
 
