@@ -3,7 +3,6 @@ import type { Plan, PlanStatus } from '@/types';
 import { usePlans } from '@/hooks/usePlans';
 import { BoardColumn } from './BoardColumn';
 import { PlanDetail } from './PlanDetail';
-import { Header } from './Header';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,7 +20,7 @@ import { arrayMove } from '@dnd-kit/sortable';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export function Board() {
-  const { plansByStatus, loading, error, fetchPlans, movePlan, plans } = usePlans();
+  const { plansByStatus, error, fetchPlans, movePlan, plans } = usePlans();
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [activeTab, setActiveTab] = useState<string>('plan');
@@ -128,16 +127,13 @@ export function Board() {
   // Error state
   if (error) {
     return (
-      <div className="flex h-screen flex-col bg-background">
-        <Header onRefresh={fetchPlans} loading={loading} />
-        <div className="flex flex-1 flex-col items-center justify-center gap-4">
-          <AlertTriangle className="h-10 w-10 text-status-running" />
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <Button variant="outline" size="sm" onClick={fetchPlans}>
-            <RefreshCw className="mr-2 h-3.5 w-3.5" />
-            Retry
-          </Button>
-        </div>
+      <div className="flex h-full flex-col items-center justify-center gap-4">
+        <AlertTriangle className="h-10 w-10 text-status-running" />
+        <p className="text-sm text-muted-foreground">{error}</p>
+        <Button variant="outline" size="sm" onClick={fetchPlans}>
+          <RefreshCw className="mr-2 h-3.5 w-3.5" />
+          Retry
+        </Button>
       </div>
     );
   }
@@ -147,19 +143,17 @@ export function Board() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <Header onRefresh={fetchPlans} loading={loading} />
-
+    <div className="flex h-full flex-col">
       {/* Mobile Tabs */}
       <div className="md:hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="border-b border-border px-4">
-            <TabsList className="h-10 w-full justify-start gap-1 bg-transparent">
+          <div className="border-b-2 border-[#EEEEEE] px-4">
+            <TabsList className="h-10 w-full justify-start gap-1 border-0">
               {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
                 <TabsTrigger
                   key={status}
                   value={status}
-                  className="rounded-md px-3 text-xs capitalize data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                  className="text-xs capitalize"
                 >
                   {status} ({displayPlans[status].length})
                 </TabsTrigger>
