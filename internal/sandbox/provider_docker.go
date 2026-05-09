@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -187,6 +188,12 @@ func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 //   1. 如果已启动，直接返回
 //   2. 检查是否存在已停止的容器，存在则直接启动
 //   3. 否则创建新容器后启动
+//
+// Start 启动优先级（快速路径优先）：
+//   1. 已启动 → 直接返回
+//   2. 容器已存在且正在运行 → 直接复用
+//   3. 容器已存在但已停止 → 直接启动
+//   4. 容器不存在 → 确保镜像存在，然后创建并启动
 func (d *DockerSandbox) Start(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -195,26 +202,70 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// 尝试查找和启动已停止的容器
-	existingID, err := d.findStoppedContainer(ctx, containerName)
-	if err == nil && existingID != "" {
-		// 找到已停止的容器，直接启动
-		if err := d.cli.ContainerStart(ctx, existingID, container.StartOptions{}); err != nil {
-			if d.log != nil {
-				d.log.LogError(ctx, logger.CatApp, "sandbox: start existing container failed", err, "container_id", existingID[:12])
-			}
-			return fmt.Errorf("sandbox: start existing container: %w", err)
-		}
-		d.containerID = existingID
-		d.started = true
-		if d.log != nil {
-			d.log.Info(logger.CatApp, "sandbox: reused existing stopped container", "container_id", existingID[:12])
-		}
-		return nil
+	// 尝试查找现有容器（无论 running 还是 stopped）
+	findStart := time.Now()
+	existingID, state, err := d.findContainer(ctx, containerName)
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: findContainer took",
+			"duration", time.Since(findStart).String(),
+			"found", existingID != "",
+			"state", state,
+			"err", err)
 	}
 
-	// 未找到已停止的容器或出现错误，创建新容器
-	// 1. 清理同名残留容器
+	if err == nil && existingID != "" {
+		switch state {
+		case "running":
+			// 情况 2：容器正在运行。
+			// 可能上次退出时 Stop() 尚未完成，不能贸然复用——
+			// 旧进程的 Stop() 稍后可能把容器停掉。
+			// 正确做法：先停掉（应处于停止状态），再启动，确保状态干净。
+			if d.log != nil {
+				d.log.Info(logger.CatApp, "sandbox: container still running, stopping then restarting",
+					"container_id", existingID[:12])
+			}
+				_ = d.cli.ContainerKill(ctx, existingID, "SIGKILL")
+			state = "exited" // fallthrough to start path below
+			fallthrough
+		case "exited", "stopped":
+			// 情况 3：容器已停止，直接启动
+			startStart := time.Now()
+			if err := d.cli.ContainerStart(ctx, existingID, container.StartOptions{}); err != nil {
+				if d.log != nil {
+					d.log.LogError(ctx, logger.CatApp, "sandbox: start existing container failed",
+						err, "container_id", existingID[:12], "duration", time.Since(startStart).String())
+				}
+				return fmt.Errorf("sandbox: start existing container: %w", err)
+			}
+			if d.log != nil {
+				d.log.Info(logger.CatApp, "sandbox: ContainerStart took",
+					"duration", time.Since(startStart).String(), "container_id", existingID[:12])
+			}
+			d.containerID = existingID
+			d.started = true
+			if d.log != nil {
+				d.log.Info(logger.CatApp, "sandbox: started existing stopped container",
+					"container_id", existingID[:12],
+					"total_duration", time.Since(findStart).String())
+			}
+			return nil
+		default:
+			// 其他状态（如 created, paused 等），先移除再重建
+			if d.log != nil {
+				d.log.Info(logger.CatApp, "sandbox: container in unexpected state, removing",
+					"container_id", existingID[:12], "state", state)
+			}
+			_ = d.cli.ContainerRemove(ctx, existingID, container.RemoveOptions{Force: true})
+		}
+	}
+
+	// 情况 4：未找到容器或容器状态异常，创建新容器
+	// 4a. 确保镜像存在（本地没有时才 pull）
+	if err := d.ensureImage(ctx); err != nil {
+		return err
+	}
+
+	// 4b. 清理同名残留容器（如果有）
 	if err := d.removeExisting(ctx); err != nil {
 		if d.log != nil {
 			d.log.LogError(ctx, logger.CatApp, "sandbox: remove existing container failed", err)
@@ -222,19 +273,8 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 		return fmt.Errorf("sandbox: remove existing container: %w", err)
 	}
 
-	// 2. 拉取镜像
-	reader, err := d.cli.ImagePull(ctx, imageName, image.PullOptions{})
-	if err != nil {
-		if d.log != nil {
-			d.log.LogError(ctx, logger.CatApp, "sandbox: pull image failed", err, "image", imageName)
-		}
-		return fmt.Errorf("sandbox: pull image %s: %w", imageName, err)
-	}
-	// 必须读完 pull 响应，否则镜像可能未完整落盘
-	_, _ = io.Copy(io.Discard, reader)
-	reader.Close()
-
-	// 3. 创建容器
+	// 4c. 创建容器
+	createStart := time.Now()
 	hostConfig := &container.HostConfig{}
 	switch runtime.GOOS {
 	case "linux":
@@ -263,7 +303,6 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 	)
 	if err != nil {
 		if d.log != nil {
-			// Log the mounts to help diagnose "Duplicate mount point" errors
 			mountsLog := make([]string, len(d.mounts))
 			for i, m := range d.mounts {
 				mountsLog[i] = m.HostPath + ":" + m.ContainerPath
@@ -273,15 +312,24 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 		}
 		return fmt.Errorf("sandbox: create container: %w", err)
 	}
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: ContainerCreate took",
+			"duration", time.Since(createStart).String())
+	}
 
-	// 4. 启动容器
+	// 4d. 启动容器
+	startNewStart := time.Now()
 	if err := d.cli.ContainerStart(ctx, createResp.ID, container.StartOptions{}); err != nil {
-		// 启动失败时清理已创建的容器
 		_ = d.cli.ContainerRemove(ctx, createResp.ID, container.RemoveOptions{Force: true})
 		if d.log != nil {
-			d.log.LogError(ctx, logger.CatApp, "sandbox: start container failed", err, "container_id", createResp.ID[:12])
+			d.log.LogError(ctx, logger.CatApp, "sandbox: start container failed",
+				err, "container_id", createResp.ID[:12])
 		}
 		return fmt.Errorf("sandbox: start container: %w", err)
+	}
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: ContainerStart (new) took",
+			"duration", time.Since(startNewStart).String(), "container_id", createResp.ID[:12])
 	}
 
 	d.containerID = createResp.ID
@@ -289,30 +337,72 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 	return nil
 }
 
-// findStoppedContainer 查找名为 name 的已停止容器的 ID。
-// 如果找到多个，返回第一个；如果不存在或全部运行中，返回空字符串和 nil。
-func (d *DockerSandbox) findStoppedContainer(ctx context.Context, name string) (string, error) {
+// ensureImage 确保镜像在本地存在。如果本地已存在则跳过拉取。
+func (d *DockerSandbox) ensureImage(ctx context.Context) error {
+	// 检查本地是否已有该镜像
+	_, _, err := d.cli.ImageInspectWithRaw(ctx, imageName)
+	if err == nil {
+		// 本地已存在，跳过 pull
+		if d.log != nil {
+			d.log.Info(logger.CatApp, "sandbox: image already exists locally, skipping pull", "image", imageName)
+		}
+		return nil
+	}
+
+	// 本地不存在，拉取镜像
+	pullStart := time.Now()
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: pulling image (not found locally)", "image", imageName)
+	}
+	reader, err := d.cli.ImagePull(ctx, imageName, image.PullOptions{})
+	if err != nil {
+		if d.log != nil {
+			d.log.LogError(ctx, logger.CatApp, "sandbox: pull image failed", err, "image", imageName)
+		}
+		return fmt.Errorf("sandbox: pull image %s: %w", imageName, err)
+	}
+	_, _ = io.Copy(io.Discard, reader)
+	reader.Close()
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: ImagePull took",
+			"duration", time.Since(pullStart).String(), "image", imageName)
+	}
+	return nil
+}
+
+// findContainer 查找名为 name 的任意状态容器的 ID 和状态。
+// 返回第一个匹配的容器 ID 和其状态。
+// 如果未找到，返回空字符串和空状态。
+func (d *DockerSandbox) findContainer(ctx context.Context, name string) (id string, state string, err error) {
 	filter := filters.NewArgs()
 	filter.Add("name", name)
+	listStart := time.Now()
 	containers, err := d.cli.ContainerList(ctx, container.ListOptions{
 		All:     true,
 		Filters: filter,
 	})
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: ContainerList took",
+			"duration", time.Since(listStart).String(), "err", err)
+	}
 	if err != nil {
-		return "", fmt.Errorf("sandbox: list containers: %w", err)
+		return "", "", fmt.Errorf("sandbox: list containers: %w", err)
 	}
 	for _, c := range containers {
 		for _, n := range c.Names {
 			if n == "/"+name {
-				// 检查容器是否已停止
-				if c.State == "exited" || c.State == "stopped" {
-					return c.ID, nil
+				if d.log != nil {
+					d.log.Info(logger.CatApp, "sandbox: found container",
+						"container_id", c.ID[:12], "state", c.State)
 				}
-				break
+				return c.ID, c.State, nil
 			}
 		}
 	}
-	return "", nil
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: no container found", "name", name)
+	}
+	return "", "", nil
 }
 
 // Exec 在沙盒中利用 ContainerExecCreate 执行命令。
@@ -405,7 +495,8 @@ func (d *DockerSandbox) Exec(ctx context.Context, cmd string) (stdout []byte, st
 	return stdout, stderr, nil
 }
 
-// Stop 停止容器但保留其存在状态，允许稍后通过 Start 重新启动。
+// Stop 强制立即杀死容器（ContainerKill），但保留容器存在状态，
+// 允许稍后通过 Start 重新启动。使用 Kill 而非 Stop 以避免等待优雅退出超时。
 // 这是一个幂等操作：如果容器已停止或不存在，不返回错误。
 func (d *DockerSandbox) Stop(ctx context.Context) error {
 	d.mu.Lock()
@@ -416,16 +507,19 @@ func (d *DockerSandbox) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	timeoutSecs := 10
-	if err := d.cli.ContainerStop(ctx, cid, container.StopOptions{Timeout: &timeoutSecs}); err != nil {
+	if err := d.cli.ContainerKill(ctx, cid, "SIGKILL"); err != nil {
 		// 如果容器已停止或不存在，这不是错误
-		// containerStop 也是幂等的
 		if d.log != nil {
-			d.log.WarnContext(ctx, logger.CatApp, "sandbox: stop container warning", err, "container_id", cid[:12])
+			d.log.WarnContext(ctx, logger.CatApp, "sandbox: kill container warning",
+				"err", err, "container_id", cid[:12])
 		}
 	}
 	d.started = false
 	// 注意：不清空 d.containerID，这样之后 Start() 仍可重新启动同一容器
+	if d.log != nil {
+		d.log.Info(logger.CatApp, "sandbox: container killed (SIGKILL)",
+			"container_id", cid[:12])
+	}
 	return nil
 }
 
