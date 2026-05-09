@@ -3,15 +3,17 @@ import { cn } from '@/lib/utils';
 import { GeneralTab } from './settings/GeneralTab';
 import { ModelsTab } from './settings/ModelsTab';
 import { ToolsTab } from './settings/ToolsTab';
+import { SkillsTab } from './settings/SkillsTab';
 import { IntegrationsTab } from './settings/IntegrationsTab';
-import { Settings, Cpu, Wrench, Plug } from 'lucide-react';
+import { Settings, Cpu, Wrench, Sparkles, Plug } from 'lucide-react';
 
-type SettingsTab = 'general' | 'models' | 'tools' | 'integrations';
+type SettingsTab = 'general' | 'models' | 'tools' | 'skills' | 'integrations';
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: 'general', label: 'General', icon: Settings },
   { id: 'models', label: 'Models', icon: Cpu },
   { id: 'tools', label: 'Tools', icon: Wrench },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'integrations', label: 'Integrations', icon: Plug },
 ];
 
@@ -50,6 +52,7 @@ export function SettingsView() {
           {activeTab === 'general' && <GeneralTab />}
           {activeTab === 'models' && <ModelsTab />}
           {activeTab === 'tools' && <ToolsTab />}
+          {activeTab === 'skills' && <SkillsTab />}
           {activeTab === 'integrations' && <IntegrationsTab />}
         </div>
       </div>
