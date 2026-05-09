@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
@@ -262,6 +264,103 @@ func (m *Mux) handleListAgents(w http.ResponseWriter, _ *http.Request) {
 	m.writeJSON(w, http.StatusOK, AgentListResponse{
 		Agents:      agents,
 		Supervisors: svInfos,
+	})
+}
+
+// AgentProfileResponse is the JSON response for GET /api/agents/{id}/profile.
+type AgentProfileResponse struct {
+	Soul  string `json:"soul"`
+	Rules string `json:"rules"`
+}
+
+// AgentTemplateResponse is a single agent template in the team list.
+type AgentTemplateResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsLeader    bool   `json:"is_leader"`
+	Group       string `json:"group"`
+	ModelID     string `json:"model_id"`
+}
+
+// TeamInfoResponse is a single team with its agents.
+type TeamInfoResponse struct {
+	Name        string                  `json:"name"`
+	Description string                  `json:"description"`
+	Agents      []AgentTemplateResponse `json:"agents"`
+}
+
+// TeamListResponse is the response for GET /api/teams.
+type TeamListResponse struct {
+	Teams []TeamInfoResponse `json:"teams"`
+}
+
+// handleListTeams returns all teams and their agent templates.
+// GET /api/teams
+func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
+	if m.templates == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
+		return
+	}
+
+	// Group templates by group name
+	teamMap := make(map[string]*TeamInfoResponse)
+
+	for _, tmpl := range m.templates {
+		groupName := tmpl.Group
+		if groupName == "" {
+			groupName = "Default"
+		}
+
+		if _, ok := teamMap[groupName]; !ok {
+			teamMap[groupName] = &TeamInfoResponse{
+				Name:        groupName,
+				Description: "",
+				Agents:      []AgentTemplateResponse{},
+			}
+
+			// Get group description if available
+			if group, ok := m.groups[groupName]; ok {
+				teamMap[groupName].Description = group.Body
+			}
+		}
+
+		teamMap[groupName].Agents = append(teamMap[groupName].Agents, AgentTemplateResponse{
+			ID:          tmpl.ID,
+			Name:        tmpl.Name,
+			Description: tmpl.Description,
+			IsLeader:    tmpl.IsLeader,
+			Group:       tmpl.Group,
+			ModelID:     tmpl.ModelID,
+		})
+	}
+
+	// Convert map to slice
+	teams := make([]TeamInfoResponse, 0, len(teamMap))
+	for _, team := range teamMap {
+		teams = append(teams, *team)
+	}
+
+	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: teams})
+}
+
+// handleGetAgentProfile returns the soul.md and rules.md content for the main agent.
+// GET /api/agents/{id}/profile
+func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
+	// For now, return the soul.md and rules.md from the default roles directory.
+	// The agent ID is ignored since there's only one main agent profile.
+	workDir := ".soloqueue" // This should be configured properly
+	rolesDir := filepath.Join(workDir, "roles")
+
+	soulPath := filepath.Join(rolesDir, "soul.md")
+	rulesPath := filepath.Join(rolesDir, "rules.md")
+
+	soul, _ := os.ReadFile(soulPath)
+	rules, _ := os.ReadFile(rulesPath)
+
+	m.writeJSON(w, http.StatusOK, AgentProfileResponse{
+		Soul:  string(soul),
+		Rules: string(rules),
 	})
 }
 
