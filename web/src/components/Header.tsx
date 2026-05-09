@@ -11,8 +11,7 @@ interface HeaderProps {
 }
 
 const tabs: { id: AppTab; label: string }[] = [
-  { id: 'board', label: '看板' },
-  { id: 'agents', label: 'Agents' },
+  { id: 'home', label: '首页' },
   { id: 'settings', label: '设置' },
 ];
 
