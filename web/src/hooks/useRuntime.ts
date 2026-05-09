@@ -1,30 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { RuntimeStatus } from '@/types';
-import { getRuntime } from '@/lib/api';
+import { wsManager } from '@/lib/websocket';
 
 export function useRuntime() {
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const data = await getRuntime();
-        if (!cancelled) setStatus(data);
-      } catch {
-        if (!cancelled) setStatus(null);
-      }
-    }
-
-    poll();
-    intervalRef.current = setInterval(poll, 2000);
-
-    return () => {
-      cancelled = true;
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
+    const unsubscribe = wsManager.subscribe('runtime', (data) => {
+      setStatus(data);
+    });
+    return unsubscribe;
   }, []);
 
   return status;

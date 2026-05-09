@@ -25,12 +25,24 @@ type RuntimeMetrics struct {
 	ContentDeltas     int
 	ActiveDelegations int
 	HTTPAddr          string
+	onChange          func() // called (under lock) after every setter; notifies Hub
+}
+
+// SetOnChange sets the callback invoked after every state change.
+// Must be called before any setter. The callback is invoked under the write lock.
+func (rm *RuntimeMetrics) SetOnChange(fn func()) {
+	rm.mu.Lock()
+	rm.onChange = fn
+	rm.mu.Unlock()
 }
 
 // SetPhase updates the phase field (thread-safe).
 func (rm *RuntimeMetrics) SetPhase(phase string) {
 	rm.mu.Lock()
 	rm.Phase = phase
+	if rm.onChange != nil {
+		rm.onChange()
+	}
 	rm.mu.Unlock()
 }
 
@@ -41,6 +53,9 @@ func (rm *RuntimeMetrics) SetTokens(prompt, output, cacheHit, cacheMiss int64) {
 	rm.OutputTokens = output
 	rm.CacheHitTokens = cacheHit
 	rm.CacheMissTokens = cacheMiss
+	if rm.onChange != nil {
+		rm.onChange()
+	}
 	rm.mu.Unlock()
 }
 
@@ -48,6 +63,9 @@ func (rm *RuntimeMetrics) SetTokens(prompt, output, cacheHit, cacheMiss int64) {
 func (rm *RuntimeMetrics) SetContext(pct int) {
 	rm.mu.Lock()
 	rm.ContextPct = pct
+	if rm.onChange != nil {
+		rm.onChange()
+	}
 	rm.mu.Unlock()
 }
 
@@ -55,6 +73,9 @@ func (rm *RuntimeMetrics) SetContext(pct int) {
 func (rm *RuntimeMetrics) SetIter(iter int) {
 	rm.mu.Lock()
 	rm.CurrentIter = iter
+	if rm.onChange != nil {
+		rm.onChange()
+	}
 	rm.mu.Unlock()
 }
 
@@ -62,6 +83,9 @@ func (rm *RuntimeMetrics) SetIter(iter int) {
 func (rm *RuntimeMetrics) SetContentDeltas(n int) {
 	rm.mu.Lock()
 	rm.ContentDeltas = n
+	if rm.onChange != nil {
+		rm.onChange()
+	}
 	rm.mu.Unlock()
 }
 
@@ -69,6 +93,9 @@ func (rm *RuntimeMetrics) SetContentDeltas(n int) {
 func (rm *RuntimeMetrics) SetActiveDelegations(n int) {
 	rm.mu.Lock()
 	rm.ActiveDelegations = n
+	if rm.onChange != nil {
+		rm.onChange()
+	}
 	rm.mu.Unlock()
 }
 
@@ -132,12 +159,154 @@ type AgentListResponse struct {
 
 // ─── Handlers ───────────────────────────────────────────────────────────────
 
-// handleListAgents returns all agents and supervisors as JSON.
-// GET /api/agents
-func (m *Mux) handleListAgents(w http.ResponseWriter, _ *http.Request) {
-	if m.registry == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent system not available"})
+// AgentProfileResponse is the JSON response for GET /api/agents/{id}/profile.
+type AgentProfileResponse struct {
+	Soul  string `json:"soul"`
+	Rules string `json:"rules"`
+}
+
+// AgentTemplateResponse is a single agent template in the team list.
+type AgentTemplateResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsLeader    bool   `json:"is_leader"`
+	Group       string `json:"group"`
+	ModelID     string `json:"model_id"`
+}
+
+// TeamInfoResponse is a single team with its agents.
+type TeamInfoResponse struct {
+	Name        string                  `json:"name"`
+	Description string                  `json:"description"`
+	Agents      []AgentTemplateResponse `json:"agents"`
+}
+
+// TeamListResponse is the response for GET /api/teams.
+type TeamListResponse struct {
+	Teams []TeamInfoResponse `json:"teams"`
+}
+
+// handleListTeams returns all teams and their agent templates.
+// GET /api/teams
+func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
+	if m.templates == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
 		return
+	}
+
+	// Group templates by group name
+	teamMap := make(map[string]*TeamInfoResponse)
+
+	for _, tmpl := range m.templates {
+		groupName := tmpl.Group
+		if groupName == "" {
+			groupName = "Default"
+		}
+
+		if _, ok := teamMap[groupName]; !ok {
+			teamMap[groupName] = &TeamInfoResponse{
+				Name:        groupName,
+				Description: "",
+				Agents:      []AgentTemplateResponse{},
+			}
+
+			// Get group description if available
+			if group, ok := m.groups[groupName]; ok {
+				teamMap[groupName].Description = group.Body
+			}
+		}
+
+		teamMap[groupName].Agents = append(teamMap[groupName].Agents, AgentTemplateResponse{
+			ID:          tmpl.ID,
+			Name:        tmpl.Name,
+			Description: tmpl.Description,
+			IsLeader:    tmpl.IsLeader,
+			Group:       tmpl.Group,
+			ModelID:     tmpl.ModelID,
+		})
+	}
+
+	// Convert map to slice
+	teams := make([]TeamInfoResponse, 0, len(teamMap))
+	for _, team := range teamMap {
+		teams = append(teams, *team)
+	}
+
+	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: teams})
+}
+
+// handleGetAgentProfile returns the soul.md and rules.md content for the main agent.
+// GET /api/agents/{id}/profile
+func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
+	workDir := ".soloqueue" // This should be configured properly
+	rolesDir := filepath.Join(workDir, "roles")
+
+	soulPath := filepath.Join(rolesDir, "soul.md")
+	rulesPath := filepath.Join(rolesDir, "rules.md")
+
+	soul, _ := os.ReadFile(soulPath)
+	rules, _ := os.ReadFile(rulesPath)
+
+	m.writeJSON(w, http.StatusOK, AgentProfileResponse{
+		Soul:  string(soul),
+		Rules: string(rules),
+	})
+}
+
+// ─── Public Builders (shared by REST handlers and WebSocket Hub) ─────────────
+
+// buildRuntimeStatus constructs a RuntimeStatusResponse from the current metrics
+// and agent counts. Returns nil if runtimeMetrics is nil.
+func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
+	if m.runtimeMetrics == nil {
+		return nil
+	}
+
+	phase, promptTokens, outputTokens, cacheHit, cacheMiss,
+		contextPct, currentIter, contentDeltas, activeDelegations, httpAddr := m.runtimeMetrics.Snapshot()
+
+	// Count agents from registry and supervisors.
+	var totalAgents, runningAgents, idleAgents, totalErrors int
+	if m.registry != nil {
+		allAgents := m.collectAllAgents()
+		totalAgents = len(allAgents)
+		for _, a := range allAgents {
+			switch a.State() {
+			case agent.StateProcessing:
+				runningAgents++
+			case agent.StateIdle:
+				idleAgents++
+			}
+			if ec := a.ErrorCount(); ec > 0 {
+				totalErrors += int(ec)
+			}
+		}
+	}
+
+	return &RuntimeStatusResponse{
+		Phase:             phase,
+		PromptTokens:      promptTokens,
+		OutputTokens:      outputTokens,
+		CacheHitTokens:    cacheHit,
+		CacheMissTokens:   cacheMiss,
+		ContextPct:        contextPct,
+		CurrentIter:       currentIter,
+		ContentDeltas:     contentDeltas,
+		ActiveDelegations: activeDelegations,
+		TotalAgents:       totalAgents,
+		RunningAgents:     runningAgents,
+		IdleAgents:        idleAgents,
+		TotalErrors:       totalErrors,
+		HTTPAddr:          httpAddr,
+	}
+}
+
+// buildAgentList constructs an AgentListResponse from the registry and supervisors.
+// Returns nil if registry is nil.
+func (m *Mux) buildAgentList() *AgentListResponse {
+	if m.registry == nil {
+		return nil
 	}
 
 	registered := m.registry.List()
@@ -146,30 +315,9 @@ func (m *Mux) handleListAgents(w http.ResponseWriter, _ *http.Request) {
 		supervisors = m.supervisorsFn()
 	}
 
-	// Build lookup maps to classify agents into L1/L2/L3 (same logic as TUI).
-	l2TemplateIDs := make(map[string]bool)
-	for _, sv := range supervisors {
-		if sv == nil {
-			continue
-		}
-		if a := sv.Agent(); a != nil {
-			l2TemplateIDs[a.Def.ID] = true
-		}
-	}
-
-	l3TemplateIDs := make(map[string]bool)
-	for _, sv := range supervisors {
-		if sv == nil {
-			continue
-		}
-		for _, child := range sv.Children() {
-			l3TemplateIDs[child.Def.ID] = true
-		}
-	}
-
 	// Build agent group lookup from supervisors.
-	agentGroup := make(map[string]string)   // instanceID → group
-	agentLeader := make(map[string]bool)    // instanceID → isLeader
+	agentGroup := make(map[string]string)
+	agentLeader := make(map[string]bool)
 	for _, sv := range supervisors {
 		if sv == nil {
 			continue
@@ -261,156 +409,10 @@ func (m *Mux) handleListAgents(w http.ResponseWriter, _ *http.Request) {
 		})
 	}
 
-	m.writeJSON(w, http.StatusOK, AgentListResponse{
+	return &AgentListResponse{
 		Agents:      agents,
 		Supervisors: svInfos,
-	})
-}
-
-// AgentProfileResponse is the JSON response for GET /api/agents/{id}/profile.
-type AgentProfileResponse struct {
-	Soul  string `json:"soul"`
-	Rules string `json:"rules"`
-}
-
-// AgentTemplateResponse is a single agent template in the team list.
-type AgentTemplateResponse struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	IsLeader    bool   `json:"is_leader"`
-	Group       string `json:"group"`
-	ModelID     string `json:"model_id"`
-}
-
-// TeamInfoResponse is a single team with its agents.
-type TeamInfoResponse struct {
-	Name        string                  `json:"name"`
-	Description string                  `json:"description"`
-	Agents      []AgentTemplateResponse `json:"agents"`
-}
-
-// TeamListResponse is the response for GET /api/teams.
-type TeamListResponse struct {
-	Teams []TeamInfoResponse `json:"teams"`
-}
-
-// handleListTeams returns all teams and their agent templates.
-// GET /api/teams
-func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
-	if m.templates == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
-		return
 	}
-
-	// Group templates by group name
-	teamMap := make(map[string]*TeamInfoResponse)
-
-	for _, tmpl := range m.templates {
-		groupName := tmpl.Group
-		if groupName == "" {
-			groupName = "Default"
-		}
-
-		if _, ok := teamMap[groupName]; !ok {
-			teamMap[groupName] = &TeamInfoResponse{
-				Name:        groupName,
-				Description: "",
-				Agents:      []AgentTemplateResponse{},
-			}
-
-			// Get group description if available
-			if group, ok := m.groups[groupName]; ok {
-				teamMap[groupName].Description = group.Body
-			}
-		}
-
-		teamMap[groupName].Agents = append(teamMap[groupName].Agents, AgentTemplateResponse{
-			ID:          tmpl.ID,
-			Name:        tmpl.Name,
-			Description: tmpl.Description,
-			IsLeader:    tmpl.IsLeader,
-			Group:       tmpl.Group,
-			ModelID:     tmpl.ModelID,
-		})
-	}
-
-	// Convert map to slice
-	teams := make([]TeamInfoResponse, 0, len(teamMap))
-	for _, team := range teamMap {
-		teams = append(teams, *team)
-	}
-
-	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: teams})
-}
-
-// handleGetAgentProfile returns the soul.md and rules.md content for the main agent.
-// GET /api/agents/{id}/profile
-func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
-	// For now, return the soul.md and rules.md from the default roles directory.
-	// The agent ID is ignored since there's only one main agent profile.
-	workDir := ".soloqueue" // This should be configured properly
-	rolesDir := filepath.Join(workDir, "roles")
-
-	soulPath := filepath.Join(rolesDir, "soul.md")
-	rulesPath := filepath.Join(rolesDir, "rules.md")
-
-	soul, _ := os.ReadFile(soulPath)
-	rules, _ := os.ReadFile(rulesPath)
-
-	m.writeJSON(w, http.StatusOK, AgentProfileResponse{
-		Soul:  string(soul),
-		Rules: string(rules),
-	})
-}
-
-// handleGetRuntime returns live runtime metrics plus agent counts.
-// GET /api/runtime
-func (m *Mux) handleGetRuntime(w http.ResponseWriter, _ *http.Request) {
-	if m.runtimeMetrics == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runtime metrics not available"})
-		return
-	}
-
-	phase, promptTokens, outputTokens, cacheHit, cacheMiss,
-		contextPct, currentIter, contentDeltas, activeDelegations, httpAddr := m.runtimeMetrics.Snapshot()
-
-	// Count agents from registry and supervisors.
-	var totalAgents, runningAgents, idleAgents, totalErrors int
-	if m.registry != nil {
-		allAgents := m.collectAllAgents()
-		totalAgents = len(allAgents)
-		for _, a := range allAgents {
-			switch a.State() {
-			case agent.StateProcessing:
-				runningAgents++
-			case agent.StateIdle:
-				idleAgents++
-			}
-			if ec := a.ErrorCount(); ec > 0 {
-				totalErrors += int(ec)
-			}
-		}
-	}
-
-	resp := RuntimeStatusResponse{
-		Phase:             phase,
-		PromptTokens:      promptTokens,
-		OutputTokens:      outputTokens,
-		CacheHitTokens:    cacheHit,
-		CacheMissTokens:   cacheMiss,
-		ContextPct:        contextPct,
-		CurrentIter:       currentIter,
-		ContentDeltas:     contentDeltas,
-		ActiveDelegations: activeDelegations,
-		TotalAgents:       totalAgents,
-		RunningAgents:     runningAgents,
-		IdleAgents:        idleAgents,
-		TotalErrors:       totalErrors,
-		HTTPAddr:          httpAddr,
-	}
-
-	m.writeJSON(w, http.StatusOK, resp)
 }
 
 // collectAllAgents returns all unique agents from registry + supervisor children.

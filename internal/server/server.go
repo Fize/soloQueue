@@ -1,8 +1,9 @@
-// Package server exposes SoloQueue's REST API using chi router.
+// Package server exposes SoloQueue's REST + WebSocket API using chi router.
 //
 // Routes:
 //
 //	GET /healthz → {"status":"ok"}
+//	GET /ws → WebSocket for real-time runtime/agent state updates
 //	GET /api/plans → list plans
 //	GET /api/plans/{id} → get plan detail
 //	PUT /api/plans/{id} → update plan
@@ -46,6 +47,7 @@ type Mux struct {
 	accessLogger   *httpAccessLogger
 	templates      []agent.AgentTemplate
 	groups         map[string]prompt.GroupFile
+	hub            *Hub
 }
 
 // MuxOption is a functional option for NewMux.
@@ -77,6 +79,17 @@ func WithTemplates(templates []agent.AgentTemplate, groups map[string]prompt.Gro
 		m.templates = templates
 		m.groups = groups
 	}
+}
+
+// WithHub sets the WebSocket Hub for the /ws endpoint and state broadcasting.
+func WithHub(hub *Hub) MuxOption {
+	return func(m *Mux) { m.hub = hub }
+}
+
+// SetHub sets the WebSocket Hub after construction. This is useful when the
+// Hub needs a reference to the Mux (circular dependency).
+func (m *Mux) SetHub(hub *Hub) {
+	m.hub = hub
 }
 
 // NewMux creates a new HTTP handler with registered routes.
@@ -144,10 +157,11 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	})
 
 	// Agent routes
-	r.Get("/api/agents", m.handleListAgents)
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
 	r.Get("/api/teams", m.handleListTeams)
-	r.Get("/api/runtime", m.handleGetRuntime)
+
+	// WebSocket endpoint for real-time state updates
+	r.Get("/ws", m.handleWebSocket)
 
 	// Config routes
 	r.Get("/api/config", m.handleGetConfig)
