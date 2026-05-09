@@ -1,15 +1,14 @@
 import { useState } from 'react';
-import { Board } from '@/components/Board';
 import { Header } from '@/components/Header';
 import { RuntimeStatusBar } from '@/components/RuntimeStatusBar';
-import { AgentsView } from '@/components/AgentsView';
+import { HomePage } from '@/components/HomePage';
 import { SettingsView } from '@/components/SettingsView';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-export type AppTab = 'board' | 'agents' | 'settings';
+export type AppTab = 'home' | 'settings';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>('board');
+  const [activeTab, setActiveTab] = useState<AppTab>('home');
 
   return (
     <TooltipProvider>
@@ -17,8 +16,7 @@ function App() {
         <Header activeTab={activeTab} onTabChange={setActiveTab} />
         <RuntimeStatusBar />
         <main className="flex-1 overflow-hidden">
-          {activeTab === 'board' && <Board />}
-          {activeTab === 'agents' && <AgentsView />}
+          {activeTab === 'home' && <HomePage />}
           {activeTab === 'settings' && <SettingsView />}
         </main>
       </div>

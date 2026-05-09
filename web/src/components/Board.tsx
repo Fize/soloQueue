@@ -170,11 +170,11 @@ export function Board() {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        {/* Desktop: 3-column layout, centered */}
+        {/* Desktop: 3-column layout, fills available space */}
         <div className="hidden flex-1 overflow-x-auto md:flex">
-          <div className="mx-auto flex h-full gap-4 p-6 lg:gap-5 xl:max-w-[1200px] lg:max-w-[1000px]">
+          <div className="flex h-full w-full gap-4 p-5">
             {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
-              <div key={status} className="w-[320px] shrink-0 lg:w-[340px]">
+              <div key={status} className="min-w-[250px] flex-1">
                 <BoardColumn
                   status={status}
                   plans={displayPlans[status]}
