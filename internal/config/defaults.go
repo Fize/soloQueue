@@ -89,6 +89,22 @@ func DefaultSettings() Settings {
 			},
 		},
 		{
+			ID:            "deepseek-v4-flash-thinking-max",
+			ProviderID:    "deepseek",
+			APIModel:      "deepseek-v4-flash",
+			Name:          "DeepSeek V4 Flash (Max Reasoning)",
+			ContextWindow: 1048576,
+			Enabled:       true,
+			Generation: GenerationParams{
+				Temperature: 0,
+				MaxTokens:   16384,
+			},
+			Thinking: ThinkingConfig{
+				Enabled:         true,
+				ReasoningEffort: "max",
+			},
+		},
+		{
 			ID:            "deepseek-v4-pro",
 			ProviderID:    "deepseek",
 			Name:          "DeepSeek V4 Pro",
@@ -146,7 +162,7 @@ func DefaultSettings() Settings {
 		},
 		DefaultModels: DefaultModelsConfig{
 			Expert:    "deepseek:deepseek-v4-pro-max",
-			Superior:  "deepseek:deepseek-v4-pro",
+			Superior:  "deepseek:deepseek-v4-flash-thinking-max",
 			Universal: "deepseek:deepseek-v4-flash-thinking",
 			Fast:      "deepseek:deepseek-v4-flash",
 			Fallback:  "",
