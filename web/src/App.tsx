@@ -8,14 +8,21 @@ import { wsManager } from '@/lib/websocket';
 
 export type AppTab = 'home' | 'settings';
 
-function getTabFromHash(): AppTab {
+type SettingsSubtab = string | null;
+
+function getTabFromHash(): { tab: AppTab; subtab: SettingsSubtab } {
   const hash = window.location.hash.replace('#', '');
-  if (hash === 'settings') return 'settings';
-  return 'home';
+  if (hash.startsWith('settings')) {
+    const parts = hash.split('/');
+    return { tab: 'settings', subtab: parts[1] || null };
+  }
+  return { tab: 'home', subtab: null };
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>(getTabFromHash);
+  const initial = getTabFromHash();
+  const [activeTab, setActiveTab] = useState<AppTab>(initial.tab);
+  const [settingsSubtab, setSettingsSubtab] = useState<SettingsSubtab>(initial.subtab);
 
   const handleTabChange = useCallback((tab: AppTab) => {
     setActiveTab(tab);
@@ -23,7 +30,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const onHashChange = () => setActiveTab(getTabFromHash());
+    const onHashChange = () => {
+      const { tab, subtab } = getTabFromHash();
+      setActiveTab(tab);
+      setSettingsSubtab(subtab);
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -45,7 +56,7 @@ function App() {
             <HomePage />
           </div>
           <div className={activeTab === 'settings' ? 'h-full' : 'hidden h-0'}>
-            <SettingsView />
+            <SettingsView initialTab={settingsSubtab} />
           </div>
         </main>
       </div>

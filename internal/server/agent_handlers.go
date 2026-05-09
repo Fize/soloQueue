@@ -1,12 +1,14 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 )
 
 // ─── RuntimeMetrics ─────────────────────────────────────────────────────────
@@ -239,14 +241,69 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
 // handleGetAgentProfile returns the soul.md and rules.md content for the main agent.
 // GET /api/agents/{id}/profile
 func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
-	workDir := ".soloqueue" // This should be configured properly
-	rolesDir := filepath.Join(workDir, "roles")
+	rolesDir := filepath.Join(m.workDir, "roles")
 
 	soulPath := filepath.Join(rolesDir, "soul.md")
 	rulesPath := filepath.Join(rolesDir, "rules.md")
 
 	soul, _ := os.ReadFile(soulPath)
 	rules, _ := os.ReadFile(rulesPath)
+
+	m.writeJSON(w, http.StatusOK, AgentProfileResponse{
+		Soul:  string(soul),
+		Rules: string(rules),
+	})
+}
+
+// UpdateAgentProfileRequest is the request body for PUT /api/agents/{id}/profile.
+type UpdateAgentProfileRequest struct {
+	Soul  *string `json:"soul,omitempty"`
+	Rules *string `json:"rules,omitempty"`
+}
+
+// handleUpdateAgentProfile updates the soul.md and/or rules.md content for the main agent.
+// PUT /api/agents/{id}/profile
+func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
+	var req UpdateAgentProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.Soul == nil && req.Rules == nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one of soul or rules must be provided"})
+		return
+	}
+
+	cfg := &prompt.PromptConfig{
+		RolesDir: filepath.Join(m.workDir, "roles"),
+	}
+
+	if req.Soul != nil {
+		if err := cfg.WriteSoulContent(*req.Soul); err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+
+	if req.Rules != nil {
+		if err := cfg.WriteRulesContent(*req.Rules); err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+
+	// Rebuild the system prompt so changes take effect on the next interaction.
+	if m.rebuildPrompt != nil {
+		if err := m.rebuildPrompt(); err != nil {
+			m.log.Warn("failed to rebuild system prompt after profile update", "err", err)
+		}
+	}
+
+	// Return the updated profile
+	rolesDir := filepath.Join(m.workDir, "roles")
+	soul, _ := os.ReadFile(filepath.Join(rolesDir, "soul.md"))
+	rules, _ := os.ReadFile(filepath.Join(rolesDir, "rules.md"))
 
 	m.writeJSON(w, http.StatusOK, AgentProfileResponse{
 		Soul:  string(soul),

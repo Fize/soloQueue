@@ -64,6 +64,11 @@ export interface AgentProfile {
   rules: string;
 }
 
+export interface UpdateAgentProfileRequest {
+  soul?: string;
+  rules?: string;
+}
+
 export interface AgentTemplate {
   id: string;
   name: string;
