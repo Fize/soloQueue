@@ -16,6 +16,8 @@
 //	POST /api/plans/{id}/todos/reorder → reorder todo items
 //	GET /api/todos/{id}/dependencies → get dependency graph
 //	PUT /api/todos/{id}/dependencies → set dependencies
+//	GET /api/tools → list built-in tools
+//	GET /api/skills → list skills (builtin + user)
 package server
 
 import (
@@ -32,7 +34,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // Mux is the root HTTP handler.
@@ -48,6 +52,8 @@ type Mux struct {
 	templates      []agent.AgentTemplate
 	groups         map[string]prompt.GroupFile
 	hub            *Hub
+	toolsCfg       *tools.Config
+	skillReg       *skill.SkillRegistry
 }
 
 // MuxOption is a functional option for NewMux.
@@ -84,6 +90,16 @@ func WithTemplates(templates []agent.AgentTemplate, groups map[string]prompt.Gro
 // WithHub sets the WebSocket Hub for the /ws endpoint and state broadcasting.
 func WithHub(hub *Hub) MuxOption {
 	return func(m *Mux) { m.hub = hub }
+}
+
+// WithToolsConfig sets the tools configuration for the /api/tools endpoint.
+func WithToolsConfig(cfg *tools.Config) MuxOption {
+	return func(m *Mux) { m.toolsCfg = cfg }
+}
+
+// WithSkillRegistry sets the skill registry for the /api/skills endpoint.
+func WithSkillRegistry(reg *skill.SkillRegistry) MuxOption {
+	return func(m *Mux) { m.skillReg = reg }
 }
 
 // SetHub sets the WebSocket Hub after construction. This is useful when the
@@ -166,6 +182,10 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	// Config routes
 	r.Get("/api/config", m.handleGetConfig)
 	r.Patch("/api/config", m.handleUpdateConfig)
+
+	// Tools & Skills routes
+	r.Get("/api/tools", m.handleListTools)
+	r.Get("/api/skills", m.handleListSkills)
 
 	return m
 }
