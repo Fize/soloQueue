@@ -27,22 +27,53 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 )
 
 // Mux is the root HTTP handler.
 type Mux struct {
-	log          *logger.Logger
-	mux          chi.Router
-	todoStore    *todo.Store
-	accessLogger *httpAccessLogger
+	log            *logger.Logger
+	mux            chi.Router
+	todoStore      *todo.Store
+	registry       *agent.Registry
+	supervisorsFn  func() []*agent.Supervisor
+	configSvc      *config.GlobalService
+	runtimeMetrics *RuntimeMetrics
+	accessLogger   *httpAccessLogger
+}
+
+// MuxOption is a functional option for NewMux.
+type MuxOption func(*Mux)
+
+// WithRegistry sets the agent registry for the /api/agents and /api/runtime endpoints.
+func WithRegistry(reg *agent.Registry) MuxOption {
+	return func(m *Mux) { m.registry = reg }
+}
+
+// WithSupervisors sets the function to retrieve supervisors for /api/agents.
+func WithSupervisors(fn func() []*agent.Supervisor) MuxOption {
+	return func(m *Mux) { m.supervisorsFn = fn }
+}
+
+// WithConfigService sets the config service for /api/config endpoints.
+func WithConfigService(svc *config.GlobalService) MuxOption {
+	return func(m *Mux) { m.configSvc = svc }
+}
+
+// WithRuntimeMetrics sets the runtime metrics source for /api/runtime.
+func WithRuntimeMetrics(rm *RuntimeMetrics) MuxOption {
+	return func(m *Mux) { m.runtimeMetrics = rm }
 }
 
 // NewMux creates a new HTTP handler with registered routes.
 // workDir is the soloqueue data directory (usually ~/.soloqueue).
-// todoStore may be nil; if nil, /api/* routes return 503.
-func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store) *Mux {
+// todoStore may be nil; if nil, /api/plans/* routes return 503.
+// Optional dependencies (registry, configSvc, runtimeMetrics) are passed via MuxOption;
+// if nil, their respective endpoints return 503.
+func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...MuxOption) *Mux {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -53,6 +84,10 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store) *Mux {
 		log:       log,
 		mux:       r,
 		todoStore: todoStore,
+	}
+
+	for _, opt := range opts {
+		opt(m)
 	}
 
 	// HTTP access logger — writes to logs/http/ with 1-day rotation, 50MB max
@@ -96,6 +131,14 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store) *Mux {
 		r.Get("/", m.handleGetDependencies)
 		r.Put("/", m.handleSetDependencies)
 	})
+
+	// Agent routes
+	r.Get("/api/agents", m.handleListAgents)
+	r.Get("/api/runtime", m.handleGetRuntime)
+
+	// Config routes
+	r.Get("/api/config", m.handleGetConfig)
+	r.Patch("/api/config", m.handleUpdateConfig)
 
 	return m
 }
