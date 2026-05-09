@@ -27,19 +27,9 @@ func (s sidebar) AgentRail(width, height int) string {
 	return s.renderAgentTree(width, height, false)
 }
 
-func (s *sidebar) AgentInspector(width, height int, m model, showAgents bool) string {
-	// Build the runtime section first so we know how many lines it occupies.
-	runtimeContent := s.buildRuntimeSection(width, m)
-	runtimeLines := lineCount(runtimeContent)
-
-	// Reserve height for the team viewport.
-	teamH := height - runtimeLines
-	if teamH < 1 {
-		teamH = 1
-	}
-
+func (s *sidebar) AgentInspector(width, height int, _ model, showAgents bool) string {
 	contentW := max(width-2, 1)
-	s.ResizeTeamViewport(contentW, teamH)
+	s.ResizeTeamViewport(contentW, height)
 
 	if showAgents {
 		agentsContent := paneTitleStyle.Render(" AGENTS ") + "\n" + s.renderAgentTreeContent(width, 0, true)
@@ -48,55 +38,9 @@ func (s *sidebar) AgentInspector(width, height int, m model, showAgents bool) st
 		s.teamViewport.SetContent("")
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, s.teamViewport.View(), runtimeContent)
+	return s.teamViewport.View()
 }
 
-// buildRuntimeSection renders the RUNTIME status block (used by AgentInspector).
-func (s sidebar) buildRuntimeSection(width int, m model) string {
-	var b strings.Builder
-	b.WriteString(paneTitleStyle.Render(" RUNTIME ") + "\n")
-	phase := "ready"
-	if m.loading {
-		phase = "initializing..."
-	} else if m.isGenerating {
-		phase = m.genPhase.String()
-	}
-	b.WriteString(kvLine("phase", phase, width))
-	if m.httpServerAddr != "" {
-		b.WriteString(kvLine("api", m.httpServerAddr, width))
-	}
-	if m.promptTokens > 0 || m.outputTokens > 0 {
-		b.WriteString(kvLine("tokens", fmt.Sprintf("↓%s ↑%s", formatTokenCount(m.promptTokens), formatTokenCount(m.outputTokens)), width))
-	}
-	if m.cacheHitTokens > 0 || m.cacheMissTokens > 0 {
-		b.WriteString(kvLine("cache", fmt.Sprintf("%s/%s", formatTokenCount(m.cacheHitTokens), formatTokenCount(m.cacheMissTokens)), width))
-	}
-	var pct int
-	if m.sess != nil {
-		cur, maxTokens, _ := m.sess.CW().TokenUsage()
-		if maxTokens > 0 {
-			pct = cur * 100 / maxTokens
-		}
-	}
-	b.WriteString(kvLine("context", fmt.Sprintf("%d%%", pct), width))
-	if m.currentIter > 0 {
-		b.WriteString(kvLine("iter", fmt.Sprintf("#%d", m.currentIter), width))
-	}
-	if m.contentDeltas > 0 {
-		b.WriteString(kvLine("content", fmt.Sprintf("%d deltas", m.contentDeltas), width))
-	}
-	if m.activeDelegations > 0 {
-		b.WriteString(kvLine("deleg", fmt.Sprintf("%d active", m.activeDelegations), width))
-	}
-	if totalErrs, lastErr := s.aggregateErrors(); totalErrs > 0 {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("  %d error(s)", totalErrs)))
-		if lastErr != "" {
-			b.WriteString(dimStyle.Render(" — " + truncate(lastErr, max(width-16, 10))))
-		}
-		b.WriteString("\n")
-	}
-	return paneStyle(width).Render(b.String())
-}
 
 func (s sidebar) renderAgentTree(width, height int, compact bool) string {
 	var b strings.Builder
@@ -405,40 +349,6 @@ func (s sidebar) counts() agentCounts {
 	return c
 }
 
-func (s sidebar) aggregateErrors() (total int32, last string) {
-	seen := make(map[string]bool)
-	for _, a := range s.allAgents() {
-		if seen[a.InstanceID] {
-			continue
-		}
-		seen[a.InstanceID] = true
-		if ec := a.ErrorCount(); ec > 0 {
-			total += ec
-			if le := a.LastError(); le != "" {
-				last = le
-			}
-		}
-	}
-	return
-}
-
-func (s sidebar) allAgents() []*agent.Agent {
-	var out []*agent.Agent
-	if s.registry != nil {
-		out = append(out, s.registry.List()...)
-	}
-	for _, sv := range s.getSupervisors() {
-		if sv == nil {
-			continue
-		}
-		if a := sv.Agent(); a != nil {
-			out = append(out, a)
-		}
-		out = append(out, sv.Children()...)
-	}
-	return out
-}
-
 func countState(c *agentCounts, s agent.State) {
 	switch s {
 	case agent.StateProcessing:
@@ -501,10 +411,6 @@ func compactLevel(lvl string) string {
 
 func sectionLine(title string) string {
 	return lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render("▸ " + title)
-}
-
-func kvLine(k, v string, width int) string {
-	return dimStyle.Render(fmt.Sprintf("  %-8s", k)) + lipgloss.NewStyle().Foreground(colorText).Render(truncate(v, max(width-12, 4))) + "\n"
 }
 
 func paneStyle(width int) lipgloss.Style {

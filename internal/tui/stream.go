@@ -116,6 +116,9 @@ func (m *model) handleAgentEvent(ev agent.AgentEvent) {
 	case agent.ErrorEvent:
 		m.errMsg = summarizeError(e.Err)
 	}
+
+	// Push updated metrics to the HTTP API layer.
+	m.syncRuntimeMetrics()
 }
 
 // ─── Tool confirmation ────────────────────────────────────────────────────────
@@ -164,4 +167,35 @@ func (s *streamState) flushContent() {
 		})
 		s.content.Reset()
 	}
+}
+
+// syncRuntimeMetrics pushes the current TUI model state to the shared HTTP
+// RuntimeMetrics writer so /api/runtime reflects live data.
+func (m *model) syncRuntimeMetrics() {
+	rm := m.runtimeMetrics
+	if rm == nil {
+		return
+	}
+	// Phase
+	phase := "ready"
+	if m.loading {
+		phase = "initializing"
+	} else if m.isGenerating {
+		phase = m.genPhase.String()
+	}
+	rm.SetPhase(phase)
+	rm.SetTokens(int64(m.promptTokens), int64(m.outputTokens), int64(m.cacheHitTokens), int64(m.cacheMissTokens))
+	rm.SetIter(m.currentIter)
+	rm.SetContentDeltas(m.contentDeltas)
+	rm.SetActiveDelegations(m.activeDelegations)
+
+	// Context window %
+	var pct int
+	if m.sess != nil {
+		cur, maxTokens, _ := m.sess.CW().TokenUsage()
+		if maxTokens > 0 {
+			pct = cur * 100 / maxTokens
+		}
+	}
+	rm.SetContext(pct)
 }
