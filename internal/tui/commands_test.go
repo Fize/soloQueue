@@ -111,17 +111,6 @@ func TestHandleBuiltin_Status(t *testing.T) {
 	}
 }
 
-func TestHandleBuiltin_Agents(t *testing.T) {
-	m := newTestModel()
-	if !m.showAgents {
-		t.Error("agents pane should start visible")
-	}
-	quit, _ := m.handleBuiltin("/agents")
-	if quit || m.showAgents {
-		t.Error("/agents should toggle agents pane hidden without quitting")
-	}
-}
-
 func TestHandleBuiltin_UnknownCommand(t *testing.T) {
 	m := newTestModel()
 	quit, _ := m.handleBuiltin("/foobar")

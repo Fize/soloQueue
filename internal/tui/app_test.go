@@ -77,20 +77,14 @@ func TestComputeLayout(t *testing.T) {
 	m := newTestModel()
 	m.width = 80
 	ly := m.computeLayout()
-	if ly.mode != layoutCompact {
-		t.Errorf("mode = %v, want compact", ly.mode)
-	}
 	if ly.mainW != 80 {
 		t.Errorf("mainW = %d, want 80", ly.mainW)
 	}
 
 	m.width = 120
 	ly = m.computeLayout()
-	if ly.mode != layoutTwoPane {
-		t.Errorf("mode = %v, want two-pane", ly.mode)
-	}
-	if ly.leftW == 0 || ly.mainW == 0 {
-		t.Error("two-pane layout should allocate main and left panes")
+	if ly.mainW != 120 {
+		t.Errorf("mainW = %d, want 120", ly.mainW)
 	}
 }
 
@@ -481,23 +475,6 @@ func TestUpdate_EnterEmptyInput(t *testing.T) {
 	}
 }
 
-func TestUpdate_CtrlA_ToggleAgentsPane(t *testing.T) {
-	m := newTestModel()
-	if !m.showAgents {
-		t.Error("agents pane should start visible")
-	}
-	updated, _ := m.Update(keyPress("ctrl+a"))
-	um := updated.(model)
-	if um.showAgents {
-		t.Error("Ctrl+A should hide agents pane")
-	}
-	updated2, _ := um.Update(keyPress("ctrl+a"))
-	um2 := updated2.(model)
-	if !um2.showAgents {
-		t.Error("second Ctrl+A should show agents pane")
-	}
-}
-
 func TestUpdate_UpWithConfirmState(t *testing.T) {
 	m := newTestModel()
 	m.confirmQueue = []confirmState{{callID: "c1", options: []string{"a", "b", "c"}, selected: 1}}
@@ -755,21 +732,6 @@ func TestUpdate_ConfirmResultMsg_NilConfirmState(t *testing.T) {
 	}
 }
 
-// ─── Update: agentTickMsg ───────────────────────────────────────────────────
-
-func TestUpdate_AgentTickMsg(t *testing.T) {
-	m := newTestModel()
-	initialFrame := m.sidebar.spinner.frame
-	updated, cmd := m.Update(agentTickMsg{})
-	um := updated.(model)
-	if um.sidebar.spinner.frame == initialFrame {
-		t.Error("sidebar spinner should advance on tick")
-	}
-	if cmd == nil {
-		t.Error("should return another agentTickCmd")
-	}
-}
-
 // ─── Update: textarea passthrough ───────────────────────────────────────────
 
 func TestUpdate_TextAreaPassthrough(t *testing.T) {
@@ -804,14 +766,6 @@ func TestView_Generating(t *testing.T) {
 	m.genPhase = phaseGenerating
 	if !strings.Contains(m.View().Content, "generating") {
 		t.Error("generating View should show 'generating'")
-	}
-}
-
-func TestView_WithSidebar(t *testing.T) {
-	m := newTestModel()
-	m.width = 120
-	if !strings.Contains(m.View().Content, "AGENTS") {
-		t.Error("View with visible sidebar should show 'AGENTS'")
 	}
 }
 
