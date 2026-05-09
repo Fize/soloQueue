@@ -1,81 +1,87 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
 
-/* ─── Modern Dark SaaS Theme ─────────────────────────────────────────────── */
+/* ─── Soft Neo-Brutalism Design System ───────────────────────────────────── */
 @theme {
-  /* Primary — Indigo Blue */
-  --color-primary: #4f6ef7;
-  --color-primary-foreground: #ffffff;
+  /* Brand Colors */
+  --color-primary: #FFF2C5;
+  --color-primary-foreground: #333333;
+  --color-secondary: #D6E4FF;
+  --color-secondary-foreground: #333333;
 
-  /* Backgrounds — Cool neutral darks */
-  --color-background: #0c0e12;
-  --color-foreground: #f0f2f5;
-
-  /* Card / Surface */
-  --color-card: #14161f;
-  --color-card-foreground: #f0f2f5;
-
-  /* Popover */
-  --color-popover: #181a24;
-  --color-popover-foreground: #f0f2f5;
-
-  /* Secondary */
-  --color-secondary: #1e2029;
-  --color-secondary-foreground: #c5c8d0;
+  /* Backgrounds */
+  --color-background: #FAFAFA;
+  --color-foreground: #333333;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #333333;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #333333;
 
   /* Muted */
-  --color-muted: #23252e;
-  --color-muted-foreground: #8b8f98;
+  --color-muted: #F5F5F5;
+  --color-muted-foreground: #777777;
 
   /* Accent */
-  --color-accent: #10b981;
-  --color-accent-foreground: #ffffff;
+  --color-accent: #F3E8FF;
+  --color-accent-foreground: #333333;
 
   /* Destructive */
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
+  --color-destructive: #FFE2E2;
+  --color-destructive-foreground: #B91C1C;
 
-  /* Border / Input */
-  --color-border: #23252e;
-  --color-input: #2a2d38;
-  --color-ring: #4f6ef7;
+  /* Border / Input / Ring */
+  --color-border: #444444;
+  --color-border-light: #EEEEEE;
+  --color-input: #444444;
+  --color-ring: #D6E4FF;
 
   /* Status Colors */
-  --color-status-plan: #6366f1;
-  --color-status-running: #f59e0b;
-  --color-status-done: #22c55e;
+  --color-status-plan: #D6E4FF;
+  --color-status-running: #FFF2C5;
+  --color-status-done: #D1F4E0;
+
+  /* Semantic Colors */
+  --color-success: #D1F4E0;
+  --color-success-foreground: #1B6B3A;
+  --color-warning: #FFF8E1;
+  --color-warning-foreground: #92400E;
+  --color-info: #D6E4FF;
+  --color-info-foreground: #1E40AF;
+
+  /* Shadow */
+  --color-shadow: #DDDDDD;
 
   /* Chart */
-  --color-chart-1: #4f6ef7;
-  --color-chart-2: #10b981;
-  --color-chart-3: #f59e0b;
-  --color-chart-4: #6366f1;
-  --color-chart-5: #ef4444;
+  --color-chart-1: #FFF2C5;
+  --color-chart-2: #D1F4E0;
+  --color-chart-3: #D6E4FF;
+  --color-chart-4: #F3E8FF;
+  --color-chart-5: #FFE2E2;
 }
 
 @theme inline {
-  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: var(--font-sans);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 12px;
 
   /* shadcn CSS variable bridge */
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
+  --color-sidebar-ring: var(--ring);
+  --color-sidebar-border: var(--border);
+  --color-sidebar-accent-foreground: var(--accent-foreground);
+  --color-sidebar-accent: var(--accent);
+  --color-sidebar-primary-foreground: var(--primary-foreground);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-foreground: var(--foreground);
+  --color-sidebar: var(--card);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -85,6 +91,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -101,40 +108,95 @@
   --color-background: var(--background);
 }
 
-/* ─── CSS Variables for shadcn/ui consumption ─────────────────────────────── */
+/* ─── CSS Variables (shadcn consumption + neo-brutalism tokens) ────────── */
 :root {
-  --background: #0c0e12;
-  --foreground: #f0f2f5;
-  --card: #14161f;
-  --card-foreground: #f0f2f5;
-  --popover: #181a24;
-  --popover-foreground: #f0f2f5;
-  --primary: #4f6ef7;
-  --primary-foreground: #ffffff;
-  --secondary: #1e2029;
-  --secondary-foreground: #c5c8d0;
-  --muted: #23252e;
-  --muted-foreground: #8b8f98;
-  --accent: #10b981;
-  --accent-foreground: #ffffff;
-  --destructive: #ef4444;
-  --border: #23252e;
-  --input: #2a2d38;
-  --ring: #4f6ef7;
-  --radius: 0.625rem;
-  --chart-1: #4f6ef7;
-  --chart-2: #10b981;
-  --chart-3: #f59e0b;
-  --chart-4: #6366f1;
-  --chart-5: #ef4444;
-  --sidebar: #14161f;
-  --sidebar-foreground: #f0f2f5;
-  --sidebar-primary: #4f6ef7;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1e2029;
-  --sidebar-accent-foreground: #f0f2f5;
-  --sidebar-border: #23252e;
-  --sidebar-ring: #4f6ef7;
+  --background: #FAFAFA;
+  --foreground: #333333;
+  --card: #FFFFFF;
+  --card-foreground: #333333;
+  --popover: #FFFFFF;
+  --popover-foreground: #333333;
+  --primary: #FFF2C5;
+  --primary-foreground: #333333;
+  --secondary: #D6E4FF;
+  --secondary-foreground: #333333;
+  --muted: #F5F5F5;
+  --muted-foreground: #777777;
+  --accent: #F3E8FF;
+  --accent-foreground: #333333;
+  --destructive: #FFE2E2;
+  --destructive-foreground: #B91C1C;
+  --border: #444444;
+  --border-light: #EEEEEE;
+  --input: #444444;
+  --ring: #D6E4FF;
+  --radius: 8px;
+  --shadow: #DDDDDD;
+
+  /* Status */
+  --status-plan: #D6E4FF;
+  --status-running: #FFF2C5;
+  --status-done: #D1F4E0;
+
+  /* Semantic */
+  --success: #D1F4E0;
+  --success-foreground: #1B6B3A;
+  --warning: #FFF8E1;
+  --warning-foreground: #92400E;
+  --info: #D6E4FF;
+  --info-foreground: #1E40AF;
+
+  /* Neo-brutalism specific */
+  --nb-shadow-xs: 2px 2px 0px #DDDDDD;
+  --nb-shadow-sm: 3px 3px 0px #DDDDDD;
+  --nb-shadow-md: 4px 4px 0px #DDDDDD;
+  --nb-shadow-lg: 6px 6px 0px #E5E7EB;
+  --nb-shadow-focus: 3px 3px 0px #D6E4FF;
+  --nb-border: 2px solid #444444;
+  --nb-border-light: 2px solid #EEEEEE;
+}
+
+.dark {
+  --background: #1A1A2E;
+  --foreground: #E0E0E0;
+  --card: #252540;
+  --card-foreground: #E0E0E0;
+  --popover: #252540;
+  --popover-foreground: #E0E0E0;
+  --primary: #FFF2C5;
+  --primary-foreground: #1A1A2E;
+  --secondary: #2A3550;
+  --secondary-foreground: #E0E0E0;
+  --muted: #2A2A40;
+  --muted-foreground: #888888;
+  --accent: #3A2A50;
+  --accent-foreground: #E0E0E0;
+  --destructive: #5C2020;
+  --destructive-foreground: #FF9999;
+  --border: #6B6B80;
+  --border-light: #3A3A50;
+  --input: #6B6B80;
+  --ring: #2A3550;
+  --shadow: #3A3A50;
+
+  --status-plan: #2A3550;
+  --status-running: #4A3F20;
+  --status-done: #1F3A28;
+
+  --success: #1F3A28;
+  --success-foreground: #69DB7C;
+  --warning: #4A3F20;
+  --warning-foreground: #FFD43B;
+  --info: #2A3550;
+  --info-foreground: #74C0FC;
+
+  --nb-shadow-xs: 2px 2px 0px #3A3A50;
+  --nb-shadow-sm: 3px 3px 0px #3A3A50;
+  --nb-shadow-md: 4px 4px 0px #3A3A50;
+  --nb-shadow-lg: 6px 6px 0px #3A3A50;
+  --nb-shadow-focus: 3px 3px 0px #2A3550;
+  --nb-border: 2px solid #6B6B80;
+  --nb-border-light: 2px solid #3A3A50;
 }
 
 /* ─── Base Layer ───────────────────────────────────────────────────────────── */
@@ -144,8 +206,54 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-weight: 500;
   }
   html {
     @apply font-sans;
+  }
+  h1, h2, h3 {
+    font-weight: 700;
+  }
+}
+
+/* ─── Neo-Brutalism Utilities ─────────────────────────────────────────────── */
+@layer utilities {
+  .nb-shadow-xs {
+    box-shadow: var(--nb-shadow-xs);
+  }
+  .nb-shadow-sm {
+    box-shadow: var(--nb-shadow-sm);
+  }
+  .nb-shadow-md {
+    box-shadow: var(--nb-shadow-md);
+  }
+  .nb-shadow-lg {
+    box-shadow: var(--nb-shadow-lg);
+  }
+  .nb-shadow-focus {
+    box-shadow: var(--nb-shadow-focus);
+  }
+  .nb-shadow-none {
+    box-shadow: 0 0 0 transparent;
+  }
+  .nb-border {
+    border: var(--nb-border);
+  }
+  .nb-border-light {
+    border: var(--nb-border-light);
+  }
+  .nb-press {
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .nb-press:active {
+    transform: translate(3px, 3px);
+    box-shadow: 0 0 0 transparent;
+  }
+  .nb-card-hover {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .nb-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--nb-shadow-lg);
   }
 }
