@@ -156,7 +156,7 @@ func roleField(dm DefaultModelsConfig, role string) string {
 func roleDefault(role string) string {
 	defaults := map[string]string{
 		"expert":    "deepseek:deepseek-v4-pro-max",
-		"superior":  "deepseek:deepseek-v4-pro",
+		"superior":  "deepseek:deepseek-v4-flash-thinking-max",
 		"universal": "deepseek:deepseek-v4-flash-thinking",
 		"fast":      "deepseek:deepseek-v4-flash",
 	}
