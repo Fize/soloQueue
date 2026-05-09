@@ -124,6 +124,16 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				server.WithRuntimeMetrics(runtimeMetrics),
 				server.WithTemplates(rt.AllTemplates, rt.Groups),
 			)
+
+			// Create and start WebSocket Hub for real-time state updates.
+			wsHub := server.NewHub(httpMux)
+			httpMux.SetHub(wsHub)
+			go wsHub.Run()
+
+			// Wire onChange callbacks so RuntimeMetrics and Registry
+			// changes trigger WebSocket broadcasts.
+			runtimeMetrics.SetOnChange(wsHub.Notify)
+			rt.AgentRegistry.SetOnChange(wsHub.Notify)
 				rt.HTTPServer = &http.Server{Handler: httpMux}
 				rt.HTTPListener = httpListener
 				go func() {

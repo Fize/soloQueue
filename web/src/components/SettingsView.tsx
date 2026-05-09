@@ -2,17 +2,17 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { GeneralTab } from './settings/GeneralTab';
 import { ModelsTab } from './settings/ModelsTab';
-import { SkillsTab } from './settings/SkillsTab';
-import { McpTab } from './settings/McpTab';
-import { Settings, Cpu, Zap, Server } from 'lucide-react';
+import { ToolsTab } from './settings/ToolsTab';
+import { IntegrationsTab } from './settings/IntegrationsTab';
+import { Settings, Cpu, Wrench, Plug } from 'lucide-react';
 
-type SettingsTab = 'general' | 'models' | 'skills' | 'mcp';
+type SettingsTab = 'general' | 'models' | 'tools' | 'integrations';
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: 'general', label: 'General', icon: Settings },
   { id: 'models', label: 'Models', icon: Cpu },
-  { id: 'skills', label: 'Skills', icon: Zap },
-  { id: 'mcp', label: 'MCP', icon: Server },
+  { id: 'tools', label: 'Tools', icon: Wrench },
+  { id: 'integrations', label: 'Integrations', icon: Plug },
 ];
 
 export function SettingsView() {
@@ -49,8 +49,8 @@ export function SettingsView() {
         <div className="mx-auto max-w-3xl">
           {activeTab === 'general' && <GeneralTab />}
           {activeTab === 'models' && <ModelsTab />}
-          {activeTab === 'skills' && <SkillsTab />}
-          {activeTab === 'mcp' && <McpTab />}
+          {activeTab === 'tools' && <ToolsTab />}
+          {activeTab === 'integrations' && <IntegrationsTab />}
         </div>
       </div>
     </div>

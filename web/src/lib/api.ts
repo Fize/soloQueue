@@ -3,10 +3,8 @@ import type {
   PlanListResponse,
   PlanStatus,
   TodoItemWithDeps,
-  AgentListResponse,
   AgentProfile,
   TeamListResponse,
-  RuntimeStatus,
   AppConfig,
 } from '@/types';
 
@@ -57,22 +55,12 @@ export async function deleteTodo(planId: string, todoId: string): Promise<void> 
 
 // ─── Agent APIs ───────────────────────────────────────────────────────────────
 
-export async function getAgents(): Promise<AgentListResponse> {
-  return request<AgentListResponse>('/agents');
-}
-
 export async function getAgentProfile(id: string): Promise<AgentProfile> {
   return request<AgentProfile>(`/agents/${id}/profile`);
 }
 
 export async function getTeams(): Promise<TeamListResponse> {
   return request<TeamListResponse>('/teams');
-}
-
-// ─── Runtime APIs ─────────────────────────────────────────────────────────────
-
-export async function getRuntime(): Promise<RuntimeStatus> {
-  return request<RuntimeStatus>('/runtime');
 }
 
 // ─── Config APIs ──────────────────────────────────────────────────────────────
