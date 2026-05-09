@@ -45,7 +45,7 @@ type Sandbox interface {
 
 const (
 	containerName = "soloqueue-sandbox"
-	imageName     = "debian:bookworm-slim"
+	imageName     = "debian:bookworm"
 )
 
 // DockerSandbox 基于 Docker SDK 的沙盒实现。
@@ -253,7 +253,7 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 	createResp, err := d.cli.ContainerCreate(ctx,
 		&container.Config{
 			Image:      imageName,
-			Cmd:        []string{"/bin/sh", "-c", "apt-get update -qq && apt-get install -y --no-install-recommends -qq curl ca-certificates > /dev/null 2>&1; tail -f /dev/null"},
+			Cmd:        []string{"/bin/sh", "-c", "tail -f /dev/null"},
 			WorkingDir: d.workDir,
 		},
 		hostConfig,
