@@ -117,33 +117,11 @@ func TestHandleToolConfirm_AllowInSession(t *testing.T) {
 	}
 }
 
-// ─── agentTickInterval ──────────────────────────────────────────────────────
-
-func TestAgentTickInterval(t *testing.T) {
-	genInterval := agentTickInterval(true)
-	idleInterval := agentTickInterval(false)
-	if genInterval != 500*time.Millisecond {
-		t.Errorf("generating interval = %v, want 500ms", genInterval)
-	}
-	if idleInterval != 2*time.Second {
-		t.Errorf("idle interval = %v, want 2s", idleInterval)
-	}
-	if genInterval >= idleInterval {
-		t.Error("generating interval should be faster than idle")
-	}
-}
-
-// ─── spinnerCmd / agentTickCmd ──────────────────────────────────────────────
+// ─── spinnerCmd ──────────────────────────────────────────────
 
 func TestSpinnerCmd(t *testing.T) {
 	if cmd := spinnerCmd(); cmd == nil {
 		t.Error("spinnerCmd() should return non-nil command")
-	}
-}
-
-func TestAgentTickCmd(t *testing.T) {
-	if cmd := agentTickCmd(500 * time.Millisecond); cmd == nil {
-		t.Error("agentTickCmd() should return non-nil command")
 	}
 }
 
