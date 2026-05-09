@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -125,6 +126,20 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				server.WithTemplates(rt.AllTemplates, rt.Groups),
 				server.WithToolsConfig(&rt.ToolsCfg),
 				server.WithSkillRegistry(rt.SkillRegistry),
+				server.WithPromptRebuild(func() error {
+					leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
+					if err != nil {
+						leaders = rt.Leaders
+					}
+					planDir, _ := config.PlanDir()
+					memoryDir := filepath.Join(workDir, "memory")
+					newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
+					if err != nil {
+						return err
+					}
+					rt.SetSystemPrompt(newPrompt)
+					return nil
+				}),
 			)
 
 			// Create and start WebSocket Hub for real-time state updates.

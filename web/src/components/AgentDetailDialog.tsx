@@ -8,8 +8,10 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { Settings } from 'lucide-react';
 
 interface AgentDetailDialogProps {
   agent: AgentInfo | null;
@@ -43,10 +45,20 @@ export function AgentDetailDialog({ agent, isL1 = false, open, onOpenChange }: A
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[600px] max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <span>{agent.name}</span>
-              <Badge variant="default" className="text-xs">主 Agent</Badge>
-            </DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2">
+                <span>{agent.name}</span>
+                <Badge variant="default" className="text-xs">主 Agent</Badge>
+              </DialogTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { window.location.hash = 'settings/profile'; onOpenChange(false); }}
+              >
+                <Settings className="mr-1 h-3 w-3" />
+                编辑
+              </Button>
+            </div>
             <p className="font-mono text-xs text-muted-foreground">{agent.instance_id}</p>
           </DialogHeader>
 
