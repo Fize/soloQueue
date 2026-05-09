@@ -102,6 +102,16 @@ export interface RuntimeStatus {
   http_addr: string;
 }
 
+// ─── WebSocket Message Types ────────────────────────────────────────────────
+
+export interface WSStateMessage {
+  type: 'state';
+  runtime: RuntimeStatus;
+  agents: AgentListResponse;
+}
+
+export type WSMessage = WSStateMessage;
+
 // ─── Config Types ────────────────────────────────────────────────────────────
 
 export interface SessionConfig {
@@ -116,6 +126,13 @@ export interface LogConfig {
   file: boolean;
 }
 
+export interface RetryConfig {
+  maxRetries: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
+}
+
 export interface LLMProvider {
   id: string;
   name: string;
@@ -123,15 +140,74 @@ export interface LLMProvider {
   apiKeyEnv: string;
   enabled: boolean;
   isDefault: boolean;
+  timeoutMs: number;
+  retry: RetryConfig;
+  headers?: Record<string, string>;
+}
+
+export interface GenerationParams {
+  temperature: number;
+  maxTokens: number;
+}
+
+export interface ThinkingConfig {
+  enabled: boolean;
+  reasoningEffort: string;
 }
 
 export interface LLMModel {
   id: string;
   providerId: string;
   name: string;
+  apiModel?: string;
   contextWindow: number;
   enabled: boolean;
-  thinking: { enabled: boolean; reasoningEffort: string };
+  generation: GenerationParams;
+  thinking: ThinkingConfig;
+}
+
+export interface ToolsConfig {
+  maxFileSize: number;
+  maxMatches: number;
+  maxLineLen: number;
+  maxGlobItems: number;
+  maxWriteSize: number;
+  maxMultiWriteBytes: number;
+  maxMultiWriteFiles: number;
+  maxReplaceEdits: number;
+  httpAllowedHosts?: string[];
+  httpMaxBody: number;
+  httpTimeoutMs: number;
+  httpBlockPrivate: boolean;
+  shellBlockRegexes?: string[];
+  shellConfirmRegexes?: string[];
+  shellMaxOutput: number;
+  webSearchTimeoutMs: number;
+}
+
+export interface EmbeddingProvider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  enabled: boolean;
+}
+
+export interface EmbeddingModel {
+  id: string;
+  providerId: string;
+  name: string;
+  dimension: number;
+  batchSize: number;
+  normalize: boolean;
+  enabled: boolean;
+  isDefault: boolean;
+}
+
+export interface EmbeddingConfig {
+  enabled: boolean;
+  providers: EmbeddingProvider[];
+  models: EmbeddingModel[];
 }
 
 export interface DefaultModelsConfig {
@@ -142,10 +218,21 @@ export interface DefaultModelsConfig {
   fallback: string;
 }
 
+export interface QQBotConfig {
+  enabled: boolean;
+  appId: string;
+  appSecret: string;
+  intents: number;
+  sandbox: boolean;
+}
+
 export interface AppConfig {
   session: SessionConfig;
   log: LogConfig;
+  tools: ToolsConfig;
   providers: LLMProvider[];
   models: LLMModel[];
+  embedding: EmbeddingConfig;
   defaultModels: DefaultModelsConfig;
+  qqbot: QQBotConfig;
 }

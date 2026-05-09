@@ -122,6 +122,14 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithConfigService(cfg),
 			server.WithTemplates(rt.AllTemplates, rt.Groups),
 		)
+
+		// Create and start WebSocket Hub for real-time state updates.
+		wsHub := server.NewHub(mux)
+		mux.SetHub(wsHub)
+		go wsHub.Run()
+
+		// Wire onChange callbacks so Registry changes trigger WebSocket broadcasts.
+		rt.AgentRegistry.SetOnChange(wsHub.Notify)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,
