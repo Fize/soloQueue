@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
@@ -115,7 +116,11 @@ func ServeCmd(version string) *cobra.Command {
 				os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			mux := server.NewMux(workDir, log, rt.TodoStore)
+			mux := server.NewMux(workDir, log, rt.TodoStore,
+				server.WithRegistry(rt.AgentRegistry),
+				server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
+				server.WithConfigService(cfg),
+			)
 			srv := &http.Server{
 				Addr:    fmt.Sprintf("%s:%d", host, port),
 				Handler: mux,
