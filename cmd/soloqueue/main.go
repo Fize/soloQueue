@@ -101,6 +101,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			var httpServerAddr string
 			var httpListener net.Listener
 			var listenErr error
+			var runtimeMetrics *server.RuntimeMetrics
 			if port > 0 {
 				httpListener, listenErr = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 			} else {
@@ -110,7 +111,16 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				log.Warn(logger.CatApp, "failed to start HTTP server", "err", listenErr)
 			} else {
 				httpServerAddr = fmt.Sprintf("http://%s", httpListener.Addr().String())
-				httpMux := server.NewMux(workDir, log, rt.TodoStore)
+
+				// Create shared runtime metrics that the TUI writes and HTTP API reads.
+				runtimeMetrics = &server.RuntimeMetrics{HTTPAddr: httpServerAddr}
+
+				httpMux := server.NewMux(workDir, log, rt.TodoStore,
+					server.WithRegistry(rt.AgentRegistry),
+					server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
+					server.WithConfigService(cfg),
+					server.WithRuntimeMetrics(runtimeMetrics),
+				)
 				rt.HTTPServer = &http.Server{Handler: httpMux}
 				rt.HTTPListener = httpListener
 				go func() {
@@ -164,6 +174,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				Templates:      rt.AllTemplates,
 				Groups:         rt.Groups,
 				HTTPServerAddr: httpServerAddr,
+				RuntimeMetrics: runtimeMetrics,
 				ContextIdleThresholdMin: cfg.Get().Session.ContextIdleThresholdMin,
 			})
 		},
