@@ -1,7 +1,8 @@
 // Package sandbox 提供容器化沙盒的抽象与 Docker 实现。
 //
-// 设计原则：
-//   - 全局唯一共享沙盒：主程序启动时创建，退出时销毁。
+// 设计原则（已更新）：
+//   - 全局唯一共享沙盒：主程序启动时创建或重用已停止的容器，退出时停止（不删除）。
+//   - 容器允许跨多个程序运行周期重用：通过 Stop/Start 模式实现容器生命周期管理。
 //   - 不做硬性资源限制，容器默认使用宿主机全部可用算力。
 //   - 容器启动时挂载所有 workspace 目录：家目录映射到 /root/.soloqueue，
 //     其余 workspace 容器内路径与宿主机路径完全一致（1:1 映射）。
@@ -30,13 +31,13 @@ import (
 
 // Sandbox 是容器化沙盒的抽象接口。
 type Sandbox interface {
-	// Start 执行清理残留、镜像 Pull、容器拉起。
+	// Start 执行清理残留、镜像 Pull、容器拉起，或重用已停止的容器。
 	Start(ctx context.Context) error
 
 	// Exec 在沙盒中执行命令，需支持高并发调用。
 	Exec(ctx context.Context, cmd string) (stdout []byte, stderr []byte, err error)
 
-	// Destroy 强制停止并删除该全局容器。
+	// Destroy 停止该全局容器。容器保持已停止状态，稍后可通过 Start 重新启动。
 	Destroy(ctx context.Context) error
 }
 
@@ -181,7 +182,11 @@ func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 	}, nil
 }
 
-// Start 清理残留容器、拉取镜像、拉起新容器。
+// Start 启动沙盒容器。
+// 启动优先级：
+//   1. 如果已启动，直接返回
+//   2. 检查是否存在已停止的容器，存在则直接启动
+//   3. 否则创建新容器后启动
 func (d *DockerSandbox) Start(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -190,6 +195,25 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 		return nil
 	}
 
+	// 尝试查找和启动已停止的容器
+	existingID, err := d.findStoppedContainer(ctx, containerName)
+	if err == nil && existingID != "" {
+		// 找到已停止的容器，直接启动
+		if err := d.cli.ContainerStart(ctx, existingID, container.StartOptions{}); err != nil {
+			if d.log != nil {
+				d.log.LogError(ctx, logger.CatApp, "sandbox: start existing container failed", err, "container_id", existingID[:12])
+			}
+			return fmt.Errorf("sandbox: start existing container: %w", err)
+		}
+		d.containerID = existingID
+		d.started = true
+		if d.log != nil {
+			d.log.Info(logger.CatApp, "sandbox: reused existing stopped container", "container_id", existingID[:12])
+		}
+		return nil
+	}
+
+	// 未找到已停止的容器或出现错误，创建新容器
 	// 1. 清理同名残留容器
 	if err := d.removeExisting(ctx); err != nil {
 		if d.log != nil {
@@ -263,6 +287,32 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 	d.containerID = createResp.ID
 	d.started = true
 	return nil
+}
+
+// findStoppedContainer 查找名为 name 的已停止容器的 ID。
+// 如果找到多个，返回第一个；如果不存在或全部运行中，返回空字符串和 nil。
+func (d *DockerSandbox) findStoppedContainer(ctx context.Context, name string) (string, error) {
+	filter := filters.NewArgs()
+	filter.Add("name", name)
+	containers, err := d.cli.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: filter,
+	})
+	if err != nil {
+		return "", fmt.Errorf("sandbox: list containers: %w", err)
+	}
+	for _, c := range containers {
+		for _, n := range c.Names {
+			if n == "/"+name {
+				// 检查容器是否已停止
+				if c.State == "exited" || c.State == "stopped" {
+					return c.ID, nil
+				}
+				break
+			}
+		}
+	}
+	return "", nil
 }
 
 // Exec 在沙盒中利用 ContainerExecCreate 执行命令。
@@ -355,8 +405,40 @@ func (d *DockerSandbox) Exec(ctx context.Context, cmd string) (stdout []byte, st
 	return stdout, stderr, nil
 }
 
-// Destroy 强制停止并删除该全局容器。
+// Stop 停止容器但保留其存在状态，允许稍后通过 Start 重新启动。
+// 这是一个幂等操作：如果容器已停止或不存在，不返回错误。
+func (d *DockerSandbox) Stop(ctx context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	cid := d.containerID
+	if cid == "" {
+		return nil
+	}
+
+	timeoutSecs := 10
+	if err := d.cli.ContainerStop(ctx, cid, container.StopOptions{Timeout: &timeoutSecs}); err != nil {
+		// 如果容器已停止或不存在，这不是错误
+		// containerStop 也是幂等的
+		if d.log != nil {
+			d.log.WarnContext(ctx, logger.CatApp, "sandbox: stop container warning", err, "container_id", cid[:12])
+		}
+	}
+	d.started = false
+	// 注意：不清空 d.containerID，这样之后 Start() 仍可重新启动同一容器
+	return nil
+}
+
+// Destroy 停止该全局容器。容器保持已停止状态，
+// 稍后可通过 Start() 重新启动。
 func (d *DockerSandbox) Destroy(ctx context.Context) error {
+	return d.Stop(ctx)
+}
+
+// DestroyPermanently 强制停止并永久删除该全局容器。
+// 与 Destroy 不同，这个操作不可逆。
+// 供 cleanup 子命令等需要彻底清理的场景使用。
+func (d *DockerSandbox) DestroyPermanently(ctx context.Context) error {
 	d.mu.Lock()
 	cid := d.containerID
 	d.started = false
@@ -383,6 +465,9 @@ func (d *DockerSandbox) removeExisting(ctx context.Context) error {
 }
 
 // Cleanup 删除所有 soloqueue 创建的沙盒容器（供 cleanup 子命令使用），输出结果提示。
+// 这会永久删除容器，而不是仅停止。
+// 对于平时程序退出时的清理，使用 Destroy()（停止）即可。
+// 此方法供 cleanup 子命令使用，目的是彻底清理所有孤立容器。
 func (d *DockerSandbox) Cleanup(ctx context.Context) error {
 	return d.removeByName(ctx, containerName, true)
 }
