@@ -33,6 +33,7 @@ type Registry struct {
 	agents     map[string]*Agent   // InstanceID → Agent
 	byTemplate map[string][]string // templateID (Def.ID) → []InstanceID
 	log        *logger.Logger
+	onChange   func() // optional callback invoked after Register/Unregister
 }
 
 // NewRegistry constructs an empty registry
@@ -46,6 +47,16 @@ func NewRegistry(log *logger.Logger) *Registry {
 		byTemplate: make(map[string][]string),
 		log:        log,
 	}
+}
+
+// SetOnChange sets the callback invoked after Register or Unregister.
+// The callback is called under the write lock, so it must not call back
+// into the Registry (deadlock). Use non-blocking sends (select+default)
+// if notifying a channel.
+func (r *Registry) SetOnChange(fn func()) {
+	r.mu.Lock()
+	r.onChange = fn
+	r.mu.Unlock()
 }
 
 // Register adds an agent keyed by InstanceID (never Def.ID).
@@ -70,6 +81,9 @@ func (r *Registry) Register(a *Agent) error {
 		r.byTemplate[tmplID] = append(r.byTemplate[tmplID], id)
 	}
 	size := len(r.agents)
+	if r.onChange != nil {
+		r.onChange()
+	}
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry register",
@@ -111,6 +125,9 @@ func (r *Registry) Unregister(id string) bool {
 	}
 
 	size := len(r.agents)
+	if r.onChange != nil {
+		r.onChange()
+	}
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry unregister",
