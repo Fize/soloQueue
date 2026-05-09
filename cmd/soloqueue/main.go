@@ -123,6 +123,8 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				server.WithConfigService(cfg),
 				server.WithRuntimeMetrics(runtimeMetrics),
 				server.WithTemplates(rt.AllTemplates, rt.Groups),
+				server.WithToolsConfig(&rt.ToolsCfg),
+				server.WithSkillRegistry(rt.SkillRegistry),
 			)
 
 			// Create and start WebSocket Hub for real-time state updates.

@@ -236,3 +236,35 @@ export interface AppConfig {
   defaultModels: DefaultModelsConfig;
   qqbot: QQBotConfig;
 }
+
+// ─── Tool & Skill Types ────────────────────────────────────────────────────
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown> | null;
+}
+
+export interface ToolListResponse {
+  tools: ToolInfo[];
+  total: number;
+}
+
+export type SkillCategory = 'builtin' | 'user';
+
+export interface SkillInfo {
+  id: string;
+  description: string;
+  category: SkillCategory;
+  user_invocable: boolean;
+  disable_model_invocation: boolean;
+  context: string;
+  agent: string;
+  file_path: string;
+  allowed_tools: string[];
+}
+
+export interface SkillListResponse {
+  skills: SkillInfo[];
+  total: number;
+}
