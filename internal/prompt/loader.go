@@ -116,6 +116,28 @@ func (p *PromptConfig) WriteSoul(answers ProfileAnswers) error {
 	return nil
 }
 
+// WriteSoulContent writes raw content to the soul.md file.
+func (p *PromptConfig) WriteSoulContent(content string) error {
+	if err := os.MkdirAll(p.RolesDir, 0o755); err != nil {
+		return fmt.Errorf("create soul dir: %w", err)
+	}
+	if err := os.WriteFile(p.soulPath(), []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write soul: %w", err)
+	}
+	return nil
+}
+
+// WriteRulesContent writes raw content to the rules.md file.
+func (p *PromptConfig) WriteRulesContent(content string) error {
+	if err := os.MkdirAll(p.RolesDir, 0o755); err != nil {
+		return fmt.Errorf("create rules dir: %w", err)
+	}
+	if err := os.WriteFile(p.RulesPath(), []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write rules: %w", err)
+	}
+	return nil
+}
+
 // readMD reads the contents of a markdown file.
 func readMD(path string) (string, error) {
 	data, err := os.ReadFile(path)
