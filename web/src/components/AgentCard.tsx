@@ -18,17 +18,19 @@ const stateBadgeVariant: Record<AgentState, 'default' | 'secondary' | 'outline' 
 
 interface AgentCardProps {
   agent: AgentInfo;
+  onClick?: () => void;
 }
 
-export function AgentCard({ agent }: AgentCardProps) {
+export function AgentCard({ agent, onClick }: AgentCardProps) {
   const borderColor = stateColors[agent.state] || '#BBBBBB';
 
   return (
     <div
       className={cn(
-        'relative rounded-lg border-2 border-border bg-card p-3.5 nb-shadow-sm nb-card-hover',
+        'relative rounded-lg border-2 border-border bg-card p-3.5 nb-shadow-sm nb-card-hover cursor-pointer',
       )}
       style={{ borderLeftWidth: '4px', borderLeftColor: borderColor }}
+      onClick={onClick}
     >
       {/* Name + State */}
       <div className="mb-2 flex items-center justify-between">

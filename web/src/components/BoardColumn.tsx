@@ -6,9 +6,9 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 
 const columnConfig: Record<PlanStatus, { label: string; dot: string; bg: string }> = {
-  plan: { label: 'Plan', dot: 'bg-status-plan', bg: 'bg-status-plan/10' },
-  running: { label: 'Running', dot: 'bg-status-running', bg: 'bg-status-running/10' },
-  done: { label: 'Done', dot: 'bg-status-done', bg: 'bg-status-done/10' },
+  plan: { label: 'Plan', dot: 'bg-blue-500', bg: 'bg-status-plan/10' },
+  running: { label: 'Running', dot: 'bg-amber-500', bg: 'bg-status-running/10' },
+  done: { label: 'Done', dot: 'bg-green-500', bg: 'bg-status-done/10' },
 };
 
 interface BoardColumnProps {
@@ -31,7 +31,7 @@ export function BoardColumn({ status, plans, onPlanClick }: BoardColumnProps) {
     >
       {/* Column header */}
       <div className={cn('flex items-center gap-2 rounded-t-xl px-4 py-3', config.bg)}>
-        <div className={cn('h-2.5 w-2.5 rounded-full border border-border', config.dot)} />
+        <div className={cn('h-2.5 w-2.5 rounded-full border-2 border-white shadow-sm', config.dot)} />
         <h2 className="text-sm font-bold text-foreground">{config.label}</h2>
         <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-md nb-border bg-card px-1.5 text-[11px] font-bold text-foreground">
           {plans.length}
