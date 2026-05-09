@@ -37,13 +37,11 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
   return (
     <div
       className={cn(
-        'group relative cursor-pointer rounded-xl border border-border bg-card p-3.5 transition-all duration-150 select-none',
-        // Normal hover
-        !isOverlay && !isDragging && 'hover:border-primary/40 hover:shadow-[0_2px_12px_rgba(0,0,0,0.25)] hover:-translate-y-px',
+        'group relative cursor-pointer rounded-lg border-2 border-border bg-card p-3.5 nb-shadow-sm nb-card-hover select-none',
         // Original being dragged → dim it
         isDragging && 'opacity-30 scale-[0.98]',
         // Overlay ghost → clean floating look
-        isOverlay && 'shadow-2xl shadow-black/40 border-primary/50 bg-card rotate-0 scale-105',
+        isOverlay && 'nb-shadow-lg border-primary scale-105',
       )}
       onClick={onClick}
     >
@@ -78,9 +76,9 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
             <span>{completedTodos}/{totalTodos} tasks</span>
             <span>{Math.round(progress)}%</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className="h-1.5 overflow-hidden rounded-sm border border-border bg-muted">
             <div
-              className="h-full rounded-full bg-status-done transition-all duration-300"
+              className="h-full rounded-sm bg-status-done transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
           </div>

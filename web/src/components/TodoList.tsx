@@ -20,7 +20,7 @@ interface TodoListProps {
 export function TodoList({ todos, onToggle, onDelete, planId }: TodoListProps) {
   if (todos.length === 0) {
     return (
-      <div className="flex h-14 items-center justify-center rounded-lg border border-dashed border-border/60 text-xs text-muted-foreground/70">
+      <div className="flex h-14 items-center justify-center rounded-lg border-2 border-dashed border-[#EEEEEE] text-xs text-muted-foreground">
         No tasks yet
       </div>
     );
@@ -66,7 +66,7 @@ function TodoItemRow({
     <div
       className={cn(
         'group relative flex items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors',
-        'hover:bg-accent/40',
+        'hover:bg-muted',
         todo.completed && 'opacity-55',
       )}
     >
