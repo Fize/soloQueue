@@ -48,12 +48,26 @@ type Config struct {
 	AssistantName string // name parsed from soul.md for L1 display
 
 	// HTTPServerAddr is the address of the embedded HTTP API server.
-	// When non-empty, it is displayed in the RUNTIME sidebar section.
 	HTTPServerAddr string
+
+	// RuntimeMetrics is the shared metrics struct that the TUI writes
+	// and the HTTP API (/api/runtime) reads. May be nil.
+	RuntimeMetrics RuntimeMetricsWriter
 
 	// ContextIdleThresholdMin is the idle timeout (minutes) for auto-clearing context.
 	// Read from config at startup.
 	ContextIdleThresholdMin int
+}
+
+// RuntimeMetricsWriter is the interface that the TUI uses to push runtime
+// metrics to the HTTP API layer. Satisfied by *server.RuntimeMetrics.
+type RuntimeMetricsWriter interface {
+	SetPhase(phase string)
+	SetTokens(prompt, output, cacheHit, cacheMiss int64)
+	SetContext(pct int)
+	SetIter(iter int)
+	SetContentDeltas(n int)
+	SetActiveDelegations(n int)
 }
 
 // ─── Data types ──────────────────────────────
@@ -205,8 +219,8 @@ type model struct {
 	confirmQueue    []confirmState // FIFO queue of pending tool confirmations
 	loading         bool   // true while waiting for sandbox + session init
 	sandboxErr      string // sandbox init error message
-	httpServerAddr  string // embedded HTTP API server address
 	contextCleared bool   // true if context was silently cleared on startup
+	runtimeMetrics RuntimeMetricsWriter // shared metrics writer (may be nil)
 }
 
 // ─── Run (public entry point) ────────────────
@@ -223,7 +237,7 @@ func Run(cfg Config) error {
 		spinner:        newSpinner(),
 		focus:          focusComposer,
 		showAgents:     true,
-		httpServerAddr: cfg.HTTPServerAddr,
+		runtimeMetrics: cfg.RuntimeMetrics,
 	}
 
 	m.darkBg = termenv.HasDarkBackground()
@@ -470,6 +484,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				toolExecMap: make(map[string]*toolExecInfo),
 			}
 			m.messages = append(m.messages, message{role: "agent", timestamp: time.Now()})
+			m.syncRuntimeMetrics()
 			m.resizeViewport()
 			m.rebuildViewportContent()
 			m.viewport.GotoBottom()
@@ -771,6 +786,7 @@ func (m *model) resetGenState() {
 	m.currentIter = 0
 	m.contentDeltas = 0
 	m.confirmQueue = nil
+	m.syncRuntimeMetrics()
 }
 
 // cancelCurrent cancels the most relevant running task in two stages:

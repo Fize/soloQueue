@@ -209,12 +209,6 @@ func TestAgentInspector_ShowAgents(t *testing.T) {
 	if !strings.Contains(got, "AGENTS") {
 		t.Error("AgentInspector with showAgents should contain AGENTS section")
 	}
-	if !strings.Contains(got, "RUNTIME") {
-		t.Error("AgentInspector should contain RUNTIME section")
-	}
-	if !strings.Contains(got, "ready") {
-		t.Error("AgentInspector should show phase=ready when idle")
-	}
 }
 
 func TestAgentInspector_HideAgents(t *testing.T) {
@@ -225,35 +219,6 @@ func TestAgentInspector_HideAgents(t *testing.T) {
 	got := s.AgentInspector(40, 20, m, false)
 	if strings.Contains(got, "AGENTS") {
 		t.Error("AgentInspector with showAgents=false should not contain AGENTS section")
-	}
-	if !strings.Contains(got, "RUNTIME") {
-		t.Error("AgentInspector should always contain RUNTIME section")
-	}
-}
-
-func TestAgentInspector_GeneratingPhase(t *testing.T) {
-	s := newSidebar(nil, nil, nil, nil, "")
-	m := newTestModel()
-	m.sidebar = s
-	m.isGenerating = true
-	m.genPhase = phaseGenerating
-
-	got := s.AgentInspector(40, 20, m, true)
-	if !strings.Contains(got, "generating") {
-		t.Error("AgentInspector should show generating phase")
-	}
-}
-
-func TestAgentInspector_WithTokens(t *testing.T) {
-	s := newSidebar(nil, nil, nil, nil, "")
-	m := newTestModel()
-	m.sidebar = s
-	m.promptTokens = 1000
-	m.outputTokens = 500
-
-	got := s.AgentInspector(40, 20, m, true)
-	if !strings.Contains(got, "tokens") {
-		t.Error("AgentInspector should show tokens section when tokens > 0")
 	}
 }
 
