@@ -3,6 +3,9 @@ import type {
   PlanListResponse,
   PlanStatus,
   TodoItemWithDeps,
+  AgentListResponse,
+  RuntimeStatus,
+  AppConfig,
 } from '@/types';
 
 const API_BASE = 'http://localhost:8765/api';
@@ -48,4 +51,26 @@ export async function toggleTodo(planId: string, todoId: string): Promise<TodoIt
 
 export async function deleteTodo(planId: string, todoId: string): Promise<void> {
   await request(`/plans/${planId}/todos/${todoId}`, { method: 'DELETE' });
+}
+
+// ─── Agent APIs ───────────────────────────────────────────────────────────────
+
+export async function getAgents(): Promise<AgentListResponse> {
+  return request<AgentListResponse>('/agents');
+}
+
+// ─── Runtime APIs ─────────────────────────────────────────────────────────────
+
+export async function getRuntime(): Promise<RuntimeStatus> {
+  return request<RuntimeStatus>('/runtime');
+}
+
+// ─── Config APIs ──────────────────────────────────────────────────────────────
+
+export async function getConfig(): Promise<AppConfig> {
+  return request<AppConfig>('/config');
+}
+
+export async function updateConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
+  return request<AppConfig>('/config', { method: 'PATCH', body: JSON.stringify(patch) });
 }
