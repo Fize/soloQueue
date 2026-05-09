@@ -58,24 +58,10 @@ func (m model) renderHeader(ly layout) string {
 	left := strings.Join(parts, dimStyle.Render(" · "))
 	right := renderContextBar(contextPct)
 
-	targetWidth := ly.width
-	if ly.mode == layoutTwoPane && m.showAgents {
-		targetWidth = ly.mainW
-	}
-	space := targetWidth - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	space := ly.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if space < 1 {
 		space = 1
 	}
 	line := left + strings.Repeat(" ", space) + right
-	rendered := headerStyle.Width(targetWidth).Render(line)
-
-	if ly.mode == layoutTwoPane && m.showAgents {
-		pad := strings.Repeat(" ", ly.leftW) + paneBorderStyle.Render("│")
-		lines := strings.Split(rendered, "\n")
-		for i := range lines {
-			lines[i] = pad + lines[i]
-		}
-		return strings.Join(lines, "\n")
-	}
-	return rendered
+	return headerStyle.Width(ly.width).Render(line)
 }

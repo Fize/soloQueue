@@ -79,12 +79,6 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		m.viewport.GotoBottom()
 		return false, nil
 
-	case "/agents":
-		m.showAgents = !m.showAgents
-		m.resizeViewport()
-		m.rebuildViewportContent()
-		return false, nil
-
 	default:
 		if strings.HasPrefix(input, "/") {
 			if m.cfg.Skills != nil {

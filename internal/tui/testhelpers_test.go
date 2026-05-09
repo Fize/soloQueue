@@ -36,7 +36,6 @@ func newTestModel() model {
 	return model{
 		cfg:        Config{Version: "v0.1.0", ModelID: "test-model"},
 		spinner:    newSpinner(),
-		sidebar:    newSidebar(nil, nil, nil, nil, ""),
 		textArea:   ta,
 		viewport:   vp,
 		width:      80,
@@ -45,7 +44,6 @@ func newTestModel() model {
 		history:    []string{},
 		ctx:        context.Background(),
 		focus:      focusComposer,
-		showAgents: true,
 	}
 }
 
