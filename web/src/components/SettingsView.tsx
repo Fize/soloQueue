@@ -2,23 +2,31 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { GeneralTab } from './settings/GeneralTab';
 import { ModelsTab } from './settings/ModelsTab';
+import { ProfileTab } from './settings/ProfileTab';
 import { ToolsTab } from './settings/ToolsTab';
 import { SkillsTab } from './settings/SkillsTab';
 import { IntegrationsTab } from './settings/IntegrationsTab';
-import { Settings, Cpu, Wrench, Sparkles, Plug } from 'lucide-react';
+import { Settings, User, Cpu, Wrench, Sparkles, Plug } from 'lucide-react';
 
-type SettingsTab = 'general' | 'models' | 'tools' | 'skills' | 'integrations';
+type SettingsTab = 'general' | 'profile' | 'models' | 'tools' | 'skills' | 'integrations';
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: 'general', label: 'General', icon: Settings },
+  { id: 'profile', label: 'Profile', icon: User },
   { id: 'models', label: 'Models', icon: Cpu },
   { id: 'tools', label: 'Tools', icon: Wrench },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'integrations', label: 'Integrations', icon: Plug },
 ];
 
-export function SettingsView() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+interface SettingsViewProps {
+  initialTab?: string | null;
+}
+
+export function SettingsView({ initialTab }: SettingsViewProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    (initialTab as SettingsTab) || 'general',
+  );
 
   return (
     <div className="flex h-full">
@@ -50,6 +58,7 @@ export function SettingsView() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-3xl">
           {activeTab === 'general' && <GeneralTab />}
+          {activeTab === 'profile' && <ProfileTab />}
           {activeTab === 'models' && <ModelsTab />}
           {activeTab === 'tools' && <ToolsTab />}
           {activeTab === 'skills' && <SkillsTab />}

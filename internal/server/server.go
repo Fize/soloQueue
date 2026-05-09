@@ -16,7 +16,9 @@
 //	POST /api/plans/{id}/todos/reorder → reorder todo items
 //	GET /api/todos/{id}/dependencies → get dependency graph
 //	PUT /api/todos/{id}/dependencies → set dependencies
-//	GET /api/tools → list built-in tools
+//	GET /api/agents/{id}/profile → get agent soul & rules
+//	PUT /api/agents/{id}/profile → update agent soul & rules
+//	GET /api/teams → list teams
 //	GET /api/skills → list skills (builtin + user)
 package server
 
@@ -43,6 +45,7 @@ import (
 type Mux struct {
 	log            *logger.Logger
 	mux            chi.Router
+	workDir        string
 	todoStore      *todo.Store
 	registry       *agent.Registry
 	supervisorsFn  func() []*agent.Supervisor
@@ -54,6 +57,7 @@ type Mux struct {
 	hub            *Hub
 	toolsCfg       *tools.Config
 	skillReg       *skill.SkillRegistry
+	rebuildPrompt  func() error // rebuilds L1 system prompt after soul/rules edit
 }
 
 // MuxOption is a functional option for NewMux.
@@ -102,6 +106,12 @@ func WithSkillRegistry(reg *skill.SkillRegistry) MuxOption {
 	return func(m *Mux) { m.skillReg = reg }
 }
 
+// WithPromptRebuild sets the callback that rebuilds the L1 system prompt.
+// Called after soul/rules are updated via the API.
+func WithPromptRebuild(fn func() error) MuxOption {
+	return func(m *Mux) { m.rebuildPrompt = fn }
+}
+
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
@@ -123,6 +133,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	m := &Mux{
 		log:       log,
 		mux:       r,
+		workDir:   workDir,
 		todoStore: todoStore,
 	}
 
@@ -174,6 +185,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 
 	// Agent routes
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
+	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
 	r.Get("/api/teams", m.handleListTeams)
 
 	// WebSocket endpoint for real-time state updates

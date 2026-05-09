@@ -117,3 +117,10 @@ func (s *Stack) AddSupervisor(sv *agent.Supervisor) {
 	defer s.CfgMu.Unlock()
 	s.Supervisors = append(s.Supervisors, sv)
 }
+
+// SetSystemPrompt updates the compiled system prompt (concurrency-safe).
+func (s *Stack) SetSystemPrompt(prompt string) {
+	s.CfgMu.Lock()
+	defer s.CfgMu.Unlock()
+	s.SystemPrompt = prompt
+}
