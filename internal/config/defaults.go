@@ -5,8 +5,8 @@ package config
 func DefaultSettings() Settings {
 	return Settings{
 		Session: SessionConfig{
-			TimelineMaxFileMB:      50,
-			TimelineMaxFiles:       5,
+			TimelineMaxFileMB:       50,
+			TimelineMaxFiles:        5,
 			ContextIdleThresholdMin: 30, // default 30 minutes
 		},
 		Log: LogConfig{
@@ -67,74 +67,74 @@ func DefaultSettings() Settings {
 				Name:          "DeepSeek V4 Flash",
 				ContextWindow: 1048576,
 				Enabled:       true,
-			Generation: GenerationParams{
-				Temperature: 0,
-				MaxTokens:   16384,
+				Generation: GenerationParams{
+					Temperature: 0,
+					MaxTokens:   16384,
+				},
 			},
-		},
-		{
-			ID:            "deepseek-v4-flash-thinking",
-			ProviderID:    "deepseek",
-			APIModel:      "deepseek-v4-flash",
-			Name:          "DeepSeek V4 Flash (Thinking)",
-			ContextWindow: 1048576,
-			Enabled:       true,
-			Generation: GenerationParams{
-				Temperature: 0,
-				MaxTokens:   16384,
+			{
+				ID:            "deepseek-v4-flash-thinking",
+				ProviderID:    "deepseek",
+				APIModel:      "deepseek-v4-flash",
+				Name:          "DeepSeek V4 Flash (Thinking)",
+				ContextWindow: 1048576,
+				Enabled:       true,
+				Generation: GenerationParams{
+					Temperature: 0,
+					MaxTokens:   16384,
+				},
+				Thinking: ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "high",
+				},
 			},
-			Thinking: ThinkingConfig{
-				Enabled:         true,
-				ReasoningEffort: "high",
+			{
+				ID:            "deepseek-v4-flash-thinking-max",
+				ProviderID:    "deepseek",
+				APIModel:      "deepseek-v4-flash",
+				Name:          "DeepSeek V4 Flash (Max Reasoning)",
+				ContextWindow: 1048576,
+				Enabled:       true,
+				Generation: GenerationParams{
+					Temperature: 0,
+					MaxTokens:   16384,
+				},
+				Thinking: ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "max",
+				},
 			},
-		},
-		{
-			ID:            "deepseek-v4-flash-thinking-max",
-			ProviderID:    "deepseek",
-			APIModel:      "deepseek-v4-flash",
-			Name:          "DeepSeek V4 Flash (Max Reasoning)",
-			ContextWindow: 1048576,
-			Enabled:       true,
-			Generation: GenerationParams{
-				Temperature: 0,
-				MaxTokens:   16384,
+			{
+				ID:            "deepseek-v4-pro",
+				ProviderID:    "deepseek",
+				Name:          "DeepSeek V4 Pro",
+				ContextWindow: 1048576,
+				Enabled:       true,
+				Generation: GenerationParams{
+					Temperature: 0,
+					MaxTokens:   16384,
+				},
+				Thinking: ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "high",
+				},
 			},
-			Thinking: ThinkingConfig{
-				Enabled:         true,
-				ReasoningEffort: "max",
+			{
+				ID:            "deepseek-v4-pro-max",
+				ProviderID:    "deepseek",
+				APIModel:      "deepseek-v4-pro",
+				Name:          "DeepSeek V4 Pro (Max Reasoning)",
+				ContextWindow: 1048576,
+				Enabled:       true,
+				Generation: GenerationParams{
+					Temperature: 0,
+					MaxTokens:   16384,
+				},
+				Thinking: ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "max",
+				},
 			},
-		},
-		{
-			ID:            "deepseek-v4-pro",
-			ProviderID:    "deepseek",
-			Name:          "DeepSeek V4 Pro",
-			ContextWindow: 1048576,
-			Enabled:       true,
-			Generation: GenerationParams{
-				Temperature: 0,
-				MaxTokens:   16384,
-			},
-			Thinking: ThinkingConfig{
-				Enabled:         true,
-				ReasoningEffort: "high",
-			},
-		},
-		{
-			ID:            "deepseek-v4-pro-max",
-			ProviderID:    "deepseek",
-			APIModel:      "deepseek-v4-pro",
-			Name:          "DeepSeek V4 Pro (Max Reasoning)",
-			ContextWindow: 1048576,
-			Enabled:       true,
-			Generation: GenerationParams{
-				Temperature: 0,
-				MaxTokens:   16384,
-			},
-			Thinking: ThinkingConfig{
-				Enabled:         true,
-				ReasoningEffort: "max",
-			},
-		},
 		},
 		Embedding: EmbeddingConfig{
 			Enabled: false,
@@ -149,9 +149,9 @@ func DefaultSettings() Settings {
 			},
 			Models: []EmbeddingModel{
 				{
-					ID:         "bge-large-zh-v1.5",
+					ID:         "nomic-embed-text:latest",
 					ProviderID: "local",
-					Name:       "BGE Large ZH v1.5",
+					Name:       "nomic-embed-text:latest",
 					Dimension:  1024,
 					BatchSize:  32,
 					Normalize:  true,
