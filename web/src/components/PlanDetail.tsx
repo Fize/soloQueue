@@ -28,9 +28,9 @@ const statusLabel = {
 } as const;
 
 const statusBadgeClass = {
-  plan: 'bg-status-plan/10 text-status-plan border-status-plan/20',
-  running: 'bg-status-running/10 text-status-running border-status-running/20',
-  done: 'bg-status-done/10 text-status-done border-status-done/20',
+  plan: 'bg-status-plan text-foreground border-border',
+  running: 'bg-status-running text-foreground border-border',
+  done: 'bg-status-done text-foreground border-border',
 };
 
 export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
@@ -134,7 +134,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
 
                 {/* Content */}
                 {fullPlan?.content && (
-                  <div className="rounded-lg border border-border/60 bg-muted/30 p-4">
+                  <div className="rounded-lg border-2 border-[#EEEEEE] bg-muted/30 p-4">
                     <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
                       {fullPlan.content}
                     </p>
