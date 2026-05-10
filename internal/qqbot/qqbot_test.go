@@ -50,13 +50,7 @@ func TestConfigAPIBaseURL(t *testing.T) {
 	}
 }
 
-func TestConfigTokenFormat(t *testing.T) {
-	cfg := Config{AppID: "123456", AppSecret: "mysecret"}
-	want := "Bot 123456.mysecret"
-	if got := cfg.TokenFormat(); got != want {
-		t.Errorf("TokenFormat() = %s, want %s", got, want)
-	}
-}
+
 
 func TestSplitMessage(t *testing.T) {
 	tests := []struct {

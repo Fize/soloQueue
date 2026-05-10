@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -85,31 +84,6 @@ func (a *Agent) ToolSpecs() []llm.ToolDef {
 		return nil
 	}
 	return a.tools.Specs()
-}
-
-// SkillCatalog 返回当前 agent 所有 skill 的目录文本
-//
-// Deprecated: Skill 信息现在通过 SkillTool.Description 暴露给 LLM。
-// 保留此方法仅用于过渡期兼容。
-func (a *Agent) SkillCatalog() string {
-	if a.skills == nil {
-		return ""
-	}
-	// 生成简要目录用于过渡期
-	skills := a.skills.Skills()
-	if len(skills) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("## Available Skills\n\n")
-	for _, s := range skills {
-		if s.DisableModelInvocation {
-			continue
-		}
-		fmt.Fprintf(&b, "- **%s**: %s\n", s.ID, s.Description)
-	}
-	b.WriteString("\nUse the `Skill` tool to invoke a skill by name.\n")
-	return b.String()
 }
 
 const (

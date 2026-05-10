@@ -194,6 +194,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
 	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
 	r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
+		r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
 	r.Get("/api/teams", m.handleListTeams)
 
 	// WebSocket endpoint for real-time state updates
