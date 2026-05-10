@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMCPConfig } from '@/hooks/useMCPConfig';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,9 +16,11 @@ export function MCPTab() {
   const [local, setLocal] = useState<MCPServerConfig[] | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
-  if (config && !local) {
-    setLocal(structuredClone(config.servers));
-  }
+  useEffect(() => {
+    if (config && !local) {
+      setLocal(structuredClone(config.servers ?? []));
+    }
+  }, [config, local]);
 
   if (!config || !local) {
     return <div className="text-sm text-muted-foreground">Loading MCP configuration...</div>;
