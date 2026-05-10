@@ -396,6 +396,96 @@ func serializeFrontmatter(fm prompt.AgentFrontmatter) string {
 	return strings.TrimSpace(string(data))
 }
 
+// UpdateAgentConfigRequest is the request body for PUT /api/agents/{id}/config.
+type UpdateAgentConfigRequest struct {
+	RawConfig    *string `json:"raw_config,omitempty"`
+	SystemPrompt *string `json:"system_prompt,omitempty"`
+}
+
+// handleUpdateAgentConfig updates an agent's .md file (frontmatter and/or body).
+// PUT /api/agents/{id}/config
+func (m *Mux) handleUpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
+	if m.agentsDir == "" {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agents directory not configured"})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent id is required"})
+		return
+	}
+
+	var req UpdateAgentConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.RawConfig == nil && req.SystemPrompt == nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one of raw_config or system_prompt must be provided"})
+		return
+	}
+
+	// Find the .md file
+	path := filepath.Join(m.agentsDir, id+".md")
+	af, err := prompt.ParseAgentFile(path)
+	if err != nil {
+		af, err = findAgentFileByName(m.agentsDir, id)
+		if err != nil {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "agent file not found: " + id})
+			return
+		}
+		path = filepath.Join(m.agentsDir, af.Frontmatter.Name+".md")
+	}
+
+	// Merge frontmatter if raw_config provided
+	if req.RawConfig != nil {
+		var fm prompt.AgentFrontmatter
+		if err := yaml.Unmarshal([]byte(*req.RawConfig), &fm); err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid yaml in raw_config: " + err.Error()})
+			return
+		}
+		af.Frontmatter = fm
+	}
+
+	// Merge body if system_prompt provided
+	if req.SystemPrompt != nil {
+		af.Body = *req.SystemPrompt
+	}
+
+	// Serialize back to .md file
+	fmBytes, err := yaml.Marshal(af.Frontmatter)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to serialize frontmatter: " + err.Error()})
+		return
+	}
+
+	content := "---\n" + string(fmBytes) + "---\n\n" + af.Body
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write agent file: " + err.Error()})
+		return
+	}
+
+	// Rebuild system prompt so changes take effect
+	if m.rebuildPrompt != nil {
+		if err := m.rebuildPrompt(); err != nil {
+			m.log.Warn("failed to rebuild system prompt after agent config update", "err", err)
+		}
+	}
+
+	m.writeJSON(w, http.StatusOK, AgentConfigResponse{
+		RawConfig:    serializeFrontmatter(af.Frontmatter),
+		SystemPrompt: af.Body,
+		Name:         af.Frontmatter.Name,
+		Description:  af.Frontmatter.Description,
+		Model:        af.Frontmatter.Model,
+		Group:        af.Frontmatter.Group,
+		IsLeader:     af.Frontmatter.IsLeader,
+		MCPServers:   af.Frontmatter.MCPServers,
+	})
+}
+
 // ─── Public Builders (shared by REST handlers and WebSocket Hub) ─────────────
 
 // buildRuntimeStatus constructs a RuntimeStatusResponse from the current metrics

@@ -3,7 +3,6 @@ package tui
 import (
 	"charm.land/lipgloss/v2"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
 )
 
 // ─── Color palette ───────────────────────────────────────────────────────────
@@ -147,14 +146,6 @@ func applyTheme(darkBg bool) {
 		Bold(true)
 
 }
-
-// contextTokenStyle returns a style with color based on context window usage percentage.
-// <50%: green, 50-69%: light blue, 70-84%: yellow, 85-100%: orange.
-// No red/warning colors since compression triggers at ~90%.
-func agentBadgeStyle(s agent.State) lipgloss.Style {
-	return stateStyle(s).Bold(true).Padding(0, 1)
-}
-
 func contextTokenStyle(pct int) lipgloss.Style {
 	switch {
 	case pct < 50:

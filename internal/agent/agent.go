@@ -65,6 +65,9 @@ type Agent struct {
 	confirmMu      sync.RWMutex
 	pendingConfirm map[string]*confirmSlot
 
+	// bypassConfirm 跳过所有工具确认；来自 agent 模板 permission 字段或全局 --bypass。
+	bypassConfirm bool
+
 	// confirmStore 是会话级工具放行存储；默认内存实现，可通过 WithConfirmStore 替换。
 	confirmStore SessionConfirmStore
 
@@ -524,6 +527,7 @@ func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option)
 		asyncTurns:     make(map[int]*asyncTurnState),
 		pendingConfirm: make(map[string]*confirmSlot),
 		confirmStore:   NewMemoryConfirmStore(),
+		bypassConfirm:  def.BypassConfirm,
 	}
 	for _, opt := range opts {
 		opt(a)

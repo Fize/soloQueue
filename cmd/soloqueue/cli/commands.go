@@ -16,7 +16,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 	"github.com/xiaobaitu/soloqueue/internal/server"
@@ -27,6 +26,7 @@ func ServeCmd(version string) *cobra.Command {
 	var port int
 	var host string
 	var verbose bool
+	var bypass bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -61,7 +61,7 @@ func ServeCmd(version string) *cobra.Command {
 				return cfg.WriteSoul(prompt.DefaultProfileAnswers())
 			}
 
-			rt, err := runtime.Build(workDir, cfg, log, profileSetup)
+			rt, err := runtime.Build(workDir, cfg, log, profileSetup, bypass)
 			if err != nil {
 				return err
 			}
@@ -87,31 +87,9 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("init session: %w", err)
 			}
 
-			// ── QQ Bot integration ──
-			var qqGateway *qqbot.Gateway
-			qqCfg := settings.QQBot.ToQQBotConfig()
-			if qqCfg.Enabled && qqCfg.AppID != "" && qqCfg.AppSecret != "" {
-				qqAPI := qqbot.NewAPIClient(qqCfg, log)
-				qqAdapter := session.NewQQBotAdapter(mgr)
-				qqBridge := qqbot.NewSessionBridge(qqAdapter, qqAPI, log)
-				qqGateway = qqbot.NewGateway(qqCfg, qqBridge, log)
 
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Error(logger.CatApp, "qqbot gateway goroutine panic recovered",
-								"panic", fmt.Sprintf("%v", r))
-						}
-					}()
-					log.Info(logger.CatApp, "qqbot gateway starting",
-						"app_id", qqCfg.AppID, "sandbox", qqCfg.Sandbox)
-					if err := qqGateway.Run(context.Background()); err != nil {
-						log.Warn(logger.CatApp, "qqbot gateway stopped", "err", err.Error())
-					}
-				}()
-			} else if qqCfg.Enabled {
-				log.Warn(logger.CatApp, "qqbot enabled but appId/appSecret not configured, skipping")
-			}
+				// ── QQ Bot integration ──
+				qqGateway := StartQQBot(cfg, mgr, workDir, log)
 
 			rootCtx, stop := signal.NotifyContext(context.Background(),
 				os.Interrupt, syscall.SIGTERM)
@@ -184,6 +162,7 @@ func ServeCmd(version string) *cobra.Command {
 	cmd.Flags().IntVarP(&port, "port", "p", 8765, "HTTP server port")
 	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
+	cmd.Flags().BoolVar(&bypass, "bypass", false, "bypass all tool confirmations for all agents")
 
 	return cmd
 }

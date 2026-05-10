@@ -44,6 +44,7 @@ func Build(
 	cfg *config.GlobalService,
 	log *logger.Logger,
 	profileSetup ProfileSetupFn,
+	bypassConfirm bool,
 ) (*Stack, error) {
 	buildStart := time.Now()
 	settings := cfg.Get()
@@ -209,6 +210,7 @@ func Build(
 		agent.WithTemplates(allTemplates),
 		agent.WithGroups(groups),
 		agent.WithWorkDir(workDir),
+		agent.WithBypassConfirm(bypassConfirm),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────
@@ -304,6 +306,7 @@ func Build(
 		PermCancel:      permCancel,
 		TodoStore:       todoStore,
 		SharedDB:        sharedDB,
+		BypassConfirm:   bypassConfirm,
 	}
 
 	// Register config hot-reload callback

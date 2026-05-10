@@ -17,6 +17,7 @@ type options struct {
 	levelVar  *slog.LevelVar
 	console   bool
 	file      bool
+	subdir    string
 	maxSizeMB int
 	maxDays   int
 	maxFiles  int
@@ -36,11 +37,16 @@ func WithFile(enabled bool) Option {
 	return func(o *options) { o.file = enabled }
 }
 
+func WithLogSubdir(dir string) Option {
+	return func(o *options) { o.subdir = dir }
+}
+
 func defaultOptions() options {
 	return options{
 		levelVar:  &slog.LevelVar{},
 		console:   false,
 		file:      true,
+		subdir:    "system",
 		maxSizeMB: 50,
 		maxDays:   30,
 		maxFiles:  5,
@@ -87,7 +93,7 @@ func newLogger(baseDir string, opts ...Option) (*Logger, error) {
 	// File handler
 	var fileHandler *FileHandler
 	if o.file {
-		fileHandler = newFileHandler(baseDir, o.levelVar, o.maxSizeMB, o.maxDays, o.maxFiles)
+		fileHandler = newFileHandler(baseDir, o.subdir, o.levelVar, o.maxSizeMB, o.maxDays, o.maxFiles)
 	}
 
 	multi := newMultiHandler(consoleHandler, fileHandler)
