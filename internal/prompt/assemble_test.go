@@ -15,10 +15,17 @@ func TestAssembleWithXML_Full(t *testing.T) {
 		"team management",
 		"rules content",
 		"/home/user/.soloqueue/plan",
+		"/home/user/.soloqueue",
 	)
 
 	if !strings.Contains(result, "<identity>\nprofile content\n</identity>") {
 		t.Error("missing or incorrect identity section")
+	}
+	if !strings.Contains(result, "<working_directory>") {
+		t.Error("missing working_directory section")
+	}
+	if !strings.Contains(result, "~/.soloqueue") {
+		t.Error("working_directory should mention ~/.soloqueue")
 	}
 	if !strings.Contains(result, "<user_context>\nuser context\n</user_context>") {
 		t.Error("missing or incorrect user_context section")
@@ -35,7 +42,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "<plan_before_action>") {
 		t.Error("missing plan_before_action section when planDir is provided")
 	}
-	if !strings.Contains(result, "/home/user/.soloqueue/plan") {
+	if !strings.Contains(result, "~/.soloqueue/plan") {
 		t.Error("missing plan directory path in plan_before_action section")
 	}
 }
@@ -50,6 +57,7 @@ func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 		"team management",
 		"rules content",
 		"/home/user/.soloqueue/plan",
+		"/home/user/.soloqueue",
 	)
 
 	if strings.Contains(result, "<user_context>") {
@@ -67,6 +75,7 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 		"team management",
 		"rules content",
 		"",
+		"/home/user/.soloqueue",
 	)
 
 	if strings.Contains(result, "<plan_before_action>") {
@@ -94,6 +103,7 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 		"team management",
 		"rules content",
 		"/home/user/.soloqueue/plan",
+		"/home/user/.soloqueue",
 	)
 
 	if !strings.Contains(result, "<exploration_artifacts>") {

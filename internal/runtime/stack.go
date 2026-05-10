@@ -15,6 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
@@ -57,6 +58,7 @@ type Stack struct {
 	PermCancel    context.CancelFunc // Cancel function for permanent scheduler context
 	TodoStore     *todo.Store        // Todo plan/task store
 	SharedDB      *sqlitedb.DB       // Shared SQLite connection reused by vectorstore + todo stores
+	MCPManager    *mcp.Manager       // MCP server manager
 	HTTPServer    *http.Server       // Embedded HTTP API server (TUI mode)
 	HTTPListener  net.Listener       // Listener for the HTTP server
 
@@ -82,6 +84,9 @@ func (s *Stack) Shutdown() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = s.HTTPServer.Shutdown(shutdownCtx)
+	}
+	if s.MCPManager != nil {
+		s.MCPManager.Shutdown()
 	}
 	// Close the shared SQLite DB last so any flush performed by the stores
 	// above (e.g. future scheduled writes) can still reach disk.

@@ -57,7 +57,7 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanent
 	teamMgmt := buildTeamManagementSection(workDir)
 
 	// 6. Assemble XML
-	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir), nil
+	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir), nil
 }
 
 // EnsureFiles checks and fills in any missing prompt files.

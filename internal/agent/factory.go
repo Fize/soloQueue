@@ -12,6 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -91,6 +92,7 @@ type DefaultFactory struct {
 	templates      map[string]AgentTemplate    // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
 	groups         map[string]prompt.GroupFile // group 信息，供 L2 prompt 注入团队上下文
 	bypassConfirm  bool                        // global --bypass: skip all confirmations
+	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -170,6 +172,13 @@ func WithWorkDir(workDir string) FactoryOption {
 	}
 }
 
+// WithMCPManager sets the MCP manager for MCP tool registration during agent creation.
+func WithMCPManager(mgr *mcp.Manager) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.mcpManager = mgr
+	}
+}
+
 func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
 }
@@ -226,9 +235,9 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	}
 	var finalPrompt string
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir)
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, f.workDir)
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl, planDir)
+		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, f.workDir)
 	}
 
 	// 2. 构建 Definition
@@ -338,9 +347,25 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 
 		skillTool := skill.NewSkillTool(sr, forkSpawn)
 		allTools = append(allTools, skillTool)
-	}
+		}
 
-	// 4. 构造 Option 列表
+		// 3d. Register MCP tools for servers listed in the agent template.
+		if f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
+			for _, serverName := range tmpl.MCPServers {
+				mcpTools := f.mcpManager.GetTools(ctx, serverName)
+				if mcpTools == nil {
+					if f.log != nil {
+						f.log.WarnContext(ctx, logger.CatMCP, "MCP server not found or disabled",
+							"server", serverName, "agent", tmpl.ID,
+						)
+					}
+					continue
+				}
+				allTools = append(allTools, mcpTools...)
+			}
+		}
+
+		// 4. 构造 Option 列表
 	opts := []Option{
 		WithTools(allTools...),
 		WithSkills(skillList...),
@@ -588,7 +613,7 @@ const l2EnforcedPostPlan = `
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (动态能力区): Team Context + 同组 Agents 目录 + MCP Servers
 // Segment 3 (框架强制区): 不可篡改的底层契约
-func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir string) string {
+func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir string) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -604,20 +629,26 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 2: 动态能力区 ──────────────────────────────
-	// 2a. Team Context（来自 group 文件的 body）+ Workspace 路径
+	// 2a. Working Directory (global + team workspaces)
+	b.WriteString("# Working Directory\n\n")
+	b.WriteString("Your global working directory is `~/.soloqueue`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n")
+	if tmpl.Group != "" {
+		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
+			b.WriteString("\nTeam workspaces:\n")
+			for _, ws := range gf.Frontmatter.Workspaces {
+				fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
+			}
+		}
+	}
+	b.WriteString("\n")
+
+	// 2b. Team Context (from group file body)
 	if tmpl.Group != "" {
 		if gf, ok := groups[tmpl.Group]; ok {
 			if gf.Body != "" {
 				b.WriteString("# Team Context\n\n")
 				b.WriteString(gf.Body)
 				b.WriteString("\n\n")
-			}
-			if len(gf.Frontmatter.Workspaces) > 0 {
-				b.WriteString("# Workspace\n\n")
-				for _, ws := range gf.Frontmatter.Workspaces {
-					fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
-				}
-				b.WriteString("\n")
 			}
 		}
 	}
@@ -655,17 +686,21 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 3: 框架强制区 ──────────────────────────────
-	b.WriteString(strings.ReplaceAll(l2EnforcedDirectives, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	if planDir != "" {
-		b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
+	displayPlanDir := planDir
+		if workDir != "" && strings.HasPrefix(planDir, workDir) {
+			displayPlanDir = "~/.soloqueue" + planDir[len(workDir):]
+		}
+		b.WriteString(strings.ReplaceAll(l2EnforcedDirectives, "{{PLAN_DIR}}", displayPlanDir))
+		b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
+		if planDir != "" {
+			b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", displayPlanDir))
+		}
+		b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
+
+		return b.String()
 	}
-	b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 
-	return b.String()
-}
-
-// ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
+	// ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
 
 // l3EnforcedDirectives is the always-included portion of the L3 enforced rules.
 const l3EnforcedDirectives = `
@@ -746,7 +781,7 @@ const l3EnforcedPostPlan = `
 //
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (框架强制区): 不可篡改的底层契约
-func buildL3SystemPrompt(tmpl AgentTemplate, planDir string) string {
+func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir string) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -759,13 +794,30 @@ func buildL3SystemPrompt(tmpl AgentTemplate, planDir string) string {
 		b.WriteString("\n\n")
 	}
 
-	// ── Segment 2: 框架强制区 ──────────────────────────────
-	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	if planDir != "" {
-		b.WriteString(strings.ReplaceAll(l3EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
+	// ── Working Directory ──────────────────────────────────
+	b.WriteString("# Working Directory\n\n")
+	b.WriteString("Your global working directory is `~/.soloqueue`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n")
+	if tmpl.Group != "" {
+		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
+			b.WriteString("\nTeam workspaces:\n")
+			for _, ws := range gf.Frontmatter.Workspaces {
+				fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
+			}
+		}
 	}
-	b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
+	b.WriteString("\n")
 
-	return b.String()
-}
+	// ── Segment 2: 框架强制区 ──────────────────────────────
+	displayPlanDir := planDir
+		if workDir != "" && strings.HasPrefix(planDir, workDir) {
+			displayPlanDir = "~/.soloqueue" + planDir[len(workDir):]
+		}
+		b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", displayPlanDir))
+		b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
+		if planDir != "" {
+			b.WriteString(strings.ReplaceAll(l3EnforcedPlanSection, "{{PLAN_DIR}}", displayPlanDir))
+		}
+		b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
+
+		return b.String()
+	}

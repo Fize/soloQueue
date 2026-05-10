@@ -149,6 +149,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 					rt.SetSystemPrompt(newPrompt)
 					return nil
 				}),
+				server.WithMCPLoader(cli.MCPLoaderFromRT(rt)),
 			)
 
 			// Create and start WebSocket Hub for real-time state updates.
