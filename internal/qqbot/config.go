@@ -33,7 +33,3 @@ func (c Config) GatewayURL() string {
 	return "wss://api.sgroup.qq.com/websocket/"
 }
 
-// TokenFormat returns the bot token in the format required by QQ: "Bot {appid}.{appsecret}"
-func (c Config) TokenFormat() string {
-	return "Bot " + c.AppID + "." + c.AppSecret
-}

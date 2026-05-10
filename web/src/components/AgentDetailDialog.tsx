@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import type { AgentInfo, AgentState } from '@/types';
 import { useAgentProfile } from '@/hooks/useAgentProfile';
 import { useAgentConfig } from '@/hooks/useAgentConfig';
+import { updateAgentConfig } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -12,11 +14,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { Settings } from 'lucide-react';
+import { Settings, Save, Pencil, Eye, Loader2 } from 'lucide-react';
 
 interface AgentDetailDialogProps {
   agent: AgentInfo | null;
-  /** Template ID and name for agents without a running instance. */
   templateId?: string | null;
   templateName?: string | null;
   isL1?: boolean;
@@ -38,13 +39,113 @@ const stateLabel: Record<AgentState, string> = {
   stopped: '已停止',
 };
 
+// ─── Inline Editor ──────────────────────────────────────────────────────────
+
+function InlineEditor({ content, onSave, saving, height = 'h-[400px]' }: {
+  content: string;
+  onSave: (draft: string) => Promise<void>;
+  saving: boolean;
+  height?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(content);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setError(null);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  const handleCancel = () => {
+    setDraft(content);
+    setEditing(false);
+    setError(null);
+  };
+
+  // Sync draft when external content changes (e.g. after save or tab switch)
+  if (!editing && draft !== content) {
+    // Will be updated on next render
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-end gap-1 mb-2">
+        <Button
+          size="sm"
+          variant={editing ? 'outline' : 'default'}
+          className="h-7 gap-1 text-xs"
+          onClick={() => { setDraft(content); setEditing(false); }}
+          disabled={!editing}
+        >
+          <Eye className="h-3 w-3" />
+          Preview
+        </Button>
+        <Button
+          size="sm"
+          variant={editing ? 'default' : 'outline'}
+          className="h-7 gap-1 text-xs"
+          onClick={() => { setDraft(content); setEditing(true); }}
+          disabled={editing}
+        >
+          <Pencil className="h-3 w-3" />
+          Edit
+        </Button>
+      </div>
+
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className={`w-full ${height} resize-y rounded-md border-2 border-border bg-card p-4 font-mono text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/50`}
+          spellCheck={false}
+        />
+      ) : (
+        <ScrollArea className={`${height} rounded-md border border-border bg-muted/30 p-4`}>
+          {content ? (
+            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">{content}</pre>
+          ) : (
+            <p className="text-sm text-muted-foreground">暂无内容</p>
+          )}
+        </ScrollArea>
+      )}
+
+      {editing && (
+        <div className="mt-3 flex items-center gap-2">
+          <Button size="sm" onClick={handleSave} disabled={saving || draft === content}>
+            {saving ? (
+              <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Saving...</>
+            ) : (
+              <><Save className="mr-1 h-3 w-3" /> Save</>
+            )}
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleCancel} disabled={saving}>
+            Cancel
+          </Button>
+          {error && <span className="text-xs text-destructive">{error}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Component ─────────────────────────────────────────────────────────
+
 export function AgentDetailDialog({ agent, templateId, templateName, isL1 = false, open, onOpenChange }: AgentDetailDialogProps) {
   const effectiveId = agent?.id ?? templateId ?? null;
   const effectiveName = agent?.name ?? templateName ?? '';
   const hasAgent = !!agent;
 
-  const { profile, loading } = useAgentProfile(isL1 && agent ? agent.id : null);
-  const { config, loading: configLoading } = useAgentConfig(!isL1 && effectiveId ? effectiveId : null);
+  const { profile, loading } = useAgentProfile(isL1 ? (agent?.id || 'main') : null);
+  const { config, loading: configLoading, refetch } = useAgentConfig(!isL1 && effectiveId ? effectiveId : null);
+
+  // Editing state — must be before any early return (Rules of Hooks).
+  const [savingYaml, setSavingYaml] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
 
   if (!agent && !templateId) return null;
 
@@ -56,7 +157,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
           <DialogHeader>
             <div className="flex items-center justify-between pr-8">
               <DialogTitle className="flex items-center gap-2">
-                <span>{agent!.name}</span>
+                <span>{effectiveName}</span>
                 <Badge variant="default" className="text-xs">主 Agent</Badge>
               </DialogTitle>
               <Button
@@ -68,7 +169,9 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 编辑
               </Button>
             </div>
-            <p className="font-mono text-xs text-muted-foreground">{agent!.instance_id}</p>
+            {hasAgent && (
+              <p className="font-mono text-xs text-muted-foreground">{agent!.instance_id}</p>
+            )}
           </DialogHeader>
 
           <Tabs defaultValue="soul" className="mt-2">
@@ -107,6 +210,26 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
   }
 
   // 普通 Agent (L2/L3) — 可能无运行实例（仅模板）
+  const handleSaveYaml = async (draft: string) => {
+    setSavingYaml(true);
+    try {
+      await updateAgentConfig(effectiveId!, { raw_config: draft });
+      refetch();
+    } finally {
+      setSavingYaml(false);
+    }
+  };
+
+  const handleSavePrompt = async (draft: string) => {
+    setSavingPrompt(true);
+    try {
+      await updateAgentConfig(effectiveId!, { system_prompt: draft });
+      refetch();
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px]">
@@ -126,7 +249,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
           )}
         </DialogHeader>
 
-        <Tabs defaultValue={hasAgent ? "status" : "config"} className="mt-2">
+        <Tabs defaultValue="status" className="mt-2">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="status" disabled={!hasAgent}>状态</TabsTrigger>
             <TabsTrigger value="details" disabled={!hasAgent}>详情</TabsTrigger>
@@ -242,30 +365,34 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             )}
           </TabsContent>
 
-          {/* YAML Tab — raw frontmatter config */}
+          {/* YAML Tab — editable frontmatter config */}
           <TabsContent value="config" className="mt-3">
-            <ScrollArea className="h-[400px] rounded-md border border-border p-4">
-              {configLoading ? (
-                <p className="text-sm text-muted-foreground">加载中...</p>
-              ) : config?.raw_config ? (
-                <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed">{config.raw_config}</pre>
-              ) : (
-                <p className="text-sm text-muted-foreground">暂无配置信息</p>
-              )}
-            </ScrollArea>
+            {configLoading ? (
+              <p className="text-sm text-muted-foreground">加载中...</p>
+            ) : config ? (
+              <InlineEditor
+                content={config.raw_config || ''}
+                onSave={handleSaveYaml}
+                saving={savingYaml}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">暂无配置信息</p>
+            )}
           </TabsContent>
 
-          {/* Prompt Tab — markdown body / system prompt */}
+          {/* Prompt Tab — editable markdown body / system prompt */}
           <TabsContent value="prompt" className="mt-3">
-            <ScrollArea className="h-[400px] rounded-md border border-border p-4">
-              {configLoading ? (
-                <p className="text-sm text-muted-foreground">加载中...</p>
-              ) : config?.system_prompt ? (
-                <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed">{config.system_prompt}</pre>
-              ) : (
-                <p className="text-sm text-muted-foreground">暂无 Prompt 配置</p>
-              )}
-            </ScrollArea>
+            {configLoading ? (
+              <p className="text-sm text-muted-foreground">加载中...</p>
+            ) : config ? (
+              <InlineEditor
+                content={config.system_prompt || ''}
+                onSave={handleSavePrompt}
+                saving={savingPrompt}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">暂无 Prompt 配置</p>
+            )}
           </TabsContent>
         </Tabs>
       </DialogContent>

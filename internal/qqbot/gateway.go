@@ -36,6 +36,12 @@ func (f EventHandlerFunc) OnQQMessage(ctx context.Context, msg QQMessage) { f(ct
 
 // ─── Gateway ─────────────────────────────────────────────────────────────────
 
+// TokenProvider is the interface for obtaining access tokens used in
+// WebSocket Identify and Resume. *APIClient satisfies this interface.
+type TokenProvider interface {
+	AccessToken(ctx context.Context) (string, error)
+}
+
 // Gateway manages a WebSocket connection to the QQ Bot Gateway.
 // It handles connection, authentication, heartbeat, event dispatch,
 // and automatic reconnection via Resume.
@@ -51,6 +57,9 @@ type Gateway struct {
 
 	handler EventHandler
 
+	// token provider for WebSocket Identify / Resume
+	tokens TokenProvider
+
 	// heartbeat
 	heartbeatInterval time.Duration
 	heartbeatTicker   *time.Ticker
@@ -61,12 +70,13 @@ type Gateway struct {
 }
 
 // NewGateway creates a new Gateway instance.
-func NewGateway(cfg Config, handler EventHandler, log *logger.Logger) *Gateway {
+func NewGateway(cfg Config, handler EventHandler, tokens TokenProvider, log *logger.Logger) *Gateway {
 	return &Gateway{
-		cfg:       cfg,
-		log:       log,
-		handler:   handler,
-		reconnectCh: make(chan struct{}, 1),
+		cfg:           cfg,
+		log:           log,
+		handler:       handler,
+		tokens:        tokens,
+		reconnectCh:   make(chan struct{}, 1),
 	}
 }
 
@@ -172,12 +182,18 @@ func (g *Gateway) connectAndIdentify(ctx context.Context) error {
 	g.log.DebugContext(ctx, logger.CatApp, "qqbot hello received",
 		"heartbeat_interval_ms", helloData.HeartbeatInterval)
 
-	// Step 2: Identify (OpCode 2) or Resume (OpCode 6)
+	// Step 2: Obtain access token for Identify / Resume.
+	accessToken, err := g.tokens.AccessToken(ctx)
+	if err != nil {
+		return fmt.Errorf("get access token: %w", err)
+	}
+
+	// Step 3: Identify (OpCode 2) or Resume (OpCode 6)
 	if g.sessionID != "" && g.seq.Load() > 0 {
 		// Resume
 		seq := int(g.seq.Load())
 		resumeData := ResumeData{
-			Token:     g.cfg.TokenFormat(),
+			Token:     accessToken,
 			SessionID: g.sessionID,
 			Seq:       seq,
 		}
@@ -189,7 +205,7 @@ func (g *Gateway) connectAndIdentify(ctx context.Context) error {
 	} else {
 		// Identify
 		identifyData := IdentifyData{
-			Token:    g.cfg.TokenFormat(),
+			Token:    "QQBot " + accessToken,
 			Intents:  g.cfg.EffectiveIntents(),
 			Shard:    [2]int{0, 1},
 			Properties: map[string]string{
@@ -201,7 +217,8 @@ func (g *Gateway) connectAndIdentify(ctx context.Context) error {
 		if err := g.sendOp(ctx, OpIdentify, identifyData); err != nil {
 			return fmt.Errorf("send identify: %w", err)
 		}
-		g.log.DebugContext(ctx, logger.CatApp, "qqbot identify sent")
+		g.log.DebugContext(ctx, logger.CatApp, "qqbot identify sent",
+				"token_prefix", accessToken[:min(20, len(accessToken))])
 	}
 
 	return nil
@@ -365,7 +382,6 @@ func (g *Gateway) startHeartbeat(ctx context.Context) {
 	g.heartbeatDone = make(chan struct{})
 
 	go func() {
-		defer close(g.heartbeatDone)
 
 		// First heartbeat uses null
 		if err := g.sendHeartbeat(ctx, nil); err != nil {

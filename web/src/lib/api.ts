@@ -6,6 +6,7 @@ import type {
   AgentProfile,
   AgentConfig,
   UpdateAgentProfileRequest,
+  UpdateAgentConfigRequest,
   TeamListResponse,
   AppConfig,
   ToolListResponse,
@@ -72,6 +73,13 @@ export async function updateAgentProfile(id: string, data: UpdateAgentProfileReq
 
 export async function getAgentConfig(id: string): Promise<AgentConfig> {
   return request<AgentConfig>(`/agents/${id}/config`);
+}
+
+export async function updateAgentConfig(id: string, data: UpdateAgentConfigRequest): Promise<AgentConfig> {
+  return request<AgentConfig>(`/agents/${id}/config`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
 }
 
 export async function getTeams(): Promise<TeamListResponse> {

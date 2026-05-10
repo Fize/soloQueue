@@ -52,6 +52,10 @@ type Definition struct {
 	// (from agent template YAML). When true, SetModelOverride is a no-op —
 	// the template's model takes precedence over task-level routing.
 	ExplicitModel bool
+
+	// BypassConfirm skips all tool confirmations for this agent.
+	// Set from agent template `permission: true` or global --bypass flag.
+	BypassConfirm bool
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -25,8 +26,10 @@ var (
 
 // tokenResponse represents the response from the QQ Bot access_token API.
 type tokenResponse struct {
+	Code        int    `json:"code"`
+	Message     string `json:"message"`
 	AccessToken string `json:"access_token"`
-	ExpiresIn   int    `json:"expires_in"` // seconds
+	ExpiresIn   string `json:"expires_in"` // seconds, returned as string by QQ API
 }
 
 // ─── Message Send Request/Response ──────────────────────────────────────────
@@ -112,25 +115,39 @@ func (a *APIClient) refreshTokenLocked(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read token response: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("token request failed (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var tokenResp tokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
 		return "", fmt.Errorf("decode token response: %w", err)
 	}
+
+		if tokenResp.Code != 0 {
+			return "", fmt.Errorf("token request failed (code %d): %s", tokenResp.Code, tokenResp.Message)
+		}
 
 	if tokenResp.AccessToken == "" {
 		return "", errors.New("empty access token received")
 	}
 
+	expiresSec, err := strconv.Atoi(tokenResp.ExpiresIn)
+	if err != nil {
+		return "", fmt.Errorf("parse expires_in: %w", err)
+	}
+
 	a.accessToken = tokenResp.AccessToken
-	a.expiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	a.expiresAt = time.Now().Add(time.Duration(expiresSec) * time.Second)
 
 	a.log.DebugContext(ctx, logger.CatApp, "qqbot access token refreshed",
-		"expires_in_sec", tokenResp.ExpiresIn)
+		"expires_in_sec", expiresSec,
+		"resp_body", string(respBody))
 
 	return a.accessToken, nil
 }
