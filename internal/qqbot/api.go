@@ -15,6 +15,24 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
+// ─── Message type constants ──────────────────────────────────────────────────
+
+const (
+	MsgTypeText     = 0 // text message
+	MsgTypeMarkdown = 2 // markdown message
+	MsgTypeArk      = 3 // ark (template card) message
+	MsgTypeEmbed    = 4 // embed message
+	MsgTypeMedia    = 7 // rich media message (image/video/voice/file)
+)
+
+// File type constants for rich media uploads.
+const (
+	FileTypeImage = 1
+	FileTypeVideo = 2
+	FileTypeVoice = 3
+	FileTypeFile  = 4
+)
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 var (
@@ -35,16 +53,59 @@ type tokenResponse struct {
 // ─── Message Send Request/Response ──────────────────────────────────────────
 
 // MessageReq is the request body for sending a message.
+// Only the field matching MsgType should be populated; omitempty ensures
+// the correct JSON shape per message type.
 type MessageReq struct {
+	Content  string           `json:"content,omitempty"`
+	Markdown *MarkdownContent `json:"markdown,omitempty"`
+	Ark      *ArkContent      `json:"ark,omitempty"`
+	Embed    *EmbedContent    `json:"embed,omitempty"`
+	Media    *MediaContent    `json:"media,omitempty"`
+	MsgType  int              `json:"msg_type"`
+	MsgID    string           `json:"msg_id,omitempty"`
+	MsgSeq   int              `json:"msg_seq,omitempty"`
+}
+
+// MarkdownContent wraps a markdown payload.
+type MarkdownContent struct {
 	Content string `json:"content"`
-	MsgType int    `json:"msg_type"` // 0=text, 1=markdown, 2=ark, 3=embed
-	MsgID   string `json:"msg_id,omitempty"`  // event ID for passive reply
-	MsgSeq  int    `json:"msg_seq,omitempty"`  // seq for passive reply
+}
+
+// MediaContent references uploaded file_info for rich media messages.
+type MediaContent struct {
+	FileInfo string `json:"file_info"`
+}
+
+// ArkContent represents an Ark template card message.
+type ArkContent struct {
+	TemplateID int           `json:"template_id"`
+	KV         []ArkKeyValue `json:"kv"`
+}
+
+// ArkKeyValue is a single key-value pair in an Ark template.
+type ArkKeyValue struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// EmbedContent represents the embed message payload.
+type EmbedContent struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url,omitempty"`
 }
 
 // MessageResp is the response from sending a message.
 type MessageResp struct {
 	ID string `json:"id"`
+}
+
+// FileInfo is returned by the file upload endpoint.
+type FileInfo struct {
+	FileUUID string `json:"file_uuid"`
+	FileInfo string `json:"file_info"`
+	TTL      int    `json:"ttl"`
+	ID       string `json:"id,omitempty"`
 }
 
 // ─── APIClient ────────────────────────────────────────────────────────────────
@@ -154,54 +215,72 @@ func (a *APIClient) refreshTokenLocked(ctx context.Context) (string, error) {
 
 // ─── Message Sending ─────────────────────────────────────────────────────────
 
-// SendC2CMessage sends a text message to a C2C (private chat) user.
-func (a *APIClient) SendC2CMessage(ctx context.Context, openid, content string, msgID string, msgSeq int) error {
-	return a.sendMessage(ctx, "/v2/users/"+openid+"/messages", content, 0, msgID, msgSeq)
+// buildMessageReq constructs a MessageReq with the correct payload shape for msgType.
+func buildMessageReq(msgType int, content string, msgID string, msgSeq int) MessageReq {
+	req := MessageReq{
+		MsgType: msgType,
+		MsgID:   msgID,
+		MsgSeq:  msgSeq,
+	}
+	switch msgType {
+	case MsgTypeMarkdown:
+		req.Markdown = &MarkdownContent{Content: content}
+	case MsgTypeMedia:
+		req.Media = &MediaContent{FileInfo: content}
+	case MsgTypeArk:
+		// content is ignored for ark; caller should construct ArkContent separately
+		req.Ark = &ArkContent{}
+	default: // MsgTypeText and others
+		req.Content = content
+	}
+	return req
 }
 
-// SendGroupMessage sends a text message to a group.
-func (a *APIClient) SendGroupMessage(ctx context.Context, groupOpenid, content string, msgID string, msgSeq int) error {
-	return a.sendMessage(ctx, "/v2/groups/"+groupOpenid+"/messages", content, 0, msgID, msgSeq)
+// SendC2CMessage sends a message to a C2C (private chat) user.
+// msgType should be one of MsgTypeText, MsgTypeMarkdown, etc.
+func (a *APIClient) SendC2CMessage(ctx context.Context, openid string, msgType int, content string, msgID string, msgSeq int) error {
+	req := buildMessageReq(msgType, content, msgID, msgSeq)
+	return a.sendMessage(ctx, "/v2/users/"+openid+"/messages", req)
 }
 
-// SendDirectMessage sends a text message to a guild direct message channel.
-func (a *APIClient) SendDirectMessage(ctx context.Context, channelID, content string, msgID string, msgSeq int) error {
-	return a.sendMessage(ctx, "/v2/dms/"+channelID+"/messages", content, 0, msgID, msgSeq)
+// SendGroupMessage sends a message to a group.
+func (a *APIClient) SendGroupMessage(ctx context.Context, groupOpenid string, msgType int, content string, msgID string, msgSeq int) error {
+	req := buildMessageReq(msgType, content, msgID, msgSeq)
+	return a.sendMessage(ctx, "/v2/groups/"+groupOpenid+"/messages", req)
 }
 
-func (a *APIClient) sendMessage(ctx context.Context, path, content string, msgType int, msgID string, msgSeq int) error {
+// SendDirectMessage sends a message to a guild direct message channel.
+func (a *APIClient) SendDirectMessage(ctx context.Context, channelID string, msgType int, content string, msgID string, msgSeq int) error {
+	req := buildMessageReq(msgType, content, msgID, msgSeq)
+	return a.sendMessage(ctx, "/v2/dms/"+channelID+"/messages", req)
+}
+
+func (a *APIClient) sendMessage(ctx context.Context, path string, req MessageReq) error {
 	token, err := a.AccessToken(ctx)
 	if err != nil {
 		return fmt.Errorf("get access token: %w", err)
 	}
 
-	reqBody := MessageReq{
-		Content: content,
-		MsgType: msgType,
-		MsgID:   msgID,
-		MsgSeq:  msgSeq,
-	}
-	body, err := json.Marshal(reqBody)
+	body, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal message request: %w", err)
 	}
 
 	url := a.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create message request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "QQBot "+token)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "QQBot "+token)
 
-	resp, err := a.client.Do(req)
+	resp, err := a.client.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("message request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		// Token might be expired, force refresh on next call
 		a.mu.Lock()
 		a.accessToken = ""
 		a.mu.Unlock()
@@ -217,18 +296,76 @@ func (a *APIClient) sendMessage(ctx context.Context, path, content string, msgTy
 }
 
 // ReplyMessage sends a reply to a QQMessage based on its source.
-// This is a convenience method that dispatches to the correct send method.
-func (a *APIClient) ReplyMessage(ctx context.Context, msg QQMessage, content string) error {
+func (a *APIClient) ReplyMessage(ctx context.Context, msg QQMessage, msgType int, content string) error {
 	switch msg.Source {
 	case SourceC2C:
-		return a.SendC2CMessage(ctx, msg.TargetOpenID, content, msg.EventID, msg.Seq)
+		return a.SendC2CMessage(ctx, msg.TargetOpenID, msgType, content, msg.EventID, msg.Seq)
 	case SourceGroup:
-		return a.SendGroupMessage(ctx, msg.TargetOpenID, content, msg.EventID, msg.Seq)
+		return a.SendGroupMessage(ctx, msg.TargetOpenID, msgType, content, msg.EventID, msg.Seq)
 	case SourceDirect:
-		return a.SendDirectMessage(ctx, msg.ChatID, content, msg.EventID, msg.Seq)
+		return a.SendDirectMessage(ctx, msg.ChatID, msgType, content, msg.EventID, msg.Seq)
 	case SourcePublicGuild:
-		return a.SendDirectMessage(ctx, msg.ChatID, content, msg.EventID, msg.Seq)
+		return a.SendDirectMessage(ctx, msg.ChatID, msgType, content, msg.EventID, msg.Seq)
 	default:
 		return fmt.Errorf("unknown message source: %d", msg.Source)
 	}
+}
+
+// ─── Rich Media Upload ───────────────────────────────────────────────────────
+
+// UploadFile uploads a file for rich media messaging.
+// targetType must be "user" or "group". targetID is the openid or group_openid.
+// fileType is one of FileTypeImage/Video/Voice/File.
+// url must be a publicly accessible URL to the file content.
+func (a *APIClient) UploadFile(ctx context.Context, targetType, targetID string, fileType int, url string) (*FileInfo, error) {
+	// targetType only supports "user" and "group"
+	if targetType != "user" && targetType != "group" {
+		return nil, fmt.Errorf("invalid targetType: %s (must be user or group)", targetType)
+	}
+
+	token, err := a.AccessToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get access token: %w", err)
+	}
+
+	reqBody := map[string]any{
+		"file_type": fileType,
+		"url":       url,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal upload request: %w", err)
+	}
+
+	path := fmt.Sprintf("/v2/%ss/%s/files", targetType, targetID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create upload request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "QQBot "+token)
+
+	resp, err := a.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("upload request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		a.mu.Lock()
+		a.accessToken = ""
+		a.mu.Unlock()
+		return nil, ErrAccessTokenExpired
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("%w: status %d, body: %s", ErrAPICallFailed, resp.StatusCode, string(respBody))
+	}
+
+	var fi FileInfo
+	if err := json.NewDecoder(resp.Body).Decode(&fi); err != nil {
+		return nil, fmt.Errorf("decode upload response: %w", err)
+	}
+	return &fi, nil
 }
