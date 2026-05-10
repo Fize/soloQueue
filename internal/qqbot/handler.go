@@ -77,12 +77,12 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	result, err := b.sess.AskStream(ctx, msg.Content)
 	if err != nil {
 		if errors.Is(err, ErrSessionBusy) {
-			_ = b.api.ReplyMessage(ctx, msg, busyReply)
+			b.sendReply(ctx, msg, MsgTypeText, busyReply)
 			return
 		}
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot ask stream failed",
 			"err", err.Error())
-		_ = b.api.ReplyMessage(ctx, msg, errorPrefix+err.Error())
+		b.sendReply(ctx, msg, MsgTypeText, errorPrefix+err.Error())
 		return
 	}
 
@@ -94,7 +94,8 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		reply = result.ReasoningContent
 	}
 	if reply == "" {
-		reply = "（思考完毕，无回复内容）"
+		b.sendReply(ctx, msg, MsgTypeText, "（思考完毕，无回复内容）")
+		return
 	}
 
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot reply ready",
@@ -102,27 +103,33 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		"reasoning_len", len(result.ReasoningContent),
 		"reply_len", len(reply))
 
-	// Send reply, splitting if necessary
-	b.sendReply(ctx, msg, reply)
+	// Format as QQ-compatible markdown and send
+	formatted := QQMarkdown(reply)
+	b.sendReply(ctx, msg, MsgTypeMarkdown, formatted)
 }
 
 // sendReply sends the reply text to QQ, splitting into chunks if it exceeds the limit.
-func (b *SessionBridge) sendReply(ctx context.Context, msg QQMessage, text string) {
+func (b *SessionBridge) sendReply(ctx context.Context, msg QQMessage, msgType int, text string) {
 	if len(text) <= qqMessageLimit {
-		if err := b.api.ReplyMessage(ctx, msg, text); err != nil {
+		if err := b.api.ReplyMessage(ctx, msg, msgType, text); err != nil {
 			b.log.WarnContext(ctx, logger.CatApp, "qqbot reply send failed",
 				"err", err.Error())
 		}
 		return
 	}
 
-	// Split into chunks at paragraph or line boundaries
-	chunks := splitMessage(text, qqMessageLimit)
+	// Use markdown-aware splitting for markdown, plain split for text
+	var chunks []string
+	if msgType == MsgTypeMarkdown {
+		chunks = SplitMarkdown(text, qqMessageLimit)
+	} else {
+		chunks = splitMessage(text, qqMessageLimit)
+	}
 	for i, chunk := range chunks {
-		if err := b.api.ReplyMessage(ctx, msg, chunk); err != nil {
+		if err := b.api.ReplyMessage(ctx, msg, msgType, chunk); err != nil {
 			b.log.WarnContext(ctx, logger.CatApp, "qqbot reply chunk send failed",
 				"chunk", i+1, "total", len(chunks), "err", err.Error())
-			return // stop sending remaining chunks on error
+			return
 		}
 	}
 }
