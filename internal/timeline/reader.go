@@ -20,28 +20,33 @@ type Segment struct {
 	Messages []MessagePayload
 }
 
-// ─── ReadLastSegments ────────────────────────────────────────────────────────
+// ─── ReadTail / ReadTailBefore ───────────────────────────────────────────────
 
-// ReadLastSegments 读取所有轮转文件，返回最后一个截断点之后的 segment
-//
-// 截断点优先级（从后往前找第一个）：
-//   - /clear：只返回之后的消息
-//   - summary：返回 summary 内容（system 消息）+ 之后的消息
-//
-// 如果最近的控制事件是 /clear 且之后没有新消息，返回 nil。
-func ReadLastSegments(dir, baseName string) ([]Segment, error) {
+// ReadTail reads the last maxTurns conversation turns from timeline files.
+// Returns messages and a cursor for paginating further back.
+func ReadTail(dir, baseName string, maxTurns int) ([]Segment, *time.Time, error) {
+	return readTailSince(dir, baseName, maxTurns, time.Time{})
+}
+
+// ReadTailBefore reads up to maxTurns turns strictly before the cursor.
+func ReadTailBefore(dir, baseName string, maxTurns int, before time.Time) ([]Segment, *time.Time, error) {
+	return readTailSince(dir, baseName, maxTurns, before)
+}
+
+// readTailSince is the shared implementation.
+func readTailSince(dir, baseName string, maxTurns int, since time.Time) ([]Segment, *time.Time, error) {
 	files, err := rotating.ListFiles(dir, baseName)
 	if err != nil {
-		return nil, fmt.Errorf("timeline: list files: %w", err)
+		return nil, nil, fmt.Errorf("timeline: list files: %w", err)
 	}
 	if len(files) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	// 读取所有事件
+	// Read files newest-first
 	var allEvents []Event
-	for _, path := range files {
-		events, err := readFile(path)
+	for i := len(files) - 1; i >= 0; i-- {
+		events, err := readFile(files[i])
 		if err != nil {
 			continue
 		}
@@ -49,51 +54,77 @@ func ReadLastSegments(dir, baseName string) ([]Segment, error) {
 	}
 
 	if len(allEvents) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	// 从后往前找到最后一个截断点（/clear 或 summary）
-	lastCutIdx := -1
-	var lastCutAction string
-	var lastCutContent string
-	for i := len(allEvents) - 1; i >= 0; i-- {
+	// Collect messages from the end, stopping after maxTurns user messages
+	// or when hitting a message at/after the since cursor.
+	type collected struct {
+		msg  MessagePayload
+		role string
+	}
+	var rev []collected
+	userCount := 0
+
+	for i := len(allEvents) - 1; i >= 0 && userCount < maxTurns; i-- {
 		evt := allEvents[i]
-		if evt.EventType == EventControl && evt.Control != nil {
-			switch evt.Control.Action {
-			case "clear", "summary":
-				lastCutIdx = i
-				lastCutAction = evt.Control.Action
-				lastCutContent = evt.Control.Content
+		if evt.EventType != EventMessage || evt.Message == nil {
+			continue
+		}
+		msg := *evt.Message
+
+		// Pagination: skip messages at or after the cursor (already loaded).
+		if !since.IsZero() && msg.Timestamp != "" {
+			if ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp); err == nil {
+				if !ts.Before(since) {
+					continue
+				}
 			}
 		}
-		if lastCutIdx != -1 {
-			break
+
+		// Skip system prompts (CW metadata, not conversation).
+		if msg.Role == "system" && strings.Contains(msg.Content, "<identity>") {
+			continue
 		}
-	}
-
-	startIdx := lastCutIdx + 1
-	var msgs []MessagePayload
-
-	// 如果是 summary 截断点，先插入 summary 内容作为 system 消息
-	if lastCutAction == "summary" && lastCutContent != "" {
-		msgs = append(msgs, MessagePayload{
-			Role:    "system",
-			Content: "[Conversation Summary]\n" + lastCutContent,
-		})
-	}
-
-	// 收集截断点之后的消息
-	for i := startIdx; i < len(allEvents); i++ {
-		if allEvents[i].EventType == EventMessage && allEvents[i].Message != nil {
-			msgs = append(msgs, *allEvents[i].Message)
+		// Skip summary system messages (handled by control events).
+		if msg.Role == "system" && strings.Contains(msg.Content, "[Conversation Summary]") {
+			continue
 		}
+		// Skip empty assistant messages.
+		if msg.Role == "assistant" && msg.Content == "" && len(msg.ToolCalls) == 0 {
+			continue
+		}
+
+		if msg.Role == "user" {
+			userCount++
+		}
+		rev = append(rev, collected{msg: msg, role: msg.Role})
 	}
 
+	if len(rev) == 0 {
+		return nil, nil, nil
+	}
+
+	// Reverse to chronological order
+	msgs := make([]MessagePayload, len(rev))
+	for i, c := range rev {
+		msgs[len(rev)-1-i] = c.msg
+	}
+
+	cursorMsgs := readTailCursor(msgs)
+	return []Segment{{Messages: msgs}}, cursorMsgs, nil
+}
+
+// readTailCursor extracts the timestamp of the oldest message as a cursor
+// for the next page. Returns nil if no parsable timestamp found.
+func readTailCursor(msgs []MessagePayload) *time.Time {
 	if len(msgs) == 0 {
-		return nil, nil
+		return nil
 	}
-
-	return []Segment{{Messages: msgs}}, nil
+	if ts, err := time.Parse(time.RFC3339Nano, msgs[0].Timestamp); err == nil {
+		return &ts
+	}
+	return nil
 }
 
 // ─── ReplayInto ──────────────────────────────────────────────────────────────
@@ -114,22 +145,16 @@ func ReplayInto(cw *ctxwin.ContextWindow, segments []Segment) {
 }
 
 // replaySegment 回放一段消息，跳过 orphaned tool_calls。
-//
-// 算法：前向扫描，对每个 assistant(tool_calls) 消息缓冲，等收集到所有
-// tool result 后再统一 push。如果遇到非 tool result 消息（说明 tool results
-// 不完整），则丢弃缓冲的 assistant(tool_calls) 及其 partial results。
 func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
-	// pending: 等待 tool result 的 assistant(tool_calls) 及已收集的 tool results
 	type pendingGroup struct {
 		assistant   *MessagePayload
-		toolCallIDs map[string]bool  // 需要的 tool_call_id → 是否已到达
-		toolResults []MessagePayload // 已到达的 tool result 消息
+		toolCallIDs map[string]bool
+		toolResults []MessagePayload
 		allFound    bool
 	}
 
 	var pending *pendingGroup
 
-	// flushPending 将缓冲的 assistant + tool results push 到 cw
 	flushPending := func() {
 		if pending == nil {
 			return
@@ -140,19 +165,15 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 				pushMessage(cw, tr)
 			}
 		}
-		// allFound == false: orphaned，整组丢弃
 		pending = nil
 	}
 
 	for _, msg := range msgs {
-
-		// 如果有 pending group，检查当前消息是否为其 tool result
 		if pending != nil && !pending.allFound {
 			if msg.Role == string(ctxwin.RoleTool) && msg.ToolCallID != "" {
 				if _, needed := pending.toolCallIDs[msg.ToolCallID]; needed {
 					pending.toolCallIDs[msg.ToolCallID] = true
 					pending.toolResults = append(pending.toolResults, msg)
-					// 检查是否全部到齐
 					allFound := true
 					for _, found := range pending.toolCallIDs {
 						if !found {
@@ -166,37 +187,29 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 					continue
 				}
 			}
-			// 当前消息不是 pending group 的 tool result
-			// → pending group 的 tool results 不完整，丢弃
 			pending = nil
-			// 如果当前消息是 tool 消息，跳过它（没有 preceding assistant(tool_calls)）
 			if msg.Role == string(ctxwin.RoleTool) {
 				continue
 			}
 		}
 
-		// 如果 pending.allFound == true，先 flush 再处理当前消息
 		if pending != nil && pending.allFound {
 			flushPending()
 		}
 
-		// 跳过系统提示词和压缩摘要的重复副本。
-		// - <identity>：每次启动都会 push 系统提示词到 CW，旧版本会通过 pushHook 写入 timeline
-		// - [Conversation Summary]：asyncCompact 写入 message 事件，而 summaryHook 同时写入
-		//   control 事件；ReadLastSegments 已从 control 事件注入摘要，此处跳过避免重复。
+		// Skip identity and summary system messages.
 		if msg.Role == string(ctxwin.RoleSystem) {
 			if strings.Contains(msg.Content, "<identity>") || strings.Contains(msg.Content, "[Conversation Summary]") {
 				continue
 			}
 		}
 
-		// 跳过无效 assistant 消息（content 为空且无 tool_calls）。
-		// 这种消息会导致 LLM API 返回 HTTP 400 "Invalid assistant"。
+		// Skip empty assistant.
 		if msg.Role == string(ctxwin.RoleAssistant) && msg.Content == "" && len(msg.ToolCalls) == 0 {
 			continue
 		}
 
-		// 当前消息是 assistant(tool_calls)？开启新的 pending group
+		// New assistant(tool_calls) → start pending group.
 		if msg.Role == string(ctxwin.RoleAssistant) && len(msg.ToolCalls) > 0 {
 			ids := make(map[string]bool, len(msg.ToolCalls))
 			for _, tc := range msg.ToolCalls {
@@ -209,21 +222,17 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 			continue
 		}
 
-		// 跳过 orphaned tool 消息（role=tool 但没有对应的 pending group）
 		if msg.Role == string(ctxwin.RoleTool) {
 			continue
 		}
 
-		// 普通消息：直接 push
 		pushMessage(cw, msg)
 	}
 
-	// 处理末尾的 pending group
 	flushPending()
 }
 
 // pushMessage 将单条消息 push 到 ContextWindow
-// ts 为 timeline event 的原始时间戳，用于保留消息的原始时间信息。
 func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 	opts := make([]ctxwin.PushOption, 0, 5)
 	if msg.ReasoningContent != "" {
@@ -273,7 +282,6 @@ func readFile(path string) ([]Event, error) {
 
 	var events []Event
 	scanner := bufio.NewScanner(f)
-	// 增大 buffer 以适应大行
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for scanner.Scan() {
@@ -283,7 +291,6 @@ func readFile(path string) ([]Event, error) {
 		}
 		var evt Event
 		if err := json.Unmarshal(line, &evt); err != nil {
-			// 跳过无法解析的行
 			continue
 		}
 		events = append(events, evt)

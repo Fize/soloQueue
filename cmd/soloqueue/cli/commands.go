@@ -124,6 +124,7 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithTemplates(rt.AllTemplates, rt.Groups),
 			server.WithToolsConfig(&rt.ToolsCfg),
 			server.WithSkillRegistry(rt.SkillRegistry),
+			server.WithAgentsDir(filepath.Join(workDir, "agents")),
 			server.WithPromptRebuild(func() error {
 				leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
 				if err != nil {

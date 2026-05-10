@@ -126,6 +126,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				server.WithTemplates(rt.AllTemplates, rt.Groups),
 				server.WithToolsConfig(&rt.ToolsCfg),
 				server.WithSkillRegistry(rt.SkillRegistry),
+				server.WithAgentsDir(filepath.Join(workDir, "agents")),
 				server.WithPromptRebuild(func() error {
 					leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
 					if err != nil {
@@ -203,6 +204,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				HTTPServerAddr: httpServerAddr,
 				RuntimeMetrics: runtimeMetrics,
 				ContextIdleThresholdMin: cfg.Get().Session.ContextIdleThresholdMin,
+				TimelineDir: filepath.Join(workDir, "logs", "timelines", "default"),
 			})
 		},
 	}

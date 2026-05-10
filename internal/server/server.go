@@ -18,6 +18,7 @@
 //	PUT /api/todos/{id}/dependencies → set dependencies
 //	GET /api/agents/{id}/profile → get agent soul & rules
 //	PUT /api/agents/{id}/profile → update agent soul & rules
+//	GET /api/agents/{id}/config → get agent template YAML + system prompt
 //	GET /api/teams → list teams
 //	GET /api/skills → list skills (builtin + user)
 package server
@@ -58,6 +59,7 @@ type Mux struct {
 	toolsCfg       *tools.Config
 	skillReg       *skill.SkillRegistry
 	rebuildPrompt  func() error // rebuilds L1 system prompt after soul/rules edit
+	agentsDir      string       // path to ~/.soloqueue/agents directory
 }
 
 // MuxOption is a functional option for NewMux.
@@ -104,6 +106,11 @@ func WithToolsConfig(cfg *tools.Config) MuxOption {
 // WithSkillRegistry sets the skill registry for the /api/skills endpoint.
 func WithSkillRegistry(reg *skill.SkillRegistry) MuxOption {
 	return func(m *Mux) { m.skillReg = reg }
+}
+
+// WithAgentsDir sets the agents directory for /api/agents/{id}/config.
+func WithAgentsDir(dir string) MuxOption {
+	return func(m *Mux) { m.agentsDir = dir }
 }
 
 // WithPromptRebuild sets the callback that rebuilds the L1 system prompt.
@@ -186,6 +193,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	// Agent routes
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
 	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
+	r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
 	r.Get("/api/teams", m.handleListTeams)
 
 	// WebSocket endpoint for real-time state updates
