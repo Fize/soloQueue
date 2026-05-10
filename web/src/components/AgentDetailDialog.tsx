@@ -54,7 +54,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[600px] max-h-[80vh]">
           <DialogHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between pr-8">
               <DialogTitle className="flex items-center gap-2">
                 <span>{agent!.name}</span>
                 <Badge variant="default" className="text-xs">主 Agent</Badge>
