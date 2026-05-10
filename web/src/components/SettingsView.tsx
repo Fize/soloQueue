@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { GeneralTab } from './settings/GeneralTab';
 import { ModelsTab } from './settings/ModelsTab';
@@ -28,6 +28,18 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
     (initialTab as SettingsTab) || 'general',
   );
 
+  // Sync activeTab when initialTab changes (browser back/forward, direct URL navigation).
+  useEffect(() => {
+    if (initialTab && initialTab !== activeTab) {
+      setActiveTab(initialTab as SettingsTab);
+    }
+  }, [initialTab]);
+
+  const handleTabClick = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    window.location.hash = `settings/${tab}`;
+  };
+
   return (
     <div className="flex h-full">
       {/* Left sidebar */}
@@ -38,7 +50,7 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabClick(tab.id)}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors',
                   activeTab === tab.id
