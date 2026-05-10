@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
@@ -177,6 +178,16 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 		// 如果 pending.allFound == true，先 flush 再处理当前消息
 		if pending != nil && pending.allFound {
 			flushPending()
+		}
+
+		// 跳过系统提示词和压缩摘要的重复副本。
+		// - <identity>：每次启动都会 push 系统提示词到 CW，旧版本会通过 pushHook 写入 timeline
+		// - [Conversation Summary]：asyncCompact 写入 message 事件，而 summaryHook 同时写入
+		//   control 事件；ReadLastSegments 已从 control 事件注入摘要，此处跳过避免重复。
+		if msg.Role == string(ctxwin.RoleSystem) {
+			if strings.Contains(msg.Content, "<identity>") || strings.Contains(msg.Content, "[Conversation Summary]") {
+				continue
+			}
 		}
 
 		// 跳过无效 assistant 消息（content 为空且无 tool_calls）。

@@ -323,6 +323,10 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		ctxwin.WithSummaryHook(summaryHook),
 		ctxwin.WithCompactor(b.RT.Compactor),
 	)
+	// Push system prompt without writing to timeline (each session gets a fresh
+	// prompt from config, and persisting it floods the timeline with ~16KB copies
+	// on every startup, eventually evicting real conversation during replay).
+	cw.SetReplayMode(true)
 	if def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 	}
@@ -330,10 +334,9 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	// Replay history segments (always enabled)
 	segments, err := timeline.ReadLastSegments(tlDir, "timeline")
 	if err == nil && len(segments) > 0 {
-		cw.SetReplayMode(true)
 		timeline.ReplayInto(cw, segments)
-		cw.SetReplayMode(false)
 	}
+	cw.SetReplayMode(false)
 
 	if err := a.Start(context.Background()); err != nil {
 		tl.Close()

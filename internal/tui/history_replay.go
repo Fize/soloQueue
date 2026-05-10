@@ -137,20 +137,3 @@ func hasUnfilledTools(msg *message) bool {
 	}
 	return false
 }
-
-// replayHistoryIntoMessages loads session history into the model's message list.
-// Called once after session initialization to display past conversation in the TUI.
-// isHistory: if true, marks all loaded messages as historical (rendered with muted style).
-func (m *model) replayHistoryIntoMessages(isHistory bool) {
-	if m.sess == nil {
-		return
-	}
-	history := m.sess.History()
-	msgs := loadMessagesFromHistory(history, isHistory)
-	if len(msgs) == 0 {
-		return
-	}
-	m.messages = append(m.messages, msgs...)
-	m.rebuildViewportContent()
-	m.viewport.GotoBottom()
-}
