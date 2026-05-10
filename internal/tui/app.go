@@ -386,8 +386,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case SandboxInitMsg:
-		m.loading = false
 		if msg.Err != nil {
+			m.loading = false
 			m.sandboxErr = summarizeError(msg.Err)
 			m.textArea.Placeholder = "Sandbox failed — /quit to exit"
 			m.resizeViewport()
@@ -396,12 +396,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sess = msg.Sess
 		m.sandboxErr = ""
-		m.textArea.Placeholder = "Type a message..."
+		m.textArea.Placeholder = "Loading conversation..."
 		m.resizeViewport()
 		return m, postSandboxInitCmd(m.sess, m.cfg.ContextIdleThresholdMin)
 
 	case postSandboxInitMsg:
+		m.loading = false
 		m.contextCleared = msg.contextCleared
+		m.textArea.Placeholder = "Type a message..."
 		if len(msg.messages) > 0 {
 			m.messages = append(m.messages, msg.messages...)
 			m.rebuildViewportContent()
@@ -847,6 +849,13 @@ func waitForSandboxInit(ch <-chan SandboxInitMsg) tea.Cmd {
 
 func postSandboxInitCmd(sess *session.Session, thresholdMin int) tea.Cmd {
 	return func() tea.Msg {
+		defer func() {
+			if r := recover(); r != nil {
+				// If anything panics (e.g. memoryHook LLM call), still deliver
+				// a message so the TUI unblocks (loading=false gets set).
+			}
+		}()
+
 		if sess == nil {
 			return postSandboxInitMsg{}
 		}
@@ -932,38 +941,5 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	m.confirmQueue = m.confirmQueue[1:]
 	return m, func() tea.Msg {
 		return confirmResultMsg{callID: cs.callID, choice: agentChoice}
-	}
-}
-
-// ─── History persistence (in history.go) ─────
-
-// checkIdleTimeout checks if the session's last message is older than
-// the configured threshold. If so, and token count is high enough,
-// silently clears the context and triggers memory hook.
-func (m *model) checkIdleTimeout() {
-	if m.sess == nil {
-		return
-	}
-
-	thresholdMin := m.cfg.ContextIdleThresholdMin
-	if thresholdMin <= 0 {
-		thresholdMin = 30 // default 30 minutes
-	}
-	timeout := time.Duration(thresholdMin) * time.Minute
-
-	minTokens := m.sess.CW().SummaryTokens() / 100
-	if minTokens < 4096 {
-		minTokens = 4096
-	}
-	if minTokens > 16384 {
-		minTokens = 16384
-	}
-
-	if m.sess.ShouldClearContext(timeout, minTokens) {
-		m.sess.ClearSilent()
-		m.contextCleared = true
-
-		notice := fmt.Sprintf("Context cleared (idle > %d min, tokens saved). History is shown as reference only.", thresholdMin)
-		m.messages = append(m.messages, message{role: "system", content: notice, dirty: true})
 	}
 }
