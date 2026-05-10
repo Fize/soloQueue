@@ -64,6 +64,17 @@ export interface AgentProfile {
   rules: string;
 }
 
+export interface AgentConfig {
+  raw_config: string;
+  system_prompt: string;
+  name: string;
+  description: string;
+  model: string;
+  group: string;
+  is_leader: boolean;
+  mcp_servers: string[];
+}
+
 export interface UpdateAgentProfileRequest {
   soul?: string;
   rules?: string;
