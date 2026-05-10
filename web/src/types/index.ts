@@ -289,3 +289,18 @@ export interface SkillListResponse {
   skills: SkillInfo[];
   total: number;
 }
+
+// ─── MCP Types ─────────────────────────────────────────────────────────────────
+
+export interface MCPServerConfig {
+  name: string;
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  transport: string;
+  enabled: boolean;
+}
+
+export interface MCPConfig {
+  servers: MCPServerConfig[];
+}

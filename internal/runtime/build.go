@@ -16,6 +16,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/embedding"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -66,6 +67,20 @@ func Build(
 
 	// ── Tools Config ───────────────────────────────────────────────────────────
 	toolsCfg := settings.Tools.ToToolsConfig()
+
+	// ── MCP Manager ──────────────────────────────────────────────────────────
+	mcpConfigPath := filepath.Join(workDir, "mcp.json")
+	mcpLoader, mcpLoaderErr := mcp.NewLoader(mcpConfigPath, log)
+	if mcpLoaderErr != nil {
+		log.Warn(logger.CatMCP, "failed to create MCP config loader", "err", mcpLoaderErr)
+	}
+	var mcpMgr *mcp.Manager
+	if mcpLoader != nil {
+		if err := mcpLoader.Load(); err != nil {
+			log.Warn(logger.CatMCP, "failed to load mcp.json, creating default", "err", err)
+		}
+		mcpMgr = mcp.NewManager(mcpLoader, log)
+	}
 
 	// ── Prompt System ──────────────────────────────────────────────────────────
 	promptStart := time.Now()
@@ -211,6 +226,7 @@ func Build(
 		agent.WithGroups(groups),
 		agent.WithWorkDir(workDir),
 		agent.WithBypassConfirm(bypassConfirm),
+		agent.WithMCPManager(mcpMgr),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────
@@ -307,10 +323,20 @@ func Build(
 		TodoStore:       todoStore,
 		SharedDB:        sharedDB,
 		BypassConfirm:   bypassConfirm,
-	}
+			MCPManager:      mcpMgr,
+		}
 
 	// Register config hot-reload callback
 	RegisterHotReload(rt, cfg, log, workDir)
+
+	// MCP config hot-reload: reload manager when mcp.json changes.
+	if mcpLoader != nil && mcpMgr != nil {
+		mcpLoader.OnChange(func(_ mcp.Config) {
+			if err := mcpMgr.Reload(context.Background()); err != nil {
+				log.Error(logger.CatMCP, "MCP hot-reload failed", "err", err)
+			}
+		})
+	}
 
 	log.Debug(logger.CatApp, "build: total", "duration", time.Since(buildStart).String())
 	return rt, nil
