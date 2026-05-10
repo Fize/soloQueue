@@ -79,6 +79,9 @@ func Build(
 		if err := mcpLoader.Load(); err != nil {
 			log.Warn(logger.CatMCP, "failed to load mcp.json, creating default", "err", err)
 		}
+		if err := mcpLoader.Watch(); err != nil {
+			log.Warn(logger.CatMCP, "failed to watch mcp.json for hot-reload", "err", err)
+		}
 		mcpMgr = mcp.NewManager(mcpLoader, log)
 	}
 
