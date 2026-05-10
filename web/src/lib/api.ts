@@ -4,6 +4,7 @@ import type {
   PlanStatus,
   TodoItemWithDeps,
   AgentProfile,
+  AgentConfig,
   UpdateAgentProfileRequest,
   TeamListResponse,
   AppConfig,
@@ -67,6 +68,10 @@ export async function updateAgentProfile(id: string, data: UpdateAgentProfileReq
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+export async function getAgentConfig(id: string): Promise<AgentConfig> {
+  return request<AgentConfig>(`/agents/${id}/config`);
 }
 
 export async function getTeams(): Promise<TeamListResponse> {
