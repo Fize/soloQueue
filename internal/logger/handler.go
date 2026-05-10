@@ -89,6 +89,7 @@ type writerPool struct {
 // FileHandler 将日志按 category 路由到对应的 rotateWriter
 type FileHandler struct {
 	baseDir   string
+	subdir    string
 	levelVar  *slog.LevelVar
 	preAttrs  []slog.Attr
 	maxSizeMB int
@@ -98,9 +99,10 @@ type FileHandler struct {
 	pool *writerPool // 共享指针：clone 后多个 handler 共用同一 writer pool
 }
 
-func newFileHandler(baseDir string, levelVar *slog.LevelVar, maxSizeMB, maxDays, maxFiles int) *FileHandler {
+func newFileHandler(baseDir, subdir string, levelVar *slog.LevelVar, maxSizeMB, maxDays, maxFiles int) *FileHandler {
 	return &FileHandler{
 		baseDir:   baseDir,
+		subdir:    subdir,
 		levelVar:  levelVar,
 		maxSizeMB: maxSizeMB,
 		maxDays:   maxDays,
@@ -261,7 +263,7 @@ func (h *FileHandler) getOrCreateWriter(cat Category) (*rotateWriter, error) {
 	return w, nil
 }
 
-// logDir 返回日志目录路径：{baseDir}/logs/system/
+// logDir 返回日志目录路径：{baseDir}/logs/{subdir}/
 func (h *FileHandler) logDir() string {
-	return filepath.Join(h.baseDir, "logs", "system")
+	return filepath.Join(h.baseDir, "logs", h.subdir)
 }

@@ -27,6 +27,12 @@ The same binary runs in two modes via cobra:
 
 Both modes share the same `runtime.Stack` built by `runtime.Build()`, which initializes the LLM client, prompt system, agent registry, supervisors, skill registry, memory managers, and optional task router.
 
+**CLI flags**:
+- `--port` / `-p`: HTTP server port (TUI: random, serve: 8765)
+- `--host`: HTTP bind address (serve only, default 127.0.0.1)
+- `--verbose` / `-v`: print logs to stderr (serve only)
+- `--bypass`: skip all tool confirmations for all agents (both modes)
+
 ## Core architecture: Actor model + multi-agent hierarchy
 
 ### Agent (`internal/agent/`)
@@ -52,7 +58,11 @@ L1 (coordinator / default agent)
  └── SkillTool → fork-mode creates isolated child agents
 ```
 
-- **`AgentTemplate`**: loaded from `~/.soloqueue/agents/*.md` (YAML frontmatter + markdown body). Fields: ID, Name, SystemPrompt, IsLeader, Group.
+- **`AgentTemplate`**: loaded from `~/.soloqueue/agents/*.md` (YAML frontmatter + markdown body). Fields: ID, Name, SystemPrompt, IsLeader, Group, Permission, MCPServers.
+- **Permission / Bypass system**: three layers of tool confirmation bypass (checked in `execToolStream`):
+  1. **Agent-level**: `permission: true` in YAML frontmatter → `AgentTemplate.Permission` → `Definition.BypassConfirm` → `Agent.bypassConfirm`
+  2. **Global**: `--bypass` CLI flag → `Stack.BypassConfirm` → all agents skip confirmations
+  3. **Ask-level**: `agent.WithBypassConfirmCtx(ctx)` sets a context flag — used by QQ bot adapter so the SAME agent requires confirmations via TUI but skips them for QQ bot
 - **`AgentFactory`** (`factory.go`): creates Agent + ContextWindow from template. The `DefaultFactory` caches LLM client, tools config, and model info.
 - **`Supervisor`** (`supervisor.go`): L2 domain leader. Manages L3 child lifecycle (Spawn/Reap). Each child has independent CW and mailbox, enabling parallel work.
 - **`Registry`** (`registry.go`): concurrent-safe InstanceID→Agent map + templateID→[]InstanceID index. `LocateIdle(name)` returns an idle agent; `Locate(name)` returns the first match.
@@ -87,9 +97,30 @@ Append-only JSONL event sourcing with rotating files.
 
 - **Events**: `message` (LLM conversation turn) and `control` (clear, summary). Each event is a JSON line in `timeline.jsonl`.
 - **`Writer`**: wraps `rotating.Writer`; `AppendMessage` and `AppendControl` serialize to JSONL.
-- **`ReadLastSegments`**: scans all rotation files in order, finds the last cut point (clear or summary control event), returns messages after it as a single Segment.
-- **`ReplayInto`**: pushes segment messages into a CW. Handles orphaned tool_calls (assistant with tool_calls but missing subsequent tool results), skips duplicate system prompts (`<identity>` and `[Conversation Summary]`), and skips Invalid assistant messages (empty content, no tool_calls).
-- **Critical invariant**: system prompts must NOT be written to timeline. The `builder.go` pushes the system prompt with `replayMode=true` to prevent contamination. Old timeline files may have stale copies; `ReplayInto` filters them out.
+- **`ReadTail(dir, baseName, maxTurns)`**: reads the last N conversation turns from the most recent timeline files (newest-first). Skips system messages and orphaned tool results. Returns `[]Segment` and a timestamp cursor for pagination.
+- **`ReadTailBefore(dir, baseName, maxTurns, before)`**: paginates further back using a cursor from `ReadTail`.
+- **`ReplayInto`**: pushes segment messages into a CW. Handles orphaned tool_calls, skips duplicate system prompts, skips empty assistant messages.
+- **Critical invariant**: system prompts must NOT be written to timeline. The `builder.go` pushes the system prompt with `replayMode=true` to prevent contamination.
+
+### QQ Bot (`internal/qqbot/`)
+
+WebSocket Gateway integration for QQ official bot platform. Single-session: QQ messages and TUI share the same `Session` → same `ContextWindow` → unified memory.
+
+**Architecture**:
+```
+QQ Server ──WebSocket──> Gateway ──> SessionBridge ──> SessionAskAdapter ──> SessionManager.Session()
+                                                                                    │
+                                                                        same *Session as TUI
+```
+
+- **`Gateway`** (`gateway.go`): WebSocket client — connect, Hello (op10), Identify/Resume, heartbeat, event dispatch. Auto-reconnects on disconnect. Uses `TokenProvider` interface (satisfied by `APIClient`) to obtain access tokens for Identify.
+- **`APIClient`** (`api.go`): QQ OpenAPI HTTP client. Manages access token lifecycle (`POST https://bots.qq.com/app/getAppAccessToken` → cache → refresh). Note: QQ returns `expires_in` as a **string** (not int).
+- **`SessionBridge`** (`handler.go`): receives parsed QQ messages from Gateway, calls `SessionAskAdapter.AskStream()`, sends reply via APIClient. No redundant concurrency guard — Session's `inFlight` already serializes.
+- **`SessionAskAdapter`** (`session/qqbot_adapter.go`): adapts `SessionManager` to `qqbot.SessionProvider`. Sets `agent.WithBypassConfirmCtx(ctx)` so QQ bot always skips tool confirmations at the agent level.
+- **`Config`** (`config.go`): AppID + AppSecret from settings. `GatewayURL()` constructs WebSocket URL (sandbox vs production).
+- **Token flow**: AppID+AppSecret → `getAppAccessToken` → access token → Identify format `"QQBot {access_token}"` (matches official botgo SDK `TokenType`).
+- **QQ bot only starts in serve mode and TUI mode** via shared `cli.StartQQBot()`.
+- **Dedicated logging**: `WithLogSubdir("qqbot")` → `logs/qqbot/` directory, separate from main app logs.
 
 ### Skills (`internal/skill/`)
 
@@ -122,7 +153,7 @@ React 19 + TypeScript + Vite + TailwindCSS v4. Uses shadcn/ui components (`@base
 ## Key patterns
 
 - **Functional options**: most constructors accept variadic `With*` option functions.
-- **`logger.Cat*` constants**: structured logging categories — `CatApp`, `CatActor`, `CatMessages`, `CatConfig`, etc. Use `logger.System(workDir, ...)` to create a session-scoped logger.
+- **`logger.Cat*` constants**: structured logging categories — `CatApp`, `CatActor`, `CatMessages`, `CatConfig`, etc. Use `logger.System(workDir, ...)` to create a session-scoped logger. Use `logger.WithLogSubdir(name)` to direct logs to a custom subdirectory (e.g. `logs/qqbot/` instead of `logs/system/`).
 - **`iface.Locatable`**: interface with `InstanceID()` and `DefID()` used for agent location in the registry.
 - **Config hot-reload**: `config.GlobalService` uses fsnotify; callers read latest settings with `cfg.Get()`.
 - **Agent events** (`events.go`): typed event structs sent over `EventChan` during streaming. Includes lifecycle events (`AgentStartedEvent`, `AgentStoppedEvent`) and turn events.

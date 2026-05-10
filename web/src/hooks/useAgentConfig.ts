@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { AgentConfig } from '@/types';
 import { getAgentConfig } from '@/lib/api';
 
@@ -6,12 +6,11 @@ export function useAgentConfig(agentId: string | null) {
   const [config, setConfig] = useState<AgentConfig | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  const fetch = useCallback(() => {
     if (!agentId) {
       setConfig(null);
       return;
     }
-
     setLoading(true);
     getAgentConfig(agentId)
       .then(setConfig)
@@ -19,5 +18,9 @@ export function useAgentConfig(agentId: string | null) {
       .finally(() => setLoading(false));
   }, [agentId]);
 
-  return { config, loading };
+  useEffect(() => {
+    fetch();
+  }, [fetch]);
+
+  return { config, loading, refetch: fetch };
 }

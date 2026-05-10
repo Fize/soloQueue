@@ -60,6 +60,8 @@ type Stack struct {
 	HTTPServer    *http.Server       // Embedded HTTP API server (TUI mode)
 	HTTPListener  net.Listener       // Listener for the HTTP server
 
+	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
+
 	// compactorInstance stores the concrete type for internal use.
 	compactorInstance *compactor.LLMCompactor
 }

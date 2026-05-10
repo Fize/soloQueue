@@ -13,6 +13,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/cmd/soloqueue/cli"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
@@ -33,6 +34,7 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	var port int
+	var bypass bool
 
 	root := &cobra.Command{
 		Use:   "soloqueue",
@@ -69,7 +71,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			}
 
 			buildStart := time.Now()
-			rt, err := runtime.Build(workDir, cfg, log, profileSetup)
+			rt, err := runtime.Build(workDir, cfg, log, profileSetup, bypass)
 			if err != nil {
 				return err
 			}
@@ -83,13 +85,19 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 
-			// Run shutdown concurrently so a slow Docker destroy or
-			// agent stop doesn't block the process exit after the TUI
-			// has already restored the terminal.
-			defer func() {
-				done := make(chan struct{})
-				go func() {
-					defer close(done)
+				// QQ Bot started after session init (see sandbox goroutine below)
+				var qqGateway *qqbot.Gateway
+
+				// Run shutdown concurrently so a slow Docker destroy or
+				// agent stop doesn't block the process exit after the TUI
+				// has already restored the terminal.
+				defer func() {
+					done := make(chan struct{})
+					go func() {
+						defer close(done)
+					if qqGateway != nil {
+						qqGateway.Close()
+					}
 					mgr.Shutdown(3 * time.Second)
 					rt.Shutdown()
 				}()
@@ -187,6 +195,9 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				rt.CfgMu.Unlock()
 
 				sess, err := mgr.Init(context.Background(), "")
+				if err == nil {
+					qqGateway = cli.StartQQBot(cfg, mgr, workDir, log)
+				}
 				sandboxCh <- tui.SandboxInitMsg{Sess: sess, Err: err}
 			}()
 
@@ -210,6 +221,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 	}
 
 	root.Flags().IntVarP(&port, "port", "p", 0, "HTTP server port for TUI mode (0 = random)")
+	root.Flags().BoolVar(&bypass, "bypass", false, "bypass all tool confirmations for all agents")
 
 	root.AddCommand(cli.VersionCmd(version))
 	root.AddCommand(cli.ServeCmd(version))

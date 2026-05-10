@@ -16,6 +16,7 @@ type AgentFrontmatter struct {
 	Model       string   `yaml:"model"`
 	Group       string   `yaml:"group"`
 	IsLeader    bool     `yaml:"is_leader"`
+	Permission  bool     `yaml:"permission"`
 	MCPServers  []string `yaml:"mcp_servers"`
 }
 

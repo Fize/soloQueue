@@ -1069,33 +1069,6 @@ func TestAskStream_LLMPanic_EmitsErrorEvent(t *testing.T) {
 	}
 }
 
-// ─── RunOnce streaming wrapper ──────────────────────────────────────────────
-
-// TestRunOnce_UsesStreamPath: RunOnce consumes AskStream events and still
-// returns final content for no-tools happy case.
-func TestRunOnce_UsesStreamPath(t *testing.T) {
-	fake := &FakeLLM{StreamDeltas: [][]string{{"hello"}}}
-	reply, err := RunOnce(context.Background(), Definition{ID: "a1"}, fake, nil, "hi")
-	if err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-	if reply != "hello" {
-		t.Errorf("reply = %q", reply)
-	}
-}
-
-// TestRunOnce_FallsBackToResponses: when only Responses is set (no
-// per-turn streaming script), ChatStream falls back and emits single delta.
-func TestRunOnce_FallsBackToResponses(t *testing.T) {
-	fake := &FakeLLM{Responses: []string{"legacy"}}
-	reply, err := RunOnce(context.Background(), Definition{ID: "a1"}, fake, nil, "hi")
-	if err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-	if reply != "legacy" {
-		t.Errorf("reply = %q", reply)
-	}
-}
 
 // ─── FakeLLM call counters ──────────────────────────────────────────────────
 

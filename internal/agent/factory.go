@@ -30,6 +30,7 @@ type AgentTemplate struct {
 	ModelID      string   // 模型 ID（由全局默认模型填充，不再从配置文件读取）
 	IsLeader     bool     // 是否为 L2 领导者
 	Group        string   // 所属 group name
+	Permission   bool     // 特权模式，跳过工具确认
 	MCPServers   []string // MCP Server 名称列表
 }
 
@@ -89,6 +90,7 @@ type DefaultFactory struct {
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
 	templates      map[string]AgentTemplate    // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
 	groups         map[string]prompt.GroupFile // group 信息，供 L2 prompt 注入团队上下文
+	bypassConfirm  bool                        // global --bypass: skip all confirmations
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -132,6 +134,13 @@ func WithModelResolver(resolver ModelResolver) FactoryOption {
 func WithDefaultModelID(modelID string) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.defaultModelID = modelID
+	}
+}
+
+// WithBypassConfirm sets the global bypass mode — all agents skip confirmations.
+func WithBypassConfirm(on bool) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.bypassConfirm = on
 	}
 }
 
@@ -232,6 +241,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		SystemPrompt:    finalPrompt,
 		ReasoningEffort: "",                 // populated below if resolver is set
 		ExplicitModel:   tmpl.ModelID != "", // template explicitly set model → don't override
+		BypassConfirm:   f.bypassConfirm || tmpl.Permission,
 	}
 
 	// 1b. Validate and resolve model configuration
@@ -402,6 +412,7 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 			ModelID:      fm.Model,
 			IsLeader:     fm.IsLeader,
 			Group:        fm.Group,
+			Permission:   fm.Permission,
 			MCPServers:   fm.MCPServers,
 		}
 		templates = append(templates, tmpl)

@@ -96,8 +96,6 @@ type ReadyData struct {
 
 // ─── Resumed Event ───────────────────────────────────────────────────────────
 
-// ResumedData is the data payload for the RESUMED event (op=0, t=RESUMED).
-type ResumedData struct{}
 
 // ─── Message Events ──────────────────────────────────────────────────────────
 

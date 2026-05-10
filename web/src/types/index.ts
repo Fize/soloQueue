@@ -80,6 +80,11 @@ export interface UpdateAgentProfileRequest {
   rules?: string;
 }
 
+export interface UpdateAgentConfigRequest {
+  raw_config?: string;
+  system_prompt?: string;
+}
+
 export interface AgentTemplate {
   id: string;
   name: string;

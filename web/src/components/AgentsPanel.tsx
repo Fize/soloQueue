@@ -159,7 +159,16 @@ export function AgentsPanel() {
           {l1Agent ? (
             <AgentCard agent={l1Agent} onClick={() => handleAgentClick(l1Agent, true)} />
           ) : (
-            <PlaceholderCard name="主 Agent" />
+            <PlaceholderCard
+              name="主 Agent"
+              onClick={() => {
+                setSelectedAgent(null);
+                setSelectedTemplateId('main');
+                setSelectedTemplateName('主 Agent');
+                setIsL1(true);
+                setIsDetailOpen(true);
+              }}
+            />
           )}
         </div>
 

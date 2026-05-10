@@ -496,12 +496,6 @@ This is a test skill.
 		t.Fatalf("factory.Create: %v", err)
 	}
 	defer agent.Stop(time.Second)
-
-	// 验证 skill 已加载（通过 SkillCatalog 检查）
-	catalog := agent.SkillCatalog()
-	if catalog == "" {
-		t.Log("skill catalog is empty (may be expected if skill format differs)")
-	}
 }
 
 func TestNewDefaultFactory_NilLogger(t *testing.T) {
