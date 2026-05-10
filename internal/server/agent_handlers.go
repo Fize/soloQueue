@@ -2,10 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+
+	"github.com/go-chi/chi/v5"
+	"gopkg.in/yaml.v3"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
@@ -167,6 +172,18 @@ type AgentProfileResponse struct {
 	Rules string `json:"rules"`
 }
 
+// AgentConfigResponse is the JSON response for GET /api/agents/{id}/config.
+type AgentConfigResponse struct {
+	RawConfig    string   `json:"raw_config"`
+	SystemPrompt string   `json:"system_prompt"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Model        string   `json:"model"`
+	Group        string   `json:"group"`
+	IsLeader     bool     `json:"is_leader"`
+	MCPServers   []string `json:"mcp_servers"`
+}
+
 // AgentTemplateResponse is a single agent template in the team list.
 type AgentTemplateResponse struct {
 	ID          string `json:"id"`
@@ -309,6 +326,74 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 		Soul:  string(soul),
 		Rules: string(rules),
 	})
+}
+
+// handleGetAgentConfig returns the YAML frontmatter and markdown body from an
+// agent's .md file in the agents directory.
+// GET /api/agents/{id}/config
+func (m *Mux) handleGetAgentConfig(w http.ResponseWriter, r *http.Request) {
+	if m.agentsDir == "" {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agents directory not configured"})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent id is required"})
+		return
+	}
+
+	path := filepath.Join(m.agentsDir, id+".md")
+	af, err := prompt.ParseAgentFile(path)
+	if err != nil {
+		af, err = findAgentFileByName(m.agentsDir, id)
+		if err != nil {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "agent file not found: " + id})
+			return
+		}
+	}
+
+	m.writeJSON(w, http.StatusOK, AgentConfigResponse{
+		RawConfig:    serializeFrontmatter(af.Frontmatter),
+		SystemPrompt: af.Body,
+		Name:         af.Frontmatter.Name,
+		Description:  af.Frontmatter.Description,
+		Model:        af.Frontmatter.Model,
+		Group:        af.Frontmatter.Group,
+		IsLeader:     af.Frontmatter.IsLeader,
+		MCPServers:   af.Frontmatter.MCPServers,
+	})
+}
+
+// findAgentFileByName scans the agents directory for a .md file whose frontmatter
+// "name" field matches the given name. Returns the parsed file or an error.
+func findAgentFileByName(agentsDir, name string) (*prompt.AgentFile, error) {
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		af, err := prompt.ParseAgentFile(filepath.Join(agentsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if af.Frontmatter.Name == name {
+			return af, nil
+		}
+	}
+	return nil, fmt.Errorf("no agent file with name %q found in %s", name, agentsDir)
+}
+
+// serializeFrontmatter serializes AgentFrontmatter back to a YAML string for display.
+func serializeFrontmatter(fm prompt.AgentFrontmatter) string {
+	data, err := yaml.Marshal(fm)
+	if err != nil {
+		return fmt.Sprintf("# error serializing frontmatter: %v", err)
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // ─── Public Builders (shared by REST handlers and WebSocket Hub) ─────────────

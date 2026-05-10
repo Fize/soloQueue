@@ -323,17 +323,23 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		ctxwin.WithSummaryHook(summaryHook),
 		ctxwin.WithCompactor(b.RT.Compactor),
 	)
-	// Push system prompt without writing to timeline (each session gets a fresh
-	// prompt from config, and persisting it floods the timeline with ~16KB copies
-	// on every startup, eventually evicting real conversation during replay).
+	// Push system prompt without writing to timeline. The timeline is a
+	// conversation event stream; the system prompt is CW metadata, not
+	// conversation — persisting it floods the timeline with duplicate
+	// copies on every startup, evicting real history during replay.
 	cw.SetReplayMode(true)
 	if def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 	}
 
-	// Replay history segments (always enabled)
-	segments, err := timeline.ReadLastSegments(tlDir, "timeline")
-	if err == nil && len(segments) > 0 {
+	// Replay the last 10 conversation turns (not the full timeline).
+	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10)
+	if err != nil {
+		sessLog.Warn("builder: ReadTail failed", "err", err, "dir", tlDir)
+	} else if len(segments) == 0 {
+		sessLog.Warn("builder: ReadTail returned no segments", "dir", tlDir)
+	} else {
+		sessLog.Info("builder: ReadTail returned segments, replaying", "segments", len(segments), "msgs", len(segments[0].Messages))
 		timeline.ReplayInto(cw, segments)
 	}
 	cw.SetReplayMode(false)

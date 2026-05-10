@@ -217,40 +217,40 @@ func TestWriter_Rotation(t *testing.T) {
 	}
 }
 
-// ─── ReadLastSegments ────────────────────────────────────────────────────────
+// ─── ReadTail ──────────────────────────────────────────────────────────────
 
-func TestReadLastSegments_NoFiles(t *testing.T) {
+func TestReadTail_NoFiles(t *testing.T) {
 	dir := t.TempDir()
-	segs, err := ReadLastSegments(dir, "timeline")
+	segs, _, err := ReadTail(dir, "timeline", 10)
 	if err != nil {
-		t.Fatalf("ReadLastSegments: %v", err)
+		t.Fatalf("ReadTail: %v", err)
 	}
 	if len(segs) != 0 {
 		t.Errorf("expected 0 segments, got %d", len(segs))
 	}
 }
 
-func TestReadLastSegments_EmptyDir(t *testing.T) {
+func TestReadTail_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	segs, err := ReadLastSegments(dir, "timeline")
+	segs, _, err := ReadTail(dir, "timeline", 10)
 	if err != nil {
-		t.Fatalf("ReadLastSegments: %v", err)
+		t.Fatalf("ReadTail: %v", err)
 	}
 	if len(segs) != 0 {
 		t.Errorf("expected 0 segments for empty dir, got %d", len(segs))
 	}
 }
 
-func TestReadLastSegments_NoClear_OneSegment(t *testing.T) {
+func TestReadTail_ReturnsMessages(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline")
+	segs, _, err := ReadTail(dir, "timeline", 10)
 	if err != nil {
-		t.Fatalf("ReadLastSegments: %v", err)
+		t.Fatalf("ReadTail: %v", err)
 	}
 	if len(segs) != 1 {
 		t.Fatalf("expected 1 segment, got %d", len(segs))
@@ -260,70 +260,77 @@ func TestReadLastSegments_NoClear_OneSegment(t *testing.T) {
 	}
 }
 
-func TestReadLastSegments_WithClear_OnlyAfterLastClear(t *testing.T) {
+func TestReadTail_RespectsMaxTurns(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
+	// 3 user turns
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
-	w.AppendControl(&ControlPayload{Action: "clear"})
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a2"})
-	w.AppendControl(&ControlPayload{Action: "clear"})
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q3"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a3"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline")
+	segs, _, err := ReadTail(dir, "timeline", 2) // only last 2 turns
 	if err != nil {
-		t.Fatalf("ReadLastSegments: %v", err)
+		t.Fatalf("ReadTail: %v", err)
 	}
-	// /clear 是截断点：只返回最后一个 /clear 之后的消息
 	if len(segs) != 1 {
 		t.Fatalf("expected 1 segment, got %d", len(segs))
 	}
-	if len(segs[0].Messages) != 1 {
-		t.Errorf("segment has %d messages, want 1", len(segs[0].Messages))
+	// Should have last 2 turns: q2,a2 q3,a3
+	if len(segs[0].Messages) != 4 {
+		t.Errorf("segment has %d messages, want 4 (last 2 turns)", len(segs[0].Messages))
 	}
-	if segs[0].Messages[0].Content != "q3" {
-		t.Errorf("msg[0] = %q, want q3", segs[0].Messages[0].Content)
+	if segs[0].Messages[0].Content != "q2" {
+		t.Errorf("msg[0] = %q, want q2", segs[0].Messages[0].Content)
 	}
-}
-
-func TestReadLastSegments_ClearAtEnd_NoSegment(t *testing.T) {
-	dir := t.TempDir()
-	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
-	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
-	w.AppendControl(&ControlPayload{Action: "clear"})
-	w.Close()
-
-	segs, err := ReadLastSegments(dir, "timeline")
-	if err != nil {
-		t.Fatalf("ReadLastSegments: %v", err)
-	}
-	// 最后一个事件是 /clear，之后没有消息 → 不 replay
-	if len(segs) != 0 {
-		t.Errorf("expected 0 segments after /clear, got %d", len(segs))
+	if segs[0].Messages[2].Content != "q3" {
+		t.Errorf("msg[2] = %q, want q3", segs[0].Messages[2].Content)
 	}
 }
 
-func TestReadLastSegments_ClearMiddle_OnlyAfterClear(t *testing.T) {
+func TestReadTail_SkipsIdentitySystem(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
-	w.AppendControl(&ControlPayload{Action: "clear"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
+	w.AppendMessage(&MessagePayload{Role: "system", Content: "<identity>\nyou are bot"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "hello"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "hi"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline")
+	segs, _, err := ReadTail(dir, "timeline", 1)
 	if err != nil {
-		t.Fatalf("ReadLastSegments: %v", err)
+		t.Fatalf("ReadTail: %v", err)
 	}
-	// 只返回 /clear 之后的 q2
 	if len(segs) != 1 {
 		t.Fatalf("expected 1 segment, got %d", len(segs))
 	}
-	if len(segs[0].Messages) != 1 || segs[0].Messages[0].Content != "q2" {
-		t.Errorf("segment content wrong: %+v", segs[0].Messages)
+	// System message with <identity> should be skipped
+	if len(segs[0].Messages) != 2 {
+		t.Errorf("segment has %d messages, want 2 (user, assistant)", len(segs[0].Messages))
+	}
+	if segs[0].Messages[0].Role != "user" {
+		t.Errorf("msg[0].Role = %q, want user", segs[0].Messages[0].Role)
+	}
+}
+
+func TestReadTail_SkipsSummarySystem(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "system", Content: "[Conversation Summary]\n..."})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "hello"})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 1)
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 1 || segs[0].Messages[0].Content != "hello" {
+		t.Errorf("expected only 'hello', got %+v", segs[0].Messages)
 	}
 }
 
@@ -640,19 +647,22 @@ func TestWriteThenRead_RoundTrip(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "new topic"})
 	w.Close()
 
-	segs, err := ReadLastSegments(dir, "timeline")
+	segs, _, err := ReadTail(dir, "timeline", 10)
 	if err != nil {
-		t.Fatalf("ReadLastSegments: %v", err)
+		t.Fatalf("ReadTail: %v", err)
 	}
-	// /clear 截断：只返回 /clear 之后的消息
+	// ReadTail ignores /clear cut points; returns last N turns.
+	// 2 user turns → all 4 conversation messages (system passes through,
+	// control events are ignored).
 	if len(segs) != 1 {
 		t.Fatalf("expected 1 segment, got %d", len(segs))
 	}
-	if len(segs[0].Messages) != 1 {
-		t.Errorf("segment has %d messages, want 1 (only 'new topic')", len(segs[0].Messages))
+	if len(segs[0].Messages) != 4 {
+		t.Errorf("segment has %d messages, want 4", len(segs[0].Messages))
 	}
-	if segs[0].Messages[0].Content != "new topic" {
-		t.Errorf("msg content = %q, want 'new topic'", segs[0].Messages[0].Content)
+	// First user message is "hello"
+	if segs[0].Messages[1].Content != "hello" {
+		t.Errorf("msg[1] = %q, want 'hello'", segs[0].Messages[1].Content)
 	}
 }
 
@@ -674,7 +684,7 @@ func TestWriteThenReplay_RoundTrip(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1", ReasoningContent: "thinking..."})
 	w.Close()
 
-	segs, _ := ReadLastSegments(dir, "timeline")
+	segs, _, _ := ReadTail(dir, "timeline", 10)
 
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
@@ -890,4 +900,57 @@ func splitLines(s string) []string {
 		lines = append(lines, s[start:])
 	}
 	return lines
+}
+
+func TestReadTailBefore_Pagination(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1", Timestamp: "2026-01-01T00:00:00Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2", Timestamp: "2026-01-02T00:00:00Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a2", Timestamp: "2026-01-02T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q3", Timestamp: "2026-01-03T00:00:00Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a3", Timestamp: "2026-01-03T00:00:01Z"})
+	w.Close()
+
+	// Read all 3 turns
+	segs, cursor, err := ReadTail(dir, "timeline", 10)
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if cursor == nil {
+		t.Fatal("expected a cursor")
+	}
+	if len(segs[0].Messages) != 6 {
+		t.Fatalf("expected 6 messages, got %d", len(segs[0].Messages))
+	}
+
+	// ReadTailBefore with cursor from oldest message should return nothing
+	segs2, cursor2, err := ReadTailBefore(dir, "timeline", 10, *cursor)
+	if err != nil {
+		t.Fatalf("ReadTailBefore: %v", err)
+	}
+	if len(segs2) != 0 {
+		t.Errorf("expected 0 segments (no older), got %d", len(segs2))
+	}
+	if cursor2 != nil {
+		t.Errorf("expected nil cursor, got %v", cursor2)
+	}
+
+	// Read only last 1 turn, then page back
+	segs3, cursor3, err := ReadTail(dir, "timeline", 1)
+	if err != nil {
+		t.Fatalf("ReadTail(1): %v", err)
+	}
+	if segs3[0].Messages[0].Content != "q3" {
+		t.Errorf("msg[0] = %q, want q3", segs3[0].Messages[0].Content)
+	}
+
+	segs4, _, err := ReadTailBefore(dir, "timeline", 1, *cursor3)
+	if err != nil {
+		t.Fatalf("ReadTailBefore(1): %v", err)
+	}
+	if segs4[0].Messages[0].Content != "q2" {
+		t.Errorf("msg[0] = %q, want q2", segs4[0].Messages[0].Content)
+	}
 }

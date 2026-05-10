@@ -18,9 +18,12 @@ interface TeamNode {
 }
 
 // 占位组件
-function PlaceholderCard({ name }: { name?: string | null }) {
+function PlaceholderCard({ name, onClick }: { name?: string | null; onClick?: () => void }) {
   return (
-    <div className="rounded-lg border-2 border-dashed border-border/50 bg-muted/30 p-3">
+    <div
+      className="rounded-lg border-2 border-dashed border-border/50 bg-muted/30 p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+      onClick={onClick}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-muted-foreground">
           <Circle className="h-3 w-3" />
@@ -38,6 +41,8 @@ export function AgentsPanel() {
   const [collapsedTeams, setCollapsedTeams] = useState<Set<string>>(new Set());
   const [expandedL2, setExpandedL2] = useState<Set<string>>(new Set());
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedTemplateName, setSelectedTemplateName] = useState<string | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isL1, setIsL1] = useState(false);
 
@@ -67,7 +72,17 @@ export function AgentsPanel() {
 
   const handleAgentClick = useCallback((agent: AgentInfo, l1Flag: boolean = false) => {
     setSelectedAgent(agent);
+    setSelectedTemplateId(null);
+    setSelectedTemplateName(null);
     setIsL1(l1Flag);
+    setIsDetailOpen(true);
+  }, []);
+
+  const handlePlaceholderClick = useCallback((tmpl: AgentTemplate) => {
+    setSelectedAgent(null);
+    setSelectedTemplateId(tmpl.id);
+    setSelectedTemplateName(tmpl.name);
+    setIsL1(false);
     setIsDetailOpen(true);
   }, []);
 
@@ -193,7 +208,7 @@ export function AgentsPanel() {
                             {l2.agent ? (
                               <AgentCard agent={l2.agent} onClick={() => handleAgentClick(l2.agent!, false)} />
                             ) : (
-                              <PlaceholderCard name={l2.template?.name} />
+                              <PlaceholderCard name={l2.template?.name} onClick={l2.template ? () => handlePlaceholderClick(l2.template!) : undefined} />
                             )}
 
                             {/* L3 Workers */}
@@ -207,7 +222,7 @@ export function AgentsPanel() {
                                   {l3.agent ? (
                                     <AgentCard agent={l3.agent} onClick={() => handleAgentClick(l3.agent!, false)} />
                                   ) : (
-                                    <PlaceholderCard name={l3.template?.name} />
+                                    <PlaceholderCard name={l3.template?.name} onClick={l3.template ? () => handlePlaceholderClick(l3.template!) : undefined} />
                                   )}
                                 </div>
                               ))}
@@ -227,6 +242,8 @@ export function AgentsPanel() {
       {/* Agent detail dialog */}
       <AgentDetailDialog
         agent={selectedAgent}
+        templateId={selectedTemplateId}
+        templateName={selectedTemplateName}
         isL1={isL1}
         open={isDetailOpen}
         onOpenChange={setIsDetailOpen}

@@ -16,6 +16,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -27,6 +29,13 @@ import (
 type SandboxInitMsg struct {
 	Sess *session.Session
 	Err  error
+}
+
+// moreHistoryMsg delivers older history loaded from the timeline in response
+// to a scroll-to-top event.
+type moreHistoryMsg struct {
+	messages []message
+	cursor   *time.Time // next page cursor, nil if no more
 }
 
 type Config struct {
@@ -51,6 +60,9 @@ type Config struct {
 	// ContextIdleThresholdMin is the idle timeout (minutes) for auto-clearing context.
 	// Read from config at startup.
 	ContextIdleThresholdMin int
+
+	// TimelineDir is the path to timeline JSONL files for history replay.
+	TimelineDir string
 }
 
 // RuntimeMetricsWriter is the interface that the TUI uses to push runtime
@@ -216,7 +228,9 @@ type model struct {
 	confirmQueue    []confirmState // FIFO queue of pending tool confirmations
 	loading         bool   // true while waiting for sandbox + session init
 	sandboxErr      string // sandbox init error message
-	contextCleared bool   // true if context was silently cleared on startup
+	contextCleared  bool   // true if context was silently cleared on startup
+	historyCursor   *time.Time // cursor for loading older history; nil = no more
+	historyLoading  bool       // true while a loadMoreHistoryCmd is in flight
 	runtimeMetrics RuntimeMetricsWriter // shared metrics writer (may be nil)
 }
 
@@ -386,8 +400,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case SandboxInitMsg:
+		m.loading = false
 		if msg.Err != nil {
-			m.loading = false
 			m.sandboxErr = summarizeError(msg.Err)
 			m.textArea.Placeholder = "Sandbox failed — /quit to exit"
 			m.resizeViewport()
@@ -396,14 +410,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sess = msg.Sess
 		m.sandboxErr = ""
-		m.textArea.Placeholder = "Loading conversation..."
+		m.textArea.Placeholder = "Type a message..."
 		m.resizeViewport()
 		return m, postSandboxInitCmd(m.sess, m.cfg.ContextIdleThresholdMin)
 
 	case postSandboxInitMsg:
-		m.loading = false
 		m.contextCleared = msg.contextCleared
-		m.textArea.Placeholder = "Type a message..."
 		if len(msg.messages) > 0 {
 			m.messages = append(m.messages, msg.messages...)
 			m.rebuildViewportContent()
@@ -849,40 +861,14 @@ func waitForSandboxInit(ch <-chan SandboxInitMsg) tea.Cmd {
 
 func postSandboxInitCmd(sess *session.Session, thresholdMin int) tea.Cmd {
 	return func() tea.Msg {
-		defer func() {
-			if r := recover(); r != nil {
-				// If anything panics (e.g. memoryHook LLM call), still deliver
-				// a message so the TUI unblocks (loading=false gets set).
-			}
-		}()
 
 		if sess == nil {
 			return postSandboxInitMsg{}
 		}
 
-		contextCleared := false
-		var msgs []message
-		if thresholdMin <= 0 {
-			thresholdMin = 30
-		}
-		timeout := time.Duration(thresholdMin) * time.Minute
-		minTokens := sess.CW().SummaryTokens() / 100
-		if minTokens < 4096 {
-			minTokens = 4096
-		}
-		if minTokens > 16384 {
-			minTokens = 16384
-		}
-		if sess.ShouldClearContext(timeout, minTokens) {
-			_ = sess.ClearSilent()
-			contextCleared = true
-			notice := fmt.Sprintf("Context cleared (idle > %d min, tokens saved). History is shown as reference only.", thresholdMin)
-			msgs = append(msgs, message{role: "system", content: notice, dirty: true})
-		}
-
 		history := sess.History()
-		msgs = append(msgs, loadMessagesFromHistory(history, contextCleared)...)
-		return postSandboxInitMsg{messages: msgs, contextCleared: contextCleared}
+		msgs := loadMessagesFromHistory(history, false)
+		return postSandboxInitMsg{messages: msgs, contextCleared: false}
 	}
 }
 
@@ -942,4 +928,59 @@ func (m model) handleConfirmEnter() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		return confirmResultMsg{callID: cs.callID, choice: agentChoice}
 	}
+}
+
+// checkScrollTop returns a command to load more history if the viewport
+// is at the top, a cursor is available, and no load is in progress.
+func (m *model) checkScrollTop() tea.Cmd {
+	if m.historyCursor == nil || m.historyLoading {
+		return nil
+	}
+	if !m.viewport.AtTop() {
+		return nil
+	}
+	m.historyLoading = true
+	return loadMoreHistoryCmd(m.cfg.TimelineDir, "timeline", 10, *m.historyCursor)
+}
+
+// loadMoreHistoryCmd reads older conversation turns from the timeline.
+func loadMoreHistoryCmd(dir, baseName string, maxTurns int, before time.Time) tea.Cmd {
+	return func() tea.Msg {
+		segs, cursor, _ := timeline.ReadTailBefore(dir, baseName, maxTurns, before)
+		if len(segs) == 0 {
+			return moreHistoryMsg{}
+		}
+		history := make([]agent.LLMMessage, 0, len(segs[0].Messages))
+		for _, m := range segs[0].Messages {
+			history = append(history, agent.LLMMessage{
+				Role:             m.Role,
+				Content:          m.Content,
+				ReasoningContent: m.ReasoningContent,
+				Name:             m.Name,
+				ToolCallID:       m.ToolCallID,
+				ToolCalls:        convertToolCalls(m.ToolCalls),
+			})
+		}
+		msgs := loadMessagesFromHistory(history, true)
+		return moreHistoryMsg{messages: msgs, cursor: cursor}
+	}
+}
+
+// convertToolCalls converts timeline ToolCallRec to llm ToolCall.
+func convertToolCalls(recs []timeline.ToolCallRec) []llm.ToolCall {
+	if len(recs) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolCall, len(recs))
+	for i, tc := range recs {
+		out[i] = llm.ToolCall{
+			ID:   tc.ID,
+			Type: tc.Type,
+			Function: llm.FunctionCall{
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+			},
+		}
+	}
+	return out
 }
