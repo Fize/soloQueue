@@ -34,6 +34,7 @@ type Settings struct {
 	DefaultModels DefaultModelsConfig `json:"defaultModels"`
 	QQBot         QQBotConfig         `json:"qqbot"`
 	Agent         AgentConfig         `json:"agent" toml:"agent"`
+	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp"`
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────
@@ -209,4 +210,23 @@ func parseProviderModelID(s string) (providerID, modelID string, ok bool) {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
+}
+
+// ─── LSP MCP (built-in LSP-based MCP server) ───────────────────────────────
+
+// LSPMCPConfig configures the built-in LSP-based MCP server.
+type LSPMCPConfig struct {
+	Enabled bool              `json:"enabled" toml:"enabled"`
+	Servers []LSPMCPEntry     `json:"servers,omitempty" toml:"servers"`
+}
+
+// LSPMCPEntry is a single LSP server entry in settings.toml.
+// When the servers list is empty, all built-in servers are used.
+type LSPMCPEntry struct {
+	ID         string   `json:"id" toml:"id"`
+	Command    string   `json:"command" toml:"command"`
+	Args       []string `json:"args" toml:"args"`
+	Languages  []string `json:"languages" toml:"languages"`
+	Extensions []string `json:"extensions" toml:"extensions"`
+	Disabled   bool     `json:"disabled" toml:"disabled"`
 }
