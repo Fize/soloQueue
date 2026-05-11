@@ -209,7 +209,13 @@ func Build(
 	todoStore := todo.NewStoreFromDB(sharedDB.DB, &sharedDB.WMu)
 	toolsCfg.TodoStore = todoStore
 
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
+	var mcpServers []string
+	if mcpMgr != nil {
+		for _, srv := range mcpMgr.Loader().Get().Servers {
+			mcpServers = append(mcpServers, srv.Name)
+		}
+	}
+	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
 	}

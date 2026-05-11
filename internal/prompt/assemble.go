@@ -10,7 +10,7 @@ import (
 // userCtx 为空时跳过 <user_context> 段。
 // recentMemory 为短期记忆目录路径（非空时注入文件位置 + Read/Grep 工具使用说明，不注入实际内容）。
 // permanentMemory 非空时注入长时记忆的 RecallMemory/Remember 工具使用说明（不注入实际内容）。
-func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir string) string {
+func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir string, mcpServers []string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", strings.TrimSpace(profile))
@@ -35,6 +35,14 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", strings.TrimSpace(teamMgmt))
 
 	fmt.Fprintf(&b, "\n\n<rules>\n%s\n</rules>", strings.TrimSpace(rules))
+
+	if len(mcpServers) > 0 {
+		b.WriteString("\n\n<mcp_servers>\n")
+		for _, name := range mcpServers {
+			fmt.Fprintf(&b, "- %s\n", name)
+		}
+		b.WriteString("</mcp_servers>")
+	}
 
 	// Plan Before Action section
 	if planDir != "" {

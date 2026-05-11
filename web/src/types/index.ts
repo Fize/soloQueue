@@ -301,6 +301,14 @@ export interface MCPServerConfig {
   enabled: boolean;
 }
 
+export interface MCPServerWire {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  transport?: string;
+  enabled?: boolean;
+}
+
 export interface MCPConfig {
-  servers: MCPServerConfig[];
+  mcpServers: Record<string, MCPServerWire>;
 }

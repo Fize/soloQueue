@@ -5,10 +5,30 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Save, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
-import type { MCPServerConfig } from '@/types';
+import type { MCPServerConfig, MCPConfig } from '@/types';
 
 function emptyServer(): MCPServerConfig {
   return { name: '', command: '', args: [], transport: 'stdio', enabled: true };
+}
+
+function fromWire(cfg: MCPConfig): MCPServerConfig[] {
+  return Object.entries(cfg.mcpServers ?? {}).map(([name, s]) => ({
+    name,
+    command: s.command ?? '',
+    args: s.args ?? [],
+    env: s.env,
+    transport: s.transport ?? 'stdio',
+    enabled: s.enabled ?? true,
+  }));
+}
+
+function toWire(servers: MCPServerConfig[]): MCPConfig {
+  const mcpServers: MCPConfig['mcpServers'] = {};
+  for (const s of servers) {
+    const { name, ...rest } = s;
+    mcpServers[name] = rest;
+  }
+  return { mcpServers };
 }
 
 export function MCPTab() {
@@ -18,7 +38,7 @@ export function MCPTab() {
 
   useEffect(() => {
     if (config && !local) {
-      setLocal(structuredClone(config.servers ?? []));
+      setLocal(fromWire(config));
     }
   }, [config, local]);
 
@@ -27,7 +47,7 @@ export function MCPTab() {
   }
 
   const handleSave = async () => {
-    await save({ servers: local });
+    await save(toWire(local));
   };
 
   const toggleExpand = (i: number) => {

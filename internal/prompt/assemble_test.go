@@ -16,6 +16,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if !strings.Contains(result, "<identity>\nprofile content\n</identity>") {
@@ -58,6 +59,7 @@ func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if strings.Contains(result, "<user_context>") {
@@ -76,6 +78,7 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if strings.Contains(result, "<plan_before_action>") {
@@ -104,6 +107,7 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if !strings.Contains(result, "<exploration_artifacts>") {
@@ -117,5 +121,49 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(result, "Complex investigations") {
 		t.Error("exploration_artifacts should mention when to save")
+	}
+}
+
+func TestAssembleWithXML_MCPServers(t *testing.T) {
+	result := assembleWithXML(
+		"profile content",
+		"user context",
+		"",
+		"",
+		"routing table",
+		"team management",
+		"rules content",
+		"",
+		"/home/user/.soloqueue",
+		[]string{"playwright", "github"},
+	)
+
+	if !strings.Contains(result, "<mcp_servers>") {
+		t.Error("mcp_servers section should be present when servers are provided")
+	}
+	if !strings.Contains(result, "- playwright") {
+		t.Error("should list playwright server")
+	}
+	if !strings.Contains(result, "- github") {
+		t.Error("should list github server")
+	}
+}
+
+func TestAssembleWithXML_NoMCPServers(t *testing.T) {
+	result := assembleWithXML(
+		"profile content",
+		"user context",
+		"",
+		"",
+		"routing table",
+		"team management",
+		"rules content",
+		"",
+		"/home/user/.soloqueue",
+		nil,
+	)
+
+	if strings.Contains(result, "<mcp_servers>") {
+		t.Error("mcp_servers section should be absent when no servers")
 	}
 }

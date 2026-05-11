@@ -32,7 +32,7 @@ func (p *PromptConfig) userCtxPath() string {
 // leaders come from the runtime agent registry and are used to build the routing table.
 // recentMemory is the short-term memory directory (may be empty).
 // permanentMemory is a long-term memory flag (when non-empty, injects RecallMemory/Remember tool instructions).
-func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanentMemory, planDir string) (string, error) {
+func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanentMemory, planDir string, mcpServers []string) (string, error) {
 	// 1. Load soul (required)
 	soul, err := readMD(p.soulPath())
 	if err != nil {
@@ -57,7 +57,7 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanent
 	teamMgmt := buildTeamManagementSection(workDir)
 
 	// 6. Assemble XML
-	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir), nil
+	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, mcpServers), nil
 }
 
 // EnsureFiles checks and fills in any missing prompt files.
