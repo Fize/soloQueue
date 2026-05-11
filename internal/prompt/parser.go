@@ -18,6 +18,7 @@ type AgentFrontmatter struct {
 	IsLeader    bool     `yaml:"is_leader"`
 	Permission  bool     `yaml:"permission"`
 	MCPServers  []string `yaml:"mcp_servers"`
+	Skills      []string `yaml:"skills"`
 }
 
 // GroupFrontmatter 对应 ~/.soloqueue/groups/*.md 的 YAML frontmatter。
