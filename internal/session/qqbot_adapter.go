@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
@@ -54,6 +55,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string) (*qqbo
 
 	var content string
 	var reasoningContent string
+	var imageURLs []string
 	for ev := range eventCh {
 		switch e := ev.(type) {
 		case agent.ToolNeedsConfirmEvent:
@@ -70,6 +72,13 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string) (*qqbo
 					"err", err.Error(),
 				)
 			}
+		case agent.ToolExecDoneEvent:
+			if e.Name == "ImageGenerate" && e.Result != "" {
+				urls := parseImageGenResult(e.Result)
+				if len(urls) > 0 {
+					imageURLs = append(imageURLs, urls...)
+				}
+			}
 		case agent.DoneEvent:
 			content = e.Content
 			reasoningContent = e.ReasoningContent
@@ -81,5 +90,21 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string) (*qqbo
 	return &qqbot.AskStreamResult{
 		Content:          content,
 		ReasoningContent: reasoningContent,
+		ImageURLs:        imageURLs,
 	}, nil
+}
+
+// parseImageGenResult extracts image URLs from an ImageGenerate tool result JSON.
+func parseImageGenResult(raw string) []string {
+	var r struct {
+		Status    string   `json:"status"`
+		ImageURLs []string `json:"image_urls"`
+	}
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return nil
+	}
+	if r.Status != "completed" || len(r.ImageURLs) == 0 {
+		return nil
+	}
+	return r.ImageURLs
 }

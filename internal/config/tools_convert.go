@@ -28,7 +28,22 @@ func (tc ToolsConfig) ToToolsConfig() tools.Config {
 		ShellMaxOutput:      defaultInt64(tc.ShellMaxOutput, 256<<10),
 
 		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 10*time.Minute),
+
+		ImageModels: toImgModelCfgs(tc.ImageModels),
 	}
+}
+
+func toImgModelCfgs(cfgs []ImageModelConfig) []tools.ImgModelCfg {
+	out := make([]tools.ImgModelCfg, len(cfgs))
+	for i, c := range cfgs {
+		out[i] = tools.ImgModelCfg{
+			ID: c.ID, Name: c.Name, Provider: c.Provider,
+			SecretIdEnv: c.SecretIdEnv, SecretKeyEnv: c.SecretKeyEnv,
+			APIKeyEnv: c.APIKeyEnv, APIBaseHost: c.APIBaseHost,
+			Region: c.Region, IsDefault: c.IsDefault, Enabled: c.Enabled,
+		}
+	}
+	return out
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
