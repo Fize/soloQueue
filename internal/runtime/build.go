@@ -236,9 +236,27 @@ func Build(
 	// Build model resolver: validates agent model IDs against settings.toml
 	modelResolver := BuildModelResolver(cfg)
 
+	// Load global skill registry (shared by TUI slash commands and sessions)
+	skillStart := time.Now()
+	skill.SetPackageLogger(log)
+	skillReg := skill.NewSkillRegistry()
+
+	// 1. Register builtin skills first (lower priority)
+	skill.RegisterBuiltinSkills(skillReg)
+
+	// 2. Load user skills from ~/.soloqueue/skills/ (overrides builtin with same ID)
+	skillDirs := map[string]string{
+		"user": filepath.Join(workDir, "skills"),
+	}
+	if skills, err := skill.LoadSkillsFromDirs(skillDirs); err == nil {
+		for _, s := range skills {
+			_ = skillReg.Register(s)
+		}
+	}
+	log.Debug(logger.CatApp, "build: skills loaded", "duration", time.Since(skillStart).String())
+
 	agentFactory := agent.NewDefaultFactory(
-		agentRegistry, llmClient, toolsCfg,
-		filepath.Join(workDir, "skills"), log,
+		agentRegistry, llmClient, toolsCfg, log,
 		agent.WithModelResolver(modelResolver),
 		agent.WithDefaultModelID(defaultModel.ID),
 		agent.WithTemplates(allTemplates),
@@ -246,6 +264,7 @@ func Build(
 		agent.WithWorkDir(workDir),
 		agent.WithBypassConfirm(bypassConfirm),
 		agent.WithMCPManager(mcpMgr),
+		agent.WithSkillRegistry(skillReg),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────
@@ -276,20 +295,6 @@ func Build(
 	classifierConfig := router.DefaultClassifierConfig()
 	classifier := router.NewDefaultClassifier(classifierConfig, llmClient, classifierModel, log)
 	taskRouter := router.NewRouter(classifier, cfg, log)
-
-	// Load global skill registry (shared by TUI slash commands and sessions)
-	skillStart := time.Now()
-	skill.SetPackageLogger(log)
-	skillDirs := map[string]string{
-		"user": filepath.Join(workDir, "skills"),
-	}
-	skillReg := skill.NewSkillRegistry()
-	if skills, err := skill.LoadSkillsFromDirs(skillDirs); err == nil {
-		for _, s := range skills {
-			_ = skillReg.Register(s)
-		}
-	}
-	log.Debug(logger.CatApp, "build: skills loaded", "duration", time.Since(skillStart).String())
 
 	// ── Docker Sandbox mounts (sandbox is started asynchronously by caller) ──
 	var sandboxMounts []sandbox.Mount

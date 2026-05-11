@@ -11,6 +11,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -149,7 +150,6 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 		registry,
 		fakeLLM,
 		tools.Config{},
-		"", // skillDir - 为空时跳过 skill 加载
 		log,
 	)
 
@@ -205,7 +205,6 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 		registry,
 		fakeLLM,
 		tools.Config{},
-		"",
 		log,
 	)
 
@@ -261,7 +260,6 @@ func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 		registry,
 		fakeLLM,
 		tools.Config{},
-		"",
 		log,
 	)
 
@@ -301,7 +299,6 @@ func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 		registry,
 		fakeLLM,
 		tools.Config{},
-		"",
 		log,
 	)
 
@@ -355,7 +352,6 @@ func TestDefaultFactory_Create_StartError(t *testing.T) {
 		registry,
 		fakeLLM,
 		tools.Config{},
-		"",
 		log,
 	)
 
@@ -403,7 +399,6 @@ func setupTestFactory(t *testing.T) (*DefaultFactory, *Registry, *FakeLLM) {
 		registry,
 		fakeLLM,
 		tools.Config{},
-		"",
 		log,
 	)
 
@@ -472,6 +467,16 @@ This is a test skill.
 	}
 	defer log.Close()
 
+	// 加载 skills 到全局注册表
+	skillReg := skill.NewSkillRegistry()
+	loaded, err := skill.LoadSkillsFromDir(skillDir)
+	if err != nil {
+		t.Fatalf("LoadSkillsFromDir: %v", err)
+	}
+	for _, s := range loaded {
+		_ = skillReg.Register(s)
+	}
+
 	registry := NewRegistry(nil)
 	fakeLLM := &FakeLLM{
 		Responses: []string{"hello"},
@@ -481,14 +486,15 @@ This is a test skill.
 		registry,
 		fakeLLM,
 		tools.Config{},
-		skillDir,
 		log,
+		WithSkillRegistry(skillReg),
 	)
 
 	tmpl := AgentTemplate{
 		ID:           "skill-agent",
 		Name:         "Skill Agent",
 		SystemPrompt: "You are a skill agent.",
+		SkillIDs:     []string{"test-skill"},
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl)
@@ -509,7 +515,6 @@ func TestNewDefaultFactory_NilLogger(t *testing.T) {
 		registry,
 		fakeLLM,
 		tools.Config{},
-		"",
 		nil,
 	)
 
@@ -564,7 +569,7 @@ func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
 		}
 	}
 
-	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log,
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
 		WithModelResolver(resolver),
 	)
 
@@ -604,7 +609,7 @@ func TestDefaultFactory_Create_EmptyModel(t *testing.T) {
 		return ModelInfo{}, fmt.Errorf("model %q not found", modelID)
 	}
 
-	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log,
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
 		WithModelResolver(resolver),
 	)
 
@@ -649,7 +654,7 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 		return ModelInfo{}, fmt.Errorf("model %q not found", modelID)
 	}
 
-	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log,
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
 		WithModelResolver(resolver),
 	)
 
@@ -696,7 +701,7 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 	registry := NewRegistry(nil)
 	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
 
-	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, "", log)
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log)
 	// No WithModelResolver — should skip validation
 
 	tmpl := AgentTemplate{
