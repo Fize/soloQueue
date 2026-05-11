@@ -16,6 +16,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
@@ -60,6 +61,7 @@ type Stack struct {
 	TodoStore     *todo.Store        // Todo plan/task store
 	SharedDB      *sqlitedb.DB       // Shared SQLite connection reused by vectorstore + todo stores
 	MCPManager    *mcp.Manager       // MCP server manager
+	LSPManager    *lsp.Manager       // Built-in LSP MCP server manager
 	HTTPServer    *http.Server       // Embedded HTTP API server (TUI mode)
 	HTTPListener  net.Listener       // Listener for the HTTP server
 
@@ -92,6 +94,9 @@ func (s *Stack) Shutdown() {
 	}
 	if s.MCPManager != nil {
 		s.MCPManager.Shutdown()
+	}
+	if s.LSPManager != nil {
+		s.LSPManager.Shutdown()
 	}
 	// Close the shared SQLite DB last so any flush performed by the stores
 	// above (e.g. future scheduled writes) can still reach disk.

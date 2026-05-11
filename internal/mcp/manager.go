@@ -10,40 +10,69 @@ import (
 
 // Manager orchestrates MCP server lifecycle and tool enumeration.
 type Manager struct {
-	loader  *Loader
-	clients map[string]*Client
-	toolMap map[string][]tools.Tool // server name -> wrapped tools
-	mu      sync.RWMutex
-	log     *logger.Logger
+	loader       *Loader
+	clients      map[string]*Client
+	toolMap      map[string][]tools.Tool         // server name -> wrapped tools
+	virtualTools map[string]func() []tools.Tool // in-process tool providers
+	mu           sync.RWMutex
+	log          *logger.Logger
 }
 
 // NewManager creates a new Manager.
 func NewManager(loader *Loader, log *logger.Logger) *Manager {
 	return &Manager{
-		loader:  loader,
-		clients: make(map[string]*Client),
-		toolMap: make(map[string][]tools.Tool),
-		log:     log,
+		loader:       loader,
+		clients:      make(map[string]*Client),
+		toolMap:      make(map[string][]tools.Tool),
+		virtualTools: make(map[string]func() []tools.Tool),
+		log:          log,
+	}
+}
+
+// RegisterVirtual registers an in-process tool provider under a virtual server name.
+// The getTools function is called each time GetTools is invoked for this server name,
+// allowing the provider to return fresh tool instances.
+func (m *Manager) RegisterVirtual(name string, getTools func() []tools.Tool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.virtualTools[name] = getTools
+	if m.log != nil {
+		m.log.Debug(logger.CatMCP, "virtual MCP server registered", "server", name)
 	}
 }
 
 // GetTools returns wrapped tools.Tool instances for the named server.
-// Connects lazily on first call. Returns nil if the server is not found or disabled.
+// Connects lazily on first call. For virtual servers, calls the registered getter.
+// Returns nil if the server is not found or disabled.
 func (m *Manager) GetTools(ctx context.Context, serverName string) []tools.Tool {
-	// Fast path: already connected and cached.
+	// Fast path: already cached in toolMap.
 	m.mu.RLock()
 	if tools, ok := m.toolMap[serverName]; ok {
 		m.mu.RUnlock()
 		return tools
 	}
+	// Check virtual servers (in-process, no connection needed).
+	if getter, ok := m.virtualTools[serverName]; ok {
+		m.mu.RUnlock()
+		tools := getter()
+		m.mu.Lock()
+		m.toolMap[serverName] = tools
+		m.mu.Unlock()
+		return tools
+	}
 	m.mu.RUnlock()
 
-	// Slow path: connect and enumerate.
+	// Slow path: connect to external MCP server.
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Double-check: may have been connected while waiting for write lock.
 	if tools, ok := m.toolMap[serverName]; ok {
+		return tools
+	}
+	if getter, ok := m.virtualTools[serverName]; ok {
+		tools := getter()
+		m.toolMap[serverName] = tools
 		return tools
 	}
 
@@ -160,6 +189,7 @@ func (m *Manager) Shutdown() {
 	}
 	m.clients = make(map[string]*Client)
 	m.toolMap = make(map[string][]tools.Tool)
+	m.virtualTools = make(map[string]func() []tools.Tool)
 }
 
 // Loader returns the underlying config loader.
