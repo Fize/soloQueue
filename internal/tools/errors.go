@@ -58,4 +58,18 @@ var (
 
 	// ErrCommandBlocked Bash 的 command 命中黑名单
 	ErrCommandBlocked = errors.New("tools: command blocked by security policy")
+
+	// ─── ImageGen errors ───────────────────────────────────────────────
+
+	// ErrImageGenNoDefaultModel 没有 enabled + isDefault 的图片模型
+	ErrImageGenNoDefaultModel = errors.New("tools: no default image model enabled")
+
+	// ErrImageGenAuth 图片模型凭证未设置
+	ErrImageGenAuth = errors.New("tools: image model credentials not set")
+
+	// ErrImageGenTimeout 图片生成超时
+	ErrImageGenTimeout = errors.New("tools: image generation timed out after 5 minutes")
+
+	// ErrImageGenFailed 图片生成失败
+	ErrImageGenFailed = errors.New("tools: image generation failed")
 )

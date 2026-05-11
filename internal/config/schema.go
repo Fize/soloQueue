@@ -31,10 +31,10 @@ type Settings struct {
 	Providers     []LLMProvider       `json:"providers"`
 	Models        []LLMModel          `json:"models"`
 	Embedding     EmbeddingConfig     `json:"embedding"`
-	DefaultModels DefaultModelsConfig `json:"defaultModels"`
-	QQBot         QQBotConfig         `json:"qqbot"`
-	Agent         AgentConfig         `json:"agent" toml:"agent"`
-	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp"`
+	DefaultModels DefaultModelsConfig  `json:"defaultModels"`
+	QQBot         QQBotConfig          `json:"qqbot"`
+	Agent         AgentConfig          `json:"agent" toml:"agent"`
+	LSPMCP        LSPMCPConfig         `json:"lspmcp" toml:"lspmcp"`
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────
@@ -107,6 +107,9 @@ type ToolsConfig struct {
 
 	// WebSearch
 	WebSearchTimeoutMs int `json:"webSearchTimeoutMs"`
+
+	// ImageGen
+	ImageModels []ImageModelConfig `json:"imageModels,omitempty" toml:"imageModels"`
 }
 
 // ─── LLM Provider ─────────────────────────────────────────────────────────────
@@ -210,6 +213,22 @@ func parseProviderModelID(s string) (providerID, modelID string, ok bool) {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
+}
+
+// ─── Image Model ─────────────────────────────────────────────────────────────
+
+// ImageModelConfig 图片生成模型配置
+type ImageModelConfig struct {
+	ID           string `json:"id"           toml:"id"`
+	Name         string `json:"name"         toml:"name"`
+	Provider     string `json:"provider"     toml:"provider"` // "tencent" | "doubao"
+	SecretIdEnv  string `json:"secretIdEnv"  toml:"secretIdEnv,omitempty"`
+	SecretKeyEnv string `json:"secretKeyEnv" toml:"secretKeyEnv,omitempty"`
+	APIKeyEnv    string `json:"apiKeyEnv"    toml:"apiKeyEnv,omitempty"`
+	APIBaseHost  string `json:"apiBaseHost"  toml:"apiBaseHost"`
+	Region       string `json:"region"       toml:"region,omitempty"`
+	IsDefault    bool   `json:"isDefault"    toml:"isDefault"`
+	Enabled      bool   `json:"enabled"      toml:"enabled"`
 }
 
 // ─── LSP MCP (built-in LSP-based MCP server) ───────────────────────────────
