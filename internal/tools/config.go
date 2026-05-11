@@ -119,6 +119,24 @@ type Config struct {
 	// CreatePlan, UpdatePlan, DeletePlan, AddTodoItems, DeleteTodoItems,
 	// ToggleTodo, SetTodoDependencies, ListPlans, GetPlan 工具仅在非 nil 时生效。
 	TodoStore *todo.Store
+
+	// ── Image Generation ─────────────────────────────────────
+	// ImageModels 图片生成模型列表。只要有一个 Enabled 的模型就注册 ImageGenerate 工具。
+	ImageModels []ImgModelCfg
+}
+
+// ImgModelCfg 运行时图片模型配置
+type ImgModelCfg struct {
+	ID           string
+	Name         string
+	Provider     string
+	SecretIdEnv  string
+	SecretKeyEnv string
+	APIKeyEnv    string
+	APIBaseHost  string
+	Region       string
+	IsDefault    bool
+	Enabled      bool
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────
@@ -162,6 +180,16 @@ func Build(cfg Config) []Tool {
 			newListPlansTool(cfg),
 			newGetPlanTool(cfg),
 		)
+	}
+	hasImgModel := false
+	for _, m := range cfg.ImageModels {
+		if m.Enabled {
+			hasImgModel = true
+			break
+		}
+	}
+	if hasImgModel {
+		tools = append(tools, newImageGenTool(cfg))
 	}
 	return tools
 }
