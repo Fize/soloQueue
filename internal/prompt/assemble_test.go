@@ -15,10 +15,18 @@ func TestAssembleWithXML_Full(t *testing.T) {
 		"team management",
 		"rules content",
 		"/home/user/.soloqueue/plan",
+		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if !strings.Contains(result, "<identity>\nprofile content\n</identity>") {
 		t.Error("missing or incorrect identity section")
+	}
+	if !strings.Contains(result, "<working_directory>") {
+		t.Error("missing working_directory section")
+	}
+	if !strings.Contains(result, "~/.soloqueue") {
+		t.Error("working_directory should mention ~/.soloqueue")
 	}
 	if !strings.Contains(result, "<user_context>\nuser context\n</user_context>") {
 		t.Error("missing or incorrect user_context section")
@@ -35,7 +43,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "<plan_before_action>") {
 		t.Error("missing plan_before_action section when planDir is provided")
 	}
-	if !strings.Contains(result, "/home/user/.soloqueue/plan") {
+	if !strings.Contains(result, "~/.soloqueue/plan") {
 		t.Error("missing plan directory path in plan_before_action section")
 	}
 }
@@ -50,6 +58,8 @@ func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 		"team management",
 		"rules content",
 		"/home/user/.soloqueue/plan",
+		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if strings.Contains(result, "<user_context>") {
@@ -67,6 +77,8 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 		"team management",
 		"rules content",
 		"",
+		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if strings.Contains(result, "<plan_before_action>") {
@@ -94,6 +106,8 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 		"team management",
 		"rules content",
 		"/home/user/.soloqueue/plan",
+		"/home/user/.soloqueue",
+		nil,
 	)
 
 	if !strings.Contains(result, "<exploration_artifacts>") {
@@ -107,5 +121,49 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(result, "Complex investigations") {
 		t.Error("exploration_artifacts should mention when to save")
+	}
+}
+
+func TestAssembleWithXML_MCPServers(t *testing.T) {
+	result := assembleWithXML(
+		"profile content",
+		"user context",
+		"",
+		"",
+		"routing table",
+		"team management",
+		"rules content",
+		"",
+		"/home/user/.soloqueue",
+		[]string{"playwright", "github"},
+	)
+
+	if !strings.Contains(result, "<mcp_servers>") {
+		t.Error("mcp_servers section should be present when servers are provided")
+	}
+	if !strings.Contains(result, "- playwright") {
+		t.Error("should list playwright server")
+	}
+	if !strings.Contains(result, "- github") {
+		t.Error("should list github server")
+	}
+}
+
+func TestAssembleWithXML_NoMCPServers(t *testing.T) {
+	result := assembleWithXML(
+		"profile content",
+		"user context",
+		"",
+		"",
+		"routing table",
+		"team management",
+		"rules content",
+		"",
+		"/home/user/.soloqueue",
+		nil,
+	)
+
+	if strings.Contains(result, "<mcp_servers>") {
+		t.Error("mcp_servers section should be absent when no servers")
 	}
 }

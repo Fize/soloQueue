@@ -770,7 +770,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		"designer": otherTmpl,
 	}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan")
+	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue")
 
 	// Segment 1: user-defined
 	if !strings.Contains(prompt, "You are a dev supervisor.") {
@@ -889,10 +889,11 @@ func TestBuildL2SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue")
 
 	// 验证 L2 prompt 中包含 plan 目录路径
-	if !strings.Contains(prompt, planDir) {
+	if !strings.Contains(prompt, "~/.soloqueue/plan") {
+		// Note: planDir is now displayed in tilde form (~/.soloqueue/plan) to avoid leaking host paths
 		t.Errorf("L2 prompt should contain plan directory path %q", planDir)
 	}
 }
@@ -913,7 +914,7 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	groups := map[string]prompt.GroupFile{}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "")
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue")
 
 	// 空 planDir 时，plan 相关规则不应出现（需求 4.1、5.2）
 	// TODO: 当前实现未做条件剔除，l2EnforcedDirectives 中的 "Plan Before Execution"
@@ -954,7 +955,7 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue")
 
 	// 验证 Goal/Approach/Impact/Steps 结构约定在 L2 prompt 中体现
 	if !strings.Contains(prompt, "Goal") {
@@ -980,7 +981,7 @@ func TestBuildL3SystemPrompt_ContainsPlanBeforeActionRule(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, planDir)
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue")
 
 	// 验证 L3 prompt 中包含 "Plan Before Action" 规则
 	if !strings.Contains(prompt, "Plan Before Action") {
@@ -1008,11 +1009,11 @@ func TestBuildL3SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, planDir)
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue")
 
-	// 验证 L3 prompt 中包含 plan 目录路径
-	if !strings.Contains(prompt, planDir) {
-		t.Errorf("L3 prompt should contain plan directory path %q", planDir)
+	// 验证 L3 prompt 中包含 plan 目录路径（以 ~ 开头的形式）
+	if !strings.Contains(prompt, "~/.soloqueue/plan") {
+		t.Errorf("L3 prompt should contain plan directory path in ~ form, got: %s", prompt)
 	}
 }
 
@@ -1024,7 +1025,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	prompt := buildL3SystemPrompt(tmpl, "")
+	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue")
 
 	// 空 planDir 时，plan 相关规则和路径不应出现（需求 5.4、5.5）
 	// TODO: 当前实现未做条件剔除，{{PLAN_DIR}} 被替换为空字符串后，
@@ -1057,7 +1058,7 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, planDir)
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue")
 
 	// 验证 Goal/Approach/Impact/Steps 结构约定在 L3 prompt 中体现
 	if !strings.Contains(prompt, "Goal") {
@@ -1092,7 +1093,7 @@ func TestBuildL2SystemPrompt_DockerSandboxPath(t *testing.T) {
 
 	// Docker 沙箱模式：planDir 应替换为容器内路径
 	dockerPlanDir := "/root/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, dockerPlanDir)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, dockerPlanDir, "/home/user/.soloqueue")
 
 	// 验证 L2 prompt 中包含 Docker 容器内的 plan 目录路径
 	if !strings.Contains(prompt, dockerPlanDir) {
@@ -1116,7 +1117,7 @@ func TestBuildL3SystemPrompt_DockerSandboxPath(t *testing.T) {
 
 	// Docker 沙箱模式：planDir 应替换为容器内路径
 	dockerPlanDir := "/root/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, dockerPlanDir)
+	prompt := buildL3SystemPrompt(tmpl, nil, dockerPlanDir, "/home/user/.soloqueue")
 
 	// 验证 L3 prompt 中包含 Docker 容器内的 plan 目录路径
 	if !strings.Contains(prompt, dockerPlanDir) {

@@ -15,12 +15,22 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
+
+// MCPLoaderFromRT extracts the MCP loader from the runtime stack.
+// Returns nil if MCP is not configured.
+func MCPLoaderFromRT(rt *runtime.Stack) *mcp.Loader {
+	if rt.MCPManager == nil {
+		return nil
+	}
+	return rt.MCPManager.Loader()
+}
 
 func ServeCmd(version string) *cobra.Command {
 	var port int
@@ -110,13 +120,20 @@ func ServeCmd(version string) *cobra.Command {
 				}
 				planDir, _ := config.PlanDir()
 				memoryDir := filepath.Join(workDir, "memory")
-				newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
+				var mcpServers []string
+				if rt.MCPManager != nil {
+					for _, srv := range rt.MCPManager.Loader().Get().Servers {
+						mcpServers = append(mcpServers, srv.Name)
+					}
+				}
+				newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
 				if err != nil {
 					return err
 				}
 				rt.SetSystemPrompt(newPrompt)
 				return nil
 			}),
+			server.WithMCPLoader(MCPLoaderFromRT(rt)),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.

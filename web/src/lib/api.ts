@@ -11,6 +11,7 @@ import type {
   AppConfig,
   ToolListResponse,
   SkillListResponse,
+  MCPConfig,
 } from '@/types';
 
 const API_BASE = 'http://localhost:8765/api';
@@ -104,4 +105,14 @@ export async function getTools(): Promise<ToolListResponse> {
 
 export async function getSkills(): Promise<SkillListResponse> {
   return request<SkillListResponse>('/skills');
+}
+
+// ─── MCP APIs ──────────────────────────────────────────────────────────────────
+
+export async function getMCPConfig(): Promise<MCPConfig> {
+  return request<MCPConfig>('/mcp');
+}
+
+export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
+  return request<MCPConfig>('/mcp', { method: 'PATCH', body: JSON.stringify(config) });
 }

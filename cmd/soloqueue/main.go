@@ -142,13 +142,20 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 					}
 					planDir, _ := config.PlanDir()
 					memoryDir := filepath.Join(workDir, "memory")
-					newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir)
+					var mcpServers []string
+					if rt.MCPManager != nil {
+						for _, srv := range rt.MCPManager.Loader().Get().Servers {
+							mcpServers = append(mcpServers, srv.Name)
+						}
+					}
+					newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
 					if err != nil {
 						return err
 					}
 					rt.SetSystemPrompt(newPrompt)
 					return nil
 				}),
+				server.WithMCPLoader(cli.MCPLoaderFromRT(rt)),
 			)
 
 			// Create and start WebSocket Hub for real-time state updates.

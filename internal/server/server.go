@@ -36,6 +36,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
@@ -60,6 +61,7 @@ type Mux struct {
 	skillReg       *skill.SkillRegistry
 	rebuildPrompt  func() error // rebuilds L1 system prompt after soul/rules edit
 	agentsDir      string       // path to ~/.soloqueue/agents directory
+	mcpLoader      *mcp.Loader  // MCP config loader for /api/mcp endpoints
 }
 
 // MuxOption is a functional option for NewMux.
@@ -117,6 +119,11 @@ func WithAgentsDir(dir string) MuxOption {
 // Called after soul/rules are updated via the API.
 func WithPromptRebuild(fn func() error) MuxOption {
 	return func(m *Mux) { m.rebuildPrompt = fn }
+}
+
+// WithMCPLoader sets the MCP config loader for /api/mcp endpoints.
+func WithMCPLoader(loader *mcp.Loader) MuxOption {
+	return func(m *Mux) { m.mcpLoader = loader }
 }
 
 // SetHub sets the WebSocket Hub after construction. This is useful when the
@@ -207,6 +214,10 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	// Tools & Skills routes
 	r.Get("/api/tools", m.handleListTools)
 	r.Get("/api/skills", m.handleListSkills)
+
+	// MCP config routes
+	r.Get("/api/mcp", m.handleGetMCPConfig)
+	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
 
 	return m
 }
