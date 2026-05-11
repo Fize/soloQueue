@@ -33,10 +33,10 @@ const stateVariant: Record<AgentState, 'default' | 'secondary' | 'outline' | 'de
 };
 
 const stateLabel: Record<AgentState, string> = {
-  processing: '运行中',
-  idle: '空闲',
-  stopping: '停止中',
-  stopped: '已停止',
+  processing: 'Running',
+  idle: 'Idle',
+  stopping: 'Stopping',
+  stopped: 'Stopped',
 };
 
 // ─── Inline Editor ──────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ function InlineEditor({ content, onSave, saving, height = 'h-[400px]' }: {
           {content ? (
             <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">{content}</pre>
           ) : (
-            <p className="text-sm text-muted-foreground">暂无内容</p>
+            <p className="text-sm text-muted-foreground">No content</p>
           )}
         </ScrollArea>
       )}
@@ -158,7 +158,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             <div className="flex items-center justify-between pr-8">
               <DialogTitle className="flex items-center gap-2">
                 <span>{effectiveName}</span>
-                <Badge variant="default" className="text-xs">主 Agent</Badge>
+                <Badge variant="default" className="text-xs">Main Agent</Badge>
               </DialogTitle>
               <Button
                 variant="outline"
@@ -166,7 +166,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 onClick={() => { window.location.hash = 'settings/profile'; onOpenChange(false); }}
               >
                 <Settings className="mr-1 h-3 w-3" />
-                编辑
+                Edit
               </Button>
             </div>
             {hasAgent && (
@@ -183,11 +183,11 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             <TabsContent value="soul" className="mt-3">
               <ScrollArea className="h-[400px] rounded-md border border-border p-4">
                 {loading ? (
-                  <p className="text-sm text-muted-foreground">加载中...</p>
+                  <p className="text-sm text-muted-foreground">Loading...</p>
                 ) : profile?.soul ? (
                   <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed">{profile.soul}</pre>
                 ) : (
-                  <p className="text-sm text-muted-foreground">暂无 Soul 配置</p>
+                  <p className="text-sm text-muted-foreground">No Soul config</p>
                 )}
               </ScrollArea>
             </TabsContent>
@@ -195,11 +195,11 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             <TabsContent value="rules" className="mt-3">
               <ScrollArea className="h-[400px] rounded-md border border-border p-4">
                 {loading ? (
-                  <p className="text-sm text-muted-foreground">加载中...</p>
+                  <p className="text-sm text-muted-foreground">Loading...</p>
                 ) : profile?.rules ? (
                   <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed">{profile.rules}</pre>
                 ) : (
-                  <p className="text-sm text-muted-foreground">暂无 Rules 配置</p>
+                  <p className="text-sm text-muted-foreground">No Rules config</p>
                 )}
               </ScrollArea>
             </TabsContent>
@@ -241,7 +241,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 {stateLabel[agent.state] || agent.state}
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-xs">未启动</Badge>
+              <Badge variant="outline" className="text-xs">Not started</Badge>
             )}
           </DialogTitle>
           {hasAgent && (
@@ -251,8 +251,8 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
 
         <Tabs defaultValue="status" className="mt-2">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="status" disabled={!hasAgent}>状态</TabsTrigger>
-            <TabsTrigger value="details" disabled={!hasAgent}>详情</TabsTrigger>
+            <TabsTrigger value="status" disabled={!hasAgent}>Status</TabsTrigger>
+            <TabsTrigger value="details" disabled={!hasAgent}>Details</TabsTrigger>
             <TabsTrigger value="config">YAML</TabsTrigger>
             <TabsTrigger value="prompt">Prompt</TabsTrigger>
           </TabsList>
@@ -262,23 +262,23 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             {hasAgent ? (
               <>
                 <div className="space-y-1.5">
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">工作状态</h4>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">Work Status</h4>
                   <div className="rounded-md border border-border p-3 space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">状态</span>
+                      <span className="text-muted-foreground">Status</span>
                       <Badge variant={stateVariant[agent.state]} className="text-xs">
                         {stateLabel[agent.state] || agent.state}
                       </Badge>
                     </div>
                     {agent.error_count > 0 && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">错误次数</span>
+                        <span className="text-muted-foreground">Error count</span>
                         <span className="text-destructive font-medium">{agent.error_count}</span>
                       </div>
                     )}
                     {agent.last_error && (
                       <div className="space-y-1">
-                        <span className="text-xs text-muted-foreground">最后错误</span>
+                        <span className="text-xs text-muted-foreground">Last error</span>
                         <p className="rounded-md bg-destructive/10 p-2 text-xs text-destructive break-all">
                           {agent.last_error}
                         </p>
@@ -287,25 +287,25 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">工作负载</h4>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">Workload</h4>
                   <div className="rounded-md border border-border p-3 space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">待处理委托</span>
+                      <span className="text-muted-foreground">Pending delegations</span>
                       <span className="font-medium">{agent.pending_delegations}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">高优先级邮箱</span>
+                      <span className="text-muted-foreground">High priority mailbox</span>
                       <span className="font-medium">{agent.mailbox_high}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">普通邮箱</span>
+                      <span className="text-muted-foreground">Normal mailbox</span>
                       <span className="font-medium">{agent.mailbox_normal}</span>
                     </div>
                   </div>
                 </div>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground py-8 text-center">Agent 未启动，暂无运行时状态</p>
+              <p className="text-sm text-muted-foreground py-8 text-center">Agent not started, no runtime status</p>
             )}
           </TabsContent>
 
@@ -314,32 +314,32 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             {hasAgent ? (
               <>
                 <div className="space-y-1.5">
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">基本信息</h4>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">Basic Info</h4>
                   <div className="rounded-md border border-border p-3 space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">名称</span>
+                      <span className="text-muted-foreground">Name</span>
                       <span className="font-medium">{agent.name}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">模型</span>
+                      <span className="text-muted-foreground">Model</span>
                       <span className="font-mono text-xs">{agent.model_id}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">分组</span>
+                      <span className="text-muted-foreground">Group</span>
                       <span className="font-medium">{agent.group || 'Session'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">任务级别</span>
+                      <span className="text-muted-foreground">Task level</span>
                       <span className="font-medium">{agent.task_level || '-'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">是否 Leader</span>
+                      <span className="text-muted-foreground">Is Leader</span>
                       <span className={cn('font-medium', agent.is_leader ? 'text-primary' : '')}>
-                        {agent.is_leader ? '是' : '否'}
+                        {agent.is_leader ? 'Yes' : 'No'}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">错误次数</span>
+                      <span className="text-muted-foreground">Error count</span>
                       <span className={cn('font-medium', agent.error_count > 0 ? 'text-destructive' : '')}>
                         {agent.error_count}
                       </span>
@@ -347,7 +347,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">标识</h4>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">Identifiers</h4>
                   <div className="rounded-md border border-border p-3 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">ID</span>
@@ -361,14 +361,14 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 </div>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground py-8 text-center">Agent 未启动，暂无详情</p>
+              <p className="text-sm text-muted-foreground py-8 text-center">Agent not started, no details</p>
             )}
           </TabsContent>
 
           {/* YAML Tab — editable frontmatter config */}
           <TabsContent value="config" className="mt-3">
             {configLoading ? (
-              <p className="text-sm text-muted-foreground">加载中...</p>
+              <p className="text-sm text-muted-foreground">Loading...</p>
             ) : config ? (
               <InlineEditor
                 content={config.raw_config || ''}
@@ -376,14 +376,14 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 saving={savingYaml}
               />
             ) : (
-              <p className="text-sm text-muted-foreground">暂无配置信息</p>
+              <p className="text-sm text-muted-foreground">No config info</p>
             )}
           </TabsContent>
 
           {/* Prompt Tab — editable markdown body / system prompt */}
           <TabsContent value="prompt" className="mt-3">
             {configLoading ? (
-              <p className="text-sm text-muted-foreground">加载中...</p>
+              <p className="text-sm text-muted-foreground">Loading...</p>
             ) : config ? (
               <InlineEditor
                 content={config.system_prompt || ''}
@@ -391,7 +391,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 saving={savingPrompt}
               />
             ) : (
-              <p className="text-sm text-muted-foreground">暂无 Prompt 配置</p>
+              <p className="text-sm text-muted-foreground">No Prompt config</p>
             )}
           </TabsContent>
         </Tabs>
