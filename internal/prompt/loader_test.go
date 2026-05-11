@@ -91,7 +91,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 		{Name: "dev", Description: "开发工程师", Group: "DevOps"},
 	}
 
-	result, err := cfg.BuildPrompt(leaders, "", "", "/home/user/.soloqueue/plan")
+	result, err := cfg.BuildPrompt(leaders, "", "", "/home/user/.soloqueue/plan", nil)
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	cfg.EnsureFiles()
 	// Do not create user.md.
 
-	result, err := cfg.BuildPrompt(nil, "", "", "/home/user/.soloqueue/plan")
+	result, err := cfg.BuildPrompt(nil, "", "", "/home/user/.soloqueue/plan", nil)
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
 	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
 
-	result, err := cfg.BuildPrompt(nil, "", "", "")
+	result, err := cfg.BuildPrompt(nil, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestBuildPrompt_DockerSandboxPath(t *testing.T) {
 
 	// Simulate Docker sandbox mode: path should be replaced with the in-container path /root/.soloqueue/plan/.
 	dockerPlanDir := "/root/.soloqueue/plan"
-	result, err := cfg.BuildPrompt(leaders, "", "", dockerPlanDir)
+	result, err := cfg.BuildPrompt(leaders, "", "", dockerPlanDir, nil)
 	if err != nil {
 		t.Fatalf("BuildPrompt: %v", err)
 	}

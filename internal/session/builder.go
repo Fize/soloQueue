@@ -203,6 +203,20 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		allTools = append(allTools, skillTool)
 	}
 
+	// MCP tools for L1: register tools from all enabled MCP servers.
+	if b.RT.MCPManager != nil {
+		mcpCfg := b.RT.MCPManager.Loader().Get()
+		for _, srv := range mcpCfg.Servers {
+			if !srv.Enabled {
+				continue
+			}
+			mcpTools := b.RT.MCPManager.GetTools(ctx, srv.Name)
+			if mcpTools != nil {
+				allTools = append(allTools, mcpTools...)
+			}
+		}
+	}
+
 	a := agent.NewAgent(def, llmClient, sessLog,
 		agent.WithTools(allTools...),
 		agent.WithSkills(skillList...),
