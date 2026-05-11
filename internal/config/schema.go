@@ -7,6 +7,15 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 )
 
+// ─── Agent (L1 orchestrator) ──────────────────────────────────────────────────
+
+// AgentConfig holds per-agent-type settings. Currently only the L1 orchestrator.
+type AgentConfig struct {
+	// MCPServers is the L1 orchestrator's MCP server whitelist.
+	// Empty means all enabled servers are available.
+	MCPServers []string `json:"mcpServers" toml:"mcp_servers"`
+}
+
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
 // Settings is the complete structure for global configuration
@@ -24,6 +33,7 @@ type Settings struct {
 	Embedding     EmbeddingConfig     `json:"embedding"`
 	DefaultModels DefaultModelsConfig `json:"defaultModels"`
 	QQBot         QQBotConfig         `json:"qqbot"`
+	Agent         AgentConfig         `json:"agent" toml:"agent"`
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────

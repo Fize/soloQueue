@@ -209,12 +209,16 @@ func (l *Loader) scheduleReload() {
 		if l.log != nil {
 			l.log.Debug(logger.CatMCP, "mcp config hot-reload triggered after debounce")
 		}
+		old := l.Get()
 		if err := l.Load(); err != nil {
 			if l.log != nil {
 				l.log.Error(logger.CatMCP, "mcp config hot-reload failed", "err", err)
 			}
-		} else if l.log != nil {
-			l.log.Info(logger.CatMCP, "mcp config hot-reload completed successfully")
+		} else {
+			if l.log != nil {
+				l.log.Info(logger.CatMCP, "mcp config hot-reload completed successfully")
+			}
+			l.fireOnChange(old)
 		}
 	})
 }
