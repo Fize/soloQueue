@@ -1,4 +1,4 @@
-import { RefreshCw, FolderOpen, Kanban } from 'lucide-react'
+import { RefreshCw, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { AppTab } from '@/App'
 import { cn } from '@/lib/utils'
@@ -21,9 +21,7 @@ export function Header({ activeTab, onTabChange, onRefresh, loading }: HeaderPro
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b-2 border-border bg-card px-4 md:px-6">
       {/* Logo */}
       <div className="flex items-center gap-2.5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-border bg-primary nb-shadow-xs">
-          <Kanban className="h-4.5 w-4.5 text-primary-foreground" />
-        </div>
+        <img src="/logo.png" alt="SoloQueue" className="h-8 w-8" />
         <h1 className="text-lg font-bold tracking-tight text-foreground">SoloQueue</h1>
       </div>
 
