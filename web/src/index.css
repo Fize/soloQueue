@@ -257,3 +257,105 @@
     box-shadow: var(--nb-shadow-lg);
   }
 }
+
+/* ─── Markdown Preview Styles ──────────────────────────────────────────────── */
+@layer components {
+  .markdown-preview {
+    @apply text-sm leading-relaxed text-foreground;
+  }
+
+  /* Headers */
+  .markdown-preview h1 {
+    @apply mt-6 mb-3 text-xl font-bold tracking-tight text-foreground;
+  }
+  .markdown-preview h2 {
+    @apply mt-5 mb-2.5 text-lg font-bold tracking-tight text-foreground;
+  }
+  .markdown-preview h3 {
+    @apply mt-4 mb-2 text-base font-bold text-foreground;
+  }
+  .markdown-preview h4 {
+    @apply mt-3 mb-1.5 text-sm font-bold text-foreground;
+  }
+  .markdown-preview h5,
+  .markdown-preview h6 {
+    @apply mt-3 mb-1.5 text-sm font-semibold text-muted-foreground;
+  }
+
+  /* Paragraphs */
+  .markdown-preview p {
+    @apply mb-3 last:mb-0;
+  }
+
+  /* Lists */
+  .markdown-preview ul {
+    @apply mb-3 list-disc pl-6 last:mb-0;
+  }
+  .markdown-preview ol {
+    @apply mb-3 list-decimal pl-6 last:mb-0;
+  }
+  .markdown-preview li {
+    @apply mb-1;
+  }
+  .markdown-preview li > ul,
+  .markdown-preview li > ol {
+    @apply mt-1 mb-0;
+  }
+
+  /* Task lists (GFM) */
+  .markdown-preview li input[type="checkbox"] {
+    @apply mr-1.5 h-3.5 w-3.5 accent-primary;
+  }
+
+  /* Inline code */
+  .markdown-preview code {
+    @apply rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-accent-foreground;
+  }
+
+  /* Code blocks */
+  .markdown-preview pre {
+    @apply mb-3 overflow-x-auto rounded-lg border-2 border-border bg-muted/50 p-3 last:mb-0;
+  }
+  .markdown-preview pre code {
+    @apply bg-transparent p-0 text-xs leading-relaxed;
+  }
+
+  /* Blockquotes */
+  .markdown-preview blockquote {
+    @apply mb-3 border-l-[3px] border-primary/60 pl-3 italic text-muted-foreground last:mb-0;
+  }
+
+  /* Tables (GFM) */
+  .markdown-preview table {
+    @apply mb-3 w-full border-collapse text-xs last:mb-0;
+  }
+  .markdown-preview th {
+    @apply border-2 border-border bg-muted/50 px-3 py-2 text-left font-semibold;
+  }
+  .markdown-preview td {
+    @apply border-2 border-border px-3 py-2;
+  }
+
+  /* Links */
+  .markdown-preview a {
+    @apply text-info-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:decoration-primary;
+  }
+
+  /* Horizontal rule */
+  .markdown-preview hr {
+    @apply my-4 border-t-2 border-border;
+  }
+
+  /* Images */
+  .markdown-preview img {
+    @apply my-2 rounded-lg border-2 border-border max-w-full;
+  }
+
+  /* Strong / Emphasis */
+  .markdown-preview strong {
+    @apply font-bold text-foreground;
+  }
+  .markdown-preview em {
+    @apply italic;
+  }
+}
