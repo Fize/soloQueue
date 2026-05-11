@@ -7,9 +7,10 @@ import { ToolsTab } from './settings/ToolsTab';
 import { SkillsTab } from './settings/SkillsTab';
 import { IntegrationsTab } from './settings/IntegrationsTab';
 import { MCPTab } from './settings/MCPTab';
-import { Settings, User, Cpu, Wrench, Sparkles, Plug, Server } from 'lucide-react';
+import { AgentTab } from './settings/AgentTab';
+import { Settings, User, Cpu, Wrench, Sparkles, Plug, Server, Bot } from 'lucide-react';
 
-type SettingsTab = 'general' | 'profile' | 'models' | 'tools' | 'skills' | 'integrations' | 'mcp';
+type SettingsTab = 'general' | 'profile' | 'models' | 'tools' | 'skills' | 'integrations' | 'mcp' | 'agent';
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: 'general', label: 'General', icon: Settings },
@@ -18,6 +19,7 @@ const settingsTabs: { id: SettingsTab; label: string; icon: typeof Settings }[] 
   { id: 'tools', label: 'Tools', icon: Wrench },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'integrations', label: 'Integrations', icon: Plug },
+  { id: 'agent', label: 'Agent', icon: Bot },
   { id: 'mcp', label: 'MCP', icon: Server },
 ];
 
@@ -77,6 +79,7 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
           {activeTab === 'tools' && <ToolsTab />}
           {activeTab === 'skills' && <SkillsTab />}
           {activeTab === 'integrations' && <IntegrationsTab />}
+          {activeTab === 'agent' && <AgentTab />}
           {activeTab === 'mcp' && <MCPTab />}
         </div>
       </div>

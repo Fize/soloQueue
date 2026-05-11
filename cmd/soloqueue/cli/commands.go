@@ -101,9 +101,25 @@ func ServeCmd(version string) *cobra.Command {
 				// ── QQ Bot integration ──
 				qqGateway := StartQQBot(cfg, mgr, workDir, log)
 
-			rootCtx, stop := signal.NotifyContext(context.Background(),
-				os.Interrupt, syscall.SIGTERM)
-			defer stop()
+		rootCtx, stop := signal.NotifyContext(context.Background(),
+			os.Interrupt, syscall.SIGTERM)
+		defer stop()
+
+		rebuildPrompt := func() error {
+			leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
+			if err != nil {
+				leaders = rt.Leaders
+			}
+			planDir, _ := config.PlanDir()
+			memoryDir := filepath.Join(workDir, "memory")
+			newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, rt.L1MCPServers())
+			if err != nil {
+				return err
+			}
+			rt.SetSystemPrompt(newPrompt)
+			return nil
+		}
+		rt.OnPromptRebuild(rebuildPrompt)
 
 		mux := server.NewMux(workDir, log, rt.TodoStore,
 			server.WithRegistry(rt.AgentRegistry),
@@ -113,26 +129,7 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithToolsConfig(&rt.ToolsCfg),
 			server.WithSkillRegistry(rt.SkillRegistry),
 			server.WithAgentsDir(filepath.Join(workDir, "agents")),
-			server.WithPromptRebuild(func() error {
-				leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
-				if err != nil {
-					leaders = rt.Leaders
-				}
-				planDir, _ := config.PlanDir()
-				memoryDir := filepath.Join(workDir, "memory")
-				var mcpServers []string
-				if rt.MCPManager != nil {
-					for _, srv := range rt.MCPManager.Loader().Get().Servers {
-						mcpServers = append(mcpServers, srv.Name)
-					}
-				}
-				newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
-				if err != nil {
-					return err
-				}
-				rt.SetSystemPrompt(newPrompt)
-				return nil
-			}),
+			server.WithPromptRebuild(rebuildPrompt),
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),
 		)
 

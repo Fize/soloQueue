@@ -35,6 +35,7 @@ type Stack struct {
 	LLMClient    agent.LLMClient
 	ToolsCfg     tools.Config
 	DefaultModel *config.LLMModel
+	Settings     *config.GlobalService // hot-reloaded global config
 
 	AgentRegistry *agent.Registry
 	AgentFactory  *agent.DefaultFactory
@@ -66,6 +67,10 @@ type Stack struct {
 
 	// compactorInstance stores the concrete type for internal use.
 	compactorInstance *compactor.LLMCompactor
+
+	// promptRebuildFuncs holds callbacks to rebuild the L1 system prompt.
+	promptRebuildFuncs []func() error
+	promptRebuildMu    sync.Mutex
 }
 
 // Shutdown gracefully reaps all child Agents managed by L2 Supervisors and destroys the Docker sandbox.
@@ -130,4 +135,63 @@ func (s *Stack) SetSystemPrompt(prompt string) {
 	s.CfgMu.Lock()
 	defer s.CfgMu.Unlock()
 	s.SystemPrompt = prompt
+}
+
+// OnPromptRebuild registers a callback to rebuild the L1 system prompt.
+// Called by the hot-reload subsystem when settings.toml changes.
+func (s *Stack) OnPromptRebuild(fn func() error) {
+	s.promptRebuildMu.Lock()
+	defer s.promptRebuildMu.Unlock()
+	s.promptRebuildFuncs = append(s.promptRebuildFuncs, fn)
+}
+
+// RebuildPrompt executes all registered prompt rebuild callbacks.
+func (s *Stack) RebuildPrompt() error {
+	s.promptRebuildMu.Lock()
+	fns := make([]func() error, len(s.promptRebuildFuncs))
+	copy(fns, s.promptRebuildFuncs)
+	s.promptRebuildMu.Unlock()
+	for _, fn := range fns {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// L1MCPServers returns the MCP server names available to the L1 orchestrator,
+// filtered by the agent.mcpServers whitelist (empty = all enabled).
+func (s *Stack) L1MCPServers() []string {
+	if s.MCPManager == nil {
+		return nil
+	}
+	cfg := s.MCPManager.Loader().Get()
+	allowedSet := s.allowedMCPSet()
+	var names []string
+	for _, srv := range cfg.Servers {
+		if !srv.Enabled {
+			continue
+		}
+		if allowedSet == nil || allowedSet[srv.Name] {
+			names = append(names, srv.Name)
+		}
+	}
+	return names
+}
+
+// allowedMCPSet returns the set of allowed MCP server names from settings,
+// or nil if no whitelist is configured (meaning all enabled servers are allowed).
+func (s *Stack) allowedMCPSet() map[string]bool {
+	if s.Settings == nil {
+		return nil
+	}
+	allowed := s.Settings.Get().Agent.MCPServers
+	if len(allowed) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		set[name] = true
+	}
+	return set
 }
