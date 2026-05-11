@@ -17,6 +17,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
+	lspmcp "github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -83,6 +84,48 @@ func Build(
 			log.Warn(logger.CatMCP, "failed to watch mcp.json for hot-reload", "err", err)
 		}
 		mcpMgr = mcp.NewManager(mcpLoader, log)
+	}
+
+	// ── LSP MCP (built-in LSP-based MCP) ─────────────────────────────────────
+	var lspMgr *lspmcp.Manager
+	rootPath, _ := os.Getwd()
+	lspMgr = lspmcp.NewManager(rootPath, log)
+	defs := lspmcp.BuiltinServers()
+
+	// Apply user overrides from settings if present.
+	if len(settings.LSPMCP.Servers) > 0 {
+		userDefs := make(map[string]config.LSPMCPEntry)
+		for _, s := range settings.LSPMCP.Servers {
+			userDefs[s.ID] = s
+		}
+		filtered := defs[:0]
+		for _, d := range defs {
+			if u, ok := userDefs[d.ID]; ok {
+				if u.Disabled {
+					continue
+				}
+				if u.Command != "" {
+					d.Command = u.Command
+				}
+				if u.Args != nil {
+					d.Args = u.Args
+				}
+				if u.Languages != nil {
+					d.Languages = u.Languages
+				}
+				if u.Extensions != nil {
+					d.Extensions = u.Extensions
+				}
+			}
+			filtered = append(filtered, d)
+		}
+		defs = filtered
+	}
+
+	if err := lspMgr.Start(context.Background(), defs); err != nil {
+		log.Warn(logger.CatMCP, "failed to start LSP MCP", "err", err)
+	} else if mcpMgr != nil {
+		mcpMgr.RegisterVirtual("builtin-lsp", lspMgr.GetTools)
 	}
 
 	// ── Prompt System ──────────────────────────────────────────────────────────
@@ -224,6 +267,10 @@ func Build(
 				mcpServers = append(mcpServers, srv.Name)
 			}
 		}
+		// Include builtin-lsp virtual server if LSP MCP is enabled.
+		if lspMgr != nil && (allowedSet == nil || allowedSet["builtin-lsp"]) {
+			mcpServers = append(mcpServers, "builtin-lsp")
+		}
 	}
 	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
 	if err != nil {
@@ -348,8 +395,9 @@ func Build(
 		TodoStore:       todoStore,
 		SharedDB:        sharedDB,
 		BypassConfirm:   bypassConfirm,
-			MCPManager:      mcpMgr,
-		}
+		MCPManager:      mcpMgr,
+		LSPManager:      lspMgr,
+	}
 
 	// Register config hot-reload callback
 	RegisterHotReload(rt, cfg, log, workDir)
