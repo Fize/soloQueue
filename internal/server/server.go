@@ -21,6 +21,9 @@
 //	GET /api/agents/{id}/config → get agent template YAML + system prompt
 //	GET /api/teams → list teams
 //	GET /api/skills → list skills (builtin + user)
+//	GET /api/files/content?path=<path> → serve file from plan dir or team workspace
+//	GET /api/files/list?dir=<path> → list directory contents
+//	GET /api/files/info?path=<path> → get file metadata
 package server
 
 import (
@@ -218,6 +221,12 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	// MCP config routes
 	r.Get("/api/mcp", m.handleGetMCPConfig)
 	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
+
+	// File routes (read-only access to plan directory and team workspaces)
+	r.Get("/api/files/roots", m.handleGetFileRoots)
+	r.Get("/api/files/content", m.handleGetFileContent)
+	r.Get("/api/files/list", m.handleListFiles)
+	r.Get("/api/files/info", m.handleGetFileInfo)
 
 	return m
 }
