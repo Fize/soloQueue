@@ -11,8 +11,8 @@ interface HeaderProps {
 }
 
 const tabs: { id: AppTab; label: string }[] = [
-  { id: 'home', label: '首页' },
-  { id: 'settings', label: '设置' },
+  { id: 'home', label: 'Home' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 export function Header({ activeTab, onTabChange, onRefresh, loading }: HeaderProps) {

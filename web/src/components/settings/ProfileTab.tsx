@@ -97,7 +97,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
               {content}
             </pre>
           ) : (
-            <p className="text-sm text-muted-foreground">暂无内容</p>
+            <p className="text-sm text-muted-foreground">No content</p>
           )}
         </ScrollArea>
       )}
