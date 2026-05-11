@@ -211,8 +211,18 @@ func Build(
 
 	var mcpServers []string
 	if mcpMgr != nil {
+		allowed := cfg.Get().Agent.MCPServers
+		var allowedSet map[string]bool
+		if len(allowed) > 0 {
+			allowedSet = make(map[string]bool, len(allowed))
+			for _, name := range allowed {
+				allowedSet[name] = true
+			}
+		}
 		for _, srv := range mcpMgr.Loader().Get().Servers {
-			mcpServers = append(mcpServers, srv.Name)
+			if srv.Enabled && (allowedSet == nil || allowedSet[srv.Name]) {
+				mcpServers = append(mcpServers, srv.Name)
+			}
 		}
 	}
 	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
@@ -306,6 +316,7 @@ func Build(
 	}
 
 	rt := &Stack{
+		Settings:        cfg,
 		LLMClient:       llmClient,
 		AgentRegistry:   agentRegistry,
 		AgentFactory:    agentFactory,

@@ -203,14 +203,10 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		allTools = append(allTools, skillTool)
 	}
 
-	// MCP tools for L1: register tools from all enabled MCP servers.
+	// MCP tools for L1: register tools from agent.mcpServers whitelist.
 	if b.RT.MCPManager != nil {
-		mcpCfg := b.RT.MCPManager.Loader().Get()
-		for _, srv := range mcpCfg.Servers {
-			if !srv.Enabled {
-				continue
-			}
-			mcpTools := b.RT.MCPManager.GetTools(ctx, srv.Name)
+		for _, name := range b.RT.L1MCPServers() {
+			mcpTools := b.RT.MCPManager.GetTools(ctx, name)
 			if mcpTools != nil {
 				allTools = append(allTools, mcpTools...)
 			}

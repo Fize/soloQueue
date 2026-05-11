@@ -52,6 +52,17 @@ func RegisterHotReload(rt *Stack, cfg *config.GlobalService, log *logger.Logger,
 			handleEmbeddingChange(rt, new.Embedding, cfg, log, workDir)
 		}
 
+		// 6. Agent MCP servers changed → rebuild L1 system prompt
+		if !stringSlicesEqual(old.Agent.MCPServers, new.Agent.MCPServers) {
+			// Unlock before calling RebuildPrompt (it may take time and
+			// RebuildPrompt itself acquires promptRebuildMu).
+			rt.CfgMu.Unlock()
+			if err := rt.RebuildPrompt(); err != nil {
+				log.Warn(logger.CatConfig, "hot-reload: failed to rebuild L1 prompt after agent.mcpServers change", "err", err)
+			}
+			rt.CfgMu.Lock()
+		}
+
 		log.Info(logger.CatConfig, "config hot-reload applied")
 	})
 }
@@ -148,5 +159,18 @@ func handleEmbeddingChange(rt *Stack, emb config.EmbeddingConfig, cfg *config.Gl
 
 	// Model or provider changed: restart recommended as well.
 	log.Info(logger.CatConfig, "embedding model/provider changed at runtime — restart required for full effect")
+}
+
+// stringSlicesEqual returns true if two string slices have the same elements in the same order.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 

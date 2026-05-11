@@ -247,6 +247,10 @@ export interface QQBotConfig {
   sandbox: boolean;
 }
 
+export interface L1AgentSettings {
+  mcpServers: string[];
+}
+
 export interface AppConfig {
   session: SessionConfig;
   log: LogConfig;
@@ -256,6 +260,7 @@ export interface AppConfig {
   embedding: EmbeddingConfig;
   defaultModels: DefaultModelsConfig;
   qqbot: QQBotConfig;
+  agent: L1AgentSettings;
 }
 
 // ─── Tool & Skill Types ────────────────────────────────────────────────────
