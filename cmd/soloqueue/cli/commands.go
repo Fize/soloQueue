@@ -121,10 +121,14 @@ func ServeCmd(version string) *cobra.Command {
 		}
 		rt.OnPromptRebuild(rebuildPrompt)
 
+		// Create RuntimeMetrics (shared by Mux + Hub) for serve mode.
+		runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: fmt.Sprintf("%s:%d", host, port)}
+
 		mux := server.NewMux(workDir, log, rt.TodoStore,
 			server.WithRegistry(rt.AgentRegistry),
 			server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
 			server.WithConfigService(cfg),
+			server.WithRuntimeMetrics(runtimeMetrics),
 			server.WithTemplates(rt.AllTemplates, rt.Groups),
 			server.WithToolsConfig(&rt.ToolsCfg),
 			server.WithSkillRegistry(rt.SkillRegistry),
@@ -139,11 +143,21 @@ func ServeCmd(version string) *cobra.Command {
 		go wsHub.Run()
 
 		// Wire onChange callbacks so Registry changes trigger WebSocket broadcasts.
+		runtimeMetrics.SetOnChange(wsHub.Notify)
 		rt.AgentRegistry.SetOnChange(wsHub.Notify)
-			srv := &http.Server{
-				Addr:    fmt.Sprintf("%s:%d", host, port),
-				Handler: mux,
-			}
+
+		// Start agent stream watchers: subscribe to every registered
+		// agent's Watch() to collect streaming output for the Web UI.
+		rt.AgentRegistry.SetOnRegister(runtimeMetrics.StartAgentWatch)
+		rt.AgentRegistry.SetOnUnregister(runtimeMetrics.StopAgentWatch)
+		for _, a := range rt.AgentRegistry.List() {
+			runtimeMetrics.StartAgentWatch(a)
+		}
+
+		srv := &http.Server{
+			Addr:    fmt.Sprintf("%s:%d", host, port),
+			Handler: mux,
+		}
 
 			go func() {
 				defer func() {
