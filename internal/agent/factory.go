@@ -33,6 +33,7 @@ type AgentTemplate struct {
 	Group        string   // 所属 group name
 	Permission   bool     // 特权模式，跳过工具确认
 	MCPServers   []string // MCP Server 名称列表
+	SkillIDs     []string // 该 agent 需要的 skill ID 列表
 }
 
 // ─── ModelInfo ────────────────────────────────────────────────────────────
@@ -85,7 +86,7 @@ type DefaultFactory struct {
 	llm            LLMClient
 	toolsCfg       tools.Config
 	defaultModelID string // 当 AgentTemplate.ModelID 为空时使用此默认值
-	skillDir       string
+	skillRegistry  *skill.SkillRegistry
 	workDir        string // ~/.soloqueue, 用于根据 team 计算 planDir
 	log            *logger.Logger
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
@@ -100,7 +101,6 @@ func NewDefaultFactory(
 	registry *Registry,
 	llm LLMClient,
 	toolsCfg tools.Config,
-	skillDir string,
 	log *logger.Logger,
 	opts ...FactoryOption,
 ) *DefaultFactory {
@@ -108,7 +108,6 @@ func NewDefaultFactory(
 		registry: registry,
 		llm:      llm,
 		toolsCfg: toolsCfg,
-		skillDir: skillDir,
 		log:      log,
 	}
 	for _, opt := range opts {
@@ -176,6 +175,14 @@ func WithWorkDir(workDir string) FactoryOption {
 func WithMCPManager(mgr *mcp.Manager) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.mcpManager = mgr
+	}
+}
+
+// WithSkillRegistry sets the global skill registry for skill resolution during agent creation.
+// When set, Create() resolves template SkillIDs against this registry.
+func WithSkillRegistry(reg *skill.SkillRegistry) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.skillRegistry = reg
 	}
 }
 
@@ -299,73 +306,60 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		}
 	}
 
-	// 3. 加载 skills
+	// 3. 加载 skills — 从模板的 SkillIDs 在全局注册表中查找
 	var skillList []*skill.Skill
-	if f.skillDir != "" {
-		loaded, err := skill.LoadSkillsFromDir(f.skillDir)
-		if err != nil && f.log != nil {
-			f.log.InfoContext(ctx, logger.CatActor, "skill load skipped",
-				"err", err,
-			)
-		}
-		skillList = loaded
-	}
-
-	// 3b. 构造 SkillTool（仅在有 skill 时注册）
-	sr := skill.NewSkillRegistry()
-	for _, s := range skillList {
-		if err := sr.Register(s); err != nil && f.log != nil {
-			f.log.InfoContext(ctx, logger.CatActor, "skill register skipped",
-				"skill", s.ID, "err", err,
-			)
-		}
-	}
-	if sr.Len() > 0 {
-		// 3c. Fork spawn 函数：创建临时子 agent 执行 fork 模式的 skill
-		forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
-			forkDef := Definition{
-				ID:           fmt.Sprintf("skill-fork-%s", s.ID),
-				ModelID:      def.ModelID, // 继承父 agent 的模型
-				SystemPrompt: content,
+	if f.skillRegistry != nil && len(tmpl.SkillIDs) > 0 {
+		sr := skill.NewSkillRegistry()
+		for _, id := range tmpl.SkillIDs {
+			if s, ok := f.skillRegistry.GetSkill(id); ok {
+				skillList = append(skillList, s)
+				_ = sr.Register(s)
 			}
-
-			forkTools := tools.Build(toolsCfg)
-			if len(s.AllowedTools) > 0 {
-				forkTools = skill.FilterTools(forkTools, s.AllowedTools)
-			}
-
-			child := NewAgent(forkDef, llm, f.log,
-				WithTools(forkTools...),
-				WithParallelTools(true),
-			)
-			if err := child.Start(ctx); err != nil {
-				return nil, nil, fmt.Errorf("start fork agent: %w", err)
-			}
-			cleanup := func() { child.Stop(5) }
-			return &LocatableAdapter{Agent: child}, cleanup, nil
 		}
-
-		skillTool := skill.NewSkillTool(sr, forkSpawn)
-		allTools = append(allTools, skillTool)
-		}
-
-		// 3d. Register MCP tools for servers listed in the agent template.
-		if f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
-			for _, serverName := range tmpl.MCPServers {
-				mcpTools := f.mcpManager.GetTools(ctx, serverName)
-				if mcpTools == nil {
-					if f.log != nil {
-						f.log.WarnContext(ctx, logger.CatMCP, "MCP server not found or disabled",
-							"server", serverName, "agent", tmpl.ID,
-						)
-					}
-					continue
+		if sr.Len() > 0 {
+			// Fork spawn: 创建临时子 agent 执行 fork 模式的 skill
+			forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
+				forkDef := Definition{
+					ID:           fmt.Sprintf("skill-fork-%s", s.ID),
+					ModelID:      def.ModelID,
+					SystemPrompt: content,
 				}
-				allTools = append(allTools, mcpTools...)
+				forkTools := tools.Build(toolsCfg)
+				if len(s.AllowedTools) > 0 {
+					forkTools = skill.FilterTools(forkTools, s.AllowedTools)
+				}
+				child := NewAgent(forkDef, llm, f.log,
+					WithTools(forkTools...),
+					WithParallelTools(true),
+				)
+				if err := child.Start(ctx); err != nil {
+					return nil, nil, fmt.Errorf("start fork agent: %w", err)
+				}
+				cleanup := func() { child.Stop(5) }
+				return &LocatableAdapter{Agent: child}, cleanup, nil
 			}
+			skillTool := skill.NewSkillTool(sr, forkSpawn)
+			allTools = append(allTools, skillTool)
 		}
+	}
 
-		// 4. 构造 Option 列表
+	// 3d. Register MCP tools for servers listed in the agent template.
+	if f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
+		for _, serverName := range tmpl.MCPServers {
+			mcpTools := f.mcpManager.GetTools(ctx, serverName)
+			if mcpTools == nil {
+				if f.log != nil {
+					f.log.WarnContext(ctx, logger.CatMCP, "MCP server not found or disabled",
+						"server", serverName, "agent", tmpl.ID,
+					)
+				}
+				continue
+			}
+			allTools = append(allTools, mcpTools...)
+		}
+	}
+
+	// 4. 构造 Option 列表
 	opts := []Option{
 		WithTools(allTools...),
 		WithSkills(skillList...),
@@ -439,6 +433,7 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 			Group:        fm.Group,
 			Permission:   fm.Permission,
 			MCPServers:   fm.MCPServers,
+			SkillIDs:     fm.Skills,
 		}
 		templates = append(templates, tmpl)
 	}
