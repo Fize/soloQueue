@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { MarkdownPreview } from '@/components/ui/markdown-preview';
 import { cn } from '@/lib/utils';
 import { Settings, Save, Pencil, Eye, Loader2 } from 'lucide-react';
 
@@ -41,11 +42,12 @@ const stateLabel: Record<AgentState, string> = {
 
 // ─── Inline Editor ──────────────────────────────────────────────────────────
 
-function InlineEditor({ content, onSave, saving, height = 'h-[400px]' }: {
+function InlineEditor({ content, onSave, saving, height = 'h-[400px]', type = 'yaml' }: {
   content: string;
   onSave: (draft: string) => Promise<void>;
   saving: boolean;
   height?: string;
+  type?: 'yaml' | 'markdown';
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
@@ -107,7 +109,11 @@ function InlineEditor({ content, onSave, saving, height = 'h-[400px]' }: {
       ) : (
         <ScrollArea className={`${height} rounded-md border border-border bg-muted/30 p-4`}>
           {content ? (
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">{content}</pre>
+            type === 'markdown' ? (
+              <MarkdownPreview content={content} />
+            ) : (
+              <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">{content}</pre>
+            )
           ) : (
             <p className="text-sm text-muted-foreground">No content</p>
           )}
@@ -185,7 +191,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 {loading ? (
                   <p className="text-sm text-muted-foreground">Loading...</p>
                 ) : profile?.soul ? (
-                  <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed">{profile.soul}</pre>
+                  <MarkdownPreview content={profile.soul} />
                 ) : (
                   <p className="text-sm text-muted-foreground">No Soul config</p>
                 )}
@@ -197,7 +203,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 {loading ? (
                   <p className="text-sm text-muted-foreground">Loading...</p>
                 ) : profile?.rules ? (
-                  <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed">{profile.rules}</pre>
+                  <MarkdownPreview content={profile.rules} />
                 ) : (
                   <p className="text-sm text-muted-foreground">No Rules config</p>
                 )}
@@ -389,6 +395,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
                 content={config.system_prompt || ''}
                 onSave={handleSavePrompt}
                 saving={savingPrompt}
+                type="markdown"
               />
             ) : (
               <p className="text-sm text-muted-foreground">No Prompt config</p>
