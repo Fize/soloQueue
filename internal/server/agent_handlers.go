@@ -33,6 +33,10 @@ type RuntimeMetrics struct {
 	ActiveDelegations int
 	HTTPAddr          string
 	onChange          func() // called (under lock) after every setter; notifies Hub
+
+	agentStreamsMu sync.RWMutex
+	agentStreams   map[string]*AgentStreamState // instanceID → stream state
+	agentCancels   map[string]func()            // instanceID → Watch cancel
 }
 
 // SetOnChange sets the callback invoked after every state change.
@@ -114,24 +118,187 @@ func (rm *RuntimeMetrics) Snapshot() (phase string, promptTokens, outputTokens, 
 		rm.ContextPct, rm.CurrentIter, rm.ContentDeltas, rm.ActiveDelegations, rm.HTTPAddr
 }
 
+// ─── Agent Stream State ─────────────────────────────────────────────────────
+
+// ToolCallState is a JSON-serializable snapshot of a tool call in progress.
+type ToolCallState struct {
+	CallID     string `json:"call_id"`
+	Name       string `json:"name"`
+	Args       string `json:"args"`
+	Result     string `json:"result"`
+	Error      string `json:"error"`
+	Done       bool   `json:"done"`
+	DurationMs int64  `json:"duration_ms"`
+}
+
+// AgentStreamState holds the live streaming output for one agent.
+type AgentStreamState struct {
+	AgentID    string          `json:"agent_id"`
+	Processing bool            `json:"processing"`
+	Thinking   string          `json:"thinking"`
+	Content    string          `json:"content"`
+	ToolCalls  []ToolCallState `json:"tool_calls"`
+	Iteration  int             `json:"iteration"`
+	Error      string          `json:"error,omitempty"`
+}
+
+// StartAgentWatch subscribes to an agent's Watch() and starts a goroutine that
+// updates the stream state in real-time. Lazily initializes the stream maps.
+func (rm *RuntimeMetrics) StartAgentWatch(a *agent.Agent) {
+	if a == nil || a.InstanceID == "" {
+		return
+	}
+	ch, cancel := a.Watch()
+
+	rm.agentStreamsMu.Lock()
+	if rm.agentStreams == nil {
+		rm.agentStreams = make(map[string]*AgentStreamState)
+		rm.agentCancels = make(map[string]func())
+	}
+	rm.agentCancels[a.InstanceID] = cancel
+	rm.agentStreamsMu.Unlock()
+
+	go func() {
+		for ev := range ch {
+			rm.updateAgentStream(a.InstanceID, ev)
+		}
+	}()
+}
+
+// StopAgentWatch cancels the Watch subscription. The accumulated stream state
+// is preserved so the Web UI keeps showing historical output.
+func (rm *RuntimeMetrics) StopAgentWatch(instanceID string) {
+	var notify func()
+	rm.agentStreamsMu.Lock()
+	cancel, ok := rm.agentCancels[instanceID]
+	if ok {
+		cancel()
+		delete(rm.agentCancels, instanceID)
+	}
+	// Preserve stream state for historical display; do NOT delete.
+	// New StartAgentWatch for the same instanceID will overwrite it.
+	if s, ok := rm.agentStreams[instanceID]; ok {
+		s.Processing = false
+	}
+	notify = rm.onChange
+	rm.agentStreamsMu.Unlock()
+	if notify != nil {
+		notify()
+	}
+}
+
+// updateAgentStream processes a single AgentEvent and updates the
+// corresponding agent's stream state. Triggers onChange on every event.
+func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEvent) {
+	var notify func()
+
+	rm.agentStreamsMu.Lock()
+	if rm.agentStreams == nil {
+		rm.agentStreamsMu.Unlock()
+		return
+	}
+	s := rm.agentStreams[instanceID]
+	if s == nil {
+		s = &AgentStreamState{
+			AgentID:   instanceID,
+			ToolCalls: []ToolCallState{},
+		}
+		rm.agentStreams[instanceID] = s
+	}
+
+	switch e := ev.(type) {
+	case agent.ContentDeltaEvent:
+		if !s.Processing {
+			// New turn: reset content & tool calls but preserve thinking
+			// (which may have been set by preceding ReasoningDeltaEvent)
+			s.Content = ""
+			s.ToolCalls = []ToolCallState{}
+			s.Error = ""
+		}
+		s.Content += e.Delta
+		s.Processing = true
+
+	case agent.ReasoningDeltaEvent:
+		if !s.Processing {
+			// New turn: reset thinking only (content/tool calls preserved
+			// for ContentDeltaEvent to handle with same Processing check)
+			s.Thinking = ""
+		}
+		s.Thinking += e.Delta
+		s.Processing = true
+
+	case agent.ToolExecStartEvent:
+		s.ToolCalls = append(s.ToolCalls, ToolCallState{
+			CallID: e.CallID,
+			Name:   e.Name,
+			Args:   e.Args,
+		})
+
+	case agent.ToolExecDoneEvent:
+		for i := range s.ToolCalls {
+			if s.ToolCalls[i].CallID == e.CallID {
+				s.ToolCalls[i].Done = true
+				s.ToolCalls[i].Result = e.Result
+				s.ToolCalls[i].DurationMs = e.Duration.Milliseconds()
+				if e.Err != nil {
+					s.ToolCalls[i].Error = e.Err.Error()
+				}
+				break
+			}
+		}
+
+	case agent.IterationDoneEvent:
+		s.Iteration = e.Iter
+
+	case agent.DoneEvent:
+		s.Processing = false
+
+	case agent.ErrorEvent:
+		s.Processing = false
+		s.Error = e.Err.Error()
+	}
+
+	// Release lock before calling onChange to avoid lock-ordering issues;
+	// onChange triggers Hub.Notify which eventually reads rm fields.
+	notify = rm.onChange
+	rm.agentStreamsMu.Unlock()
+
+	if notify != nil {
+		notify()
+	}
+}
+
+// AgentStreams returns a snapshot of all agents' stream states.
+func (rm *RuntimeMetrics) AgentStreams() map[string]*AgentStreamState {
+	rm.agentStreamsMu.RLock()
+	defer rm.agentStreamsMu.RUnlock()
+	out := make(map[string]*AgentStreamState, len(rm.agentStreams))
+	for id, s := range rm.agentStreams {
+		cp := *s
+		out[id] = &cp
+	}
+	return out
+}
+
 // ─── Response Types ─────────────────────────────────────────────────────────
 
 // RuntimeStatusResponse is the JSON response for GET /api/runtime.
 type RuntimeStatusResponse struct {
-	Phase             string `json:"phase"`
-	PromptTokens      int64  `json:"prompt_tokens"`
-	OutputTokens      int64  `json:"output_tokens"`
-	CacheHitTokens    int64  `json:"cache_hit_tokens"`
-	CacheMissTokens   int64  `json:"cache_miss_tokens"`
-	ContextPct        int    `json:"context_pct"`
-	CurrentIter       int    `json:"current_iter"`
-	ContentDeltas     int    `json:"content_deltas"`
-	ActiveDelegations int    `json:"active_delegations"`
-	TotalAgents       int    `json:"total_agents"`
-	RunningAgents     int    `json:"running_agents"`
-	IdleAgents        int    `json:"idle_agents"`
-	TotalErrors       int    `json:"total_errors"`
-	HTTPAddr          string `json:"http_addr"`
+	Phase             string                       `json:"phase"`
+	PromptTokens      int64                        `json:"prompt_tokens"`
+	OutputTokens      int64                        `json:"output_tokens"`
+	CacheHitTokens    int64                        `json:"cache_hit_tokens"`
+	CacheMissTokens   int64                        `json:"cache_miss_tokens"`
+	ContextPct        int                          `json:"context_pct"`
+	CurrentIter       int                          `json:"current_iter"`
+	ContentDeltas     int                          `json:"content_deltas"`
+	ActiveDelegations int                          `json:"active_delegations"`
+	TotalAgents       int                          `json:"total_agents"`
+	RunningAgents     int                          `json:"running_agents"`
+	IdleAgents        int                          `json:"idle_agents"`
+	TotalErrors       int                          `json:"total_errors"`
+	HTTPAddr          string                       `json:"http_addr"`
+	AgentStreams      map[string]*AgentStreamState `json:"agent_streams"`
 }
 
 // AgentInfoResponse is a single agent in the list.
@@ -531,6 +698,7 @@ func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
 		IdleAgents:        idleAgents,
 		TotalErrors:       totalErrors,
 		HTTPAddr:          httpAddr,
+		AgentStreams:      m.runtimeMetrics.AgentStreams(),
 	}
 }
 

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { AgentInfo, AgentState } from '@/types';
 import { useAgentProfile } from '@/hooks/useAgentProfile';
 import { useAgentConfig } from '@/hooks/useAgentConfig';
+import { useAgentStream } from '@/hooks/useAgentStream';
+import { AgentStreamView } from '@/components/AgentStreamView';
 import { updateAgentConfig } from '@/lib/api';
 import {
   Dialog,
@@ -15,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MarkdownPreview } from '@/components/ui/markdown-preview';
 import { cn } from '@/lib/utils';
-import { Settings, Save, Pencil, Eye, Loader2 } from 'lucide-react';
+import { Settings, Save, Pencil, Eye, Loader2, Terminal } from 'lucide-react';
 
 interface AgentDetailDialogProps {
   agent: AgentInfo | null;
@@ -152,6 +154,19 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
   // Editing state — must be before any early return (Rules of Hooks).
   const [savingYaml, setSavingYaml] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const [activeTab, setActiveTab] = useState(
+    isL1
+      ? (agent?.state === 'processing' ? 'output' : 'soul')
+      : (agent?.state === 'processing' ? 'output' : 'status')
+  );
+
+  // Switch to output tab when agent starts processing.
+  if (agent?.state === 'processing' && activeTab !== 'output') {
+    // Will be updated on next render
+  }
+
+  const stream = useAgentStream(agent?.instance_id ?? null);
+  const hasOutput = agent?.state === 'processing' || (stream && (stream.content || stream.thinking || stream.tool_calls.length > 0 || stream.error));
 
   if (!agent && !templateId) return null;
 
@@ -180,11 +195,27 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             )}
           </DialogHeader>
 
-          <Tabs defaultValue="soul" className="mt-2">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="output" disabled={!hasOutput || !hasAgent}>
+                <Terminal className="mr-1 h-3 w-3" />
+                Output
+              </TabsTrigger>
               <TabsTrigger value="soul">Soul</TabsTrigger>
               <TabsTrigger value="rules">Rules</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="output" className="mt-3">
+              <ScrollArea className="h-[400px] rounded-md border border-border p-4">
+                {stream ? (
+                  <AgentStreamView state={stream} />
+                ) : (
+                  <p className="text-sm text-muted-foreground py-8 text-center">
+                    {agent?.state === 'processing' ? 'Waiting for output...' : 'Agent not running'}
+                  </p>
+                )}
+              </ScrollArea>
+            </TabsContent>
 
             <TabsContent value="soul" className="mt-3">
               <ScrollArea className="h-[400px] rounded-md border border-border p-4">
@@ -255,13 +286,30 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
           )}
         </DialogHeader>
 
-        <Tabs defaultValue="status" className="mt-2">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="output" disabled={!hasOutput || !hasAgent}>
+              <Terminal className="mr-1 h-3 w-3" />
+              Output
+            </TabsTrigger>
             <TabsTrigger value="status" disabled={!hasAgent}>Status</TabsTrigger>
             <TabsTrigger value="details" disabled={!hasAgent}>Details</TabsTrigger>
             <TabsTrigger value="config">YAML</TabsTrigger>
             <TabsTrigger value="prompt">Prompt</TabsTrigger>
           </TabsList>
+
+          {/* Output Tab — streaming agent output */}
+          <TabsContent value="output" className="mt-3">
+            <ScrollArea className="h-[400px] rounded-md border border-border p-4">
+              {stream ? (
+                <AgentStreamView state={stream} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  {agent?.state === 'processing' ? 'Waiting for output...' : 'Agent not running'}
+                </p>
+              )}
+            </ScrollArea>
+          </TabsContent>
 
           {/* 状态 Tab */}
           <TabsContent value="status" className="space-y-3 mt-3">

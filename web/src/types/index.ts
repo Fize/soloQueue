@@ -106,6 +106,26 @@ export interface TeamListResponse {
 
 // ─── Runtime Types ───────────────────────────────────────────────────────────
 
+export interface ToolCallState {
+  call_id: string
+  name: string
+  args: string
+  result: string
+  error: string
+  done: boolean
+  duration_ms: number
+}
+
+export interface AgentStreamState {
+  agent_id: string
+  processing: boolean
+  thinking: string
+  content: string
+  tool_calls: ToolCallState[]
+  iteration: number
+  error?: string
+}
+
 export interface RuntimeStatus {
   phase: string
   prompt_tokens: number
@@ -121,6 +141,7 @@ export interface RuntimeStatus {
   idle_agents: number
   total_errors: number
   http_addr: string
+  agent_streams: Record<string, AgentStreamState>
 }
 
 // ─── WebSocket Message Types ────────────────────────────────────────────────

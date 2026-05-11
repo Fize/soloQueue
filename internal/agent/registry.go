@@ -33,7 +33,9 @@ type Registry struct {
 	agents     map[string]*Agent   // InstanceID → Agent
 	byTemplate map[string][]string // templateID (Def.ID) → []InstanceID
 	log        *logger.Logger
-	onChange   func() // optional callback invoked after Register/Unregister
+	onChange     func()       // optional callback invoked after Register/Unregister
+	onRegister   func(*Agent) // optional callback invoked after Register (under write lock)
+	onUnregister func(string) // optional callback invoked after Unregister (under write lock)
 }
 
 // NewRegistry constructs an empty registry
@@ -59,6 +61,22 @@ func (r *Registry) SetOnChange(fn func()) {
 	r.mu.Unlock()
 }
 
+// SetOnRegister sets the callback invoked after Register.
+// Called under the write lock with the registered agent.
+func (r *Registry) SetOnRegister(fn func(*Agent)) {
+	r.mu.Lock()
+	r.onRegister = fn
+	r.mu.Unlock()
+}
+
+// SetOnUnregister sets the callback invoked after Unregister.
+// Called under the write lock with the unregistered instance ID.
+func (r *Registry) SetOnUnregister(fn func(string)) {
+	r.mu.Lock()
+	r.onUnregister = fn
+	r.mu.Unlock()
+}
+
 // Register adds an agent keyed by InstanceID (never Def.ID).
 // Multiple agents with the same Def.ID (template) can coexist.
 //
@@ -81,6 +99,9 @@ func (r *Registry) Register(a *Agent) error {
 		r.byTemplate[tmplID] = append(r.byTemplate[tmplID], id)
 	}
 	size := len(r.agents)
+	if r.onRegister != nil {
+		r.onRegister(a)
+	}
 	if r.onChange != nil {
 		r.onChange()
 	}
@@ -125,6 +146,9 @@ func (r *Registry) Unregister(id string) bool {
 	}
 
 	size := len(r.agents)
+	if r.onUnregister != nil {
+		r.onUnregister(id)
+	}
 	if r.onChange != nil {
 		r.onChange()
 	}
