@@ -33,6 +33,7 @@ type configPatchRequest struct {
 	Embedding     *embeddingPatch     `json:"embedding,omitempty"`
 	DefaultModels *defaultModelsPatch `json:"defaultModels,omitempty"`
 	QQBot         *qqBotPatch         `json:"qqbot,omitempty"`
+	Agent         *agentPatch         `json:"agent,omitempty"`
 }
 
 type sessionPatch struct {
@@ -90,6 +91,10 @@ type qqBotPatch struct {
 	AppSecret *string `json:"appSecret,omitempty"`
 	Intents   *int    `json:"intents,omitempty"`
 	Sandbox   *bool   `json:"sandbox,omitempty"`
+}
+
+type agentPatch struct {
+	MCPServers *[]string `json:"mcpServers,omitempty"`
 }
 
 // handleUpdateConfig accepts a partial JSON body and merges it into current settings.
@@ -260,6 +265,13 @@ func applyConfigPatch(current *config.Settings, patch configPatchRequest) {
 		}
 		if patch.QQBot.Sandbox != nil {
 			current.QQBot.Sandbox = *patch.QQBot.Sandbox
+		}
+	}
+
+	// Agent (L1 orchestrator)
+	if patch.Agent != nil {
+		if patch.Agent.MCPServers != nil {
+			current.Agent.MCPServers = *patch.Agent.MCPServers
 		}
 	}
 }

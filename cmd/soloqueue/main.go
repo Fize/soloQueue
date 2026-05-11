@@ -123,8 +123,24 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			} else {
 				httpServerAddr = fmt.Sprintf("http://%s", httpListener.Addr().String())
 
-				// Create shared runtime metrics that the TUI writes and HTTP API reads.
-				runtimeMetrics = &server.RuntimeMetrics{HTTPAddr: httpServerAddr}
+			// Create shared runtime metrics that the TUI writes and HTTP API reads.
+			runtimeMetrics = &server.RuntimeMetrics{HTTPAddr: httpServerAddr}
+
+			rebuildPrompt := func() error {
+				leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
+				if err != nil {
+					leaders = rt.Leaders
+				}
+				planDir, _ := config.PlanDir()
+				memoryDir := filepath.Join(workDir, "memory")
+				newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, rt.L1MCPServers())
+				if err != nil {
+					return err
+				}
+				rt.SetSystemPrompt(newPrompt)
+				return nil
+			}
+			rt.OnPromptRebuild(rebuildPrompt)
 
 			httpMux := server.NewMux(workDir, log, rt.TodoStore,
 				server.WithRegistry(rt.AgentRegistry),
@@ -135,26 +151,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 				server.WithToolsConfig(&rt.ToolsCfg),
 				server.WithSkillRegistry(rt.SkillRegistry),
 				server.WithAgentsDir(filepath.Join(workDir, "agents")),
-				server.WithPromptRebuild(func() error {
-					leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
-					if err != nil {
-						leaders = rt.Leaders
-					}
-					planDir, _ := config.PlanDir()
-					memoryDir := filepath.Join(workDir, "memory")
-					var mcpServers []string
-					if rt.MCPManager != nil {
-						for _, srv := range rt.MCPManager.Loader().Get().Servers {
-							mcpServers = append(mcpServers, srv.Name)
-						}
-					}
-					newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
-					if err != nil {
-						return err
-					}
-					rt.SetSystemPrompt(newPrompt)
-					return nil
-				}),
+				server.WithPromptRebuild(rebuildPrompt),
 				server.WithMCPLoader(cli.MCPLoaderFromRT(rt)),
 			)
 
