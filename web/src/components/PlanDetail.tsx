@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { MarkdownPreview } from '@/components/ui/markdown-preview';
 import { TodoList } from './TodoList';
 import { Calendar, Tag, User, Loader2, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -135,9 +136,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                 {/* Content */}
                 {fullPlan?.content && (
                   <div className="rounded-lg border-2 border-[#EEEEEE] bg-muted/30 p-4">
-                    <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
-                      {fullPlan.content}
-                    </p>
+                    <MarkdownPreview content={fullPlan.content} />
                   </div>
                 )}
 
