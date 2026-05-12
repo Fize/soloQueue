@@ -37,11 +37,12 @@ const (
 
 // Manager writes short-term memory summaries to daily markdown files.
 type Manager struct {
-	workDir string
-	llm     agent.LLMClient
-	modelID string
-	logger  *logger.Logger
-	mu      sync.Mutex
+	workDir        string
+	llm            agent.LLMClient
+	modelID        string
+	logger         *logger.Logger
+	mu             sync.Mutex
+	lastRecordedAt time.Time // latest message timestamp included in any Record call; for dedup
 }
 
 // NewManager creates a new memory manager.
@@ -55,21 +56,44 @@ func NewManager(workDir string, llm agent.LLMClient, modelID string, l *logger.L
 	}
 }
 
-// Record summarizes the given conversation text, merges it with the existing daily
-// memory file via the LLM, and writes the consolidated result. Safe for concurrent use.
+// LastRecordedAt returns the cursor of the latest message timestamp recorded.
+func (m *Manager) LastRecordedAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastRecordedAt
+}
+
+// AdvanceLastRecordedAt advances the cursor to t if t is later than current.
+func (m *Manager) AdvanceLastRecordedAt(t time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t.After(m.lastRecordedAt) {
+		m.lastRecordedAt = t
+	}
+}
+
+// Record summarizes the given conversation text, merges it with the existing
+// daily memory file via the LLM, and writes the consolidated result.
+// Safe for concurrent use. Uses time.Now() for file date.
 func (m *Manager) Record(ctx context.Context, conversationText string) error {
+	return m.RecordAt(ctx, conversationText, time.Now())
+}
+
+// RecordAt is like Record but uses recordedAt for the file date instead of
+// time.Now(). This lets callers route conversation segments from different
+// days into their correct date-named files.
+func (m *Manager) RecordAt(ctx context.Context, conversationText string, recordedAt time.Time) error {
 	conversationText = strings.TrimSpace(conversationText)
 	if conversationText == "" {
 		return nil
 	}
 
-	now := time.Now()
-	fileDate := m.fileDate(now)
+	fileDate := m.fileDate(recordedAt)
 
 	// Read existing memory for this date so the LLM can merge.
 	existing, _ := m.readFile(fileDate)
 
-	merged, err := m.mergeAndSummarize(ctx, existing, conversationText, now)
+	merged, err := m.mergeAndSummarize(ctx, existing, conversationText, recordedAt)
 	if err != nil {
 		m.logger.LogError(ctx, logger.CatApp, "memory merge failed", err)
 		return nil // non-blocking

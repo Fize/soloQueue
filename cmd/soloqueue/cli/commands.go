@@ -94,6 +94,7 @@ func ServeCmd(version string) *cobra.Command {
 			mgr := session.NewSessionManager(factory, log)
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
+			mgr.SetMemoryManager(rt.MemoryManager)
 
 			_, err = mgr.Init(context.Background(), "")
 			if err != nil {

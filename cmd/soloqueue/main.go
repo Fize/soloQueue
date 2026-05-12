@@ -84,6 +84,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 			mgr := session.NewSessionManager(agentFactory, log)
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
+			mgr.SetMemoryManager(rt.MemoryManager)
 
 				// QQ Bot started after session init (see sandbox goroutine below)
 				var qqGateway *qqbot.Gateway
