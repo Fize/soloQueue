@@ -465,15 +465,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textArea.Reset()
 
 			if isSlashCommandInput(input) {
-				if quit, builtinCmd := m.handleBuiltin(input); quit {
+				quit, builtinCmd, handled := m.handleBuiltin(input)
+				if quit {
 					if builtinCmd != nil {
 						return m, tea.Sequence(builtinCmd, tea.Quit)
 					}
 					return m, tea.Quit
-				} else if builtinCmd != nil {
-					return m, builtinCmd
 				}
-				return m, nil
+				if handled {
+					if builtinCmd != nil {
+						return m, builtinCmd
+					}
+					return m, nil
+				}
+				// Unrecognized slash command: fall through to LLM stream.
 			}
 
 			m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})

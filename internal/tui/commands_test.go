@@ -13,15 +13,15 @@ import (
 
 func TestHandleBuiltin_Quit(t *testing.T) {
 	m := newTestModel()
-	quit, cmd := m.handleBuiltin("/quit")
-	if !quit || cmd != nil {
-		t.Error("/quit should return quit=true, cmd=nil")
+	quit, cmd, handled := m.handleBuiltin("/quit")
+	if !quit || cmd != nil || !handled {
+		t.Error("/quit should return quit=true, cmd=nil, handled=true")
 	}
 }
 
 func TestHandleBuiltin_Exit(t *testing.T) {
 	m := newTestModel()
-	quit, _ := m.handleBuiltin("/exit")
+	quit, _, _ := m.handleBuiltin("/exit")
 	if !quit {
 		t.Error("/exit should return quit=true")
 	}
@@ -29,7 +29,7 @@ func TestHandleBuiltin_Exit(t *testing.T) {
 
 func TestHandleBuiltin_Q(t *testing.T) {
 	m := newTestModel()
-	quit, _ := m.handleBuiltin("/q")
+	quit, _, _ := m.handleBuiltin("/q")
 	if !quit {
 		t.Error("/q should return quit=true")
 	}
@@ -37,9 +37,9 @@ func TestHandleBuiltin_Q(t *testing.T) {
 
 func TestHandleBuiltin_Help(t *testing.T) {
 	m := newTestModel()
-	quit, cmd := m.handleBuiltin("/help")
-	if quit || cmd != nil {
-		t.Error("/help should not quit, should return nil cmd")
+	quit, cmd, handled := m.handleBuiltin("/help")
+	if quit || cmd != nil || !handled {
+		t.Error("/help should not quit, should return nil cmd, handled=true")
 	}
 	// Should have user message + agent response
 	if len(m.messages) < 2 || !strings.Contains(m.messages[1].content, "Commands:") {
@@ -65,7 +65,7 @@ func TestHandleBuiltin_HelpWithSkills(t *testing.T) {
 func TestHandleBuiltin_Clear(t *testing.T) {
 	m := newTestModel()
 	m.messages = []message{{role: "user", content: "old"}}
-	quit, _ := m.handleBuiltin("/clear")
+	quit, _, _ := m.handleBuiltin("/clear")
 	if quit {
 		t.Error("/clear should not quit")
 	}
@@ -86,7 +86,7 @@ func TestHandleBuiltin_ClearDuringGeneration(t *testing.T) {
 
 func TestHandleBuiltin_Version(t *testing.T) {
 	m := newTestModel()
-	quit, _ := m.handleBuiltin("/version")
+	quit, _, _ := m.handleBuiltin("/version")
 	if quit {
 		t.Error("/version should not quit")
 	}
@@ -102,7 +102,7 @@ func TestHandleBuiltin_Status(t *testing.T) {
 	reg.Register(a)
 	m := newTestModel()
 	m.cfg.Registry = reg
-	quit, _ := m.handleBuiltin("/status")
+	quit, _, _ := m.handleBuiltin("/status")
 	if quit {
 		t.Error("/status should not quit")
 	}
@@ -113,12 +113,13 @@ func TestHandleBuiltin_Status(t *testing.T) {
 
 func TestHandleBuiltin_UnknownCommand(t *testing.T) {
 	m := newTestModel()
-	quit, _ := m.handleBuiltin("/foobar")
-	if quit {
-		t.Error("unknown command should not quit")
+	quit, cmd, handled := m.handleBuiltin("/foobar")
+	if quit || cmd != nil || handled {
+		t.Error("unknown command should not quit, should return nil cmd, handled=false")
 	}
-	if len(m.messages) < 2 || !strings.Contains(m.messages[1].content, "Unknown command") {
-		t.Error("unknown command should show error")
+	// Unknown slash commands should NOT add any messages (caller forwards to LLM).
+	if len(m.messages) > 0 {
+		t.Error("unknown command should not add messages")
 	}
 }
 
@@ -127,9 +128,9 @@ func TestHandleBuiltin_SkillCommand(t *testing.T) {
 	sr := skill.NewSkillRegistry()
 	sr.Register(&skill.Skill{ID: "deploy", Description: "Deploy app", UserInvocable: true})
 	m.cfg.Skills = sr
-	quit, cmd := m.handleBuiltin("/deploy staging")
-	if quit {
-		t.Error("/deploy should not quit")
+	quit, cmd, handled := m.handleBuiltin("/deploy staging")
+	if quit || !handled {
+		t.Error("/deploy should not quit and should be handled")
 	}
 	if cmd == nil || !m.isGenerating {
 		t.Error("/deploy should start generation")
@@ -138,9 +139,9 @@ func TestHandleBuiltin_SkillCommand(t *testing.T) {
 
 func TestHandleBuiltin_NonCommandInput(t *testing.T) {
 	m := newTestModel()
-	quit, cmd := m.handleBuiltin("hello world")
-	if quit || cmd != nil {
-		t.Error("non-command input should not quit, should return nil cmd")
+	quit, cmd, handled := m.handleBuiltin("hello world")
+	if quit || cmd != nil || handled {
+		t.Error("non-command input should not quit, should return nil cmd, handled=false")
 	}
 }
 
