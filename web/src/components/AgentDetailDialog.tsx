@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { AgentInfo, AgentState } from '@/types';
 import { useAgentProfile } from '@/hooks/useAgentProfile';
 import { useAgentConfig } from '@/hooks/useAgentConfig';
@@ -154,16 +154,17 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
   // Editing state — must be before any early return (Rules of Hooks).
   const [savingYaml, setSavingYaml] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
-  const [activeTab, setActiveTab] = useState(
-    isL1
-      ? (agent?.state === 'processing' ? 'output' : 'soul')
-      : (agent?.state === 'processing' ? 'output' : 'status')
-  );
+  const [activeTab, setActiveTab] = useState('soul');
 
-  // Switch to output tab when agent starts processing.
-  if (agent?.state === 'processing' && activeTab !== 'output') {
-    // Will be updated on next render
-  }
+  // Reset to default tab when dialog opens, based on current agent state.
+  useEffect(() => {
+    if (!open) return;
+    if (isL1) {
+      setActiveTab(agent?.state === 'processing' ? 'output' : 'soul');
+    } else {
+      setActiveTab(agent?.state === 'processing' ? 'output' : 'status');
+    }
+  }, [open, isL1, agent?.state]);
 
   const stream = useAgentStream(agent?.instance_id ?? null);
   const hasOutput = agent?.state === 'processing' || (stream && (stream.content || stream.thinking || stream.tool_calls.length > 0 || stream.error));
