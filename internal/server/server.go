@@ -58,13 +58,28 @@ type Mux struct {
 	runtimeMetrics *RuntimeMetrics
 	accessLogger   *httpAccessLogger
 	templates      []agent.AgentTemplate
-	groups         map[string]prompt.GroupFile
+	groupsDir      string // if set, groups are reloaded from disk on each request
 	hub            *Hub
 	toolsCfg       *tools.Config
 	skillReg       *skill.SkillRegistry
 	rebuildPrompt  func() error // rebuilds L1 system prompt after soul/rules edit
 	agentsDir      string       // path to ~/.soloqueue/agents directory
 	mcpLoader      *mcp.Loader  // MCP config loader for /api/mcp endpoints
+}
+
+// reloadGroups loads groups from groupsDir. Returns empty map on error.
+func (m *Mux) reloadGroups() map[string]prompt.GroupFile {
+	if m.groupsDir == "" {
+		return nil
+	}
+	groups, err := prompt.LoadGroups(m.groupsDir)
+	if err != nil {
+		if m.log != nil {
+			m.log.Warn(logger.CatApp, "reloadGroups failed", "err", err)
+		}
+		return nil
+	}
+	return groups
 }
 
 // MuxOption is a functional option for NewMux.
@@ -90,12 +105,18 @@ func WithRuntimeMetrics(rm *RuntimeMetrics) MuxOption {
 	return func(m *Mux) { m.runtimeMetrics = rm }
 }
 
-// WithTemplates sets the agent templates and groups for /api/teams.
-func WithTemplates(templates []agent.AgentTemplate, groups map[string]prompt.GroupFile) MuxOption {
+// WithTemplates sets the agent templates for /api/teams.
+// Groups are loaded separately via WithGroupsDir for hot-reload support.
+func WithTemplates(templates []agent.AgentTemplate) MuxOption {
 	return func(m *Mux) {
 		m.templates = templates
-		m.groups = groups
 	}
+}
+
+// WithGroupsDir sets the groups directory for hot-reload support.
+// When set, groups are reloaded from disk on each request (handleGetFileRoots, allowedRoots).
+func WithGroupsDir(dir string) MuxOption {
+	return func(m *Mux) { m.groupsDir = dir }
 }
 
 // WithHub sets the WebSocket Hub for the /ws endpoint and state broadcasting.
