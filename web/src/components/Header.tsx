@@ -22,10 +22,13 @@ export function Header({ activeTab, onTabChange, onRefresh, loading }: HeaderPro
     <header className="sticky top-0 z-40 border-b-2 border-border bg-card">
       <Container className="flex h-14 items-center justify-between">
         {/* Logo */}
-        <div className="flex items-center gap-2.5">
+        <button
+          onClick={() => onTabChange('home')}
+          className="flex items-center gap-2.5 cursor-pointer focus:outline-none"
+        >
           <img src="/logo.png" alt="SoloQueue" className="h-8 w-8" />
-          <h1 className="text-lg font-bold tracking-tight text-foreground">SoloQueue</h1>
-        </div>
+          <h1 className="hidden sm:inline text-lg font-bold tracking-tight text-foreground">SoloQueue</h1>
+        </button>
 
         {/* Center: Tab Buttons */}
         <nav className="flex items-center gap-1">

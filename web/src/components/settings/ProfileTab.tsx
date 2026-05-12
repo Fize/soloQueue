@@ -48,17 +48,17 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
   return (
     <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4 text-foreground" />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className="h-4 w-4 shrink-0 text-foreground" />
           <h3 className="text-sm font-bold text-foreground">{title}</h3>
-          <Badge variant="secondary" className="text-[10px]">
+          <Badge variant="secondary" className="text-[10px] shrink-0">
             {lineCount} lines · {charCount} chars
           </Badge>
         </div>
 
         {/* Edit / Preview toggle */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <Button
             size="sm"
             variant={editing ? 'outline' : 'default'}
