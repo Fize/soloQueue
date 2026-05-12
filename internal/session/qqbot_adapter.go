@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -35,7 +36,7 @@ func (a *SessionAskAdapter) Clear(ctx context.Context) error {
 // AskStream implements qqbot.SessionProvider.
 // It calls Session.AskStream, consumes the event stream, and returns
 // the final content and reasoning content.
-func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string) (*qqbot.AskStreamResult, error) {
+func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate qqbot.OnIntermediateFunc) (*qqbot.AskStreamResult, error) {
 	sess := a.mgr.Session()
 	if sess == nil {
 		return nil, errors.New("no active session")
@@ -63,11 +64,25 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string) (*qqbo
 		return nil, err
 	}
 
-	var content string
+	var contentBuf strings.Builder
+	var sentLen int
 	var reasoningContent string
 	var imageURLs []string
+
 	for ev := range eventCh {
 		switch e := ev.(type) {
+		case agent.ContentDeltaEvent:
+			contentBuf.WriteString(e.Delta)
+
+		case agent.ToolExecStartEvent:
+			// A tool is about to execute — the content accumulated so far
+			// that hasn't been sent yet is the LLM's intermediate response.
+			if onIntermediate != nil && contentBuf.Len() > sentLen {
+				intermediate := contentBuf.String()[sentLen:]
+				onIntermediate(ctx, intermediate)
+				sentLen = contentBuf.Len()
+			}
+
 		case agent.ToolNeedsConfirmEvent:
 			// QQ bot has no interactive UI — auto-approve all confirmations.
 			a.log.InfoContext(ctx, logger.CatApp, "qqbot adapter: auto-approving tool",
@@ -90,15 +105,20 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string) (*qqbo
 				}
 			}
 		case agent.DoneEvent:
-			content = e.Content
 			reasoningContent = e.ReasoningContent
 		case agent.ErrorEvent:
 			return nil, e.Err
 		}
 	}
 
+	// Content that hasn't been sent as intermediate is the final reply.
+	finalContent := contentBuf.String()[sentLen:]
+	if finalContent == "" && reasoningContent != "" {
+		finalContent = reasoningContent
+	}
+
 	return &qqbot.AskStreamResult{
-		Content:          content,
+		Content:          finalContent,
 		ReasoningContent: reasoningContent,
 		ImageURLs:        imageURLs,
 	}, nil
