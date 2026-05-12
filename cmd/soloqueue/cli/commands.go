@@ -161,12 +161,15 @@ func ServeCmd(version string) *cobra.Command {
 		runtimeMetrics.SetOnChange(wsHub.Notify)
 		rt.AgentRegistry.SetOnChange(wsHub.Notify)
 
-		// Start agent stream watchers: subscribe to every registered
-		// agent's Watch() to collect streaming output for the Web UI.
-		rt.AgentRegistry.SetOnRegister(runtimeMetrics.StartAgentWatch)
+		// Wire onStateChange so every agent state transition triggers a broadcast.
+		rt.AgentRegistry.SetOnRegister(func(a *agent.Agent) {
+			runtimeMetrics.StartAgentWatch(a)
+			a.SetOnStateChange(func(s agent.State) { wsHub.Notify() })
+		})
 		rt.AgentRegistry.SetOnUnregister(runtimeMetrics.StopAgentWatch)
 		for _, a := range rt.AgentRegistry.List() {
 			runtimeMetrics.StartAgentWatch(a)
+			a.SetOnStateChange(func(s agent.State) { wsHub.Notify() })
 		}
 
 		srv := &http.Server{Handler: mux}
