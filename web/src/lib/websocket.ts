@@ -8,7 +8,10 @@ type MessageHandler = {
   status: Set<(status: ConnectionStatus) => void>;
 };
 
-const WS_BASE = 'ws://localhost:8765/ws';
+function wsBase(): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}/ws`;
+}
 
 class WebSocketManager {
   private ws: WebSocket | null = null;
@@ -28,7 +31,7 @@ class WebSocketManager {
     }
 
     this.intentionalClose = false;
-    this.ws = new WebSocket(WS_BASE);
+    this.ws = new WebSocket(wsBase());
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000;
