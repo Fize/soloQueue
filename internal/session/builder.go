@@ -321,18 +321,34 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
 				"err", err, "agent_id", agentID)
 		}
-		// Record to short-term memory (fire-and-forget, non-blocking)
+		// Record to short-term memory (fire-and-forget, non-blocking).
+		// Filter by dedup cursor and group by date to avoid duplicate entries.
 		if b.RT.MemoryManager != nil {
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
-							"panic", fmt.Sprintf("%v", r))
+			cursor := b.RT.MemoryManager.LastRecordedAt()
+			filtered := filterMessagesSince(msgs, cursor)
+			if len(filtered) == 0 {
+				return
+			}
+			var latest time.Time
+			groups := groupMessagesByDate(filtered)
+			for _, g := range groups {
+				go func(date time.Time, msgs []ctxwin.Message) {
+					defer func() {
+						if r := recover(); r != nil {
+							sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
+								"panic", fmt.Sprintf("%v", r))
+						}
+					}()
+					text := FormatCtxwinMessages(msgs)
+					_ = b.RT.MemoryManager.RecordAt(context.Background(), text, date)
+				}(g.date, g.msgs)
+				for _, m := range g.msgs {
+					if m.Timestamp.After(latest) {
+						latest = m.Timestamp
 					}
-				}()
-				text := FormatCtxwinMessages(msgs)
-				_ = b.RT.MemoryManager.Record(context.Background(), text)
-			}()
+				}
+			}
+			b.RT.MemoryManager.AdvanceLastRecordedAt(latest)
 		}
 	}
 
@@ -437,8 +453,8 @@ func BuildMemoryHook(rt *runtime.Stack) MemoryHook {
 	if rt.MemoryManager == nil {
 		return nil
 	}
-	return func(ctx context.Context, conversationText string) {
-		_ = rt.MemoryManager.Record(ctx, conversationText)
+	return func(ctx context.Context, conversationText string, recordedAt time.Time) {
+		_ = rt.MemoryManager.RecordAt(ctx, conversationText, recordedAt)
 	}
 }
 
