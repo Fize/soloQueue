@@ -11,12 +11,17 @@ import (
 
 // ─── Built-in commands ────────────────────────────────────
 
-func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
+// handleBuiltin processes slash commands. Returns:
+//   - quit: whether the TUI should exit
+//   - cmd:  a tea.Cmd to execute (e.g., start stream, clear session)
+//   - handled: true if the input was recognized and handled as a builtin;
+//     false if the caller should forward the input to the LLM as a normal message.
+func (m *model) handleBuiltin(input string) (quit bool, cmd tea.Cmd, handled bool) {
 	name := strings.ToLower(strings.TrimSpace(input))
 
 	switch name {
 	case "/quit", "/exit", "/q":
-		return true, nil
+		return true, nil, true
 
 	case "/help", "/?":
 		text := "Commands: /help /clear /status /version /quit"
@@ -39,7 +44,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
-		return false, nil
+		return false, nil, true
 
 	case "/clear":
 		if m.isGenerating {
@@ -59,9 +64,9 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		// Clear session asynchronously to avoid blocking the TUI event loop.
 		// session.Clear() may be slow: mutex lock, timeline append, memory hook.
 		if m.sess != nil {
-			return false, clearSessionCmd(m.sess)
+			return false, clearSessionCmd(m.sess), true
 		}
-		return false, nil
+		return false, nil, true
 
 	case "/version":
 		text := "SoloQueue " + m.cfg.Version
@@ -69,7 +74,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
-		return false, nil
+		return false, nil, true
 
 	case "/status":
 		text := renderStatus(m.cfg.Registry, m.cfg.SupervisorsFn)
@@ -77,7 +82,7 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 		m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
 		m.rebuildViewportContent()
 		m.viewport.GotoBottom()
-		return false, nil
+		return false, nil, true
 
 	default:
 		if strings.HasPrefix(input, "/") {
@@ -90,19 +95,15 @@ func (m *model) handleBuiltin(input string) (bool, tea.Cmd) {
 						args = strings.TrimSpace(parts[1])
 					}
 					prompt := buildSkillPrompt(s, args)
-					return false, m.startStreamFromInput(input, prompt)
+					return false, m.startStreamFromInput(input, prompt), true
 				}
 			}
-			text := "✗ Unknown command: " + input + ". Type /help"
-			m.messages = append(m.messages, message{role: "user", content: input, timestamp: time.Now()})
-			m.messages = append(m.messages, message{role: "agent", content: text, timestamp: time.Now()})
-			m.rebuildViewportContent()
-			m.viewport.GotoBottom()
-			return false, nil
+			// Unrecognized slash command: not handled, let caller forward to LLM.
+			return false, nil, false
 		}
 	}
 
-	return false, nil
+	return false, nil, false
 }
 
 // buildSkillPrompt constructs the prompt for triggering a skill.

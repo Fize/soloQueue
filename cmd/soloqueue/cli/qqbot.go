@@ -14,7 +14,7 @@ import (
 // It creates a dedicated logger under logs/qqbot/ and returns the gateway
 // for shutdown coordination. Returns nil if QQ bot is not enabled or not
 // configured.
-func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, mainLog *logger.Logger) *qqbot.Gateway {
+func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger) *qqbot.Gateway {
 	settings := cfg.Get()
 	qqCfg := settings.QQBot.ToQQBotConfig()
 
@@ -40,7 +40,7 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir 
 
 	qqAPI := qqbot.NewAPIClient(qqCfg, qqLog)
 	qqAdapter := session.NewQQBotAdapter(mgr, qqLog)
-	qqBridge := qqbot.NewSessionBridge(qqAdapter, qqAPI, qqLog)
+	qqBridge := qqbot.NewSessionBridge(qqAdapter, qqAPI, qqLog, qqbot.WithVersion(version))
 	gateway := qqbot.NewGateway(qqCfg, qqBridge, qqAPI, qqLog)
 
 	go func() {

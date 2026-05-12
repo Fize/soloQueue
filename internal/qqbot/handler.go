@@ -37,6 +37,9 @@ type SessionProvider interface {
 	// It consumes the entire event stream internally.
 	// Returns ErrSessionBusy if another ask is in progress.
 	AskStream(ctx context.Context, prompt string) (*AskStreamResult, error)
+
+	// Clear clears the session context (conversation history).
+	Clear(ctx context.Context) error
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -53,18 +56,31 @@ var ErrSessionBusy = errors.New("session: busy")
 // No additional guard is needed here — during async delegation the session
 // correctly releases inFlight, allowing new messages to interleave.
 type SessionBridge struct {
-	sess SessionProvider
-	api  *APIClient
-	log  *logger.Logger
+	sess    SessionProvider
+	api     *APIClient
+	log     *logger.Logger
+	version string
+}
+
+// SessionBridgeOption configures a SessionBridge.
+type SessionBridgeOption func(*SessionBridge)
+
+// WithVersion sets the version string for /version slash command replies.
+func WithVersion(v string) SessionBridgeOption {
+	return func(b *SessionBridge) { b.version = v }
 }
 
 // NewSessionBridge creates a new SessionBridge.
-func NewSessionBridge(sess SessionProvider, api *APIClient, log *logger.Logger) *SessionBridge {
-	return &SessionBridge{
+func NewSessionBridge(sess SessionProvider, api *APIClient, log *logger.Logger, opts ...SessionBridgeOption) *SessionBridge {
+	b := &SessionBridge{
 		sess: sess,
 		api:  api,
 		log:  log,
 	}
+	for _, o := range opts {
+		o(b)
+	}
+	return b
 }
 
 // OnQQMessage implements EventHandler. Called by the Gateway when a QQ message arrives.
@@ -73,6 +89,13 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		"source", msg.Source,
 		"content_len", len(msg.Content),
 		"open_id", msg.OpenID)
+
+	// Handle slash commands locally, consistent with TUI behavior.
+	// Known builtins are handled here; unrecognized slash commands and skills
+	// are forwarded to the LLM as normal input.
+	if b.handleSlashCommand(ctx, msg) {
+		return
+	}
 
 	// Use AskStream to capture the full response including reasoning content
 	result, err := b.sess.AskStream(ctx, msg.Content)
@@ -113,6 +136,61 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	// Format as QQ-compatible markdown and send
 	formatted := QQMarkdown(reply)
 	b.sendReply(ctx, msg, MsgTypeMarkdown, formatted)
+}
+
+// sendReply sends the reply text to QQ, splitting into chunks if it exceeds the limit.
+
+// ─── Slash Command Handling ──────────────────────────────────────────────────
+
+// isSlashCommandInput checks if the message is a single-line slash command.
+func isSlashCommandInput(input string) bool {
+	trimmed := strings.TrimSpace(input)
+	return !strings.Contains(trimmed, "\n") && strings.HasPrefix(trimmed, "/")
+}
+
+// handleSlashCommand processes slash commands locally, consistent with TUI behavior.
+// Returns true if the command was handled (caller should not forward to LLM).
+// Unrecognized slash commands return false so they are forwarded to LLM as normal input.
+func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) bool {
+	content := strings.TrimSpace(msg.Content)
+	if !isSlashCommandInput(content) {
+		return false
+	}
+
+	name := strings.ToLower(content)
+
+	switch name {
+	case "/help", "/?":
+		text := "Commands: /help /clear /version"
+		b.sendReply(ctx, msg, MsgTypeText, text)
+		return true
+
+	case "/clear":
+		if err := b.sess.Clear(ctx); err != nil {
+			b.sendReply(ctx, msg, MsgTypeText, "clear session failed: "+err.Error())
+		} else {
+			b.sendReply(ctx, msg, MsgTypeText, "◆ context cleared")
+		}
+		return true
+
+	case "/version":
+		v := b.version
+		if v == "" {
+			v = "SoloQueue"
+		} else {
+			v = "SoloQueue " + v
+		}
+		b.sendReply(ctx, msg, MsgTypeText, v)
+		return true
+
+	case "/quit", "/exit", "/q":
+		// QQ bot can't be quit via slash command; forward to LLM.
+		return false
+
+	default:
+		// Unknown slash command: forward to LLM as normal input.
+		return false
+	}
 }
 
 // sendReply sends the reply text to QQ, splitting into chunks if it exceeds the limit.
