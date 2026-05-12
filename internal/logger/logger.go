@@ -48,7 +48,7 @@ func defaultOptions() options {
 		file:      true,
 		subdir:    "system",
 		maxSizeMB: 50,
-		maxDays:   30,
+		maxDays:   15,
 		maxFiles:  5,
 	}
 }

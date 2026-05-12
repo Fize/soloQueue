@@ -158,9 +158,9 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 		opt(m)
 	}
 
-	// HTTP access logger — writes to logs/http/ with 1-day rotation, 50MB max
+	// HTTP access logger — writes to logs/http/ with 15-day retention, 50MiB max per file
 	accessLogDir := filepath.Join(workDir, "logs", "http")
-	al, err := newHTTPAccessLogger(accessLogDir, 50, 1)
+	al, err := newHTTPAccessLogger(accessLogDir, 50, 15)
 	if err != nil && log != nil {
 		log.ErrorContext(context.Background(), logger.CatHTTP, "failed to create access logger", "err", err.Error())
 	}
@@ -204,7 +204,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
 	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
 	r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
-		r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
+	r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
 	r.Get("/api/teams", m.handleListTeams)
 
 	// WebSocket endpoint for real-time state updates

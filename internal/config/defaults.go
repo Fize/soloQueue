@@ -6,7 +6,7 @@ func DefaultSettings() Settings {
 	return Settings{
 		Session: SessionConfig{
 			TimelineMaxFileMB:       50,
-			TimelineMaxFiles:        5,
+			TimelineMaxFiles:        15, // deprecated: timeline retention is day-based
 			ContextIdleThresholdMin: 30, // default 30 minutes
 		},
 		Log: LogConfig{
