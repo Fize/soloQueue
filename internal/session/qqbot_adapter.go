@@ -22,6 +22,16 @@ func NewQQBotAdapter(mgr *SessionManager, log *logger.Logger) *SessionAskAdapter
 	return &SessionAskAdapter{mgr: mgr, log: log}
 }
 
+// Clear implements qqbot.SessionProvider.Clear.
+// It clears the session context (conversation history).
+func (a *SessionAskAdapter) Clear(ctx context.Context) error {
+	sess := a.mgr.Session()
+	if sess == nil {
+		return errors.New("no active session")
+	}
+	return sess.Clear()
+}
+
 // AskStream implements qqbot.SessionProvider.
 // It calls Session.AskStream, consumes the event stream, and returns
 // the final content and reasoning content.
