@@ -106,22 +106,15 @@ export interface TeamListResponse {
 
 // ─── Runtime Types ───────────────────────────────────────────────────────────
 
-export interface ToolCallState {
-  call_id: string
-  name: string
-  args: string
-  result: string
-  error: string
-  done: boolean
-  duration_ms: number
-}
+export type Segment =
+  | { type: 'thinking'; text: string }
+  | { type: 'content'; text: string }
+  | { type: 'tool_call'; call_id: string; name: string; args: string; result: string; error: string; done: boolean; duration_ms: number }
 
 export interface AgentStreamState {
   agent_id: string
   processing: boolean
-  thinking: string
-  content: string
-  tool_calls: ToolCallState[]
+  segments: Segment[]
   iteration: number
   error?: string
 }

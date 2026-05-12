@@ -44,7 +44,7 @@ const stateLabel: Record<AgentState, string> = {
 
 // ─── Inline Editor ──────────────────────────────────────────────────────────
 
-function InlineEditor({ content, onSave, saving, height = 'h-[400px]', type = 'yaml' }: {
+function InlineEditor({ content, onSave, saving, height = 'h-[50vh]', type = 'yaml' }: {
   content: string;
   onSave: (draft: string) => Promise<void>;
   saving: boolean;
@@ -167,7 +167,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
   }, [open, isL1, agent?.state]);
 
   const stream = useAgentStream(agent?.instance_id ?? null);
-  const hasOutput = agent?.state === 'processing' || (stream && (stream.content || stream.thinking || stream.tool_calls.length > 0 || stream.error));
+  const hasOutput = agent?.state === 'processing' || (stream && (stream.segments.length > 0 || stream.error));
 
   if (!agent && !templateId) return null;
 
@@ -175,9 +175,9 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
   if (isL1) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[600px] max-h-[80vh]">
+        <DialogContent>
           <DialogHeader>
-            <div className="flex items-center justify-between pr-8">
+            <div className="flex items-center justify-between pr-12">
               <DialogTitle className="flex items-center gap-2">
                 <span>{effectiveName}</span>
                 <Badge variant="default" className="text-xs">Main Agent</Badge>
@@ -207,7 +207,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             </TabsList>
 
             <TabsContent value="output" className="mt-3">
-              <ScrollArea className="h-[400px] rounded-md border border-border p-4">
+              <ScrollArea className="h-[50vh] rounded-md border border-border p-4">
                 {stream ? (
                   <AgentStreamView state={stream} />
                 ) : (
@@ -219,7 +219,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             </TabsContent>
 
             <TabsContent value="soul" className="mt-3">
-              <ScrollArea className="h-[400px] rounded-md border border-border p-4">
+              <ScrollArea className="h-[50vh] rounded-md border border-border p-4">
                 {loading ? (
                   <p className="text-sm text-muted-foreground">Loading...</p>
                 ) : profile?.soul ? (
@@ -231,7 +231,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             </TabsContent>
 
             <TabsContent value="rules" className="mt-3">
-              <ScrollArea className="h-[400px] rounded-md border border-border p-4">
+              <ScrollArea className="h-[50vh] rounded-md border border-border p-4">
                 {loading ? (
                   <p className="text-sm text-muted-foreground">Loading...</p>
                 ) : profile?.rules ? (
@@ -270,7 +270,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>{effectiveName}</span>
@@ -301,7 +301,7 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
 
           {/* Output Tab — streaming agent output */}
           <TabsContent value="output" className="mt-3">
-            <ScrollArea className="h-[400px] rounded-md border border-border p-4">
+            <ScrollArea className="h-[50vh] rounded-md border border-border p-4">
               {stream ? (
                 <AgentStreamView state={stream} />
               ) : (
