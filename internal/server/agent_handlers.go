@@ -383,6 +383,7 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
 
 	// Group templates by group name
 	teamMap := make(map[string]*TeamInfoResponse)
+	groups := m.reloadGroups()
 
 	for _, tmpl := range m.templates {
 		groupName := tmpl.Group
@@ -398,7 +399,7 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
 			}
 
 			// Get group description if available
-			if group, ok := m.groups[groupName]; ok {
+			if group, ok := groups[groupName]; ok {
 				teamMap[groupName].Description = group.Body
 			}
 		}
