@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -37,6 +38,8 @@ func ServeCmd(version string) *cobra.Command {
 	var host string
 	var verbose bool
 	var bypass bool
+	var authUser string
+	var authPass string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -122,7 +125,16 @@ func ServeCmd(version string) *cobra.Command {
 		rt.OnPromptRebuild(rebuildPrompt)
 
 		// Create RuntimeMetrics (shared by Mux + Hub) for serve mode.
-		runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: fmt.Sprintf("%s:%d", host, port)}
+		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+		if err != nil {
+			return fmt.Errorf("listen %s:%d: %w", host, port, err)
+		}
+		actualAddr := listener.Addr().String()
+		runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: actualAddr}
+		fmt.Println(actualAddr)
+		if authUser == "" {
+			fmt.Println("WARNING: no HTTP basic auth configured -- server is open to the local network")
+		}
 
 		mux := server.NewMux(workDir, log, rt.TodoStore,
 			server.WithRegistry(rt.AgentRegistry),
@@ -137,6 +149,7 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithAgentsDir(filepath.Join(workDir, "agents")),
 			server.WithPromptRebuild(rebuildPrompt),
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),
+			server.WithBasicAuth(authUser, authPass),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.
@@ -156,10 +169,7 @@ func ServeCmd(version string) *cobra.Command {
 			runtimeMetrics.StartAgentWatch(a)
 		}
 
-		srv := &http.Server{
-			Addr:    fmt.Sprintf("%s:%d", host, port),
-			Handler: mux,
-		}
+		srv := &http.Server{Handler: mux}
 
 			go func() {
 				defer func() {
@@ -179,20 +189,20 @@ func ServeCmd(version string) *cobra.Command {
 				mgr.Shutdown(5 * time.Second)
 			}()
 
-			log.Info(logger.CatApp, "server listening", "addr", srv.Addr)
-
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				return fmt.Errorf("http listen: %w", err)
+			if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("http serve: %w", err)
 			}
 			log.Info(logger.CatApp, "soloqueue serve stopped")
 			return nil
 		},
 	}
 
-	cmd.Flags().IntVarP(&port, "port", "p", 8765, "HTTP server port")
+	cmd.Flags().IntVarP(&port, "port", "p", 57647, "HTTP server port (57647 = default, 0 = random)")
 	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
 	cmd.Flags().BoolVar(&bypass, "bypass", false, "bypass all tool confirmations for all agents")
+	cmd.Flags().StringVar(&authUser, "auth-user", "", "HTTP basic auth username (empty = no auth)")
+	cmd.Flags().StringVar(&authPass, "auth-pass", "", "HTTP basic auth password")
 
 	return cmd
 }
