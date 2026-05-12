@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Header } from '@/components/Header'
 import { RuntimeStatusBar } from '@/components/RuntimeStatusBar'
+import { Container } from '@/components/ui/Container'
 import { HomePage } from '@/components/HomePage'
 import { SettingsView } from '@/components/SettingsView'
 import { FilesPage } from '@/components/FilesPage'
@@ -54,15 +55,17 @@ function App() {
         <Header activeTab={activeTab} onTabChange={handleTabChange} />
         <RuntimeStatusBar />
         <main className="flex-1 overflow-hidden">
-          <div className={activeTab === 'home' ? 'h-full' : 'hidden h-0'}>
-            <HomePage />
-          </div>
-          <div className={activeTab === 'files' ? 'h-full' : 'hidden h-0'}>
-            <FilesPage />
-          </div>
-          <div className={activeTab === 'settings' ? 'h-full' : 'hidden h-0'}>
-            <SettingsView initialTab={settingsSubtab} />
-          </div>
+          <Container className="h-full pb-4 sm:pb-6">
+            <div className={activeTab === 'home' ? 'h-full' : 'hidden h-0'}>
+              <HomePage />
+            </div>
+            <div className={activeTab === 'files' ? 'h-full' : 'hidden h-0'}>
+              <FilesPage />
+            </div>
+            <div className={activeTab === 'settings' ? 'h-full' : 'hidden h-0'}>
+              <SettingsView initialTab={settingsSubtab} />
+            </div>
+          </Container>
         </main>
       </div>
     </TooltipProvider>
