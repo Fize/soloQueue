@@ -261,7 +261,7 @@
 /* ─── Markdown Preview Styles ──────────────────────────────────────────────── */
 @layer components {
   .markdown-preview {
-    @apply text-sm leading-relaxed text-foreground;
+    @apply text-sm leading-relaxed text-foreground overflow-x-auto max-w-full;
   }
 
   /* Headers */
