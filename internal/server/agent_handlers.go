@@ -398,7 +398,8 @@ type TeamListResponse struct {
 // handleListTeams returns all teams and their agent templates.
 // GET /api/teams
 func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
-	if m.templates == nil {
+	templates := m.reloadTemplates()
+	if templates == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
 		return
 	}
@@ -407,7 +408,7 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
 	teamMap := make(map[string]*TeamInfoResponse)
 	groups := m.reloadGroups()
 
-	for _, tmpl := range m.templates {
+	for _, tmpl := range templates {
 		groupName := tmpl.Group
 		if groupName == "" {
 			groupName = "Default"

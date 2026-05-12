@@ -30,11 +30,13 @@ type AutoReloadConfig struct {
 
 	// OnLeaderCreated is called after a leader agent is hot-instantiated.
 	// The L1 session uses this to dynamically register a delegate_* tool.
-	OnLeaderCreated func(ctx context.Context, name, group string, ag *agent.Agent)
+	// tmpl is the full parsed template (not a reference — safe to retain).
+	OnLeaderCreated func(ctx context.Context, name, group string, ag *agent.Agent, tmpl agent.AgentTemplate)
 
 	// OnWorkerCreated is called after a non-leader agent is hot-instantiated.
 	// The caller should add the worker to the appropriate supervisor via AdoptChild.
-	OnWorkerCreated func(ctx context.Context, name, group string, ag *agent.Agent)
+	// tmpl is the full parsed template (not a reference — safe to retain).
+	OnWorkerCreated func(ctx context.Context, name, group string, ag *agent.Agent, tmpl agent.AgentTemplate)
 }
 
 // WrapWithAutoReload wraps a file-writing tool so that writes to the agents/
@@ -207,12 +209,12 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 	}
 
 	if fm.IsLeader && w.cfg.OnLeaderCreated != nil {
-		w.cfg.OnLeaderCreated(ctx, fm.Name, fm.Group, ag)
+		w.cfg.OnLeaderCreated(ctx, fm.Name, fm.Group, ag, tmpl)
 		return fmt.Sprintf("Leader '%s' (%s) created and activated. Use delegate_%s to assign tasks.", fm.Name, fm.Group, fm.Name)
 	}
 
 	if !fm.IsLeader && w.cfg.OnWorkerCreated != nil {
-		w.cfg.OnWorkerCreated(ctx, fm.Name, fm.Group, ag)
+		w.cfg.OnWorkerCreated(ctx, fm.Name, fm.Group, ag, tmpl)
 	}
 
 	return fmt.Sprintf("Worker '%s' (%s) created and activated.", fm.Name, fm.Group)

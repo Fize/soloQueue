@@ -135,6 +135,19 @@ func (s *Stack) AddSupervisor(sv *agent.Supervisor) {
 	s.Supervisors = append(s.Supervisors, sv)
 }
 
+// RemoveSupervisor removes a supervisor from the stack's list (concurrency-safe via CfgMu).
+// Uses pointer identity for comparison.
+func (s *Stack) RemoveSupervisor(sv *agent.Supervisor) {
+	s.CfgMu.Lock()
+	defer s.CfgMu.Unlock()
+	for i, v := range s.Supervisors {
+		if v == sv {
+			s.Supervisors = append(s.Supervisors[:i], s.Supervisors[i+1:]...)
+			return
+		}
+	}
+}
+
 // SetSystemPrompt updates the compiled system prompt (concurrency-safe).
 func (s *Stack) SetSystemPrompt(prompt string) {
 	s.CfgMu.Lock()
