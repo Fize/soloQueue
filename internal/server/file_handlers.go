@@ -67,7 +67,8 @@ func (m *Mux) allowedRoots() []string {
 	planDir := filepath.Join(m.workDir, "plan")
 	roots = append(roots, planDir)
 
-	for _, gf := range m.groups {
+	groups := m.reloadGroups()
+	for _, gf := range groups {
 		for _, ws := range gf.Frontmatter.Workspaces {
 			p := expandTilde(ws.Path)
 			p = filepath.Clean(p)
@@ -208,7 +209,8 @@ func (m *Mux) handleGetFileRoots(w http.ResponseWriter, r *http.Request) {
 		{Label: "Plan", Path: planDir, Group: ""},
 	}
 
-	for key, gf := range m.groups {
+	groups := m.reloadGroups()
+	for key, gf := range groups {
 		name := gf.Frontmatter.Name
 		if name == "" {
 			name = key
