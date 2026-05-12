@@ -120,26 +120,42 @@ func (rm *RuntimeMetrics) Snapshot() (phase string, promptTokens, outputTokens, 
 
 // ─── Agent Stream State ─────────────────────────────────────────────────────
 
-// ToolCallState is a JSON-serializable snapshot of a tool call in progress.
-type ToolCallState struct {
-	CallID     string `json:"call_id"`
-	Name       string `json:"name"`
-	Args       string `json:"args"`
-	Result     string `json:"result"`
-	Error      string `json:"error"`
+// SegmentType indicates the kind of an ordered timeline segment.
+type SegmentType string
+
+const (
+	SegThinking SegmentType = "thinking"
+	SegContent  SegmentType = "content"
+	SegToolCall SegmentType = "tool_call"
+)
+
+// Segment is a single ordered entry in the agent's output timeline.
+// For thinking/content segments only Text is populated;
+// for tool_call segments the tool-specific fields are used.
+type Segment struct {
+	Type SegmentType `json:"type"`
+
+	// For thinking / content
+	Text string `json:"text,omitempty"`
+
+	// For tool_call
+	CallID     string `json:"call_id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Args       string `json:"args,omitempty"`
+	Result     string `json:"result,omitempty"`
+	Error      string `json:"error,omitempty"`
 	Done       bool   `json:"done"`
-	DurationMs int64  `json:"duration_ms"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
 }
 
-// AgentStreamState holds the live streaming output for one agent.
+// AgentStreamState holds the live streaming output for one agent
+// as an ordered timeline of segments.
 type AgentStreamState struct {
-	AgentID    string          `json:"agent_id"`
-	Processing bool            `json:"processing"`
-	Thinking   string          `json:"thinking"`
-	Content    string          `json:"content"`
-	ToolCalls  []ToolCallState `json:"tool_calls"`
-	Iteration  int             `json:"iteration"`
-	Error      string          `json:"error,omitempty"`
+	AgentID    string     `json:"agent_id"`
+	Processing bool       `json:"processing"`
+	Segments   []Segment  `json:"segments"`
+	Iteration  int        `json:"iteration"`
+	Error      string     `json:"error,omitempty"`
 }
 
 // StartAgentWatch subscribes to an agent's Watch() and starts a goroutine that
@@ -200,8 +216,8 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 	s := rm.agentStreams[instanceID]
 	if s == nil {
 		s = &AgentStreamState{
-			AgentID:   instanceID,
-			ToolCalls: []ToolCallState{},
+			AgentID:  instanceID,
+			Segments: []Segment{},
 		}
 		rm.agentStreams[instanceID] = s
 	}
@@ -209,39 +225,45 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 	switch e := ev.(type) {
 	case agent.ContentDeltaEvent:
 		if !s.Processing {
-			// New turn: reset content & tool calls but preserve thinking
-			// (which may have been set by preceding ReasoningDeltaEvent)
-			s.Content = ""
-			s.ToolCalls = []ToolCallState{}
+			s.Segments = nil
 			s.Error = ""
 		}
-		s.Content += e.Delta
+		n := len(s.Segments)
+		if n > 0 && s.Segments[n-1].Type == SegContent {
+			s.Segments[n-1].Text += e.Delta
+		} else {
+			s.Segments = append(s.Segments, Segment{Type: SegContent, Text: e.Delta})
+		}
 		s.Processing = true
 
 	case agent.ReasoningDeltaEvent:
 		if !s.Processing {
-			// New turn: reset thinking only (content/tool calls preserved
-			// for ContentDeltaEvent to handle with same Processing check)
-			s.Thinking = ""
+			s.Segments = nil
 		}
-		s.Thinking += e.Delta
+		n := len(s.Segments)
+		if n > 0 && s.Segments[n-1].Type == SegThinking {
+			s.Segments[n-1].Text += e.Delta
+		} else {
+			s.Segments = append(s.Segments, Segment{Type: SegThinking, Text: e.Delta})
+		}
 		s.Processing = true
 
 	case agent.ToolExecStartEvent:
-		s.ToolCalls = append(s.ToolCalls, ToolCallState{
+		s.Segments = append(s.Segments, Segment{
+			Type:   SegToolCall,
 			CallID: e.CallID,
 			Name:   e.Name,
 			Args:   e.Args,
 		})
 
 	case agent.ToolExecDoneEvent:
-		for i := range s.ToolCalls {
-			if s.ToolCalls[i].CallID == e.CallID {
-				s.ToolCalls[i].Done = true
-				s.ToolCalls[i].Result = e.Result
-				s.ToolCalls[i].DurationMs = e.Duration.Milliseconds()
+		for i := range s.Segments {
+			if s.Segments[i].Type == SegToolCall && s.Segments[i].CallID == e.CallID {
+				s.Segments[i].Done = true
+				s.Segments[i].Result = e.Result
+				s.Segments[i].DurationMs = e.Duration.Milliseconds()
 				if e.Err != nil {
-					s.ToolCalls[i].Error = e.Err.Error()
+					s.Segments[i].Error = e.Err.Error()
 				}
 				break
 			}
