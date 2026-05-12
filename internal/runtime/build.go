@@ -203,7 +203,7 @@ func Build(
 				embClient, embErr := embedding.NewOpenAI(embedding.OpenAIConfig{
 					BaseURL:   embProvider.BaseURL,
 					APIKey:    apiKey,
-					ModelID:   embModel.Name,
+					ModelID:   embModel.ID,
 					Dimension: embModel.Dimension,
 				})
 				if embErr == nil {

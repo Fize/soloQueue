@@ -18,7 +18,11 @@ func (m *Mux) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	settings := m.configSvc.Get()
+	settings, err := m.configSvc.LoadFromDisk()
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	m.writeJSON(w, http.StatusOK, settings)
 }
 
