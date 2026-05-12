@@ -66,6 +66,8 @@ type Mux struct {
 	rebuildPrompt  func() error // rebuilds L1 system prompt after soul/rules edit
 	agentsDir      string       // path to ~/.soloqueue/agents directory
 	mcpLoader      *mcp.Loader  // MCP config loader for /api/mcp endpoints
+	basicAuthUser  string       // HTTP basic auth username (empty = disabled)
+	basicAuthPass  string       // HTTP basic auth password
 }
 
 // reloadGroups loads groups from groupsDir. Returns empty map on error.
@@ -156,10 +158,32 @@ func WithMCPLoader(loader *mcp.Loader) MuxOption {
 	return func(m *Mux) { m.mcpLoader = loader }
 }
 
+// WithBasicAuth sets HTTP basic auth credentials for all routes.
+// An empty username disables authentication.
+func WithBasicAuth(user, pass string) MuxOption {
+	return func(m *Mux) {
+		m.basicAuthUser = user
+		m.basicAuthPass = pass
+	}
+}
+
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
 	m.hub = hub
+}
+
+// basicAuthMiddleware returns a chi middleware that enforces HTTP basic auth.
+func (m *Mux) basicAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != m.basicAuthUser || p != m.basicAuthPass {
+			w.Header().Set("WWW-Authenticate", `Basic realm="soloqueue"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // NewMux creates a new HTTP handler with registered routes.
@@ -194,6 +218,11 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	if al != nil {
 		m.accessLogger = al
 		r.Use(al.Middleware)
+	}
+
+	// Basic auth (if configured)
+	if m.basicAuthUser != "" {
+		r.Use(m.basicAuthMiddleware)
 	}
 
 	// Health check
@@ -254,6 +283,9 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	r.Get("/api/files/content", m.handleGetFileContent)
 	r.Get("/api/files/list", m.handleListFiles)
 	r.Get("/api/files/info", m.handleGetFileInfo)
+
+	// Static file server for embedded web UI (catch-all: only unmatched paths)
+	r.NotFound(http.FileServer(http.FS(distFS())).ServeHTTP)
 
 	return m
 }

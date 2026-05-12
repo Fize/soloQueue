@@ -5,20 +5,32 @@ Short tactical guidance for OpenCode sessions. See `CLAUDE.md` for detailed arch
 ## Quick commands
 
 ```bash
+# Full build (web + Go, one-shot)
+make build
+
+# Go-only rebuild (after web dist already exists)
+make build-go
+
+# Build web UI only
+make build-web
+
+# Clean build artifacts
+make clean
+
 # Go
-go build ./cmd/soloqueue                # build binary (outputs to cwd as `soloqueue`)
 go test ./...                           # all Go tests
 go test ./internal/timeline/...         # single package
 go test -run TestReplayInto ./internal/timeline/...  # single test
 
 # Web UI (React 19 + TypeScript + Vite + TailwindCSS v4)
-cd web && pnpm install && pnpm dev       # dev server (port 5173)
+cd web && pnpm install && pnpm dev       # dev server (port 5173, proxies /api + /ws to Go)
 cd web && pnpm build                     # production build (tsc + vite)
 cd web && pnpm check                     # full CI check (tsc --noEmit + eslint + prettier)
 cd web && pnpm lint                      # eslint only
 ```
 
 **Important**: the web project uses `pnpm` (lockfile is `pnpm-lock.yaml`), NOT npm.
+The Go binary embeds `web/dist/` via `//go:embed` — run `make build-web` before `go build` if dist is missing.
 
 ## Go module
 
@@ -29,7 +41,7 @@ Module path: `github.com/xiaobaitu/soloqueue`. Go 1.25.8.
 The same cobra binary runs in two modes:
 
 - `soloqueue` (no subcommand) — TUI mode. HTTP server starts on random port by default (`--port` / `-p` to pin).
-- `soloqueue serve --port 8765` — headless REST + WebSocket server. Binds `127.0.0.1` by default (`--host` to change).
+- `soloqueue serve --port 8765` — headless REST + WebSocket server. Binds `127.0.0.1` by default (`--host` to change). Random port by default (`--port 0`).
 
 Other subcommands: `soloqueue version`, `soloqueue cleanup` (remove Docker sandbox containers).
 
@@ -80,5 +92,5 @@ web/                React web UI, served separately by Vite dev server
 - **Logger categories**: `logger.CatApp`, `logger.CatActor`, `logger.CatMessages`, `logger.CatConfig`, etc.
 - **Config hot-reload**: callers read latest via `cfg.Get()`; config uses fsnotify under the hood.
 - **QQ returns `expires_in` as a string** (not int) in the access token response. Do not parse as integer.
-- **Web UI is NOT embedded** — it's served by Vite dev server separately. The Go binary is the API backend only.
+- **Web UI is embedded** — the Go binary serves the web UI via `//go:embed`. Run `make build-web` before `make build-go` if dist is missing.
 - **Agent bypass**: three layers — agent-level (`permission: true` in template), global (`--bypass`), ask-level (`agent.WithBypassConfirmCtx(ctx)`).

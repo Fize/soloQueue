@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import type { Plan, PlanStatus } from '@/types';
-import { usePlans } from '@/hooks/usePlans';
-import { BoardColumn } from './BoardColumn';
-import { PlanDetail } from './PlanDetail';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import { useState } from 'react'
+import type { Plan, PlanStatus } from '@/types'
+import { usePlans } from '@/hooks/usePlans'
+import { BoardColumn } from './BoardColumn'
+import { PlanDetail } from './PlanDetail'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
 import {
   DndContext,
   PointerSensor,
@@ -14,113 +14,103 @@ import {
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
-} from '@dnd-kit/core';
-import { PlanCard } from './PlanCard';
-import { arrayMove } from '@dnd-kit/sortable';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+} from '@dnd-kit/core'
+import { PlanCard } from './PlanCard'
+import { arrayMove } from '@dnd-kit/sortable'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export function Board() {
-  const { plansByStatus, error, fetchPlans, movePlan, plans } = usePlans();
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-  const [activePlan, setActivePlan] = useState<Plan | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('plan');
+  const { plansByStatus, error, fetchPlans, movePlan, plans } = usePlans()
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
+  const [activePlan, setActivePlan] = useState<Plan | null>(null)
+  const [activeTab, setActiveTab] = useState<string>('plan')
 
   // Local state for optimistic reordering during drag
-  const [localPlans, setLocalPlans] = useState<Record<PlanStatus, Plan[]> | null>(null);
-  const displayPlans = localPlans ?? plansByStatus;
+  const [localPlans, setLocalPlans] = useState<Record<PlanStatus, Plan[]> | null>(null)
+  const displayPlans = localPlans ?? plansByStatus
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   function handleDragStart(event: DragStartEvent) {
-    const id = event.active.id as string;
-    const plan = plans.find((p) => p.id === id);
-    setActivePlan(plan ?? null);
+    const id = event.active.id as string
+    const plan = plans.find((p) => p.id === id)
+    setActivePlan(plan ?? null)
   }
 
   function handleDragOver(event: DragOverEvent) {
-    const { active, over } = event;
-    if (!over) return;
+    const { active, over } = event
+    if (!over) return
 
-    const activeId = active.id as string;
-    const overId = over.id as string;
+    const activeId = active.id as string
+    const overId = over.id as string
 
-    const overStatus = (['plan', 'running', 'done'] as PlanStatus[]).find(
-      (s) => s === overId,
-    );
+    const overStatus = (['plan', 'running', 'done'] as PlanStatus[]).find((s) => s === overId)
 
-    let sourceStatus: PlanStatus | undefined;
+    let sourceStatus: PlanStatus | undefined
     for (const status of ['plan', 'running', 'done'] as PlanStatus[]) {
       if (displayPlans[status].some((p) => p.id === activeId)) {
-        sourceStatus = status;
-        break;
+        sourceStatus = status
+        break
       }
     }
-    if (!sourceStatus) return;
+    if (!sourceStatus) return
 
-    const destStatus = overStatus ?? sourceStatus;
+    const destStatus = overStatus ?? sourceStatus
 
     if (sourceStatus === destStatus) {
-      const items = [...displayPlans[sourceStatus]];
-      const oldIndex = items.findIndex((p) => p.id === activeId);
-      const newIndex = overStatus
-        ? items.length
-        : items.findIndex((p) => p.id === overId);
-      if (oldIndex === newIndex || oldIndex === -1) return;
+      const items = [...displayPlans[sourceStatus]]
+      const oldIndex = items.findIndex((p) => p.id === activeId)
+      const newIndex = overStatus ? items.length : items.findIndex((p) => p.id === overId)
+      if (oldIndex === newIndex || oldIndex === -1) return
 
       setLocalPlans({
         ...displayPlans,
         [sourceStatus]: arrayMove(items, oldIndex, newIndex),
-      });
+      })
     } else {
-      const sourceItems = displayPlans[sourceStatus].filter((p) => p.id !== activeId);
-      const plan = displayPlans[sourceStatus].find((p) => p.id === activeId);
-      if (!plan) return;
+      const sourceItems = displayPlans[sourceStatus].filter((p) => p.id !== activeId)
+      const plan = displayPlans[sourceStatus].find((p) => p.id === activeId)
+      if (!plan) return
 
-      const destItems = [...displayPlans[destStatus]];
-      const overIndex = overStatus
-        ? destItems.length
-        : destItems.findIndex((p) => p.id === overId);
+      const destItems = [...displayPlans[destStatus]]
+      const overIndex = overStatus ? destItems.length : destItems.findIndex((p) => p.id === overId)
       destItems.splice(overIndex === -1 ? destItems.length : overIndex, 0, {
         ...plan,
         status: destStatus,
-      });
+      })
 
       setLocalPlans({
         ...displayPlans,
         [sourceStatus]: sourceItems,
         [destStatus]: destItems,
-      });
+      })
     }
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    setActivePlan(null);
-    setLocalPlans(null);
+    const { active, over } = event
+    setActivePlan(null)
+    setLocalPlans(null)
 
-    if (!over) return;
+    if (!over) return
 
-    const activeId = active.id as string;
-    const overId = over.id as string;
+    const activeId = active.id as string
+    const overId = over.id as string
 
-    const overStatus = (['plan', 'running', 'done'] as PlanStatus[]).find(
-      (s) => s === overId,
-    );
+    const overStatus = (['plan', 'running', 'done'] as PlanStatus[]).find((s) => s === overId)
 
-    let sourceStatus: PlanStatus | undefined;
+    let sourceStatus: PlanStatus | undefined
     for (const status of ['plan', 'running', 'done'] as PlanStatus[]) {
       if (plansByStatus[status].some((p) => p.id === activeId)) {
-        sourceStatus = status;
-        break;
+        sourceStatus = status
+        break
       }
     }
-    if (!sourceStatus) return;
+    if (!sourceStatus) return
 
-    const destStatus = overStatus ?? sourceStatus;
+    const destStatus = overStatus ?? sourceStatus
     if (sourceStatus !== destStatus) {
-      movePlan(activeId, destStatus);
+      movePlan(activeId, destStatus)
     }
   }
 
@@ -135,11 +125,11 @@ export function Board() {
           Retry
         </Button>
       </div>
-    );
+    )
   }
 
   function handlePlanClick(plan: Plan) {
-    setSelectedPlan(plan);
+    setSelectedPlan(plan)
   }
 
   return (
@@ -150,11 +140,7 @@ export function Board() {
           <div className="border-b-2 border-[#EEEEEE] px-4">
             <TabsList className="h-10 w-full justify-start gap-1 border-0">
               {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
-                <TabsTrigger
-                  key={status}
-                  value={status}
-                  className="text-xs capitalize"
-                >
+                <TabsTrigger key={status} value={status} className="text-xs capitalize">
                   {status} ({displayPlans[status].length})
                 </TabsTrigger>
               ))}
@@ -172,7 +158,7 @@ export function Board() {
       >
         {/* Desktop: 3-column layout, fills available space */}
         <div className="hidden flex-1 overflow-x-auto md:flex">
-          <div className="flex h-full w-full gap-4 p-5">
+          <div className="flex h-full w-full gap-4 py-5">
             {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
               <div key={status} className="min-w-[250px] flex-1">
                 <BoardColumn
@@ -186,7 +172,7 @@ export function Board() {
         </div>
 
         {/* Mobile: single column based on active tab, centered */}
-        <div className="flex-1 overflow-y-auto p-4 md:hidden">
+        <div className="flex-1 overflow-y-auto py-4 md:hidden">
           <div className="mx-auto max-w-[400px]">
             <BoardColumn
               status={activeTab as PlanStatus}
@@ -196,19 +182,17 @@ export function Board() {
           </div>
         </div>
 
-        <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.83, 0.67)' }}>
+        <DragOverlay
+          dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.83, 0.67)' }}
+        >
           {activePlan && <PlanCard plan={activePlan} onClick={() => {}} isOverlay />}
         </DragOverlay>
       </DndContext>
 
       {/* Plan detail sheet */}
       {selectedPlan && (
-        <PlanDetail
-          plan={selectedPlan}
-          open={true}
-          onClose={() => setSelectedPlan(null)}
-        />
+        <PlanDetail plan={selectedPlan} open={true} onClose={() => setSelectedPlan(null)} />
       )}
     </div>
-  );
+  )
 }
