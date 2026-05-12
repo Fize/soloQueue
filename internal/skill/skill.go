@@ -200,6 +200,21 @@ func (r *SkillRegistry) Skills() []*Skill {
 	return out
 }
 
+// Rebuild clears the registry and reloads all skills from the given directories.
+func (r *SkillRegistry) Rebuild(dirs map[string]string) error {
+	userSkills, err := LoadSkillsFromDirs(dirs)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.skills = make(map[string]*Skill, len(userSkills))
+	for _, s := range userSkills {
+		r.skills[s.ID] = s
+	}
+	r.mu.Unlock()
+	return nil
+}
+
 // Len 当前 Skill 数量
 func (r *SkillRegistry) Len() int {
 	r.mu.RLock()
