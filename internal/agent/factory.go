@@ -633,6 +633,10 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 			for _, ws := range gf.Frontmatter.Workspaces {
 				fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
 			}
+			b.WriteString("\nWhen working in one of the workspaces above, you **must** check its root directory for project-specific instruction files before starting any task:\n")
+			b.WriteString("1. `AGENTS.md` — AI agent tactical guidance (if this file exists, read it and skip `CLAUDE.md`)\n")
+			b.WriteString("2. `CLAUDE.md` — Project architecture, conventions, and guidelines (only read if `AGENTS.md` does not exist)\n")
+			b.WriteString("3. If neither file exists, proceed without project-specific instructions.\n")
 		}
 	}
 	b.WriteString("\n")
@@ -798,6 +802,10 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 			for _, ws := range gf.Frontmatter.Workspaces {
 				fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
 			}
+			b.WriteString("\nWhen working in one of the workspaces above, you **must** check its root directory for project-specific instruction files before starting any task:\n")
+			b.WriteString("1. `AGENTS.md` — AI agent tactical guidance (if this file exists, read it and skip `CLAUDE.md`)\n")
+			b.WriteString("2. `CLAUDE.md` — Project architecture, conventions, and guidelines (only read if `AGENTS.md` does not exist)\n")
+			b.WriteString("3. If neither file exists, proceed without project-specific instructions.\n")
 		}
 	}
 	b.WriteString("\n")
