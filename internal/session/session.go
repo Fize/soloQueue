@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
@@ -64,7 +66,8 @@ type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string) 
 
 // MemoryHook is called when conversation context is being discarded (compaction or /clear).
 // conversationText is a plain-text representation of the messages being forgotten.
-type MemoryHook func(ctx context.Context, conversationText string)
+// recordedAt indicates the date of the conversation segment for correct file routing.
+type MemoryHook func(ctx context.Context, conversationText string, recordedAt time.Time)
 
 // ─── Session ──────────────────────────────────────────────────────────────
 
@@ -104,7 +107,8 @@ type Session struct {
 	levelLocked     bool         // true when user explicitly locked level via /l0-/l3
 	lastRouteResult RouteResult  // cached route result for locked mode (model params preserved)
 
-	memoryHook MemoryHook // optional callback for short-term memory (nil = disabled)
+	memoryHook    MemoryHook        // optional callback for short-term memory (nil = disabled)
+	memoryManager *memory.Manager   // for dedup cursor; set alongside memoryHook
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -182,17 +186,31 @@ func (s *Session) SetMemoryHook(hook MemoryHook) {
 	s.memoryHook = hook
 }
 
+// SetMemoryManager sets the memory manager for dedup cursor tracking.
+// Must be set alongside SetMemoryHook for dedup to work.
+func (s *Session) SetMemoryManager(mm *memory.Manager) {
+	s.memoryManager = mm
+}
+
 // Clear 执行软清除：追加 /clear 控制事件到 timeline，重置 ContextWindow
 //
 // 不删除任何持久化数据。ContextWindow 仅保留 system prompt。
 func (s *Session) Clear() error {
 	s.mu.Lock()
 
-	// Snapshot messages for memory recording before clearing
-	var memoryText string
+	// Snapshot messages for memory recording before clearing.
+	// Filter by dedup cursor and group by date.
+	var dateGroups []payloadDateGroup
 	if s.memoryHook != nil {
 		payload := s.cw.BuildPayload()
-		memoryText = formatPayloadForMemory(payload)
+		cursor := time.Time{}
+		if s.memoryManager != nil {
+			cursor = s.memoryManager.LastRecordedAt()
+		}
+		filtered := filterPayloadSince(payload, cursor)
+		if len(filtered) > 0 {
+			dateGroups = groupPayloadByDate(filtered)
+		}
 	}
 
 	// 追加 /clear 控制事件到 timeline
@@ -211,9 +229,21 @@ func (s *Session) Clear() error {
 	s.cw.Reset()
 	s.mu.Unlock()
 
-	// Call memory hook outside lock
-	if s.memoryHook != nil && memoryText != "" {
-		s.memoryHook(context.Background(), memoryText)
+	// Call memory hook for each date group (outside lock)
+	if s.memoryHook != nil && len(dateGroups) > 0 {
+		var latest time.Time
+		for _, g := range dateGroups {
+			text := formatPayloadForMemory(g.msgs)
+			s.memoryHook(context.Background(), text, g.date)
+			for _, m := range g.msgs {
+				if m.Timestamp.After(latest) {
+					latest = m.Timestamp
+				}
+			}
+		}
+		if s.memoryManager != nil {
+			s.memoryManager.AdvanceLastRecordedAt(latest)
+		}
 	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session cleared",
@@ -258,24 +288,42 @@ func (s *Session) ShouldClearContext(idleTimeout time.Duration, minTokens int) b
 // It triggers the memory hook (if set) for short-term memory storage.
 func (s *Session) ClearSilent() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	// Snapshot messages for memory recording
-	var memoryText string
+	// Snapshot messages for memory recording.
+	// Filter by dedup cursor and group by date.
+	var dateGroups []payloadDateGroup
 	if s.memoryHook != nil {
 		payload := s.cw.BuildPayload()
-		memoryText = formatPayloadForMemory(payload)
+		cursor := time.Time{}
+		if s.memoryManager != nil {
+			cursor = s.memoryManager.LastRecordedAt()
+		}
+		filtered := filterPayloadSince(payload, cursor)
+		if len(filtered) > 0 {
+			dateGroups = groupPayloadByDate(filtered)
+		}
 	}
 
 	// Reset context window (preserves system prompt)
 	s.cw.Reset()
-
 	s.mu.Unlock()
-	// Call memory hook outside lock
-	if s.memoryHook != nil && memoryText != "" {
-		s.memoryHook(context.Background(), memoryText)
+
+	// Call memory hook for each date group (outside lock)
+	if s.memoryHook != nil && len(dateGroups) > 0 {
+		var latest time.Time
+		for _, g := range dateGroups {
+			text := formatPayloadForMemory(g.msgs)
+			s.memoryHook(context.Background(), text, g.date)
+			for _, m := range g.msgs {
+				if m.Timestamp.After(latest) {
+					latest = m.Timestamp
+				}
+			}
+		}
+		if s.memoryManager != nil {
+			s.memoryManager.AdvanceLastRecordedAt(latest)
+		}
 	}
-	s.mu.Lock() // re-lock for defer
 
 	return nil
 }
@@ -657,10 +705,11 @@ type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwi
 
 // SessionManager 管理唯一的活跃 session
 type SessionManager struct {
-	factory    AgentFactory
-	routerFunc TaskRouterFunc
-	memoryHook MemoryHook
-	logger     *logger.Logger
+	factory       AgentFactory
+	routerFunc    TaskRouterFunc
+	memoryHook    MemoryHook
+	memoryManager *memory.Manager
+	logger        *logger.Logger
 
 	mu      sync.Mutex
 	session *Session
@@ -692,6 +741,12 @@ func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
 // Must be called before Init(). Not thread-safe for setup.
 func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 	m.memoryHook = hook
+}
+
+// SetMemoryManager sets the memory manager for dedup cursor tracking.
+// Must be set alongside SetMemoryHook. Not thread-safe for setup.
+func (m *SessionManager) SetMemoryManager(mm *memory.Manager) {
+	m.memoryManager = mm
 }
 
 // Init 创建唯一 session；重复调用返回已存在的 session
@@ -734,6 +789,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	}
 	if m.memoryHook != nil {
 		s.memoryHook = m.memoryHook
+	}
+	if m.memoryManager != nil {
+		s.memoryManager = m.memoryManager
 	}
 
 	m.mu.Lock()
@@ -866,4 +924,77 @@ func roleLabel(role string) string {
 	default:
 		return role
 	}
+}
+
+// payloadDateGroup is a group of payload messages sharing the same date.
+type payloadDateGroup struct {
+	date time.Time
+	msgs []ctxwin.PayloadMessage
+}
+
+// filterPayloadSince returns messages whose Timestamp is strictly after cursor.
+// Returns the full slice when cursor is zero (never recorded).
+func filterPayloadSince(payload []ctxwin.PayloadMessage, cursor time.Time) []ctxwin.PayloadMessage {
+	if cursor.IsZero() {
+		return payload
+	}
+	var out []ctxwin.PayloadMessage
+	for _, m := range payload {
+		if m.Timestamp.After(cursor) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// groupPayloadByDate groups payload messages by the calendar date of their Timestamp.
+func groupPayloadByDate(payload []ctxwin.PayloadMessage) []payloadDateGroup {
+	byDate := make(map[string][]ctxwin.PayloadMessage)
+	for _, m := range payload {
+		date := m.Timestamp.Format("2006-01-02")
+		byDate[date] = append(byDate[date], m)
+	}
+	result := make([]payloadDateGroup, 0, len(byDate))
+	for dateStr, msgs := range byDate {
+		t, _ := time.Parse("2006-01-02", dateStr)
+		result = append(result, payloadDateGroup{date: t, msgs: msgs})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].date.Before(result[j].date) })
+	return result
+}
+
+// messageDateGroup is a group of ctxwin.Message sharing the same date.
+type messageDateGroup struct {
+	date time.Time
+	msgs []ctxwin.Message
+}
+
+// filterMessagesSince returns messages whose Timestamp is strictly after cursor.
+func filterMessagesSince(msgs []ctxwin.Message, cursor time.Time) []ctxwin.Message {
+	if cursor.IsZero() {
+		return msgs
+	}
+	var out []ctxwin.Message
+	for _, m := range msgs {
+		if m.Timestamp.After(cursor) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// groupMessagesByDate groups ctxwin.Message by the calendar date of their Timestamp.
+func groupMessagesByDate(msgs []ctxwin.Message) []messageDateGroup {
+	byDate := make(map[string][]ctxwin.Message)
+	for _, m := range msgs {
+		date := m.Timestamp.Format("2006-01-02")
+		byDate[date] = append(byDate[date], m)
+	}
+	result := make([]messageDateGroup, 0, len(byDate))
+	for dateStr, msgs := range byDate {
+		t, _ := time.Parse("2006-01-02", dateStr)
+		result = append(result, messageDateGroup{date: t, msgs: msgs})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].date.Before(result[j].date) })
+	return result
 }
