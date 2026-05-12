@@ -20,6 +20,21 @@ type Segment struct {
 	Messages []MessagePayload
 }
 
+func listTimelineFiles(dir, baseName string) ([]string, error) {
+	legacy, err := rotating.ListFiles(dir, baseName)
+	if err != nil {
+		return nil, err
+	}
+	dateSize, err := rotating.ListDateSizeFiles(dir, baseName)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(legacy)+len(dateSize))
+	files = append(files, legacy...)
+	files = append(files, dateSize...)
+	return files, nil
+}
+
 // ─── ReadTail / ReadTailBefore ───────────────────────────────────────────────
 
 // ReadTail reads the last maxTurns conversation turns from timeline files.
@@ -35,7 +50,7 @@ func ReadTailBefore(dir, baseName string, maxTurns int, before time.Time) ([]Seg
 
 // readTailSince is the shared implementation.
 func readTailSince(dir, baseName string, maxTurns int, since time.Time) ([]Segment, *time.Time, error) {
-	files, err := rotating.ListFiles(dir, baseName)
+	files, err := listTimelineFiles(dir, baseName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("timeline: list files: %w", err)
 	}
@@ -43,10 +58,10 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time) ([]Segme
 		return nil, nil, nil
 	}
 
-	// Read files newest-first
+	// Read files oldest-first so allEvents remains chronological.
 	var allEvents []Event
-	for i := len(files) - 1; i >= 0; i-- {
-		events, err := readFile(files[i])
+	for _, file := range files {
+		events, err := readFile(file)
 		if err != nil {
 			continue
 		}

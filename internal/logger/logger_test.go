@@ -460,21 +460,11 @@ func TestLogDuration_Error_RecordsBoth(t *testing.T) {
 
 func TestRotateWriter_SizeRollover(t *testing.T) {
 	dir := t.TempDir()
-	// maxSizeMB=1 实际上太小不好测，直接用底层 rotating.Writer 的方式：
-	// 通过 newRotateWriter 传入 maxSizeMB=0，然后重新创建一个有大小限制的
-	rw, err := newRotateWriter(dir, "test", false, 0, 0, 5)
+	rw, err := newRotateWriter(dir, "test", true, 1, 0, 5)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
 	}
-	_ = rw.Close()
-
-	// 用极小的 maxSize 重新创建以触发轮转
-	rw, err = newRotateWriter(dir, "test", false, 1, 0, 5) // 1MB，足够容纳少量写入但不触发轮转
-	if err != nil {
-		t.Fatalf("newRotateWriter: %v", err)
-	}
-	// 直接写底层 rotating.Writer 的 maxSize 来强制轮转
-	rw.rw.SetMaxSize(10) // 触发轮转
+	rw.writer.SetMaxSize(20)
 
 	data := []byte(`{"test":1}`)
 	for i := 0; i < 5; i++ {
@@ -484,17 +474,12 @@ func TestRotateWriter_SizeRollover(t *testing.T) {
 	}
 	_ = rw.Close()
 
-	entries, _ := os.ReadDir(dir)
-	if len(entries) < 2 {
-		t.Errorf("expected ≥ 2 files after rollover, got %d", len(entries))
-	}
-	// 主文件存在
-	if _, err := os.Stat(filepath.Join(dir, "test.jsonl")); err != nil {
+	base := filepath.Join(dir, "test-"+today())
+	if _, err := os.Stat(base + ".jsonl"); err != nil {
 		t.Errorf("main file missing: %v", err)
 	}
-	// 轮转文件 .1 存在
-	if _, err := os.Stat(filepath.Join(dir, "test.jsonl.1")); err != nil {
-		t.Errorf("rolled .1 file missing: %v", err)
+	if _, err := os.Stat(base + "-2.jsonl"); err != nil {
+		t.Errorf("rolled file missing: %v", err)
 	}
 }
 

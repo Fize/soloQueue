@@ -267,9 +267,12 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 	// Timeline writer + push hook
 	tlDir := filepath.Join(b.WorkDir, "logs", "timelines", effectiveTeam)
-	tlMaxBytes := int64(config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)) * 1024 * 1024
-	tlMaxFiles := config.DefaultInt(settings.Session.TimelineMaxFiles, 5)
-	tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, tlMaxFiles,
+	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
+	if tlMaxFileMB > 50 {
+		tlMaxFileMB = 50
+	}
+	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
+	tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, 15,
 		timeline.WithWriterLogger(sessLog))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)

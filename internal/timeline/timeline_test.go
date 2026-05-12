@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -28,7 +30,7 @@ func TestWriter_AppendMessage(t *testing.T) {
 		t.Fatalf("AppendMessage: %v", err)
 	}
 
-	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	events := readEventsFromFile(t, timelineFile(dir))
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -71,7 +73,7 @@ func TestWriter_AppendMessage_AllFields(t *testing.T) {
 		t.Fatalf("AppendMessage: %v", err)
 	}
 
-	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	events := readEventsFromFile(t, timelineFile(dir))
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -120,7 +122,7 @@ func TestWriter_AppendControl(t *testing.T) {
 		t.Fatalf("AppendControl: %v", err)
 	}
 
-	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	events := readEventsFromFile(t, timelineFile(dir))
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -154,7 +156,7 @@ func TestWriter_EventHasTimestamp(t *testing.T) {
 
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "hi"})
 
-	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	events := readEventsFromFile(t, timelineFile(dir))
 	if events[0].Timestamp == "" {
 		t.Error("timestamp is empty")
 	}
@@ -175,7 +177,7 @@ func TestWriter_MultipleEvents(t *testing.T) {
 	w.AppendControl(&ControlPayload{Action: "clear"})
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
 
-	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	events := readEventsFromFile(t, timelineFile(dir))
 	if len(events) != 4 {
 		t.Fatalf("expected 4 events, got %d", len(events))
 	}
@@ -197,7 +199,7 @@ func TestWriter_MultipleEvents(t *testing.T) {
 
 func TestWriter_Rotation(t *testing.T) {
 	dir := t.TempDir()
-	w, err := NewWriter(dir, "timeline", 50, 3) // 50 bytes per file, keep 3 rotated
+	w, err := NewWriter(dir, "timeline", 50, 3) // 50 bytes per file, keep 3 days
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -208,12 +210,12 @@ func TestWriter_Rotation(t *testing.T) {
 	}
 
 	// 主文件应存在
-	if _, err := os.Stat(filepath.Join(dir, "timeline.jsonl")); err != nil {
+	if _, err := os.Stat(timelineFile(dir)); err != nil {
 		t.Errorf("active file missing: %v", err)
 	}
 	// 至少有一个轮转文件
-	if _, err := os.Stat(filepath.Join(dir, "timeline.jsonl.1")); err != nil {
-		t.Errorf("rotated .1 file missing: %v", err)
+	if _, err := os.Stat(timelineRotatedFile(dir, 2)); err != nil {
+		t.Errorf("rotated file missing: %v", err)
 	}
 }
 
@@ -257,6 +259,33 @@ func TestReadTail_ReturnsMessages(t *testing.T) {
 	}
 	if len(segs[0].Messages) != 2 {
 		t.Errorf("segment has %d messages, want 2", len(segs[0].Messages))
+	}
+}
+
+func TestReadTail_MixedLegacyAndDateSizeFiles(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "timeline.jsonl")
+	dateSize := timelineFile(dir)
+	if err := os.WriteFile(legacy, []byte(
+		`{"ts":"2026-01-01T00:00:00Z","type":"message","msg":{"role":"user","content":"q1","ts":"2026-01-01T00:00:00Z"}}`+"\n"+
+			`{"ts":"2026-01-01T00:00:01Z","type":"message","msg":{"role":"assistant","content":"a1","ts":"2026-01-01T00:00:01Z"}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+	if err := os.WriteFile(dateSize, []byte(
+		`{"ts":"2026-01-02T00:00:00Z","type":"message","msg":{"role":"user","content":"q2","ts":"2026-01-02T00:00:00Z"}}`+"\n"+
+			`{"ts":"2026-01-02T00:00:01Z","type":"message","msg":{"role":"assistant","content":"a2","ts":"2026-01-02T00:00:01Z"}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write datesize: %v", err)
+	}
+
+	segs, _, err := ReadTail(dir, "timeline", 10)
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if got := segs[0].Messages[0].Content; got != "q1" {
+		t.Fatalf("first message = %q, want q1", got)
+	}
+	if got := segs[0].Messages[3].Content; got != "a2" {
+		t.Fatalf("last message = %q, want a2", got)
 	}
 }
 
@@ -835,7 +864,7 @@ func TestPushHook_WritesToTimeline(t *testing.T) {
 		}),
 	)
 
-	events := readEventsFromFile(t, filepath.Join(dir, "timeline.jsonl"))
+	events := readEventsFromFile(t, timelineFile(dir))
 	if len(events) != 3 {
 		t.Fatalf("expected 3 events from pushHook, got %d", len(events))
 	}
@@ -861,6 +890,14 @@ func TestPushHook_WritesToTimeline(t *testing.T) {
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
+
+func timelineFile(dir string) string {
+	return filepath.Join(dir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+}
+
+func timelineRotatedFile(dir string, seq int) string {
+	return filepath.Join(dir, "timeline-"+time.Now().Format("2006-01-02")+"-"+strconv.Itoa(seq)+".jsonl")
+}
 
 func readEventsFromFile(t *testing.T, path string) []Event {
 	t.Helper()
