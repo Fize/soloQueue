@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { GeneralTab } from './settings/GeneralTab'
 import { ModelsTab } from './settings/ModelsTab'
@@ -37,8 +37,8 @@ interface SettingsViewProps {
 
 export function SettingsView({ initialTab }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab) || 'general')
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Sync activeTab when initialTab changes (browser back/forward, direct URL navigation).
   useEffect(() => {
     if (initialTab && initialTab !== activeTab) {
       setActiveTab(initialTab as SettingsTab)
@@ -51,9 +51,34 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Left sidebar */}
-      <aside className="w-48 shrink-0 border-r-2 border-[#EEEEEE] bg-card p-4">
+    <div className="flex h-full flex-col md:flex-row">
+      {/* Mobile: Horizontal tab strip */}
+      <div
+        ref={scrollRef}
+        className="flex gap-1 overflow-x-auto border-b-2 border-border px-4 py-2 md:hidden"
+      >
+        {settingsTabs.map((tab) => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabClick(tab.id)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
+                activeTab === tab.id
+                  ? 'nb-border bg-primary nb-shadow-xs font-bold text-primary-foreground'
+                  : 'border-2 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Desktop: Sidebar */}
+      <aside className="hidden w-48 shrink-0 border-r-2 border-border bg-card p-4 md:block">
         <nav className="flex flex-col gap-1">
           {settingsTabs.map((tab) => {
             const Icon = tab.icon
