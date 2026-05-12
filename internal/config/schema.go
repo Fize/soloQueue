@@ -31,10 +31,10 @@ type Settings struct {
 	Providers     []LLMProvider       `json:"providers"`
 	Models        []LLMModel          `json:"models"`
 	Embedding     EmbeddingConfig     `json:"embedding"`
-	DefaultModels DefaultModelsConfig  `json:"defaultModels"`
-	QQBot         QQBotConfig          `json:"qqbot"`
-	Agent         AgentConfig          `json:"agent" toml:"agent"`
-	LSPMCP        LSPMCPConfig         `json:"lspmcp" toml:"lspmcp"`
+	DefaultModels DefaultModelsConfig `json:"defaultModels"`
+	QQBot         QQBotConfig         `json:"qqbot"`
+	Agent         AgentConfig         `json:"agent" toml:"agent"`
+	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp"`
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────
@@ -62,8 +62,8 @@ func (c QQBotConfig) ToQQBotConfig() qqbot.Config {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	TimelineMaxFileMB      int `json:"timelineMaxFileMB"`      // Single file limit MB, default 50
-	TimelineMaxFiles       int `json:"timelineMaxFiles"`       // Number of rotating files, default 5
+	TimelineMaxFileMB       int `json:"timelineMaxFileMB"`       // Single file limit MB, capped at 50
+	TimelineMaxFiles        int `json:"timelineMaxFiles"`        // Deprecated: timeline logs now retain by days
 	ContextIdleThresholdMin int `json:"contextIdleThresholdMin"` // Auto-clear idle context (minutes), default 30
 }
 
@@ -235,8 +235,8 @@ type ImageModelConfig struct {
 
 // LSPMCPConfig configures the built-in LSP-based MCP server.
 type LSPMCPConfig struct {
-	Enabled bool              `json:"enabled" toml:"enabled"`
-	Servers []LSPMCPEntry     `json:"servers,omitempty" toml:"servers"`
+	Enabled bool          `json:"enabled" toml:"enabled"`
+	Servers []LSPMCPEntry `json:"servers,omitempty" toml:"servers"`
 }
 
 // LSPMCPEntry is a single LSP server entry in settings.toml.

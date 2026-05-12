@@ -10,11 +10,9 @@ import (
 
 // ─── Writer ──────────────────────────────────────────────────────────────────
 
-// Writer 是 append-only JSONL 时间线写入器
-//
-// 内部组合 rotating.Writer 处理文件轮转，自身负责 JSON 编码。
+// Writer 是 append-only JSONL 时间线写入器。
 type Writer struct {
-	rw     *rotating.Writer
+	rw     *rotating.DateSizeWriter
 	logger *logger.Logger
 }
 
@@ -26,12 +24,11 @@ func WithWriterLogger(l *logger.Logger) WriterOption {
 	return func(w *Writer) { w.logger = l }
 }
 
-// NewWriter 创建时间线写入器
-//
+// NewWriter 创建时间线写入器。
 // dir 为文件所在目录，baseName 为文件名前缀（如 "timeline"）。
-// maxBytes 为单文件最大字节数（0=不限），maxFiles 为保留的轮转文件数（0=不限）。
-func NewWriter(dir, baseName string, maxBytes int64, maxFiles int, opts ...WriterOption) (*Writer, error) {
-	rw, err := rotating.Open(dir, baseName, maxBytes, maxFiles)
+// maxBytes 为单文件最大字节数（0=不限），maxDays 为保留天数（0=不限）。
+func NewWriter(dir, baseName string, maxBytes int64, maxDays int, opts ...WriterOption) (*Writer, error) {
+	rw, err := rotating.OpenDateSize(dir, baseName, maxBytes, maxDays)
 	if err != nil {
 		return nil, fmt.Errorf("timeline: open rotating writer: %w", err)
 	}

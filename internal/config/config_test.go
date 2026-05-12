@@ -843,7 +843,7 @@ func TestGlobalService_DefaultEmbeddingModel(t *testing.T) {
 	if m == nil {
 		t.Fatal("DefaultEmbeddingModel nil")
 	}
-	if m.ID != "bge-large-zh-v1.5" {
+	if m.ID != "nomic-embed-text:latest" {
 		t.Errorf("id = %q", m.ID)
 	}
 }
@@ -1268,7 +1268,7 @@ func TestGlobalService_DefaultModelByRole_Defaults(t *testing.T) {
 	if superior == nil {
 		t.Fatal("superior model nil")
 	}
-	if superior.ID != "deepseek-v4-pro" {
+	if superior.ID != "deepseek-v4-flash-thinking-max" {
 		t.Errorf("superior = %q, want deepseek-v4-pro", superior.ID)
 	}
 
