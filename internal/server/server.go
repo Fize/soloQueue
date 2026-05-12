@@ -85,6 +85,22 @@ func (m *Mux) reloadGroups() map[string]prompt.GroupFile {
 	return groups
 }
 
+// reloadTemplates loads agent templates from agentsDir on every call.
+// Returns nil on error (callers treat nil as "not available").
+func (m *Mux) reloadTemplates() []agent.AgentTemplate {
+	if m.agentsDir == "" {
+		return nil
+	}
+	templates, err := agent.LoadAgentTemplates(m.agentsDir)
+	if err != nil {
+		if m.log != nil {
+			m.log.Warn(logger.CatApp, "reloadTemplates failed", "err", err)
+		}
+		return nil
+	}
+	return templates
+}
+
 // MuxOption is a functional option for NewMux.
 type MuxOption func(*Mux)
 

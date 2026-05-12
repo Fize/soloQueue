@@ -22,12 +22,23 @@ func NewAgentChatClient(client agent.LLMClient) *AgentChatClient {
 
 // Chat implements ChatClient by delegating to agent.LLMClient.Chat.
 func (a *AgentChatClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	// Convert ChatRequest to agent.LLMRequest
+	// Convert ChatRequest to agent.LLMRequest.
+	// Tool-role messages are remapped to user because the DeepSeek API
+	// requires tool_call_id on tool messages — the compactor doesn't need
+	// the exact role mapping, only the content for summarization.
 	msgs := make([]agent.LLMMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
+		role := m.Role
+		if role == "tool" {
+			role = "user"
+		}
+		content := m.Content
+		if content == "" {
+			content = "[tool_calls]" // avoid empty content for assistant(tool_calls)
+		}
 		msgs = append(msgs, agent.LLMMessage{
-			Role:    m.Role,
-			Content: m.Content,
+			Role:    role,
+			Content: content,
 		})
 	}
 

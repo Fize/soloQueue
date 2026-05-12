@@ -97,6 +97,8 @@ type Agent struct {
 	watchSlots []watchSlot
 	watchMu    sync.RWMutex
 	watchSeq   int64
+
+	onStateChange func(State) // called after every state transition
 }
 
 // confirmSlot 是单次 tool_call 的待确认槽位
@@ -238,18 +240,21 @@ func WithInstanceID(id string) Option {
 // leaderID. This is used after Supervisor creation to wire L2→L3 delegation
 // through the Supervisor so spawned L3 children are tracked.
 //
-// No-op if the agent has no DelegateTool with that name.
-func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Context, task string) (iface.Locatable, error)) {
+// Returns true if a DelegateTool with that name was found and updated.
+func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Context, task string) (iface.Locatable, error)) bool {
 	if a.tools == nil {
-		return
+		return false
 	}
 	t, ok := a.tools.Get("delegate_" + leaderID)
 	if !ok {
-		return
+		return false
 	}
-	if dt, ok := t.(*tools.DelegateTool); ok {
-		dt.SpawnFn = spawnFn
+	dt, ok := t.(*tools.DelegateTool)
+	if !ok {
+		return false
 	}
+	dt.SpawnFn = spawnFn
+	return true
 }
 
 // RegisterTool registers a tool into the agent's ToolRegistry at runtime.
@@ -412,10 +417,21 @@ func (a *Agent) pendingDelegationsLocked() int {
 
 // ─── Runtime state helpers (agent goroutine only) ────────────────────────
 
+// SetOnStateChange registers a callback invoked (outside any lock) after every
+// state transition. Must be set before Start. The callback receives the new state.
+func (a *Agent) SetOnStateChange(fn func(State)) {
+	a.mu.Lock()
+	a.onStateChange = fn
+	a.mu.Unlock()
+}
+
 func (a *Agent) setRuntimeState(s State) {
 	a.runtimeMu.Lock()
 	a.runtime.state = s
 	a.runtimeMu.Unlock()
+	if fn := a.onStateChange; fn != nil {
+		fn(s)
+	}
 }
 
 func (a *Agent) setRuntimeExitErr(err error) {
