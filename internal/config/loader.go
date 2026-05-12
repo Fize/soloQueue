@@ -171,6 +171,32 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 	return nil
 }
 
+// ReadFromDisk 从文件系统重新读取并合并配置，不修改 Loader 内部状态，不触发 OnChange。
+func (l *Loader[T]) ReadFromDisk() (T, error) {
+	var zero T
+	result := l.defaults
+	for _, path := range l.paths {
+		expanded, err := expandPath(path)
+		if err != nil {
+			return zero, fmt.Errorf("expand path %s: %w", path, err)
+		}
+
+		data, err := os.ReadFile(expanded)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return zero, fmt.Errorf("read %s: %w", expanded, err)
+		}
+
+		result, err = MergeTOML(result, data)
+		if err != nil {
+			return zero, fmt.Errorf("merge %s: %w", expanded, err)
+		}
+	}
+	return result, nil
+}
+
 // Get 返回当前配置快照的副本（并发安全）
 func (l *Loader[T]) Get() T {
 	l.mu.RLock()

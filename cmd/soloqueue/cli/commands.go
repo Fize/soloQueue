@@ -133,6 +133,7 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithGroupsDir(filepath.Join(workDir, "groups")),
 			server.WithToolsConfig(&rt.ToolsCfg),
 			server.WithSkillRegistry(rt.SkillRegistry),
+			server.WithSkillDirs(map[string]string{"user": filepath.Join(workDir, "skills")}),
 			server.WithAgentsDir(filepath.Join(workDir, "agents")),
 			server.WithPromptRebuild(rebuildPrompt),
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),

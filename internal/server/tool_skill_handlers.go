@@ -83,13 +83,21 @@ func (m *Mux) handleListTools(w http.ResponseWriter, _ *http.Request) {
 
 // handleListSkills returns all registered skills (builtin + user).
 // GET /api/skills
+// Skills are reloaded from disk on each request for hot-reload support.
 func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
-	if m.skillReg == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "skill registry not available"})
-		return
+	// Build a fresh skill list from builtins + disk on every request.
+	tmpReg := skill.NewSkillRegistry()
+	skill.RegisterBuiltinSkills(tmpReg)
+
+	if len(m.skillDirs) > 0 {
+		if userSkills, err := skill.LoadSkillsFromDirs(m.skillDirs); err == nil {
+			for _, s := range userSkills {
+				_ = tmpReg.Register(s)
+			}
+		}
 	}
 
-	allSkills := m.skillReg.Skills()
+	allSkills := tmpReg.Skills()
 
 	skillInfos := make([]SkillInfoResponse, 0, len(allSkills))
 	for _, s := range allSkills {
