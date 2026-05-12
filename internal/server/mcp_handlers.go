@@ -14,7 +14,11 @@ func (m *Mux) handleGetMCPConfig(w http.ResponseWriter, _ *http.Request) {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MCP not configured"})
 		return
 	}
-	cfg := m.mcpLoader.Get()
+	cfg, err := m.mcpLoader.ReadFromDisk()
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	m.writeJSON(w, http.StatusOK, cfg)
 }
 

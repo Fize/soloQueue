@@ -62,6 +62,7 @@ type Mux struct {
 	hub            *Hub
 	toolsCfg       *tools.Config
 	skillReg       *skill.SkillRegistry
+	skillDirs      map[string]string // skill categories → paths, for on-demand reload
 	rebuildPrompt  func() error // rebuilds L1 system prompt after soul/rules edit
 	agentsDir      string       // path to ~/.soloqueue/agents directory
 	mcpLoader      *mcp.Loader  // MCP config loader for /api/mcp endpoints
@@ -132,6 +133,11 @@ func WithToolsConfig(cfg *tools.Config) MuxOption {
 // WithSkillRegistry sets the skill registry for the /api/skills endpoint.
 func WithSkillRegistry(reg *skill.SkillRegistry) MuxOption {
 	return func(m *Mux) { m.skillReg = reg }
+}
+
+// WithSkillDirs sets the skill directories for on-demand reload on each GET /api/skills.
+func WithSkillDirs(dirs map[string]string) MuxOption {
+	return func(m *Mux) { m.skillDirs = dirs }
 }
 
 // WithAgentsDir sets the agents directory for /api/agents/{id}/config.

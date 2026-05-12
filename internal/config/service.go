@@ -27,6 +27,11 @@ func New(workDir string) (*GlobalService, error) {
 	return &GlobalService{Loader: loader}, nil
 }
 
+// LoadFromDisk reads settings from disk without modifying the loader cache or triggering OnChange.
+func (s *GlobalService) LoadFromDisk() (Settings, error) {
+	return s.Loader.ReadFromDisk()
+}
+
 // ─── Convenience Queries ──────────────────────────────────────────────────────
 
 // DefaultProvider returns the LLM Provider with isDefault=true, or nil if not found
