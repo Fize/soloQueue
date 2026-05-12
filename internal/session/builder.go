@@ -94,14 +94,27 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		GroupsDir:    filepath.Join(b.WorkDir, "groups"),
 		AgentFactory: b.RT.AgentFactory,
 		Logger:       sessLog,
-		OnWorkerCreated: func(ctx context.Context, name, group string, ag *agent.Agent) {
+		OnWorkerCreated: func(ctx context.Context, name, group string, ag *agent.Agent, tmpl agent.AgentTemplate) {
 			b.RT.CfgMu.RLock()
 			supervisors := b.RT.Supervisors
 			b.RT.CfgMu.RUnlock()
 			for _, sv := range supervisors {
 				if sv.Group() == group {
 					sv.AdoptChild(ag)
-					sessLog.Info(logger.CatActor, "auto-reload: worker adopted",
+					l2 := sv.Agent()
+					// Wire spawn fn on existing delegate tool, or create one
+					// for newly added workers not known when L2 was created.
+					if !l2.SetDelegateSpawnFn(name, sv.SpawnFnFor(tmpl)) {
+						dt := tools.NewDelegateTool(name, tmpl.Description,
+							15*time.Minute, nil, sessLog)
+						dt.SpawnFn = sv.SpawnFnFor(tmpl)
+						if err := l2.RegisterTool(dt); err != nil {
+							sessLog.Warn(logger.CatActor,
+								"auto-reload: register delegate tool failed",
+								"name", name, "err", err)
+						}
+					}
+					sessLog.Info(logger.CatActor, "auto-reload: worker adopted & spawn fn wired",
 						"name", name, "group", group)
 					return
 				}
@@ -233,7 +246,29 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	// Set the OnLeaderCreated hook after agent construction so the closure
 	// can reference 'a'. The hook fires when a leader agent file is written
 	// and auto-instantiated — it dynamically registers a delegate_* tool on L1.
-	autoReloadCfg.OnLeaderCreated = func(ctx context.Context, name, group string, ag *agent.Agent) {
+	autoReloadCfg.OnLeaderCreated = func(ctx context.Context, name, group string, ag *agent.Agent, _ agent.AgentTemplate) {
+		// If a supervisor for this leader template already exists, reap the
+		// old leader (stop + unregister) before creating the new one.
+		var oldSV *agent.Supervisor
+		b.RT.CfgMu.RLock()
+		for _, sv := range b.RT.Supervisors {
+			if sv.Agent() != nil && sv.Agent().Def.ID == name {
+				oldSV = sv
+				break
+			}
+		}
+		b.RT.CfgMu.RUnlock()
+		if oldSV != nil {
+			oldSV.ReapAll(10 * time.Second)
+			oldSV.Agent().Stop(10 * time.Second)
+			if b.RT.AgentFactory != nil && b.RT.AgentFactory.Registry() != nil {
+				b.RT.AgentFactory.Registry().Unregister(oldSV.Agent().InstanceID)
+			}
+			b.RT.RemoveSupervisor(oldSV)
+			sessLog.Info(logger.CatActor, "auto-reload: reaped old leader",
+				"name", name, "group", group)
+		}
+
 		sv := agent.NewSupervisor(ag, b.RT.AgentFactory, sessLog)
 		sv.WireSpawnFns(b.RT.AllTemplates)
 		sv.SetGroup(group)
