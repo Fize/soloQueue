@@ -9,7 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
@@ -411,8 +414,79 @@ func Build(
 		})
 	}
 
+	// Skills hot-reload: watch the skills directory for changes.
+	registerSkillHotReload(skillReg, skillDirs, log)
+
 	log.Debug(logger.CatApp, "build: total", "duration", time.Since(buildStart).String())
 	return rt, nil
+}
+
+// registerSkillHotReload watches the skills directory and rebuilds the registry on file changes.
+func registerSkillHotReload(reg *skill.SkillRegistry, dirs map[string]string, log *logger.Logger) {
+	var dirToWatch string
+	for _, d := range dirs {
+		dirToWatch = d
+		break
+	}
+	if dirToWatch == "" {
+		return
+	}
+
+	if err := os.MkdirAll(dirToWatch, 0o755); err != nil {
+		log.Warn(logger.CatApp, "skills hot-reload: cannot create skills dir", "err", err)
+		return
+	}
+
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Warn(logger.CatApp, "skills hot-reload: cannot create watcher", "err", err)
+		return
+	}
+	if err := w.Add(dirToWatch); err != nil {
+		_ = w.Close()
+		log.Warn(logger.CatApp, "skills hot-reload: cannot watch skills dir", "err", err)
+		return
+	}
+
+	var debounceMu sync.Mutex
+	var debounceTimer *time.Timer
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error(logger.CatApp, "skills hot-reload goroutine panic recovered", "panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		for {
+			select {
+			case evt, ok := <-w.Events:
+				if !ok {
+					return
+				}
+				if !evt.Has(fsnotify.Write) && !evt.Has(fsnotify.Create) && !evt.Has(fsnotify.Rename) && !evt.Has(fsnotify.Remove) {
+					continue
+				}
+				debounceMu.Lock()
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+				debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
+					if err := reg.Rebuild(dirs); err != nil {
+						log.Warn(logger.CatApp, "skills hot-reload: rebuild failed", "err", err)
+					} else {
+						log.Info(logger.CatApp, "skills hot-reload completed")
+					}
+				})
+				debounceMu.Unlock()
+			case err, ok := <-w.Errors:
+				if !ok {
+					return
+				}
+				log.Warn(logger.CatApp, "skills hot-reload watch error", "err", err)
+			}
+		}
+	}()
+	log.Debug(logger.CatApp, "skills hot-reload: watching directory", "path", dirToWatch)
 }
 
 // BuildLLMClient creates a DeepSeek LLM client from provider configuration.
