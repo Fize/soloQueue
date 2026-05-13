@@ -60,6 +60,10 @@ var ErrSessionBusy = errors.New("session: busy")
 // It receives QQ messages via the EventHandler interface, calls SessionProvider.AskStream,
 // and sends the final reply back to QQ via the APIClient.
 //
+// Active messages (follow-up chunks, intermediate content, media) are routed
+// through MessageQueue for rate limiting. Passive replies (ReplyMessage) are
+// sent directly and are not rate-limited.
+//
 // Concurrency: the Session already serializes via inFlight (ErrSessionBusy).
 // No additional guard is needed here — during async delegation the session
 // correctly releases inFlight, allowing new messages to interleave.
@@ -68,6 +72,7 @@ type SessionBridge struct {
 	api     *APIClient
 	log     *logger.Logger
 	version string
+	queue   *MessageQueue
 }
 
 // SessionBridgeOption configures a SessionBridge.
@@ -76,6 +81,13 @@ type SessionBridgeOption func(*SessionBridge)
 // WithVersion sets the version string for /version slash command replies.
 func WithVersion(v string) SessionBridgeOption {
 	return func(b *SessionBridge) { b.version = v }
+}
+
+// WithMessageQueue sets the rate-limiting message queue for active messages.
+// If set, sendActiveMessage, sendIntermediate, and sendMedia will push sends
+// through the queue instead of sending immediately.
+func WithMessageQueue(q *MessageQueue) SessionBridgeOption {
+	return func(b *SessionBridge) { b.queue = q }
 }
 
 // NewSessionBridge creates a new SessionBridge.
@@ -242,9 +254,23 @@ func (b *SessionBridge) sendReply(ctx context.Context, msg QQMessage, msgType in
 }
 
 // sendActiveMessage sends an active message (no msg_id/msg_seq reference) to
-// the same conversation as msg. This is used for follow-up chunks and
-// intermediate messages.
+// the same conversation as msg. If a MessageQueue is configured, the send is
+// enqueued for rate-limited delivery (non-blocking, error silenced). Otherwise
+// it is sent immediately.
 func (b *SessionBridge) sendActiveMessage(ctx context.Context, msg QQMessage, msgType int, text string) error {
+	if b.queue != nil {
+		b.queue.Push(func() {
+			_ = b.sendActiveMessageDirect(context.Background(), msg, msgType, text)
+		})
+		return nil
+	}
+	return b.sendActiveMessageDirect(ctx, msg, msgType, text)
+}
+
+// sendActiveMessageDirect sends the message immediately, bypassing the rate
+// limiter queue. This is used internally by sendActiveMessage (for direct mode)
+// and by the queue worker goroutine.
+func (b *SessionBridge) sendActiveMessageDirect(ctx context.Context, msg QQMessage, msgType int, text string) error {
 	var err error
 	switch msg.Source {
 	case SourceC2C:

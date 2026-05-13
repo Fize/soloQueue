@@ -103,7 +103,7 @@ func ServeCmd(version string) *cobra.Command {
 
 
 				// ── QQ Bot integration ──
-				qqGateway := StartQQBot(cfg, mgr, workDir, version, log)
+				qqGateway, qqQueue := StartQQBot(cfg, mgr, workDir, version, log)
 
 		rootCtx, stop := signal.NotifyContext(context.Background(),
 			os.Interrupt, syscall.SIGTERM)
@@ -186,6 +186,9 @@ func ServeCmd(version string) *cobra.Command {
 				log.Info(logger.CatApp, "shutdown signal received")
 				if qqGateway != nil {
 					qqGateway.Close()
+				}
+				if qqQueue != nil {
+					qqQueue.Stop()
 				}
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
