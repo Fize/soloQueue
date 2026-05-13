@@ -161,13 +161,30 @@ func (dc *DefaultClassifier) applyHybrid(result ClassificationResult, priorLevel
 // prior task level to prevent level oscillation for short follow-up messages.
 //
 // Rules:
-//   - Confidence >= 85: use new result (clear signal overrides sticky level)
+//   - Confidence >= threshold (default 85): use new result (clear signal)
+//   - Complex task protection: if priorLevel >= L2 and new is L0, require
+//     confidence >= 96 to downgrade (prevents follow-up questions from
+//     accidentally resetting a complex task session)
 //   - Confidence >= 50: use max(new, prior) — stay at the higher level
 //   - Confidence < 50: inherit prior level (unclear signal → keep context)
 func (dc *DefaultClassifier) applyHybridLogic(result ClassificationResult, priorLevel ClassificationLevel) ClassificationResult {
 	threshold := dc.config.FastTrackConfidenceThreshold
 	if threshold <= 0 {
 		threshold = 85
+	}
+
+	// Complex task session continuity: prevent accidental downgrade to L0
+	// when the user asks follow-up questions about an ongoing complex task.
+	// Follow-up questions naturally contain L0 keywords (解释,为什么,etc.)
+	// that score high enough to falsely trigger L0. Require a very strong
+	// conversation signal (confidence >= 96) to override a complex session.
+	if priorLevel >= LevelMediumMultiFile && result.Level <= LevelConversation {
+		if result.Confidence < 96 {
+			result.Level = LevelSimpleSingleFile
+			result.Reason += "; complex session: L0 prevented, min L1 maintained"
+			result.Confidence = min(result.Confidence, 45)
+			return result
+		}
 	}
 
 	if result.Confidence >= threshold {

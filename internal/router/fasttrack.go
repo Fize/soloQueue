@@ -20,18 +20,23 @@ import (
 // The classifier is designed for ALL task types (coding, writing, translation,
 // deployment, design, etc.), not just code-related tasks.
 
-// PatternRule defines a weighted phrase pattern for classification
+// PatternRule defines a weighted phrase pattern for classification.
+// English/ASCII patterns use precompiled \b-bounded regex; Chinese patterns use
+// substring matching via strings.Contains (re == nil).
 type PatternRule struct {
-	Pattern string              // phrase to match (case-insensitive for English)
+	Pattern string              // original pattern string
 	Level   ClassificationLevel // which level this pattern votes for
 	Weight  float64             // scoring weight: 0.5=weak, 1.0=normal, 1.5=medium, 2.0=strong
+	re      *regexp.Regexp      // precompiled \b regex for ASCII patterns (nil = use Contains)
 }
 
-// EscalationRule defines a modifier that bumps classification up/down
+// EscalationRule defines a modifier that bumps classification up/down.
+// Same dual-path matching as PatternRule.
 type EscalationRule struct {
-	Pattern string  // phrase to match
-	Delta   int     // +1, +2, -1 etc.
-	Weight  float64 // for compound scoring (used in confidence)
+	Pattern string         // original pattern string
+	Delta   int            // +1, +2, -1 etc.
+	Weight  float64        // for compound scoring (used in confidence)
+	re      *regexp.Regexp // precompiled \b regex for ASCII patterns (nil = use Contains)
 }
 
 // FastTrackClassifier implements rule-based classification using weighted scoring
@@ -223,7 +228,8 @@ func (ftc *FastTrackClassifier) classifySlashCommand(cmd string, fullPrompt stri
 
 // ─── Pattern Scoring Engine ──────────────────────────────────────────────────
 
-// scorePrompt scans the normalized prompt and accumulates weighted scores per level
+// scorePrompt scans the normalized prompt and accumulates weighted scores per level.
+// English patterns use word-boundary regex; Chinese patterns use substring matching.
 func (ftc *FastTrackClassifier) scorePrompt(normalized string) map[ClassificationLevel]float64 {
 	scores := map[ClassificationLevel]float64{
 		LevelConversation:       0,
@@ -233,7 +239,7 @@ func (ftc *FastTrackClassifier) scorePrompt(normalized string) map[Classificatio
 	}
 
 	for _, rule := range ftc.rules {
-		if strings.Contains(normalized, rule.Pattern) {
+		if matchPattern(rule, normalized) {
 			scores[rule.Level] += rule.Weight
 		}
 	}
@@ -241,11 +247,12 @@ func (ftc *FastTrackClassifier) scorePrompt(normalized string) map[Classificatio
 	return scores
 }
 
-// computeEscalation scans for escalation/de-escalation modifiers and returns net delta
+// computeEscalation scans for escalation/de-escalation modifiers and returns net delta.
+// English patterns use word-boundary regex; Chinese patterns use substring matching.
 func (ftc *FastTrackClassifier) computeEscalation(normalized string) int {
 	totalDelta := 0
 	for _, rule := range ftc.escalationRules {
-		if strings.Contains(normalized, rule.Pattern) {
+		if matchEscalation(rule, normalized) {
 			totalDelta += rule.Delta
 		}
 	}
@@ -416,6 +423,43 @@ func (ftc *FastTrackClassifier) containsDangerousPattern(normalized string) bool
 	return false
 }
 
+// ─── Compilation Helpers ─────────────────────────────────────────────────────
+
+// isASCIIOnly returns true when every rune in s is ASCII (≤ 127).
+func isASCIIOnly(s string) bool {
+	for _, r := range s {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
+}
+
+// compilePattern precompiles an ASCII pattern into a word-boundary regex.
+// Non-ASCII (Chinese) patterns return nil so the engine falls back to strings.Contains.
+func compilePattern(p string) *regexp.Regexp {
+	if !isASCIIOnly(p) {
+		return nil
+	}
+	return regexp.MustCompile(`\b` + regexp.QuoteMeta(p) + `\b`)
+}
+
+// matchPattern returns true when the rule fires against the lowercased prompt.
+func matchPattern(r PatternRule, normalized string) bool {
+	if r.re != nil {
+		return r.re.MatchString(normalized)
+	}
+	return strings.Contains(normalized, r.Pattern)
+}
+
+// matchEscalation returns true when the escalation rule fires.
+func matchEscalation(r EscalationRule, normalized string) bool {
+	if r.re != nil {
+		return r.re.MatchString(normalized)
+	}
+	return strings.Contains(normalized, r.Pattern)
+}
+
 // ─── Pattern Dictionary ──────────────────────────────────────────────────────
 
 func buildPatternRules() []PatternRule {
@@ -457,7 +501,7 @@ func buildPatternRules() []PatternRule {
 		{"你好", 1.5}, {"谢谢", 1.5}, {"早上好", 1.5},
 	}
 	for _, p := range l0 {
-		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelConversation, Weight: p.w})
+		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelConversation, Weight: p.w, re: compilePattern(p.p)})
 	}
 
 	// ── L1: Simple / Single-Step Tasks ──
@@ -497,7 +541,7 @@ func buildPatternRules() []PatternRule {
 		{"check", 1.0}, {"verify", 1.0}, {"validate", 1.0},
 	}
 	for _, p := range l1 {
-		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelSimpleSingleFile, Weight: p.w})
+		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelSimpleSingleFile, Weight: p.w, re: compilePattern(p.p)})
 	}
 
 	// ── L2: Multi-Step / Coordination Tasks ──
@@ -543,7 +587,7 @@ func buildPatternRules() []PatternRule {
 		{"both", 0.8}, {"and also", 0.8}, {"as well as", 0.8},
 	}
 	for _, p := range l2 {
-		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelMediumMultiFile, Weight: p.w})
+		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelMediumMultiFile, Weight: p.w, re: compilePattern(p.p)})
 	}
 
 	// ── L3: Complex / Deep-Reasoning Tasks ──
@@ -587,7 +631,7 @@ func buildPatternRules() []PatternRule {
 		{"ground up", 2.0}, {"fundamental", 1.5},
 	}
 	for _, p := range l3 {
-		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelComplexRefactoring, Weight: p.w})
+		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelComplexRefactoring, Weight: p.w, re: compilePattern(p.p)})
 	}
 
 	return rules
@@ -615,7 +659,7 @@ func buildEscalationRules() []EscalationRule {
 		{"take your time", 1}, {"no rush", 1},
 	}
 	for _, e := range escalation {
-		rules = append(rules, EscalationRule{Pattern: e.p, Delta: e.d, Weight: 1.5})
+		rules = append(rules, EscalationRule{Pattern: e.p, Delta: e.d, Weight: 1.5, re: compilePattern(e.p)})
 	}
 
 	// ── De-escalation: user signals simplicity ──
@@ -633,7 +677,7 @@ func buildEscalationRules() []EscalationRule {
 		{"don't overthink", -1}, {"keep it simple", -1},
 	}
 	for _, e := range deescalation {
-		rules = append(rules, EscalationRule{Pattern: e.p, Delta: e.d, Weight: 1.0})
+		rules = append(rules, EscalationRule{Pattern: e.p, Delta: e.d, Weight: 1.0, re: compilePattern(e.p)})
 	}
 
 	return rules
