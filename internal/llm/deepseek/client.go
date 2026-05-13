@@ -55,6 +55,7 @@ type Client struct {
 	retry   llm.RetryPolicy
 	log     *logger.Logger
 	http    *http.Client
+	timeout time.Duration // per-request timeout, applied via context (not http.Client.Timeout)
 }
 
 // NewClient 构造 DeepSeek client
@@ -68,11 +69,14 @@ func NewClient(cfg Config) (*Client, error) {
 
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		timeout := 10 * time.Minute
-		if cfg.TimeoutMs > 0 {
-			timeout = time.Duration(cfg.TimeoutMs) * time.Millisecond
-		}
-		httpClient = &http.Client{Timeout: timeout}
+		// Use context deadline instead of http.Client.Timeout so streamLoop
+		// can detect the timeout via ctx.Err(). http.Client.Timeout cancels
+		// the request context internally without touching the caller's ctx.
+		httpClient = &http.Client{}
+	}
+	timeoutDur := 10 * time.Minute
+	if cfg.TimeoutMs > 0 {
+		timeoutDur = time.Duration(cfg.TimeoutMs) * time.Millisecond
 	}
 
 	return &Client{
@@ -82,6 +86,7 @@ func NewClient(cfg Config) (*Client, error) {
 		retry:   cfg.Retry,
 		log:     cfg.Log,
 		http:    httpClient,
+		timeout: timeoutDur,
 	}, nil
 }
 
@@ -157,23 +162,35 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 
 	c.logStart(ctx, req)
 
-	httpResp, err := c.doWithRetry(ctx, body)
+	httpCtx := ctx
+	var cancelTimeout context.CancelFunc
+	if c.timeout > 0 {
+		httpCtx, cancelTimeout = context.WithTimeout(ctx, c.timeout)
+	}
+
+	httpResp, err := c.doWithRetry(httpCtx, body)
 	if err != nil {
+		if cancelTimeout != nil {
+			cancelTimeout()
+		}
 		c.logError(ctx, "request failed", err)
 		return nil, err
 	}
 
 	ch := make(chan llm.Event, 16)
-	go func(ctx context.Context, resp *http.Response, ch chan<- llm.Event) {
+	go func() {
+		defer func() {
+			if cancelTimeout != nil {
+				cancelTimeout()
+			}
+		}()
 		defer func() {
 			if r := recover(); r != nil {
 				c.logError(ctx, "streamLoop panic recovered", fmt.Errorf("panic: %v", r))
-				close(ch)
-				resp.Body.Close()
 			}
 		}()
-		c.streamLoop(ctx, resp, ch)
-	}(ctx, httpResp, ch)
+		c.streamLoop(httpCtx, httpResp, ch)
+	}()
 	return ch, nil
 }
 
@@ -198,7 +215,14 @@ func (c *Client) streamLoop(ctx context.Context, resp *http.Response, ch chan<- 
 				return // 正常 DONE
 			}
 			if errors.Is(err, io.EOF) {
-				return // body 结束
+				// EOF without [DONE] is abnormal unless the server sent it
+				// as a clean shutdown. If ctx is done, the EOF is a timeout
+				// or cancellation — report it as an error.
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					sendErrEvent(ctx, ch, fmt.Errorf("deepseek: sse stream interrupted: %w", ctxErr))
+					return
+				}
+				return
 			}
 			sendErrEvent(ctx, ch, fmt.Errorf("deepseek: sse read: %w", err))
 			return
