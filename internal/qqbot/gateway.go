@@ -261,6 +261,11 @@ func (g *Gateway) eventLoop(ctx context.Context) error {
 			if err := json.Unmarshal(payload.D, &helloData); err == nil {
 				g.heartbeatInterval = time.Duration(helloData.HeartbeatInterval) * time.Millisecond
 			}
+		case OpInvalidSession:
+			g.log.WarnContext(ctx, logger.CatApp, "qqbot invalid session, performing fresh identify")
+			g.sessionID = ""
+			g.seq.Store(-1)
+			return nil
 		default:
 			g.log.DebugContext(ctx, logger.CatApp, "qqbot unknown opcode received",
 				"op", payload.Op)
@@ -385,9 +390,8 @@ func (g *Gateway) startHeartbeat(ctx context.Context) {
 
 		// First heartbeat uses null
 		if err := g.sendHeartbeat(ctx, nil); err != nil {
-			g.log.WarnContext(ctx, logger.CatApp, "qqbot heartbeat send failed",
+			g.log.WarnContext(ctx, logger.CatApp, "qqbot first heartbeat failed",
 				"err", err.Error())
-			return
 		}
 
 		for {
