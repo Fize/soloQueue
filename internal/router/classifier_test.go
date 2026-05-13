@@ -149,16 +149,61 @@ func TestHybridLogic_HighConfidenceOverridesPrior(t *testing.T) {
 	config.FastTrackConfidenceThreshold = 85
 	classifier := NewDefaultClassifier(config, nil, "", nil)
 
-	// "hello, how are you?" has high confidence for L0
-	// Even with priorLevel=L3, it should stay L0 (clear conversation)
+	// "hello, how are you?" has high L0 confidence (93), but in a complex
+	// session (prior L3), downgrading to L0 requires confidence >= 96.
+	// A simple greeting is not enough to guarantee the user is done with
+	// the complex task; the result is clamped to L1 to preserve context.
 	ctx := context.Background()
 	result, err := classifier.Classify(ctx, "hello, how are you?", LevelComplexRefactoring)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Level != LevelConversation {
-		t.Errorf("expected L0 (high confidence overrides prior), got %v (confidence=%d, reason=%s)",
+	if result.Level != LevelSimpleSingleFile {
+		t.Errorf("expected L1 (complex session: L0 blocked), got %v (confidence=%d, reason=%s)",
 			result.Level, result.Confidence, result.Reason)
+	}
+}
+
+func TestHybridLogic_ComplexSessionL0Blocked(t *testing.T) {
+	config := DefaultClassifierConfig()
+	config.FastTrackConfidenceThreshold = 85
+	classifier := NewDefaultClassifier(config, nil, "", nil)
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		prompt   string
+		expected ClassificationLevel
+	}{
+		{
+			name:     "follow-up question in L3 session blocked",
+			prompt:   "你能解释一下为什么这样实现",
+			expected: LevelSimpleSingleFile, // L0 blocked → min L1
+		},
+		{
+			name:     "casual question in L2 session blocked",
+			prompt:   "这个是什么意思",
+			expected: LevelSimpleSingleFile, // L0 blocked → min L1
+		},
+		{
+			name:     "explicit complex task is not blocked",
+			prompt:   "重新设计整个系统的架构",
+			expected: LevelComplexRefactoring, // L3 wins naturally
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := classifier.Classify(ctx, tt.prompt, LevelComplexRefactoring)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Level != tt.expected {
+				t.Errorf("expected %v, got %v (confidence=%d, reason=%s)",
+					tt.expected, result.Level, result.Confidence, result.Reason)
+			}
+		})
 	}
 }
 
