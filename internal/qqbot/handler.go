@@ -204,6 +204,9 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 }
 
 // sendReply sends the reply text to QQ, splitting into chunks if it exceeds the limit.
+// The first chunk is sent as a passive reply (with msg_id/msg_seq reference) so it
+// appears threaded to the original message. Subsequent chunks are sent as active
+// messages because QQ Bot API only allows one passive reply per incoming message.
 func (b *SessionBridge) sendReply(ctx context.Context, msg QQMessage, msgType int, text string) {
 	if len(text) <= qqMessageLimit {
 		if err := b.api.ReplyMessage(ctx, msg, msgType, text); err != nil {
@@ -220,13 +223,40 @@ func (b *SessionBridge) sendReply(ctx context.Context, msg QQMessage, msgType in
 	} else {
 		chunks = splitMessage(text, qqMessageLimit)
 	}
-	for i, chunk := range chunks {
-		if err := b.api.ReplyMessage(ctx, msg, msgType, chunk); err != nil {
-			b.log.WarnContext(ctx, logger.CatApp, "qqbot reply chunk send failed",
+
+	// First chunk: passive reply (with msg_id/msg_seq)
+	if err := b.api.ReplyMessage(ctx, msg, msgType, chunks[0]); err != nil {
+		b.log.WarnContext(ctx, logger.CatApp, "qqbot first chunk reply failed",
+			"err", err.Error())
+		return
+	}
+
+	// Remaining chunks: active messages (no msg_id/msg_seq) — QQ only allows one passive reply
+	for i := 1; i < len(chunks); i++ {
+		if err := b.sendActiveMessage(ctx, msg, msgType, chunks[i]); err != nil {
+			b.log.WarnContext(ctx, logger.CatApp, "qqbot follow-up chunk send failed",
 				"chunk", i+1, "total", len(chunks), "err", err.Error())
 			return
 		}
 	}
+}
+
+// sendActiveMessage sends an active message (no msg_id/msg_seq reference) to
+// the same conversation as msg. This is used for follow-up chunks and
+// intermediate messages.
+func (b *SessionBridge) sendActiveMessage(ctx context.Context, msg QQMessage, msgType int, text string) error {
+	var err error
+	switch msg.Source {
+	case SourceC2C:
+		err = b.api.SendC2CMessage(ctx, msg.TargetOpenID, msgType, text, "", 0)
+	case SourceGroup:
+		err = b.api.SendGroupMessage(ctx, msg.TargetOpenID, msgType, text, "", 0)
+	case SourceDirect:
+		err = b.api.SendDirectMessage(ctx, msg.ChatID, msgType, text, "", 0)
+	case SourcePublicGuild:
+		err = b.api.SendDirectMessage(ctx, msg.ChatID, msgType, text, "", 0)
+	}
+	return err
 }
 
 // sendIntermediate sends an intermediate assistant message as an active message
@@ -234,18 +264,7 @@ func (b *SessionBridge) sendReply(ctx context.Context, msg QQMessage, msgType in
 // than a reply to the original user message. This allows multiple intermediate
 // messages per incoming message.
 func (b *SessionBridge) sendIntermediate(ctx context.Context, msg QQMessage, text string) {
-	var err error
-	switch msg.Source {
-	case SourceC2C:
-		err = b.api.SendC2CMessage(ctx, msg.TargetOpenID, MsgTypeText, text, "", 0)
-	case SourceGroup:
-		err = b.api.SendGroupMessage(ctx, msg.TargetOpenID, MsgTypeText, text, "", 0)
-	case SourceDirect:
-		err = b.api.SendDirectMessage(ctx, msg.ChatID, MsgTypeText, text, "", 0)
-	case SourcePublicGuild:
-		err = b.api.SendDirectMessage(ctx, msg.ChatID, MsgTypeText, text, "", 0)
-	}
-	if err != nil {
+	if err := b.sendActiveMessage(ctx, msg, MsgTypeText, text); err != nil {
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot intermediate send failed",
 			"err", err.Error(),
 		)
@@ -306,18 +325,7 @@ func (b *SessionBridge) sendImages(ctx context.Context, msg QQMessage, urls []st
 
 // sendMedia sends a rich media message as an active message (no msg_id reference).
 func (b *SessionBridge) sendMedia(ctx context.Context, msg QQMessage, fileInfo string) error {
-	switch msg.Source {
-	case SourceC2C:
-		return b.api.SendC2CMessage(ctx, msg.TargetOpenID, MsgTypeMedia, fileInfo, "", 0)
-	case SourceGroup:
-		return b.api.SendGroupMessage(ctx, msg.TargetOpenID, MsgTypeMedia, fileInfo, "", 0)
-	case SourceDirect:
-		return b.api.SendDirectMessage(ctx, msg.ChatID, MsgTypeMedia, fileInfo, "", 0)
-	case SourcePublicGuild:
-		return b.api.SendDirectMessage(ctx, msg.ChatID, MsgTypeMedia, fileInfo, "", 0)
-	default:
-		return nil
-	}
+	return b.sendActiveMessage(ctx, msg, MsgTypeMedia, fileInfo)
 }
 
 // imageUploadTarget returns the (targetType, targetID) pair for QQ rich media upload.

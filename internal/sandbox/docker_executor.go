@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -199,9 +200,15 @@ func (e *DockerExecutor) Glob(ctx context.Context, dir string, pattern string, o
 		maxItems = 10000
 	}
 
-	cmd := fmt.Sprintf("find %s -type f -name %s 2>/dev/null | head -n %d", shellQuote(containerDir), shellQuote(pattern), maxItems)
+	// Convert doublestar pattern to find-compatible expression.
+	// find -name only matches basenames (no /), so doublestar patterns
+	// containing / (e.g. **/*.go) would never match and traverse the
+	// entire tree producing no results. Use a shell globstar shopt for
+	// doublestar patterns and fall back to -name for simple filename
+	// patterns.
+	cmd := buildGlobCmd(containerDir, pattern, maxItems)
 	stdout, _, err := e.sb.Exec(ctx, cmd)
-	if execErr, ok := err.(*ExecError); ok && execErr.ExitCode != 0 {
+	if execErr, ok := err.(*ExecError); execErr != nil && ok && execErr.ExitCode != 0 {
 		return nil, fmt.Errorf("glob %s: %s", dir, strings.TrimSpace(string(execErr.Stderr)))
 	}
 	if err != nil {
@@ -226,6 +233,39 @@ func (e *DockerExecutor) Glob(ctx context.Context, dir string, pattern string, o
 	}
 
 	return result, nil
+}
+
+// buildGlobCmd constructs a shell command for file globbing inside a container.
+//
+// Doublestar patterns containing / (e.g. **/*.go or src/**/*.ts) are rewritten
+// for find which does not support ** natively. We extract the filename component
+// and restrict the search to literal directory prefixes, then rely on find's
+// default recursive traversal for the ** semantics.
+func buildGlobCmd(dir, pattern string, maxItems int) string {
+	if !strings.Contains(pattern, "/") {
+		// Simple filename pattern without / (e.g. *.go): use -maxdepth 1.
+		return fmt.Sprintf("find %s -maxdepth 1 -type f -name %s 2>/dev/null | head -n %d",
+			shellQuote(dir), shellQuote(pattern), maxItems)
+	}
+
+	// Path pattern: extract the filename (last segment) and build the search
+	// prefix from literal directory segments before the first ** or glob.
+	parts := strings.Split(pattern, "/")
+	fileName := parts[len(parts)-1]
+
+	// Collect literal directory segments before any ** or glob-containing segment.
+	// find is invoked from the prefix; its default recursion handles the **.
+	var prefix []string
+	for _, p := range parts[:len(parts)-1] {
+		if p == "**" || strings.ContainsAny(p, "*?[]") {
+			break
+		}
+		prefix = append(prefix, p)
+	}
+
+	searchDir := filepath.Join(dir, filepath.Join(prefix...))
+	return fmt.Sprintf("find %s -type f -name %s 2>/dev/null | head -n %d",
+		shellQuote(searchDir), shellQuote(fileName), maxItems)
 }
 
 // ─── Grep ───────────────────────────────────────────────────────────────────

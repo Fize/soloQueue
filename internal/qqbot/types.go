@@ -12,6 +12,7 @@ const (
 	OpReconnect      = 7  // S→C: server requests reconnect
 	OpHello          = 10 // S→C: connection established, carries heartbeat interval
 	OpHeartbeatACK   = 11 // S→C: heartbeat acknowledged
+	OpInvalidSession = 9  // S→C: session expired, client must Identify again
 	OpCallbackVerify = 13 // S→C: webhook callback verification (not used in WS mode)
 )
 

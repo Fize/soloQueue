@@ -733,13 +733,13 @@ func TestTruncate(t *testing.T) {
 }
 
 func TestClient_WithTimeoutMs(t *testing.T) {
-	// 构造时传 TimeoutMs 走的是 "no HTTPClient" 分支（Timeout 生效）
+	// TimeoutMs is stored as Client.timeout, applied via context in ChatStream.
 	c, err := NewClient(Config{APIKey: "k", TimeoutMs: 5000})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	if c.http.Timeout != 5*time.Second {
-		t.Errorf("Timeout = %v", c.http.Timeout)
+	if c.timeout != 5*time.Second {
+		t.Errorf("timeout = %v", c.timeout)
 	}
 }
 
