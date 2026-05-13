@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { Board } from './Board';
-import { AgentsPanel } from './AgentsPanel';
-import { SlideOver } from '@/components/ui/SlideOver';
-import { useAgents } from '@/hooks/useAgents';
-import { Users } from 'lucide-react';
+import { Board } from './Board'
+import { AgentsPanel } from './AgentsPanel'
+import { SlideOver } from '@/components/ui/SlideOver'
+import { useAgents } from '@/hooks/useAgents'
+import { Users } from 'lucide-react'
 
 export function HomePage() {
   const [agentsOpen, setAgentsOpen] = useState(false)
@@ -23,7 +23,7 @@ export function HomePage() {
       </SlideOver>
 
       {/* Right: Kanban Board */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden h-full flex flex-col min-h-0">
         <Board />
       </div>
 
@@ -40,5 +40,5 @@ export function HomePage() {
         )}
       </button>
     </div>
-  );
+  )
 }

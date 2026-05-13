@@ -88,6 +88,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 				// QQ Bot started after session init (see sandbox goroutine below)
 				var qqGateway *qqbot.Gateway
+				var qqQueue *qqbot.MessageQueue
 
 				// Run shutdown concurrently so a slow Docker destroy or
 				// agent stop doesn't block the process exit after the TUI
@@ -98,6 +99,9 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 						defer close(done)
 					if qqGateway != nil {
 						qqGateway.Close()
+					}
+					if qqQueue != nil {
+						qqQueue.Stop()
 					}
 					mgr.Shutdown(3 * time.Second)
 					rt.Shutdown()
@@ -214,7 +218,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 				sess, err := mgr.Init(context.Background(), "")
 				if err == nil {
-					qqGateway = cli.StartQQBot(cfg, mgr, workDir, version, log)
+					qqGateway, qqQueue = cli.StartQQBot(cfg, mgr, workDir, version, log)
 				}
 				sandboxCh <- tui.SandboxInitMsg{Sess: sess, Err: err}
 			}()
