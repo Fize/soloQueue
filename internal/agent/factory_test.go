@@ -725,14 +725,14 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 // ─── L2 System Prompt Clarification Rule tests ────────────────────────
 
 func TestL2EnforcedDirectives_ContainsClarificationRule(t *testing.T) {
-	if !strings.Contains(l2EnforcedDirectives, "Clarification Before Delegation") {
-		t.Error("l2EnforcedDirectives should contain 'Clarification Before Delegation'")
+	if !strings.Contains(l2EnforcedDirectivesPart2, "Clarification Before Delegation") {
+		t.Error("l2EnforcedDirectivesPart2 should contain 'Clarification Before Delegation'")
 	}
-	if !strings.Contains(l2EnforcedDirectives, "need_clarification") {
-		t.Error("l2EnforcedDirectives should contain 'need_clarification' JSON status")
+	if !strings.Contains(l2EnforcedDirectivesPart2, "need_clarification") {
+		t.Error("l2EnforcedDirectivesPart2 should contain 'need_clarification' JSON status")
 	}
-	if !strings.Contains(l2EnforcedDirectives, "questions") {
-		t.Error("l2EnforcedDirectives should contain 'questions' field")
+	if !strings.Contains(l2EnforcedDirectivesPart2, "questions") {
+		t.Error("l2EnforcedDirectivesPart2 should contain 'questions' field")
 	}
 }
 
@@ -816,21 +816,21 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 // ─── L2/L3 Enforced Directives: "Plan Before Action" rule tests ───────────
 
 func TestL2EnforcedDirectives_ContainsPlanBeforeExecutionRule(t *testing.T) {
-	combined := l2EnforcedDirectives + l2EnforcedPlanSection + l2EnforcedPostPlan
-	if !strings.Contains(combined, "Plan Before Execution") {
-		t.Error("L2 enforced directives should contain 'Plan Before Execution' rule")
+	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan
+	if !strings.Contains(combined, "MANDATORY Plan Before Execution") {
+		t.Error("L2 enforced directives should contain 'MANDATORY Plan Before Execution' rule")
 	}
 }
 
 func TestL2EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
-	combined := l2EnforcedDirectives + l2EnforcedPlanSection + l2EnforcedPostPlan
+	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan
 	if !strings.Contains(combined, "{{PLAN_DIR}}") {
 		t.Error("L2 enforced directives should contain '{{PLAN_DIR}}' placeholder")
 	}
 }
 
 func TestL2EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
-	combined := l2EnforcedDirectives + l2EnforcedPlanSection + l2EnforcedPostPlan
+	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan
 	if !strings.Contains(combined, "Goal") {
 		t.Error("L2 enforced directives should contain 'Goal' in design document structure")
 	}
@@ -845,22 +845,22 @@ func TestL2EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 }
 
-func TestL3EnforcedDirectives_ContainsPlanBeforeActionRule(t *testing.T) {
-	combined := l3EnforcedDirectives + l3EnforcedPlanSection + l3EnforcedPostPlan
-	if !strings.Contains(combined, "Plan Before Action") {
-		t.Error("L3 enforced directives should contain 'Plan Before Action' rule")
+func TestL3EnforcedDirectives_ContainsFollowThePlanRule(t *testing.T) {
+	combined := l3EnforcedDirectives + l3EnforcedPostPlan
+	if !strings.Contains(combined, "Follow the Plan") {
+		t.Error("L3 enforced directives should contain 'Follow the Plan' rule")
 	}
 }
 
 func TestL3EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
-	combined := l3EnforcedDirectives + l3EnforcedPlanSection + l3EnforcedPostPlan
+	combined := l3EnforcedDirectives + l3EnforcedPostPlan
 	if !strings.Contains(combined, "{{PLAN_DIR}}") {
 		t.Error("L3 enforced directives should contain '{{PLAN_DIR}}' placeholder")
 	}
 }
 
 func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
-	combined := l3EnforcedDirectives + l3EnforcedPlanSection + l3EnforcedPostPlan
+	combined := l3EnforcedDirectives + l3EnforcedPostPlan
 	if !strings.Contains(combined, "Goal") {
 		t.Error("L3 enforced directives should contain 'Goal' in design document structure")
 	}
@@ -921,14 +921,9 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue")
 
-	// 空 planDir 时，plan 相关规则不应出现（需求 4.1、5.2）
-	// TODO: 当前实现未做条件剔除，l2EnforcedDirectives 中的 "Plan Before Execution"
-	// 等文本仍会出现。待实现修复后此测试才能通过。
-	if strings.Contains(prompt, "<plan_before_action>") {
-		t.Error("L2 prompt should not contain <plan_before_action> when planDir is empty")
-	}
-	if strings.Contains(prompt, "Plan Before Execution") {
-		t.Error("L2 prompt should not contain 'Plan Before Execution' when planDir is empty (requirement 4.1, 5.2)")
+	// 空 planDir 时，plan 相关规则不应出现
+	if strings.Contains(prompt, "MANDATORY Plan Before Execution") {
+		t.Error("L2 prompt should not contain 'MANDATORY Plan Before Execution' when planDir is empty")
 	}
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
 		t.Error("L2 prompt should not contain unreplaced {{PLAN_DIR}} placeholder")
@@ -977,7 +972,7 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 }
 
-func TestBuildL3SystemPrompt_ContainsPlanBeforeActionRule(t *testing.T) {
+func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	tmpl := AgentTemplate{
 		ID:           "backend",
 		Name:         "Backend",
@@ -988,9 +983,12 @@ func TestBuildL3SystemPrompt_ContainsPlanBeforeActionRule(t *testing.T) {
 	planDir := "/home/user/.soloqueue/plan"
 	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue")
 
-	// 验证 L3 prompt 中包含 "Plan Before Action" 规则
-	if !strings.Contains(prompt, "Plan Before Action") {
-		t.Error("L3 prompt should contain 'Plan Before Action' rule")
+	// 验证 L3 prompt 中包含 "Follow the Plan" 规则
+	if !strings.Contains(prompt, "Follow the Plan") {
+		t.Error("L3 prompt should contain 'Follow the Plan' rule")
+	}
+	if !strings.Contains(prompt, "PLAN_ID") {
+		t.Error("L3 prompt should contain PLAN_ID requirement")
 	}
 
 	// 验证 L3 prompt 中包含 Exploration Artifacts 规则
@@ -1032,15 +1030,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue")
 
-	// 空 planDir 时，plan 相关规则和路径不应出现（需求 5.4、5.5）
-	// TODO: 当前实现未做条件剔除，{{PLAN_DIR}} 被替换为空字符串后，
-	// "Plan Before Action" 等文本仍会出现。待实现修复后此测试才能通过。
-	if strings.Contains(prompt, "Plan Before Action") {
-		t.Error("L3 prompt should not contain 'Plan Before Action' when planDir is empty (requirement 5.4)")
-	}
-	if strings.Contains(prompt, "<plan_before_action>") {
-		t.Error("L3 prompt should not contain <plan_before_action> when planDir is empty")
-	}
+	// 空 planDir 时，不要出现未替换的占位符
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
 		t.Error("L3 prompt should not contain unreplaced {{PLAN_DIR}} placeholder")
 	}

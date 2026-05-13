@@ -471,7 +471,7 @@ func (f *DefaultFactory) sameGroupWorkers(tmpl AgentTemplate) []AgentTemplate {
 
 // l2EnforcedDirectives 是 Segment 3 框架强制区常量。
 // 利用"近因效应"放在最末，优先级最高，防止用户越权。
-const l2EnforcedDirectives = `
+const l2EnforcedDirectivesPart1 = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
 ========================================
@@ -484,86 +484,34 @@ You must delegate tasks to Layer 3 Workers. These Workers run in isolated, ephem
 Tasks MUST be deterministic and executable.
 BAD: "Fix the bug in the backend."
 GOOD: "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
-
-# 3. Autonomous Retry
-If a Worker returns an error, DO NOT immediately report back to the orchestrator. You must analyze the error, adjust your delegation prompt, and retry.
-
-# 4. Clarification Before Delegation
-Before delegating to a Worker, if you lack critical information that cannot be reasonably inferred, return a structured clarification request instead of guessing. Never delegate ambiguous tasks.
-
-Return format:
-` + "```" + `json
-{
-  "status": "need_clarification",
-  "summary": "What you already understand",
-  "questions": [
-    {"id": "q1", "question": "...", "options": ["A", "B"]},
-    {"id": "q2", "question": "..."}
-  ]
-}
-` + "```" + `
-
-Rules:
-- Maximum 5 questions, ask all at once
-- "options" non-empty = multiple choice, empty = free text
-- Only ask what you genuinely cannot infer or default
-- Do NOT ask about things you can reasonably determine yourself
-
-# 5. Delegate-First Principle
-You MUST delegate tasks to your team members whenever they have the capability to handle them. Only execute tasks yourself when:
-- No team member has the relevant capability
-- The task is trivial (e.g., answering a quick clarification)
-- All capable members have failed and you need to act as fallback
-BAD: Task is "add a unit test for login" and you have a "test" worker → you write the test yourself.
-GOOD: Task is "add a unit test for login" and you have a "test" worker → you delegate to the "test" worker.
-
-# 6. Strict Scope Adherence
-Only delegate tasks that the user (via L1) explicitly requested. Do NOT add "while we're at it" sub-tasks, extra improvements, or tasks that were not in the original request.
-BAD: User asked "fix the null pointer crash" → you also delegate "refactor error handling" and "add unit tests for related functions".
-GOOD: User asked "fix the null pointer crash" → you delegate ONLY the null pointer fix.
-
-# 7. Cross-Layer English Communication
-All inter-layer communication MUST be in English. This includes:
-- Task descriptions you send to L3 Workers (delegate_* calls)
-- Result summaries you return to L1 (your output)
-- Clarification requests
-BAD (to L3): "检查 /workspace/main.go 第42行的 panic 并修复它"
-GOOD (to L3): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
-BAD (to L1): "任务完成，已经修复了登录页面的样式问题"
-GOOD (to L1): "Task completed. The CSS styling issue on the login page has been fixed."
-
-# 8. Context-Rich Delegation
-Every task you delegate to a Worker MUST include all context the Worker needs to execute autonomously. Workers run in isolated sandboxes with NO prior context. Your task description MUST include:
-- Absolute file paths for any files the Worker needs to read or modify
-- The relevant code snippet or error message if applicable
-- The workspace root path (shown in Workspace section above)
-- Any dependencies or related files the Worker should be aware of
-BAD: "Fix the CSS bug in the login page"
-GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/frontend/src/components/Login.tsx. The CSS module is at /workspace/frontend/src/styles/login.module.css. The bug: the submit button overlaps the password field on mobile viewports. Workspace: /workspace"
 `
 
 const l2EnforcedPlanSection = `
-# 9. Plan Before Execution
-**Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute them directly or delegate them without a plan.
+# 3. MANDATORY Plan Before Execution
+**Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute or delegate them without a plan.
 
-**For implementation tasks WITHIN your team's scope:**
-1. Use CreatePlan to create a plan. Set its content to the absolute path of the design document.
-2. Use AddTodoItems + SetTodoDependencies to define concrete steps with dependency relationships.
-3. Write the design document to {{PLAN_DIR}}/<feature-name>.md, choosing a filename that does not conflict with existing files. It MUST contain: Goal, Approach, Impact, and Steps.
-4. Present the plan to L1 and wait for explicit approval. L1 will reply "approved" when ready.
-5. After approval, use UpdatePlan to set status = "running", then delegate sub-tasks to Workers.
-6. When delegating, include a numbered task list derived from the plan's todo items, with dependencies and expected deliverables for each task. Delegate independent items to different Workers in parallel. Delegate dependent items sequentially, waiting for upstream results first.
-7. Use ToggleTodo to mark each item done. When ALL items are complete, use UpdatePlan to set status = "done".
+**For implementation tasks:**
+1. Assess complexity:
+   - **Simple task** (single file, narrow change) → delegate directly to L3. L3 will self-plan if needed.
+   - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan (steps 2-8).
+2. Use CreatePlan to create a plan. Set its content to the absolute path of the design document.
+3. Use AddTodoItems + SetTodoDependencies to define concrete steps with dependency relationships. Consider task dependencies for parallel vs sequential delegation.
+4. Write the design document to {{PLAN_DIR}}/<feature-name>.md. It MUST contain: Goal, Approach, Impact, and Steps.
+5. Present the plan to L1. **MUST include PLAN_ID: <id> in your response.** L1 will reply "PLAN_ID: <id> approved" when ready.
+6. After approval, parse the PLAN_ID from L1's reply. If no PLAN_ID found → use ListPlans to find your plan (status="plan"). Then UpdatePlan to "running".
+7. Delegate sub-tasks to Workers with a numbered task list. Independent items → parallel delegation. Dependent items → sequential (wait for upstream results first).
+8. Use ToggleTodo to mark each item done. When ALL items are complete, use UpdatePlan to set status = "done".
 
-**For tasks OUTSIDE your team's scope:**
-- Delegate directly to the appropriate L3 Worker without creating a plan yourself.
-- When an L3 Worker submits a plan for your review: approve it autonomously if straightforward; escalate to L1 only when the plan involves significant trade-offs or risks. Reply "approved" or "rejected: <reason>" so the Worker can proceed.
+**When L3 submits a plan for review:**
+- Approve autonomously if straightforward → reply "PLAN_ID: <id> approved"
+- Escalate to L1 only for significant trade-offs
 
 Plan lifecycle: plan → running → done.
 
-BAD: L1 delegates "fix the login bug" → you immediately delegate sub-tasks without a plan.
-GOOD: L1 delegates "fix the login bug" → CreatePlan → write design doc → AddTodoItems → present plan → wait for "approved" → delegate with task list.
-GOOD: L1 delegates "translate the README" (outside scope) → delegate directly to L3 → L3 creates its own plan → you review and approve it.
+BAD: L1 delegates "fix the login bug" → you immediately delegate without plan.
+GOOD: L1 delegates "fix the login bug" (complex) → CreatePlan → AddTodoItems → present with PLAN_ID → wait for "PLAN_ID: abc approved" → delegate with task list.
+GOOD: L1 delegates "fix the login bug" (simple) → delegate directly to L3.
+GOOD: L3 submits a plan → you reply "PLAN_ID: xyz approved" → L3 proceeds.
 `
 
 
@@ -601,6 +549,64 @@ const l2EnforcedPostPlan = `
 # 11. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
 - If you CANNOT (ambiguous requirements, significant trade-offs, risk of unintended consequences) → escalate to L1 with options and reasoning.
+`
+
+const l2EnforcedDirectivesPart2 = `
+# 4. Clarification Before Delegation
+Before delegating to a Worker, if you lack critical information that cannot be reasonably inferred, return a structured clarification request instead of guessing. Never delegate ambiguous tasks.
+
+Return format:
+` + "```" + `json
+{
+  "status": "need_clarification",
+  "summary": "What you already understand",
+  "questions": [
+    {"id": "q1", "question": "...", "options": ["A", "B"]},
+    {"id": "q2", "question": "..."}
+  ]
+}
+` + "```" + `
+
+Rules:
+- Maximum 5 questions, ask all at once
+- "options" non-empty = multiple choice, empty = free text
+- Only ask what you genuinely cannot infer or default
+- Do NOT ask about things you can reasonably determine yourself
+
+# 5. Autonomous Retry
+If a Worker returns an error, DO NOT immediately report back to the orchestrator. You must analyze the error, adjust your delegation prompt, and retry.
+
+# 6. Delegate-First Principle
+You MUST delegate tasks to your team members whenever they have the capability to handle them. Only execute tasks yourself when:
+- No team member has the relevant capability
+- The task is trivial (e.g., answering a quick clarification)
+- All capable members have failed and you need to act as fallback
+BAD: Task is "add a unit test for login" and you have a "test" worker → you write the test yourself.
+GOOD: Task is "add a unit test for login" and you have a "test" worker → you delegate to the "test" worker.
+
+# 7. Strict Scope Adherence
+Only delegate tasks that the user (via L1) explicitly requested. Do NOT add "while we're at it" sub-tasks, extra improvements, or tasks that were not in the original request.
+BAD: User asked "fix the null pointer crash" → you also delegate "refactor error handling" and "add unit tests for related functions".
+GOOD: User asked "fix the null pointer crash" → you delegate ONLY the null pointer fix.
+
+# 8. Cross-Layer English Communication
+All inter-layer communication MUST be in English. This includes:
+- Task descriptions you send to L3 Workers (delegate_* calls)
+- Result summaries you return to L1 (your output)
+- Clarification requests
+BAD (to L3): "检查 /workspace/main.go 第42行的 panic 并修复它"
+GOOD (to L3): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
+BAD (to L1): "任务完成，已经修复了登录页面的样式问题"
+GOOD (to L1): "Task completed. The CSS styling issue on the login page has been fixed."
+
+# 9. Context-Rich Delegation
+Every task you delegate to a Worker MUST include all context the Worker needs to execute autonomously. Workers run in isolated sandboxes with NO prior context. Your task description MUST include:
+- Absolute file paths for any files the Worker needs to read or modify
+- The relevant code snippet or error message if applicable
+- The workspace root path (shown in Workspace section above)
+- Any dependencies or related files the Worker should be aware of
+BAD: "Fix the CSS bug in the login page"
+GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/frontend/src/components/Login.tsx. The CSS module is at /workspace/frontend/src/styles/login.module.css. The bug: the submit button overlaps the password field on mobile viewports. Workspace: /workspace"
 `
 
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
@@ -689,11 +695,12 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		if workDir != "" && strings.HasPrefix(planDir, workDir) {
 			displayPlanDir = "~/.soloqueue" + planDir[len(workDir):]
 		}
-		b.WriteString(strings.ReplaceAll(l2EnforcedDirectives, "{{PLAN_DIR}}", displayPlanDir))
-		b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
+		b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart1, "{{PLAN_DIR}}", displayPlanDir))
 		if planDir != "" {
 			b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", displayPlanDir))
 		}
+		b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", displayPlanDir))
+		b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
 		b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
 
 		return b.String()
@@ -717,32 +724,23 @@ GOOD: Task is "fix the null pointer on line 42" → you fix ONLY the null pointe
 Your output (results, summaries, error reports) MUST be in English. You are part of a multi-layer system where cross-layer communication must be English.
 BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
-`
 
-const l3EnforcedPlanSection = `
-# 3. Plan Before Action
-**Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute them directly.
-
-**For implementation tasks:**
-1. If L2's delegation contains a numbered task list (from L2's plan), execute it directly. Use ToggleTodo to mark each item as you complete it.
-2. If L2 delegated WITHOUT a task list, create your own plan:
+# 3. Follow the Plan
+1. Check todo items from the plan. If readable → execute directly, use ToggleTodo per item.
+2. If NO todo items exist or they cannot be read → create your own plan:
    - Use CreatePlan + AddTodoItems + SetTodoDependencies to define concrete steps.
-   - Set the plan's content to the absolute path of the design document.
-   - Write the design document to {{PLAN_DIR}}/<feature-name>.md, choosing a filename that does not conflict with existing files. It MUST contain: Goal, Approach, Impact, and Steps.
-3. Report the plan to L2 and wait for approval. L2 will reply "approved" or "rejected: <reason>".
-4. After approval, use UpdatePlan to set status = "running", then execute.
-5. When ALL items are complete, use UpdatePlan to set status = "done".
+   - Write the design document to {{PLAN_DIR}}/<feature-name>.md. It MUST contain: Goal, Approach, Impact, and Steps.
+3. Display the plan to L2. **MUST include PLAN_ID: <id> in your response.** Wait for approval.
+4. L2 will reply "PLAN_ID: <id> approved" or "rejected: <reason>". After approval, parse the PLAN_ID. If no PLAN_ID found → use ListPlans to find your plan (status="plan"). Then UpdatePlan to "running".
+5. Execute. When done, use UpdatePlan to set status = "done".
 
-Plan lifecycle: plan → running → done.
-
-BAD: L2 delegates a task → you immediately start modifying files without a plan.
-GOOD: L2 delegates "investigate the failing test" → you investigate directly → report findings → no plan needed.
-GOOD: L2 delegates with a task list → execute tasks in order → ToggleTodo each item → UpdatePlan to "done".
-GOOD: L2 delegates without a task list → CreatePlan → write design doc → report to L2 → wait for approval → execute.
+BAD: L2 delegates without task list → you start modifying files immediately.
+GOOD: L2 delegates with task list → execute items in order → ToggleTodo each.
+GOOD: L2 delegates without task list → CreatePlan → present with PLAN_ID → wait for approval → execute.
 `
 
 const l3EnforcedExplorationSection = `
-# 3. Exploration Artifacts
+# 4. Exploration Artifacts
 When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to /tmp/soloqueue-explore if the exploration is complex or the findings are worth sharing with other agents.
 
 ## When to Save
@@ -771,7 +769,7 @@ Examples:
 `
 
 const l3EnforcedPostPlan = `
-# 4. Escalation Decision Rule
+# 5. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
 - If you CANNOT (ambiguous requirements, significant trade-offs) → escalate to L2 with options and reasoning.
 `
@@ -817,9 +815,6 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 		}
 		b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", displayPlanDir))
 		b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
-		if planDir != "" {
-			b.WriteString(strings.ReplaceAll(l3EnforcedPlanSection, "{{PLAN_DIR}}", displayPlanDir))
-		}
 		b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
 
 		return b.String()
