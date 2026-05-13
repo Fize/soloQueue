@@ -266,7 +266,7 @@ export function FilesPage() {
   const SECTION = 'section' as const
 
   const treeContent = (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Files
       </div>
