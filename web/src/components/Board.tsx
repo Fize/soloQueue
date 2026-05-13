@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import type { Plan, PlanStatus } from '@/types'
 import { usePlans } from '@/hooks/usePlans'
 import { BoardColumn } from './BoardColumn'
@@ -29,12 +29,40 @@ export function Board() {
   const [localPlans, setLocalPlans] = useState<Record<PlanStatus, Plan[]> | null>(null)
   const displayPlans = localPlans ?? plansByStatus
 
+  // Track last valid over target so drops in gaps still land correctly
+  const lastOverRef = useRef<{ id: string; status: PlanStatus } | null>(null)
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  function findPlanStatus(id: string, source: Record<PlanStatus, Plan[]>): PlanStatus | undefined {
+    return (['plan', 'running', 'done'] as PlanStatus[]).find((s) =>
+      source[s].some((p) => p.id === id)
+    )
+  }
+
+  function resolveOverStatus(
+    overId: string,
+    data: Record<string, unknown> | undefined,
+    plansMap: Record<PlanStatus, Plan[]>
+  ): PlanStatus | undefined {
+    // Direct column droppable match
+    if ((['plan', 'running', 'done'] as PlanStatus[]).includes(overId as PlanStatus)) {
+      return overId as PlanStatus
+    }
+    // Sortable item data (most reliable for cross-column)
+    const dataStatus = data?.status as PlanStatus | undefined
+    if (dataStatus && (['plan', 'running', 'done'] as PlanStatus[]).includes(dataStatus)) {
+      return dataStatus
+    }
+    // Fallback: lookup in current plan map
+    return findPlanStatus(overId, plansMap)
+  }
 
   function handleDragStart(event: DragStartEvent) {
     const id = event.active.id as string
     const plan = plans.find((p) => p.id === id)
     setActivePlan(plan ?? null)
+    lastOverRef.current = null
   }
 
   function handleDragOver(event: DragOverEvent) {
@@ -44,23 +72,22 @@ export function Board() {
     const activeId = active.id as string
     const overId = over.id as string
 
-    const overStatus = (['plan', 'running', 'done'] as PlanStatus[]).find((s) => s === overId)
-
-    let sourceStatus: PlanStatus | undefined
-    for (const status of ['plan', 'running', 'done'] as PlanStatus[]) {
-      if (displayPlans[status].some((p) => p.id === activeId)) {
-        sourceStatus = status
-        break
-      }
-    }
+    const sourceStatus = findPlanStatus(activeId, displayPlans)
     if (!sourceStatus) return
 
-    const destStatus = overStatus ?? sourceStatus
+    const destStatus = resolveOverStatus(overId, over.data.current, displayPlans) ?? sourceStatus
+
+    // Record last valid over target
+    lastOverRef.current = { id: overId, status: destStatus }
 
     if (sourceStatus === destStatus) {
+      // Same column: reorder
       const items = [...displayPlans[sourceStatus]]
       const oldIndex = items.findIndex((p) => p.id === activeId)
-      const newIndex = overStatus ? items.length : items.findIndex((p) => p.id === overId)
+      const isOverColumn = (['plan', 'running', 'done'] as PlanStatus[]).includes(
+        overId as PlanStatus
+      )
+      const newIndex = isOverColumn ? items.length : items.findIndex((p) => p.id === overId)
       if (oldIndex === newIndex || oldIndex === -1) return
 
       setLocalPlans({
@@ -68,12 +95,18 @@ export function Board() {
         [sourceStatus]: arrayMove(items, oldIndex, newIndex),
       })
     } else {
+      // Cross column: move item
       const sourceItems = displayPlans[sourceStatus].filter((p) => p.id !== activeId)
       const plan = displayPlans[sourceStatus].find((p) => p.id === activeId)
       if (!plan) return
 
       const destItems = [...displayPlans[destStatus]]
-      const overIndex = overStatus ? destItems.length : destItems.findIndex((p) => p.id === overId)
+      const isOverColumn = (['plan', 'running', 'done'] as PlanStatus[]).includes(
+        overId as PlanStatus
+      )
+      const overIndex = isOverColumn
+        ? destItems.length
+        : destItems.findIndex((p) => p.id === overId)
       destItems.splice(overIndex === -1 ? destItems.length : overIndex, 0, {
         ...plan,
         status: destStatus,
@@ -92,24 +125,17 @@ export function Board() {
     setActivePlan(null)
     setLocalPlans(null)
 
-    if (!over) return
-
     const activeId = active.id as string
-    const overId = over.id as string
 
-    const overStatus = (['plan', 'running', 'done'] as PlanStatus[]).find((s) => s === overId)
+    // Resolve destination: use event.over if present, fallback to last valid over
+    const destStatus = over
+      ? resolveOverStatus(over.id as string, over.data.current, plansByStatus)
+      : (lastOverRef.current?.status as PlanStatus | undefined)
 
-    let sourceStatus: PlanStatus | undefined
-    for (const status of ['plan', 'running', 'done'] as PlanStatus[]) {
-      if (plansByStatus[status].some((p) => p.id === activeId)) {
-        sourceStatus = status
-        break
-      }
-    }
-    if (!sourceStatus) return
+    const sourceStatus = findPlanStatus(activeId, plansByStatus)
+    lastOverRef.current = null
 
-    const destStatus = overStatus ?? sourceStatus
-    if (sourceStatus !== destStatus) {
+    if (sourceStatus && destStatus && sourceStatus !== destStatus) {
       movePlan(activeId, destStatus)
     }
   }
@@ -133,7 +159,7 @@ export function Board() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col min-h-0">
       {/* Mobile Tabs */}
       <div className="md:hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -157,10 +183,10 @@ export function Board() {
         onDragEnd={handleDragEnd}
       >
         {/* Desktop: 3-column layout, fills available space */}
-        <div className="hidden flex-1 overflow-x-auto md:flex">
-          <div className="flex h-full w-full gap-4 py-5">
+        <div className="hidden flex-1 min-h-0 md:flex">
+          <div className="flex w-full gap-4 overflow-x-auto py-5 flex-1 min-h-0">
             {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
-              <div key={status} className="min-w-[250px] flex-1">
+              <div key={status} className="min-w-[250px] flex-1 flex flex-col min-h-0">
                 <BoardColumn
                   status={status}
                   plans={displayPlans[status]}

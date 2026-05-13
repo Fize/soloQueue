@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -10,20 +11,27 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
+// msgQueueCap is the buffer capacity for the rate-limiting message queue.
+const msgQueueCap = 100
+
+// msgQueueInterval is the minimum interval between active message sends.
+// QQ Bot rate limit is ~1.667s per message (3 per 5s); 1.7s provides a safe margin.
+const msgQueueInterval = 1700 * time.Millisecond
+
 // StartQQBot initializes and starts the QQ Bot gateway if configured.
-// It creates a dedicated logger under logs/qqbot/ and returns the gateway
-// for shutdown coordination. Returns nil if QQ bot is not enabled or not
-// configured.
-func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger) *qqbot.Gateway {
+// It creates a dedicated logger under logs/qqbot/, sets up a rate-limiting
+// MessageQueue, and returns both the gateway and the queue for shutdown
+// coordination. Returns (nil, nil) if QQ bot is not enabled or not configured.
+func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger) (*qqbot.Gateway, *qqbot.MessageQueue) {
 	settings := cfg.Get()
 	qqCfg := settings.QQBot.ToQQBotConfig()
 
 	if !qqCfg.Enabled {
-		return nil
+		return nil, nil
 	}
 	if qqCfg.AppID == "" || qqCfg.AppSecret == "" {
 		mainLog.Warn(logger.CatApp, "qqbot enabled but appId/appSecret not configured, skipping")
-		return nil
+		return nil, nil
 	}
 
 	// Create dedicated QQ bot logger under logs/qqbot/
@@ -38,9 +46,13 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir 
 		qqLog = mainLog
 	}
 
+	qqQueue := qqbot.NewMessageQueue(msgQueueInterval, msgQueueCap)
 	qqAPI := qqbot.NewAPIClient(qqCfg, qqLog)
 	qqAdapter := session.NewQQBotAdapter(mgr, qqLog)
-	qqBridge := qqbot.NewSessionBridge(qqAdapter, qqAPI, qqLog, qqbot.WithVersion(version))
+	qqBridge := qqbot.NewSessionBridge(qqAdapter, qqAPI, qqLog,
+		qqbot.WithVersion(version),
+		qqbot.WithMessageQueue(qqQueue),
+	)
 	gateway := qqbot.NewGateway(qqCfg, qqBridge, qqAPI, qqLog)
 
 	go func() {
@@ -57,5 +69,5 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir 
 		}
 	}()
 
-	return gateway
+	return gateway, qqQueue
 }
