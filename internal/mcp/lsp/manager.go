@@ -72,7 +72,7 @@ func (m *Manager) Start(ctx context.Context, defs []ServerDef) error {
 				if err := m.startClient(ctx, serverID); err != nil {
 					if m.log != nil {
 						m.log.Warn(logger.CatMCP, "LSP server start failed, will start lazily",
-							"server", serverID, "err", err)
+							"server", serverID, "err", err.Error())
 					}
 				} else {
 					started[serverID] = true

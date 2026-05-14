@@ -46,7 +46,7 @@ const (
 //
 // Token 计数说明：
 //   - Tokens 在 Push 时通过 tiktoken 估算并固化
-//   - Calibrate 后，sum(messages.Tokens) 不一定等于 currentTokens（漂移是正常的）
+//   - Calibrate 会按比例修正每个 msg.Tokens，使 sum ≈ currentTokens
 //   - 淘汰策略使用 currentTokens 做决策，msg.Tokens 仅用于增量计算
 type Message struct {
 	Role             MessageRole
@@ -377,24 +377,25 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 	return out
 }
 
-// Calibrate updates currentTokens to the exact value from the API response.
+// Calibrate updates currentTokens to the exact value from the API response
+// and redistributes the exact count proportionally across all msg.Tokens.
 //
 // Timing requirement: MUST be called BEFORE Push-ing new messages (assistant/tool).
 // The call order must be:
 //  1. Receive API EventDone → Calibrate(usage.PromptTokens)
 //  2. Then Push(assistant+tool_calls) / Push(tool result)
 //
-// If reversed, Calibrate will overwrite the incremental estimate from the new Push.
-//
-// Drift note: After Calibrate, currentTokens is exact, but individual msg.Tokens
-// remain estimates. sum(messages.Tokens) != currentTokens is normal.
-// FIFO eviction subtracts estimates, causing minor drift corrected by next Calibrate.
+// After Calibrate, both currentTokens and sum(msg.Tokens) equal promptTokens
+// (within rounding). This prevents the drift cascade where FIFO eviction
+// subtracts stale estimates while currentTokens was set to the exact value,
+// causing a growing gap between currentTokens and the real payload size.
 func (cw *ContextWindow) Calibrate(promptTokens int) {
 	cw.Lock()
 	defer cw.Unlock()
 
+	drift := cw.currentTokens - promptTokens
+
 	if cw.log != nil {
-		drift := cw.currentTokens - promptTokens
 		cw.log.DebugContext(context.Background(), logger.CatMessages, "calibrate: token count updated",
 			"estimated_tokens", cw.currentTokens,
 			"actual_tokens", promptTokens,
@@ -404,18 +405,51 @@ func (cw *ContextWindow) Calibrate(promptTokens int) {
 		)
 	}
 
+	// Redistribute exact token count across messages proportionally.
+	// This ensures FIFO eviction subtracts accurate amounts.
+	if len(cw.messages) > 0 && promptTokens > 0 {
+		sumEstimates := 0
+		for _, m := range cw.messages {
+			sumEstimates += m.Tokens
+		}
+		if sumEstimates > 0 && sumEstimates != promptTokens {
+			ratio := float64(promptTokens) / float64(sumEstimates)
+			runningSum := 0
+			for i := range cw.messages {
+				newTokens := int(float64(cw.messages[i].Tokens) * ratio)
+				if newTokens < 1 {
+					newTokens = 1
+				}
+				cw.messages[i].Tokens = newTokens
+				runningSum += newTokens
+			}
+			if diff := promptTokens - runningSum; diff != 0 && len(cw.messages) > 0 {
+				cw.messages[len(cw.messages)-1].Tokens += diff
+				if cw.messages[len(cw.messages)-1].Tokens < 1 {
+					cw.messages[len(cw.messages)-1].Tokens = 1
+				}
+			}
+		}
+	}
+
 	cw.currentTokens = promptTokens
 }
 
-// Overflow checks if the current payload exceeds the hard limit.
+// Overflow checks if the current payload exceeds the effective capacity.
 //
-// Called before sending an API request. If true, abort and report error.
+// The effective capacity is hardLimit minus bufferTokens (reserved for model
+// output). This matches the eviction capacity in Push, ensuring the overflow
+// check is consistent with the capacity management strategy.
 // hardLimit comes from config.LLMModel.ContextWindow (model's physical limit).
 func (cw *ContextWindow) Overflow(hardLimit int) bool {
 	cw.RLock()
 	defer cw.RUnlock()
 
-	return cw.currentTokens > hardLimit
+	capacity := hardLimit - cw.bufferTokens
+	if capacity < 0 {
+		capacity = 0
+	}
+	return cw.currentTokens > capacity
 }
 
 // ─── Queries ────────────────────────────────────────────────────────────────

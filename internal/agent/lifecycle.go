@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -51,11 +50,11 @@ func (a *Agent) Start(parent context.Context) error {
 	}
 
 	a.logInfo(a.ctx, logger.CatActor, "agent started",
-		slog.String("kind", string(a.Def.Kind)),
-		slog.String("role", string(a.Def.Role)),
-		slog.String("model_id", a.Def.ModelID),
-		slog.Int("mailbox_cap", a.mailboxCap),
-		slog.Bool("priority_mailbox", a.priorityMailbox != nil),
+		"kind", string(a.Def.Kind),
+		"role", string(a.Def.Role),
+		"model_id", a.Def.ModelID,
+		"mailbox_cap", a.mailboxCap,
+		"priority_mailbox", a.priorityMailbox != nil,
 	)
 	return nil
 }
@@ -83,7 +82,7 @@ func (a *Agent) Stop(timeout time.Duration) error {
 	}
 
 	a.logInfo(stopCtx, logger.CatActor, "agent stop requested",
-		slog.Int64("timeout_ms", timeout.Milliseconds()),
+		"timeout_ms", timeout.Milliseconds(),
 	)
 
 	cancel()
@@ -92,14 +91,14 @@ func (a *Agent) Stop(timeout time.Duration) error {
 	if timeout <= 0 {
 		<-done
 		a.logInfo(stopCtx, logger.CatActor, "agent stopped",
-			slog.Int64("wait_ms", time.Since(start).Milliseconds()),
+			"wait_ms", time.Since(start).Milliseconds(),
 		)
 		return nil
 	}
 	select {
 	case <-done:
 		a.logInfo(stopCtx, logger.CatActor, "agent stopped",
-			slog.Int64("wait_ms", time.Since(start).Milliseconds()),
+			"wait_ms", time.Since(start).Milliseconds(),
 		)
 		return nil
 	case <-time.After(timeout):

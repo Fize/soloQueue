@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +21,7 @@ func newTestLogger(t *testing.T) *logger.Logger {
 	dir := t.TempDir()
 	log, err := logger.System(dir,
 		logger.WithConsole(false),
-		logger.WithLevel(slog.LevelDebug),
+		logger.WithLevel(logger.ParseLogLevel("debug")),
 	)
 	if err != nil {
 		t.Fatalf("logger.System: %v", err)

@@ -179,7 +179,7 @@ func (t *imageGenTool) Execute(ctx context.Context, raw string) (string, error) 
 				t.logger.WarnContext(ctx, logger.CatTool, "image_gen: query failed",
 					"model", model.ID,
 					"job_id", jobID,
-					"err", err)
+					"err", err.Error())
 			}
 			continue
 		}
@@ -190,7 +190,7 @@ func (t *imageGenTool) Execute(ctx context.Context, raw string) (string, error) 
 				t.logger.WarnContext(ctx, logger.CatTool, "image_gen: parse query failed",
 					"model", model.ID,
 					"job_id", jobID,
-					"err", err)
+					"err", err.Error())
 			}
 			continue
 		}
@@ -457,7 +457,7 @@ func saveImages(ctx context.Context, urls []string, log *logger.Logger) []string
 		if err := downloadTo(ctx, url, fpath); err != nil {
 			if log != nil {
 				log.WarnContext(ctx, logger.CatTool, "image_gen: save failed",
-					"url", url, "path", fpath, "err", err)
+					"url", url, "path", fpath, "err", err.Error())
 			}
 			continue
 		}

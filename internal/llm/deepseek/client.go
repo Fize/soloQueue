@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -384,10 +383,10 @@ func (c *Client) logStart(ctx context.Context, req agent.LLMRequest) {
 		return
 	}
 	c.log.InfoContext(ctx, logger.CatLLM, "deepseek chat start",
-		slog.String("model", req.Model),
-		slog.Int("messages", len(req.Messages)),
-		slog.Int("tools", len(req.Tools)),
-		slog.Bool("include_usage", req.IncludeUsage),
+		"model", req.Model,
+		"messages", len(req.Messages),
+		"tools", len(req.Tools),
+		"include_usage", req.IncludeUsage,
 	)
 }
 
@@ -404,17 +403,17 @@ func (c *Client) logRetry(ctx context.Context, attempt int, delay time.Duration,
 		return
 	}
 	attrs := []any{
-		slog.Int("attempt", attempt),
-		slog.Int64("delay_ms", delay.Milliseconds()),
-		slog.String("err", err.Error()),
+		"attempt", attempt,
+		"delay_ms", delay.Milliseconds(),
+		"err", err.Error(),
 	}
 	// 如果是结构化 APIError，额外带上 status / type / code
 	var apiErr *llm.APIError
 	if errors.As(err, &apiErr) {
 		attrs = append(attrs,
-			slog.Int("status_code", apiErr.StatusCode),
-			slog.String("err_type", apiErr.Type),
-			slog.String("err_code", apiErr.Code),
+			"status_code", apiErr.StatusCode,
+			"err_type", apiErr.Type,
+			"err_code", apiErr.Code,
 		)
 	}
 	c.log.WarnContext(ctx, logger.CatLLM, "deepseek retry", attrs...)
@@ -426,18 +425,18 @@ func (c *Client) logChatDone(ctx context.Context, req agent.LLMRequest, resp *ag
 		return
 	}
 	c.log.InfoContext(ctx, logger.CatLLM, "deepseek chat done",
-		slog.String("model", req.Model),
-		slog.Int("content_len", len(resp.Content)),
-		slog.Int("reasoning_len", len(resp.ReasoningContent)),
-		slog.Int("tool_calls", len(resp.ToolCalls)),
-		slog.Int("delta_events", deltaCount),
-		slog.String("finish_reason", string(resp.FinishReason)),
-		slog.Int("prompt_tokens", resp.Usage.PromptTokens),
-		slog.Int("completion_tokens", resp.Usage.CompletionTokens),
-		slog.Int("total_tokens", resp.Usage.TotalTokens),
-		slog.Int("reasoning_tokens", resp.Usage.ReasoningTokens),
-		slog.Int("cache_hit_tokens", resp.Usage.PromptCacheHitTokens),
-		slog.Int64("duration_ms", dur.Milliseconds()),
+		"model", req.Model,
+		"content_len", len(resp.Content),
+		"reasoning_len", len(resp.ReasoningContent),
+		"tool_calls", len(resp.ToolCalls),
+		"delta_events", deltaCount,
+		"finish_reason", string(resp.FinishReason),
+		"prompt_tokens", resp.Usage.PromptTokens,
+		"completion_tokens", resp.Usage.CompletionTokens,
+		"total_tokens", resp.Usage.TotalTokens,
+		"reasoning_tokens", resp.Usage.ReasoningTokens,
+		"cache_hit_tokens", resp.Usage.PromptCacheHitTokens,
+		"duration_ms", dur.Milliseconds(),
 	)
 }
 
@@ -447,8 +446,8 @@ func (c *Client) logChatFailed(ctx context.Context, req agent.LLMRequest, err er
 		return
 	}
 	c.log.LogError(ctx, logger.CatLLM, "deepseek chat failed", err,
-		slog.String("model", req.Model),
-		slog.Int64("duration_ms", dur.Milliseconds()),
+		"model", req.Model,
+		"duration_ms", dur.Milliseconds(),
 	)
 }
 

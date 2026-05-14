@@ -81,10 +81,10 @@ func Build(
 	var mcpMgr *mcp.Manager
 	if mcpLoader != nil {
 		if err := mcpLoader.Load(); err != nil {
-			log.Warn(logger.CatMCP, "failed to load mcp.json, creating default", "err", err)
+			log.Warn(logger.CatMCP, "failed to load mcp.json, creating default", "err", err.Error())
 		}
 		if err := mcpLoader.Watch(); err != nil {
-			log.Warn(logger.CatMCP, "failed to watch mcp.json for hot-reload", "err", err)
+			log.Warn(logger.CatMCP, "failed to watch mcp.json for hot-reload", "err", err.Error())
 		}
 		mcpMgr = mcp.NewManager(mcpLoader, log)
 	}
@@ -126,7 +126,7 @@ func Build(
 	}
 
 	if err := lspMgr.Start(context.Background(), defs); err != nil {
-		log.Warn(logger.CatMCP, "failed to start LSP MCP", "err", err)
+		log.Warn(logger.CatMCP, "failed to start LSP MCP", "err", err.Error())
 	} else if mcpMgr != nil {
 		mcpMgr.RegisterVirtual("builtin-lsp", lspMgr.GetTools)
 	}
@@ -157,19 +157,19 @@ func Build(
 	// ── Groups ─────────────────────────────────────────────────────────────
 	groups, err := prompt.LoadGroups(filepath.Join(workDir, "groups"))
 	if err != nil {
-		log.Warn(logger.CatApp, "failed to load groups", "err", err)
+		log.Warn(logger.CatApp, "failed to load groups", "err", err.Error())
 		groups = nil
 	}
 
 	// ── Leaders + Agent Templates ────────────────────────────────────────────────
 	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), groups)
 	if err != nil {
-		log.Warn(logger.CatApp, "failed to load leaders", "err", err)
+		log.Warn(logger.CatApp, "failed to load leaders", "err", err.Error())
 		leaders = nil
 	}
 	allTemplates, err := agent.LoadAgentTemplates(filepath.Join(workDir, "agents"))
 	if err != nil {
-		log.Warn(logger.CatApp, "failed to load agent templates", "err", err)
+		log.Warn(logger.CatApp, "failed to load agent templates", "err", err.Error())
 		allTemplates = nil
 	}
 
@@ -426,7 +426,7 @@ func Build(
 	if mcpLoader != nil && mcpMgr != nil {
 		mcpLoader.OnChange(func(_ mcp.Config) {
 			if err := mcpMgr.Reload(context.Background()); err != nil {
-				log.Error(logger.CatMCP, "MCP hot-reload failed", "err", err)
+				log.Error(logger.CatMCP, "MCP hot-reload failed", "err", err.Error())
 			}
 		})
 	}
@@ -450,18 +450,18 @@ func registerSkillHotReload(reg *skill.SkillRegistry, dirs map[string]string, lo
 	}
 
 	if err := os.MkdirAll(dirToWatch, 0o755); err != nil {
-		log.Warn(logger.CatApp, "skills hot-reload: cannot create skills dir", "err", err)
+		log.Warn(logger.CatApp, "skills hot-reload: cannot create skills dir", "err", err.Error())
 		return
 	}
 
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Warn(logger.CatApp, "skills hot-reload: cannot create watcher", "err", err)
+		log.Warn(logger.CatApp, "skills hot-reload: cannot create watcher", "err", err.Error())
 		return
 	}
 	if err := w.Add(dirToWatch); err != nil {
 		_ = w.Close()
-		log.Warn(logger.CatApp, "skills hot-reload: cannot watch skills dir", "err", err)
+		log.Warn(logger.CatApp, "skills hot-reload: cannot watch skills dir", "err", err.Error())
 		return
 	}
 
@@ -489,7 +489,7 @@ func registerSkillHotReload(reg *skill.SkillRegistry, dirs map[string]string, lo
 				}
 				debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
 					if err := reg.Rebuild(dirs); err != nil {
-						log.Warn(logger.CatApp, "skills hot-reload: rebuild failed", "err", err)
+						log.Warn(logger.CatApp, "skills hot-reload: rebuild failed", "err", err.Error())
 					} else {
 						log.Info(logger.CatApp, "skills hot-reload completed")
 					}
@@ -499,7 +499,7 @@ func registerSkillHotReload(reg *skill.SkillRegistry, dirs map[string]string, lo
 				if !ok {
 					return
 				}
-				log.Warn(logger.CatApp, "skills hot-reload watch error", "err", err)
+				log.Warn(logger.CatApp, "skills hot-reload watch error", "err", err.Error())
 			}
 		}
 	}()
@@ -595,7 +595,7 @@ func InitLogger(workDir string, cfg *config.GlobalService, console bool) (*logge
 	}
 
 	cfg.SetErrorHandler(func(err error) {
-		log.Error(logger.CatConfig, "config watcher error", "err", err)
+		log.Error(logger.CatConfig, "config watcher error", "err", err.Error())
 	})
 
 	return log, nil

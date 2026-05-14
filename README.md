@@ -259,6 +259,13 @@ Contributions are welcome! Please follow these guidelines:
    - Use conventional commit format
    - Keep commits atomic
 
+## 🗺️ TODO
+
+- **Context window async compact reliability**: The compactor (`internal/compactor/`) is only triggered by a token-count soft waterline (75% of maxTokens). There is no time-based summarization mechanism for long-idle sessions. Additionally, the compactor sends the full CW content to the LLM to generate a summary, which can fail or time out when the context is already near capacity. Consider:
+  - Adding a time-based summary trigger for stale sessions
+  - Reducing the soft waterline threshold or making it adaptive
+  - Ensuring the compactor's own LLM request doesn't cause secondary failures
+
 ## 📄 License
 
 [Add license information]
