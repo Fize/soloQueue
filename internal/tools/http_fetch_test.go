@@ -84,7 +84,7 @@ func TestHTTP_SSRF_Loopback(t *testing.T) {
 func TestHTTP_SSRF_DNSPrivate(t *testing.T) {
 	tool := mkHTTPTool(t, nil)
 	// inject lookup returning RFC1918 IP
-	tool.lookup = func(host string) ([]net.IP, error) {
+	tool.lookup = func(_ context.Context, host string) ([]net.IP, error) {
 		return []net.IP{net.ParseIP("10.0.0.1")}, nil
 	}
 	raw, _ := json.Marshal(httpFetchArgs{URL: "http://internal.example.com/"})

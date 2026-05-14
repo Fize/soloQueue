@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/sandbox"
@@ -94,6 +95,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 
 	matches, err := t.cfg.Executor.Glob(ctx, absDir, a.Pattern, sandbox.GlobOptions{
 		MaxItems: maxItems,
+		Timeout:  globTimeout(ctx),
 	})
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid pattern: %v", ErrInvalidArgs, err)
@@ -125,3 +127,12 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 
 // Compile-time check
 var _ Tool = (*globTool)(nil)
+
+func globTimeout(ctx context.Context) time.Duration {
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 {
+			return remaining
+		}
+	}
+	return 0
+}

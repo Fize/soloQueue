@@ -34,7 +34,7 @@ type httpFetchTool struct {
 	cfg    Config
 	logger *logger.Logger
 	// allow override of DNS for testing
-	lookup func(host string) ([]net.IP, error)
+	lookup func(ctx context.Context, host string) ([]net.IP, error)
 }
 
 func newHTTPFetchTool(cfg Config) *httpFetchTool {
@@ -42,7 +42,18 @@ func newHTTPFetchTool(cfg Config) *httpFetchTool {
 	return &httpFetchTool{
 		cfg:    cfg,
 		logger: cfg.Logger,
-		lookup: net.LookupIP,
+		lookup: func(ctx context.Context, host string) ([]net.IP, error) {
+			var r net.Resolver
+			addrs, err := r.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			ips := make([]net.IP, len(addrs))
+			for i, a := range addrs {
+				ips[i] = a.IP
+			}
+			return ips, nil
+		},
 	}
 }
 
@@ -131,7 +142,7 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 				return "", fmt.Errorf("%w: %s", ErrPrivateAddress, ip)
 			}
 		} else {
-			ips, lerr := t.lookup(u.Hostname())
+			ips, lerr := t.lookup(ctx, u.Hostname())
 			if lerr != nil {
 				return "", fmt.Errorf("dns lookup: %w", lerr)
 			}

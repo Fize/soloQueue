@@ -86,7 +86,7 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 		overwrite = *a.Overwrite
 	}
 
-	result, err := writeFileImpl(t.cfg, a.Path, a.Content, overwrite)
+	result, err := writeFileImpl(ctx, t.cfg, a.Path, a.Content, overwrite)
 	if err != nil {
 		return "", err
 	}
@@ -99,7 +99,7 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 }
 
 // writeFileImpl 是内部实现；multi_write 直接调用以保证语义一致
-func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, error) {
+func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwrite bool) (string, error) {
 	abs, err := absPath(path)
 	if err != nil {
 		return "", err
@@ -111,11 +111,11 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 
 	// 检查父目录是否存在
 	dir := filepath.Dir(abs)
-	fi, err := cfg.Executor.Stat(context.Background(), dir)
+	fi, err := cfg.Executor.Stat(ctx, dir)
 	if err != nil || !fi.IsDir {
 		// If the target path is under PlanDir, auto-create intermediate directories
 		if cfg.PlanDir != "" && strings.HasPrefix(abs, cfg.PlanDir+string(filepath.Separator)) {
-			if mkdirErr := ensureDir(cfg.Executor, dir); mkdirErr != nil {
+			if mkdirErr := ensureDir(ctx, cfg.Executor, dir); mkdirErr != nil {
 				return "", fmt.Errorf("auto-create plan dir %s: %w", dir, mkdirErr)
 			}
 		} else {
@@ -123,7 +123,7 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 		}
 	}
 
-	wr, err := cfg.Executor.WriteFile(context.Background(), abs, []byte(content), sandbox.WriteFileOptions{
+	wr, err := cfg.Executor.WriteFile(ctx, abs, []byte(content), sandbox.WriteFileOptions{
 		Overwrite: overwrite,
 		MaxSize:   cfg.MaxWriteSize,
 	})
@@ -142,8 +142,8 @@ func writeFileImpl(cfg Config, path, content string, overwrite bool) (string, er
 
 // ensureDir creates the directory (and any missing parents) via the Executor.
 // It uses RunCommand("mkdir -p") which works for both LocalExecutor and DockerExecutor.
-func ensureDir(exec sandbox.Executor, dir string) error {
-	_, err := exec.RunCommand(context.Background(), "mkdir -p "+shellQuoteDir(dir), sandbox.RunCommandOptions{})
+func ensureDir(ctx context.Context, exec sandbox.Executor, dir string) error {
+	_, err := exec.RunCommand(ctx, "mkdir -p "+shellQuoteDir(dir), sandbox.RunCommandOptions{})
 	if err != nil {
 		return err
 	}
