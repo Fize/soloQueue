@@ -399,11 +399,11 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	// Replay the last 10 conversation turns (not the full timeline).
 	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10)
 	if err != nil {
-		sessLog.Warn("builder: ReadTail failed", "err", err, "dir", tlDir)
+		sessLog.Warn(logger.CatActor, "builder: ReadTail failed", "err", err, "dir", tlDir)
 	} else if len(segments) == 0 {
-		sessLog.Warn("builder: ReadTail returned no segments", "dir", tlDir)
+		sessLog.Warn(logger.CatActor, "builder: ReadTail returned no segments", "dir", tlDir)
 	} else {
-		sessLog.Info("builder: ReadTail returned segments, replaying", "segments", len(segments), "msgs", len(segments[0].Messages))
+		sessLog.Info(logger.CatActor, "builder: ReadTail returned segments, replaying", "segments", len(segments), "msgs", len(segments[0].Messages))
 		timeline.ReplayInto(cw, segments)
 	}
 	cw.SetReplayMode(false)
