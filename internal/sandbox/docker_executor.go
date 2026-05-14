@@ -200,6 +200,12 @@ func (e *DockerExecutor) Glob(ctx context.Context, dir string, pattern string, o
 		maxItems = 10000
 	}
 
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	}
+
 	// Convert doublestar pattern to find-compatible expression.
 	// find -name only matches basenames (no /), so doublestar patterns
 	// containing / (e.g. **/*.go) would never match and traverse the

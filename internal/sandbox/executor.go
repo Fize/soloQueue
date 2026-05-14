@@ -98,6 +98,8 @@ type FileInfo struct {
 type GlobOptions struct {
 	// MaxItems 返回结果数量上限。0 表示不限制。
 	MaxItems int
+	// Timeout 单次 glob 执行超时。0 表示使用父 context 的 deadline。
+	Timeout time.Duration
 }
 
 // ─── Grep ───────────────────────────────────────────────────────────────────
