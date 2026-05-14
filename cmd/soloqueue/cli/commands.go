@@ -103,7 +103,7 @@ func ServeCmd(version string) *cobra.Command {
 
 
 				// ── QQ Bot integration ──
-				qqGateway, qqQueue := StartQQBot(cfg, mgr, workDir, version, log)
+				qqGateway, qqQueue := StartQQBot(cfg, mgr, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors })
 
 		rootCtx, stop := signal.NotifyContext(context.Background(),
 			os.Interrupt, syscall.SIGTERM)

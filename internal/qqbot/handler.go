@@ -44,10 +44,16 @@ type SessionProvider interface {
 	// onIntermediate is called for each intermediate assistant response
 	// (content produced before a tool call). nil is acceptable.
 	// Returns ErrSessionBusy if another ask is in progress.
+	// Returns ErrTaskCancelled if the task was cancelled via CancelCurrent.
 	AskStream(ctx context.Context, prompt string, onIntermediate OnIntermediateFunc) (*AskStreamResult, error)
 
 	// Clear clears the session context (conversation history).
 	Clear(ctx context.Context) error
+
+	// CancelCurrent cancels the currently executing AskStream task (if any).
+	// Also reaps orphaned supervisor children as a safety net.
+	// reason is a human-readable description (e.g., "user requested cancellation").
+	CancelCurrent(reason string) error
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -57,6 +63,10 @@ var ErrSessionBusy = errors.New("session: busy")
 // ErrQueued is returned when a message has been queued for deferred processing.
 // Consumers should treat this as a success — the message will be handled later.
 var ErrQueued = errors.New("session: message queued")
+
+// ErrTaskCancelled is returned by AskStream when the session task was cancelled
+// via CancelCurrent (e.g., user sent /cancel command).
+var ErrTaskCancelled = errors.New("task cancelled")
 
 // ─── SessionBridge ───────────────────────────────────────────────────────────
 
@@ -135,6 +145,10 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		if errors.Is(err, ErrQueued) {
 			return
 		}
+		if errors.Is(err, ErrTaskCancelled) {
+			// Already handled by /cancel command — don't send a reply.
+			return
+		}
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot ask stream failed",
 			"err", err.Error())
 		b.sendReply(ctx, msg, MsgTypeText, errorPrefix+err.Error())
@@ -190,8 +204,16 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 
 	switch name {
 	case "/help", "/?":
-		text := "Commands: /help /clear /version"
+		text := "Commands: /help /cancel /clear /version"
 		b.sendReply(ctx, msg, MsgTypeText, text)
+		return true
+
+	case "/cancel":
+		if err := b.sess.CancelCurrent("user requested cancellation"); err != nil {
+			b.sendReply(ctx, msg, MsgTypeText, "cancel failed: "+err.Error())
+		} else {
+			b.sendReply(ctx, msg, MsgTypeText, "◆ task cancelled")
+		}
 		return true
 
 	case "/clear":
