@@ -210,10 +210,17 @@ func Build(
 					Dimension: embModel.Dimension,
 				})
 				if embErr == nil {
-					store := vectorstore.NewSQLiteStoreFromDB(sharedDB.DB, &sharedDB.WMu)
+					normFlag := embModel.Normalize
+					store := vectorstore.NewSQLiteStoreFromDB(sharedDB.DB, &sharedDB.WMu,
+						vectorstore.WithLogger(log),
+					)
 					{
+						minSim := settings.Embedding.MinSimilarity
+						if minSim == 0 {
+							minSim = 0.65
+						}
 						permBuildStart := time.Now()
-						permanentMgr = permanent.NewManager(store, embClient, nil, "", memoryDir, log)
+						permanentMgr = permanent.NewManager(store, embClient, nil, "", memoryDir, log, minSim, normFlag)
 						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
 							log.Error(logger.CatApp, msg)
 							select {

@@ -35,6 +35,9 @@ var (
 	// ErrSessionBusy Session 内已有 Ask 在跑，新 Ask 被拒绝
 	ErrSessionBusy = errors.New("session: busy (another Ask in flight)")
 
+	// ErrQueued 消息已进入 pending 队列，将在下一次 LLM API 调用前合并发送
+	ErrQueued = errors.New("session: message queued")
+
 	// ErrSessionClosed Session 已被 Close / Shutdown
 	ErrSessionClosed = errors.New("session: closed")
 )
@@ -83,6 +86,10 @@ type Session struct {
 	cw     *ctxwin.ContextWindow // 替代原 history，管理完整对话上下文
 	tl     *timeline.Writer      // 时间线持久化（可为 nil，表示不持久化）
 	logger *logger.Logger        // 会话级日志
+
+	// pending 排队消息：当 session busy 时新消息入队，在 agent 的 tool loop 下一次
+	// LLM API 调用前一次性取出并注入 ContextWindow，实现连续消息合并
+	pending *PendingQueue
 
 	// inFlight 并发 Ask 的 CAS 锁：0 → 1 入场；失败返回 ErrSessionBusy
 	inFlight atomic.Int32
@@ -133,8 +140,24 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		cw:      cw,
 		tl:      tl,
 		logger:  l,
+		pending: &PendingQueue{},
 	}
 	s.lastActive.Store(time.Now().UnixNano())
+
+	// Wire pending message drainer so the agent injects queued messages
+	// before each LLM API call.
+	if cw != nil {
+		cw.SetPendingDrainer(func() string {
+			if pending := s.pending.Drain(); pending != "" {
+				s.logger.InfoContext(context.Background(), logger.CatApp, "pending messages injected into context window",
+					"session_id", s.ID,
+					"prompt_len", len(pending),
+				)
+				return pending
+			}
+			return ""
+		})
+	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session created",
 		"session_id", id,
@@ -178,6 +201,17 @@ func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 // contending with Session.mu.
 func (s *Session) CW() *ctxwin.ContextWindow {
 	return s.cw
+}
+
+// QueueMessage enqueues a user message into the pending queue without blocking.
+// The message will be injected into the agent's context window before the next
+// LLM API call, merged with any other pending messages into a single user turn.
+func (s *Session) QueueMessage(prompt string) {
+	s.pending.Enqueue(prompt)
+	s.logger.InfoContext(context.Background(), logger.CatApp, "message queued via QueueMessage",
+		"session_id", s.ID,
+		"prompt_len", len(prompt),
+	)
 }
 
 // SetMemoryHook sets the optional callback for short-term memory recording.
@@ -343,8 +377,12 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		return "", ErrSessionClosed
 	}
 	if !s.inFlight.CompareAndSwap(0, 1) {
-		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session busy")
-		return "", ErrSessionBusy
+		s.logger.InfoContext(ctx, logger.CatApp, "ask rejected: session busy, message queued",
+			"session_id", s.ID,
+			"prompt_len", len(prompt),
+		)
+		s.pending.Enqueue(prompt)
+		return "", ErrQueued
 	}
 	defer s.inFlight.Store(0)
 	defer s.touch()
@@ -422,8 +460,12 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 	// resumeTurn（高优先级）会先于新消息 job 执行，CW 排序自然正确。
 
 	if !s.inFlight.CompareAndSwap(0, 1) {
-		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session busy")
-		return nil, ErrSessionBusy
+		s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
+			"session_id", s.ID,
+			"prompt_len", len(prompt),
+		)
+		s.pending.Enqueue(prompt)
+		return nil, ErrQueued
 	}
 	// 注意：inFlight 的释放由下面的 forwarder goroutine 负责
 	s.touch()

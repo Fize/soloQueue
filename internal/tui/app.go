@@ -124,6 +124,7 @@ type message struct {
 	rendered  string    // cached rendered output
 	timestamp time.Time // when the message was created
 	isHistory bool      // true if message is from replayed history (context cleared)
+	pending   bool      // true if message was queued while agent was busy
 }
 
 type confirmState struct {
@@ -458,7 +459,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.confirmQueue) > 0 {
 				return m.handleConfirmEnter()
 			}
-			if m.loading || m.isGenerating || strings.TrimSpace(m.textArea.Value()) == "" {
+			if m.loading || strings.TrimSpace(m.textArea.Value()) == "" {
+				return m, nil
+			}
+			if m.isGenerating {
+				content := strings.TrimSpace(m.textArea.Value())
+				m.textArea.Reset()
+				m.sess.QueueMessage(content)
+				m.messages = append(m.messages, message{role: "user", content: content, timestamp: time.Now(), pending: true})
+				m.addHistory(content)
+				m.invalidateMessageCache()
+				m.rebuildViewportContent()
+				m.viewport.GotoBottom()
 				return m, nil
 			}
 			input := strings.TrimSpace(m.textArea.Value())

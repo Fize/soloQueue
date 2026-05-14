@@ -420,6 +420,11 @@ type historyStrategy struct {
 }
 
 func (s *historyStrategy) buildMessages(a *Agent, iter int) ([]LLMMessage, error) {
+	// Drain pending user messages from the session queue before building
+	// the LLM payload. This injects queued messages at the next natural
+	// break point in the tool loop.
+	s.cw.DrainPending()
+
 	// Overflow hard-limit check: prevent API 400
 	hardLimit := a.Def.ContextWindow
 	if hardLimit <= 0 {

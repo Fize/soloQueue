@@ -50,6 +50,7 @@ var (
 	timestampStyle     lipgloss.Style
 	mutedStyle        lipgloss.Style
 	teamBadgeStyle     lipgloss.Style
+	pendingStyle       string
 )
 
 func init() {
@@ -140,6 +141,10 @@ func applyTheme(darkBg bool) {
 	composerStyle = lipgloss.NewStyle().Foreground(colorText).BorderForeground(colorBorder)
 	copyModeStyle = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 	timestampStyle = lipgloss.NewStyle().Foreground(colorMuted)
+
+	pendingStyle = lipgloss.NewStyle().
+		Foreground(colorWarning).
+		Render(" [queued]")
 
 	teamBadgeStyle = lipgloss.NewStyle().
 		Foreground(colorText).

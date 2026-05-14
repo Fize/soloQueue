@@ -37,7 +37,7 @@ func (f *fixedEmbedder) Dimension() int { return f.dim }
 
 func newTestManager(t *testing.T, store vectorstore.VectorStore, embedder embedding.Embedder, memoryDir string) *Manager {
 	t.Helper()
-	return NewManager(store, embedder, nil, "", memoryDir, nil)
+	return NewManager(store, embedder, nil, "", memoryDir, nil, 0.6, false)
 }
 
 func newTestStore(t *testing.T) (vectorstore.VectorStore, string) {
