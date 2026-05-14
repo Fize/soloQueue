@@ -206,7 +206,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 						log.Error(logger.CatApp, "sandbox init goroutine panic recovered", fmt.Errorf("panic: %v", r))
 					}
 				}()
-				sb, executor, err := runtime.StartSandbox(context.Background(), rt.SandboxMounts, log)
+				sb, executor, err := runtime.StartSandbox(context.Background(), rt.SandboxMounts, cfg.Get().Sandbox.Env, log)
 				if err != nil {
 					sandboxCh <- tui.SandboxInitMsg{Err: err}
 					return
