@@ -134,7 +134,7 @@ func Build(
 	// ── Prompt System ──────────────────────────────────────────────────────────
 	promptStart := time.Now()
 	promptCfg := &prompt.PromptConfig{
-		RolesDir:  filepath.Join(workDir, "roles"),
+		RolesDir:  filepath.Join(workDir, "prompts", "roles"),
 		GlobalDir: filepath.Join(workDir, "prompts", "global"),
 	}
 	rulesCreated, err := promptCfg.EnsureFiles()
@@ -553,8 +553,8 @@ func BuildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 
 // StartSandbox creates and starts a Docker sandbox, returning it along with
 // a configured DockerExecutor.
-func StartSandbox(ctx context.Context, mounts []sandbox.Mount, log *logger.Logger) (sandbox.Sandbox, *sandbox.DockerExecutor, error) {
-	dockerSandbox, err := sandbox.NewDockerSandbox(mounts)
+func StartSandbox(ctx context.Context, mounts []sandbox.Mount, env []string, log *logger.Logger) (sandbox.Sandbox, *sandbox.DockerExecutor, error) {
+	dockerSandbox, err := sandbox.NewDockerSandbox(mounts, env)
 	if err != nil {
 		return nil, nil, fmt.Errorf("docker sandbox init failed: is Docker running? %w", err)
 	}

@@ -449,7 +449,7 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
 // handleGetAgentProfile returns the soul.md and rules.md content for the main agent.
 // GET /api/agents/{id}/profile
 func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
-	rolesDir := filepath.Join(m.workDir, "roles")
+	rolesDir := filepath.Join(m.workDir, "prompts", "roles")
 
 	soulPath := filepath.Join(rolesDir, "soul.md")
 	rulesPath := filepath.Join(rolesDir, "rules.md")
@@ -484,7 +484,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := &prompt.PromptConfig{
-		RolesDir: filepath.Join(m.workDir, "roles"),
+		RolesDir: filepath.Join(m.workDir, "prompts", "roles"),
 	}
 
 	if req.Soul != nil {
@@ -509,7 +509,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the updated profile
-	rolesDir := filepath.Join(m.workDir, "roles")
+	rolesDir := filepath.Join(m.workDir, "prompts", "roles")
 	soul, _ := os.ReadFile(filepath.Join(rolesDir, "soul.md"))
 	rules, _ := os.ReadFile(filepath.Join(rolesDir, "rules.md"))
 
