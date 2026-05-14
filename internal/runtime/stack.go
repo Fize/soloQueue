@@ -177,34 +177,69 @@ func (s *Stack) RebuildPrompt() error {
 	return nil
 }
 
-// L1MCPServers returns the MCP server names available to the L1 orchestrator,
-// filtered by the agent.mcpServers whitelist (empty = all enabled).
+// L1MCPServers returns the MCP server names available to the L1 orchestrator.
+//
+// The returned list includes both external MCP servers (from mcp.json) and
+// built-in MCP servers (e.g. "builtin-lsp"), each filtered independently by
+// the corresponding whitelist in agent config:
+//   - nil = not configured → load all available servers of that type
+//   - [] = explicit empty → load nothing
+//   - ["name"] = whitelist → only load named servers
 func (s *Stack) L1MCPServers() []string {
 	if s.MCPManager == nil {
 		return nil
 	}
-	cfg := s.MCPManager.Loader().Get()
-	allowedSet := s.allowedMCPSet()
+
 	var names []string
+
+	// External MCP servers (from mcp.json)
+	cfg := s.MCPManager.Loader().Get()
+	externalSet := s.externalMCPSet()
 	for _, srv := range cfg.Servers {
 		if !srv.Enabled {
 			continue
 		}
-		if allowedSet == nil || allowedSet[srv.Name] {
+		if externalSet == nil || externalSet[srv.Name] {
 			names = append(names, srv.Name)
 		}
 	}
+
+	// Built-in MCP servers (e.g. builtin-lsp)
+	builtinSet := s.builtinMCPSet()
+	if s.LSPManager != nil && (builtinSet == nil || builtinSet["builtin-lsp"]) {
+		names = append(names, "builtin-lsp")
+	}
+
 	return names
 }
 
-// allowedMCPSet returns the set of allowed MCP server names from settings,
-// or nil if no whitelist is configured (meaning all enabled servers are allowed).
-func (s *Stack) allowedMCPSet() map[string]bool {
+// externalMCPSet returns the whitelist for external MCP servers.
+// nil = not configured (load all external servers).
+// non-nil = explicitly configured (empty map = load none, non-empty = whitelist).
+func (s *Stack) externalMCPSet() map[string]bool {
 	if s.Settings == nil {
 		return nil
 	}
-	allowed := s.Settings.Get().Agent.MCPServers
-	if len(allowed) == 0 {
+	allowed := s.Settings.Get().Agent.ExternalMCPServers
+	if allowed == nil {
+		return nil
+	}
+	set := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		set[name] = true
+	}
+	return set
+}
+
+// builtinMCPSet returns the whitelist for built-in MCP servers.
+// nil = not configured (load all built-in servers).
+// non-nil = explicitly configured (empty map = load none, non-empty = whitelist).
+func (s *Stack) builtinMCPSet() map[string]bool {
+	if s.Settings == nil {
+		return nil
+	}
+	allowed := s.Settings.Get().Agent.BuiltinMCPServers
+	if allowed == nil {
 		return nil
 	}
 	set := make(map[string]bool, len(allowed))

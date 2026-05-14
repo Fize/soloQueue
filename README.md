@@ -211,6 +211,24 @@ max_file_size = 10485760
 [models]
   [models."deepseek-v4-flash"]
   context_window = 65536
+
+[lspmcp]
+# Optionally override or disable built-in LSP servers (gopls, bash, pyright, typescript, vue, yaml, lua, clangd)
+# Omit this section entirely to enable all built-in servers with defaults.
+# [[lspmcp.servers]]
+# id = "pyright"
+# disabled = true
+#
+# [[lspmcp.servers]]
+# id = "typescript"
+# command = "/custom/path/typescript-language-server"
+
+[agent]
+# Omit this section entirely to enable all servers with defaults.
+# main agent has no built-in servers by default.
+# builtin_mcp_servers = [] 
+# main agent has no external servers by default.
+# external_mcp_servers = []
 ```
 
 **Configuration Hierarchy** (lowest to highest priority):

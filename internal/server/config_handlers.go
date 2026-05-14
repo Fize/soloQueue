@@ -98,7 +98,8 @@ type qqBotPatch struct {
 }
 
 type agentPatch struct {
-	MCPServers *[]string `json:"mcpServers,omitempty"`
+	BuiltinMCPServers  *[]string `json:"builtinMcpServers,omitempty"`
+	ExternalMCPServers *[]string `json:"externalMcpServers,omitempty"`
 }
 
 // handleUpdateConfig accepts a partial JSON body and merges it into current settings.
@@ -274,8 +275,11 @@ func applyConfigPatch(current *config.Settings, patch configPatchRequest) {
 
 	// Agent (L1 orchestrator)
 	if patch.Agent != nil {
-		if patch.Agent.MCPServers != nil {
-			current.Agent.MCPServers = *patch.Agent.MCPServers
+		if patch.Agent.BuiltinMCPServers != nil {
+			current.Agent.BuiltinMCPServers = *patch.Agent.BuiltinMCPServers
+		}
+		if patch.Agent.ExternalMCPServers != nil {
+			current.Agent.ExternalMCPServers = *patch.Agent.ExternalMCPServers
 		}
 	}
 }

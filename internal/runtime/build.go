@@ -264,21 +264,31 @@ func Build(
 
 	var mcpServers []string
 	if mcpMgr != nil {
-		allowed := cfg.Get().Agent.MCPServers
-		var allowedSet map[string]bool
-		if len(allowed) > 0 {
-			allowedSet = make(map[string]bool, len(allowed))
-			for _, name := range allowed {
-				allowedSet[name] = true
+		// External MCP servers (from mcp.json)
+		externalAllowed := cfg.Get().Agent.ExternalMCPServers
+		var externalSet map[string]bool
+		if externalAllowed != nil {
+			externalSet = make(map[string]bool, len(externalAllowed))
+			for _, name := range externalAllowed {
+				externalSet[name] = true
 			}
 		}
 		for _, srv := range mcpMgr.Loader().Get().Servers {
-			if srv.Enabled && (allowedSet == nil || allowedSet[srv.Name]) {
+			if srv.Enabled && (externalSet == nil || externalSet[srv.Name]) {
 				mcpServers = append(mcpServers, srv.Name)
 			}
 		}
-		// Include builtin-lsp virtual server if LSP MCP is enabled.
-		if lspMgr != nil && (allowedSet == nil || allowedSet["builtin-lsp"]) {
+
+		// Builtin MCP servers (e.g. builtin-lsp)
+		builtinAllowed := cfg.Get().Agent.BuiltinMCPServers
+		var builtinSet map[string]bool
+		if builtinAllowed != nil {
+			builtinSet = make(map[string]bool, len(builtinAllowed))
+			for _, name := range builtinAllowed {
+				builtinSet[name] = true
+			}
+		}
+		if lspMgr != nil && (builtinSet == nil || builtinSet["builtin-lsp"]) {
 			mcpServers = append(mcpServers, "builtin-lsp")
 		}
 	}
