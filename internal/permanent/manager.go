@@ -21,7 +21,6 @@ import (
 
 const (
 	defaultTopK       = 5
-	defaultMinSim     = float32(0.6)
 	defaultMaxAgeDays = 7
 	maxSummaryLen     = 300 // max chars per summarized entry
 	maxDisplayLen     = 200 // max chars when displaying entries in system prompt
@@ -62,13 +61,17 @@ type Manager struct {
 	maxAgeDays int
 	topK       int
 	minSim     float32
+	normalize  bool // when true, L2-normalize embeddings before storage and query
 	logger     *logger.Logger
 }
 
 // NewManager creates a permanent memory manager.
 // llm may be nil if summarization is not needed (e.g. in tests without LLM).
 // modelID is the fast/cheap model to use for summarization during migration.
-func NewManager(store vectorstore.VectorStore, embedder embedding.Embedder, llm Summarizer, modelID, memoryDir string, l *logger.Logger) *Manager {
+// minSim is the minimum cosine similarity threshold for memory queries;
+// pass 0 to disable the threshold entirely.
+// normalize controls whether embeddings are L2-normalized before storage and query.
+func NewManager(store vectorstore.VectorStore, embedder embedding.Embedder, llm Summarizer, modelID, memoryDir string, l *logger.Logger, minSim float32, normalize bool) *Manager {
 	return &Manager{
 		store:      store,
 		embedder:   embedder,
@@ -77,7 +80,8 @@ func NewManager(store vectorstore.VectorStore, embedder embedding.Embedder, llm 
 		memoryDir:  memoryDir,
 		maxAgeDays: defaultMaxAgeDays,
 		topK:       defaultTopK,
-		minSim:     defaultMinSim,
+		minSim:     minSim,
+		normalize:  normalize,
 		logger:     l,
 	}
 }
@@ -185,6 +189,11 @@ func (m *Manager) upsertEntry(ctx context.Context, path, content string, ts time
 		Embedding: results[0].Embedding,
 		Timestamp: ts,
 		Source:    source,
+	}
+	if m.normalize && len(entry.Embedding) > 0 {
+		if norm, ok := vectorstore.NormalizeVector(entry.Embedding); ok {
+			entry.Embedding = norm
+		}
 	}
 	if err := m.store.Upsert(ctx, entry); err != nil {
 		return 0, fmt.Errorf("permanent: upsert entry: %w", err)
@@ -333,7 +342,14 @@ func (m *Manager) QueryForPrompt(ctx context.Context, queryText string) (string,
 		return "", nil
 	}
 
-	entries, err := m.store.Query(ctx, results[0].Embedding, m.topK, m.minSim)
+	queryEmbedding := results[0].Embedding
+	if m.normalize && len(queryEmbedding) > 0 {
+		if norm, ok := vectorstore.NormalizeVector(queryEmbedding); ok {
+			queryEmbedding = norm
+		}
+	}
+
+	entries, err := m.store.Query(ctx, queryEmbedding, m.topK, m.minSim)
 	if err != nil {
 		return "", fmt.Errorf("permanent: vector query: %w", err)
 	}
@@ -413,6 +429,11 @@ func (m *Manager) Remember(ctx context.Context, content string, at time.Time) er
 		Embedding: results[0].Embedding,
 		Timestamp: at,
 		Source:    "manual",
+	}
+	if m.normalize && len(entry.Embedding) > 0 {
+		if norm, ok := vectorstore.NormalizeVector(entry.Embedding); ok {
+			entry.Embedding = norm
+		}
 	}
 	return m.store.Upsert(ctx, entry)
 }

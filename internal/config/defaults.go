@@ -137,7 +137,8 @@ func DefaultSettings() Settings {
 			},
 		},
 		Embedding: EmbeddingConfig{
-			Enabled: false,
+			Enabled:       false,
+			MinSimilarity: 0.65,
 			Providers: []EmbeddingProvider{
 				{
 					ID:        "local",

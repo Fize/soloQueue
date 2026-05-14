@@ -20,9 +20,13 @@ func formatTimestamp(name string, ts time.Time) string {
 
 // renderUserMessage renders a user message with right-aligned green text.
 // If msg.isHistory is true, uses muted style (gray) instead.
+// If msg.pending is true, appends an amber queued indicator.
 func renderUserMessage(msg message, vpWidth int) string {
 	// Timestamp label: "You · 14:30" — right-aligned above the message
 	ts := formatTimestamp("You", msg.timestamp)
+	if msg.pending {
+		ts = ts + " " + pendingStyle
+	}
 	tsLine := timestampStyle.Render(ts)
 	tsW := lipgloss.Width(tsLine)
 	tsPad := vpWidth - tsW

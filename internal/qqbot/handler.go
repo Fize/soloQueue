@@ -54,6 +54,10 @@ type SessionProvider interface {
 
 var ErrSessionBusy = errors.New("session: busy")
 
+// ErrQueued is returned when a message has been queued for deferred processing.
+// Consumers should treat this as a success — the message will be handled later.
+var ErrQueued = errors.New("session: message queued")
+
 // ─── SessionBridge ───────────────────────────────────────────────────────────
 
 // SessionBridge connects QQ messages to the SoloQueue Session.
@@ -126,6 +130,9 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	if err != nil {
 		if errors.Is(err, ErrSessionBusy) {
 			b.sendReply(ctx, msg, MsgTypeText, busyReply)
+			return
+		}
+		if errors.Is(err, ErrQueued) {
 			return
 		}
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot ask stream failed",
