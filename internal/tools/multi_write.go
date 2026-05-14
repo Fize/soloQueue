@@ -135,7 +135,7 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 		if f.Overwrite != nil {
 			overwrite = *f.Overwrite
 		}
-		out, err := writeFileImpl(t.cfg, f.Path, f.Content, overwrite)
+		out, err := writeFileImpl(ctx, t.cfg, f.Path, f.Content, overwrite)
 		if err != nil {
 			res.Files[i] = multiWriteEntry{
 				Path:   f.Path,
