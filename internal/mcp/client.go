@@ -134,7 +134,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 		// Attempt reconnect once on failure
 		if c.log != nil {
 			c.log.Warn(logger.CatMCP, "MCP tool call failed, attempting reconnect",
-				"server", c.cfg.Name, "tool", name, "err", err,
+				"server", c.cfg.Name, "tool", name, "err", err.Error(),
 			)
 		}
 		if reconnectErr := c.reconnect(ctx); reconnectErr != nil {

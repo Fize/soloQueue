@@ -37,9 +37,9 @@ func RegisterHotReload(rt *Stack, cfg *config.GlobalService, log *logger.Logger,
 				rt.LLMClient = newClient
 				rt.AgentFactory.SetLLMClient(newClient)
 			} else {
-				log.Warn(logger.CatConfig, "hot-reload: failed to rebuild LLM client", "err", err)
-			}
+log.Warn(logger.CatConfig, "hot-reload: failed to rebuild LLM client", "err", err.Error())
 		}
+	}
 
 		// 4. Log level
 		if new.Log.Level != old.Log.Level {
@@ -59,7 +59,7 @@ func RegisterHotReload(rt *Stack, cfg *config.GlobalService, log *logger.Logger,
 			// RebuildPrompt itself acquires promptRebuildMu).
 			rt.CfgMu.Unlock()
 			if err := rt.RebuildPrompt(); err != nil {
-				log.Warn(logger.CatConfig, "hot-reload: failed to rebuild L1 prompt after agent MCP servers change", "err", err)
+				log.Warn(logger.CatConfig, "hot-reload: failed to rebuild L1 prompt after agent MCP servers change", "err", err.Error())
 			}
 			rt.CfgMu.Lock()
 		}

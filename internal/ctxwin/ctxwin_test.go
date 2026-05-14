@@ -138,14 +138,16 @@ func TestCalibrate(t *testing.T) {
 		t.Errorf("Before Calibrate: Recalculate()=%d != currentTokens=%d", cw.Recalculate(), current)
 	}
 
-	// Calibrate 后：currentTokens 被精确值覆盖，可能不等于 sum
+	// Calibrate 后：currentTokens 被精确值覆盖，sum(msg.Tokens) 应等于 currentTokens
 	cw.Calibrate(42)
 	current, _, _ = cw.TokenUsage()
 	if current != 42 {
 		t.Errorf("After Calibrate: currentTokens = %d, want 42", current)
 	}
-	// ⚠️ Calibrate 后 sum(messages.Tokens) 不一定等于 currentTokens — 这是正常的漂移
-	// 不应断言 cw.Recalculate() == current
+	// Calibrate 现在会按比例更新 msg.Tokens，sum(msg.Tokens) 应约等于 currentTokens
+	if cw.Recalculate() != current {
+		t.Errorf("After Calibrate: Recalculate()=%d != currentTokens=%d (rounding diff only)", cw.Recalculate(), current)
+	}
 }
 
 func TestOverflow(t *testing.T) {

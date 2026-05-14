@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -108,11 +107,11 @@ func (r *Registry) Register(a *Agent) error {
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry register",
-		slog.String("instance_id", id),
-		slog.String("template_id", tmplID),
-		slog.String("kind", string(a.Def.Kind)),
-		slog.String("role", string(a.Def.Role)),
-		slog.Int("size", size),
+		"instance_id", id,
+		"template_id", tmplID,
+		"kind", string(a.Def.Kind),
+		"role", string(a.Def.Role),
+		"size", size,
 	)
 	return nil
 }
@@ -155,9 +154,9 @@ func (r *Registry) Unregister(id string) bool {
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry unregister",
-		slog.String("instance_id", id),
-		slog.String("template_id", tmplID),
-		slog.Int("size", size),
+		"instance_id", id,
+		"template_id", tmplID,
+		"size", size,
 	)
 	return true
 }
@@ -244,7 +243,7 @@ func (r *Registry) StartAll(parent context.Context) []error {
 	agents := r.List()
 	start := time.Now()
 	r.logInfo(logger.CatActor, "registry start all",
-		slog.Int("count", len(agents)),
+		"count", len(agents),
 	)
 
 	var errs []error
@@ -255,9 +254,9 @@ func (r *Registry) StartAll(parent context.Context) []error {
 	}
 
 	r.logInfo(logger.CatActor, "registry start all done",
-		slog.Int("count", len(agents)),
-		slog.Int("errors", len(errs)),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		"count", len(agents),
+		"errors", len(errs),
+		"duration_ms", time.Since(start).Milliseconds(),
 	)
 	return errs
 }
@@ -270,8 +269,8 @@ func (r *Registry) StopAll(timeout time.Duration) []error {
 	agents := r.List()
 	start := time.Now()
 	r.logInfo(logger.CatActor, "registry stop all",
-		slog.Int("count", len(agents)),
-		slog.Int64("timeout_ms", timeout.Milliseconds()),
+		"count", len(agents),
+		"timeout_ms", timeout.Milliseconds(),
 	)
 
 	var errs []error
@@ -286,9 +285,9 @@ func (r *Registry) StopAll(timeout time.Duration) []error {
 	}
 
 	r.logInfo(logger.CatActor, "registry stop all done",
-		slog.Int("count", len(agents)),
-		slog.Int("errors", len(errs)),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		"count", len(agents),
+		"errors", len(errs),
+		"duration_ms", time.Since(start).Milliseconds(),
 	)
 	return errs
 }
@@ -301,8 +300,8 @@ func (r *Registry) StopAll(timeout time.Duration) []error {
 func (r *Registry) Shutdown(timeout time.Duration) error {
 	start := time.Now()
 	r.logInfo(logger.CatActor, "registry shutdown",
-		slog.Int("count", r.Len()),
-		slog.Int64("timeout_ms", timeout.Milliseconds()),
+		"count", r.Len(),
+		"timeout_ms", timeout.Milliseconds(),
 	)
 
 	stopErrs := r.StopAll(timeout)
@@ -314,8 +313,8 @@ func (r *Registry) Shutdown(timeout time.Duration) error {
 	r.mu.Unlock()
 
 	r.logInfo(logger.CatActor, "registry shutdown done",
-		slog.Int("errors", len(stopErrs)),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		"errors", len(stopErrs),
+		"duration_ms", time.Since(start).Milliseconds(),
 	)
 
 	if len(stopErrs) == 0 {

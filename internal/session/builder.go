@@ -111,7 +111,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 						if err := l2.RegisterTool(dt); err != nil {
 							sessLog.Warn(logger.CatActor,
 								"auto-reload: register delegate tool failed",
-								"name", name, "err", err)
+								"name", name, "err", err.Error())
 						}
 					}
 					sessLog.Info(logger.CatActor, "auto-reload: worker adopted & spawn fn wired",
@@ -162,7 +162,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				// Register supervisor-scoped inspect_agent for this leader.
 				if err := child.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
 					sessLog.Warn(logger.CatActor, "register inspect_agent for leader failed",
-						"name", leader.Name, "err", err)
+						"name", leader.Name, "err", err.Error())
 				}
 
 				sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
@@ -279,7 +279,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		// Register supervisor-scoped inspect_agent for the auto-reloaded leader.
 		if err := ag.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
 			sessLog.Warn(logger.CatActor, "register inspect_agent for auto-reload leader failed",
-				"name", name, "err", err)
+				"name", name, "err", err.Error())
 		}
 
 		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog)
@@ -296,7 +296,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}
 		if err := a.RegisterTool(dt); err != nil {
 			sessLog.Error(logger.CatActor, "register delegate tool for new leader failed",
-				"leader", name, "err", err)
+				"leader", name, "err", err.Error())
 		}
 	}
 
@@ -319,7 +319,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			Content: summary,
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
-				"err", err, "agent_id", agentID)
+				"err", err.Error(), "agent_id", agentID)
 		}
 		// Record to short-term memory (fire-and-forget, non-blocking).
 		// Filter by dedup cursor and group by date to avoid duplicate entries.
@@ -373,7 +373,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			AgentID:          agentID,
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
-				"err", err, "role", string(msg.Role), "agent_id", agentID)
+				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
 		}
 	}
 
@@ -399,7 +399,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	// Replay the last 10 conversation turns (not the full timeline).
 	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10)
 	if err != nil {
-		sessLog.Warn(logger.CatActor, "builder: ReadTail failed", "err", err, "dir", tlDir)
+		sessLog.Warn(logger.CatActor, "builder: ReadTail failed", "err", err.Error(), "dir", tlDir)
 	} else if len(segments) == 0 {
 		sessLog.Warn(logger.CatActor, "builder: ReadTail returned no segments", "dir", tlDir)
 	} else {

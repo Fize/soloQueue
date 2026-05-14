@@ -185,7 +185,7 @@ func (c *Client) readLoop() {
 		raw, err := c.transport.readMessage()
 		if err != nil {
 			if c.log != nil {
-				c.log.Debug(logger.CatMCP, "LSP read error", "server", c.id, "err", err)
+				c.log.Debug(logger.CatMCP, "LSP read error", "server", c.id, "err", err.Error())
 			}
 			return
 		}
@@ -431,7 +431,7 @@ func (c *Client) Diagnostics(ctx context.Context, uri string) ([]Diagnostic, err
 		// but older servers might not support it. Return empty.
 		if c.log != nil {
 			c.log.Debug(logger.CatMCP, "LSP diagnostic not supported, returning empty",
-				"server", c.id, "err", err)
+				"server", c.id, "err", err.Error())
 		}
 		return nil, nil
 	}

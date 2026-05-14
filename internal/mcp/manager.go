@@ -98,7 +98,7 @@ func (m *Manager) GetTools(ctx context.Context, serverName string) []tools.Tool 
 	if err := client.Connect(ctx); err != nil {
 		if m.log != nil {
 			m.log.Error(logger.CatMCP, "failed to connect to MCP server",
-				"server", serverName, "err", err,
+				"server", serverName, "err", err.Error(),
 			)
 		}
 		m.toolMap[serverName] = nil
@@ -137,7 +137,7 @@ func (m *Manager) Reload(ctx context.Context) error {
 		if !currentNames[name] {
 			if err := client.Disconnect(); err != nil && m.log != nil {
 				m.log.Warn(logger.CatMCP, "error disconnecting MCP server",
-					"server", name, "err", err,
+					"server", name, "err", err.Error(),
 				)
 			}
 			delete(m.clients, name)
@@ -183,7 +183,7 @@ func (m *Manager) Shutdown() {
 	for name, client := range m.clients {
 		if err := client.Disconnect(); err != nil && m.log != nil {
 			m.log.Warn(logger.CatMCP, "error disconnecting MCP server during shutdown",
-				"server", name, "err", err,
+				"server", name, "err", err.Error(),
 			)
 		}
 	}
