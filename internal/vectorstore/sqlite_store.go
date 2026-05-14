@@ -5,11 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
-	"log"
 	"math"
 	"sync"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
@@ -24,30 +24,45 @@ type SQLiteStore struct {
 	// stays with the caller and ownsDB is false.
 	ownsDB   bool
 	sharedDB *sqlitedb.DB // non-nil only when this store owns the *sqlitedb.DB (path-based constructor)
+	log      *logger.Logger
+}
+
+// WithLogger sets the logger for the SQLiteStore. If nil, debug-level
+// diagnostic messages are silently discarded.
+func WithLogger(l *logger.Logger) func(*SQLiteStore) {
+	return func(s *SQLiteStore) { s.log = l }
 }
 
 // NewSQLiteStore opens or creates a SQLite-backed vector store that owns
 // its own connection. Prefer NewSQLiteStoreFromDB when the same database
 // file is shared with other stores (e.g. the todo store).
-func NewSQLiteStore(path string) (*SQLiteStore, error) {
+func NewSQLiteStore(path string, opts ...func(*SQLiteStore)) (*SQLiteStore, error) {
 	shared, err := sqlitedb.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	return &SQLiteStore{
+	s := &SQLiteStore{
 		db:       shared.DB,
 		mu:       &shared.WMu,
 		ownsDB:   true,
 		sharedDB: shared,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 // NewSQLiteStoreFromDB wires the vector store onto an externally managed
 // shared database. The caller owns db and is responsible for closing it.
 // mu must be the write mutex shared by all stores on the same file so that
 // writes are serialized across stores (SQLite allows only one writer).
-func NewSQLiteStoreFromDB(db *sql.DB, mu *sync.Mutex) *SQLiteStore {
-	return &SQLiteStore{db: db, mu: mu, ownsDB: false}
+func NewSQLiteStoreFromDB(db *sql.DB, mu *sync.Mutex, opts ...func(*SQLiteStore)) *SQLiteStore {
+	s := &SQLiteStore{db: db, mu: mu, ownsDB: false}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Close releases resources owned by this store. When the store was created
@@ -91,7 +106,7 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 	// for every row. We compute dot(queryNorm, b) / normB per row, which
 	// is numerically equivalent to the original CosineSimilarity formula
 	// up to float32 rounding.
-	queryNorm, queryHasNorm := normalizeVector(embedding)
+	queryNorm, queryHasNorm := NormalizeVector(embedding)
 
 	rows, err := s.db.QueryContext(ctx, `SELECT id, content, embedding, timestamp, source FROM memories`)
 	if err != nil {
@@ -116,17 +131,22 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 			ts                  string
 		)
 		if err := rows.Scan(&id, &content, &embedBlob, &ts, &source); err != nil {
-			log.Printf("vectorstore: skip row due to scan error: %v", err)
+			if s.log != nil {
+				s.log.DebugContext(ctx, logger.CatApp, "vectorstore: skip row due to scan error",
+					"err", err.Error(),
+				)
+			}
 			continue
 		}
 
 		// Decode embedding into buf (allocate/resize once).
 		n := len(embedBlob) / 4
 		if n == 0 {
-			// Row has no embedding: skip but log (same outcome as before,
-			// since CosineSimilarity would return 0 and fail threshold
-			// for any positive minSimilarity; logging helps diagnose).
-			log.Printf("vectorstore: skip row id=%q due to empty embedding", id)
+			if s.log != nil {
+				s.log.DebugContext(ctx, logger.CatApp, "vectorstore: skip row with empty embedding",
+					"id", id,
+				)
+			}
 			continue
 		}
 		if cap(buf) < n {
@@ -187,8 +207,15 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 		out[i] = heap.Pop(h).(scored).entry
 	}
 
-	log.Printf("vectorstore: Query scanned=%d kept=%d returned=%d topK=%d minSim=%.4f",
-		scanned, kept, len(out), topK, minSimilarity)
+	if s.log != nil {
+		s.log.DebugContext(ctx, logger.CatApp, "vectorstore: query stats",
+			"scanned", scanned,
+			"kept", kept,
+			"returned", len(out),
+			"topK", topK,
+			"minSim", minSimilarity,
+		)
+	}
 	return out, nil
 }
 
@@ -254,10 +281,10 @@ func (h *scoredHeap) Pop() interface{} {
 	return x
 }
 
-// normalizeVector returns a unit-length copy of v. The second return
+// NormalizeVector returns a unit-length copy of v. The second return
 // value is false when v has zero norm (or is empty), meaning any cosine
 // similarity against it is 0.
-func normalizeVector(v []float32) ([]float32, bool) {
+func NormalizeVector(v []float32) ([]float32, bool) {
 	if len(v) == 0 {
 		return nil, false
 	}

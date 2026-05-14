@@ -61,6 +61,9 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 		if errors.Is(err, ErrSessionBusy) {
 			return nil, qqbot.ErrSessionBusy
 		}
+		if errors.Is(err, ErrQueued) {
+			return nil, qqbot.ErrQueued
+		}
 		return nil, err
 	}
 

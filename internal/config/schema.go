@@ -185,9 +185,10 @@ type EmbeddingModel struct {
 }
 
 type EmbeddingConfig struct {
-	Enabled   bool                `json:"enabled"`
-	Providers []EmbeddingProvider `json:"providers"`
-	Models    []EmbeddingModel    `json:"models"`
+	Enabled       bool                `json:"enabled"`
+	MinSimilarity float32             `json:"minSimilarity"`
+	Providers     []EmbeddingProvider `json:"providers"`
+	Models        []EmbeddingModel    `json:"models"`
 }
 
 // ─── Default Models ────────────────────────────────────────────────────────────

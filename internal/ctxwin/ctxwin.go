@@ -159,6 +159,7 @@ type ContextWindow struct {
 	replayMode    bool           // disable pushHook during replay
 	log           *logger.Logger // optional logger for message tracking
 	summarizing   atomic.Bool    // true while async compression is in progress
+	pendingDrain  func() string  // callback to drain session pending queue (set once at construction)
 }
 
 // NewContextWindow creates a context window
@@ -507,6 +508,29 @@ func (cw *ContextWindow) SetReplayMode(on bool) {
 	defer cw.Unlock()
 
 	cw.replayMode = on
+}
+
+// SetPendingDrainer sets the function used to drain pending user messages
+// from the session queue. Called once during construction before the CW is
+// shared. The function is not guarded by CW's mutex — it is read without
+// a lock in DrainPending, which is safe because it is set once at startup.
+func (cw *ContextWindow) SetPendingDrainer(fn func() string) {
+	cw.pendingDrain = fn
+}
+
+// DrainPending checks the session's pending message queue and, if non-empty,
+// pushes all pending messages as a single user turn into the context window.
+//
+// Called by the agent's tool loop at the top of each iteration, before
+// building messages for the next LLM API call. This ensures queued user
+// messages are injected at the next natural break point.
+func (cw *ContextWindow) DrainPending() {
+	if cw.pendingDrain == nil {
+		return
+	}
+	if pending := cw.pendingDrain(); pending != "" {
+		cw.Push(RoleUser, pending)
+	}
 }
 
 // Recalculate recomputes the sum of all message token estimates from scratch.
