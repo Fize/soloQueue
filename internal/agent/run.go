@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -39,7 +38,7 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 			a.setRuntimeState(StateStopping)
 			drained := a.drainMailbox(ctx, mailbox)
 			a.logInfo(ctx, logger.CatActor, "agent run loop exit",
-				slog.Int("drained_jobs", drained),
+				"drained_jobs", drained,
 			)
 			return
 		case jb := <-mailbox:
@@ -78,7 +77,7 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 			a.setRuntimeState(StateStopping)
 			drained := a.drainPriorityMailbox(ctx, pm)
 			a.logInfo(ctx, logger.CatActor, "agent run loop exit",
-				slog.Int("drained_jobs", drained),
+				"drained_jobs", drained,
 			)
 			return
 		case pj := <-pm.HighCh():
@@ -96,7 +95,7 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 			a.setRuntimeState(StateStopping)
 			drained := a.drainPriorityMailbox(ctx, pm)
 			a.logInfo(ctx, logger.CatActor, "agent run loop exit",
-				slog.Int("drained_jobs", drained),
+				"drained_jobs", drained,
 			)
 			return
 		case pj := <-pm.HighCh():

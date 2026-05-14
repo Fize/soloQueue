@@ -78,7 +78,7 @@ func (m *Mux) reloadGroups() map[string]prompt.GroupFile {
 	groups, err := prompt.LoadGroups(m.groupsDir)
 	if err != nil {
 		if m.log != nil {
-			m.log.Warn(logger.CatApp, "reloadGroups failed", "err", err)
+			m.log.Warn(logger.CatApp, "reloadGroups failed", "err", err.Error())
 		}
 		return nil
 	}
@@ -94,7 +94,7 @@ func (m *Mux) reloadTemplates() []agent.AgentTemplate {
 	templates, err := agent.LoadAgentTemplates(m.agentsDir)
 	if err != nil {
 		if m.log != nil {
-			m.log.Warn(logger.CatApp, "reloadTemplates failed", "err", err)
+			m.log.Warn(logger.CatApp, "reloadTemplates failed", "err", err.Error())
 		}
 		return nil
 	}

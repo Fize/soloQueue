@@ -882,7 +882,7 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	factoryStart := time.Now()
 	a, cw, tl, err := m.factory(ctx, teamID)
 	m.logger.InfoContext(ctx, logger.CatApp, "session init: factory returned",
-		"duration", time.Since(factoryStart).String(), "err", err)
+		"duration", time.Since(factoryStart).String(), "err", fmt.Sprintf("%v", err))
 	if err != nil {
 		m.logger.WarnContext(ctx, logger.CatApp, "session factory failed",
 			"team_id", teamID,

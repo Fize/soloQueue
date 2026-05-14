@@ -456,6 +456,20 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 		TargetAgentID: turn.agentID,
 	})
 
+	// Overflow check: async results may have pushed CW over capacity
+	// while the agent was handling user messages.
+	if a.Def.ContextWindow > 0 && turn.cw.Overflow(a.Def.ContextWindow) {
+		current, _, _ := turn.cw.TokenUsage()
+		err := fmt.Errorf("context overflow after async delegation: %d tokens exceed effective limit %d",
+			current, a.Def.ContextWindow)
+		a.emit(turn.callerCtx, turn.out, ErrorEvent{Err: err})
+		close(turn.out)
+		if turn.cancelMerged != nil {
+			turn.cancelMerged()
+		}
+		return
+	}
+
 	// 继续工具循环
 	yielded := a.continueToolLoop(turn.callerCtx, turn.out, turn.cw, turn.iter+1)
 

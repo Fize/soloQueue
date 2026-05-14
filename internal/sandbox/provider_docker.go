@@ -234,7 +234,7 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 			"duration", time.Since(findStart).String(),
 			"found", existingID != "",
 			"state", state,
-			"err", err)
+			"err", fmt.Sprintf("%v", err))
 	}
 
 	if err == nil && existingID != "" {
@@ -408,7 +408,7 @@ func (d *DockerSandbox) findContainer(ctx context.Context, name string) (id stri
 	})
 	if d.log != nil {
 		d.log.Info(logger.CatApp, "sandbox: ContainerList took",
-			"duration", time.Since(listStart).String(), "err", err)
+			"duration", time.Since(listStart).String(), "err", fmt.Sprintf("%v", err))
 	}
 	if err != nil {
 		return "", "", fmt.Errorf("sandbox: list containers: %w", err)
@@ -536,7 +536,7 @@ func (d *DockerSandbox) Stop(ctx context.Context) error {
 		// 如果容器已停止或不存在，这不是错误
 		if d.log != nil {
 			d.log.WarnContext(ctx, logger.CatApp, "sandbox: kill container warning",
-				"err", err, "container_id", cid[:12])
+				"err", err.Error(), "container_id", cid[:12])
 		}
 	}
 	d.started = false

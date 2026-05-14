@@ -207,7 +207,7 @@ func (l *Loader) watchLoop() {
 				return
 			}
 			if l.log != nil {
-				l.log.Error(logger.CatMCP, "watcher error", "err", err)
+				l.log.Error(logger.CatMCP, "watcher error", "err", err.Error())
 			}
 		}
 	}
@@ -232,7 +232,7 @@ func (l *Loader) scheduleReload() {
 		old := l.Get()
 		if err := l.Load(); err != nil {
 			if l.log != nil {
-				l.log.Error(logger.CatMCP, "mcp config hot-reload failed", "err", err)
+				l.log.Error(logger.CatMCP, "mcp config hot-reload failed", "err", err.Error())
 			}
 		} else {
 			if l.log != nil {

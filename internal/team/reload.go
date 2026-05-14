@@ -186,7 +186,7 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 	if err != nil {
 		if w.cfg.Logger != nil {
 			w.cfg.Logger.Info(logger.CatActor, "auto-reload: parse agent failed",
-				"path", path, "err", err)
+				"path", path, "err", err.Error())
 		}
 		return ""
 	}
@@ -225,7 +225,7 @@ func (w *reloadWrapper) reloadGroup(_ context.Context, path string) string {
 	if err != nil {
 		if w.cfg.Logger != nil {
 			w.cfg.Logger.Info(logger.CatActor, "auto-reload: parse group failed",
-				"path", path, "err", err)
+				"path", path, "err", err.Error())
 		}
 		return ""
 	}
