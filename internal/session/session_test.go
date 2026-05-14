@@ -105,10 +105,10 @@ func TestSession_Ask_BusyReturnsErr(t *testing.T) {
 	// wait for it to enter
 	time.Sleep(30 * time.Millisecond)
 
-	// goroutine 2: should see Busy
+	// goroutine 2: should see Queued
 	_, err := s.Ask(context.Background(), "two")
-	if !errors.Is(err, ErrSessionBusy) {
-		t.Errorf("second Ask err = %v, want ErrSessionBusy", err)
+	if !errors.Is(err, ErrQueued) {
+		t.Errorf("second Ask err = %v, want ErrQueued", err)
 	}
 
 	<-done
@@ -188,8 +188,8 @@ func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 	}
 	// before first completes, try a second
 	_, err2 := s.AskStream(context.Background(), "two")
-	if !errors.Is(err2, ErrSessionBusy) {
-		t.Errorf("second AskStream err = %v, want ErrSessionBusy", err2)
+	if !errors.Is(err2, ErrQueued) {
+		t.Errorf("second AskStream err = %v, want ErrQueued", err2)
 	}
 	for range ch1 {
 	}
