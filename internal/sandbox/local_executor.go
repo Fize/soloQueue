@@ -109,24 +109,34 @@ func (e *LocalExecutor) ReadFile(ctx context.Context, path string, opts ReadFile
 		return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d)", path, fi.Size(), opts.MaxSize)
 	}
 
-	f, err := os.Open(path)
-	if err != nil {
-		if e.log != nil {
-			e.log.LogError(ctx, logger.CatTool, "sandbox: read file failed", err, "path", path)
-		}
-		return ReadFileResult{}, err
+	type readResult struct {
+		data []byte
+		err  error
 	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		if e.log != nil {
-			e.log.LogError(ctx, logger.CatTool, "sandbox: read file failed", err, "path", path)
+	resultCh := make(chan readResult, 1)
+	go func() {
+		f, ferr := os.Open(path)
+		if ferr != nil {
+			resultCh <- readResult{nil, ferr}
+			return
 		}
-		return ReadFileResult{}, err
-	}
+		defer f.Close()
+		data, rerr := io.ReadAll(f)
+		resultCh <- readResult{data, rerr}
+	}()
 
-	return ReadFileResult{Data: data}, nil
+	select {
+	case res := <-resultCh:
+		if res.err != nil {
+			if e.log != nil {
+				e.log.LogError(ctx, logger.CatTool, "sandbox: read file failed", res.err, "path", path)
+			}
+			return ReadFileResult{}, res.err
+		}
+		return ReadFileResult{Data: res.data}, nil
+	case <-ctx.Done():
+		return ReadFileResult{}, ctx.Err()
+	}
 }
 
 // ─── WriteFile ──────────────────────────────────────────────────────────────
@@ -139,6 +149,10 @@ func (e *LocalExecutor) WriteFile(ctx context.Context, path string, data []byte,
 	dir := filepath.Dir(path)
 	if fi, statErr := os.Stat(dir); statErr != nil || !fi.IsDir() {
 		return WriteFileResult{}, fmt.Errorf("parent dir missing: %s", dir)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return WriteFileResult{}, err
 	}
 
 	_, statErr := os.Stat(path)
@@ -164,8 +178,15 @@ func (e *LocalExecutor) WriteFile(ctx context.Context, path string, data []byte,
 		}
 	}()
 
+	if err = ctx.Err(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return WriteFileResult{}, err
+	}
+
 	if _, err = tmp.Write(data); err != nil {
 		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		if e.log != nil {
 			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
 		}
@@ -173,17 +194,25 @@ func (e *LocalExecutor) WriteFile(ctx context.Context, path string, data []byte,
 	}
 	if err = tmp.Sync(); err != nil {
 		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		if e.log != nil {
 			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
 		}
 		return WriteFileResult{}, fmt.Errorf("sync tmp: %w", err)
 	}
 	if err = tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
 		if e.log != nil {
 			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
 		}
 		return WriteFileResult{}, fmt.Errorf("close tmp: %w", err)
 	}
+
+	if err = ctx.Err(); err != nil {
+		_ = os.Remove(tmpName)
+		return WriteFileResult{}, err
+	}
+
 	if err = os.Rename(tmpName, path); err != nil {
 		if e.log != nil {
 			e.log.LogError(ctx, logger.CatTool, "sandbox: write file failed", err, "path", path)
@@ -215,15 +244,39 @@ func (e *LocalExecutor) Glob(ctx context.Context, dir string, pattern string, op
 		maxItems = 10000
 	}
 
-	fsys := os.DirFS(dir)
-	matches, err := doublestar.Glob(fsys, pattern)
-	if err != nil {
-		if e.log != nil {
-			e.log.LogError(ctx, logger.CatTool, "sandbox: glob failed", err, "dir", dir, "pattern", pattern)
-		}
-		return nil, err
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
 	}
 
+	fsys := os.DirFS(dir)
+
+	type globResult struct {
+		matches []string
+		err     error
+	}
+	resultCh := make(chan globResult, 1)
+	go func() {
+		matches, err := doublestar.Glob(fsys, pattern)
+		resultCh <- globResult{matches, err}
+	}()
+
+	var res globResult
+	select {
+	case res = <-resultCh:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	if res.err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "sandbox: glob failed", res.err, "dir", dir, "pattern", pattern)
+		}
+		return nil, res.err
+	}
+
+	matches := res.matches
 	if len(matches) > maxItems {
 		matches = matches[:maxItems]
 	}
@@ -253,12 +306,23 @@ func (e *LocalExecutor) Grep(ctx context.Context, dir string, pattern string, op
 	}
 	maxLineLen := opts.MaxLineLen
 
-	var result []GrepMatch
+	var (
+		result    []GrepMatch
+		walkCount int
+	)
 
 	walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
+
+		walkCount++
+		if walkCount%256 == 0 {
+			if cerr := ctx.Err(); cerr != nil {
+				return cerr
+			}
+		}
+
 		if d.IsDir() || !d.Type().IsRegular() {
 			return nil
 		}
