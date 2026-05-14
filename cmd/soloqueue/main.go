@@ -218,7 +218,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 				sess, err := mgr.Init(context.Background(), "")
 				if err == nil {
-					qqGateway, qqQueue = cli.StartQQBot(cfg, mgr, workDir, version, log)
+					qqGateway, qqQueue = cli.StartQQBot(cfg, mgr, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors })
 				}
 				sandboxCh <- tui.SandboxInitMsg{Sess: sess, Err: err}
 			}()
