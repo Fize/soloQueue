@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -14,13 +15,55 @@ import (
 // SessionAskAdapter adapts *SessionManager to the qqbot.SessionProvider interface.
 // It wraps AskStream and extracts the final content/reasoning from the event stream.
 type SessionAskAdapter struct {
-	mgr *SessionManager
-	log *logger.Logger
+	mgr           *SessionManager
+	log           *logger.Logger
+	supervisorsFn func() []*agent.Supervisor // optional: reap supervisor children on cancel
 }
 
 // NewQQBotAdapter creates a SessionProvider backed by the given SessionManager.
 func NewQQBotAdapter(mgr *SessionManager, log *logger.Logger) *SessionAskAdapter {
 	return &SessionAskAdapter{mgr: mgr, log: log}
+}
+
+// SetSupervisorsFn sets the supervisor accessor for reaping child agents on cancel.
+func (a *SessionAskAdapter) SetSupervisorsFn(fn func() []*agent.Supervisor) {
+	a.supervisorsFn = fn
+}
+
+// CancelCurrent implements qqbot.SessionProvider.CancelCurrent.
+// 1) Cancels the active AskStream context (stops L1 + propagates to delegated agents).
+// 2) As a safety net, reaps any supervisor children still in StateProcessing.
+func (a *SessionAskAdapter) CancelCurrent(reason string) error {
+	sess := a.mgr.Session()
+	if sess == nil {
+		return errors.New("no active session")
+	}
+
+	err := sess.CancelCurrent(reason)
+	if err != nil && !errors.Is(err, ErrNoActiveTask) {
+		return err
+	}
+
+	// Safety net: reap any orphaned supervisor children
+	if a.supervisorsFn != nil {
+		for _, sv := range a.supervisorsFn() {
+			for _, child := range sv.Children() {
+				if child.State() == agent.StateProcessing {
+					a.log.DebugContext(context.Background(), logger.CatApp, "cancel: reaping supervisor child",
+						"instance_id", child.InstanceID,
+					)
+					if reapErr := sv.ReapChild(child.InstanceID, 10*time.Second); reapErr != nil {
+						a.log.WarnContext(context.Background(), logger.CatApp, "cancel: reap child failed",
+							"instance_id", child.InstanceID,
+							"err", reapErr.Error(),
+						)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // Clear implements qqbot.SessionProvider.Clear.
@@ -112,6 +155,11 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 		case agent.ErrorEvent:
 			return nil, e.Err
 		}
+	}
+
+	// Check if the event loop exited due to cancellation (forwarder set cancelled flag).
+	if sess.isCancelledAndReset() {
+		return nil, qqbot.ErrTaskCancelled
 	}
 
 	// Content that hasn't been sent as intermediate is the final reply.
