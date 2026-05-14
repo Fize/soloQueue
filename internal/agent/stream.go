@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -114,8 +113,8 @@ func (a *Agent) processStreamEvents(
 			case llm.EventError:
 				durMs := time.Since(start).Milliseconds()
 				a.logError(ctx, logger.CatLLM, "llm chat failed", ev.Err,
-					slog.Int("iter", iter),
-					slog.Int64("duration_ms", durMs),
+					"iter", iter,
+					"duration_ms", durMs,
 				)
 				a.emit(ctx, out, ErrorEvent{Err: ev.Err})
 				a.RecordError(ev.Err)
@@ -202,7 +201,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 	if cf := a.ConsecutiveFailures(); cf >= DefaultMaxConsecutiveFailures {
 		a.logError(ctx, logger.CatLLM, "circuit breaker open — too many consecutive failures",
 			ErrCircuitBreakerOpen,
-			slog.Int("consecutive_failures", int(cf)),
+			"consecutive_failures", int(cf),
 		)
 		a.emit(ctx, out, ErrorEvent{Err: ErrCircuitBreakerOpen})
 		return false
@@ -215,9 +214,9 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 	}
 
 	a.logInfo(ctx, logger.CatLLM, "agent turn start",
-		slog.String("agent_id", a.Def.ID),
-		slog.Int("max_iter", maxIter),
-		slog.Int("start_iter", startIter),
+		"agent_id", a.Def.ID,
+		"max_iter", maxIter,
+		"start_iter", startIter,
 	)
 
 	for iter := startIter; iter < maxIter; iter++ {
@@ -231,7 +230,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		msgs, err := strat.buildMessages(a, iter)
 		if err != nil {
 			a.logError(ctx, logger.CatLLM, "build messages failed", err,
-				slog.Int("iter", iter),
+				"iter", iter,
 			)
 			a.IncrementConsecutiveFailures()
 			a.emit(ctx, out, ErrorEvent{Err: err})
@@ -259,11 +258,11 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		}
 
 		a.logInfo(ctx, logger.CatLLM, "llm chat start",
-			slog.Int("iter", iter),
-			slog.String("model", req.Model),
-			slog.Int("prompt_len", strat.promptLen()),
-			slog.Int("messages", len(msgs)),
-			slog.Int("tools", len(specs)),
+			"iter", iter,
+			"model", req.Model,
+			"prompt_len", strat.promptLen(),
+			"messages", len(msgs),
+			"tools", len(specs),
 		)
 
 		start := time.Now()
@@ -271,8 +270,8 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		if err != nil {
 			durMs := time.Since(start).Milliseconds()
 			a.logError(ctx, logger.CatLLM, "llm chat failed", err,
-				slog.Int("iter", iter),
-				slog.Int64("duration_ms", durMs),
+				"iter", iter,
+				"duration_ms", durMs,
 			)
 			a.RecordError(err)
 			a.IncrementConsecutiveFailures()
@@ -291,15 +290,15 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		toolCalls := sortedToolCalls(acc.tcSlots)
 
 		a.logInfo(ctx, logger.CatLLM, "llm chat done",
-			slog.Int("iter", iter),
-			slog.Int("response_len", acc.content.Len()),
-			slog.Int("reasoning_len", acc.reasoning.Len()),
-			slog.Int("tool_calls", len(toolCalls)),
-			slog.String("finish_reason", string(acc.finish)),
-			slog.Int("prompt_tokens", acc.usage.PromptTokens),
-			slog.Int("completion_tokens", acc.usage.CompletionTokens),
-			slog.Int("total_tokens", acc.usage.TotalTokens),
-			slog.Int64("duration_ms", durMs),
+			"iter", iter,
+			"response_len", acc.content.Len(),
+			"reasoning_len", acc.reasoning.Len(),
+			"tool_calls", len(toolCalls),
+			"finish_reason", string(acc.finish),
+			"prompt_tokens", acc.usage.PromptTokens,
+			"completion_tokens", acc.usage.CompletionTokens,
+			"total_tokens", acc.usage.TotalTokens,
+			"duration_ms", durMs,
 		)
 
 		if !a.emit(ctx, out, IterationDoneEvent{
@@ -317,8 +316,8 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		if acc.finish == llm.FinishLength && len(toolCalls) > 0 {
 			a.logError(ctx, logger.CatLLM, "tool_calls truncated due to max_tokens",
 				fmt.Errorf("finish_reason=length with %d partial tool_calls; discarding", len(toolCalls)),
-				slog.Int("iter", iter),
-				slog.Int("completion_tokens", acc.usage.CompletionTokens),
+				"iter", iter,
+				"completion_tokens", acc.usage.CompletionTokens,
 			)
 			// Replace truncated tool_calls with an error message so the LLM
 			// knows it hit the limit and should produce shorter output.
@@ -336,9 +335,9 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		// Exit: LLM produced no tool calls → return final content
 		if len(toolCalls) == 0 {
 			a.logInfo(ctx, logger.CatLLM, "agent turn done",
-				slog.Int("total_iters", iter+1),
-				slog.Int("content_len", acc.content.Len()),
-				slog.Int("reasoning_len", acc.reasoning.Len()),
+				"total_iters", iter+1,
+				"content_len", acc.content.Len(),
+				"reasoning_len", acc.reasoning.Len(),
 			)
 
 			a.ResetConsecutiveFailures()
@@ -347,8 +346,8 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				ReasoningContent: acc.reasoning.String(),
 			})
 			a.logInfo(ctx, logger.CatLLM, "done event emitted",
-				slog.Bool("ok", ok),
-				slog.Int("content_len", acc.content.Len()),
+				"ok", ok,
+				"content_len", acc.content.Len(),
 			)
 			return
 		}
@@ -361,10 +360,10 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 	// Max iterations exceeded
 	a.logInfo(ctx, logger.CatLLM, "agent turn done (max iterations)",
-		slog.Int("total_iters", maxIter),
+		"total_iters", maxIter,
 	)
 	a.logError(ctx, logger.CatLLM, "max tool iterations exceeded", ErrMaxIterations,
-		slog.Int("max_iter", maxIter),
+		"max_iter", maxIter,
 	)
 	a.IncrementConsecutiveFailures()
 	a.RecordError(ErrMaxIterations)
@@ -472,8 +471,8 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 		}
 		a.turnMu.RUnlock()
 		a.logInfo(ctx, logger.CatLLM, "async delegation started",
-			slog.Int("iter", iter),
-			slog.Int("num_tasks", numTasks),
+			"iter", iter,
+			"num_tasks", numTasks,
 		)
 		a.emit(ctx, out, DelegationStartedEvent{
 			Iter:     iter,
@@ -685,8 +684,8 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	if !ok {
 		err := fmt.Errorf("%w: %s", tools.ErrToolNotFound, name)
 		a.logError(ctx, logger.CatTool, "tool not found", err,
-			slog.String("tool_name", name),
-			slog.String("tool_call_id", tc.ID),
+			"tool_name", name,
+			"tool_call_id", tc.ID,
 		)
 		result := "error: " + err.Error()
 		a.emit(ctx, out, ToolExecDoneEvent{
@@ -696,9 +695,9 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	}
 
 	a.logInfo(ctx, logger.CatTool, "tool exec start",
-		slog.String("tool_name", name),
-		slog.String("tool_call_id", tc.ID),
-		slog.Int("arg_len", len(args)),
+		"tool_name", name,
+		"tool_call_id", tc.ID,
+		"arg_len", len(args),
 	)
 	a.emit(ctx, out, ToolExecStartEvent{
 		Iter: iter, CallID: tc.ID, Name: name, Args: args,
@@ -720,9 +719,9 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			if needsConfirm {
 				options := c.ConfirmationOptions(args)
 				a.logInfo(ctx, logger.CatTool, "execToolStream: emitting confirm event",
-					slog.String("tool_name", name),
-					slog.String("call_id", tc.ID),
-					slog.String("agent_id", a.Def.ID),
+					"tool_name", name,
+					"call_id", tc.ID,
+					"agent_id", a.Def.ID,
 				)
 				emitted := a.emit(ctx, out, ToolNeedsConfirmEvent{
 					Iter:           iter,
@@ -734,9 +733,9 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 					AllowInSession: c.SupportsSessionWhitelist(),
 				})
 				a.logInfo(ctx, logger.CatTool, "execToolStream: confirm event emit result",
-					slog.String("tool_name", name),
-					slog.String("call_id", tc.ID),
-					slog.Bool("emitted", emitted),
+					"tool_name", name,
+					"call_id", tc.ID,
+					"emitted", emitted,
 				)
 				if !emitted {
 					return "error: " + ctx.Err().Error()
@@ -895,11 +894,11 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			ctx.Err() == nil &&
 			execCtx.Err() == context.DeadlineExceeded
 		a.logError(ctx, logger.CatTool, "tool exec failed", err,
-			slog.String("tool_name", name),
-			slog.String("tool_call_id", tc.ID),
-			slog.Int("arg_len", len(args)),
-			slog.Int64("duration_ms", dur.Milliseconds()),
-			slog.Bool("timeout", isToolTimeout),
+			"tool_name", name,
+			"tool_call_id", tc.ID,
+			"arg_len", len(args),
+			"duration_ms", dur.Milliseconds(),
+			"timeout", isToolTimeout,
 		)
 		var errResult string
 		if isToolTimeout {
@@ -915,11 +914,11 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	}
 
 	a.logInfo(ctx, logger.CatTool, "tool exec done",
-		slog.String("tool_name", name),
-		slog.String("tool_call_id", tc.ID),
-		slog.Int("arg_len", len(args)),
-		slog.Int("result_len", len(result)),
-		slog.Int64("duration_ms", dur.Milliseconds()),
+		"tool_name", name,
+		"tool_call_id", tc.ID,
+		"arg_len", len(args),
+		"result_len", len(result),
+		"duration_ms", dur.Milliseconds(),
 	)
 	a.emit(ctx, out, ToolExecDoneEvent{
 		Iter: iter, CallID: tc.ID, Name: name,

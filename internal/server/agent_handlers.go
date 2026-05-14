@@ -504,7 +504,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 	// Rebuild the system prompt so changes take effect on the next interaction.
 	if m.rebuildPrompt != nil {
 		if err := m.rebuildPrompt(); err != nil {
-			m.log.Warn("failed to rebuild system prompt after profile update", "err", err)
+			m.log.Warn("failed to rebuild system prompt after profile update", "err", err.Error())
 		}
 	}
 
@@ -661,7 +661,7 @@ func (m *Mux) handleUpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
 	// Rebuild system prompt so changes take effect
 	if m.rebuildPrompt != nil {
 		if err := m.rebuildPrompt(); err != nil {
-			m.log.Warn("failed to rebuild system prompt after agent config update", "err", err)
+			m.log.Warn("failed to rebuild system prompt after agent config update", "err", err.Error())
 		}
 	}
 
