@@ -106,7 +106,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 					// for newly added workers not known when L2 was created.
 					if !l2.SetDelegateSpawnFn(name, sv.SpawnFnFor(tmpl)) {
 						dt := tools.NewDelegateTool(name, tmpl.Description,
-							15*time.Minute, nil, sessLog)
+							25*time.Minute, nil, sessLog)
 						dt.SpawnFn = sv.SpawnFnFor(tmpl)
 						if err := l2.RegisterTool(dt); err != nil {
 							sessLog.Warn(logger.CatActor,
@@ -141,7 +141,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			}
 		}
 
-		dt := tools.NewDelegateTool(leader.Name, leader.Description, 20*time.Minute, b.RT.AgentRegistry, sessLog)
+		dt := tools.NewDelegateTool(leader.Name, leader.Description, 30*time.Minute, b.RT.AgentRegistry, sessLog)
 		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
 			// Prefer an idle instance to avoid cold-start latency.
 			if loc, ok := b.RT.AgentRegistry.LocateIdle(leader.Name); ok {
@@ -282,7 +282,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				"name", name, "err", err)
 		}
 
-		dt := tools.NewDelegateTool(name, name+" team leader", 20*time.Minute, b.RT.AgentRegistry, sessLog)
+		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog)
 		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
 			// Prefer an idle instance to enable parallel delegation.
 			if loc, ok := b.RT.AgentRegistry.LocateIdle(name); ok {
