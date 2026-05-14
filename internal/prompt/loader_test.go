@@ -9,7 +9,7 @@ import (
 func TestEnsureFiles_CreatesRules(t *testing.T) {
 	dir := t.TempDir()
 	// Pre-create soul.md so that EnsureFiles doesn't return SoulNeededError.
-	rolesDir := filepath.Join(dir, "roles")
+	rolesDir := filepath.Join(dir, "prompts", "roles")
 	os.MkdirAll(rolesDir, 0o755)
 	os.WriteFile(filepath.Join(rolesDir, "soul.md"), []byte("test soul"), 0o644)
 
@@ -34,7 +34,7 @@ func TestEnsureFiles_CreatesRules(t *testing.T) {
 
 func TestEnsureFiles_SoulNeeded(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
 	_, err := cfg.EnsureFiles()
 	if err == nil {
@@ -49,7 +49,7 @@ func TestEnsureFiles_SoulNeeded(t *testing.T) {
 
 func TestEnsureFiles_Idempotent(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
 	// First: write soul, then EnsureFiles.
 	answers := DefaultProfileAnswers()
@@ -75,7 +75,7 @@ func TestEnsureFiles_Idempotent(t *testing.T) {
 
 func TestBuildPrompt_Integration(t *testing.T) {
 	dir := t.TempDir()
-	rolesDir := filepath.Join(dir, "roles")
+	rolesDir := filepath.Join(dir, "prompts", "roles")
 	globalDir := filepath.Join(dir, "prompts", "global")
 	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: globalDir}
 
@@ -125,7 +125,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 
 func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
 	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
@@ -149,7 +149,7 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 
 func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
 	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
@@ -166,7 +166,7 @@ func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
 
 func TestBuildPrompt_DockerSandboxPath(t *testing.T) {
 	dir := t.TempDir()
-	rolesDir := filepath.Join(dir, "roles")
+	rolesDir := filepath.Join(dir, "prompts", "roles")
 	globalDir := filepath.Join(dir, "prompts", "global")
 	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: globalDir}
 
@@ -260,7 +260,7 @@ func TestExtractSoulName(t *testing.T) {
 
 func TestReadSoulName(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
 	// Soul doesn't exist yet.
 	if name := ReadSoulName(cfg); name != "" {
@@ -278,7 +278,7 @@ func TestReadSoulName(t *testing.T) {
 
 func TestWriteSoul(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
 	answers := ProfileAnswers{
 		Name:        "小Q",

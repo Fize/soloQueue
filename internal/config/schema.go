@@ -19,10 +19,10 @@ type AgentConfig struct {
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
 // Settings is the complete structure for global configuration
-// Corresponds to ~/.soloqueue/settings.json
+// Corresponds to ~/.soloqueue/settings.toml
 //
 // Note: UI-specific states (theme / language, etc.) are persisted by the frontend itself (localStorage /
-// Tauri Store), not in backend settings.json —— backend does not do i18n, logs
+// Tauri Store), not in backend settings file —— backend does not do i18n, logs
 // are uniformly output in English, no need to help frontend manage storage.
 type Settings struct {
 	Session       SessionConfig       `json:"session"`
@@ -34,6 +34,7 @@ type Settings struct {
 	DefaultModels DefaultModelsConfig `json:"defaultModels"`
 	QQBot         QQBotConfig         `json:"qqbot"`
 	Agent         AgentConfig         `json:"agent" toml:"agent"`
+	Sandbox       SandboxConfig       `json:"sandbox" toml:"sandbox"`
 	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp"`
 }
 
@@ -230,6 +231,16 @@ type ImageModelConfig struct {
 	Region       string `json:"region"       toml:"region,omitempty"`
 	IsDefault    bool   `json:"isDefault"    toml:"isDefault"`
 	Enabled      bool   `json:"enabled"      toml:"enabled"`
+}
+
+// ─── Sandbox (container isolation) ─────────────────────────────────────────
+
+// SandboxConfig configures the container sandbox environment.
+type SandboxConfig struct {
+	// Env is a list of environment variables to inject into the sandbox.
+	// Each entry is either "KEY" (resolved from host process via os.Getenv)
+	// or "KEY=VALUE" (used literally).
+	Env []string `json:"env" toml:"env"`
 }
 
 // ─── LSP MCP (built-in LSP-based MCP server) ───────────────────────────────

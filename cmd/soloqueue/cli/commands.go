@@ -81,7 +81,7 @@ func ServeCmd(version string) *cobra.Command {
 			defer rt.Shutdown()
 
 			// serve mode: start sandbox synchronously before session init
-			sb, executor, err := runtime.StartSandbox(context.Background(), rt.SandboxMounts, log)
+			sb, executor, err := runtime.StartSandbox(context.Background(), rt.SandboxMounts, settings.Sandbox.Env, log)
 			if err != nil {
 				return err
 			}
@@ -265,7 +265,7 @@ func CleanupCmd() *cobra.Command {
 		Use:   "cleanup",
 		Short: "Remove all soloqueue sandbox containers",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sb, err := sandbox.NewDockerSandbox(nil)
+			sb, err := sandbox.NewDockerSandbox(nil, nil)
 			if err != nil {
 				return fmt.Errorf("docker client init failed: is Docker running? %w", err)
 			}

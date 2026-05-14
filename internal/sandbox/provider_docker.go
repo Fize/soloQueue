@@ -56,9 +56,28 @@ type DockerSandbox struct {
 	mu          sync.Mutex // protects containerID + Start/Destroy transitions
 	started     bool
 	mounts      []Mount        // 需要挂载到容器内的目录列表
+	env         []string       // 容器环境变量（KEY=VALUE 格式）
 	workDir     string         // 容器内默认工作目录（~/.soloqueue 的容器内路径）
 	pathMap     *PathMap       // 宿主机 ↔ 容器路径映射
 	log         *logger.Logger // 可选的结构化日志
+}
+
+// resolveSandboxEnv 解析 sandbox 环境变量列表。
+// "KEY" → 从宿主机 os.Getenv 读取
+// "KEY=VALUE" → 原样使用
+func resolveSandboxEnv(env []string) []string {
+	resolved := make([]string, 0, len(env))
+	for _, e := range env {
+		if e == "" {
+			continue
+		}
+		if strings.Contains(e, "=") {
+			resolved = append(resolved, e)
+		} else {
+			resolved = append(resolved, e+"="+os.Getenv(e))
+		}
+	}
+	return resolved
 }
 
 // SetLogger 设置 logger，nil 表示不记录日志。
@@ -141,10 +160,11 @@ func (pm *PathMap) ToHostPath(containerPath string) string {
 
 // NewDockerSandbox 创建一个新的 Docker 沙盒实例（未启动）。
 // mounts 指定需要挂载到容器内的目录列表。
+// env 指定注入容器的环境变量（KEY=VALUE 格式）。
 // 第一个 mount 视为主工作目录，映射到 /root/.soloqueue；
 // 其余 mount 容器内路径与宿主机路径完全一致（1:1 映射）。
 // 自动探测 Docker / Rancher Desktop / OrbStack 的 socket 路径。
-func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
+func NewDockerSandbox(mounts []Mount, env []string) (*DockerSandbox, error) {
 	if err := ensureDockerHost(); err != nil {
 		return nil, err
 	}
@@ -175,9 +195,13 @@ func NewDockerSandbox(mounts []Mount) (*DockerSandbox, error) {
 		workDir = mounts[0].ContainerPath
 	}
 
+	// 解析 env 列表：把 bare name 解析为 KEY=VALUE
+	resolved := resolveSandboxEnv(env)
+
 	return &DockerSandbox{
 		cli:     cli,
 		mounts:  mounts,
+		env:     resolved,
 		workDir: workDir,
 		pathMap: NewPathMap(mounts),
 	}, nil
@@ -295,6 +319,7 @@ func (d *DockerSandbox) Start(ctx context.Context) error {
 			Image:      imageName,
 			Cmd:        []string{"/bin/sh", "-c", "tail -f /dev/null"},
 			WorkingDir: d.workDir,
+			Env:        d.env,
 		},
 		hostConfig,
 		nil,
