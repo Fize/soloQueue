@@ -11,9 +11,17 @@ import (
 
 // AgentConfig holds per-agent-type settings. Currently only the L1 orchestrator.
 type AgentConfig struct {
-	// MCPServers is the L1 orchestrator's MCP server whitelist.
-	// Empty means all enabled servers are available.
-	MCPServers []string `json:"mcpServers" toml:"mcp_servers"`
+	// BuiltinMCPServers is the L1 orchestrator's built-in MCP server whitelist.
+	// nil (unset) = load all built-in servers.
+	// [] = explicit empty = load nothing.
+	// ["builtin-lsp"] = whitelist, only load named servers.
+	BuiltinMCPServers []string `json:"builtinMcpServers" toml:"builtin_mcp_servers,omitempty"`
+
+	// ExternalMCPServers is the L1 orchestrator's external MCP server whitelist.
+	// nil (unset) = load all external servers.
+	// [] = explicit empty = load nothing.
+	// ["server1"] = whitelist, only load named servers.
+	ExternalMCPServers []string `json:"externalMcpServers" toml:"external_mcp_servers,omitempty"`
 }
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────
@@ -25,28 +33,28 @@ type AgentConfig struct {
 // Tauri Store), not in backend settings file —— backend does not do i18n, logs
 // are uniformly output in English, no need to help frontend manage storage.
 type Settings struct {
-	Session       SessionConfig       `json:"session"`
-	Log           LogConfig           `json:"log"`
-	Tools         ToolsConfig         `json:"tools"`
-	Providers     []LLMProvider       `json:"providers"`
-	Models        []LLMModel          `json:"models"`
-	Embedding     EmbeddingConfig     `json:"embedding"`
-	DefaultModels DefaultModelsConfig `json:"defaultModels"`
-	QQBot         QQBotConfig         `json:"qqbot"`
-	Agent         AgentConfig         `json:"agent" toml:"agent"`
-	Sandbox       SandboxConfig       `json:"sandbox" toml:"sandbox"`
-	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp"`
+	Session       SessionConfig       `json:"session" toml:"session,omitempty"`
+	Log           LogConfig           `json:"log" toml:"log,omitempty"`
+	Tools         ToolsConfig         `json:"tools" toml:"tools,omitempty"`
+	Providers     []LLMProvider       `json:"providers" toml:"providers,omitempty"`
+	Models        []LLMModel          `json:"models" toml:"models,omitempty"`
+	Embedding     EmbeddingConfig     `json:"embedding" toml:"embedding,omitempty"`
+	DefaultModels DefaultModelsConfig `json:"defaultModels" toml:"default_models,omitempty"`
+	QQBot         QQBotConfig         `json:"qqbot" toml:"qqbot,omitempty"`
+	Agent         AgentConfig         `json:"agent" toml:"agent,omitempty"`
+	Sandbox       SandboxConfig       `json:"sandbox" toml:"sandbox,omitempty"`
+	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp,omitempty"`
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────
 
 // QQBotConfig is the configuration for QQ Bot WebSocket Gateway integration.
 type QQBotConfig struct {
-	Enabled   bool   `json:"enabled"`
-	AppID     string `json:"appId"`
-	AppSecret string `json:"appSecret"`
-	Intents   int    `json:"intents,omitempty"` // 0 = use default intents
-	Sandbox   bool   `json:"sandbox,omitempty"` // true = use sandbox API
+	Enabled   bool   `json:"enabled"   toml:"enabled,omitempty"`
+	AppID     string `json:"appId"     toml:"app_id,omitempty"`
+	AppSecret string `json:"appSecret" toml:"app_secret,omitempty"`
+	Intents   int    `json:"intents,omitempty"   toml:"intents,omitempty"`
+	Sandbox   bool   `json:"sandbox,omitempty"   toml:"sandbox,omitempty"`
 }
 
 // ToQQBotConfig converts config.QQBotConfig to qqbot.Config.
@@ -63,17 +71,17 @@ func (c QQBotConfig) ToQQBotConfig() qqbot.Config {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	TimelineMaxFileMB       int `json:"timelineMaxFileMB"`       // Single file limit MB, capped at 50
-	TimelineMaxFiles        int `json:"timelineMaxFiles"`        // Deprecated: timeline logs now retain by days
-	ContextIdleThresholdMin int `json:"contextIdleThresholdMin"` // Auto-clear idle context (minutes), default 30
+	TimelineMaxFileMB       int `json:"timelineMaxFileMB"       toml:"timeline_max_file_mb,omitempty"`
+	TimelineMaxFiles        int `json:"timelineMaxFiles"        toml:"timeline_max_files,omitempty"`
+	ContextIdleThresholdMin int `json:"contextIdleThresholdMin" toml:"context_idle_threshold_min,omitempty"`
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────
 
 type LogConfig struct {
-	Level   string `json:"level"` // "debug" | "info" | "warn" | "error"
-	Console bool   `json:"console"`
-	File    bool   `json:"file"`
+	Level   string `json:"level"   toml:"level,omitempty"`
+	Console bool   `json:"console" toml:"console,omitempty"`
+	File    bool   `json:"file"    toml:"file,omitempty"`
 }
 
 // ─── Tools ────────────────────────────────────────────────────────────────────
@@ -84,42 +92,42 @@ type LogConfig struct {
 // main.go will use these fields to construct internal/tools.Config and call tools.Build(cfg).
 type ToolsConfig struct {
 	// Read limits (0 = use compile-time built-in defaults)
-	MaxFileSize  int64 `json:"maxFileSize"`
-	MaxMatches   int   `json:"maxMatches"`
-	MaxLineLen   int   `json:"maxLineLen"`
-	MaxGlobItems int   `json:"maxGlobItems"`
+	MaxFileSize  int64 `json:"maxFileSize"  toml:"max_file_size,omitempty"`
+	MaxMatches   int   `json:"maxMatches"   toml:"max_matches,omitempty"`
+	MaxLineLen   int   `json:"maxLineLen"   toml:"max_line_len,omitempty"`
+	MaxGlobItems int   `json:"maxGlobItems" toml:"max_glob_items,omitempty"`
 
 	// Write limits
-	MaxWriteSize       int64 `json:"maxWriteSize"`
-	MaxMultiWriteBytes int64 `json:"maxMultiWriteBytes"`
-	MaxMultiWriteFiles int   `json:"maxMultiWriteFiles"`
-	MaxReplaceEdits    int   `json:"maxReplaceEdits"`
+	MaxWriteSize       int64 `json:"maxWriteSize"       toml:"max_write_size,omitempty"`
+	MaxMultiWriteBytes int64 `json:"maxMultiWriteBytes" toml:"max_multi_write_bytes,omitempty"`
+	MaxMultiWriteFiles int   `json:"maxMultiWriteFiles" toml:"max_multi_write_files,omitempty"`
+	MaxReplaceEdits    int   `json:"maxReplaceEdits"    toml:"max_replace_edits,omitempty"`
 
 	// WebFetch
-	HTTPAllowedHosts []string `json:"httpAllowedHosts,omitempty"`
-	HTTPMaxBody      int64    `json:"httpMaxBody"`
-	HTTPTimeoutMs    int      `json:"httpTimeoutMs"`
-	HTTPBlockPrivate bool     `json:"httpBlockPrivate"`
+	HTTPAllowedHosts []string `json:"httpAllowedHosts,omitempty" toml:"http_allowed_hosts,omitempty"`
+	HTTPMaxBody      int64    `json:"httpMaxBody"      toml:"http_max_body,omitempty"`
+	HTTPTimeoutMs    int      `json:"httpTimeoutMs"    toml:"http_timeout_ms,omitempty"`
+	HTTPBlockPrivate bool     `json:"httpBlockPrivate" toml:"http_block_private,omitempty"`
 
 	// Bash
-	ShellBlockRegexes   []string `json:"shellBlockRegexes"`
-	ShellConfirmRegexes []string `json:"shellConfirmRegexes"`
-	ShellMaxOutput      int64    `json:"shellMaxOutput"`
+	ShellBlockRegexes   []string `json:"shellBlockRegexes"   toml:"shell_block_regexes,omitempty"`
+	ShellConfirmRegexes []string `json:"shellConfirmRegexes" toml:"shell_confirm_regexes,omitempty"`
+	ShellMaxOutput      int64    `json:"shellMaxOutput"      toml:"shell_max_output,omitempty"`
 
 	// WebSearch
-	WebSearchTimeoutMs int `json:"webSearchTimeoutMs"`
+	WebSearchTimeoutMs int `json:"webSearchTimeoutMs" toml:"web_search_timeout_ms,omitempty"`
 
 	// ImageGen
-	ImageModels []ImageModelConfig `json:"imageModels,omitempty" toml:"imageModels"`
+	ImageModels []ImageModelConfig `json:"imageModels,omitempty" toml:"image_models,omitempty"`
 }
 
 // ─── LLM Provider ─────────────────────────────────────────────────────────────
 
 type RetryConfig struct {
-	MaxRetries        int     `json:"maxRetries"`
-	InitialDelayMs    int     `json:"initialDelayMs"`
-	MaxDelayMs        int     `json:"maxDelayMs"`
-	BackoffMultiplier float64 `json:"backoffMultiplier"`
+	MaxRetries        int     `json:"maxRetries"        toml:"max_retries,omitempty"`
+	InitialDelayMs    int     `json:"initialDelayMs"    toml:"initial_delay_ms,omitempty"`
+	MaxDelayMs        int     `json:"maxDelayMs"        toml:"max_delay_ms,omitempty"`
+	BackoffMultiplier float64 `json:"backoffMultiplier" toml:"backoff_multiplier,omitempty"`
 }
 
 // ResolveAPIKey reads the environment variable specified by LLMProvider.APIKeyEnv
@@ -128,68 +136,68 @@ func (p LLMProvider) ResolveAPIKey() string {
 }
 
 type LLMProvider struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	BaseURL   string            `json:"baseUrl"`
-	APIKeyEnv string            `json:"apiKeyEnv"`
-	Enabled   bool              `json:"enabled"`
-	IsDefault bool              `json:"isDefault"`
-	TimeoutMs int               `json:"timeoutMs"`
-	Retry     RetryConfig       `json:"retry"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	ID        string            `json:"id"        toml:"id,omitempty"`
+	Name      string            `json:"name"      toml:"name,omitempty"`
+	BaseURL   string            `json:"baseUrl"   toml:"base_url,omitempty"`
+	APIKeyEnv string            `json:"apiKeyEnv" toml:"api_key_env,omitempty"`
+	Enabled   bool              `json:"enabled"   toml:"enabled,omitempty"`
+	IsDefault bool              `json:"isDefault" toml:"is_default,omitempty"`
+	TimeoutMs int               `json:"timeoutMs" toml:"timeout_ms,omitempty"`
+	Retry     RetryConfig       `json:"retry"     toml:"retry,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty" toml:"headers,omitempty"`
 }
 
 // ─── LLM Model ────────────────────────────────────────────────────────────────
 
 // GenerationParams model generation parameters (sampling control)
 type GenerationParams struct {
-	Temperature float64 `json:"temperature"`
-	MaxTokens   int     `json:"maxTokens"`
+	Temperature float64 `json:"temperature" toml:"temperature,omitempty"`
+	MaxTokens   int     `json:"maxTokens"   toml:"max_tokens,omitempty"`
 }
 
 // ThinkingConfig thinking/reasoning configuration (DeepSeek V4 thinking mode)
 type ThinkingConfig struct {
-	Enabled         bool   `json:"enabled"`
-	ReasoningEffort string `json:"reasoningEffort"` // "high" | "max" | "" (used by V4 models)
+	Enabled         bool   `json:"enabled"         toml:"enabled,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort" toml:"reasoning_effort,omitempty"`
 }
 
 type LLMModel struct {
-	ID            string           `json:"id"`
-	ProviderID    string           `json:"providerId"`
-	Name          string           `json:"name"`
-	APIModel      string           `json:"apiModel,omitempty"` // Actual API model name, empty uses ID
-	ContextWindow int              `json:"contextWindow"`
-	Enabled       bool             `json:"enabled"`
-	Generation    GenerationParams `json:"generation"`
-	Thinking      ThinkingConfig   `json:"thinking"`
+	ID            string           `json:"id"            toml:"id,omitempty"`
+	ProviderID    string           `json:"providerId"    toml:"provider_id,omitempty"`
+	Name          string           `json:"name"          toml:"name,omitempty"`
+	APIModel      string           `json:"apiModel,omitempty"      toml:"api_model,omitempty"`
+	ContextWindow int              `json:"contextWindow" toml:"context_window,omitempty"`
+	Enabled       bool             `json:"enabled"       toml:"enabled,omitempty"`
+	Generation    GenerationParams `json:"generation"    toml:"generation,omitempty"`
+	Thinking      ThinkingConfig   `json:"thinking"      toml:"thinking,omitempty"`
 }
 
 // ─── Embedding ────────────────────────────────────────────────────────────────
 
 type EmbeddingProvider struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	BaseURL   string `json:"baseUrl"`
-	APIKeyEnv string `json:"apiKeyEnv"`
-	Enabled   bool   `json:"enabled"`
+	ID        string `json:"id"        toml:"id,omitempty"`
+	Name      string `json:"name"      toml:"name,omitempty"`
+	BaseURL   string `json:"baseUrl"   toml:"base_url,omitempty"`
+	APIKeyEnv string `json:"apiKeyEnv" toml:"api_key_env,omitempty"`
+	Enabled   bool   `json:"enabled"   toml:"enabled,omitempty"`
 }
 
 type EmbeddingModel struct {
-	ID         string `json:"id"`
-	ProviderID string `json:"providerId"`
-	Name       string `json:"name"`
-	Dimension  int    `json:"dimension"`
-	BatchSize  int    `json:"batchSize"`
-	Normalize  bool   `json:"normalize"`
-	Enabled    bool   `json:"enabled"`
-	IsDefault  bool   `json:"isDefault"`
+	ID         string `json:"id"         toml:"id,omitempty"`
+	ProviderID string `json:"providerId" toml:"provider_id,omitempty"`
+	Name       string `json:"name"       toml:"name,omitempty"`
+	Dimension  int    `json:"dimension"  toml:"dimension,omitempty"`
+	BatchSize  int    `json:"batchSize"  toml:"batch_size,omitempty"`
+	Normalize  bool   `json:"normalize"  toml:"normalize,omitempty"`
+	Enabled    bool   `json:"enabled"    toml:"enabled,omitempty"`
+	IsDefault  bool   `json:"isDefault"  toml:"is_default,omitempty"`
 }
 
 type EmbeddingConfig struct {
-	Enabled       bool                `json:"enabled"`
-	MinSimilarity float32             `json:"minSimilarity"`
-	Providers     []EmbeddingProvider `json:"providers"`
-	Models        []EmbeddingModel    `json:"models"`
+	Enabled       bool                `json:"enabled"       toml:"enabled,omitempty"`
+	MinSimilarity float32             `json:"minSimilarity" toml:"min_similarity,omitempty"`
+	Providers     []EmbeddingProvider `json:"providers"     toml:"providers,omitempty"`
+	Models        []EmbeddingModel    `json:"models"        toml:"models,omitempty"`
 }
 
 // ─── Default Models ────────────────────────────────────────────────────────────
@@ -201,11 +209,11 @@ type EmbeddingConfig struct {
 //
 // Resolution priority: role field value → Fallback → hardcoded default value.
 type DefaultModelsConfig struct {
-	Expert    string `json:"expert"`    // Expert model
-	Superior  string `json:"superior"`  // Secondary expert model
-	Universal string `json:"universal"` // Universal model
-	Fast      string `json:"fast"`      // Fast model
-	Fallback  string `json:"fallback"`  // Fallback default model (empty=no config)
+	Expert    string `json:"expert"    toml:"expert,omitempty"`
+	Superior  string `json:"superior"  toml:"superior,omitempty"`
+	Universal string `json:"universal" toml:"universal,omitempty"`
+	Fast      string `json:"fast"      toml:"fast,omitempty"`
+	Fallback  string `json:"fallback"  toml:"fallback,omitempty"`
 }
 
 // parseProviderModelID parses config value in "provider:id" format
@@ -221,16 +229,16 @@ func parseProviderModelID(s string) (providerID, modelID string, ok bool) {
 
 // ImageModelConfig 图片生成模型配置
 type ImageModelConfig struct {
-	ID           string `json:"id"           toml:"id"`
-	Name         string `json:"name"         toml:"name"`
-	Provider     string `json:"provider"     toml:"provider"` // "tencent" | "doubao"
-	SecretIdEnv  string `json:"secretIdEnv"  toml:"secretIdEnv,omitempty"`
-	SecretKeyEnv string `json:"secretKeyEnv" toml:"secretKeyEnv,omitempty"`
-	APIKeyEnv    string `json:"apiKeyEnv"    toml:"apiKeyEnv,omitempty"`
-	APIBaseHost  string `json:"apiBaseHost"  toml:"apiBaseHost"`
+	ID           string `json:"id"           toml:"id,omitempty"`
+	Name         string `json:"name"         toml:"name,omitempty"`
+	Provider     string `json:"provider"     toml:"provider,omitempty"`
+	SecretIdEnv  string `json:"secretIdEnv"  toml:"secret_id_env,omitempty"`
+	SecretKeyEnv string `json:"secretKeyEnv" toml:"secret_key_env,omitempty"`
+	APIKeyEnv    string `json:"apiKeyEnv"    toml:"api_key_env,omitempty"`
+	APIBaseHost  string `json:"apiBaseHost"  toml:"api_base_host,omitempty"`
 	Region       string `json:"region"       toml:"region,omitempty"`
-	IsDefault    bool   `json:"isDefault"    toml:"isDefault"`
-	Enabled      bool   `json:"enabled"      toml:"enabled"`
+	IsDefault    bool   `json:"isDefault"    toml:"is_default,omitempty"`
+	Enabled      bool   `json:"enabled"      toml:"enabled,omitempty"`
 }
 
 // ─── Sandbox (container isolation) ─────────────────────────────────────────
@@ -247,7 +255,6 @@ type SandboxConfig struct {
 
 // LSPMCPConfig configures the built-in LSP-based MCP server.
 type LSPMCPConfig struct {
-	Enabled bool          `json:"enabled" toml:"enabled"`
 	Servers []LSPMCPEntry `json:"servers,omitempty" toml:"servers"`
 }
 

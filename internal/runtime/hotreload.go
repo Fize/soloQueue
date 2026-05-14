@@ -32,7 +32,7 @@ func RegisterHotReload(rt *Stack, cfg *config.GlobalService, log *logger.Logger,
 		// 3. LLM client (only rebuild when default provider changes)
 		oldProv := findDefaultProvider(old.Providers)
 		newProv := findDefaultProvider(new.Providers)
-		if providerChanged(oldProv, newProv) {
+		if newProv != nil && providerChanged(oldProv, newProv) {
 			if newClient, err := BuildLLMClient(newProv, log); err == nil {
 				rt.LLMClient = newClient
 				rt.AgentFactory.SetLLMClient(newClient)
@@ -53,12 +53,13 @@ func RegisterHotReload(rt *Stack, cfg *config.GlobalService, log *logger.Logger,
 		}
 
 		// 6. Agent MCP servers changed → rebuild L1 system prompt
-		if !stringSlicesEqual(old.Agent.MCPServers, new.Agent.MCPServers) {
+		if !stringSlicesEqual(old.Agent.BuiltinMCPServers, new.Agent.BuiltinMCPServers) ||
+			!stringSlicesEqual(old.Agent.ExternalMCPServers, new.Agent.ExternalMCPServers) {
 			// Unlock before calling RebuildPrompt (it may take time and
 			// RebuildPrompt itself acquires promptRebuildMu).
 			rt.CfgMu.Unlock()
 			if err := rt.RebuildPrompt(); err != nil {
-				log.Warn(logger.CatConfig, "hot-reload: failed to rebuild L1 prompt after agent.mcpServers change", "err", err)
+				log.Warn(logger.CatConfig, "hot-reload: failed to rebuild L1 prompt after agent MCP servers change", "err", err)
 			}
 			rt.CfgMu.Lock()
 		}
