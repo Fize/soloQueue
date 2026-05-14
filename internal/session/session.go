@@ -40,6 +40,9 @@ var (
 
 	// ErrSessionClosed Session 已被 Close / Shutdown
 	ErrSessionClosed = errors.New("session: closed")
+
+	// ErrNoActiveTask CancelCurrent 时无活跃任务
+	ErrNoActiveTask = errors.New("session: no active task")
 )
 
 // CurrentLevel returns the classification level of the last routed task.
@@ -108,6 +111,11 @@ type Session struct {
 	turnMu            sync.Mutex    // 保护 turnDone 的创建和关闭
 	turnDone          chan struct{} // 当异步委派所在轮次完成时关闭
 	turnDoneClosed    bool          // 防止重复关闭 turnDone
+
+	// cancel 支持：CancelCurrent 取消正在执行的 AskStream
+	cancelMu     sync.Mutex
+	activeCancel context.CancelFunc // 当前 AskStream 的取消函数（forwarder 管理生命周期）
+	cancelled    atomic.Bool       // forwarder 在检测到取消时设置，由适配器消耗并重置
 
 	lastLevel       string       // last classified task level (L0-L3)
 	lastLevelMu     sync.RWMutex // protects lastLevel and levelLocked
@@ -537,6 +545,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		}
 	}
 
+	// ── 创建可取消的 askCtx ──
+	askCtx, askCancel := context.WithCancel(ctx)
+
 	// 先 push user prompt
 	s.mu.Lock()
 	s.cw.Push(ctxwin.RoleUser, prompt)
@@ -547,9 +558,19 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		"prompt_len", len(prompt),
 	)
 
-	srcCh, err := s.Agent.AskStreamWithHistory(ctx, s.cw, prompt)
+	// 存储取消函数（必须在启动 goroutine 之前，确保 CancelCurrent 可以立即工作）
+	s.cancelMu.Lock()
+	s.activeCancel = askCancel
+	s.cancelMu.Unlock()
+
+	srcCh, err := s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
 	if err != nil {
-		// 入队失败：移除 user prompt
+		// 入队失败：清理
+		s.cancelMu.Lock()
+		s.activeCancel = nil
+		s.cancelMu.Unlock()
+		askCancel()
+
 		s.mu.Lock()
 		s.cw.PopLast()
 		s.mu.Unlock()
@@ -564,10 +585,17 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 
 	out := make(chan agent.AgentEvent, 64)
 	go func() {
+		// 清理：goroutine 结束时清除 activeCancel 并释放 askCtx
+		defer func() {
+			s.cancelMu.Lock()
+			s.activeCancel = nil
+			s.cancelMu.Unlock()
+			askCancel()
+		}()
 		defer close(out)
 		defer s.inFlight.Store(0)
 		defer s.touch()
-		defer s.closeTurnDone() // 确保无论退出路径如何，turnDone 都会被关闭（幂等安全）
+		defer s.closeTurnDone()
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.ErrorContext(ctx, logger.CatApp, "session event processor panic recovered",
@@ -590,13 +618,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 					goto done
 				}
 				ev = e
-			case <-ctx.Done():
-				// ctx 取消：移除 user prompt
+			case <-askCtx.Done():
+				// askCtx 取消：移除 user prompt，标记 cancelled
+				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
 				s.mu.Unlock()
 
-				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled",
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
 					"session_id", s.ID,
 					"events_processed", eventCount,
 					"duration_ms", time.Since(start).Milliseconds(),
@@ -606,12 +635,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			select {
 			case out <- ev:
 				eventCount++
-			case <-ctx.Done():
+			case <-askCtx.Done():
+				// askCtx 取消：移除 user prompt，标记 cancelled
+				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
 				s.mu.Unlock()
 
-				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled",
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
 					"session_id", s.ID,
 					"events_processed", eventCount,
 					"duration_ms", time.Since(start).Milliseconds(),
@@ -655,7 +686,13 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			}
 		}
 	done:
-		if gotDone {
+		// 检查是否在 goto done 和此标签之间发生了取消（极窄竞态窗口）
+		if askCtx.Err() != nil {
+			s.cancelled.Store(true)
+			s.mu.Lock()
+			s.cw.PopLast()
+			s.mu.Unlock()
+		} else if gotDone {
 			if finalContent != "" {
 				s.mu.Lock()
 				opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
@@ -732,6 +769,38 @@ func (s *Session) newTurnDone() {
 
 func (s *Session) touch() {
 	s.lastActive.Store(time.Now().UnixNano())
+}
+
+// CancelCurrent 取消当前正在执行的 AskStream（如果有）。
+// 取消通过 askCtx 传播到 agent 的 streamLoop，进而中断 LLM 调用和工具执行。
+// 幂等安全：无活跃任务时返回 ErrNoActiveTask。
+func (s *Session) CancelCurrent(reason string) error {
+	s.cancelMu.Lock()
+	cancel := s.activeCancel
+	s.cancelMu.Unlock()
+
+	if cancel == nil {
+		return ErrNoActiveTask
+	}
+
+	// 仅调用 cancel() — 不主动设 cancelled 标志。
+	// cancelled 由 forwarder goroutine 在检测到 <-askCtx.Done() 时设置，
+	// 确保只有在 forwarder 真正被取消时适配器才会收到 ErrCancelled，
+	// 避免任务正常完成后误报取消。
+	cancel()
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session task cancelled",
+		"session_id", s.ID,
+		"reason", reason,
+	)
+	return nil
+}
+
+// isCancelledAndReset 检查 forwarder 是否因取消而退出。
+// 消耗一次性的 cancelled 标志并重置为 false，确保 ErrCancelled 只返回一次。
+// 由 SessionAskAdapter 在 AskStream 事件循环后调用。
+func (s *Session) isCancelledAndReset() bool {
+	return s.cancelled.CompareAndSwap(true, false)
 }
 
 // ─── SessionManager ──────────────────────────────────────────────────────

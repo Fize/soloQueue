@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/qqbot"
@@ -22,7 +23,8 @@ const msgQueueInterval = 1700 * time.Millisecond
 // It creates a dedicated logger under logs/qqbot/, sets up a rate-limiting
 // MessageQueue, and returns both the gateway and the queue for shutdown
 // coordination. Returns (nil, nil) if QQ bot is not enabled or not configured.
-func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger) (*qqbot.Gateway, *qqbot.MessageQueue) {
+// supervisorsFn provides access to L2 supervisors for child agent reaping on /cancel.
+func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor) (*qqbot.Gateway, *qqbot.MessageQueue) {
 	settings := cfg.Get()
 	qqCfg := settings.QQBot.ToQQBotConfig()
 
@@ -49,6 +51,7 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir 
 	qqQueue := qqbot.NewMessageQueue(msgQueueInterval, msgQueueCap)
 	qqAPI := qqbot.NewAPIClient(qqCfg, qqLog)
 	qqAdapter := session.NewQQBotAdapter(mgr, qqLog)
+	qqAdapter.SetSupervisorsFn(supervisorsFn)
 	qqBridge := qqbot.NewSessionBridge(qqAdapter, qqAPI, qqLog,
 		qqbot.WithVersion(version),
 		qqbot.WithMessageQueue(qqQueue),
