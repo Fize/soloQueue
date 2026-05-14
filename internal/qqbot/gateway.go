@@ -244,7 +244,7 @@ func (g *Gateway) eventLoop(ctx context.Context) error {
 
 		switch payload.Op {
 		case OpDispatch:
-			g.handleDispatch(ctx, payload)
+			go g.handleDispatch(ctx, payload)
 		case OpHeartbeatACK:
 			g.log.DebugContext(ctx, logger.CatApp, "qqbot heartbeat ack received")
 		case OpReconnect:
