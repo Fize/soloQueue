@@ -9,7 +9,7 @@ import (
 
 // PromptConfig specifies the prompt configuration for the main Agent.
 type PromptConfig struct {
-	RolesDir  string // e.g. "/Users/xxx/.soloqueue/roles"
+	RolesDir  string // e.g. "/Users/xxx/.soloqueue/prompts/roles"
 	GlobalDir string // e.g. "/Users/xxx/.soloqueue/prompts/global"
 }
 
