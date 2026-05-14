@@ -168,8 +168,6 @@ func DefaultSettings() Settings {
 			Fast:      "deepseek:deepseek-v4-flash",
 			Fallback:  "",
 		},
-		Agent: AgentConfig{
-			MCPServers: []string{},
-		},
+		Agent: AgentConfig{},
 	}
 }

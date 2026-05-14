@@ -154,7 +154,7 @@ unknownField = "xxx"
 func TestMergeTOML_NumericTypes(t *testing.T) {
 	base := Settings{Session: SessionConfig{TimelineMaxFileMB: 100}}
 	patch := `[session]
-timelineMaxFileMB = 7200
+timeline_max_file_mb = 7200
 `
 	result, err := MergeTOML(base, []byte(patch))
 	if err != nil {
