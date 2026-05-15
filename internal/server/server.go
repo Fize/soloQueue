@@ -284,7 +284,6 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 
 	// Config routes
 	r.Get("/api/config", m.handleGetConfig)
-	r.Patch("/api/config", m.handleUpdateConfig)
 
 	// Tools & Skills routes
 	r.Get("/api/tools", m.handleListTools)

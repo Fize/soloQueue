@@ -170,47 +170,6 @@ func (l *Loader[T]) Get() T {
 	return l.current
 }
 
-// Set 修改配置并持久化到 paths[0]（原子写）
-func (l *Loader[T]) Set(fn func(*T)) error {
-	l.mu.Lock()
-	old := l.current
-	updated := l.current
-	fn(&updated)
-	l.current = updated
-	l.mu.Unlock()
-
-	pp, err := l.primaryPath()
-	if err != nil {
-		l.mu.Lock()
-		l.current = old
-		l.mu.Unlock()
-		if l.log != nil {
-			l.log.WarnContext(context.Background(), logger.CatConfig, "config set: primary path resolution failed",
-				"err", err.Error(),
-			)
-		}
-		return err
-	}
-	if err := l.saveTo(pp, updated); err != nil {
-		// 回滚
-		l.mu.Lock()
-		l.current = old
-		l.mu.Unlock()
-		if l.log != nil {
-			l.log.LogError(context.Background(), logger.CatConfig, "config set failed, rolled back", err)
-		}
-		return err
-	}
-
-	if l.log != nil {
-		l.log.InfoContext(context.Background(), logger.CatConfig, "config set successfully",
-			"primary_path", pp,
-		)
-	}
-
-	return nil
-}
-
 // Save 将当前 current 原子写入 paths[0]
 func (l *Loader[T]) Save() error {
 	return l.SaveContext(context.Background())
