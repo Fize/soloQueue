@@ -42,8 +42,11 @@ type Skill struct {
 	// ID 唯一标识（如 "commit", "deploy"），必须非空
 	ID string
 
-	// Description 给 LLM 看的自然语言描述
+	// Description 给 LLM 看的自然语言描述（简要说明）
 	Description string
+
+	// WhenToUse 额外触发条件描述，附加到 Description 后供 LLM 判断何时调用
+	WhenToUse string
 
 	// Instructions 完整指令内容
 	//
@@ -126,6 +129,35 @@ func NewBuiltinSkill(id, desc, instructions string, opts ...SkillOption) *Skill 
 		opt(s)
 	}
 	return s
+}
+
+// maxSkillDescriptionChars 是 combined description 的最大字符数，对齐 Claude Code
+const maxSkillDescriptionChars = 1536
+
+// CombinedDescription 合并 Description 和 WhenToUse，截断至 maxSkillDescriptionChars
+//
+// 对齐 Claude Code 行为：
+//   - when_to_use 追加到 description 后
+//   - 合并文本上限 1536 字符
+//   - 优先保留开头内容（关键用例放在 description 前面）
+func (s *Skill) CombinedDescription() string {
+	if s.WhenToUse == "" {
+		return s.Description
+	}
+	combined := s.Description + "\n" + s.WhenToUse
+	if len(combined) <= maxSkillDescriptionChars {
+		return combined
+	}
+	// 截断：优先保留 description 完整，剩余配额给 when_to_use 的开头部分
+	descLen := len(s.Description)
+	if descLen >= maxSkillDescriptionChars {
+		return s.Description[:maxSkillDescriptionChars]
+	}
+	whenToUseBudget := maxSkillDescriptionChars - descLen - 1 // 1 for '\n'
+	if whenToUseBudget <= 0 {
+		return s.Description
+	}
+	return s.Description + "\n" + s.WhenToUse[:whenToUseBudget]
 }
 
 // ─── SkillRegistry ─────────────────────────────────────────────────────────
