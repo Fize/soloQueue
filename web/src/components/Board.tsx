@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import type { Plan, PlanStatus } from '@/types'
-import { usePlans } from '@/hooks/usePlans'
+import { usePlanStore } from '@/stores/planStore'
 import { BoardColumn } from './BoardColumn'
 import { PlanDetail } from './PlanDetail'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -20,7 +20,17 @@ import { arrayMove } from '@dnd-kit/sortable'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export function Board() {
-  const { plansByStatus, error, fetchPlans, movePlan, plans } = usePlans()
+  const plans = usePlanStore((state) => state.plans)
+  const error = usePlanStore((state) => state.error)
+  const movePlan = usePlanStore((state) => state.movePlan)
+  const fetchPlans = usePlanStore((state) => state.fetchPlans)
+
+  const plansByStatus = useMemo(() => ({
+    plan: plans.filter((p) => p.status === 'plan'),
+    running: plans.filter((p) => p.status === 'running'),
+    done: plans.filter((p) => p.status === 'done'),
+  }), [plans])
+
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
   const [activeTab, setActiveTab] = useState<string>('plan')
@@ -163,7 +173,7 @@ export function Board() {
       {/* Mobile Tabs */}
       <div className="md:hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="border-b-2 border-[#EEEEEE] px-4">
+          <div className="border-b border-border px-4">
             <TabsList className="h-10 w-full justify-start gap-1 border-0">
               {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
                 <TabsTrigger key={status} value={status} className="text-xs capitalize">

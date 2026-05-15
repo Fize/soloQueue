@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useConfig } from '@/hooks/useConfig';
-import { useMCPConfig } from '@/hooks/useMCPConfig';
+import { useConfigStore } from '@/stores/configStore';
+import { useMCPConfigStore } from '@/stores/mcpConfigStore';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Save } from 'lucide-react';
 
 export function AgentTab() {
-  const { config, patch, saving, error } = useConfig();
-  const { config: mcpConfig } = useMCPConfig();
+  const config = useConfigStore((state) => state.config);
+  const patch = useConfigStore((state) => state.patch);
+  const saving = useConfigStore((state) => state.saving);
+  const error = useConfigStore((state) => state.error);
+  const mcpConfig = useMCPConfigStore((state) => state.config);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [initialized, setInitialized] = useState(false);
 
@@ -68,7 +71,7 @@ export function AgentTab() {
       </div>
 
       {serverNames.length === 0 && (
-        <div className="text-sm text-muted-foreground py-8 text-center nb-border rounded-lg">
+        <div className="text-sm text-muted-foreground py-8 text-center border rounded-lg">
           No MCP servers configured. Add servers in the MCP tab first.
         </div>
       )}
@@ -76,7 +79,7 @@ export function AgentTab() {
       {serverNames.length > 0 && (
         <>
           <div className="space-y-2">
-            <div className="flex items-center justify-between nb-border rounded-lg bg-card p-3">
+            <div className="flex items-center justify-between border rounded-lg bg-card p-3">
               <span className="text-sm font-medium">All Servers</span>
               <Switch checked={allEnabled} onCheckedChange={toggleAll} />
             </div>
@@ -86,7 +89,7 @@ export function AgentTab() {
               return (
                 <div
                   key={name}
-                  className="flex items-center justify-between nb-border rounded-lg bg-card p-3"
+                  className="flex items-center justify-between border rounded-lg bg-card p-3"
                 >
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">{name}</span>
