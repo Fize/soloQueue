@@ -344,11 +344,14 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 		}
 	}
 
-	// Pass 3: emit only messages that form valid conversations
+	// Pass 3: emit only messages that form valid conversations.
+	// Enforces structural ordering: tool results must immediately follow
+	// their assistant(tool_calls) without interleaved user/assistant messages.
 	out := make([]PayloadMessage, 0, len(msgs))
+	pendingCalls := 0
 	for _, m := range msgs {
-		// Skip assistant(tool_calls) whose results are not all present
 		if len(m.ToolCalls) > 0 {
+			// Skip assistant(tool_calls) whose results are not all present
 			allValid := true
 			for _, tc := range m.ToolCalls {
 				if !valid[tc.ID] {
@@ -359,20 +362,66 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 			if !allValid {
 				continue
 			}
+			pendingCalls = len(m.ToolCalls)
+			out = append(out, PayloadMessage{
+				Role:             string(m.Role),
+				Content:          m.Content,
+				ReasoningContent: m.ReasoningContent,
+				Name:             m.Name,
+				ToolCallID:       m.ToolCallID,
+				ToolCalls:        m.ToolCalls,
+				Timestamp:        m.Timestamp,
+			})
+		} else if m.Role == RoleTool && m.ToolCallID != "" {
+			if !valid[m.ToolCallID] {
+				continue
+			}
+			if pendingCalls > 0 {
+				pendingCalls--
+			}
+			out = append(out, PayloadMessage{
+				Role:             string(m.Role),
+				Content:          m.Content,
+				ReasoningContent: m.ReasoningContent,
+				Name:             m.Name,
+				ToolCallID:       m.ToolCallID,
+				ToolCalls:        m.ToolCalls,
+				Timestamp:        m.Timestamp,
+			})
+		} else {
+			// user or assistant(content) message
+			if pendingCalls > 0 {
+				// Order violation: non-tool message before all tool results.
+				// Remove the entire pending group (assistant + tool results).
+				for len(out) > 0 {
+					last := out[len(out)-1]
+					out = out[:len(out)-1]
+					if len(last.ToolCalls) > 0 {
+						break
+					}
+				}
+				pendingCalls = 0
+			}
+			out = append(out, PayloadMessage{
+				Role:             string(m.Role),
+				Content:          m.Content,
+				ReasoningContent: m.ReasoningContent,
+				Name:             m.Name,
+				ToolCallID:       m.ToolCallID,
+				ToolCalls:        m.ToolCalls,
+				Timestamp:        m.Timestamp,
+			})
 		}
-		// Skip tool messages whose tool_call_id does not belong to a complete assistant
-		if m.Role == RoleTool && m.ToolCallID != "" && !valid[m.ToolCallID] {
-			continue
+	}
+	// If the final group is incomplete (pendingCalls > 0), truncate it
+	if pendingCalls > 0 {
+		for len(out) > 0 {
+			last := out[len(out)-1]
+			out = out[:len(out)-1]
+			if len(last.ToolCalls) > 0 {
+				break
+			}
 		}
-		out = append(out, PayloadMessage{
-			Role:             string(m.Role),
-			Content:          m.Content,
-			ReasoningContent: m.ReasoningContent,
-			Name:             m.Name,
-			ToolCallID:       m.ToolCallID,
-			ToolCalls:        m.ToolCalls,
-			Timestamp:        m.Timestamp,
-		})
 	}
 	return out
 }
