@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useMCPConfig } from '@/hooks/useMCPConfig';
+import { useMCPConfigStore } from '@/stores/mcpConfigStore';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -32,7 +32,10 @@ function toWire(servers: MCPServerConfig[]): MCPConfig {
 }
 
 export function MCPTab() {
-  const { config, save, saving, error } = useMCPConfig();
+  const config = useMCPConfigStore((state) => state.config);
+  const save = useMCPConfigStore((state) => state.save);
+  const saving = useMCPConfigStore((state) => state.saving);
+  const error = useMCPConfigStore((state) => state.error);
   const [local, setLocal] = useState<MCPServerConfig[] | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
@@ -77,7 +80,7 @@ export function MCPTab() {
       </div>
 
       {local.length === 0 && (
-        <div className="text-sm text-muted-foreground py-8 text-center nb-border rounded-lg">
+        <div className="text-sm text-muted-foreground py-8 text-center border rounded-lg">
           No MCP servers configured. Click "Add Server" to get started.
         </div>
       )}
@@ -86,7 +89,7 @@ export function MCPTab() {
         {local.map((srv, i) => {
           const open = expanded[i] ?? false;
           return (
-            <div key={i} className="nb-border rounded-lg bg-card p-4 nb-shadow-sm">
+            <div key={i} className="border rounded-lg bg-card p-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <button
                   type="button"
@@ -108,7 +111,7 @@ export function MCPTab() {
               </div>
 
               {open && (
-                <div className="mt-4 grid gap-4 border-t-2 border-[#EEEEEE] pt-4">
+                <div className="mt-4 grid gap-4 border-t border-border pt-4">
                   <Input
                     label="Name"
                     value={srv.name}

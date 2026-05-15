@@ -4,22 +4,22 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-md border-2 border-border bg-clip-padding text-sm font-bold whitespace-nowrap transition-all duration-100 ease outline-none select-none focus-visible:ring-0 focus-visible:nb-shadow-focus disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-clip-padding text-sm font-medium whitespace-nowrap transition-all duration-200 ease-out outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground nb-shadow-sm nb-press",
+          "bg-primary text-primary-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5",
         secondary:
-          "bg-secondary text-secondary-foreground nb-shadow-sm nb-press",
+          "bg-secondary text-secondary-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5",
         success:
-          "bg-[var(--success)] text-[var(--success-foreground)] nb-shadow-sm nb-press",
+          "bg-[var(--success)] text-[var(--success-foreground)] shadow-sm hover:shadow-md hover:-translate-y-0.5",
         outline:
-          "border-border bg-card text-foreground nb-shadow-sm nb-press hover:bg-muted",
+          "border-border bg-card text-foreground shadow-sm hover:bg-muted hover:shadow-md hover:-translate-y-0.5",
         ghost:
           "border-transparent bg-transparent text-foreground shadow-none hover:bg-muted",
         destructive:
-          "bg-destructive text-destructive-foreground nb-shadow-sm nb-press",
+          "bg-destructive text-destructive-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5",
         link: "border-transparent text-foreground underline-offset-4 hover:underline shadow-none",
       },
       size: {

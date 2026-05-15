@@ -1,52 +1,71 @@
-import { RefreshCw, FolderOpen } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Container } from '@/components/ui/Container'
-import type { AppTab } from '@/App'
 import { cn } from '@/lib/utils'
+import { RefreshCw, FolderOpen } from 'lucide-react'
 
 interface HeaderProps {
-  activeTab: AppTab
-  onTabChange: (tab: AppTab) => void
   onRefresh?: () => void
   loading?: boolean
 }
 
-const tabs: { id: AppTab; label: string; icon?: React.ReactNode }[] = [
-  { id: 'home', label: 'Home' },
-  { id: 'files', label: 'Files', icon: <FolderOpen className="h-4 w-4" /> },
-  { id: 'settings', label: 'Settings' },
-]
-
-export function Header({ activeTab, onTabChange, onRefresh, loading }: HeaderProps) {
+export function Header({ onRefresh, loading }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 border-b-2 border-border bg-card">
+    <header className="sticky top-0 z-40 border-b border-border bg-card/85 backdrop-blur-md">
       <Container className="flex h-14 items-center justify-between">
         {/* Logo */}
-        <button
-          onClick={() => onTabChange('home')}
-          className="flex items-center gap-2.5 cursor-pointer focus:outline-none"
+        <NavLink
+          to="/"
+          className="flex items-center gap-2.5 focus:outline-none"
         >
           <img src="/logo.png" alt="SoloQueue" className="h-8 w-8" />
-          <h1 className="hidden sm:inline text-lg font-bold tracking-tight text-foreground">SoloQueue</h1>
-        </button>
+          <h1 className="text-lg font-bold tracking-tight text-foreground">
+            SoloQueue
+          </h1>
+        </NavLink>
 
-        {/* Center: Tab Buttons */}
+        {/* Center: Nav Links */}
         <nav className="flex items-center gap-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={cn(
+          <NavLink
+            to="/"
+            className={({ isActive }) =>
+              cn(
                 'rounded-md px-3 py-1.5 text-sm font-medium transition-all inline-flex items-center gap-1.5',
-                activeTab === tab.id
-                  ? 'border-2 border-border bg-primary nb-shadow-xs font-bold text-primary-foreground'
-                  : 'border-2 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
-              )}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
+                isActive
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )
+            }
+          >
+            Home
+          </NavLink>
+          <NavLink
+            to="/files"
+            className={({ isActive }) =>
+              cn(
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-all inline-flex items-center gap-1.5',
+                isActive
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )
+            }
+          >
+            <FolderOpen className="h-4 w-4" />
+            Files
+          </NavLink>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              cn(
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+                isActive
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )
+            }
+          >
+            Settings
+          </NavLink>
         </nav>
 
         {/* Right: Refresh */}

@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { useAgents } from '@/hooks/useAgents'
-import { useTeams } from '@/hooks/useTeams'
+import { useAgentStore } from '@/stores/agentStore'
 import { AgentCard } from './AgentCard'
 import { Badge } from '@/components/ui/badge'
 import type { AgentInfo, AgentTemplate, TeamInfo } from '@/types'
@@ -53,8 +52,9 @@ function PlaceholderCard({
 }
 
 export function AgentsPanel() {
-  const data = useAgents()
-  const teamsData = useTeams()
+  const data = useAgentStore((state) => state.agents)
+  const teamsData = useAgentStore((state) => state.teams)
+  const fetchTeams = useAgentStore((state) => state.fetchTeams)
   const [collapsedTeams, setCollapsedTeams] = useState<Set<string>>(new Set())
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
@@ -92,11 +92,16 @@ export function AgentsPanel() {
 
   const initializedRef = useRef(false)
 
+  // Fetch teams on mount
+  useEffect(() => {
+    fetchTeams()
+  }, [fetchTeams])
+
   // 默认折叠所有团队，有 agent 被调度时展开对应团队
   useEffect(() => {
-    if (!data || !teamsData.data) return
+    if (!data || !teamsData) return
 
-    const sortedTeams = [...teamsData.data.teams].sort((a, b) => a.name.localeCompare(b.name))
+    const sortedTeams = [...teamsData.teams].sort((a, b) => a.name.localeCompare(b.name))
 
     if (!initializedRef.current) {
       const allTeams = new Set(sortedTeams.map((t) => t.name))
@@ -127,7 +132,7 @@ export function AgentsPanel() {
         return next
       })
     }
-  }, [data, teamsData.data])
+  }, [data, teamsData])
 
   // 构建数据
   const { l1Agent, teams } = useMemo(() => {
@@ -145,8 +150,8 @@ export function AgentsPanel() {
     const teams: TeamNode[] = []
 
     // 构建 teams 时按名称排序
-    const sortedTeams = teamsData.data
-      ? [...teamsData.data.teams].sort((a, b) => a.name.localeCompare(b.name))
+    const sortedTeams = teamsData
+      ? [...teamsData.teams].sort((a, b) => a.name.localeCompare(b.name))
       : []
 
     for (const team of sortedTeams) {
@@ -168,7 +173,7 @@ export function AgentsPanel() {
     }
 
     return { l1Agent, teams }
-  }, [data, teamsData.data])
+  }, [data, teamsData])
 
   if (!data || data.agents.length === 0) {
     return (

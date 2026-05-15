@@ -2,13 +2,13 @@ import { useState } from 'react'
 import { Board } from './Board'
 import { AgentsPanel } from './AgentsPanel'
 import { SlideOver } from '@/components/ui/SlideOver'
-import { useAgents } from '@/hooks/useAgents'
+import { useAgentStore } from '@/stores/agentStore'
 import { Users } from 'lucide-react'
 
 export function HomePage() {
   const [agentsOpen, setAgentsOpen] = useState(false)
-  const agentData = useAgents()
-  const agentCount = agentData?.agents?.length ?? 0
+  const agents = useAgentStore((state) => state.agents)
+  const agentCount = agents?.agents?.length ?? 0
 
   return (
     <div className="flex h-full gap-4">

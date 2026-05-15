@@ -23,7 +23,7 @@ function Input({ className, label, error, id, ...props }: InputProps) {
         id={inputId}
         data-slot="input"
         className={cn(
-          "flex h-8 w-full rounded-md border-2 border-[#EEEEEE] bg-transparent px-3 py-1 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:nb-shadow-focus disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-8 w-full rounded-md border bg-transparent px-3 py-1 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
           error && "border-destructive",
           className,
         )}
