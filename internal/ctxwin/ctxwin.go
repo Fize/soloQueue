@@ -582,7 +582,89 @@ func (cw *ContextWindow) Recalculate() int {
 	return total
 }
 
-// ─── Async Compression ─────────────────────────────────────────────────────
+// ─── Compression ──────────────────────────────────────────────────────────
+
+// CompactAndReplace compresses all messages synchronously and replaces
+// the context window content with system_prompt + summary.
+//
+// Unlike asyncCompact:
+//   - runs synchronously (caller blocks until compression completes)
+//   - respects the provided context for cancellation/timeout
+//   - no CAS (caller must ensure no concurrent compact)
+//
+// Flow:
+//  1. RLock: snapshot messages
+//  2. Release lock, call Compactor.Compact
+//  3. Lock: replace messages[1:] with summary
+//  4. Unlock: call summaryHook for persistence
+//
+// Returns the summary on success, error on failure. On error, CW is NOT modified.
+// Returns ("", nil) if no compactor is set.
+func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) {
+	if cw.compactor == nil {
+		return "", nil
+	}
+
+	cw.RLock()
+	msgs := make([]Message, len(cw.messages))
+	copy(msgs, cw.messages)
+	tokensBefore := cw.currentTokens
+	cw.RUnlock()
+
+	if len(msgs) <= 1 {
+		return "", nil // nothing to compact (only system prompt)
+	}
+
+	if cw.log != nil {
+		cw.log.DebugContext(ctx, logger.CatMessages, "compact_and_replace: starting",
+			"messages_count", len(msgs), "tokens_before", tokensBefore)
+	}
+
+	compactStart := time.Now()
+	summary, err := cw.compactor.Compact(ctx, msgs)
+	compactDuration := time.Since(compactStart)
+	if err != nil {
+		if cw.log != nil {
+			cw.log.WarnContext(ctx, logger.CatMessages, "compact_and_replace: compression failed",
+				"err", err.Error(), "duration", compactDuration.String())
+		}
+		return "", err
+	}
+
+	cw.Lock()
+	summaryTokens := cw.tokenizer.Count(summary)
+	summaryMsg := Message{
+		Role:    RoleSystem,
+		Content: "[Previous Conversation Summary]\n" + summary,
+		Tokens:  summaryTokens,
+	}
+	if len(cw.messages) > 0 {
+		tokensAfter := cw.messages[0].Tokens + summaryTokens
+		removedTokens := tokensBefore - tokensAfter
+
+		cw.messages = append(cw.messages[:1], summaryMsg)
+		cw.currentTokens = tokensAfter
+
+		if cw.log != nil {
+			cw.log.InfoContext(ctx, logger.CatMessages, "compact_and_replace: completed",
+				"messages_count_before", len(msgs),
+				"messages_count_after", len(cw.messages),
+				"tokens_before", tokensBefore,
+				"tokens_after", tokensAfter,
+				"tokens_saved", removedTokens,
+				"summary_len", len(summary),
+				"compact_duration", compactDuration.String(),
+			)
+		}
+	}
+	cw.Unlock()
+
+	if cw.summaryHook != nil {
+		cw.summaryHook(summary, msgs)
+	}
+
+	return summary, nil
+}
 
 // asyncCompact compresses the conversation history using the Compactor.
 //

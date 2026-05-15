@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -51,6 +52,21 @@ func (e *LocalExecutor) RunCommand(ctx context.Context, cmd string, opts RunComm
 	}
 
 	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	if opts.WorkingDirectory != "" {
+		wd := opts.WorkingDirectory
+		if strings.HasPrefix(wd, "~/") {
+			usr, err := user.Current()
+			if err == nil {
+				wd = filepath.Join(usr.HomeDir, wd[2:])
+			}
+		} else if wd == "~" {
+			usr, err := user.Current()
+			if err == nil {
+				wd = usr.HomeDir
+			}
+		}
+		c.Dir = filepath.Clean(wd)
+	}
 	if opts.Stdin != "" {
 		c.Stdin = strings.NewReader(opts.Stdin)
 	}

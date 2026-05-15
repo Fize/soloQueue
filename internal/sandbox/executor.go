@@ -45,6 +45,8 @@ type RunCommandOptions struct {
 	Stdin string
 	// MaxOutput stdout/stderr 各自的最大字节数。0 表示不限制。
 	MaxOutput int64
+	// WorkingDirectory optional working directory for command execution; empty = default
+	WorkingDirectory string
 }
 
 // RunCommandResult 命令执行结果。

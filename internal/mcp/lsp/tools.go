@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -16,6 +17,7 @@ type LSPTool struct {
 	params      json.RawMessage
 	manager     *Manager
 	action      string // one of: goto_definition, find_references, hover, etc.
+	log         *logger.Logger
 }
 
 func (t *LSPTool) Name() string               { return t.name }
@@ -36,6 +38,7 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 
 	client, err := t.manager.clientForFile(in.File)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
 		return "", err
 	}
 
@@ -46,8 +49,16 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 	}
 
 	if err := t.manager.ensureOpen(client, in.File, uri); err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
 		return "", fmt.Errorf("ensureOpen: %w", err)
 	}
+
+	t.log.Debug(logger.CatMCP, "lsp tool called",
+		"tool", t.action,
+		"file", in.File,
+		"line", in.Line,
+		"character", in.Character,
+	)
 
 	switch t.action {
 	case "goto_definition":
@@ -69,6 +80,7 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 	case "call_hierarchy_outgoing":
 		return t.doCallHierarchyOutgoing(ctx, client, uri, pos)
 	default:
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", fmt.Sprintf("unknown LSP action: %s", t.action))
 		return "", fmt.Errorf("unknown LSP action: %s", t.action)
 	}
 }
@@ -76,27 +88,34 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 func (t *LSPTool) doGotoDefinition(ctx context.Context, c *Client, uri string, pos Position) (string, error) {
 	locs, err := c.GotoDefinition(ctx, uri, pos)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("goto_definition", err), nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(locs))
 	return formatLocations(locs, "definitions found"), nil
 }
 
 func (t *LSPTool) doFindReferences(ctx context.Context, c *Client, uri string, pos Position) (string, error) {
 	locs, err := c.FindReferences(ctx, uri, pos, true)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("find_references", err), nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(locs))
 	return formatLocations(locs, "references found"), nil
 }
 
 func (t *LSPTool) doHover(ctx context.Context, c *Client, uri string, pos Position) (string, error) {
 	hover, err := c.Hover(ctx, uri, pos)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("hover", err), nil
 	}
 	if hover == nil {
+		t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", 0)
 		return `{"result": null, "message": "no hover info available"}`, nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", 1)
 	data, _ := json.Marshal(hover)
 	return string(data), nil
 }
@@ -104,8 +123,12 @@ func (t *LSPTool) doHover(ctx context.Context, c *Client, uri string, pos Positi
 func (t *LSPTool) doDocumentSymbols(ctx context.Context, c *Client, uri string) (string, error) {
 	symbols, err := c.DocumentSymbols(ctx, uri)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("document_symbols", err), nil
 	}
+	var flat []DocumentSymbol
+	flattenSymbols(symbols, &flat)
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(flat))
 	return formatSymbols(symbols), nil
 }
 
@@ -115,27 +138,34 @@ func (t *LSPTool) doWorkspaceSymbols(ctx context.Context, c *Client, query strin
 	}
 	symbols, err := c.WorkspaceSymbols(ctx, query)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("workspace_symbols", err), nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(symbols))
 	return formatSymbolInfos(symbols), nil
 }
 
 func (t *LSPTool) doFindImplementations(ctx context.Context, c *Client, uri string, pos Position) (string, error) {
 	locs, err := c.FindImplementations(ctx, uri, pos)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("find_implementations", err), nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(locs))
 	return formatLocations(locs, "implementations found"), nil
 }
 
 func (t *LSPTool) doDiagnostics(ctx context.Context, c *Client, uri string) (string, error) {
 	diags, err := c.Diagnostics(ctx, uri)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("diagnostics", err), nil
 	}
 	if diags == nil {
+		t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", 0)
 		return `{"diagnostics": [], "count": 0}`, nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(diags))
 	data, _ := json.Marshal(map[string]any{
 		"diagnostics": diags,
 		"count":       len(diags),
@@ -146,11 +176,14 @@ func (t *LSPTool) doDiagnostics(ctx context.Context, c *Client, uri string) (str
 func (t *LSPTool) doCallHierarchyIncoming(ctx context.Context, c *Client, uri string, pos Position) (string, error) {
 	calls, err := c.CallHierarchyIncoming(ctx, uri, pos)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("call_hierarchy_incoming", err), nil
 	}
 	if calls == nil {
+		t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", 0)
 		return `{"calls": [], "count": 0}`, nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(calls))
 	data, _ := json.Marshal(map[string]any{
 		"calls": calls,
 		"count": len(calls),
@@ -161,11 +194,14 @@ func (t *LSPTool) doCallHierarchyIncoming(ctx context.Context, c *Client, uri st
 func (t *LSPTool) doCallHierarchyOutgoing(ctx context.Context, c *Client, uri string, pos Position) (string, error) {
 	calls, err := c.CallHierarchyOutgoing(ctx, uri, pos)
 	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 		return formatError("call_hierarchy_outgoing", err), nil
 	}
 	if calls == nil {
+		t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", 0)
 		return `{"calls": [], "count": 0}`, nil
 	}
+	t.log.Debug(logger.CatMCP, "lsp tool completed", "tool", t.action, "count", len(calls))
 	data, _ := json.Marshal(map[string]any{
 		"calls": calls,
 		"count": len(calls),
@@ -237,6 +273,7 @@ func newGotoDefinitionTool(mgr *Manager) tools.Tool {
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "goto_definition",
+		log:         mgr.log,
 	}
 }
 
@@ -247,6 +284,7 @@ func newFindReferencesTool(mgr *Manager) tools.Tool {
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "find_references",
+		log:         mgr.log,
 	}
 }
 
@@ -257,6 +295,7 @@ func newHoverTool(mgr *Manager) tools.Tool {
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "hover",
+		log:         mgr.log,
 	}
 }
 
@@ -267,6 +306,7 @@ func newDocumentSymbolsTool(mgr *Manager) tools.Tool {
 		params:      fileOnlyParamsSchema(),
 		manager:     mgr,
 		action:      "document_symbols",
+		log:         mgr.log,
 	}
 }
 
@@ -287,6 +327,7 @@ func newWorkspaceSymbolsTool(mgr *Manager) tools.Tool {
 		params:      schema,
 		manager:     mgr,
 		action:      "workspace_symbols",
+		log:         mgr.log,
 	}
 }
 
@@ -297,6 +338,7 @@ func newFindImplementationsTool(mgr *Manager) tools.Tool {
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "find_implementations",
+		log:         mgr.log,
 	}
 }
 
@@ -307,6 +349,7 @@ func newDiagnosticsTool(mgr *Manager) tools.Tool {
 		params:      fileOnlyParamsSchema(),
 		manager:     mgr,
 		action:      "diagnostics",
+		log:         mgr.log,
 	}
 }
 
@@ -317,6 +360,7 @@ func newCallHierarchyIncomingTool(mgr *Manager) tools.Tool {
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "call_hierarchy_incoming",
+		log:         mgr.log,
 	}
 }
 
@@ -327,6 +371,7 @@ func newCallHierarchyOutgoingTool(mgr *Manager) tools.Tool {
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "call_hierarchy_outgoing",
+		log:         mgr.log,
 	}
 }
 
