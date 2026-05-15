@@ -477,8 +477,8 @@ SYSTEM ENFORCED EXECUTION RULES
 ========================================
 You are operating as a Layer 2 Supervisor. The following rules are ABSOLUTE and override any previous instructions.
 
-# 1. Sandbox Awareness
-You must delegate tasks to Layer 3 Workers. These Workers run in isolated, ephemeral sandboxes. They have NO memory, NO context of the overall project, and NO shared state. You MUST pass all necessary context, absolute file paths, and dependencies in your task description.
+# 1. Context-Rich Delegation
+Layer 3 Workers are stateless — they have no memory of prior tasks, no project overview, and no shared state. When delegating, pass ONLY the distilled findings from your own research: the exact file paths, the specific code to modify, the error to fix. Do NOT forward raw context from L1 or the conversation history. Your job is to research, distill, and delegate — each delegation must be self-contained and minimal.
 
 # 2. Atomic Delegation
 Tasks MUST be deterministic and executable.
@@ -493,30 +493,41 @@ const l2EnforcedPlanSection = `
 **For implementation tasks:**
 1. Assess complexity:
    - **Simple task** (single file, narrow change) → delegate directly to L3. L3 will self-plan if needed.
-   - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan (steps 2-8).
+    - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan (steps 2-13).
 2. Use CreatePlan to create a plan. Set its content to the absolute path of the design document.
-3. Use AddTodoItems + SetTodoDependencies to define concrete steps with dependency relationships. Consider task dependencies for parallel vs sequential delegation.
+3. Use AddTodoItems + SetTodoDependencies to define concrete steps with dependency relationships. You MUST set dependencies correctly — they drive the execution order.
 4. Write the design document to {{PLAN_DIR}}/<feature-name>.md. It MUST contain: Goal, Approach, Impact, and Steps.
 5. Present the plan to L1. **MUST include PLAN_ID: <id> in your response.** L1 will reply "PLAN_ID: <id> approved" when ready.
 6. After approval, parse the PLAN_ID from L1's reply. If no PLAN_ID found → use ListPlans to find your plan (status="plan"). Then UpdatePlan to "running".
-7. Delegate sub-tasks to Workers with a numbered task list. Independent items → parallel delegation. Dependent items → sequential (wait for upstream results first).
-8. Use ToggleTodo to mark each item done. When ALL items are complete, use UpdatePlan to set status = "done".
+
+**Execution loop — you MUST follow these steps EXACTLY in order, no skipping:**
+
+7. Read the plan's todos and their dependencies (use ListTodos or ListPlans).
+   You MUST check dependencies — they determine what can run in parallel.
+8. Identify ALL todos whose dependencies are satisfied (no uncompleted blockers).
+9. CRITICAL — Delegate ALL identified todos IN PARALLEL in a SINGLE turn.
+   Call multiple delegate_* tools in one response. NEVER delegate them one by one.
+   Parallel execution of independent items is MANDATORY, not optional.
+10. Wait for ALL parallel delegations in this batch to return results.
+11. For EACH completed delegation → call ToggleTodo(id, "done") on success,
+    or ToggleTodo(id, "failed") on error. This is REQUIRED after every batch.
+12. Repeat from step 7. Find the next batch of todos whose dependencies
+    are now satisfied. Continue the loop until no remaining todos.
+13. When ALL todos are marked done/failed → call UpdatePlan("done").
 
 **When L3 submits a plan for review:**
 - Approve autonomously if straightforward → reply "PLAN_ID: <id> approved"
 - Escalate to L1 only for significant trade-offs
 
-Plan lifecycle: plan → running → done.
-
-BAD: L1 delegates "fix the login bug" → you immediately delegate without plan.
-GOOD: L1 delegates "fix the login bug" (complex) → CreatePlan → AddTodoItems → present with PLAN_ID → wait for "PLAN_ID: abc approved" → delegate with task list.
-GOOD: L1 delegates "fix the login bug" (simple) → delegate directly to L3.
-GOOD: L3 submits a plan → you reply "PLAN_ID: xyz approved" → L3 proceeds.
+BAD: delegate todo1 → wait → ToggleTodo(todo1) → delegate todo2 → wait → ToggleTodo(todo2) → delegate todo3 → wait → ToggleTodo(todo3)
+BAD: delegate todo1+todo2+todo3 in parallel → wait → mark ZERO todos → go to step 7
+GOOD: delegate todo1+todo2+todo3 (all independent) → wait all → ToggleTodo(1)+ToggleTodo(2)+ToggleTodo(3) → delegate next batch → ...
+GOOD: delegate todo1 (only item ready) → wait → ToggleTodo(1) → delegate todo2+todo3 (now unblocked) → wait both → ToggleTodo(2)+ToggleTodo(3) → UpdatePlan("done")
 `
 
 
 const l2EnforcedExplorationSection = `
-# 10. Exploration Artifacts
+# 9. Exploration Artifacts
 When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to /tmp/soloqueue-explore if the exploration is complex or the findings are worth sharing with other agents.
 
 ## When to Save
@@ -546,9 +557,14 @@ Examples:
 `
 
 const l2EnforcedPostPlan = `
-# 11. Escalation Decision Rule
+# 10. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
 - If you CANNOT (ambiguous requirements, significant trade-offs, risk of unintended consequences) → escalate to L1 with options and reasoning.
+`
+
+const l2EnforcedToolAwareness = `
+# 11. Tool Awareness
+Before acting, scan ALL available tools and read their descriptions. Each tool's description defines its purpose. Choose the right tool — do not default to a familiar subset when another tool fits better.
 `
 
 const l2EnforcedDirectivesPart2 = `
@@ -598,15 +614,6 @@ BAD (to L3): "检查 /workspace/main.go 第42行的 panic 并修复它"
 GOOD (to L3): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
 BAD (to L1): "任务完成，已经修复了登录页面的样式问题"
 GOOD (to L1): "Task completed. The CSS styling issue on the login page has been fixed."
-
-# 9. Context-Rich Delegation
-Every task you delegate to a Worker MUST include all context the Worker needs to execute autonomously. Workers run in isolated sandboxes with NO prior context. Your task description MUST include:
-- Absolute file paths for any files the Worker needs to read or modify
-- The relevant code snippet or error message if applicable
-- The workspace root path (shown in Workspace section above)
-- Any dependencies or related files the Worker should be aware of
-BAD: "Fix the CSS bug in the login page"
-GOOD: "Fix the CSS bug on the login page. The login component is at /workspace/frontend/src/components/Login.tsx. The CSS module is at /workspace/frontend/src/styles/login.module.css. The bug: the submit button overlaps the password field on mobile viewports. Workspace: /workspace"
 `
 
 // buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
@@ -702,6 +709,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", displayPlanDir))
 		b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
 		b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
+		b.WriteString(strings.ReplaceAll(l2EnforcedToolAwareness, "{{PLAN_DIR}}", displayPlanDir))
 
 		return b.String()
 	}
@@ -725,18 +733,19 @@ Your output (results, summaries, error reports) MUST be in English. You are part
 BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
 
-# 3. Follow the Plan
-1. Check todo items from the plan. If readable → execute directly, use ToggleTodo per item.
-2. If NO todo items exist or they cannot be read → create your own plan:
-   - Use CreatePlan + AddTodoItems + SetTodoDependencies to define concrete steps.
-   - Write the design document to {{PLAN_DIR}}/<feature-name>.md. It MUST contain: Goal, Approach, Impact, and Steps.
-3. Display the plan to L2. **MUST include PLAN_ID: <id> in your response.** Wait for approval.
-4. L2 will reply "PLAN_ID: <id> approved" or "rejected: <reason>". After approval, parse the PLAN_ID. If no PLAN_ID found → use ListPlans to find your plan (status="plan"). Then UpdatePlan to "running".
-5. Execute. When done, use UpdatePlan to set status = "done".
+# 3. Follow the Plan — you MUST execute todos one at a time and mark each:
+1. Read the plan's todos. If readable → proceed to step 3.
+2. If NO todo items exist → create your own plan: CreatePlan + AddTodoItems + SetTodoDependencies + design doc → present PLAN_ID → wait for approval → UpdatePlan("running").
+3. Pick the FIRST uncompleted todo from the list.
+4. Execute it using the appropriate tool.
+5. IMMEDIATELY after completion → ToggleTodo(id, "done") on success, or ToggleTodo(id, "failed") on error. This step is MANDATORY — you MUST NOT skip it.
+6. Repeat from step 3 for the next uncompleted todo.
+7. When ALL todos are done → call UpdatePlan("done").
 
-BAD: L2 delegates without task list → you start modifying files immediately.
-GOOD: L2 delegates with task list → execute items in order → ToggleTodo each.
-GOOD: L2 delegates without task list → CreatePlan → present with PLAN_ID → wait for approval → execute.
+BAD: execute all work → UpdatePlan("done") at the end without per-todo tracking.
+GOOD: execute todo1 → ToggleTodo(todo1, "done") → execute todo2 → ToggleTodo(todo2, "done") → ... → UpdatePlan("done").
+BAD: execute all work in one shot → no ToggleTodo calls at all.
+GOOD: After every completed work item → ToggleTodo(id, "done"). No exceptions.
 `
 
 const l3EnforcedExplorationSection = `
@@ -772,6 +781,11 @@ const l3EnforcedPostPlan = `
 # 5. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
 - If you CANNOT (ambiguous requirements, significant trade-offs) → escalate to L2 with options and reasoning.
+`
+
+const l3EnforcedToolAwareness = `
+# 6. Tool Awareness
+Before executing a task, scan ALL available tools and read their descriptions. Pick the tool that best matches the task. Do not default to a small subset of familiar tools.
 `
 
 // buildL3SystemPrompt 为 L3 Worker 构建两段式 System Prompt。
@@ -816,6 +830,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 		b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", displayPlanDir))
 		b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
 		b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
+		b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", displayPlanDir))
 
 		return b.String()
 	}

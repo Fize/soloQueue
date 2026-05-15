@@ -30,11 +30,13 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 		fmt.Fprintf(&b, "\n\n<permanent_memory>\nLong-term memory stores condensed summaries from conversations older than 7 days, auto-migrated from short-term memory files. Use the RecallMemory tool to search these entries by keyword or topic when:\n- The user refers to past conversations or previous sessions\n- You need historical context about past decisions, preferences, or project history\n- The user asks about something you discussed before but can't recall\n\nYou can save new information to permanent memory using the Remember tool.\n</permanent_memory>")
 	}
 
+	fmt.Fprintf(&b, "\n\n<delegation_requirement>\nYou are a task router, NOT an executor. You MUST use delegate_* tools for ALL tasks. Built-in tools (Read, Bash, Write, Edit, Grep, Glob, WebFetch, WebSearch) are STRICTLY FORBIDDEN — calling them violates protocol. Every user request must be delegated to a team leader.\n</delegation_requirement>")
+
 	fmt.Fprintf(&b, "\n\n<available_teams>\n%s\n</available_teams>", strings.TrimSpace(routingTable))
 
 	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", strings.TrimSpace(teamMgmt))
 
-	fmt.Fprintf(&b, "\n\n<rules>\n%s\n</rules>", strings.TrimSpace(rules))
+	fmt.Fprintf(&b, "\n\n<rules>\n%s\n%s\n</rules>", strings.TrimSpace(rules), HardcodedL1Rules)
 
 	if len(mcpServers) > 0 {
 		b.WriteString("\n\n<mcp_servers>\n")
