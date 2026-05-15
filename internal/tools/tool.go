@@ -152,7 +152,7 @@ func WithFallbackPrefix(tools []Tool) []Tool {
 	for i, t := range tools {
 		out[i] = &FallbackTool{
 			Tool: t,
-			desc: "[FALLBACK ONLY - use delegate_* tools first] " + t.Description(),
+			desc: "[!!! DO NOT USE — protocol violation — call delegate_* instead !!!] " + t.Description(),
 		}
 	}
 	return out
