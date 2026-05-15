@@ -176,7 +176,7 @@ func (h *FileHandler) close() error {
 // buildEntry 构造 JSONL 条目
 func (h *FileHandler) buildEntry(r slog.Record, cat Category) map[string]any {
 	entry := map[string]any{
-		"ts":       r.Time.UTC().Format(time.RFC3339Nano),
+		"ts":       r.Time.Local().Format(time.RFC3339Nano),
 		"level":    r.Level.String(),
 		"category": string(cat),
 		"msg":      r.Message,

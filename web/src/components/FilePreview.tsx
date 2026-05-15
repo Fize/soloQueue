@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { getFileUrl } from '@/lib/api'
-import { Loader2, FileIcon } from 'lucide-react'
+import { Loader2, FileIcon, Copy, Check } from 'lucide-react'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -110,6 +111,7 @@ export function FilePreview({ path, open, onClose }: FilePreviewProps) {
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const ext = getExt(path)
   const fileName = path.split('/').pop() ?? path
@@ -118,6 +120,15 @@ export function FilePreview({ path, open, onClose }: FilePreviewProps) {
   const isVideo = videoExtensions.includes(ext)
   const isMarkdown = ext === '.md' || ext === '.markdown'
   const language = extToLanguage[ext]
+  const showCopyButton = content !== null && !isImage && !isAudio && !isVideo
+
+  function handleCopy() {
+    if (!content) return
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
 
   useEffect(() => {
     if (!open) {
@@ -232,9 +243,24 @@ export function FilePreview({ path, open, onClose }: FilePreviewProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-0">
+        <DialogHeader className="px-6 pt-6 pb-0 relative">
           <DialogTitle className="text-sm font-mono truncate pr-4">{fileName}</DialogTitle>
           <p className="text-xs text-muted-foreground truncate">{path}</p>
+          {showCopyButton && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCopy}
+              title={copied ? 'Copied!' : 'Copy content'}
+              className="absolute right-6 top-6"
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
         </DialogHeader>
 
         <ScrollArea className="flex-1 max-h-[calc(85vh-7rem)] px-6 py-4">

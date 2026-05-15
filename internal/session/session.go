@@ -124,6 +124,9 @@ type Session struct {
 
 	memoryHook    MemoryHook        // optional callback for short-term memory (nil = disabled)
 	memoryManager *memory.Manager   // for dedup cursor; set alongside memoryHook
+
+	idleTimeout     time.Duration // 0 = disabled; auto-clear idle sessions
+	compactThreshold int          // 0 = disabled; minimum CW tokens to trigger compact
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -370,6 +373,54 @@ func (s *Session) ClearSilent() error {
 	return nil
 }
 
+// checkAutoClear checks if the session has been idle for long enough and
+// the context window is large enough to warrant automatic compression.
+// If both conditions are met, it compresses the conversation history into
+// a summary and replaces the CW content with system_prompt + summary.
+//
+// Must be called while inFlight is held (no concurrent Ask).
+func (s *Session) checkAutoClear() {
+	timeout := s.idleTimeout
+	threshold := s.compactThreshold
+	if timeout <= 0 || threshold <= 0 {
+		return
+	}
+
+	lastNano := s.lastActive.Load()
+	if lastNano == 0 {
+		return
+	}
+	if time.Since(time.Unix(0, lastNano)) < timeout {
+		return
+	}
+
+	s.mu.Lock()
+	tokens := s.cw.CurrentTokens()
+	s.mu.Unlock()
+
+	if tokens < threshold {
+		s.logger.InfoContext(context.Background(), logger.CatApp, "auto-clear: idle but tokens below compact threshold",
+			"tokens", tokens, "threshold", threshold)
+		return
+	}
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "auto-clear: compressing idle session context",
+		"tokens", tokens, "threshold", threshold)
+
+	compactCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	summary, err := s.cw.CompactAndReplace(compactCtx)
+	if err != nil {
+		s.logger.WarnContext(context.Background(), logger.CatApp, "auto-clear: compact failed, keeping context",
+			"err", err.Error())
+		return
+	}
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "auto-clear: context compressed and replaced",
+		"summary_len", len(summary))
+}
+
 // Ask 发送一轮 prompt，返回最终 content
 //
 // 语义：
@@ -394,6 +445,8 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	}
 	defer s.inFlight.Store(0)
 	defer s.touch()
+
+	s.checkAutoClear()
 
 	start := time.Now()
 
@@ -476,6 +529,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		return nil, ErrQueued
 	}
 	// 注意：inFlight 的释放由下面的 forwarder goroutine 负责
+	// checkAutoClear 必须在 touch 之前（此时 lastActive 是上次 Ask 结束的时间）
+	s.checkAutoClear()
 	s.touch()
 
 	start := time.Now()
@@ -822,6 +877,9 @@ type SessionManager struct {
 	memoryManager *memory.Manager
 	logger        *logger.Logger
 
+	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
+	compactThreshold int           // 0 = disabled; minimum tokens to trigger compact
+
 	mu      sync.Mutex
 	session *Session
 	closed  atomic.Bool
@@ -858,6 +916,18 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
 func (m *SessionManager) SetMemoryManager(mm *memory.Manager) {
 	m.memoryManager = mm
+}
+
+// SetIdleReaper enables automatic context compression for idle sessions.
+// When the session has been idle for longer than idleTimeout AND the context
+// window exceeds compactThreshold tokens, the old context is compressed into
+// a summary and injected back as a system message.
+//
+// Must be called before Init(). Not thread-safe for setup.
+// Pass idleTimeout <= 0 or compactThreshold <= 0 to disable.
+func (m *SessionManager) SetIdleReaper(idleTimeout time.Duration, compactThreshold int) {
+	m.idleTimeout = idleTimeout
+	m.compactThreshold = compactThreshold
 }
 
 // Init 创建唯一 session；重复调用返回已存在的 session
@@ -903,6 +973,10 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	}
 	if m.memoryManager != nil {
 		s.memoryManager = m.memoryManager
+	}
+	if m.idleTimeout > 0 {
+		s.idleTimeout = m.idleTimeout
+		s.compactThreshold = m.compactThreshold
 	}
 
 	m.mu.Lock()

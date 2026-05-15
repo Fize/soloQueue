@@ -61,7 +61,8 @@ func (shellExecTool) Name() string { return "Bash" }
 func (shellExecTool) Description() string {
 	return "Run a shell command. Dangerous commands (rm, dd, mkfs, etc.) require user confirmation. " +
 		"Uses /bin/sh -c <cmd>. " +
-		"Returns {exit_code,stdout,stderr,truncated}."
+		"Returns {exit_code,stdout,stderr,truncated}. " +
+		"Supports optional working_directory parameter."
 }
 
 func (shellExecTool) Parameters() json.RawMessage {
@@ -70,16 +71,18 @@ func (shellExecTool) Parameters() json.RawMessage {
   "properties":{
     "command":{"type":"string","description":"Shell command to execute"},
     "stdin":{"type":"string","description":"Optional stdin for the subprocess"},
-    "confirmed":{"type":"boolean","description":"Set to true after user confirms a dangerous command"}
+    "confirmed":{"type":"boolean","description":"Set to true after user confirms a dangerous command"},
+    "working_directory":{"type":"string","description":"Optional working directory for the command. If set, the command runs from this directory."}
   },
   "required":["command"]
 }`)
 }
 
 type shellExecArgs struct {
-	Command   string `json:"command"`
-	Stdin     string `json:"stdin,omitempty"`
-	Confirmed bool   `json:"confirmed,omitempty"`
+	Command          string `json:"command"`
+	Stdin            string `json:"stdin,omitempty"`
+	Confirmed        bool   `json:"confirmed,omitempty"`
+	WorkingDirectory string `json:"working_directory,omitempty"`
 }
 
 type shellExecResult struct {
@@ -168,8 +171,9 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	res, err := t.cfg.Executor.RunCommand(ctx, a.Command, sandbox.RunCommandOptions{
-		Stdin:     a.Stdin,
-		MaxOutput: maxOut,
+		Stdin:            a.Stdin,
+		MaxOutput:        maxOut,
+		WorkingDirectory: a.WorkingDirectory,
 	})
 
 	shellRes := shellExecResult{
