@@ -55,7 +55,7 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
       {/* Mobile: Horizontal tab strip */}
       <div
         ref={scrollRef}
-        className="flex gap-1 overflow-x-auto border-b-2 border-border px-4 py-2 md:hidden"
+        className="flex gap-1 overflow-x-auto border-b border-border px-4 py-2 md:hidden"
       >
         {settingsTabs.map((tab) => {
           const Icon = tab.icon
@@ -66,8 +66,8 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
               className={cn(
                 'flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
                 activeTab === tab.id
-                  ? 'nb-border bg-primary nb-shadow-xs font-bold text-primary-foreground'
-                  : 'border-2 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
+                  ? 'border bg-primary font-bold text-primary-foreground shadow-xs'
+                  : 'border border-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
               )}
             >
               <Icon className="h-4 w-4" />
@@ -78,7 +78,7 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
       </div>
 
       {/* Desktop: Sidebar */}
-      <aside className="hidden w-48 shrink-0 border-r-2 border-border bg-card p-4 md:block">
+      <aside className="hidden w-48 shrink-0 border-r border-border bg-card p-4 md:block">
         <nav className="flex flex-col gap-1">
           {settingsTabs.map((tab) => {
             const Icon = tab.icon
@@ -89,8 +89,8 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors',
                   activeTab === tab.id
-                    ? 'nb-border bg-primary nb-shadow-xs font-bold text-primary-foreground'
-                    : 'border-2 border-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
+                    ? 'border bg-primary font-bold text-primary-foreground shadow-xs'
+                    : 'border border-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
                 )}
               >
                 <Icon className="h-4 w-4" />

@@ -6,9 +6,9 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 
 const columnConfig: Record<PlanStatus, { label: string; dot: string; bg: string }> = {
-  plan: { label: 'Plan', dot: 'bg-blue-500', bg: 'bg-status-plan/10' },
-  running: { label: 'Running', dot: 'bg-amber-500', bg: 'bg-status-running/10' },
-  done: { label: 'Done', dot: 'bg-green-500', bg: 'bg-status-done/10' },
+  plan: { label: 'Plan', dot: 'bg-[#635BFF]', bg: 'bg-muted/50' },
+  running: { label: 'Running', dot: 'bg-[#FFB020]', bg: 'bg-amber-50/50' },
+  done: { label: 'Done', dot: 'bg-[#00D924]', bg: 'bg-green-50/50' },
 }
 
 interface BoardColumnProps {
@@ -25,8 +25,8 @@ export function BoardColumn({ status, plans, onPlanClick }: BoardColumnProps) {
     <div
       ref={setNodeRef}
       className={cn(
-        'flex flex-1 flex-col min-h-0 nb-border rounded-xl transition-colors duration-200 bg-card',
-        isOver && 'border-primary border-[3px] bg-primary/[0.03]'
+        'flex flex-1 flex-col min-h-0 border rounded-xl transition-colors duration-200 bg-card',
+        isOver && 'border-primary border-2 bg-primary/[0.03]'
       )}
     >
       {/* Column header */}
@@ -35,7 +35,7 @@ export function BoardColumn({ status, plans, onPlanClick }: BoardColumnProps) {
           className={cn('h-2.5 w-2.5 rounded-full border-2 border-white shadow-sm', config.dot)}
         />
         <h2 className="text-sm font-bold text-foreground">{config.label}</h2>
-        <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-md nb-border bg-card px-1.5 text-[11px] font-bold text-foreground">
+        <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-md border bg-card px-1.5 text-[11px] font-bold text-foreground">
           {plans.length}
         </span>
       </div>
@@ -45,7 +45,7 @@ export function BoardColumn({ status, plans, onPlanClick }: BoardColumnProps) {
         <SortableContext items={plans.map((p) => p.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2.5">
             {plans.length === 0 && (
-              <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-[#EEEEEE] text-xs text-muted-foreground">
+              <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
                 No plans yet
               </div>
             )}

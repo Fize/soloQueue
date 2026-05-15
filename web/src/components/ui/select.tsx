@@ -29,7 +29,7 @@ function Select({ className, options, label, onChange, id, ...props }: SelectPro
         id={selectId}
         data-slot="select"
         className={cn(
-          "flex h-8 w-full rounded-md border-2 border-[#EEEEEE] bg-transparent px-3 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:nb-shadow-focus disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-8 w-full rounded-md border bg-transparent px-3 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
           className,
         )}
         onChange={(e) => onChange?.(e.target.value)}

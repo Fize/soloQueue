@@ -1,4 +1,4 @@
-import { useSkills } from '@/hooks/useToolsAndSkills';
+import { useToolsAndSkillsStore } from '@/stores/toolsAndSkillsStore';
 import { Sparkles, BookOpen } from 'lucide-react';
 import type { SkillInfo } from '@/types';
 
@@ -8,7 +8,7 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
   const isBuiltin = skill.category === 'builtin';
 
   return (
-    <div className="nb-border rounded-lg bg-card p-4 nb-shadow-xs nb-card-hover">
+    <div className="border rounded-lg bg-card p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5">
       <div className="flex items-start gap-3">
         <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${isBuiltin ? 'bg-primary' : 'bg-success'}`}>
           <Sparkles className={`h-4 w-4 ${isBuiltin ? 'text-primary-foreground' : 'text-success-foreground'}`} />
@@ -56,7 +56,8 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function SkillsTab() {
-  const { skills, loading } = useSkills();
+  const skills = useToolsAndSkillsStore((state) => state.skills);
+  const loading = useToolsAndSkillsStore((state) => state.skillsLoading);
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading skills...</div>;
@@ -68,7 +69,7 @@ export function SkillsTab() {
 
   if (skillList.length === 0) {
     return (
-      <div className="nb-border rounded-lg bg-card p-8 nb-shadow-sm text-center">
+      <div className="border rounded-lg bg-card p-8 shadow-sm text-center">
         <p className="text-sm text-muted-foreground">No skills registered</p>
       </div>
     );
@@ -78,7 +79,7 @@ export function SkillsTab() {
     <div className="space-y-6">
       {/* Built-in Skills */}
       {builtinSkills.length > 0 && (
-        <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+        <div className="border rounded-lg bg-card p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-foreground" />
             <h3 className="text-sm font-bold text-foreground">Built-in Skills</h3>
@@ -96,7 +97,7 @@ export function SkillsTab() {
 
       {/* User Skills */}
       {userSkills.length > 0 && (
-        <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+        <div className="border rounded-lg bg-card p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <BookOpen className="h-4 w-4 text-foreground" />
             <h3 className="text-sm font-bold text-foreground">User Skills</h3>

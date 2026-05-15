@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useConfig } from '@/hooks/useConfig';
-import { useTools } from '@/hooks/useToolsAndSkills';
+import { useConfigStore } from '@/stores/configStore';
+import { useToolsAndSkillsStore } from '@/stores/toolsAndSkillsStore';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -31,7 +31,7 @@ function ToolCard({ tool }: { tool: ToolInfo }) {
   const paramCount = getParamCount(tool.parameters);
 
   return (
-    <div className="nb-border rounded-lg bg-card p-3 nb-shadow-xs nb-card-hover">
+    <div className="border rounded-lg bg-card p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5">
       <div className="flex items-start gap-2.5">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary">
           <Icon className="h-4 w-4 text-secondary-foreground" />
@@ -57,8 +57,12 @@ function ToolCard({ tool }: { tool: ToolInfo }) {
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function ToolsTab() {
-  const { config, patch, saving, error } = useConfig();
-  const { tools: toolList, loading: toolsLoading } = useTools();
+  const config = useConfigStore((state) => state.config);
+  const patch = useConfigStore((state) => state.patch);
+  const saving = useConfigStore((state) => state.saving);
+  const error = useConfigStore((state) => state.error);
+  const toolList = useToolsAndSkillsStore((state) => state.tools);
+  const toolsLoading = useToolsAndSkillsStore((state) => state.toolsLoading);
 
   const [toolsCfg, setToolsCfg] = useState<ToolsConfig | null>(null);
   const [newAllowedHost, setNewAllowedHost] = useState('');
@@ -95,7 +99,7 @@ export function ToolsTab() {
   return (
     <div className="space-y-6">
       {/* Built-in Tools List */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <Wrench className="h-4 w-4 text-foreground" />
           <h3 className="text-sm font-bold text-foreground">Built-in Tools</h3>
@@ -117,7 +121,7 @@ export function ToolsTab() {
       </div>
 
       {/* File Read Limits */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="text-sm font-bold text-foreground mb-4">File Read Limits</h3>
         <div className="grid grid-cols-2 gap-4">
           <div className="flex items-end gap-2">
@@ -153,7 +157,7 @@ export function ToolsTab() {
             onChange={(e) => setToolsCfg({ ...tools, maxGlobItems: Number(e.target.value) })}
           />
         </div>
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="mr-1 h-3 w-3" /> {saving ? 'Saving...' : 'Save Read Limits'}
           </Button>
@@ -161,7 +165,7 @@ export function ToolsTab() {
       </div>
 
       {/* File Write Limits */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="text-sm font-bold text-foreground mb-4">File Write Limits</h3>
         <div className="grid grid-cols-2 gap-4">
           <div className="flex items-end gap-2">
@@ -201,7 +205,7 @@ export function ToolsTab() {
             onChange={(e) => setToolsCfg({ ...tools, maxReplaceEdits: Number(e.target.value) })}
           />
         </div>
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="mr-1 h-3 w-3" /> {saving ? 'Saving...' : 'Save Write Limits'}
           </Button>
@@ -209,7 +213,7 @@ export function ToolsTab() {
       </div>
 
       {/* HTTP Limits */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="text-sm font-bold text-foreground mb-4">HTTP Limits</h3>
         <div className="grid gap-4">
           <div className="flex items-center justify-between">
@@ -264,7 +268,7 @@ export function ToolsTab() {
             </div>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="mr-1 h-3 w-3" /> {saving ? 'Saving...' : 'Save HTTP Limits'}
           </Button>
@@ -272,7 +276,7 @@ export function ToolsTab() {
       </div>
 
       {/* Shell Limits */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="text-sm font-bold text-foreground mb-4">Shell Limits</h3>
         <div className="grid gap-4">
           <div className="flex items-end gap-2">
@@ -338,7 +342,7 @@ export function ToolsTab() {
             </div>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="mr-1 h-3 w-3" /> {saving ? 'Saving...' : 'Save Shell Limits'}
           </Button>
@@ -346,7 +350,7 @@ export function ToolsTab() {
       </div>
 
       {/* WebSearch */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="text-sm font-bold text-foreground mb-4">Web Search</h3>
         <Input
           label="Timeout (ms)"
@@ -356,7 +360,7 @@ export function ToolsTab() {
           onChange={(e) => setToolsCfg({ ...tools, webSearchTimeoutMs: Number(e.target.value) })}
           className="w-40"
         />
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="mr-1 h-3 w-3" /> {saving ? 'Saving...' : 'Save WebSearch'}
           </Button>

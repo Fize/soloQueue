@@ -46,7 +46,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
   };
 
   return (
-    <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+    <div className="border rounded-lg bg-card p-5 shadow-sm">
       {/* Header */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -87,11 +87,11 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          className="w-full min-h-[400px] resize-y rounded-md border-2 border-border bg-[#1E1E2E] p-4 font-mono text-xs leading-relaxed text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="w-full min-h-[400px] resize-y rounded-md border border-border bg-[#1E1E2E] p-4 font-mono text-xs leading-relaxed text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-primary/50"
           spellCheck={false}
         />
       ) : (
-        <ScrollArea className="h-[400px] rounded-md border-2 border-border bg-[#1E1E2E] p-4">
+        <ScrollArea className="h-[400px] rounded-md border border-border bg-[#1E1E2E] p-4">
           {content ? (
             <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-[#E5E7EB]">
               {content}
@@ -104,7 +104,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
 
       {/* Footer */}
       {editing && (
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSave} disabled={saving || draft === content}>
             {saving ? (
               <>
