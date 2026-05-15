@@ -33,6 +33,7 @@ type SkillCategory = skill.SkillCategory
 type SkillInfoResponse struct {
 	ID                     string        `json:"id"`
 	Description            string        `json:"description"`
+	WhenToUse              string        `json:"when_to_use"`
 	Category               SkillCategory `json:"category"`
 	UserInvocable          bool          `json:"user_invocable"`
 	DisableModelInvocation bool          `json:"disable_model_invocation"`
@@ -104,6 +105,7 @@ func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 		skillInfos = append(skillInfos, SkillInfoResponse{
 			ID:                     s.ID,
 			Description:            s.Description,
+			WhenToUse:              s.WhenToUse,
 			Category:               s.Category,
 			UserInvocable:          s.UserInvocable,
 			DisableModelInvocation: s.DisableModelInvocation,

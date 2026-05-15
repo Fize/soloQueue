@@ -174,6 +174,27 @@ func ServeCmd(version string) *cobra.Command {
 			a.SetOnStateChange(func(s agent.State) { wsHub.Notify() })
 		}
 
+		// Background goroutine: sync context window metrics every 3s
+		go func() {
+			ticker := time.NewTicker(3 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-rootCtx.Done():
+					return
+				case <-ticker.C:
+					s := mgr.Session()
+					if s == nil {
+						continue
+					}
+					cur, maxTokens, _ := s.CW().TokenUsage()
+					if maxTokens > 0 {
+						runtimeMetrics.SetContext(cur * 100 / maxTokens)
+					}
+				}
+			}
+		}()
+
 		srv := &http.Server{Handler: mux}
 
 			go func() {
