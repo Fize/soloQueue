@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -154,6 +156,8 @@ func (a *Agent) execToolsWithAsync(
 			results[i] = "error: " + err.Error()
 			continue
 		}
+
+		results[i] = formatDelegationStarted(tc)
 
 		turnState.pending.Add(1)
 		replyCh := make(chan delegateResult, 1)
@@ -424,7 +428,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 //
 // 由高优先级 job 调用。此时所有异步结果已到齐：
 //  1. 清理 asyncTurns 注册
-//  2. push 所有 tool result 到 cw
+//  2. 将实际委托结果格式化为 user 消息 push 到 cw
 //  3. 发射 DelegationCompletedEvent
 //  4. 继续工具循环
 func (a *Agent) resumeTurn(turn *asyncTurnState) {
@@ -433,21 +437,12 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	delete(a.asyncTurns, turn.iter)
 	a.turnMu.Unlock()
 
-	// push 所有 tool result 到 cw
-	// 添加边界检查，防止 len(toolCalls) != len(results) 时 panic
-	for i, tc := range turn.toolCalls {
-		toolResult := ""
-		if i < len(turn.results) {
-			toolResult = turn.results[i]
-		} else {
-			// 结果缺失，填入错误信息
-			toolResult = fmt.Sprintf("error: tool result missing for %s", tc.ID)
-		}
-		turn.cw.Push(ctxwin.RoleTool, toolResult,
-			ctxwin.WithToolCallID(tc.ID),
-			ctxwin.WithToolName(tc.Function.Name),
-			ctxwin.WithEphemeral(true),
-		)
+	// 将实际委托结果格式化为 user 消息 push 到 cw
+	// 通过 wrapInToolPair 包裹为 assistant(tool_calls) + tool(result) + user(result) 的结构，
+	// 确保 LLM 能正确理解这是一次工具调用的返回结果。
+	resultMsg := formatDelegationCompleted(turn.toolCalls, turn.results)
+	if resultMsg != "" {
+		turn.cw.Push(ctxwin.RoleUser, resultMsg)
 	}
 
 	// 发射 DelegationCompletedEvent
@@ -530,4 +525,65 @@ func (a *Agent) saveAsyncCancel(ctx context.Context, cancel context.CancelFunc) 
 	}
 	// Defensive: no matching turn found — cancel now to prevent leak.
 	cancel()
+}
+
+// delegationArgs 委托工具的参数结构
+type delegationArgs struct {
+	Task string `json:"task"`
+}
+
+// formatDelegationStarted generates an immediate tool result for async delegation.
+// This ensures the assistant(tool_calls) → tool(result) pair is complete in CW,
+// preventing interleaved user messages from violating LLM API message ordering.
+func formatDelegationStarted(tc llm.ToolCall) string {
+	var d delegationArgs
+	_ = json.Unmarshal([]byte(tc.Function.Arguments), &d)
+	task := d.Task
+	if task == "" {
+		task = tc.Function.Arguments
+	}
+	name := tc.Function.Name
+	if name == "" {
+		name = "delegate"
+	}
+	return fmt.Sprintf("Delegation started: task assigned via '%s'.\nTask: %s\nWaiting for results...", name, task)
+}
+
+// formatDelegationCompleted builds a user message containing completed delegation results.
+// It filters only delegate_* tool calls and formats their results as:
+//
+//	[Delegation Completed]
+//
+//	Task: {task description}
+//	Assigned to: {agent ID}
+//	Result:
+//	{result content}
+func formatDelegationCompleted(toolCalls []llm.ToolCall, results []string) string {
+	var sb strings.Builder
+	sb.WriteString("[Delegation Completed]\n\n")
+	hasResults := false
+	for i, tc := range toolCalls {
+		if !strings.HasPrefix(tc.Function.Name, "delegate_") {
+			continue
+		}
+		result := ""
+		if i < len(results) {
+			result = results[i]
+		}
+		var d delegationArgs
+		_ = json.Unmarshal([]byte(tc.Function.Arguments), &d)
+		task := d.Task
+		if task == "" {
+			task = tc.Function.Arguments
+		}
+		sb.WriteString(fmt.Sprintf("Task: %s\n", task))
+		sb.WriteString("Result:\n")
+		sb.WriteString(result)
+		sb.WriteString("\n\n")
+		hasResults = true
+	}
+	if !hasResults {
+		return ""
+	}
+	return sb.String()
 }

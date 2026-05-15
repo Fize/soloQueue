@@ -461,7 +461,9 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 	if hasAsync {
 		// Async path:
 		// - assistant(tool_calls) already pushed to cw
-		// - tool results NOT pushed (wait for async results)
+		// - Push immediate tool results (delegation confirmations) to complete the pair.
+		//   This prevents user messages from interleaving between assistant(tool_calls)
+		//   and tool(result), which would violate LLM API message ordering.
 		// - out NOT closed (streamLoop returns yielded=true, resumeTurn → streamLoop will close on final exit)
 		// - emit DelegationStartedEvent
 		var numTasks int
@@ -470,6 +472,16 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 			numTasks = int(ts.pending.Load())
 		}
 		a.turnMu.RUnlock()
+
+		// Push immediate tool results for ALL tools (sync results + delegation confirmations)
+		for i, tc := range calls {
+			s.cw.Push(ctxwin.RoleTool, results[i],
+				ctxwin.WithToolCallID(tc.ID),
+				ctxwin.WithToolName(tc.Function.Name),
+				ctxwin.WithEphemeral(true),
+			)
+		}
+
 		a.logInfo(ctx, logger.CatLLM, "async delegation started",
 			"iter", iter,
 			"num_tasks", numTasks,
