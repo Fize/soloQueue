@@ -839,7 +839,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			a.confirmMu.Unlock()
 		}()
 
-		// Block until TUI calls L2.Confirm(callID, choice) → slot.ch receives choice
+		// Block until Confirm(callID, choice) is called → slot.ch receives choice
 		select {
 		case choice := <-slot.ch:
 			// Forward to child agent's (L3) original confirmSlot
