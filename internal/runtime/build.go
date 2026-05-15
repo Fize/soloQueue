@@ -35,7 +35,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
 )
 
-// ProfileSetupFn writes the user profile on first startup (interactive questionnaire for TUI, defaults for serve).
+// ProfileSetupFn writes the user profile on first startup.
 type ProfileSetupFn func(cfg *prompt.PromptConfig) error
 
 // Build initializes the runtime stack shared by both modes:
@@ -195,7 +195,6 @@ func Build(
 	var permanentMgr *permanent.Manager
 	var permScheduler *permanent.Scheduler
 	var permCancel context.CancelFunc
-	permNotifyCh := make(chan string, 8)
 
 	if settings.Embedding.Enabled {
 		embModel := cfg.DefaultEmbeddingModel()
@@ -223,10 +222,6 @@ func Build(
 						permanentMgr = permanent.NewManager(store, embClient, nil, "", memoryDir, log, minSim, normFlag)
 						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
 							log.Error(logger.CatApp, msg)
-							select {
-							case permNotifyCh <- msg:
-							default:
-							}
 						})
 						permCtx, cancel := context.WithCancel(context.Background())
 						permCancel = cancel
@@ -303,7 +298,7 @@ func Build(
 	// Build model resolver: validates agent model IDs against settings.toml
 	modelResolver := BuildModelResolver(cfg)
 
-	// Load global skill registry (shared by TUI slash commands and sessions)
+	// Load global skill registry
 	skillStart := time.Now()
 	skill.SetPackageLogger(log)
 	skillReg := skill.NewSkillRegistry()
@@ -410,7 +405,6 @@ func Build(
 		MemoryManager:   memoryMgr,
 		PermanentMemory: permanentMgr,
 		PermScheduler:   permScheduler,
-		PermNotifyCh:    permNotifyCh,
 		PermCancel:      permCancel,
 		TodoStore:       todoStore,
 		SharedDB:        sharedDB,
@@ -418,9 +412,6 @@ func Build(
 		MCPManager:      mcpMgr,
 		LSPManager:      lspMgr,
 	}
-
-	// Register config hot-reload callback
-	RegisterHotReload(rt, cfg, log, workDir)
 
 	// MCP config hot-reload: reload manager when mcp.json changes.
 	if mcpLoader != nil && mcpMgr != nil {
@@ -593,10 +584,6 @@ func InitLogger(workDir string, cfg *config.GlobalService, console bool) (*logge
 	if err != nil {
 		return nil, err
 	}
-
-	cfg.SetErrorHandler(func(err error) {
-		log.Error(logger.CatConfig, "config watcher error", "err", err.Error())
-	})
 
 	return log, nil
 }

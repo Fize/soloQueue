@@ -60,7 +60,7 @@ Users can lock the session to a specific level:
 **Lock behavior:**
 - Once locked, all subsequent messages use the locked level
 - Lock applies until a new lock command changes it
-- Locked level is displayed in TUI header
+- Locked level is displayed in the runtime status API
 
 ## Slash Commands (Non-Locking)
 

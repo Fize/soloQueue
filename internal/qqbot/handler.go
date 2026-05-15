@@ -124,7 +124,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		"content_len", len(msg.Content),
 		"open_id", msg.OpenID)
 
-	// Handle slash commands locally, consistent with TUI behavior.
+	// Handle slash commands locally.
 	// Known builtins are handled here; unrecognized slash commands and skills
 	// are forwarded to the LLM as normal input.
 	if b.handleSlashCommand(ctx, msg) {
@@ -191,7 +191,7 @@ func isSlashCommandInput(input string) bool {
 	return !strings.Contains(trimmed, "\n") && strings.HasPrefix(trimmed, "/")
 }
 
-// handleSlashCommand processes slash commands locally, consistent with TUI behavior.
+// handleSlashCommand processes slash commands locally.
 // Returns true if the command was handled (caller should not forward to LLM).
 // Unrecognized slash commands return false so they are forwarded to LLM as normal input.
 func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) bool {

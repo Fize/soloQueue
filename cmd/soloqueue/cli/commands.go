@@ -54,7 +54,6 @@ func ServeCmd(version string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("init config: %w", err)
 			}
-			defer cfg.Close()
 
 			log, err := runtime.InitLogger(workDir, cfg, verbose)
 			if err != nil {
@@ -250,7 +249,6 @@ func VersionCmd(version string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("init config: %w", err)
 			}
-			defer cfg.Close()
 
 			log, err := runtime.InitLogger(workDir, cfg, false)
 			if err != nil {

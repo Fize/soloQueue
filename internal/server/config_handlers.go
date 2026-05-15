@@ -41,9 +41,7 @@ type configPatchRequest struct {
 }
 
 type sessionPatch struct {
-	TimelineMaxFileMB       *int `json:"timelineMaxFileMB,omitempty"`
-	TimelineMaxFiles        *int `json:"timelineMaxFiles,omitempty"`
-	ContextIdleThresholdMin *int `json:"contextIdleThresholdMin,omitempty"`
+	TimelineMaxFileMB *int `json:"timelineMaxFileMB,omitempty"`
 }
 
 type logPatch struct {
@@ -138,12 +136,6 @@ func applyConfigPatch(current *config.Settings, patch configPatchRequest) {
 	if patch.Session != nil {
 		if patch.Session.TimelineMaxFileMB != nil {
 			current.Session.TimelineMaxFileMB = *patch.Session.TimelineMaxFileMB
-		}
-		if patch.Session.TimelineMaxFiles != nil {
-			current.Session.TimelineMaxFiles = *patch.Session.TimelineMaxFiles
-		}
-		if patch.Session.ContextIdleThresholdMin != nil {
-			current.Session.ContextIdleThresholdMin = *patch.Session.ContextIdleThresholdMin
 		}
 	}
 

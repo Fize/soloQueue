@@ -90,12 +90,3 @@ func TestDefaultRules(t *testing.T) {
 	}
 }
 
-func TestProfilePromptText(t *testing.T) {
-	text := ProfilePromptText()
-	if !strings.Contains(text, "SoloQueue") {
-		t.Error("prompt text should contain default name option")
-	}
-	if !strings.Contains(text, "personalize your assistant") {
-		t.Error("prompt text should contain setup instructions")
-	}
-}
