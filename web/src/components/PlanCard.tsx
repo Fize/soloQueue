@@ -19,9 +19,9 @@ const statusIcon = {
 };
 
 const statusColor = {
-  plan: 'text-blue-600',
-  running: 'text-amber-600',
-  done: 'text-green-600',
+  plan: 'text-[#635BFF]',
+  running: 'text-[#FFB020]',
+  done: 'text-[#00D924]',
 };
 
 export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps) {
@@ -37,11 +37,11 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
   return (
     <div
       className={cn(
-        'group relative cursor-pointer rounded-lg border-2 border-border bg-card p-3.5 nb-shadow-sm nb-card-hover select-none',
+        'group relative cursor-pointer rounded-lg border bg-card p-3.5 shadow-sm transition-all duration-200 select-none hover:shadow-md hover:-translate-y-0.5',
         // Original being dragged → dim it
         isDragging && 'opacity-30 scale-[0.98]',
         // Overlay ghost → clean floating look
-        isOverlay && 'nb-shadow-lg border-primary scale-105',
+        isOverlay && 'shadow-lg border-primary scale-105',
       )}
       onClick={onClick}
     >
@@ -76,9 +76,9 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
             <span>{completedTodos}/{totalTodos} tasks</span>
             <span>{Math.round(progress)}%</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-sm border border-border bg-muted">
+          <div className="h-1.5 overflow-hidden rounded-sm bg-muted">
             <div
-              className="h-full rounded-sm bg-status-done transition-all duration-300"
+              className="h-full rounded-sm bg-[#00D924] transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
           </div>

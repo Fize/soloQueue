@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useConfig } from '@/hooks/useConfig';
+import { useConfigStore } from '@/stores/configStore';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -10,7 +10,10 @@ import { Save, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import type { LLMProvider, LLMModel, DefaultModelsConfig, EmbeddingConfig } from '@/types';
 
 export function ModelsTab() {
-  const { config, patch, saving, error } = useConfig();
+  const config = useConfigStore((state) => state.config);
+  const patch = useConfigStore((state) => state.patch);
+  const saving = useConfigStore((state) => state.saving);
+  const error = useConfigStore((state) => state.error);
 
   const [providers, setProviders] = useState<LLMProvider[] | null>(null);
   const [models, setModels] = useState<LLMModel[] | null>(null);
@@ -120,7 +123,7 @@ export function ModelsTab() {
   return (
     <div className="space-y-6">
       {/* Providers */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-bold text-foreground">Providers</h3>
           <Button size="sm" variant="outline" onClick={addProvider}>
@@ -129,7 +132,7 @@ export function ModelsTab() {
         </div>
         <div className="space-y-2">
           {providers.map((provider, idx) => (
-            <div key={`provider-${idx}`} className="rounded-md border-2 border-[#EEEEEE]">
+            <div key={`provider-${idx}`} className="rounded-md border">
               <button
                 className="flex w-full items-center justify-between px-3 py-2 text-left"
                 onClick={() => setExpandedProvider(expandedProvider === `provider-${idx}` ? null : `provider-${idx}`)}
@@ -192,7 +195,7 @@ export function ModelsTab() {
       </div>
 
       {/* Models */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-bold text-foreground">Models</h3>
           <Button size="sm" variant="outline" onClick={addModel}>
@@ -201,7 +204,7 @@ export function ModelsTab() {
         </div>
         <div className="space-y-2">
           {models.map((model, idx) => (
-            <div key={`model-${idx}`} className="rounded-md border-2 border-[#EEEEEE]">
+            <div key={`model-${idx}`} className="rounded-md border">
               <button
                 className="flex w-full items-center justify-between px-3 py-2 text-left"
                 onClick={() => setExpandedModel(expandedModel === `model-${idx}` ? null : `model-${idx}`)}
@@ -271,7 +274,7 @@ export function ModelsTab() {
       </div>
 
       {/* Default Models */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="mb-4 text-sm font-bold text-foreground">Default Model Assignments</h3>
         <div className="grid gap-3">
           {(Object.entries(defaultModels) as [keyof DefaultModelsConfig, string][]).map(([role, modelId]) => (
@@ -293,7 +296,7 @@ export function ModelsTab() {
       </div>
 
       {/* Embedding */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-bold text-foreground">Embedding</h3>
           <Switch checked={embedding.enabled} onCheckedChange={(v) => setEmbedding({ ...embedding, enabled: v })} />
@@ -310,7 +313,7 @@ export function ModelsTab() {
                 </Button>
               </div>
               {embedding.providers.map((ep, idx) => (
-                <div key={`ep-${idx}`} className="rounded-md border-2 border-[#EEEEEE]">
+                <div key={`ep-${idx}`} className="rounded-md border">
                   <button
                     className="flex w-full items-center justify-between px-3 py-2 text-left"
                     onClick={() => setExpandedEmbedProvider(expandedEmbedProvider === `ep-${idx}` ? null : `ep-${idx}`)}
@@ -357,7 +360,7 @@ export function ModelsTab() {
                 </Button>
               </div>
               {embedding.models.map((em, idx) => (
-                <div key={`em-${idx}`} className="rounded-md border-2 border-[#EEEEEE]">
+                <div key={`em-${idx}`} className="rounded-md border">
                   <button
                     className="flex w-full items-center justify-between px-3 py-2 text-left"
                     onClick={() => setExpandedEmbedModel(expandedEmbedModel === `em-${idx}` ? null : `em-${idx}`)}

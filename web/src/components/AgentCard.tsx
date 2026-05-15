@@ -27,7 +27,7 @@ export function AgentCard({ agent, onClick }: AgentCardProps) {
   return (
     <div
       className={cn(
-        'relative rounded-lg border-2 border-border bg-card p-3.5 nb-shadow-sm nb-card-hover cursor-pointer',
+        'relative rounded-lg border bg-card p-3.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 cursor-pointer',
       )}
       style={{ borderLeftWidth: '4px', borderLeftColor: borderColor }}
       onClick={onClick}

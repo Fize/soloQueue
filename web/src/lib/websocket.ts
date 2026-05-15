@@ -1,4 +1,6 @@
 import type { WSMessage, RuntimeStatus, AgentListResponse } from '@/types';
+import { useRuntimeStore } from '@/stores/runtimeStore';
+import { useAgentStore } from '@/stores/agentStore';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
 
@@ -84,15 +86,18 @@ class WebSocketManager {
   private dispatch(msg: WSMessage) {
     if (msg.type === 'state') {
       if (msg.runtime) {
+        useRuntimeStore.getState().setStatus(msg.runtime);
         this.handlers.runtime.forEach((h) => h(msg.runtime));
       }
       if (msg.agents) {
+        useAgentStore.getState().setAgents(msg.agents);
         this.handlers.agents.forEach((h) => h(msg.agents));
       }
     }
   }
 
   private setStatus(status: ConnectionStatus) {
+    useRuntimeStore.getState().setConnectionStatus(status);
     this.handlers.status.forEach((h) => h(status));
   }
 

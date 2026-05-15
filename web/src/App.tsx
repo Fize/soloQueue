@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Header } from '@/components/Header'
 import { RuntimeStatusBar } from '@/components/RuntimeStatusBar'
 import { Container } from '@/components/ui/Container'
@@ -10,38 +11,28 @@ import { wsManager } from '@/lib/websocket'
 
 export type AppTab = 'home' | 'files' | 'settings'
 
-type SettingsSubtab = string | null
-
-function getTabFromHash(): { tab: AppTab; subtab: SettingsSubtab } {
-  const hash = window.location.hash.replace('#', '')
-  if (hash.startsWith('settings')) {
-    const parts = hash.split('/')
-    return { tab: 'settings', subtab: parts[1] || null }
-  }
-  if (hash === 'files') return { tab: 'files', subtab: null }
-  return { tab: 'home', subtab: null }
+function App() {
+  return (
+    <TooltipProvider>
+      <div className="flex h-screen flex-col bg-background">
+        <Header />
+        <RuntimeStatusBar />
+        <main className="flex-1 overflow-hidden">
+          <Container className="h-full pb-4 sm:pb-6">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/files" element={<FilesPage />} />
+              <Route path="/settings/*" element={<SettingsView />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Container>
+        </main>
+      </div>
+    </TooltipProvider>
+  )
 }
 
-function App() {
-  const initial = getTabFromHash()
-  const [activeTab, setActiveTab] = useState<AppTab>(initial.tab)
-  const [settingsSubtab, setSettingsSubtab] = useState<SettingsSubtab>(initial.subtab)
-
-  const handleTabChange = useCallback((tab: AppTab) => {
-    setActiveTab(tab)
-    window.location.hash = tab
-  }, [])
-
-  useEffect(() => {
-    const onHashChange = () => {
-      const { tab, subtab } = getTabFromHash()
-      setActiveTab(tab)
-      setSettingsSubtab(subtab)
-    }
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
-  }, [])
-
+export default function AppWithRouter() {
   useEffect(() => {
     wsManager.connect()
     return () => {
@@ -50,26 +41,8 @@ function App() {
   }, [])
 
   return (
-    <TooltipProvider>
-      <div className="flex h-screen flex-col bg-background">
-        <Header activeTab={activeTab} onTabChange={handleTabChange} />
-        <RuntimeStatusBar />
-        <main className="flex-1 overflow-hidden">
-          <Container className="h-full pb-4 sm:pb-6">
-            <div className={activeTab === 'home' ? 'h-full' : 'hidden h-0'}>
-              <HomePage />
-            </div>
-            <div className={activeTab === 'files' ? 'h-full' : 'hidden h-0'}>
-              <FilesPage />
-            </div>
-            <div className={activeTab === 'settings' ? 'h-full' : 'hidden h-0'}>
-              <SettingsView initialTab={settingsSubtab} />
-            </div>
-          </Container>
-        </main>
-      </div>
-    </TooltipProvider>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   )
 }
-
-export default App

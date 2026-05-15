@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useConfig } from '@/hooks/useConfig'
+import { useConfigStore } from '@/stores/configStore'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -16,7 +16,10 @@ const LOG_LEVELS = [
 ]
 
 export function GeneralTab() {
-  const { config, patch, saving, error } = useConfig()
+  const config = useConfigStore((state) => state.config)
+  const patch = useConfigStore((state) => state.patch)
+  const saving = useConfigStore((state) => state.saving)
+  const error = useConfigStore((state) => state.error)
 
   const [session, setSession] = useState<SessionConfig | null>(null)
   const [log, setLog] = useState<LogConfig | null>(null)
@@ -42,7 +45,7 @@ export function GeneralTab() {
   return (
     <div className="space-y-6">
       {/* Session Config */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="text-sm font-bold text-foreground mb-4">Session</h3>
         <div className="grid gap-4 text-sm">
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -101,7 +104,7 @@ export function GeneralTab() {
             </div>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSaveSession} disabled={saving}>
             <Save className="mr-1 h-3 w-3" />
             {saving ? 'Saving...' : 'Save Session'}
@@ -111,7 +114,7 @@ export function GeneralTab() {
       </div>
 
       {/* Log Config */}
-      <div className="nb-border rounded-lg bg-card p-5 nb-shadow-sm">
+      <div className="border rounded-lg bg-card p-5 shadow-sm">
         <h3 className="text-sm font-bold text-foreground mb-4">Logging</h3>
         <div className="grid gap-4 text-sm">
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -139,7 +142,7 @@ export function GeneralTab() {
             <Switch checked={log.file} onCheckedChange={(v) => setLog({ ...log, file: v })} />
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3 border-t-2 border-[#EEEEEE] pt-3">
+        <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
           <Button size="sm" onClick={handleSaveLog} disabled={saving}>
             <Save className="mr-1 h-3 w-3" />
             {saving ? 'Saving...' : 'Save Logging'}
