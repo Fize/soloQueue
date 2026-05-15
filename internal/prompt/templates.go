@@ -164,14 +164,3 @@ func commStyleDesc(s string) string {
 	return s // custom value: use as-is
 }
 
-// ProfilePromptText returns the onboarding questionnaire for custom profiles.
-func ProfilePromptText() string {
-	return strings.TrimSpace(`
-First-time setup — personalize your assistant (press Enter to accept defaults):
-
-1. What should we call your assistant? (comma-separated for multiple names, the assistant will pick one) [SoloQueue]
-2. Assistant gender (male/female)? [female]
-3. Personality (strict/playful/gentle/direct/custom)? [playful]
-4. Communication style (brief/detailed/casual/formal)? [casual]
-`)
-}

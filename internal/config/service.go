@@ -7,7 +7,7 @@ import (
 )
 
 // GlobalService is the global configuration service, embedding Loader[Settings]
-// Automatically inherits all Loader methods: Load / Save / Get / Set / OnChange / Watch / Close, etc.
+// Automatically inherits all Loader methods: Load / Save / Get / Set.
 // Provides business-related convenience query interfaces on top of that
 type GlobalService struct {
 	*Loader[Settings]
@@ -27,7 +27,7 @@ func New(workDir string) (*GlobalService, error) {
 	return &GlobalService{Loader: loader}, nil
 }
 
-// LoadFromDisk reads settings from disk without modifying the loader cache or triggering OnChange.
+// LoadFromDisk reads settings from disk without modifying the loader cache.
 func (s *GlobalService) LoadFromDisk() (Settings, error) {
 	return s.Loader.ReadFromDisk()
 }
@@ -222,7 +222,7 @@ func TeamPlanDir(team string) (string, error) {
 	return planDir, nil
 }
 
-// Init creates a GlobalService and completes loading, hot-reloading, and initial save
+// Init creates a GlobalService, loads config from disk, and saves defaults if needed.
 func Init(workDir string) (*GlobalService, error) {
 	cfg, err := New(workDir)
 	if err != nil {
@@ -231,10 +231,6 @@ func Init(workDir string) (*GlobalService, error) {
 
 	if err := cfg.Load(); err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
-	}
-
-	if err := cfg.Watch(); err != nil {
-		// Non-fatal: config changes will require restart.
 	}
 
 	settingsPath := filepath.Join(workDir, "settings.toml")

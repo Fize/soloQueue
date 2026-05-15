@@ -15,9 +15,9 @@
 **🤖 Hierarchical Agent Architecture (L0-L3)** - Intelligently routes tasks to models of different capabilities based on complexity
 **🔧 Extensible Tool System** - Built-in tools for file operations, shell execution, web search, etc.
 **📦 Skill System** - Markdown-defined reusable task recipes (skills)
-**💬 Event-Driven Architecture** - Typed event streams connecting Agent, TUI, and Server layers
+**💬 Event-Driven Architecture** - Typed event streams connecting Agent, Web UI, and Server layers
 **🔄 Hot-Reload Config** - Dynamic config updates via fsnotify
-**🖥️ TUI + Web UI** - Supports both terminal and React web interfaces
+**🖥️ Web UI** - React web interface with real-time WebSocket updates
 **🚀 Async Delegation** - L1 agents can asynchronously delegate tasks to L2/L3 without blocking user interaction
 
 # 🏗️ Architecture
@@ -26,7 +26,7 @@ SoloQueue uses a hierarchical architecture design. The core systems include:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    TUI / Web UI (React)                    │
+│                    Web UI (React)                          │
 ├─────────────────────────────────────────────────────────────┤
 │                  Server (REST + WebSocket)                  │
 ├─────────────────────────────────────────────────────────────┤
@@ -67,9 +67,6 @@ SoloQueue uses a hierarchical architecture design. The core systems include:
 git clone https://github.com/xiaobaitu/soloqueue.git
 cd soloqueue
 
-# Run (TUI mode)
-go run ./cmd/soloqueue
-
 # Run (Server mode)
 go run ./cmd/soloqueue serve --port 8765
 ```
@@ -105,7 +102,7 @@ soloqueue/
 │   ├── session/            # Session management
 │   ├── skill/              # Skill system
 │   ├── tools/              # Tool implementations
-│   └── tui/               # Terminal UI
+
 ├── web/                    # React web UI
 │   ├── src/
 │   └── public/

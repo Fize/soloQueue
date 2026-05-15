@@ -80,7 +80,7 @@ type AgentFactory interface {
 //
 // 包含创建 Agent 所需的所有依赖。创建的 Agent 会自动注册到 Registry 并启动。
 type DefaultFactory struct {
-	mu sync.RWMutex // protects llm, toolsCfg, defaultModelID for hot-reload
+	mu sync.RWMutex
 
 	registry       *Registry
 	llm            LLMClient
@@ -188,27 +188,6 @@ func WithSkillRegistry(reg *skill.SkillRegistry) FactoryOption {
 
 func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
-}
-
-// SetLLMClient updates the LLM client used by future agent creations (hot-reload support).
-func (f *DefaultFactory) SetLLMClient(client LLMClient) {
-	f.mu.Lock()
-	f.llm = client
-	f.mu.Unlock()
-}
-
-// SetToolsConfig updates the tools config used by future agent creations (hot-reload support).
-func (f *DefaultFactory) SetToolsConfig(cfg tools.Config) {
-	f.mu.Lock()
-	f.toolsCfg = cfg
-	f.mu.Unlock()
-}
-
-// SetDefaultModelID updates the default model ID used by future agent creations (hot-reload support).
-func (f *DefaultFactory) SetDefaultModelID(modelID string) {
-	f.mu.Lock()
-	f.defaultModelID = modelID
-	f.mu.Unlock()
 }
 
 // Create 根据 tmpl 创建并启动一个 Agent 实例

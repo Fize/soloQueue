@@ -1,12 +1,9 @@
-// Package runtime provides the shared runtime dependency container (Stack)
-// used by both TUI and serve modes of the soloqueue application.
+// Package runtime provides the shared runtime dependency container (Stack).
 package runtime
 
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -28,15 +25,13 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// Stack holds runtime dependencies shared by both modes (TUI / serve),
-// initialized once by Build to avoid duplication.
+// Stack holds runtime dependencies, initialized once by Build to avoid duplication.
 type Stack struct {
-	// Configuration-derived fields, protected by CfgMu (for hot-reload).
 	CfgMu        sync.RWMutex
 	LLMClient    agent.LLMClient
 	ToolsCfg     tools.Config
 	DefaultModel *config.LLMModel
-	Settings     *config.GlobalService // hot-reloaded global config
+	Settings     *config.GlobalService
 
 	AgentRegistry *agent.Registry
 	AgentFactory  *agent.DefaultFactory
@@ -49,21 +44,18 @@ type Stack struct {
 	Tokenizer     *ctxwin.Tokenizer
 	Compactor     ctxwin.Compactor // context compression engine
 	RulesCreated  bool
-	TaskRouter    *router.Router // Task router classifier (shared by TUI + serve)
+	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
 	DockerSandbox sandbox.Sandbox    // Docker sandbox (L3 tool execution isolation base)
 	SandboxMounts []sandbox.Mount    // Sandbox mount list (for deferred startup)
 	MemoryManager *memory.Manager    // Short-term memory manager
 	PermanentMemory *permanent.Manager // Permanent memory manager
 	PermScheduler *permanent.Scheduler
-	PermNotifyCh  chan string
 	PermCancel    context.CancelFunc // Cancel function for permanent scheduler context
 	TodoStore     *todo.Store        // Todo plan/task store
 	SharedDB      *sqlitedb.DB       // Shared SQLite connection reused by vectorstore + todo stores
 	MCPManager    *mcp.Manager       // MCP server manager
 	LSPManager    *lsp.Manager       // Built-in LSP MCP server manager
-	HTTPServer    *http.Server       // Embedded HTTP API server (TUI mode)
-	HTTPListener  net.Listener       // Listener for the HTTP server
 
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
@@ -87,11 +79,6 @@ func (s *Stack) Shutdown() {
 			fmt.Fprintf(os.Stderr, "warning: docker sandbox destroy failed: %v\n", err)
 		}
 	}
-	if s.HTTPServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = s.HTTPServer.Shutdown(shutdownCtx)
-	}
 	if s.MCPManager != nil {
 		s.MCPManager.Shutdown()
 	}
@@ -107,21 +94,21 @@ func (s *Stack) Shutdown() {
 	}
 }
 
-// ReadLLMClient returns the current LLM client (concurrency-safe, reads the latest hot-reloaded config value).
+// ReadLLMClient returns the current LLM client (concurrency-safe).
 func (s *Stack) ReadLLMClient() agent.LLMClient {
 	s.CfgMu.RLock()
 	defer s.CfgMu.RUnlock()
 	return s.LLMClient
 }
 
-// ReadToolsCfg returns the current tools config (concurrency-safe, reads the latest hot-reloaded config value).
+// ReadToolsCfg returns the current tools config (concurrency-safe).
 func (s *Stack) ReadToolsCfg() tools.Config {
 	s.CfgMu.RLock()
 	defer s.CfgMu.RUnlock()
 	return s.ToolsCfg
 }
 
-// ReadDefaultModel returns the current default model (concurrency-safe, reads the latest hot-reloaded config value).
+// ReadDefaultModel returns the current default model (concurrency-safe).
 func (s *Stack) ReadDefaultModel() *config.LLMModel {
 	s.CfgMu.RLock()
 	defer s.CfgMu.RUnlock()
@@ -156,7 +143,6 @@ func (s *Stack) SetSystemPrompt(prompt string) {
 }
 
 // OnPromptRebuild registers a callback to rebuild the L1 system prompt.
-// Called by the hot-reload subsystem when settings.toml changes.
 func (s *Stack) OnPromptRebuild(fn func() error) {
 	s.promptRebuildMu.Lock()
 	defer s.promptRebuildMu.Unlock()

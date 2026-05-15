@@ -38,16 +38,13 @@ Module path: `github.com/xiaobaitu/soloqueue`. Go 1.25.8.
 
 ## Binary modes
 
-The same cobra binary runs in two modes:
+`serve` is the primary mode:
 
-- `soloqueue` (no subcommand) — TUI mode. HTTP server starts on random port by default (`--port` / `-p` to pin).
-- `soloqueue serve --port 8765` — headless REST + WebSocket server. Binds `127.0.0.1` by default (`--host` to change). Random port by default (`--port 0`).
+- `soloqueue serve --port 8765` — REST + WebSocket server. Binds `127.0.0.1` by default (`--host` to change). Port 57647 by default (`--port 0` for random).
 
 Other subcommands: `soloqueue version`, `soloqueue cleanup` (remove Docker sandbox containers).
 
-CLI flags: `--bypass` (skip tool confirmations for all agents, both modes), `--verbose` / `-v` (print logs to stderr, serve only).
-
-Both modes share the same `runtime.Stack` (dependency container), initialized by `runtime.Build()`.
+CLI flags: `--bypass` (skip tool confirmations for all agents), `--verbose` / `-v` (print logs to stderr).
 
 ## Directory map
 
@@ -84,7 +81,6 @@ web/                React web UI, served separately by Vite dev server
 
 - No `TestMain`, no shared fixtures. Tests are self-contained per package.
 - Some packages have `*_test.go` files using package `<pkg>_test` (external test packages).
-- `tui/testhelpers_test.go` provides test utilities for TUI tests.
 
 ## Key patterns
 

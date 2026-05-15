@@ -8,7 +8,7 @@ SoloQueue uses a hierarchical architecture design. The core systems include Agen
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    TUI / Web UI (React)                    │
+│                    Web UI (React)                          │
 ├─────────────────────────────────────────────────────────────┤
 │                  Server (REST + WebSocket)                  │
 ├─────────────────────────────────────────────────────────────┤
@@ -294,7 +294,7 @@ Both Agent and LLM systems prioritize streaming APIs. Blocking APIs are wrappers
 
 ### 2. Event-Based Architecture
 Typed event streams (`llm.Event` -> `agent.AgentEvent`) provide clear contract boundaries between:
-- Agent and Session/TUI/Server layers
+- Agent and Session/Server layers
 - Parent and child agents during delegation
 - Agent and Tools package during confirm forwarding
 

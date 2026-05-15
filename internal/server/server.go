@@ -556,7 +556,7 @@ func (m *Mux) logError(ctx context.Context, msg string, err error) {
 	m.log.LogError(ctx, logger.CatHTTP, msg, err)
 }
 
-// corsMiddleware handles CORS for the TUI sidebar API accessed from the dev server.
+// corsMiddleware handles CORS for the Web UI dev server.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")

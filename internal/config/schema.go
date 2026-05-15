@@ -71,9 +71,7 @@ func (c QQBotConfig) ToQQBotConfig() qqbot.Config {
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	TimelineMaxFileMB       int `json:"timelineMaxFileMB"       toml:"timeline_max_file_mb,omitempty"`
-	TimelineMaxFiles        int `json:"timelineMaxFiles"        toml:"timeline_max_files,omitempty"`
-	ContextIdleThresholdMin int `json:"contextIdleThresholdMin" toml:"context_idle_threshold_min,omitempty"`
+	TimelineMaxFileMB int `json:"timelineMaxFileMB" toml:"timeline_max_file_mb,omitempty"`
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────
@@ -88,7 +86,7 @@ type LogConfig struct {
 
 // ToolsConfig is the runtime configuration for agent built-in tools
 //
-// File system limits / write limits / external tools (http / shell / Tavily) policies are all here.
+// File system limits / write limits / external tools (http / shell / web search) policies are all here.
 // main.go will use these fields to construct internal/tools.Config and call tools.Build(cfg).
 type ToolsConfig struct {
 	// Read limits (0 = use compile-time built-in defaults)

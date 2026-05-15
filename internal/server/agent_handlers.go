@@ -18,7 +18,7 @@ import (
 
 // ─── RuntimeMetrics ─────────────────────────────────────────────────────────
 
-// RuntimeMetrics holds live runtime metrics that the TUI writes and the API reads.
+// RuntimeMetrics holds live runtime metrics.
 // Fields are accessed concurrently — use RWMutex.
 type RuntimeMetrics struct {
 	mu                sync.RWMutex
@@ -47,63 +47,10 @@ func (rm *RuntimeMetrics) SetOnChange(fn func()) {
 	rm.mu.Unlock()
 }
 
-// SetPhase updates the phase field (thread-safe).
-func (rm *RuntimeMetrics) SetPhase(phase string) {
-	rm.mu.Lock()
-	rm.Phase = phase
-	if rm.onChange != nil {
-		rm.onChange()
-	}
-	rm.mu.Unlock()
-}
-
-// SetTokens updates all token counters (thread-safe).
-func (rm *RuntimeMetrics) SetTokens(prompt, output, cacheHit, cacheMiss int64) {
-	rm.mu.Lock()
-	rm.PromptTokens = prompt
-	rm.OutputTokens = output
-	rm.CacheHitTokens = cacheHit
-	rm.CacheMissTokens = cacheMiss
-	if rm.onChange != nil {
-		rm.onChange()
-	}
-	rm.mu.Unlock()
-}
-
 // SetContext updates context percentage (thread-safe).
 func (rm *RuntimeMetrics) SetContext(pct int) {
 	rm.mu.Lock()
 	rm.ContextPct = pct
-	if rm.onChange != nil {
-		rm.onChange()
-	}
-	rm.mu.Unlock()
-}
-
-// SetIter updates current iteration (thread-safe).
-func (rm *RuntimeMetrics) SetIter(iter int) {
-	rm.mu.Lock()
-	rm.CurrentIter = iter
-	if rm.onChange != nil {
-		rm.onChange()
-	}
-	rm.mu.Unlock()
-}
-
-// SetContentDeltas updates the content deltas counter (thread-safe).
-func (rm *RuntimeMetrics) SetContentDeltas(n int) {
-	rm.mu.Lock()
-	rm.ContentDeltas = n
-	if rm.onChange != nil {
-		rm.onChange()
-	}
-	rm.mu.Unlock()
-}
-
-// SetActiveDelegations updates the active delegations count (thread-safe).
-func (rm *RuntimeMetrics) SetActiveDelegations(n int) {
-	rm.mu.Lock()
-	rm.ActiveDelegations = n
 	if rm.onChange != nil {
 		rm.onChange()
 	}

@@ -10,36 +10,43 @@ Config file: `~/.soloqueue/settings.toml`
 
 ```toml
 [session]
-max_history = 50
+timeline_max_file_mb = 50
 
 [tools]
 max_file_size = 10485760
-shell_timeout = 30000
 
 [providers]
   [providers.deepseek]
   base_url = "https://api.deepseek.com"
-  api_key = "your-api-key"
-  timeout = 60000
+  api_key_env = "DEEPSEEK_API_KEY"
+  timeout_ms = 600000
+  [providers.deepseek.retry]
   max_retries = 3
+  initial_delay_ms = 1000
+  max_delay_ms = 30000
+  backoff_multiplier = 2.0
 
 [models]
   [models."deepseek-v4-flash"]
   context_window = 65536
+  [models."deepseek-v4-flash".generation]
   max_tokens = 8192
-  thinking_enabled = false
+  [models."deepseek-v4-flash".thinking]
+  enabled = false
 
   [models."deepseek-v4-pro"]
   context_window = 131072
+  [models."deepseek-v4-pro".generation]
   max_tokens = 16384
-  thinking_enabled = true
+  [models."deepseek-v4-pro".thinking]
+  enabled = true
   reasoning_effort = "high"
 
 [default_models]
-expert = "deepseek-v4-pro-max"
-superior = "deepseek-v4-pro"
-universal = "deepseek-v4-flash-thinking"
-fast = "deepseek-v4-flash"
+  expert = "deepseek:deepseek-v4-pro-max"
+  superior = "deepseek:deepseek-v4-pro"
+  universal = "deepseek:deepseek-v4-flash-thinking"
+  fast = "deepseek:deepseek-v4-flash"
 ```
 
 ## Layered Loading
