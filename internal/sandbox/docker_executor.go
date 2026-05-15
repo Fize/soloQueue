@@ -50,7 +50,13 @@ func (e *DockerExecutor) RunCommand(ctx context.Context, cmd string, opts RunCom
 		defer cancel()
 	}
 
-	stdout, stderr, err := e.sb.Exec(ctx, cmd)
+	execCmd := cmd
+	if opts.WorkingDirectory != "" {
+		containerWd := e.toContainer(opts.WorkingDirectory)
+		execCmd = fmt.Sprintf("cd %s && %s", shellQuote(containerWd), cmd)
+	}
+
+	stdout, stderr, err := e.sb.Exec(ctx, execCmd)
 
 	res := RunCommandResult{
 		Stdout: stdout,

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { getFileUrl } from '@/lib/api'
-import { Loader2, FileIcon } from 'lucide-react'
+import { Loader2, FileIcon, Copy, Check } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -106,6 +107,7 @@ export function FileContentView({ path }: FileContentViewProps) {
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!path) {
@@ -158,6 +160,14 @@ export function FileContentView({ path }: FileContentViewProps) {
   const language = extToLanguage[ext]
   const fileName = path.split('/').pop() ?? path
 
+  function handleCopy() {
+    if (!content) return
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -179,8 +189,22 @@ export function FileContentView({ path }: FileContentViewProps) {
   return (
     <ScrollArea className="h-full">
       <div className="p-4">
-        <div className="mb-3 border-b pb-2">
+        <div className="mb-3 border-b pb-2 flex items-center justify-between">
           <p className="text-xs font-mono text-muted-foreground truncate">{fileName}</p>
+          {!isImage && !isAudio && !isVideo && content !== null && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCopy}
+              title={copied ? 'Copied!' : 'Copy content'}
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
         </div>
 
         {isImage && (
