@@ -418,7 +418,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 // BuildFactory constructs the AgentFactory function used by SessionManager.
 //
 // consoleLog controls whether the session logger outputs to stderr
-// (TUI=false, serve=settings.Log.Console).
+// (serve=settings.Log.Console).
 func BuildFactory(rt *runtime.Stack, workDir string, cfg *config.GlobalService, consoleLog bool) AgentFactory {
 	b := NewBuilder(rt, workDir, cfg, consoleLog)
 	return b.Build

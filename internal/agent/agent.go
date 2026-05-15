@@ -89,7 +89,7 @@ type Agent struct {
 
 	// runtime bundles all mutable runtime observability state under a single
 	// RWMutex. Includes lifecycle state, error tracking, circuit breaker,
-	// exit error, and work-tracking fields. Read by TUI and inspect_agent tool;
+	// exit error, and work-tracking fields. Read by inspect_agent tool and API;
 	// written by the agent's own goroutine (single writer).
 	runtimeMu sync.RWMutex
 	runtime   agentRuntime
