@@ -1244,3 +1244,248 @@ func TestWatchDelegatedTask_GracePeriodCatchesInFlightResult(t *testing.T) {
 		t.Error("watchDelegatedTask did not complete")
 	}
 }
+
+// ─── TestFormatDelegationStarted ────────────────────────────────────────────
+
+func TestFormatDelegationStarted(t *testing.T) {
+	tests := []struct {
+		name     string
+		tc       llm.ToolCall
+		expected string
+	}{
+		{
+			name: "with task description",
+			tc: llm.ToolCall{
+				ID:   "call_1",
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      "delegate_code_review",
+					Arguments: `{"task": "review the PR"}`,
+				},
+			},
+			expected: "Delegation started: task assigned via 'delegate_code_review'.\nTask: review the PR\nWaiting for results...",
+		},
+		{
+			name: "with empty task",
+			tc: llm.ToolCall{
+				ID:   "call_2",
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      "delegate_test",
+					Arguments: `{}`,
+				},
+			},
+			expected: "Delegation started: task assigned via 'delegate_test'.\nTask: {}\nWaiting for results...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatDelegationStarted(tt.tc)
+			if got != tt.expected {
+				t.Errorf("formatDelegationStarted() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// ─── TestFormatDelegationCompleted ──────────────────────────────────────────
+
+func TestFormatDelegationCompleted(t *testing.T) {
+	tests := []struct {
+		name      string
+		toolCalls []llm.ToolCall
+		results   []string
+		expected  string
+	}{
+		{
+			name: "single delegate result",
+			toolCalls: []llm.ToolCall{
+				{
+					ID:   "call_1",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "delegate_code_review",
+						Arguments: `{"task": "review the PR"}`,
+					},
+				},
+			},
+			results:  []string{"Code reviewed, all looks good"},
+			expected: "[Delegation Completed]\n\nTask: review the PR\nResult:\nCode reviewed, all looks good\n\n",
+		},
+		{
+			name: "multiple delegate tasks",
+			toolCalls: []llm.ToolCall{
+				{
+					ID:   "call_1",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "delegate_review",
+						Arguments: `{"task": "review code"}`,
+					},
+				},
+				{
+					ID:   "call_2",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "delegate_test",
+						Arguments: `{"task": "run tests"}`,
+					},
+				},
+			},
+			results:  []string{"Looks good", "All tests pass"},
+			expected: "[Delegation Completed]\n\nTask: review code\nResult:\nLooks good\n\nTask: run tests\nResult:\nAll tests pass\n\n",
+		},
+		{
+			name: "mixed sync and async - only async included",
+			toolCalls: []llm.ToolCall{
+				{
+					ID:   "call_1",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "read_file",
+						Arguments: `{"path": "main.go"}`,
+					},
+				},
+				{
+					ID:   "call_2",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "delegate_refactor",
+						Arguments: `{"task": "refactor module"}`,
+					},
+				},
+			},
+			results:  []string{"file content", "Refactored successfully"},
+			expected: "[Delegation Completed]\n\nTask: refactor module\nResult:\nRefactored successfully\n\n",
+		},
+		{
+			name: "no delegate tasks",
+			toolCalls: []llm.ToolCall{
+				{
+					ID:   "call_1",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "read_file",
+						Arguments: `{}`,
+					},
+				},
+			},
+			results:  []string{"content"},
+			expected: "",
+		},
+		{
+			name: "error result",
+			toolCalls: []llm.ToolCall{
+				{
+					ID:   "call_1",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "delegate_fix_bug",
+						Arguments: `{"task": "fix bug #42"}`,
+					},
+				},
+			},
+			results:  []string{"error: delegation timed out"},
+			expected: "[Delegation Completed]\n\nTask: fix bug #42\nResult:\nerror: delegation timed out\n\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatDelegationCompleted(tt.toolCalls, tt.results)
+			if got != tt.expected {
+				t.Errorf("formatDelegationCompleted() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// ─── TestResumeTurn_PushesUserMessage ──────────────────────────────────────
+
+func TestResumeTurn_PushesUserMessage(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "you are helpful")
+	cw.Push(ctxwin.RoleUser, "start")
+	// Simulate the assistant(tool_calls) that postIteration pushed before resumeTurn
+	cw.Push(ctxwin.RoleAssistant, "Let me delegate this task.",
+		ctxwin.WithToolCalls([]llm.ToolCall{
+			{
+				ID:   "call_1",
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      "delegate_code_review",
+					Arguments: `{"task": "review the code"}`,
+				},
+			},
+		}),
+	)
+
+	var pending atomic.Int32
+	pending.Store(0)
+
+	out := make(chan AgentEvent, 64)
+	turnState := &asyncTurnState{
+		agentID:   "l1",
+		out:       out,
+		cw:        cw,
+		iter:      0,
+		toolCalls: []llm.ToolCall{
+			{
+				ID:   "call_1",
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      "delegate_code_review",
+					Arguments: `{"task": "review the code"}`,
+				},
+			},
+		},
+		results:   []string{"Code reviewed successfully: all clean"},
+		pending:   pending,
+		callerCtx: ctx,
+	}
+
+	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{StreamDeltas: [][]string{{"continuing"}}}, newTestLogger(t))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop(time.Second)
+
+	a.turnMu.Lock()
+	a.asyncTurns[0] = turnState
+	a.turnMu.Unlock()
+
+	a.resumeTurn(turnState)
+
+	// Verify: CW should contain a user message with delegation result, NOT a tool message
+	payload := cw.BuildPayload()
+
+	hasUserResult := false
+	hasToolResult := false
+	for _, msg := range payload {
+		if msg.Role == "user" && strings.Contains(msg.Content, "review the code") {
+			hasUserResult = true
+		}
+		if msg.Role == "tool" {
+			hasToolResult = true
+		}
+	}
+
+	if !hasUserResult {
+		t.Error("resumeTurn should push a user message with delegation result")
+	}
+	if hasToolResult {
+		t.Error("resumeTurn should NOT push tool results (they were pushed in postIteration)")
+	}
+
+	// Verify asyncTurns cleaned up
+	a.turnMu.RLock()
+	_, exists := a.asyncTurns[0]
+	a.turnMu.RUnlock()
+	if exists {
+		t.Error("asyncTurns[0] should be deleted after resumeTurn")
+	}
+}
