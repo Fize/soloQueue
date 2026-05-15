@@ -313,7 +313,9 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
           </TabsContent>
 
           {/* 状态 Tab */}
-          <TabsContent value="status" className="space-y-3 mt-3">
+          <TabsContent value="status" className="mt-3">
+            <ScrollArea className="h-[50vh] rounded-md border border-border p-4">
+              <div className="space-y-3">
             {hasAgent ? (
               <>
                 <div className="space-y-1.5">
@@ -362,10 +364,14 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             ) : (
               <p className="text-sm text-muted-foreground py-8 text-center">Agent not started, no runtime status</p>
             )}
+              </div>
+            </ScrollArea>
           </TabsContent>
 
           {/* 详情 Tab */}
-          <TabsContent value="details" className="space-y-3 mt-3">
+          <TabsContent value="details" className="mt-3">
+            <ScrollArea className="h-[50vh] rounded-md border border-border p-4">
+              <div className="space-y-3">
             {hasAgent ? (
               <>
                 <div className="space-y-1.5">
@@ -418,6 +424,8 @@ export function AgentDetailDialog({ agent, templateId, templateName, isL1 = fals
             ) : (
               <p className="text-sm text-muted-foreground py-8 text-center">Agent not started, no details</p>
             )}
+              </div>
+            </ScrollArea>
           </TabsContent>
 
           {/* YAML Tab — editable frontmatter config */}
