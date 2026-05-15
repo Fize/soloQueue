@@ -8,7 +8,7 @@ import { Users, ChevronRight, ChevronDown, Star, Circle, FolderOpen } from 'luci
 import { AgentDetailDialog } from './AgentDetailDialog'
 
 interface AgentWithTemplate {
-  agent: AgentInfo | null
+  agents: AgentInfo[]
   template: AgentTemplate | null
 }
 
@@ -153,8 +153,8 @@ export function AgentsPanel() {
       const flatAgents: AgentWithTemplate[] = []
 
       for (const template of team.agents) {
-        const agent = agents.find((a) => a.id === template.id) || null
-        flatAgents.push({ agent, template })
+        const matchingAgents = agents.filter((a) => a.id === template.id)
+        flatAgents.push({ agents: matchingAgents, template })
       }
 
       // leader 排在前面
@@ -246,16 +246,20 @@ export function AgentsPanel() {
 
               {isExpanded && (
                 <div className="space-y-1.5 pl-1">
-                  {teamNode.agents.map((item, idx) =>
-                    item.agent ? (
-                      <AgentCard
-                        key={item.agent.instance_id}
-                        agent={item.agent}
-                        onClick={() => handleAgentClick(item.agent!, false)}
-                      />
-                    ) : (
+                  {teamNode.agents.map((item) => {
+                    const key = item.template?.id || 'unknown'
+                    if (item.agents.length > 0) {
+                      return item.agents.map((a) => (
+                        <AgentCard
+                          key={a.instance_id}
+                          agent={a}
+                          onClick={() => handleAgentClick(a, false)}
+                        />
+                      ))
+                    }
+                    return (
                       <PlaceholderCard
-                        key={item.template?.id || idx}
+                        key={key}
                         name={item.template?.name}
                         isLeader={item.template?.is_leader}
                         onClick={
@@ -263,7 +267,7 @@ export function AgentsPanel() {
                         }
                       />
                     )
-                  )}
+                  })}
                 </div>
               )}
             </div>

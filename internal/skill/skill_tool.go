@@ -68,7 +68,7 @@ func (t *SkillTool) Description() string {
 		if s.DisableModelInvocation {
 			continue
 		}
-		fmt.Fprintf(&b, "- %s: %s", s.ID, s.Description)
+		fmt.Fprintf(&b, "- %s: %s", s.ID, s.CombinedDescription())
 		if s.Context == "fork" {
 			b.WriteString(" [fork]")
 		}

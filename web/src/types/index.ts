@@ -295,6 +295,7 @@ export type SkillCategory = 'builtin' | 'user'
 export interface SkillInfo {
   id: string
   description: string
+  when_to_use: string
   category: SkillCategory
   user_invocable: boolean
   disable_model_invocation: boolean

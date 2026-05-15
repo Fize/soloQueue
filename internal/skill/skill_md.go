@@ -30,6 +30,7 @@ func SetPackageLogger(l *logger.Logger) {
 type SkillMDConfig struct {
 	Name                   string `yaml:"name"`
 	Description            string `yaml:"description"`
+	WhenToUse              string `yaml:"when_to_use"`
 	AllowedTools           string `yaml:"allowed-tools"`
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 	UserInvocable          *bool  `yaml:"user-invocable"` // 指针区分"未设置"和"false"
@@ -93,6 +94,7 @@ func ParseSkillMD(path string) (*Skill, error) {
 	return &Skill{
 		ID:                     name,
 		Description:            desc,
+		WhenToUse:              cfg.WhenToUse,
 		Instructions:           strings.TrimSpace(body),
 		AllowedTools:           allowedTools,
 		DisableModelInvocation: cfg.DisableModelInvocation,
