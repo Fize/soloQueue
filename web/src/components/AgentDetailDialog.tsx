@@ -247,7 +247,7 @@ export function AgentDetailDialog({
           </DialogHeader>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-3 overflow-x-auto">
               <TabsTrigger value="output" disabled={!hasOutput || !hasAgent}>
                 <Terminal className="mr-1 h-3 w-3" />
                 Output
@@ -342,7 +342,7 @@ export function AgentDetailDialog({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 overflow-x-auto">
             <TabsTrigger value="output" disabled={!hasOutput || !hasAgent}>
               <Terminal className="mr-1 h-3 w-3" />
               Output

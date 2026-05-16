@@ -175,7 +175,7 @@ export function Board() {
   return (
     <div className="flex flex-1 flex-col min-h-0">
       {/* Top bar */}
-      <div className="flex items-center justify-between shrink-0 px-1">
+      <div className="flex items-center justify-between shrink-0 px-1 sm:px-1">
         <h2 className="text-sm font-semibold text-foreground">Plans Board</h2>
         <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowCreateDialog(true)}>
           <Plus className="h-3.5 w-3.5" />
@@ -190,9 +190,12 @@ export function Board() {
         onDragEnd={handleDragEnd}
       >
         <div className="flex-1 min-h-0 flex">
-          <div className="flex w-full gap-4 overflow-x-auto py-5 flex-1 min-h-0">
+          <div className="flex w-full gap-3 sm:gap-4 overflow-x-auto py-3 sm:py-5 flex-1 min-h-0 snap-x snap-mandatory">
             {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
-              <div key={status} className="min-w-[250px] flex-1 flex flex-col min-h-0">
+              <div
+                key={status}
+                className="min-w-[260px] sm:min-w-[250px] flex-1 flex flex-col min-h-0 snap-start"
+              >
                 <BoardColumn
                   status={status}
                   plans={displayPlans[status]}

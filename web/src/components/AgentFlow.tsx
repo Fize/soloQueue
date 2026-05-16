@@ -62,27 +62,29 @@ function AgentFlowNode({ data }: NodeProps<AppNode>) {
   return (
     <div
       className={cn(
-        'rounded-lg border shadow-sm px-3 py-2.5 min-w-[160px] transition-shadow',
+        'rounded-lg border shadow-sm px-2 py-1.5 sm:px-3 sm:py-2.5 min-w-[120px] sm:min-w-[160px] transition-shadow',
         isPlaceholder
           ? 'border-dashed bg-muted/30'
           : 'border-solid bg-card cursor-pointer hover:shadow-md'
       )}
       style={{ borderLeft: `4px solid ${borderColor}` }}
     >
-      <div className="flex items-center gap-1.5 mb-0.5">
+      <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5">
         <span
           className={cn('h-2 w-2 rounded-full shrink-0', isPlaceholder && 'opacity-40')}
           style={{ backgroundColor: borderColor }}
         />
         <span
           className={cn(
-            'text-xs font-semibold truncate flex-1',
+            'text-[11px] sm:text-xs font-semibold truncate flex-1',
             isPlaceholder ? 'text-muted-foreground/60' : 'text-card-foreground'
           )}
         >
           {agent.name}
         </span>
-        {agent.is_leader && <span className="text-[9px] font-bold text-primary uppercase">L</span>}
+        {agent.is_leader && (
+          <span className="text-[9px] font-bold text-primary uppercase shrink-0">L</span>
+        )}
       </div>
 
       {isPlaceholder ? (
@@ -129,13 +131,26 @@ function layoutElements(nodes: AppNode[], edges: Edge[]): AppNode[] {
 function FitViewOnChange({ count }: { count: number }) {
   const { fitView } = useReactFlow()
   const prevRef = useRef(0)
+  const hasFittedRef = useRef(false)
 
   useEffect(() => {
+    // Initial delayed fitView to ensure container dimensions are stable
+    if (!hasFittedRef.current && count > 0) {
+      hasFittedRef.current = true
+      const timer = setTimeout(() => {
+        fitView({ duration: 300, maxZoom: 1.2, padding: 0.1 })
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+
+    // Subsequent fitView when node count changes
     if (count > 0 && prevRef.current !== count) {
       prevRef.current = count
-      requestAnimationFrame(() => fitView({ duration: 0, maxZoom: 1.5, padding: 0.2 }))
+      requestAnimationFrame(() => {
+        fitView({ duration: 300, maxZoom: 1.2, padding: 0.1 })
+      })
     }
-  }, [count])
+  }, [count, fitView])
 
   return null
 }
@@ -160,7 +175,7 @@ const FlowView = memo(function FlowView({
   }, [initialNodes, initialEdges])
 
   return (
-    <div className="h-full rounded-xl border bg-card overflow-hidden relative">
+    <div className="h-full min-h-[260px] rounded-xl border bg-card overflow-hidden relative">
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}
@@ -174,8 +189,10 @@ const FlowView = memo(function FlowView({
         panOnDrag
         zoomOnScroll
         preventScrolling
-        minZoom={0.4}
+        minZoom={0.3}
         maxZoom={2}
+        fitView
+        fitViewOptions={{ padding: 0.1, maxZoom: 1.2, duration: 300 }}
       >
         <Background gap={24} size={1} color="#E6EBF1" />
         <FitViewOnChange count={flowNodes.length} />

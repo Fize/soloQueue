@@ -236,6 +236,31 @@
   }
 }
 
+/* ─── Mobile Safeguards ──────────────────────────────────────────────────── */
+@layer base {
+  /* Prevent iOS tap highlight */
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent iOS zoom on input focus (min 16px font-size) */
+  @media (max-width: 639px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* Disable hover lift on touch devices */
+@media (hover: none) {
+  .saas-card:hover {
+    transform: none;
+    box-shadow: var(--shadow-sm);
+  }
+}
+
 /* ─── Markdown Preview Styles ──────────────────────────────────────────── */
 @layer components {
   .markdown-preview {
