@@ -101,8 +101,13 @@ export async function getConfig(): Promise<AppConfig> {
   return request<AppConfig>('/config')
 }
 
-export async function updateConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
-  return request<AppConfig>('/config', { method: 'PATCH', body: JSON.stringify(patch) })
+export async function getConfigToml(): Promise<string> {
+  const res = await fetch(`${API_BASE}/config/toml`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `HTTP ${res.status}`)
+  }
+  return res.text()
 }
 
 // ─── Tools & Skills APIs ────────────────────────────────────────────────────

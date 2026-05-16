@@ -1,33 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { GeneralTab } from './settings/GeneralTab'
-import { ModelsTab } from './settings/ModelsTab'
+import { ConfigTab } from './settings/ConfigTab'
 import { ProfileTab } from './settings/ProfileTab'
-import { ToolsTab } from './settings/ToolsTab'
 import { SkillsTab } from './settings/SkillsTab'
-import { IntegrationsTab } from './settings/IntegrationsTab'
 import { MCPTab } from './settings/MCPTab'
-import { AgentTab } from './settings/AgentTab'
-import { Settings, User, Cpu, Wrench, Sparkles, Plug, Server, Bot } from 'lucide-react'
+import { FileText, User, Sparkles, Server } from 'lucide-react'
 
 type SettingsTab =
-  | 'general'
+  | 'config'
   | 'profile'
-  | 'models'
-  | 'tools'
   | 'skills'
-  | 'integrations'
   | 'mcp'
-  | 'agent'
 
-const settingsTabs: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
-  { id: 'general', label: 'General', icon: Settings },
+const settingsTabs: { id: SettingsTab; label: string; icon: typeof FileText }[] = [
+  { id: 'config', label: 'Config', icon: FileText },
   { id: 'profile', label: 'Profile', icon: User },
-  { id: 'models', label: 'Models', icon: Cpu },
-  { id: 'tools', label: 'Tools', icon: Wrench },
   { id: 'skills', label: 'Skills', icon: Sparkles },
-  { id: 'integrations', label: 'Integrations', icon: Plug },
-  { id: 'agent', label: 'Agent', icon: Bot },
   { id: 'mcp', label: 'MCP', icon: Server },
 ]
 
@@ -36,7 +24,7 @@ interface SettingsViewProps {
 }
 
 export function SettingsView({ initialTab }: SettingsViewProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab) || 'general')
+  const [activeTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab) || 'config')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -104,13 +92,9 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
       {/* Right content */}
       <div className="flex-1 overflow-y-auto py-6">
         <div className="mx-auto max-w-3xl">
-          {activeTab === 'general' && <GeneralTab />}
+          {activeTab === 'config' && <ConfigTab />}
           {activeTab === 'profile' && <ProfileTab />}
-          {activeTab === 'models' && <ModelsTab />}
-          {activeTab === 'tools' && <ToolsTab />}
           {activeTab === 'skills' && <SkillsTab />}
-          {activeTab === 'integrations' && <IntegrationsTab />}
-          {activeTab === 'agent' && <AgentTab />}
           {activeTab === 'mcp' && <MCPTab />}
         </div>
       </div>
