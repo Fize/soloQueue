@@ -237,7 +237,7 @@ export function AgentDetailDialog({
               <DialogTitle className="flex items-center gap-2">
                 <span>{effectiveName}</span>
                 <Badge variant="default" className="text-xs">
-                  Main Agent
+                  L1
                 </Badge>
               </DialogTitle>
             </div>
