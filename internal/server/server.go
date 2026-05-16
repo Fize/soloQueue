@@ -244,9 +244,10 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	// Health check
 	r.Get("/healthz", m.handleHealth)
 
-	// Plan routes (read / update / delete only — creation is via LLM tools)
+	// Plan routes (full CRUD)
 	r.Route("/api/plans", func(r chi.Router) {
 		r.Get("/", m.handleListPlans)
+		r.Post("/", m.handleCreatePlan)
 		r.Route("/{id}", func(r chi.Router) {
 			r.Get("/", m.handleGetPlan)
 			r.Put("/", m.handleUpdatePlan)
@@ -337,6 +338,25 @@ func (m *Mux) handleListPlans(w http.ResponseWriter, r *http.Request) {
 		plans = []todo.Plan{}
 	}
 	m.writeJSON(w, http.StatusOK, todo.PlanListResponse{Plans: plans, Total: len(plans)})
+}
+
+func (m *Mux) handleCreatePlan(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	var req todo.CreatePlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	svc := todo.NewService(m.todoStore)
+	plan, err := svc.CreatePlan(r.Context(), req)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusCreated, plan)
 }
 
 func (m *Mux) handleGetPlan(w http.ResponseWriter, r *http.Request) {

@@ -4,6 +4,7 @@ import type { AgentProfile } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { MarkdownPreview } from '@/components/ui/markdown-preview';
 import { Save, Heart, Scale, Eye, Pencil, Loader2 } from 'lucide-react';
 
 // ─── Editor Section ────────────────────────────────────────────────────────
@@ -91,11 +92,9 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
           spellCheck={false}
         />
       ) : (
-        <ScrollArea className="h-[400px] rounded-md border border-border bg-[#1E1E2E] p-4">
+        <ScrollArea className="h-[400px] rounded-md border border-border bg-card p-4">
           {content ? (
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-[#E5E7EB]">
-              {content}
-            </pre>
+            <MarkdownPreview content={content} />
           ) : (
             <p className="text-sm text-muted-foreground">No content</p>
           )}
