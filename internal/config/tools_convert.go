@@ -38,8 +38,10 @@ func toImgModelCfgs(cfgs []ImageModelConfig) []tools.ImgModelCfg {
 	for i, c := range cfgs {
 		out[i] = tools.ImgModelCfg{
 			ID: c.ID, Name: c.Name, Provider: c.Provider,
-			SecretIdEnv: c.SecretIdEnv, SecretKeyEnv: c.SecretKeyEnv,
-			APIKeyEnv: c.APIKeyEnv, APIBaseHost: c.APIBaseHost,
+			SecretId: c.SecretId, SecretIdEnv: c.SecretIdEnv,
+			SecretKey: c.SecretKey, SecretKeyEnv: c.SecretKeyEnv,
+			APIKey: c.APIKey, APIKeyEnv: c.APIKeyEnv,
+			APIBaseHost: c.APIBaseHost,
 			Region: c.Region, IsDefault: c.IsDefault, Enabled: c.Enabled,
 		}
 	}

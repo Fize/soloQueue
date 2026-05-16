@@ -130,8 +130,11 @@ type ImgModelCfg struct {
 	ID           string
 	Name         string
 	Provider     string
+	SecretId     string
 	SecretIdEnv  string
+	SecretKey    string
 	SecretKeyEnv string
+	APIKey       string
 	APIKeyEnv    string
 	APIBaseHost  string
 	Region       string

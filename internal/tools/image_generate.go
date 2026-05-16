@@ -248,11 +248,23 @@ func findDefaultModel(models []ImgModelCfg) (*ImgModelCfg, error) {
 func checkCredentials(m *ImgModelCfg) error {
 	switch m.Provider {
 	case "tencent":
-		if os.Getenv(m.SecretIdEnv) == "" || os.Getenv(m.SecretKeyEnv) == "" {
+		sid := m.SecretId
+		if sid == "" {
+			sid = os.Getenv(m.SecretIdEnv)
+		}
+		sk := m.SecretKey
+		if sk == "" {
+			sk = os.Getenv(m.SecretKeyEnv)
+		}
+		if sid == "" || sk == "" {
 			return fmt.Errorf("%w: %s / %s", ErrImageGenAuth, m.SecretIdEnv, m.SecretKeyEnv)
 		}
 	case "doubao":
-		if os.Getenv(m.APIKeyEnv) == "" {
+		key := m.APIKey
+		if key == "" {
+			key = os.Getenv(m.APIKeyEnv)
+		}
+		if key == "" {
 			return fmt.Errorf("%w: %s", ErrImageGenAuth, m.APIKeyEnv)
 		}
 	}
@@ -301,8 +313,14 @@ func (p *tencentProvider) buildRequest(m ImgModelCfg, action string, payload map
 
 	host := m.APIBaseHost
 	timestamp := time.Now().Unix()
-	secretId := os.Getenv(m.SecretIdEnv)
-	secretKey := os.Getenv(m.SecretKeyEnv)
+	secretId := m.SecretId
+	if secretId == "" {
+		secretId = os.Getenv(m.SecretIdEnv)
+	}
+	secretKey := m.SecretKey
+	if secretKey == "" {
+		secretKey = os.Getenv(m.SecretKeyEnv)
+	}
 
 	authorization, err := tc3Sign(secretId, secretKey, host, tencentService, string(body), timestamp)
 	if err != nil {
