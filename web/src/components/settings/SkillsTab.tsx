@@ -102,7 +102,7 @@ export function SkillsTab() {
               {builtinSkills.length}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {builtinSkills.map((s) => (
               <SkillCard key={s.id} skill={s} />
             ))}
@@ -120,7 +120,7 @@ export function SkillsTab() {
               {userSkills.length}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {userSkills.map((s) => (
               <SkillCard key={s.id} skill={s} />
             ))}

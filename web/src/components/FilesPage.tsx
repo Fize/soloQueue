@@ -3,6 +3,7 @@ import { getFileRoots, listFiles } from '@/lib/api'
 import type { FileRoot, FileInfo } from '@/types'
 import { FileContentView } from './FileContentView'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import {
   Folder,
   FolderOpen,
@@ -14,6 +15,8 @@ import {
   FileVideo,
   Loader2,
   ChevronRight,
+  FolderTree,
+  PanelRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -121,6 +124,7 @@ export function FilesPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [children, setChildren] = useState<Record<string, TreeNode[]>>({})
   const [loadingNodes, setLoadingNodes] = useState<Record<string, boolean>>({})
+  const [showTree, setShowTree] = useState(false)
 
   useEffect(() => {
     getFileRoots()
@@ -306,13 +310,43 @@ export function FilesPage() {
   )
 
   return (
-    <div className="flex h-full p-3 gap-3">
-      <div className="w-64 shrink-0 border-r border-border flex flex-col rounded-lg border">
+    <div className="flex h-full p-2 sm:p-3 gap-2 sm:gap-3">
+      {/* Desktop tree — always visible */}
+      <div className="hidden md:flex w-64 shrink-0 border-r border-border flex-col rounded-lg border">
         {treeContent}
       </div>
 
-      <div className="relative flex-1 min-w-0">
-        <FileContentView path={selectedPath} />
+      {/* Mobile tree overlay */}
+      {showTree && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/30 animate-in fade-in-0"
+            onClick={() => setShowTree(false)}
+          />
+          <div className="absolute inset-y-0 left-0 w-[280px] bg-card border-r border-border flex flex-col shadow-2xl animate-in slide-in-from-left">
+            {treeContent}
+          </div>
+        </div>
+      )}
+
+      <div className="relative flex-1 min-w-0 flex flex-col">
+        {/* Mobile header with tree toggle */}
+        <div className="flex items-center gap-2 md:hidden mb-2">
+          <Button variant="ghost" size="icon-sm" onClick={() => setShowTree(true)}>
+            <FolderTree className="h-4 w-4" />
+          </Button>
+          {selectedPath && (
+            <Button variant="ghost" size="icon-sm" onClick={() => setSelectedPath(null)}>
+              <PanelRight className="h-4 w-4" />
+            </Button>
+          )}
+          <span className="text-xs text-muted-foreground truncate flex-1">
+            {selectedPath ? selectedPath.split('/').pop() : 'Select a file'}
+          </span>
+        </div>
+        <div className="flex-1 min-h-0">
+          <FileContentView path={selectedPath} />
+        </div>
       </div>
     </div>
   )
