@@ -59,7 +59,7 @@ type accessEntry struct {
 
 func (l *httpAccessLogger) logRequest(r *http.Request, ww middleware.WrapResponseWriter, duration time.Duration) {
 	entry := accessEntry{
-		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
+		Timestamp:  time.Now().Format(time.RFC3339Nano),
 		Method:     r.Method,
 		Path:       r.URL.RequestURI(),
 		Status:     ww.Status(),
