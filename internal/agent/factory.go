@@ -713,8 +713,11 @@ BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
 
 # 3. Follow the Plan — you MUST execute todos one at a time and mark each:
-1. Read the plan's todos. If readable → proceed to step 3.
-2. If NO todo items exist → create your own plan: CreatePlan + AddTodoItems + SetTodoDependencies + design doc → present PLAN_ID → wait for approval → UpdatePlan("running").
+1. Read the plan's todos. If readable → proceed to step 4.
+2. If NO todo items exist → create your own plan:
+   a. CreatePlan + AddTodoItems + SetTodoDependencies
+   b. Write the design document to {{PLAN_DIR}}/<feature-name>.md. It MUST contain: Goal, Approach, Impact, and Steps.
+   c. Present PLAN_ID → wait for approval → UpdatePlan("running").
 3. Pick the FIRST uncompleted todo from the list.
 4. Execute it using the appropriate tool.
 5. IMMEDIATELY after completion → ToggleTodo(id, "done") on success, or ToggleTodo(id, "failed") on error. This step is MANDATORY — you MUST NOT skip it.
