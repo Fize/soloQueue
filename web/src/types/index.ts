@@ -28,6 +28,21 @@ export interface PlanListResponse {
   total: number
 }
 
+export interface CreatePlanRequest {
+  title: string
+  content?: string
+  status?: string
+  tags?: string
+  creator?: string
+}
+
+export interface UpdatePlanRequest {
+  title?: string
+  content?: string
+  status?: string
+  tags?: string
+}
+
 // ─── Agent Types ─────────────────────────────────────────────────────────────
 
 export type AgentState = 'idle' | 'processing' | 'stopping' | 'stopped'

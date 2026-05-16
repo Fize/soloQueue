@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
-import { Board } from './Board'
-import { AgentsPanel } from './AgentsPanel'
+import { AgentFlow } from './AgentFlow'
 import { usePlanStore } from '@/stores/planStore'
 import { useRuntime } from '@/hooks/useRuntime'
 import { useAgentStore } from '@/stores/agentStore'
@@ -42,20 +41,14 @@ export function Dashboard() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4 px-6 pt-6 pb-4">
         <StatsCard title="Total Plans" value={stats.total} />
         <StatsCard title="Running" value={stats.running} />
         <StatsCard title="Completed" value={stats.done} />
         <StatsCard title="Active Agents" value={stats.agentsActive} />
       </div>
-
-      {/* Board + Agents */}
-      <div className="flex flex-1 min-h-0 gap-4 px-6 pb-6">
-        <AgentsPanel />
-        <div className="flex-1 min-w-0">
-          <Board />
-        </div>
+      <div className="flex-1 min-h-0 px-6 pb-6">
+        <AgentFlow />
       </div>
     </div>
   )
