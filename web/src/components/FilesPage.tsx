@@ -141,14 +141,6 @@ export function FilesPage() {
     fetchRoots()
   }, [fetchRoots])
 
-  const handleRefresh = useCallback(() => {
-    setChildren({})
-    setExpanded({})
-    setLoadingNodes({})
-    setContentVersion((v) => v + 1)
-    fetchRoots()
-  }, [fetchRoots])
-
   const loadChildren = useCallback(async (path: string) => {
     setLoadingNodes((prev) => ({ ...prev, [path]: true }))
     try {
@@ -169,6 +161,17 @@ export function FilesPage() {
       setLoadingNodes((prev) => ({ ...prev, [path]: false }))
     }
   }, [])
+
+  const handleRefresh = useCallback(() => {
+    setContentVersion((v) => v + 1)
+    fetchRoots()
+    // preserve expanded state, re-fetch children for all open directories
+    Object.entries(expanded).forEach(([key, isExpanded]) => {
+      if (isExpanded && !key.startsWith(SECTION + ':')) {
+        loadChildren(key)
+      }
+    })
+  }, [fetchRoots, expanded, loadChildren])
 
   const toggleNode = useCallback(
     async (path: string, isDir: boolean) => {
@@ -369,7 +372,7 @@ export function FilesPage() {
           </span>
         </div>
         <div className="flex-1 min-h-0">
-          <FileContentView path={selectedPath} key={contentVersion} />
+          <FileContentView path={selectedPath} key={contentVersion} onError={() => setSelectedPath(null)} />
         </div>
       </div>
     </div>
