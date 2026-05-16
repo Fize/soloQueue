@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import { listPlans, updatePlanStatus, createPlan as apiCreatePlan, updatePlan as apiUpdatePlan, deletePlan as apiDeletePlan } from '@/lib/api'
+import {
+  listPlans,
+  updatePlanStatus,
+  createPlan as apiCreatePlan,
+  updatePlan as apiUpdatePlan,
+  deletePlan as apiDeletePlan,
+} from '@/lib/api'
 import type { Plan, PlanStatus, CreatePlanRequest, UpdatePlanRequest } from '@/types'
 
 interface PlanState {
@@ -56,7 +62,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // Optimistic update — apply partial changes immediately
     set((state) => ({
       plans: state.plans.map((p) =>
-        p.id === id ? { ...p, ...data, updated_at: new Date().toISOString() } as Plan : p
+        p.id === id ? ({ ...p, ...data, updated_at: new Date().toISOString() } as Plan) : p
       ),
     }))
     try {

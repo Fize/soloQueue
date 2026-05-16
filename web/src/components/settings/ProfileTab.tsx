@@ -1,50 +1,50 @@
-import { useState, useEffect, useCallback } from 'react';
-import { getAgentProfile, updateAgentProfile } from '@/lib/api';
-import type { AgentProfile } from '@/types';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { MarkdownPreview } from '@/components/ui/markdown-preview';
-import { Save, Heart, Scale, Eye, Pencil, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react'
+import { getAgentProfile, updateAgentProfile } from '@/lib/api'
+import type { AgentProfile } from '@/types'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { MarkdownPreview } from '@/components/ui/markdown-preview'
+import { Save, Heart, Scale, Eye, Pencil, Loader2 } from 'lucide-react'
 
 // ─── Editor Section ────────────────────────────────────────────────────────
 
 interface EditorSectionProps {
-  title: string;
-  icon: typeof Heart;
-  content: string;
-  onSave: (content: string) => Promise<void>;
-  saving: boolean;
+  title: string
+  icon: typeof Heart
+  content: string
+  onSave: (content: string) => Promise<void>
+  saving: boolean
 }
 
 function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSectionProps) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(content);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(content)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Sync draft when content changes externally (e.g. after save)
   useEffect(() => {
-    setDraft(content);
-  }, [content]);
+    setDraft(content)
+  }, [content])
 
-  const lineCount = draft.split('\n').length;
-  const charCount = draft.length;
+  const lineCount = draft.split('\n').length
+  const charCount = draft.length
 
   const handleSave = async () => {
-    setSaveError(null);
+    setSaveError(null)
     try {
-      await onSave(draft);
-      setEditing(false);
+      await onSave(draft)
+      setEditing(false)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Save failed');
+      setSaveError(err instanceof Error ? err.message : 'Save failed')
     }
-  };
+  }
 
   const handleCancel = () => {
-    setDraft(content);
-    setEditing(false);
-    setSaveError(null);
-  };
+    setDraft(content)
+    setEditing(false)
+    setSaveError(null)
+  }
 
   return (
     <div className="border rounded-lg bg-card p-5 shadow-sm">
@@ -122,65 +122,65 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
         </div>
       )}
     </div>
-  );
+  )
 }
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function ProfileTab() {
-  const [profile, setProfile] = useState<AgentProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [savingSoul, setSavingSoul] = useState(false);
-  const [savingRules, setSavingRules] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<AgentProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [savingSoul, setSavingSoul] = useState(false)
+  const [savingRules, setSavingRules] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchProfile = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
-      const data = await getAgentProfile('main');
-      setProfile(data);
+      setLoading(true)
+      setError(null)
+      const data = await getAgentProfile('main')
+      setProfile(data)
     } catch {
-      setError('Failed to load profile');
+      setError('Failed to load profile')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
+    fetchProfile()
+  }, [fetchProfile])
 
   const handleSaveSoul = async (soul: string) => {
-    setSavingSoul(true);
+    setSavingSoul(true)
     try {
-      const updated = await updateAgentProfile('main', { soul });
-      setProfile(updated);
+      const updated = await updateAgentProfile('main', { soul })
+      setProfile(updated)
     } finally {
-      setSavingSoul(false);
+      setSavingSoul(false)
     }
-  };
+  }
 
   const handleSaveRules = async (rules: string) => {
-    setSavingRules(true);
+    setSavingRules(true)
     try {
-      const updated = await updateAgentProfile('main', { rules });
-      setProfile(updated);
+      const updated = await updateAgentProfile('main', { rules })
+      setProfile(updated)
     } finally {
-      setSavingRules(false);
+      setSavingRules(false)
     }
-  };
+  }
 
   if (loading) {
-    return <div className="text-sm text-muted-foreground">Loading profile...</div>;
+    return <div className="text-sm text-muted-foreground">Loading profile...</div>
   }
 
   if (error) {
-    return <div className="text-sm text-destructive">{error}</div>;
+    return <div className="text-sm text-destructive">{error}</div>
   }
 
   if (!profile) {
-    return <div className="text-sm text-muted-foreground">No profile available</div>;
+    return <div className="text-sm text-muted-foreground">No profile available</div>
   }
 
   return (
@@ -200,5 +200,5 @@ export function ProfileTab() {
         saving={savingRules}
       />
     </div>
-  );
+  )
 }

@@ -124,7 +124,16 @@ export interface TeamListResponse {
 export type Segment =
   | { type: 'thinking'; text: string }
   | { type: 'content'; text: string }
-  | { type: 'tool_call'; call_id: string; name: string; args: string; result: string; error: string; done: boolean; duration_ms: number }
+  | {
+      type: 'tool_call'
+      call_id: string
+      name: string
+      args: string
+      result: string
+      error: string
+      done: boolean
+      duration_ms: number
+    }
 
 export interface AgentStreamState {
   agent_id: string

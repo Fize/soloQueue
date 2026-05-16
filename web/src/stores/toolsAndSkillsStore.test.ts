@@ -9,8 +9,10 @@ const mockSkills = { skills: [], total: 0 }
 
 beforeEach(() => {
   useToolsAndSkillsStore.setState({
-    tools: null, toolsLoading: false,
-    skills: null, skillsLoading: false,
+    tools: null,
+    toolsLoading: false,
+    skills: null,
+    skillsLoading: false,
   })
   vi.clearAllMocks()
 })

@@ -1,51 +1,51 @@
-import { useState, useEffect, useCallback } from 'react';
-import type { MCPConfig } from '@/types';
-import { getMCPConfig, updateMCPConfig } from '@/lib/api';
+import { useState, useEffect, useCallback } from 'react'
+import type { MCPConfig } from '@/types'
+import { getMCPConfig, updateMCPConfig } from '@/lib/api'
 
 export function useMCPConfig() {
-  const [config, setConfig] = useState<MCPConfig | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [config, setConfig] = useState<MCPConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const data = await getMCPConfig();
-      setConfig(data);
-      setError(null);
+      const data = await getMCPConfig()
+      setConfig(data)
+      setError(null)
     } catch {
-      setConfig(null);
+      setConfig(null)
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false
     getMCPConfig()
       .then((data) => {
-        if (!cancelled) setConfig(data);
+        if (!cancelled) setConfig(data)
       })
       .catch(() => {
-        if (!cancelled) setConfig(null);
-      });
+        if (!cancelled) setConfig(null)
+      })
     return () => {
-      cancelled = true;
-    };
-  }, []);
+      cancelled = true
+    }
+  }, [])
 
   const save = useCallback(async (cfg: MCPConfig) => {
-    setSaving(true);
-    setError(null);
+    setSaving(true)
+    setError(null)
     try {
-      const updated = await updateMCPConfig(cfg);
-      setConfig(updated);
-      return updated;
+      const updated = await updateMCPConfig(cfg)
+      setConfig(updated)
+      return updated
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to save MCP config';
-      setError(msg);
-      throw err;
+      const msg = err instanceof Error ? err.message : 'Failed to save MCP config'
+      setError(msg)
+      throw err
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  }, []);
+  }, [])
 
-  return { config, saving, error, save, refresh };
+  return { config, saving, error, save, refresh }
 }

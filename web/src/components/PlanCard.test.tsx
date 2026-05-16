@@ -13,8 +13,26 @@ const basePlan: Plan = {
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
   todo_items: [
-    { id: 't1', plan_id: 'p1', content: 'Task 1', completed: true, sort_order: 0, depends_on: [], blockers: [], created_at: '' },
-    { id: 't2', plan_id: 'p1', content: 'Task 2', completed: false, sort_order: 1, depends_on: [], blockers: [], created_at: '' },
+    {
+      id: 't1',
+      plan_id: 'p1',
+      content: 'Task 1',
+      completed: true,
+      sort_order: 0,
+      depends_on: [],
+      blockers: [],
+      created_at: '',
+    },
+    {
+      id: 't2',
+      plan_id: 'p1',
+      content: 'Task 2',
+      completed: false,
+      sort_order: 1,
+      depends_on: [],
+      blockers: [],
+      created_at: '',
+    },
   ],
 }
 

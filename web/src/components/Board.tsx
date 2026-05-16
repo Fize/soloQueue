@@ -27,11 +27,14 @@ export function Board() {
 
   const [showCreateDialog, setShowCreateDialog] = useState(false)
 
-  const plansByStatus = useMemo(() => ({
-    plan: plans.filter((p) => p.status === 'plan'),
-    running: plans.filter((p) => p.status === 'running'),
-    done: plans.filter((p) => p.status === 'done'),
-  }), [plans])
+  const plansByStatus = useMemo(
+    () => ({
+      plan: plans.filter((p) => p.status === 'plan'),
+      running: plans.filter((p) => p.status === 'running'),
+      done: plans.filter((p) => p.status === 'done'),
+    }),
+    [plans]
+  )
 
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)

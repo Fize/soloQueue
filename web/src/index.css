@@ -1,69 +1,72 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
 
 /* ─── SaaS Design System (Inspired by Stripe/Linear) ─────────────────── */
 @theme {
   /* Brand Colors - Blurple Primary */
-  --color-primary: #635BFF;
-  --color-primary-foreground: #FFFFFF;
-  --color-secondary: #0A2540;
-  --color-secondary-foreground: #FFFFFF;
+  --color-primary: #635bff;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #0a2540;
+  --color-secondary-foreground: #ffffff;
 
   /* Backgrounds */
-  --color-background: #F6F9FC;
-  --color-foreground: #0A2540;
-  --color-card: #FFFFFF;
-  --color-card-foreground: #0A2540;
-  --color-popover: #FFFFFF;
-  --color-popover-foreground: #0A2540;
+  --color-background: #f6f9fc;
+  --color-foreground: #0a2540;
+  --color-card: #ffffff;
+  --color-card-foreground: #0a2540;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0a2540;
 
   /* Muted */
-  --color-muted: #F3F6F8;
-  --color-muted-foreground: #8898AA;
+  --color-muted: #f3f6f8;
+  --color-muted-foreground: #8898aa;
 
   /* Accent */
-  --color-accent: #00D4FF;
-  --color-accent-foreground: #0A2540;
+  --color-accent: #00d4ff;
+  --color-accent-foreground: #0a2540;
 
   /* Destructive */
-  --color-destructive: #FF2F4C;
-  --color-destructive-foreground: #FFFFFF;
+  --color-destructive: #ff2f4c;
+  --color-destructive-foreground: #ffffff;
 
   /* Border / Input / Ring */
-  --color-border: #E6EBF1;
-  --color-border-light: #F3F6F8;
-  --color-input: #E6EBF1;
+  --color-border: #e6ebf1;
+  --color-border-light: #f3f6f8;
+  --color-input: #e6ebf1;
   --color-ring: rgba(99, 91, 255, 0.18);
 
   /* Status Colors */
-  --color-status-plan: #E6EBF1;
-  --color-status-running: #FFF8E1;
-  --color-status-done: #E6F9ED;
+  --color-status-plan: #e6ebf1;
+  --color-status-running: #fff8e1;
+  --color-status-done: #e6f9ed;
 
   /* Semantic Colors */
-  --color-success: #00D924;
-  --color-success-foreground: #007A14;
-  --color-warning: #FFB020;
-  --color-warning-foreground: #8A5A00;
-  --color-info: #0073FF;
-  --color-info-foreground: #004AAD;
-  --color-error: #FF2F4C;
-  --color-error-foreground: #CC0033;
+  --color-success: #00d924;
+  --color-success-foreground: #007a14;
+  --color-warning: #ffb020;
+  --color-warning-foreground: #8a5a00;
+  --color-info: #0073ff;
+  --color-info-foreground: #004aad;
+  --color-error: #ff2f4c;
+  --color-error-foreground: #cc0033;
 
   /* Chart */
-  --color-chart-1: #635BFF;
-  --color-chart-2: #00D4FF;
-  --color-chart-3: #00D924;
-  --color-chart-4: #FFB020;
-  --color-chart-5: #FF2F4C;
+  --color-chart-1: #635bff;
+  --color-chart-2: #00d4ff;
+  --color-chart-3: #00d924;
+  --color-chart-4: #ffb020;
+  --color-chart-5: #ff2f4c;
 }
 
 @theme inline {
-  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans:
+    Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --font-mono:
+    'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   --radius: 8px;
   --radius-sm: 4px;
@@ -109,25 +112,25 @@
 
 /* ─── CSS Variables (shadcn consumption + SaaS tokens) ───────────────── */
 :root {
-  --background: #F6F9FC;
-  --foreground: #0A2540;
-  --card: #FFFFFF;
-  --card-foreground: #0A2540;
-  --popover: #FFFFFF;
-  --popover-foreground: #0A2540;
-  --primary: #635BFF;
-  --primary-foreground: #FFFFFF;
-  --secondary: #0A2540;
-  --secondary-foreground: #FFFFFF;
-  --muted: #F3F6F8;
-  --muted-foreground: #8898AA;
-  --accent: #00D4FF;
-  --accent-foreground: #0A2540;
-  --destructive: #FF2F4C;
-  --destructive-foreground: #FFFFFF;
-  --border: #E6EBF1;
-  --border-light: #F3F6F8;
-  --input: #E6EBF1;
+  --background: #f6f9fc;
+  --foreground: #0a2540;
+  --card: #ffffff;
+  --card-foreground: #0a2540;
+  --popover: #ffffff;
+  --popover-foreground: #0a2540;
+  --primary: #635bff;
+  --primary-foreground: #ffffff;
+  --secondary: #0a2540;
+  --secondary-foreground: #ffffff;
+  --muted: #f3f6f8;
+  --muted-foreground: #8898aa;
+  --accent: #00d4ff;
+  --accent-foreground: #0a2540;
+  --destructive: #ff2f4c;
+  --destructive-foreground: #ffffff;
+  --border: #e6ebf1;
+  --border-light: #f3f6f8;
+  --input: #e6ebf1;
   --ring: rgba(99, 91, 255, 0.18);
   --radius: 8px;
 
@@ -137,59 +140,59 @@
   --shadow-lg: 0 13px 27px -5px rgba(50, 50, 93, 0.25), 0 8px 16px -8px rgba(0, 0, 0, 0.3);
 
   /* Status */
-  --status-plan: #E6EBF1;
-  --status-running: #FFF8E1;
-  --status-done: #E6F9ED;
+  --status-plan: #e6ebf1;
+  --status-running: #fff8e1;
+  --status-done: #e6f9ed;
 
   /* Semantic */
-  --success: #00D924;
-  --success-foreground: #007A14;
-  --warning: #FFB020;
-  --warning-foreground: #8A5A00;
-  --info: #0073FF;
-  --info-foreground: #004AAD;
-  --error: #FF2F4C;
-  --error-foreground: #CC0033;
+  --success: #00d924;
+  --success-foreground: #007a14;
+  --warning: #ffb020;
+  --warning-foreground: #8a5a00;
+  --info: #0073ff;
+  --info-foreground: #004aad;
+  --error: #ff2f4c;
+  --error-foreground: #cc0033;
 }
 
 .dark {
-  --background: #0A2540;
-  --foreground: #E0E0E0;
-  --card: #1A2A44;
-  --card-foreground: #E0E0E0;
-  --popover: #1A2A44;
-  --popover-foreground: #E0E0E0;
-  --primary: #635BFF;
-  --primary-foreground: #FFFFFF;
-  --secondary: #1A2A44;
-  --secondary-foreground: #E0E0E0;
-  --muted: #1A2A44;
-  --muted-foreground: #6B7A94;
-  --accent: #00D4FF;
-  --accent-foreground: #0A2540;
-  --destructive: #5C2020;
-  --destructive-foreground: #FF9999;
-  --border: #2A3A54;
-  --border-light: #1A2A44;
-  --input: #2A3A54;
+  --background: #0a2540;
+  --foreground: #e0e0e0;
+  --card: #1a2a44;
+  --card-foreground: #e0e0e0;
+  --popover: #1a2a44;
+  --popover-foreground: #e0e0e0;
+  --primary: #635bff;
+  --primary-foreground: #ffffff;
+  --secondary: #1a2a44;
+  --secondary-foreground: #e0e0e0;
+  --muted: #1a2a44;
+  --muted-foreground: #6b7a94;
+  --accent: #00d4ff;
+  --accent-foreground: #0a2540;
+  --destructive: #5c2020;
+  --destructive-foreground: #ff9999;
+  --border: #2a3a54;
+  --border-light: #1a2a44;
+  --input: #2a3a54;
   --ring: rgba(99, 91, 255, 0.25);
 
   --shadow-sm: 0 2px 5px -1px rgba(0, 0, 0, 0.4), 0 1px 3px -1px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 6px 12px -2px rgba(0, 0, 0, 0.4), 0 3px 7px -3px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 13px 27px -5px rgba(0, 0, 0, 0.5), 0 8px 16px -8px rgba(0, 0, 0, 0.6);
 
-  --status-plan: #2A3A54;
-  --status-running: #4A3F20;
-  --status-done: #1F3A28;
+  --status-plan: #2a3a54;
+  --status-running: #4a3f20;
+  --status-done: #1f3a28;
 
-  --success: #1F3A28;
-  --success-foreground: #69DB7C;
-  --warning: #4A3F20;
-  --warning-foreground: #FFD43B;
-  --info: #2A3550;
-  --info-foreground: #74C0FC;
-  --error: #5C2020;
-  --error-foreground: #FF9999;
+  --success: #1f3a28;
+  --success-foreground: #69db7c;
+  --warning: #4a3f20;
+  --warning-foreground: #ffd43b;
+  --info: #2a3550;
+  --info-foreground: #74c0fc;
+  --error: #5c2020;
+  --error-foreground: #ff9999;
 }
 
 /* ─── Base Layer ─────────────────────────────────────────────────────────── */
@@ -200,14 +203,16 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-weight: 400;
-    background-image: linear-gradient(180deg, #FFFFFF 0%, #F6F9FC 100%);
+    background-image: linear-gradient(180deg, #ffffff 0%, #f6f9fc 100%);
     background-repeat: no-repeat;
     min-height: 100vh;
   }
   html {
     @apply font-sans;
   }
-  h1, h2, h3 {
+  h1,
+  h2,
+  h3 {
     font-weight: 600;
     letter-spacing: -0.01em;
   }
@@ -220,7 +225,9 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
     border: 1px solid var(--border);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease;
   }
 
   .saas-card:hover {
@@ -274,7 +281,7 @@
   }
 
   /* Task lists (GFM) */
-  .markdown-preview li input[type="checkbox"] {
+  .markdown-preview li input[type='checkbox'] {
     @apply mr-1.5 h-3.5 w-3.5 accent-primary;
   }
 

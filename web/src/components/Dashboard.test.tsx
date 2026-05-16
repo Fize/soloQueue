@@ -23,12 +23,10 @@ vi.mock('./AgentFlow', () => ({
 beforeEach(() => {
   vi.clearAllMocks()
   ;(usePlanStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-    (selector: (s: Record<string, unknown>) => unknown) =>
-      selector({ plans: [] })
+    (selector: (s: Record<string, unknown>) => unknown) => selector({ plans: [] })
   )
   ;(useAgentStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-    (selector: (s: Record<string, unknown>) => unknown) =>
-      selector({ agents: null })
+    (selector: (s: Record<string, unknown>) => unknown) => selector({ agents: null })
   )
 })
 
