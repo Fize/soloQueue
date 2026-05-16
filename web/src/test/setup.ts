@@ -1,10 +1,12 @@
 import '@testing-library/jest-dom'
 
 const mockFetch = vi.fn()
-mockFetch.mockResolvedValue(new Response(JSON.stringify({}), {
-  status: 200,
-  headers: { 'Content-Type': 'application/json' },
-}))
+mockFetch.mockResolvedValue(
+  new Response(JSON.stringify({}), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+)
 vi.stubGlobal('fetch', mockFetch)
 
 class MockWebSocket {
@@ -18,12 +20,23 @@ class MockWebSocket {
   onerror: (() => void) | null = null
   constructor(_url: string) {
     ;(globalThis as any).__lastMockWS = this
-    setTimeout(() => { this.readyState = MockWebSocket.OPEN; this.onopen?.() }, 0)
+    setTimeout(() => {
+      this.readyState = MockWebSocket.OPEN
+      this.onopen?.()
+    }, 0)
   }
-  close() { this.readyState = MockWebSocket.CLOSED; this.onclose?.() }
+  close() {
+    this.readyState = MockWebSocket.CLOSED
+    this.onclose?.()
+  }
   send(_data: string) {}
 }
 vi.stubGlobal('WebSocket', MockWebSocket)
-vi.stubGlobal('PointerEvent', class PointerEvent extends Event {
-  constructor(type: string, props?: any) { super(type, props) }
-})
+vi.stubGlobal(
+  'PointerEvent',
+  class PointerEvent extends Event {
+    constructor(type: string, props?: any) {
+      super(type, props)
+    }
+  }
+)

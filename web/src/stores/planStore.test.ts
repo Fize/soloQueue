@@ -83,7 +83,9 @@ describe('planStore', () => {
     usePlanStore.setState({ plans: [mockPlan] })
     vi.mocked(api.updatePlan).mockRejectedValue(new Error('fail'))
 
-    await expect(usePlanStore.getState().updatePlan('p1', { title: 'Updated' })).rejects.toThrow('Failed to update plan')
+    await expect(usePlanStore.getState().updatePlan('p1', { title: 'Updated' })).rejects.toThrow(
+      'Failed to update plan'
+    )
     expect(usePlanStore.getState().plans[0].title).toBe('Test Plan')
   })
 

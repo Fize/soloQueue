@@ -95,12 +95,7 @@ export function PlanCreateDialog({ open, onClose }: PlanCreateDialogProps) {
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <Select
-                label="Status"
-                options={statusOptions}
-                value={status}
-                onChange={setStatus}
-              />
+              <Select label="Status" options={statusOptions} value={status} onChange={setStatus} />
             </div>
           </div>
 

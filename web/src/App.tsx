@@ -28,16 +28,16 @@ function App() {
           <div className="flex-1 overflow-hidden">
             <Routes>
               <Route path="/" element={<Dashboard />} />
-            <Route path="/plans" element={<PlansPage />} />
-            <Route path="/files" element={<FilesPage />} />
-            <Route path="/settings" element={<SettingsLayout />}>
-              <Route index element={<Navigate to="config" replace />} />
-              <Route path="config" element={<ConfigTab />} />
-              <Route path="profile" element={<ProfileTab />} />
-              <Route path="skills" element={<SkillsTab />} />
-              <Route path="mcp" element={<MCPTab />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="/plans" element={<PlansPage />} />
+              <Route path="/files" element={<FilesPage />} />
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route index element={<Navigate to="config" replace />} />
+                <Route path="config" element={<ConfigTab />} />
+                <Route path="profile" element={<ProfileTab />} />
+                <Route path="skills" element={<SkillsTab />} />
+                <Route path="mcp" element={<MCPTab />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
         </main>

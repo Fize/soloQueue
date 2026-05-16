@@ -28,7 +28,26 @@ describe('useAgents', () => {
     })
 
     const { result } = renderHook(() => useAgents())
-    const agentsData = { agents: [{ id: 'a1', instance_id: 'i1', name: 'Agent1', state: 'idle' as const, model_id: '', group: '', is_leader: false, task_level: '', error_count: 0, last_error: '', pending_delegations: 0, mailbox_high: 0, mailbox_normal: 0 }], supervisors: [] }
+    const agentsData = {
+      agents: [
+        {
+          id: 'a1',
+          instance_id: 'i1',
+          name: 'Agent1',
+          state: 'idle' as const,
+          model_id: '',
+          group: '',
+          is_leader: false,
+          task_level: '',
+          error_count: 0,
+          last_error: '',
+          pending_delegations: 0,
+          mailbox_high: 0,
+          mailbox_normal: 0,
+        },
+      ],
+      supervisors: [],
+    }
 
     handler(agentsData)
     await waitFor(() => expect(result.current).toEqual(agentsData))

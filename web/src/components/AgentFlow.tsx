@@ -82,22 +82,16 @@ function AgentFlowNode({ data }: NodeProps<AppNode>) {
         >
           {agent.name}
         </span>
-        {agent.is_leader && (
-          <span className="text-[9px] font-bold text-primary uppercase">L</span>
-        )}
+        {agent.is_leader && <span className="text-[9px] font-bold text-primary uppercase">L</span>}
       </div>
 
       {isPlaceholder ? (
         <p className="text-[10px] text-muted-foreground/40 italic mt-0.5">not started</p>
       ) : (
         <>
-          <p className="text-[10px] text-muted-foreground truncate font-mono">
-            {agent.model_id}
-          </p>
+          <p className="text-[10px] text-muted-foreground truncate font-mono">{agent.model_id}</p>
           {agent.error_count > 0 && (
-            <p className="text-[10px] text-destructive font-medium mt-0.5">
-              ✗{agent.error_count}
-            </p>
+            <p className="text-[10px] text-destructive font-medium mt-0.5">✗{agent.error_count}</p>
           )}
         </>
       )}
@@ -402,7 +396,9 @@ export function AgentFlow() {
     if (l1Running) {
       for (const sv of supervisors) {
         const pair = `${l1Running.instance_id}|${sv.leader_id}`
-        if (!edgeList.some((e) => e.source === l1Running.instance_id && e.target === sv.leader_id)) {
+        if (
+          !edgeList.some((e) => e.source === l1Running.instance_id && e.target === sv.leader_id)
+        ) {
           const leader = runningAgents.find((a) => a.instance_id === sv.leader_id)
           const existingIdx = edgeList.findIndex(
             (e) => e.source === l1Running.instance_id && e.target === sv.leader_id

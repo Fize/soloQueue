@@ -11,7 +11,16 @@ beforeEach(() => {
 
 describe('useAgentConfig', () => {
   it('fetches config for given agent id', async () => {
-    const config = { raw_config: '', system_prompt: '', name: '', description: '', model: '', group: '', is_leader: false, mcp_servers: [] }
+    const config = {
+      raw_config: '',
+      system_prompt: '',
+      name: '',
+      description: '',
+      model: '',
+      group: '',
+      is_leader: false,
+      mcp_servers: [],
+    }
     vi.mocked(api.getAgentConfig).mockResolvedValue(config)
     const { result } = renderHook(() => useAgentConfig('main'))
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -32,7 +41,16 @@ describe('useAgentConfig', () => {
   })
 
   it('refetch works', async () => {
-    const config = { raw_config: '', system_prompt: '', name: '', description: '', model: '', group: '', is_leader: false, mcp_servers: [] }
+    const config = {
+      raw_config: '',
+      system_prompt: '',
+      name: '',
+      description: '',
+      model: '',
+      group: '',
+      is_leader: false,
+      mcp_servers: [],
+    }
     vi.mocked(api.getAgentConfig).mockResolvedValue(config)
     const { result } = renderHook(() => useAgentConfig('main'))
     await waitFor(() => expect(result.current.config).toEqual(config))

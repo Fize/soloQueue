@@ -162,10 +162,13 @@ export function FileContentView({ path }: FileContentViewProps) {
 
   function handleCopy() {
     if (!content) return
-    navigator.clipboard.writeText(content).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    }).catch(() => {})
+    navigator.clipboard
+      .writeText(content)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {})
   }
 
   if (loading) {
