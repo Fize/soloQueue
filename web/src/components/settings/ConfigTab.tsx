@@ -3,7 +3,7 @@ import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml'
 import { getConfigToml } from '@/lib/api'
-import { FileText, AlertCircle } from 'lucide-react'
+import { FileText, AlertCircle, RefreshCw } from 'lucide-react'
 
 SyntaxHighlighter.registerLanguage('toml', toml)
 
@@ -53,7 +53,15 @@ export function ConfigTab() {
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <FileText className="h-4 w-4" />
-        <span>~/.soloqueue/settings.toml</span>
+        <span className="flex-1">~/.soloqueue/settings.toml</span>
+        <button
+          type="button"
+          onClick={load}
+          className="inline-flex items-center justify-center rounded h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          title="Reload"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
       </div>
       <div className="overflow-hidden rounded-lg border bg-white">
         <SyntaxHighlighter

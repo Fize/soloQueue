@@ -17,6 +17,7 @@ import {
   ChevronRight,
   FolderTree,
   PanelRight,
+  RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -125,13 +126,28 @@ export function FilesPage() {
   const [children, setChildren] = useState<Record<string, TreeNode[]>>({})
   const [loadingNodes, setLoadingNodes] = useState<Record<string, boolean>>({})
   const [showTree, setShowTree] = useState(false)
+  const [contentVersion, setContentVersion] = useState(0)
 
-  useEffect(() => {
-    getFileRoots()
+  const fetchRoots = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    return getFileRoots()
       .then(setRoots)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchRoots()
+  }, [fetchRoots])
+
+  const handleRefresh = useCallback(() => {
+    setChildren({})
+    setExpanded({})
+    setLoadingNodes({})
+    setContentVersion((v) => v + 1)
+    fetchRoots()
+  }, [fetchRoots])
 
   const loadChildren = useCallback(async (path: string) => {
     setLoadingNodes((prev) => ({ ...prev, [path]: true }))
@@ -267,10 +283,18 @@ export function FilesPage() {
 
   const treeContent = (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Files
+      <div className="border-b border-border px-3 py-2 flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Files</span>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="inline-flex items-center justify-center rounded h-5 w-5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          title="Refresh file tree"
+        >
+          <RefreshCw className="h-3 w-3" />
+        </button>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
           {/* Global */}
           {globalRoots.length > 0 && (
@@ -312,7 +336,7 @@ export function FilesPage() {
   return (
     <div className="flex h-full p-2 sm:p-3 gap-2 sm:gap-3">
       {/* Desktop tree — always visible */}
-      <div className="hidden md:flex w-64 shrink-0 border-r border-border flex-col rounded-lg border">
+      <div className="hidden md:flex w-64 shrink-0 border-r border-border flex-col rounded-lg border overflow-hidden">
         {treeContent}
       </div>
 
@@ -323,7 +347,7 @@ export function FilesPage() {
             className="absolute inset-0 bg-black/30 animate-in fade-in-0"
             onClick={() => setShowTree(false)}
           />
-          <div className="absolute inset-y-0 left-0 w-[280px] bg-card border-r border-border flex flex-col shadow-2xl animate-in slide-in-from-left">
+          <div className="absolute inset-y-0 left-0 w-[280px] bg-card border-r border-border flex flex-col shadow-2xl animate-in slide-in-from-left overflow-hidden">
             {treeContent}
           </div>
         </div>
@@ -345,7 +369,7 @@ export function FilesPage() {
           </span>
         </div>
         <div className="flex-1 min-h-0">
-          <FileContentView path={selectedPath} />
+          <FileContentView path={selectedPath} key={contentVersion} />
         </div>
       </div>
     </div>
