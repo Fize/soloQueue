@@ -1,9 +1,9 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useAgentStore } from '@/stores/agentStore'
 import { AgentCard } from './AgentCard'
-import { Badge } from '@/components/ui/badge'
+import { PlaceholderCard } from './AgentsPanel'
 import type { AgentInfo, AgentTemplate, TeamInfo } from '@/types'
-import { Users, ChevronRight, ChevronDown, Star, Circle, FolderOpen } from 'lucide-react'
+import { Users, ChevronRight, ChevronDown, Star, FolderOpen, Loader2 } from 'lucide-react'
 import { AgentDetailDialog } from './AgentDetailDialog'
 
 interface AgentWithTemplate {
@@ -16,45 +16,12 @@ interface TeamNode {
   agents: AgentWithTemplate[]
 }
 
-// 占位组件
-export function PlaceholderCard({
-  name,
-  isLeader,
-  onClick,
-}: {
-  name?: string | null
-  isLeader?: boolean
-  onClick?: () => void
-}) {
-  return (
-    <div
-      className="rounded-lg border-2 border-dashed border-border/50 bg-muted/30 p-3 cursor-pointer hover:bg-muted/50 transition-colors"
-      onClick={onClick}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Circle className="h-3 w-3" />
-          <span className="text-xs font-medium">{name || 'Unassigned'}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {isLeader && (
-            <Badge variant="default" className="text-[10px]">
-              Leader
-            </Badge>
-          )}
-          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded uppercase">
-            Idle
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export function AgentsPanel() {
+export function AgentTreeView() {
   const data = useAgentStore((state) => state.agents)
   const teamsData = useAgentStore((state) => state.teams)
   const fetchTeams = useAgentStore((state) => state.fetchTeams)
+  const teamsLoading = useAgentStore((state) => state.teamsLoading)
+
   const [collapsedTeams, setCollapsedTeams] = useState<Set<string>>(new Set())
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
@@ -92,12 +59,11 @@ export function AgentsPanel() {
 
   const initializedRef = useRef(false)
 
-  // Fetch teams on mount
   useEffect(() => {
     fetchTeams()
   }, [fetchTeams])
 
-  // 默认折叠所有团队，有 agent 被调度时展开对应团队
+  // Collapse all by default; expand teams with processing agents
   useEffect(() => {
     if (!data || !teamsData) return
 
@@ -109,10 +75,8 @@ export function AgentsPanel() {
       initializedRef.current = true
     }
 
-    // 展开有活跃 agent 的团队
-    const { agents } = data
-
     const teamsToExpand = new Set<string>()
+    const { agents } = data
 
     for (const agent of agents) {
       if (agent.state === 'processing') {
@@ -134,7 +98,6 @@ export function AgentsPanel() {
     }
   }, [data, teamsData])
 
-  // 构建数据
   const { l1Agent, teams } = useMemo(() => {
     if (!data) return { l1Agent: null as AgentInfo | null, teams: [] as TeamNode[] }
 
@@ -142,14 +105,10 @@ export function AgentsPanel() {
     const l2Ids = new Set(supervisors.map((sv) => sv.leader_id).filter(Boolean))
     const l3Ids = new Set(supervisors.flatMap((sv) => sv.children_ids))
 
-    // 找 L1 主 agent（不在任何 supervisor 中）
     const l1Agent =
       agents.find((a) => !l2Ids.has(a.instance_id) && !l3Ids.has(a.instance_id)) || null
 
-    // 构建 teams
     const teams: TeamNode[] = []
-
-    // 构建 teams 时按名称排序
     const sortedTeams = teamsData
       ? [...teamsData.teams].sort((a, b) => a.name.localeCompare(b.name))
       : []
@@ -162,7 +121,6 @@ export function AgentsPanel() {
         flatAgents.push({ agents: matchingAgents, template })
       }
 
-      // leader 排在前面
       flatAgents.sort((a, b) => {
         if (a.template?.is_leader && !b.template?.is_leader) return -1
         if (!a.template?.is_leader && b.template?.is_leader) return 1
@@ -175,37 +133,32 @@ export function AgentsPanel() {
     return { l1Agent, teams }
   }, [data, teamsData])
 
-  if (!data || data.agents.length === 0) {
+  const loading = data === null && teamsLoading
+  if (loading) {
     return (
-      <aside className="flex h-full w-[260px] shrink-0 flex-col border-r-2 border-border bg-card">
-        <div className="border-b-2 border-border px-3 py-2.5">
-          <h2 className="text-xs font-bold uppercase text-muted-foreground tracking-wide">
-            Agents
-          </h2>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-          <Users className="h-8 w-8" />
-          <p className="text-xs">No agents</p>
-        </div>
-      </aside>
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
     )
   }
 
-  const { agents } = data
+  if (!data || data.agents.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+        <Users className="h-10 w-10" />
+        <p className="text-sm">No agents configured</p>
+      </div>
+    )
+  }
 
   return (
-    <aside className="flex h-full w-[260px] shrink-0 flex-col border-r-2 border-border bg-card">
-      <div className="border-b-2 border-border px-3 py-2.5">
-        <h2 className="text-xs font-bold uppercase text-muted-foreground tracking-wide">
-          Agents ({agents.length})
-        </h2>
-      </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-3">
-        {/* L1 主 Agent - 固定显示 */}
-        <div className="space-y-1.5">
+    <>
+      <div className="h-full overflow-y-auto space-y-3 px-2 pb-4">
+        {/* L1 Agent */}
+        <div className="space-y-1.5 pt-1">
           <div className="flex items-center gap-1.5 px-1">
-            <Star className="h-3.5 w-3.5 text-amber-500" />
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase">
+            <Star className="h-4 w-4 text-amber-500 shrink-0" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase">
               {l1Agent?.name || 'L1 Agent'}
             </span>
           </div>
@@ -232,19 +185,18 @@ export function AgentsPanel() {
 
           return (
             <div key={team.name} className="space-y-1.5">
-              {/* Team header */}
               <button
                 onClick={() => toggleTeam(team.name)}
-                className="flex items-center gap-1.5 px-1 text-[11px] font-bold text-muted-foreground uppercase hover:text-foreground transition-colors w-full text-left"
+                className="flex items-center gap-1.5 px-1 w-full text-left text-xs font-bold text-muted-foreground uppercase hover:text-foreground transition-colors py-1"
               >
                 {isExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                 ) : (
-                  <ChevronRight className="h-3 w-3" />
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                 )}
-                <FolderOpen className="h-3.5 w-3.5 text-blue-500" />
-                <span>{team.name}</span>
-                <span className="ml-auto text-[10px] bg-muted px-1.5 py-0.5 rounded">
+                <FolderOpen className="h-4 w-4 text-blue-500 shrink-0" />
+                <span className="truncate">{team.name}</span>
+                <span className="ml-auto text-[10px] bg-muted px-1.5 py-0.5 rounded shrink-0">
                   {teamNode.agents.length}
                 </span>
               </button>
@@ -280,7 +232,6 @@ export function AgentsPanel() {
         })}
       </div>
 
-      {/* Agent detail dialog */}
       <AgentDetailDialog
         agent={selectedAgent}
         templateId={selectedTemplateId}
@@ -289,6 +240,6 @@ export function AgentsPanel() {
         open={isDetailOpen}
         onOpenChange={setIsDetailOpen}
       />
-    </aside>
+    </>
   )
 }

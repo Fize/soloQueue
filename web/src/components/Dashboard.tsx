@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { AgentFlow } from './AgentFlow'
+import { AgentTreeView } from './AgentTreeView'
 import { usePlanStore } from '@/stores/planStore'
 import { useRuntime } from '@/hooks/useRuntime'
 import { useAgentStore } from '@/stores/agentStore'
@@ -46,7 +47,14 @@ export function Dashboard() {
         <StatsCard title="Active Agents" value={stats.agentsActive} />
       </div>
       <div className="flex-1 min-h-[280px] sm:min-h-0 px-3 sm:px-6 pt-3 sm:pt-0 pb-4 sm:pb-6">
-        <AgentFlow />
+        {/* Mobile tree view */}
+        <div className="h-full md:hidden">
+          <AgentTreeView />
+        </div>
+        {/* Desktop flow graph */}
+        <div className="hidden md:block h-full">
+          <AgentFlow />
+        </div>
       </div>
     </div>
   )
