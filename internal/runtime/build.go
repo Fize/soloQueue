@@ -201,7 +201,10 @@ func Build(
 		if embModel != nil && embModel.Enabled {
 			embProvider := cfg.EmbeddingProviderByID(embModel.ProviderID)
 			if embProvider != nil && embProvider.Enabled {
-				apiKey := os.Getenv(embProvider.APIKeyEnv)
+				apiKey := embProvider.APIKey
+			if apiKey == "" {
+				apiKey = os.Getenv(embProvider.APIKeyEnv)
+			}
 				embClient, embErr := embedding.NewOpenAI(embedding.OpenAIConfig{
 					BaseURL:   embProvider.BaseURL,
 					APIKey:    apiKey,

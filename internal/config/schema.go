@@ -128,8 +128,12 @@ type RetryConfig struct {
 	BackoffMultiplier float64 `json:"backoffMultiplier" toml:"backoff_multiplier,omitempty"`
 }
 
-// ResolveAPIKey reads the environment variable specified by LLMProvider.APIKeyEnv
+// ResolveAPIKey returns the API key.
+// If APIKey is set directly it takes priority; otherwise falls back to os.Getenv(APIKeyEnv).
 func (p LLMProvider) ResolveAPIKey() string {
+	if p.APIKey != "" {
+		return p.APIKey
+	}
 	return os.Getenv(p.APIKeyEnv)
 }
 
@@ -137,6 +141,7 @@ type LLMProvider struct {
 	ID        string            `json:"id"        toml:"id,omitempty"`
 	Name      string            `json:"name"      toml:"name,omitempty"`
 	BaseURL   string            `json:"baseUrl"   toml:"base_url,omitempty"`
+	APIKey    string            `json:"apiKey"    toml:"api_key,omitempty"`
 	APIKeyEnv string            `json:"apiKeyEnv" toml:"api_key_env,omitempty"`
 	Enabled   bool              `json:"enabled"   toml:"enabled,omitempty"`
 	IsDefault bool              `json:"isDefault" toml:"is_default,omitempty"`
@@ -176,6 +181,7 @@ type EmbeddingProvider struct {
 	ID        string `json:"id"        toml:"id,omitempty"`
 	Name      string `json:"name"      toml:"name,omitempty"`
 	BaseURL   string `json:"baseUrl"   toml:"base_url,omitempty"`
+	APIKey    string `json:"apiKey"    toml:"api_key,omitempty"`
 	APIKeyEnv string `json:"apiKeyEnv" toml:"api_key_env,omitempty"`
 	Enabled   bool   `json:"enabled"   toml:"enabled,omitempty"`
 }
@@ -230,8 +236,11 @@ type ImageModelConfig struct {
 	ID           string `json:"id"           toml:"id,omitempty"`
 	Name         string `json:"name"         toml:"name,omitempty"`
 	Provider     string `json:"provider"     toml:"provider,omitempty"`
+	SecretId     string `json:"secretId"     toml:"secret_id,omitempty"`
 	SecretIdEnv  string `json:"secretIdEnv"  toml:"secret_id_env,omitempty"`
+	SecretKey    string `json:"secretKey"    toml:"secret_key,omitempty"`
 	SecretKeyEnv string `json:"secretKeyEnv" toml:"secret_key_env,omitempty"`
+	APIKey       string `json:"apiKey"       toml:"api_key,omitempty"`
 	APIKeyEnv    string `json:"apiKeyEnv"    toml:"api_key_env,omitempty"`
 	APIBaseHost  string `json:"apiBaseHost"  toml:"api_base_host,omitempty"`
 	Region       string `json:"region"       toml:"region,omitempty"`

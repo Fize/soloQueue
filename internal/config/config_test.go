@@ -475,6 +475,40 @@ func TestGlobalService_DefaultModelByRole_DefaultsIncludeProMax(t *testing.T) {
 	}
 }
 
+// ─── ResolveAPIKey ───────────────────────────────────────────────────────────
+
+func TestResolveAPIKey_Direct(t *testing.T) {
+	p := LLMProvider{APIKey: "sk-direct-key", APIKeyEnv: "SOME_ENV"}
+	os.Unsetenv("SOME_ENV")
+	if got := p.ResolveAPIKey(); got != "sk-direct-key" {
+		t.Errorf("ResolveAPIKey() = %q, want sk-direct-key", got)
+	}
+}
+
+func TestResolveAPIKey_EnvFallback(t *testing.T) {
+	t.Setenv("TEST_API_KEY", "sk-env-key")
+	p := LLMProvider{APIKey: "", APIKeyEnv: "TEST_API_KEY"}
+	if got := p.ResolveAPIKey(); got != "sk-env-key" {
+		t.Errorf("ResolveAPIKey() = %q, want sk-env-key", got)
+	}
+}
+
+func TestResolveAPIKey_DirectTakesPriority(t *testing.T) {
+	t.Setenv("TEST_API_KEY", "sk-env-key")
+	p := LLMProvider{APIKey: "sk-direct-key", APIKeyEnv: "TEST_API_KEY"}
+	if got := p.ResolveAPIKey(); got != "sk-direct-key" {
+		t.Errorf("ResolveAPIKey() = %q, want sk-direct-key (direct overrides env)", got)
+	}
+}
+
+func TestResolveAPIKey_Empty(t *testing.T) {
+	os.Unsetenv("MISSING_ENV")
+	p := LLMProvider{APIKey: "", APIKeyEnv: "MISSING_ENV"}
+	if got := p.ResolveAPIKey(); got != "" {
+		t.Errorf("ResolveAPIKey() = %q, want empty", got)
+	}
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 func writeTOML(t *testing.T, path string, v any) {
