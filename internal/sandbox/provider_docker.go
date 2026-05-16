@@ -62,9 +62,44 @@ type DockerSandbox struct {
 	log         *logger.Logger // 可选的结构化日志
 }
 
+// hostTZ 检测宿主机的 IANA 时区名称。
+// Linux: 解析 /etc/localtime 符号链接 → "Asia/Shanghai"
+// macOS: 回退到 time.Now().Zone() 的缩写名称
+// 最终回退: "UTC"
+func hostTZ() string {
+	name, _ := time.Now().Zone()
+	if name == "" {
+		name = "UTC"
+	}
+
+	link, err := os.Readlink("/etc/localtime")
+	if err != nil {
+		return name
+	}
+	if strings.HasPrefix(link, "/usr/share/zoneinfo/") {
+		return strings.TrimPrefix(link, "/usr/share/zoneinfo/")
+	}
+	if idx := strings.Index(link, "zoneinfo/"); idx >= 0 {
+		return link[idx+9:]
+	}
+	return name
+}
+
+// hasEnvVar 检查 env 列表中是否已存在指定 key
+func hasEnvVar(env []string, key string) bool {
+	prefix := key + "="
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveSandboxEnv 解析 sandbox 环境变量列表。
 // "KEY" → 从宿主机 os.Getenv 读取
 // "KEY=VALUE" → 原样使用
+// 自动注入宿主机时区 TZ（若未在列表中显式指定）
 func resolveSandboxEnv(env []string) []string {
 	resolved := make([]string, 0, len(env))
 	for _, e := range env {
@@ -76,6 +111,10 @@ func resolveSandboxEnv(env []string) []string {
 		} else {
 			resolved = append(resolved, e+"="+os.Getenv(e))
 		}
+	}
+	// 自动注入宿主机时区，确保 sandbox 内时间与宿主机一致
+	if !hasEnvVar(resolved, "TZ") {
+		resolved = append(resolved, "TZ="+hostTZ())
 	}
 	return resolved
 }
