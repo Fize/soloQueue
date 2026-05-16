@@ -6,15 +6,25 @@ vi.mock('@/lib/api')
 
 const mockProfile = { soul: 'soul', rules: 'rules' }
 const mockConfig = {
-  raw_config: '', system_prompt: '', name: '', description: '',
-  model: '', group: '', is_leader: false, mcp_servers: [],
+  raw_config: '',
+  system_prompt: '',
+  name: '',
+  description: '',
+  model: '',
+  group: '',
+  is_leader: false,
+  mcp_servers: [],
 }
 
 beforeEach(() => {
   useAgentStore.setState({
-    agents: null, profile: null, profileLoading: false,
-    config: null, configLoading: false,
-    teams: null, teamsLoading: false,
+    agents: null,
+    profile: null,
+    profileLoading: false,
+    config: null,
+    configLoading: false,
+    teams: null,
+    teamsLoading: false,
   })
   vi.clearAllMocks()
 })

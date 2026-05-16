@@ -87,7 +87,9 @@ export function Sidebar() {
             to={item.to}
             icon={item.icon}
             label={item.label}
-            active={item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)}
+            active={
+              item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
+            }
           />
         ))}
 

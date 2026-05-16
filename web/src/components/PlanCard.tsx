@@ -1,38 +1,41 @@
-import type { Plan } from '@/types';
-import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
-import { Clock, CheckCircle2, Circle } from 'lucide-react';
+import type { Plan } from '@/types'
+import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Clock, CheckCircle2, Circle } from 'lucide-react'
 
 interface PlanCardProps {
-  plan: Plan;
-  onClick: () => void;
+  plan: Plan
+  onClick: () => void
   /** True when rendered inside DragOverlay */
-  isOverlay?: boolean;
+  isOverlay?: boolean
   /** True when this card is being dragged (original position) */
-  isDragging?: boolean;
+  isDragging?: boolean
 }
 
 const statusIcon = {
   plan: Circle,
   running: Clock,
   done: CheckCircle2,
-};
+}
 
 const statusColor = {
   plan: 'text-[#635BFF]',
   running: 'text-[#FFB020]',
   done: 'text-[#00D924]',
-};
+}
 
 export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps) {
-  const Icon = statusIcon[plan.status];
-  const totalTodos = plan.todo_items?.length ?? 0;
-  const completedTodos = plan.todo_items?.filter((t) => t.completed).length ?? 0;
-  const progress = totalTodos > 0 ? (completedTodos / totalTodos) * 100 : 0;
+  const Icon = statusIcon[plan.status]
+  const totalTodos = plan.todo_items?.length ?? 0
+  const completedTodos = plan.todo_items?.filter((t) => t.completed).length ?? 0
+  const progress = totalTodos > 0 ? (completedTodos / totalTodos) * 100 : 0
 
   const tags = plan.tags
-    ? plan.tags.split(',').map((t) => t.trim()).filter(Boolean)
-    : [];
+    ? plan.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : []
 
   return (
     <div
@@ -41,7 +44,7 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
         // Original being dragged → dim it
         isDragging && 'opacity-30 scale-[0.98]',
         // Overlay ghost → clean floating look
-        isOverlay && 'shadow-lg border-primary scale-105',
+        isOverlay && 'shadow-lg border-primary scale-105'
       )}
       onClick={onClick}
     >
@@ -73,7 +76,9 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
       {totalTodos > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>{completedTodos}/{totalTodos} tasks</span>
+            <span>
+              {completedTodos}/{totalTodos} tasks
+            </span>
             <span>{Math.round(progress)}%</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-sm bg-muted">
@@ -91,5 +96,5 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
         <span>{new Date(plan.updated_at).toLocaleDateString()}</span>
       </div>
     </div>
-  );
+  )
 }

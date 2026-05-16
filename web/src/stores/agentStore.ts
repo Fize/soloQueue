@@ -1,6 +1,19 @@
 import { create } from 'zustand'
-import { getAgentProfile, updateAgentProfile, getAgentConfig, updateAgentConfig, getTeams } from '@/lib/api'
-import type { AgentProfile, AgentConfig, UpdateAgentProfileRequest, UpdateAgentConfigRequest, AgentListResponse, TeamListResponse } from '@/types'
+import {
+  getAgentProfile,
+  updateAgentProfile,
+  getAgentConfig,
+  updateAgentConfig,
+  getTeams,
+} from '@/lib/api'
+import type {
+  AgentProfile,
+  AgentConfig,
+  UpdateAgentProfileRequest,
+  UpdateAgentConfigRequest,
+  AgentListResponse,
+  TeamListResponse,
+} from '@/types'
 
 interface AgentState {
   // Agent list (from WebSocket)

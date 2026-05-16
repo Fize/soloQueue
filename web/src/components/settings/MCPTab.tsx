@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
-import { useMCPConfigStore } from '@/stores/mcpConfigStore';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
-import { Save, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
-import type { MCPServerConfig, MCPConfig } from '@/types';
+import { useState, useEffect } from 'react'
+import { useMCPConfigStore } from '@/stores/mcpConfigStore'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
+import { Save, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
+import type { MCPServerConfig, MCPConfig } from '@/types'
 
 function emptyServer(): MCPServerConfig {
-  return { name: '', command: '', args: [], transport: 'stdio', enabled: true };
+  return { name: '', command: '', args: [], transport: 'stdio', enabled: true }
 }
 
 function fromWire(cfg: MCPConfig): MCPServerConfig[] {
@@ -19,68 +19,69 @@ function fromWire(cfg: MCPConfig): MCPServerConfig[] {
     env: s.env,
     transport: s.transport ?? 'stdio',
     enabled: s.enabled ?? true,
-  }));
+  }))
 }
 
 function toWire(servers: MCPServerConfig[]): MCPConfig {
-  const mcpServers: MCPConfig['mcpServers'] = {};
+  const mcpServers: MCPConfig['mcpServers'] = {}
   for (const s of servers) {
-    const { name, ...rest } = s;
-    mcpServers[name] = rest;
+    const { name, ...rest } = s
+    mcpServers[name] = rest
   }
-  return { mcpServers };
+  return { mcpServers }
 }
 
 export function MCPTab() {
-  const config = useMCPConfigStore((state) => state.config);
-  const fetchConfig = useMCPConfigStore((state) => state.fetch);
-  const save = useMCPConfigStore((state) => state.save);
-  const saving = useMCPConfigStore((state) => state.saving);
-  const error = useMCPConfigStore((state) => state.error);
-  const [local, setLocal] = useState<MCPServerConfig[] | null>(null);
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const config = useMCPConfigStore((state) => state.config)
+  const fetchConfig = useMCPConfigStore((state) => state.fetch)
+  const save = useMCPConfigStore((state) => state.save)
+  const saving = useMCPConfigStore((state) => state.saving)
+  const error = useMCPConfigStore((state) => state.error)
+  const [local, setLocal] = useState<MCPServerConfig[] | null>(null)
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
-    fetchConfig();
-  }, [fetchConfig]);
+    fetchConfig()
+  }, [fetchConfig])
 
   useEffect(() => {
     if (config && !local) {
-      setLocal(fromWire(config));
+      setLocal(fromWire(config))
     }
-  }, [config, local]);
+  }, [config, local])
 
   if (!config || !local) {
-    return <div className="text-sm text-muted-foreground">Loading MCP configuration...</div>;
+    return <div className="text-sm text-muted-foreground">Loading MCP configuration...</div>
   }
 
   const handleSave = async () => {
-    await save(toWire(local));
-  };
+    await save(toWire(local))
+  }
 
   const toggleExpand = (i: number) => {
-    setExpanded((prev) => ({ ...prev, [i]: !prev[i] }));
-  };
+    setExpanded((prev) => ({ ...prev, [i]: !prev[i] }))
+  }
 
   const update = (i: number, patch: Partial<MCPServerConfig>) => {
-    setLocal((prev) => prev!.map((s, j) => (j === i ? { ...s, ...patch } : s)));
-  };
+    setLocal((prev) => prev!.map((s, j) => (j === i ? { ...s, ...patch } : s)))
+  }
 
   const remove = (i: number) => {
-    setLocal((prev) => prev!.filter((_, j) => j !== i));
-  };
+    setLocal((prev) => prev!.filter((_, j) => j !== i))
+  }
 
   const add = () => {
-    setLocal((prev) => [...prev!, emptyServer()]);
-    setExpanded((prev) => ({ ...prev, [local.length]: true }));
-  };
+    setLocal((prev) => [...prev!, emptyServer()])
+    setExpanded((prev) => ({ ...prev, [local.length]: true }))
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-sm font-bold text-foreground">MCP Servers</h2>
         <p className="text-[10px] text-muted-foreground">
-          Configure Model Context Protocol servers. Agents opt in via <code>mcp_servers</code> in their YAML frontmatter.
+          Configure Model Context Protocol servers. Agents opt in via <code>mcp_servers</code> in
+          their YAML frontmatter.
         </p>
       </div>
 
@@ -92,7 +93,7 @@ export function MCPTab() {
 
       <div className="space-y-3">
         {local.map((srv, i) => {
-          const open = expanded[i] ?? false;
+          const open = expanded[i] ?? false
           return (
             <div key={i} className="border rounded-lg bg-card p-4 shadow-sm">
               <div className="flex items-center justify-between">
@@ -101,7 +102,11 @@ export function MCPTab() {
                   onClick={() => toggleExpand(i)}
                   className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary"
                 >
-                  {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  {open ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
                   {srv.name || 'Unnamed Server'}
                 </button>
                 <div className="flex items-center gap-3">
@@ -138,7 +143,9 @@ export function MCPTab() {
                       }
                       placeholder="e.g. -y @modelcontextprotocol/server-github"
                     />
-                    <span className="text-[10px] text-muted-foreground">Space-separated arguments</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Space-separated arguments
+                    </span>
                   </div>
                   <Input label="Transport" value={srv.transport} disabled />
                   <div className="flex flex-col gap-1.5">
@@ -150,10 +157,10 @@ export function MCPTab() {
                             <Input
                               value={key}
                               onChange={(e) => {
-                                const newEnv = { ...srv.env };
-                                delete newEnv[key];
-                                newEnv[e.target.value] = value;
-                                update(i, { env: newEnv });
+                                const newEnv = { ...srv.env }
+                                delete newEnv[key]
+                                newEnv[e.target.value] = value
+                                update(i, { env: newEnv })
                               }}
                               placeholder="KEY"
                               className="flex-1"
@@ -161,8 +168,8 @@ export function MCPTab() {
                             <Input
                               value={value}
                               onChange={(e) => {
-                                const newEnv = { ...srv.env, [key]: e.target.value };
-                                update(i, { env: newEnv });
+                                const newEnv = { ...srv.env, [key]: e.target.value }
+                                update(i, { env: newEnv })
                               }}
                               placeholder="VALUE"
                               className="flex-1"
@@ -171,9 +178,9 @@ export function MCPTab() {
                               size="sm"
                               variant="outline"
                               onClick={() => {
-                                const newEnv = { ...srv.env };
-                                delete newEnv[key];
-                                update(i, { env: Object.keys(newEnv).length ? newEnv : undefined });
+                                const newEnv = { ...srv.env }
+                                delete newEnv[key]
+                                update(i, { env: Object.keys(newEnv).length ? newEnv : undefined })
                               }}
                             >
                               <Trash2 className="h-3 w-3" />
@@ -185,8 +192,8 @@ export function MCPTab() {
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        const newEnv = { ...(srv.env || {}), '': '' };
-                        update(i, { env: newEnv });
+                        const newEnv = { ...(srv.env || {}), '': '' }
+                        update(i, { env: newEnv })
                       }}
                     >
                       <Plus className="mr-1 h-3 w-3" /> Add Variable
@@ -195,7 +202,7 @@ export function MCPTab() {
                 </div>
               )}
             </div>
-          );
+          )
         })}
       </div>
 
@@ -209,5 +216,5 @@ export function MCPTab() {
         {error && <span className="text-[10px] text-destructive">{error}</span>}
       </div>
     </div>
-  );
+  )
 }

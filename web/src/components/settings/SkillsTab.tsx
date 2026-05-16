@@ -1,23 +1,29 @@
-import { useEffect } from 'react';
-import { useToolsAndSkillsStore } from '@/stores/toolsAndSkillsStore';
-import { Sparkles, BookOpen } from 'lucide-react';
-import type { SkillInfo } from '@/types';
+import { useEffect } from 'react'
+import { useToolsAndSkillsStore } from '@/stores/toolsAndSkillsStore'
+import { Sparkles, BookOpen } from 'lucide-react'
+import type { SkillInfo } from '@/types'
 
 // ─── Skill Card ─────────────────────────────────────────────────────────────
 
 function SkillCard({ skill }: { skill: SkillInfo }) {
-  const isBuiltin = skill.category === 'builtin';
+  const isBuiltin = skill.category === 'builtin'
 
   return (
     <div className="border rounded-lg bg-card p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5">
       <div className="flex items-start gap-3">
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${isBuiltin ? 'bg-primary' : 'bg-success'}`}>
-          <Sparkles className={`h-4 w-4 ${isBuiltin ? 'text-primary-foreground' : 'text-success-foreground'}`} />
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${isBuiltin ? 'bg-primary' : 'bg-success'}`}
+        >
+          <Sparkles
+            className={`h-4 w-4 ${isBuiltin ? 'text-primary-foreground' : 'text-success-foreground'}`}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <code className="text-xs font-bold text-foreground">{skill.id}</code>
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isBuiltin ? 'bg-primary text-primary-foreground' : 'bg-success text-success-foreground'}`}>
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isBuiltin ? 'bg-primary text-primary-foreground' : 'bg-success text-success-foreground'}`}
+            >
               {isBuiltin ? 'Built-in' : 'User'}
             </span>
             {!skill.user_invocable && (
@@ -42,7 +48,10 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
           {skill.allowed_tools && skill.allowed_tools.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {skill.allowed_tools.map((t, i) => (
-                <span key={i} className="rounded bg-info/50 px-1.5 py-0.5 font-mono text-[9px] text-info-foreground">
+                <span
+                  key={i}
+                  className="rounded bg-info/50 px-1.5 py-0.5 font-mono text-[9px] text-info-foreground"
+                >
                   {t}
                 </span>
               ))}
@@ -51,34 +60,34 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
         </div>
       </div>
     </div>
-  );
+  )
 }
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function SkillsTab() {
-  const skills = useToolsAndSkillsStore((state) => state.skills);
-  const loading = useToolsAndSkillsStore((state) => state.skillsLoading);
-  const fetchSkills = useToolsAndSkillsStore((state) => state.fetchSkills);
+  const skills = useToolsAndSkillsStore((state) => state.skills)
+  const loading = useToolsAndSkillsStore((state) => state.skillsLoading)
+  const fetchSkills = useToolsAndSkillsStore((state) => state.fetchSkills)
 
   useEffect(() => {
-    fetchSkills();
-  }, [fetchSkills]);
+    fetchSkills()
+  }, [fetchSkills])
 
   if (loading) {
-    return <div className="text-sm text-muted-foreground">Loading skills...</div>;
+    return <div className="text-sm text-muted-foreground">Loading skills...</div>
   }
 
-  const skillList = skills?.skills ?? [];
-  const builtinSkills = skillList.filter((s) => s.category === 'builtin');
-  const userSkills = skillList.filter((s) => s.category === 'user');
+  const skillList = skills?.skills ?? []
+  const builtinSkills = skillList.filter((s) => s.category === 'builtin')
+  const userSkills = skillList.filter((s) => s.category === 'user')
 
   if (skillList.length === 0) {
     return (
       <div className="border rounded-lg bg-card p-8 shadow-sm text-center">
         <p className="text-sm text-muted-foreground">No skills registered</p>
       </div>
-    );
+    )
   }
 
   return (
@@ -119,5 +128,5 @@ export function SkillsTab() {
         </div>
       )}
     </div>
-  );
+  )
 }

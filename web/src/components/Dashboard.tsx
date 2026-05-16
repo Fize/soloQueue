@@ -16,9 +16,7 @@ function StatsCard({
 }) {
   return (
     <div className={cn('rounded-xl border bg-card px-5 py-4 shadow-sm', className)}>
-      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        {title}
-      </p>
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
       <p className="mt-1 text-2xl font-bold text-foreground tabular-nums">{value}</p>
     </div>
   )

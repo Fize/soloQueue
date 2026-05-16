@@ -1,20 +1,16 @@
-import type { TodoItemWithDeps } from '@/types';
-import { deleteTodo } from '@/lib/api';
-import { Checkbox } from '@/components/ui/checkbox';
-import { cn } from '@/lib/utils';
-import { Trash2, AlertTriangle, GripVertical, CheckCircle2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import type { TodoItemWithDeps } from '@/types'
+import { deleteTodo } from '@/lib/api'
+import { Checkbox } from '@/components/ui/checkbox'
+import { cn } from '@/lib/utils'
+import { Trash2, AlertTriangle, GripVertical, CheckCircle2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface TodoListProps {
-  todos: TodoItemWithDeps[];
-  onToggle: (todoId: string) => void;
-  onDelete: (todoId: string) => void;
-  planId: string;
+  todos: TodoItemWithDeps[]
+  onToggle: (todoId: string) => void
+  onDelete: (todoId: string) => void
+  planId: string
 }
 
 export function TodoList({ todos, onToggle, onDelete, planId }: TodoListProps) {
@@ -23,7 +19,7 @@ export function TodoList({ todos, onToggle, onDelete, planId }: TodoListProps) {
       <div className="flex h-14 items-center justify-center rounded-lg border-2 border-dashed border-[#EEEEEE] text-xs text-muted-foreground">
         No tasks yet
       </div>
-    );
+    )
   }
 
   return (
@@ -38,7 +34,7 @@ export function TodoList({ todos, onToggle, onDelete, planId }: TodoListProps) {
         />
       ))}
     </div>
-  );
+  )
 }
 
 function TodoItemRow({
@@ -47,19 +43,19 @@ function TodoItemRow({
   onDelete,
   planId,
 }: {
-  todo: TodoItemWithDeps;
-  onToggle: (todoId: string) => void;
-  onDelete: (todoId: string) => void;
-  planId: string;
+  todo: TodoItemWithDeps
+  onToggle: (todoId: string) => void
+  onDelete: (todoId: string) => void
+  planId: string
 }) {
-  const deps = todo.depends_on ?? [];
-  const hasDeps = deps.length > 0;
-  const blocked = hasDeps && !todo.completed;
+  const deps = todo.depends_on ?? []
+  const hasDeps = deps.length > 0
+  const blocked = hasDeps && !todo.completed
 
   function handleDelete() {
     deleteTodo(planId, todo.id)
       .then(() => onDelete(todo.id))
-      .catch(() => {});
+      .catch(() => {})
   }
 
   return (
@@ -67,7 +63,7 @@ function TodoItemRow({
       className={cn(
         'group relative flex items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors',
         'hover:bg-muted',
-        todo.completed && 'opacity-55',
+        todo.completed && 'opacity-55'
       )}
     >
       {/* Drag grip */}
@@ -79,7 +75,8 @@ function TodoItemRow({
         disabled={blocked && !todo.completed}
         className={cn(
           'mt-0.5 h-4 w-4 shrink-0 rounded-sm border-input',
-          todo.completed && 'text-status-done data-[state=checked]:bg-status-done/20 data-[state=checked]:border-status-done/50',
+          todo.completed &&
+            'text-status-done data-[state=checked]:bg-status-done/20 data-[state=checked]:border-status-done/50'
         )}
       />
 
@@ -87,7 +84,7 @@ function TodoItemRow({
         <span
           className={cn(
             'text-[13px] leading-relaxed',
-            todo.completed && 'line-through text-muted-foreground',
+            todo.completed && 'line-through text-muted-foreground'
           )}
         >
           {todo.content}
@@ -122,5 +119,5 @@ function TodoItemRow({
         <CheckCircle2 className="mt-0.5 absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-status-done opacity-0 group-hover:opacity-100 transition-opacity" />
       )}
     </div>
-  );
+  )
 }

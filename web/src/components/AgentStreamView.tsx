@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
-import type { AgentStreamState, Segment } from '@/types';
-import { MarkdownPreview } from '@/components/ui/markdown-preview';
-import { Badge } from '@/components/ui/badge';
-import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react'
+import type { AgentStreamState, Segment } from '@/types'
+import { MarkdownPreview } from '@/components/ui/markdown-preview'
+import { Badge } from '@/components/ui/badge'
+import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react'
 
 function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(false)
 
   return (
     <div className="rounded-md border border-border/50 bg-muted/20 text-sm">
@@ -38,29 +38,35 @@ function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
           {seg.args && (
             <div>
               <div className="mb-1 text-xs font-medium text-muted-foreground">Arguments</div>
-              <pre className="whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-xs leading-relaxed">{seg.args}</pre>
+              <pre className="whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-xs leading-relaxed">
+                {seg.args}
+              </pre>
             </div>
           )}
           {seg.done && seg.result && (
             <div>
               <div className="mb-1 text-xs font-medium text-muted-foreground">Result</div>
-              <pre className="whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-xs leading-relaxed max-h-48 overflow-y-auto">{seg.result}</pre>
+              <pre className="whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-xs leading-relaxed max-h-48 overflow-y-auto">
+                {seg.result}
+              </pre>
             </div>
           )}
           {seg.done && seg.error && (
             <div>
               <div className="mb-1 text-xs font-medium text-destructive">Error</div>
-              <pre className="whitespace-pre-wrap break-all rounded bg-destructive/10 p-2 text-xs text-destructive">{seg.error}</pre>
+              <pre className="whitespace-pre-wrap break-all rounded bg-destructive/10 p-2 text-xs text-destructive">
+                {seg.error}
+              </pre>
             </div>
           )}
         </div>
       )}
     </div>
-  );
+  )
 }
 
 function ThinkingBlock({ text, initiallyOpen }: { text: string; initiallyOpen?: boolean }) {
-  const [open, setOpen] = useState(initiallyOpen ?? true);
+  const [open, setOpen] = useState(initiallyOpen ?? true)
   return (
     <div className="rounded-md border border-border/40">
       <button
@@ -81,7 +87,7 @@ function ThinkingBlock({ text, initiallyOpen }: { text: string; initiallyOpen?: 
         </div>
       )}
     </div>
-  );
+  )
 }
 
 function ContentBlock({ text }: { text: string }) {
@@ -89,20 +95,20 @@ function ContentBlock({ text }: { text: string }) {
     <div className="rounded-md border border-border/40 p-3">
       <MarkdownPreview content={text} />
     </div>
-  );
+  )
 }
 
 interface AgentStreamViewProps {
-  state: AgentStreamState;
+  state: AgentStreamState
 }
 
 export function AgentStreamView({ state }: AgentStreamViewProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const hasError = !!state.error;
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const hasError = !!state.error
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [state.segments.length]);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [state.segments.length])
 
   if (hasError) {
     return (
@@ -110,7 +116,7 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
         <p className="text-sm font-medium text-destructive">Error</p>
         <p className="mt-1 text-sm text-destructive/80">{state.error}</p>
       </div>
-    );
+    )
   }
 
   return (
@@ -127,11 +133,11 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
       {state.segments.map((seg, i) => {
         switch (seg.type) {
           case 'thinking':
-            return <ThinkingBlock key={i} text={seg.text} />;
+            return <ThinkingBlock key={i} text={seg.text} />
           case 'content':
-            return <ContentBlock key={i} text={seg.text} />;
+            return <ContentBlock key={i} text={seg.text} />
           case 'tool_call':
-            return <ToolCallCard key={seg.call_id || i} seg={seg} />;
+            return <ToolCallCard key={seg.call_id || i} seg={seg} />
         }
       })}
 
@@ -142,5 +148,5 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
 
       <div ref={bottomRef} />
     </div>
-  );
+  )
 }

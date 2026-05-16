@@ -13,8 +13,7 @@ const mockCreatePlan = vi.fn()
 beforeEach(() => {
   vi.clearAllMocks()
   ;(usePlanStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-    (selector: (s: Record<string, unknown>) => unknown) =>
-      selector({ createPlan: mockCreatePlan })
+    (selector: (s: Record<string, unknown>) => unknown) => selector({ createPlan: mockCreatePlan })
   )
 })
 

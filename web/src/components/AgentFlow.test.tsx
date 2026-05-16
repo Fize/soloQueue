@@ -12,7 +12,9 @@ vi.mock('@/hooks/useAgents', () => ({
 }))
 
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ children }: { children: React.ReactNode }) => <div data-testid="react-flow">{children}</div>,
+  ReactFlow: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="react-flow">{children}</div>
+  ),
   Background: () => null,
   Handle: () => null,
   Position: { Top: 'top', Bottom: 'bottom' },
