@@ -283,7 +283,10 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	r.Get("/ws", m.handleWebSocket)
 
 	// Config routes
-	r.Get("/api/config", m.handleGetConfig)
+	r.Route("/api/config", func(r chi.Router) {
+		r.Get("/", m.handleGetConfig)
+		r.Get("/toml", m.handleGetConfigToml)
+	})
 
 	// Tools & Skills routes
 	r.Get("/api/tools", m.handleListTools)
