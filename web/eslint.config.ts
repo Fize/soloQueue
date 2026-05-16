@@ -1,9 +1,9 @@
-import js from '@eslint/js';
-import tseslint from '@typescript-eslint/eslint-plugin';
-import tsparser from '@typescript-eslint/parser';
-import reactHooks from 'eslint-plugin-react-hooks';
-import react from 'eslint-plugin-react';
-import globals from 'globals';
+import js from '@eslint/js'
+import tseslint from 'typescript-eslint'
+import tsparser from '@typescript-eslint/parser'
+import reactHooks from 'eslint-plugin-react-hooks'
+import react from 'eslint-plugin-react'
+import globals from 'globals'
 
 export default tseslint.config(
   // Ignore patterns
@@ -18,6 +18,7 @@ export default tseslint.config(
   {
     files: ['**/*.{tsx,jsx}'],
     languageOptions: {
+      parser: tsparser,
       parserOptions: {
         ecmaFeatures: { jsx: true },
       },
@@ -35,6 +36,9 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',
+      'react/no-unescaped-entities': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/immutability': 'warn',
     },
     settings: {
       react: {
@@ -61,4 +65,4 @@ export default tseslint.config(
       },
     },
   }
-);
+)

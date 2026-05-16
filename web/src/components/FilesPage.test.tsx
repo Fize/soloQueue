@@ -12,7 +12,14 @@ const mockRoots = [
 ]
 
 const mockFiles = [
-  { name: 'file1.ts', path: '/home/user/work/file1.ts', size: 100, isDir: false, ext: '.ts', modTime: '' },
+  {
+    name: 'file1.ts',
+    path: '/home/user/work/file1.ts',
+    size: 100,
+    isDir: false,
+    ext: '.ts',
+    modTime: '',
+  },
   { name: 'subdir', path: '/home/user/work/subdir', size: 0, isDir: true, ext: '', modTime: '' },
 ]
 
@@ -46,10 +53,7 @@ describe('FilesPage', () => {
   })
 
   it('filters out .soloqueue roots', async () => {
-    const rootsWithSolo = [
-      ...mockRoots,
-      { label: 'sq', path: '/home/user/.soloqueue', group: '' },
-    ]
+    const rootsWithSolo = [...mockRoots, { label: 'sq', path: '/home/user/.soloqueue', group: '' }]
     vi.spyOn(api, 'getFileRoots').mockResolvedValue(rootsWithSolo)
     render(<FilesPage />)
     await waitFor(() => {

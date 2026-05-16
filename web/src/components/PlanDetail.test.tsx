@@ -17,7 +17,13 @@ vi.mock('@/lib/api', () => ({
 }))
 
 vi.mock('./TodoList', () => ({
-  TodoList: ({ onToggle, onDelete }: { onToggle: (id: string) => void; onDelete: (id: string) => void }) => (
+  TodoList: ({
+    onToggle,
+    onDelete,
+  }: {
+    onToggle: (id: string) => void
+    onDelete: (id: string) => void
+  }) => (
     <div data-testid="todo-list">
       <button onClick={() => onToggle('t1')}>Toggle</button>
       <button onClick={() => onDelete('t2')}>Delete</button>
@@ -40,8 +46,26 @@ const mockPlan: Plan = {
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
   todo_items: [
-    { id: 't1', plan_id: 'p1', content: 'Task 1', completed: true, sort_order: 0, depends_on: [], blockers: [], created_at: '' },
-    { id: 't2', plan_id: 'p1', content: 'Task 2', completed: false, sort_order: 1, depends_on: [], blockers: [], created_at: '' },
+    {
+      id: 't1',
+      plan_id: 'p1',
+      content: 'Task 1',
+      completed: true,
+      sort_order: 0,
+      depends_on: [],
+      blockers: [],
+      created_at: '',
+    },
+    {
+      id: 't2',
+      plan_id: 'p1',
+      content: 'Task 2',
+      completed: false,
+      sort_order: 1,
+      depends_on: [],
+      blockers: [],
+      created_at: '',
+    },
   ],
 }
 
@@ -101,7 +125,10 @@ describe('PlanDetail', () => {
 
     await user.click(screen.getByTitle('Save'))
     await waitFor(() => {
-      expect(mockUpdatePlan).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'Updated Plan' }))
+      expect(mockUpdatePlan).toHaveBeenCalledWith(
+        'p1',
+        expect.objectContaining({ title: 'Updated Plan' })
+      )
     })
   })
 
@@ -152,7 +179,16 @@ describe('PlanDetail', () => {
   })
 
   it('calls toggleTodo', async () => {
-    vi.mocked(api.toggleTodo).mockResolvedValue({ id: 't1', plan_id: 'p1', content: '', completed: true, sort_order: 0, depends_on: [], blockers: [], created_at: '' })
+    vi.mocked(api.toggleTodo).mockResolvedValue({
+      id: 't1',
+      plan_id: 'p1',
+      content: '',
+      completed: true,
+      sort_order: 0,
+      depends_on: [],
+      blockers: [],
+      created_at: '',
+    })
     const user = userEvent.setup()
     render(<PlanDetail plan={mockPlan} open={true} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByTestId('todo-list')).toBeInTheDocument())

@@ -144,7 +144,10 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
   }, [])
 
   const tags = current.tags
-    ? current.tags.split(',').map((t) => t.trim()).filter(Boolean)
+    ? current.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
     : []
 
   const todos = fullPlan?.todo_items ?? current.todo_items ?? []
@@ -268,7 +271,11 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                     disabled={saving}
                     title="Save"
                   >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                   <Button
                     variant="ghost"
@@ -295,11 +302,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                 {/* Status + meta row */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   {editing ? (
-                    <Select
-                      options={statusOptions}
-                      value={editStatus}
-                      onChange={setEditStatus}
-                    />
+                    <Select options={statusOptions} value={editStatus} onChange={setEditStatus} />
                   ) : (
                     <Badge
                       variant="outline"
@@ -364,9 +367,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                 ) : null}
 
                 {/* Save error */}
-                {saveError && (
-                  <p className="text-xs text-destructive">{saveError}</p>
-                )}
+                {saveError && <p className="text-xs text-destructive">{saveError}</p>}
 
                 {/* Delete confirmation */}
                 {showDeleteConfirm && (
@@ -375,14 +376,26 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                       Delete this plan? This action cannot be undone.
                     </p>
                     <div className="flex items-center gap-2">
-                      <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleDelete}
+                        disabled={deleting}
+                      >
                         {deleting ? (
-                          <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Deleting...</>
+                          <>
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Deleting...
+                          </>
                         ) : (
                           'Delete'
                         )}
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowDeleteConfirm(false)}
+                        disabled={deleting}
+                      >
                         Cancel
                       </Button>
                     </div>
