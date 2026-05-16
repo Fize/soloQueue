@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useRuntime } from '@/hooks/useRuntime'
 import { Button } from '@/components/ui/button'
@@ -96,10 +96,12 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
             <X className="h-4 w-4" />
           </Button>
         )}
-        <img src="/logo.png" alt="SoloQueue" className="h-7 w-7 shrink-0" />
-        <span className="text-base font-bold tracking-tight text-foreground truncate">
-          SoloQueue
-        </span>
+        <Link to="/" className="flex items-center gap-2.5 min-w-0">
+          <img src="/logo.png" alt="SoloQueue" className="h-7 w-7 shrink-0" />
+          <span className="text-base font-bold tracking-tight text-foreground truncate">
+            SoloQueue
+          </span>
+        </Link>
       </div>
 
       {/* Navigation */}
