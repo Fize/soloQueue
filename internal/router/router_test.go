@@ -81,6 +81,10 @@ func TestRouter_Route(t *testing.T) {
 				t.Errorf("ReasoningEffort: got %q, want %q",
 					decision.ReasoningEffort, tt.expectedEffort)
 			}
+
+			if decision.ContextWindow <= 0 {
+				t.Errorf("ContextWindow: got %d, want > 0", decision.ContextWindow)
+			}
 		})
 	}
 }
