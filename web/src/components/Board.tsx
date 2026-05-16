@@ -3,7 +3,6 @@ import type { Plan, PlanStatus } from '@/types'
 import { usePlanStore } from '@/stores/planStore'
 import { BoardColumn } from './BoardColumn'
 import { PlanDetail } from './PlanDetail'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import {
   DndContext,
@@ -33,7 +32,6 @@ export function Board() {
 
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
-  const [activeTab, setActiveTab] = useState<string>('plan')
 
   // Local state for optimistic reordering during drag
   const [localPlans, setLocalPlans] = useState<Record<PlanStatus, Plan[]> | null>(null)
@@ -170,30 +168,13 @@ export function Board() {
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
-      {/* Mobile Tabs */}
-      <div className="md:hidden">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="border-b border-border px-4">
-            <TabsList className="h-10 w-full justify-start gap-1 border-0">
-              {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
-                <TabsTrigger key={status} value={status} className="text-xs capitalize">
-                  {status} ({displayPlans[status].length})
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
-        </Tabs>
-      </div>
-
-      {/* Board */}
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        {/* Desktop: 3-column layout, fills available space */}
-        <div className="hidden flex-1 min-h-0 md:flex">
+        <div className="flex-1 min-h-0 flex">
           <div className="flex w-full gap-4 overflow-x-auto py-5 flex-1 min-h-0">
             {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
               <div key={status} className="min-w-[250px] flex-1 flex flex-col min-h-0">
@@ -204,17 +185,6 @@ export function Board() {
                 />
               </div>
             ))}
-          </div>
-        </div>
-
-        {/* Mobile: single column based on active tab, centered */}
-        <div className="flex-1 overflow-y-auto py-4 md:hidden">
-          <div className="mx-auto max-w-[400px]">
-            <BoardColumn
-              status={activeTab as PlanStatus}
-              plans={displayPlans[activeTab as PlanStatus]}
-              onPlanClick={handlePlanClick}
-            />
           </div>
         </div>
 

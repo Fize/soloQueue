@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { ConfigTab } from './settings/ConfigTab'
 import { ProfileTab } from './settings/ProfileTab'
@@ -25,7 +25,6 @@ interface SettingsViewProps {
 
 export function SettingsView({ initialTab }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab) || 'config')
-  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (initialTab && initialTab !== activeTab) {
@@ -39,34 +38,8 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
   }
 
   return (
-    <div className="flex h-full flex-col md:flex-row">
-      {/* Mobile: Horizontal tab strip */}
-      <div
-        ref={scrollRef}
-        className="flex gap-1 overflow-x-auto border-b border-border px-4 py-2 md:hidden"
-      >
-        {settingsTabs.map((tab) => {
-          const Icon = tab.icon
-          return (
-            <button
-              key={tab.id}
-              onClick={() => handleTabClick(tab.id)}
-              className={cn(
-                'flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
-                activeTab === tab.id
-                  ? 'border bg-primary font-bold text-primary-foreground shadow-xs'
-                  : 'border border-transparent text-muted-foreground hover:text-foreground hover:bg-muted'
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Desktop: Sidebar */}
-      <aside className="hidden w-48 shrink-0 border-r border-border bg-card p-4 md:block">
+    <div className="flex h-full flex-row">
+      <aside className="w-48 shrink-0 border-r border-border bg-card p-4 block">
         <nav className="flex flex-col gap-1">
           {settingsTabs.map((tab) => {
             const Icon = tab.icon
@@ -89,7 +62,6 @@ export function SettingsView({ initialTab }: SettingsViewProps) {
         </nav>
       </aside>
 
-      {/* Right content */}
       <div className="flex-1 overflow-y-auto py-6">
         <div className="mx-auto max-w-3xl">
           {activeTab === 'config' && <ConfigTab />}

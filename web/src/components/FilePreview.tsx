@@ -242,7 +242,7 @@ export function FilePreview({ path, open, onClose }: FilePreviewProps) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-0 relative">
           <DialogTitle className="text-sm font-mono truncate pr-4">{fileName}</DialogTitle>
           <p className="text-xs text-muted-foreground truncate">{path}</p>

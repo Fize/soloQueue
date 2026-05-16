@@ -18,7 +18,7 @@ function App() {
         <Header />
         <RuntimeStatusBar />
         <main className="flex-1 overflow-hidden">
-          <Container className="h-full pb-4 sm:pb-6">
+          <Container className="h-full pb-4">
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/files" element={<FilesPage />} />
