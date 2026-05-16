@@ -148,7 +148,7 @@ func (s *Store) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Plan, e
 	}
 
 	id := newID()
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().Format(time.RFC3339)
 	status := StatusPlan
 	if ValidPlanStatus(req.Status) {
 		status = PlanStatus(req.Status)
@@ -185,7 +185,7 @@ func (s *Store) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Plan, e
 	return &Plan{
 		ID: id, Title: req.Title, Content: req.Content,
 		Status: status, Tags: req.Tags, Creator: req.Creator,
-		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}, nil
 }
 
@@ -229,7 +229,7 @@ func (s *Store) UpdatePlan(ctx context.Context, id string, req UpdatePlanRequest
 		return existing, nil
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().Format(time.RFC3339)
 	sets = append(sets, "updated_at = ?")
 	args = append(args, now, id)
 
@@ -285,7 +285,7 @@ func (s *Store) CreateTodoItem(ctx context.Context, planID string, req CreateTod
 		return nil, err
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().Format(time.RFC3339)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

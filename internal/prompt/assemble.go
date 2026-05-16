@@ -22,7 +22,7 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 	}
 
 	if recentMemory != "" {
-		now := time.Now().Format("2006-01-02 15")
+		now := time.Now().UTC().Format("2006-01-02 15")
 		fmt.Fprintf(&b, "\n\n<recent_memory>\nCurrent time: %s (for finer precision, use available time tools).\n\nShort-term memory of recent conversations is stored as daily markdown files. Use the Read tool to check these files when the user references past work, asks about previous sessions, or when you need context about what was done before.\n\nLocation: %s\n\nFile format: YYYY-MM-DD.md, one file per day. Only the last 7 days of files are retained (older files are auto-migrated to permanent memory).\n\nEntry format: each entry begins with a level-2 markdown header containing the full datetime:\n\n  ## YYYY-MM-DD HH:MM\n  - bullet-point summary of what happened\n\nEntries are stored in the file matching the entry's date. Content older than 7 days is stored in today's file but the timestamp in the header remains accurate — it reflects when the entry was originally recorded, not when the file was written.\n\nTo find past context: use the Read tool to read specific date file(s), or use the Grep tool to search across memory files by keyword or pattern. The full datetime headers let you locate entries within a file by time.\n</recent_memory>", now, toTildePath(recentMemory, workDir))
 	}
 
