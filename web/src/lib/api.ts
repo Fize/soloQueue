@@ -2,6 +2,8 @@ import type {
   Plan,
   PlanListResponse,
   PlanStatus,
+  CreatePlanRequest,
+  UpdatePlanRequest,
   TodoItemWithDeps,
   AgentProfile,
   AgentConfig,
@@ -47,6 +49,24 @@ export async function updatePlanStatus(id: string, status: PlanStatus): Promise<
     method: 'PATCH',
     body: JSON.stringify({ status }),
   })
+}
+
+export async function createPlan(data: CreatePlanRequest): Promise<Plan> {
+  return request<Plan>('/plans', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updatePlan(id: string, data: UpdatePlanRequest): Promise<Plan> {
+  return request<Plan>(`/plans/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deletePlan(id: string): Promise<void> {
+  await request(`/plans/${id}`, { method: 'DELETE' })
 }
 
 // ─── Todo APIs ────────────────────────────────────────────────────────────────

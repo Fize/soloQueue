@@ -3,6 +3,7 @@ import type { Plan, PlanStatus } from '@/types'
 import { usePlanStore } from '@/stores/planStore'
 import { BoardColumn } from './BoardColumn'
 import { PlanDetail } from './PlanDetail'
+import { PlanCreateDialog } from './PlanCreateDialog'
 import { Button } from '@/components/ui/button'
 import {
   DndContext,
@@ -16,13 +17,15 @@ import {
 } from '@dnd-kit/core'
 import { PlanCard } from './PlanCard'
 import { arrayMove } from '@dnd-kit/sortable'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw, Plus } from 'lucide-react'
 
 export function Board() {
   const plans = usePlanStore((state) => state.plans)
   const error = usePlanStore((state) => state.error)
   const movePlan = usePlanStore((state) => state.movePlan)
   const fetchPlans = usePlanStore((state) => state.fetchPlans)
+
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
 
   const plansByStatus = useMemo(() => ({
     plan: plans.filter((p) => p.status === 'plan'),
@@ -168,6 +171,15 @@ export function Board() {
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      {/* Top bar */}
+      <div className="flex items-center justify-between shrink-0 px-1">
+        <h2 className="text-sm font-semibold text-foreground">Plans Board</h2>
+        <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowCreateDialog(true)}>
+          <Plus className="h-3.5 w-3.5" />
+          New Plan
+        </Button>
+      </div>
+
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
@@ -199,6 +211,8 @@ export function Board() {
       {selectedPlan && (
         <PlanDetail plan={selectedPlan} open={true} onClose={() => setSelectedPlan(null)} />
       )}
+
+      <PlanCreateDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} />
     </div>
   )
 }
