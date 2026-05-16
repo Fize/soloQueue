@@ -486,19 +486,64 @@ func (cw *ContextWindow) Calibrate(promptTokens int) {
 
 // Overflow checks if the current payload exceeds the effective capacity.
 //
-// The effective capacity is hardLimit minus bufferTokens (reserved for model
-// output). This matches the eviction capacity in Push, ensuring the overflow
-// check is consistent with the capacity management strategy.
-// hardLimit comes from config.LLMModel.ContextWindow (model's physical limit).
-func (cw *ContextWindow) Overflow(hardLimit int) bool {
+// Uses cw.maxTokens as the hard limit, making the CW the single source of
+// truth for capacity. The effective capacity is maxTokens minus bufferTokens
+// (reserved for model output). This matches the eviction capacity in Push,
+// ensuring the overflow check is always consistent with capacity management.
+func (cw *ContextWindow) Overflow() bool {
 	cw.RLock()
 	defer cw.RUnlock()
 
-	capacity := hardLimit - cw.bufferTokens
+	capacity := cw.maxTokens - cw.bufferTokens
 	if capacity < 0 {
 		capacity = 0
 	}
 	return cw.currentTokens > capacity
+}
+
+// ─── Resize ──────────────────────────────────────────────────────────────────
+
+// Resize updates the context window parameters and triggers eviction when
+// the new capacity is smaller than current usage. Called when the model is
+// switched to one with a different context window.
+//
+// maxTokens: new hard waterline (from config.LLMModel.ContextWindow).
+// bufferTokens: reserved for model output. 0 auto-calculates as maxTokens/10.
+// summaryTokens: soft waterline. 0 auto-calculates (75% for >=512k, 85% for <512k).
+//
+// Idempotent: if maxTokens and bufferTokens match the current state, this
+// is a fast no-op (skips the entire eviction path).
+func (cw *ContextWindow) Resize(maxTokens, bufferTokens, summaryTokens int) {
+	cw.Lock()
+	defer cw.Unlock()
+
+	newBuffer := bufferTokens
+	if newBuffer <= 0 {
+		newBuffer = maxTokens / 10
+	}
+	if maxTokens == cw.maxTokens && newBuffer == cw.bufferTokens {
+		return
+	}
+
+	cw.maxTokens = maxTokens
+	cw.bufferTokens = newBuffer
+	if summaryTokens <= 0 {
+		if maxTokens >= summaryTokensThreshold {
+			cw.summaryTokens = maxTokens * 75 / 100
+		} else {
+			cw.summaryTokens = maxTokens * 85 / 100
+		}
+	} else {
+		cw.summaryTokens = summaryTokens
+	}
+
+	capacity := cw.maxTokens - cw.bufferTokens
+	if cw.currentTokens > capacity {
+		cw.truncateMiddleOut()
+		if cw.currentTokens > capacity {
+			cw.slideFIFO(capacity)
+		}
+	}
 }
 
 // ─── Queries ────────────────────────────────────────────────────────────────

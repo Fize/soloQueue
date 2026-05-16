@@ -174,6 +174,115 @@ func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
 	}
 }
 
+func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
+	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	a := startAgent(t, fake)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	s := NewSession("s1", "t1", a, cw, nil, nil)
+
+	// Set up router that routes to fast model with 128K context
+	s.Router = func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
+		return RouteResult{
+			ProviderID:    "test",
+			ModelID:       "fast-model",
+			Level:         "L0-Conversation",
+			ContextWindow: 131072,
+		}, nil
+	}
+
+	// Verify initial CW state
+	_, max, _ := cw.TokenUsage()
+	if max != 1048576 {
+		t.Fatalf("initial maxTokens = %d, want %d", max, 1048576)
+	}
+
+	ch, err := s.AskStream(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	for range ch {
+	}
+
+	// Verify CW was resized by the router
+	_, max, _ = cw.TokenUsage()
+	if max != 131072 {
+		t.Errorf("after AskStream maxTokens = %d, want 131072", max)
+	}
+}
+
+func TestSession_AskStream_ResizesContextWindow_DefaultWithoutRouter(t *testing.T) {
+	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	a := startAgent(t, fake)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	s := NewSession("s1", "t1", a, cw, nil, nil)
+
+	// No router set
+
+	ch, err := s.AskStream(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	for range ch {
+	}
+
+	// Without router, CW should remain at default (agent's Def.ContextWindow)
+	_, max, _ := cw.TokenUsage()
+	if max != 1048576 {
+		t.Errorf("without router maxTokens = %d, want 1048576", max)
+	}
+}
+
+func TestSession_AskStream_ResizesAndEvicts_WhenSmallerWindow(t *testing.T) {
+	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	a := startAgent(t, fake)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	s := NewSession("s1", "t1", a, cw, nil, nil)
+
+	// Simulate existing history in CW by pushing directly
+	cw.Push(ctxwin.RoleSystem, "You are a helpful assistant.")
+	for i := 0; i < 15; i++ {
+		cw.Push(ctxwin.RoleUser, "This is a test question to fill up the context window with tokens.")
+		cw.Push(ctxwin.RoleAssistant, "This is a test answer that adds more tokens to the context window.")
+	}
+
+	tokensBefore, _, _ := cw.TokenUsage()
+	if tokensBefore < 400 {
+		t.Skipf("not enough tokens (%d) to test eviction, try longer messages", tokensBefore)
+	}
+
+	// Router returns a much smaller window
+	s.Router = func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
+		return RouteResult{
+			ProviderID:    "test",
+			ModelID:       "tiny-model",
+			Level:         "L0-Conversation",
+			ContextWindow: 500,
+		}, nil
+	}
+
+	ch, err := s.AskStream(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	for range ch {
+	}
+
+	// Verify CW was resized and eviction ran
+	_, max, buffer := cw.TokenUsage()
+	if max != 500 {
+		t.Errorf("maxTokens = %d, want 500", max)
+	}
+	current := cw.CurrentTokens()
+	capacity := max - buffer
+	if current > capacity {
+		t.Errorf("currentTokens (%d) exceeds capacity (%d) after Resize+eviction", current, capacity)
+	}
+	sysMsg, ok := cw.MessageAt(0)
+	if !ok || sysMsg.Role != ctxwin.RoleSystem {
+		t.Errorf("first message = %+v, want system (never evicted)", sysMsg)
+	}
+}
+
 func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 	fake := &agent.FakeLLM{
 		StreamDeltas: [][]string{{"x"}, {"y"}},
@@ -419,9 +528,10 @@ func TestLevelLocked_BlocksRouting(t *testing.T) {
 	// Set up a router that would classify everything as L0
 	s.Router = func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
 		return RouteResult{
-			ProviderID: "test",
-			ModelID:    "test-model",
-			Level:      "L0-Conversation",
+			ProviderID:    "test",
+			ModelID:       "test-model",
+			Level:         "L0-Conversation",
+			ContextWindow: 131072,
 		}, nil
 	}
 

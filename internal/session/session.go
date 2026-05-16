@@ -62,6 +62,7 @@ type RouteResult struct {
 	ThinkingEnabled bool   // whether to enable thinking mode
 	ReasoningEffort string // "high" | "max" | ""
 	Level           string // classification level label (e.g., "L1-SimpleSingleFile")
+	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
 }
 
 // TaskRouterFunc classifies a user prompt and returns model routing parameters.
@@ -450,8 +451,13 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 
 	start := time.Now()
 
-	// 先 push user prompt（让 Agent 在 BuildPayload 时能看到）
+	// Resize to default model's context window and push user prompt
+	effectiveCW := s.Agent.Def.ContextWindow
+	if effectiveCW <= 0 {
+		effectiveCW = agent.DefaultContextWindow
+	}
 	s.mu.Lock()
+	s.cw.Resize(effectiveCW, 0, 0)
 	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
 
@@ -536,6 +542,10 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 	start := time.Now()
 
 	// ── Task routing: classify prompt and set model override ──
+	effectiveCW := s.Agent.Def.ContextWindow
+	if effectiveCW <= 0 {
+		effectiveCW = agent.DefaultContextWindow
+	}
 	if s.Router != nil {
 		// Check for explicit level lock/unlock commands (/l0, /l1, /l2, /l3)
 		if newLevel, isLock := parseLevelLockCommand(prompt); isLock {
@@ -592,19 +602,27 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				ThinkingEnabled: result.ThinkingEnabled,
 				ReasoningEffort: result.ReasoningEffort,
 				Level:           result.Level,
+				ContextWindow:   result.ContextWindow,
 			})
 			s.lastLevelMu.Lock()
 			s.lastLevel = result.Level
 			s.lastRouteResult = result
 			s.lastLevelMu.Unlock()
+
+			if result.ContextWindow > 0 {
+				effectiveCW = result.ContextWindow
+			}
 		}
 	}
+
+	// ── Resize context window to match effective model ──
 
 	// ── 创建可取消的 askCtx ──
 	askCtx, askCancel := context.WithCancel(ctx)
 
-	// 先 push user prompt
+	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()
+	s.cw.Resize(effectiveCW, 0, 0)
 	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
 

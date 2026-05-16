@@ -425,13 +425,9 @@ func (s *historyStrategy) buildMessages(a *Agent, iter int) ([]LLMMessage, error
 	s.cw.DrainPending()
 
 	// Overflow hard-limit check: prevent API 400
-	hardLimit := a.Def.ContextWindow
-	if hardLimit <= 0 {
-		hardLimit = DefaultContextWindow // fallback default
-	}
-	if s.cw.Overflow(hardLimit) {
-		current, _, _ := s.cw.TokenUsage()
-		return nil, fmt.Errorf("context overflow: current %d tokens exceed hard limit %d, please start a new session", current, hardLimit)
+	if s.cw.Overflow() {
+		current, max, _ := s.cw.TokenUsage()
+		return nil, fmt.Errorf("context overflow: current %d tokens exceed effective limit %d, please start a new session", current, max)
 	}
 	payload := s.cw.BuildPayload()
 	return payloadToLLMMessages(payload), nil
@@ -890,6 +886,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			ThinkingEnabled: override.ThinkingEnabled,
 			ReasoningEffort: override.ReasoningEffort,
 			Level:           override.Level,
+			ContextWindow:   override.ContextWindow,
 		})
 	}
 
