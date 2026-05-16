@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { getFileRoots, listFiles } from '@/lib/api'
 import type { FileRoot, FileInfo } from '@/types'
 import { FileContentView } from './FileContentView'
-import { SlideOver } from '@/components/ui/SlideOver'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Folder,
@@ -15,7 +14,6 @@ import {
   FileVideo,
   Loader2,
   ChevronRight,
-  FolderTree,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -123,7 +121,6 @@ export function FilesPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [children, setChildren] = useState<Record<string, TreeNode[]>>({})
   const [loadingNodes, setLoadingNodes] = useState<Record<string, boolean>>({})
-  const [treeOpen, setTreeOpen] = useState(false)
 
   useEffect(() => {
     getFileRoots()
@@ -157,7 +154,6 @@ export function FilesPage() {
     async (path: string, isDir: boolean) => {
       if (!isDir) {
         setSelectedPath(path)
-        setTreeOpen(false)
         return
       }
       if (expanded[path]) {
@@ -311,25 +307,11 @@ export function FilesPage() {
 
   return (
     <div className="flex h-full">
-      {/* Desktop file tree */}
-      <div className="hidden w-64 shrink-0 border-r border-border md:flex flex-col">
+      <div className="w-64 shrink-0 border-r border-border flex flex-col">
         {treeContent}
       </div>
 
-      {/* Mobile SlideOver */}
-      <SlideOver open={treeOpen} onClose={() => setTreeOpen(false)} title="Files">
-        {treeContent}
-      </SlideOver>
-
-      {/* Content */}
       <div className="relative flex-1 min-w-0">
-        {/* Mobile tree toggle */}
-        <button
-          onClick={() => setTreeOpen(true)}
-          className="absolute left-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
-        >
-          <FolderTree className="h-4 w-4" />
-        </button>
         <FileContentView path={selectedPath} />
       </div>
     </div>
