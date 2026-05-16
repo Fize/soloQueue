@@ -443,6 +443,7 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 			ThinkingEnabled: decision.ThinkingEnabled,
 			ReasoningEffort: decision.ReasoningEffort,
 			Level:           decision.Level.String(),
+			ContextWindow:   decision.ContextWindow,
 		}, nil
 	}
 }

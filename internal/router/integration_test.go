@@ -140,7 +140,7 @@ func TestIntegration_ModelMappingAccuracy(t *testing.T) {
 	router := NewRouter(nil, mockService, nil)
 
 	for level, expectedModel := range levels {
-		_, modelID, _, _ := router.resolveModelParams(level)
+		_, modelID, _, _, _ := router.resolveModelParams(level)
 		if modelID != expectedModel {
 			t.Errorf("Level %v: got model %s, want %s", level, modelID, expectedModel)
 		}

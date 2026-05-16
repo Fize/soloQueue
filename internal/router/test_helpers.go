@@ -20,24 +20,28 @@ func NewMockModelService() *MockModelService {
 	return &MockModelService{
 		models: map[string]*config.LLMModel{
 			"fast": {
-				ID:         "deepseek-v4-flash",
-				ProviderID: "deepseek",
+				ID:            "deepseek-v4-flash",
+				ProviderID:    "deepseek",
+				ContextWindow: 131072,
 				// APIModel empty = use ID
 			},
 			"universal": {
-				ID:         "deepseek-v4-flash-thinking",
-				ProviderID: "deepseek",
-				APIModel:   "deepseek-v4-flash",
+				ID:            "deepseek-v4-flash-thinking",
+				ProviderID:    "deepseek",
+				APIModel:      "deepseek-v4-flash",
+				ContextWindow: 131072,
 			},
 			"superior": {
-				ID:         "deepseek-v4-pro",
-				ProviderID: "deepseek",
+				ID:            "deepseek-v4-pro",
+				ProviderID:    "deepseek",
+				ContextWindow: 1048576,
 				// APIModel empty = use ID
 			},
 			"expert": {
-				ID:         "deepseek-v4-pro-max",
-				ProviderID: "deepseek",
-				APIModel:   "deepseek-v4-pro",
+				ID:            "deepseek-v4-pro-max",
+				ProviderID:    "deepseek",
+				APIModel:      "deepseek-v4-pro",
+				ContextWindow: 1048576,
 			},
 		},
 	}

@@ -153,6 +153,11 @@ type ModelParams struct {
 	// Level is the classification level label for this task (e.g., "L1-SimpleSingleFile").
 	// Set by the task router for L1; may be set from delegation context for L2/L3.
 	Level string
+
+	// ContextWindow is the model's context window capacity (tokens).
+	// Used to resize the ContextWindow when the model changes.
+	// 0 means don't change (backward compatible).
+	ContextWindow int
 }
 
 // ─── Runtime observability ───────────────────────────────────────────────
