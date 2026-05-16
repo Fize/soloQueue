@@ -64,6 +64,10 @@ type RouteDecision struct {
 	// ReasoningEffort specifies the reasoning depth: "high", "max", or "" (disabled)
 	ReasoningEffort string
 
+	// ContextWindow is the model's context window capacity (tokens).
+	// 0 means unknown (caller should fall back to agent definition).
+	ContextWindow int
+
 	// Classification contains the full classification result
 	Classification ClassificationResult
 
@@ -96,11 +100,12 @@ func (r *Router) Route(ctx context.Context, prompt string, priorLevel Classifica
 	decision.Level = classification.Level
 
 	// Resolve full model parameters from config based on classification level
-	providerID, modelID, thinking, effort := r.resolveModelParams(classification.Level)
+	providerID, modelID, thinking, effort, contextWindow := r.resolveModelParams(classification.Level)
 	decision.ProviderID = providerID
 	decision.ModelID = modelID
 	decision.ThinkingEnabled = thinking
 	decision.ReasoningEffort = effort
+	decision.ContextWindow = contextWindow
 
 	// Fill RecommendedModel in classification (single source of truth from config)
 	decision.Classification.RecommendedModel = modelID
@@ -131,7 +136,7 @@ func (r *Router) Route(ctx context.Context, prompt string, priorLevel Classifica
 //	L1 → universal (flash-thinking, high)
 //	L2 → superior (pro, high)
 //	L3 → expert   (pro-max, max)
-func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, modelID string, thinking bool, effort string) {
+func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, modelID string, thinking bool, effort string, contextWindow int) {
 	var role string
 
 	switch level {
@@ -160,7 +165,7 @@ func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, mode
 			"level", level.String(),
 		)
 		// Return a safe fallback
-		return "deepseek", "deepseek-v4-flash", false, ""
+		return "deepseek", "deepseek-v4-flash", false, "", 0
 	}
 
 	// Use APIModel for the actual API call (may differ from the config ID)
@@ -171,12 +176,12 @@ func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, mode
 		apiModel = model.ID
 	}
 
-	return model.ProviderID, apiModel, thinking, effort
+	return model.ProviderID, apiModel, thinking, effort, model.ContextWindow
 }
 
 // ModelForClassification returns the recommended model ID for a classification result.
 // This is a convenience method for direct model lookup without the full routing decision.
 func (r *Router) ModelForClassification(classification ClassificationResult) string {
-	_, modelID, _, _ := r.resolveModelParams(classification.Level)
+	_, modelID, _, _, _ := r.resolveModelParams(classification.Level)
 	return modelID
 }

@@ -321,6 +321,16 @@ func (a *Agent) EffectiveModelID() string {
 	return a.Def.ModelID
 }
 
+// EffectiveContextWindow returns the context window capacity actually in use.
+// It prefers the per-ask override (set by the router) and falls back to the
+// Definition default. Thread-safe (atomic pointer load).
+func (a *Agent) EffectiveContextWindow() int {
+	if mp := a.modelOverride.Load(); mp != nil && mp.ContextWindow > 0 {
+		return mp.ContextWindow
+	}
+	return a.Def.ContextWindow
+}
+
 // EffectiveTaskLevel returns the task classification level from the current
 // per-ask override. Returns "" if no override is active or no level is set.
 // Thread-safe (atomic pointer load).

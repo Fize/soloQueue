@@ -89,6 +89,7 @@ type ModelOverrideParams struct {
 	ThinkingEnabled bool   // enable thinking/reasoning mode
 	ReasoningEffort string // "high" | "max" | ""
 	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
+	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
 }
 
 // DoneNotifier is optionally implemented by Locatable targets returned from

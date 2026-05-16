@@ -152,15 +152,27 @@ func TestCalibrate(t *testing.T) {
 
 func TestOverflow(t *testing.T) {
 	cw := newTestCW(100, 20)
+
+	// Empty CW — no overflow
+	if cw.Overflow() {
+		t.Error("Overflow() should be false for empty CW")
+	}
+
 	cw.Push(RoleUser, "Hello")
 
-	// Overflow with a very large limit should be false
-	if cw.Overflow(1000000) {
-		t.Error("Overflow(1000000) should be false")
+	// After push within capacity — no overflow
+	if cw.Overflow() {
+		t.Error("Overflow() should be false when tokens are within capacity")
 	}
-	// Overflow with hardLimit=0 should be true (we have tokens after push)
-	if !cw.Overflow(0) {
-		t.Error("Overflow(0) should be true when we have messages")
+
+	// Verify capacity is consistent with expectations
+	current, max, buffer := cw.TokenUsage()
+	capacity := max - buffer
+	if capacity <= 0 {
+		t.Fatalf("capacity = %d, should be positive", capacity)
+	}
+	if current > capacity {
+		t.Errorf("currentTokens (%d) should be <= capacity (%d) after normal Push", current, capacity)
 	}
 }
 
@@ -356,5 +368,86 @@ func TestPushTriggersEviction(t *testing.T) {
 	first, _ := cw.MessageAt(0)
 	if first.Role != RoleSystem {
 		t.Errorf("First message role = %q, want system (never evicted)", first.Role)
+	}
+}
+
+func TestResize(t *testing.T) {
+	// Create CW with room for messages — but first push a system prompt
+	cw := newTestCW(2000, 200)
+	cw.Push(RoleSystem, "You are a helpful assistant.")
+
+	// Push several turns to fill up the CW
+	for i := 0; i < 20; i++ {
+		cw.Push(RoleUser, "What is the meaning of life, the universe, and everything? A very long question to fill the context window quickly with many tokens.")
+		cw.Push(RoleAssistant, "The answer is 42. This is a detailed response that explains the entire concept in great depth with many words to consume context window tokens.")
+	}
+
+	tokensBefore, _, _ := cw.TokenUsage()
+
+	// Resize to a smaller window — should trigger eviction
+	cw.Resize(300, 0, 0)
+
+	_, maxAfter, _ := cw.TokenUsage()
+	if maxAfter != 300 {
+		t.Errorf("maxTokens after Resize = %d, want 300", maxAfter)
+	}
+	tokensAfter := cw.CurrentTokens()
+	if tokensAfter >= tokensBefore {
+		t.Errorf("tokens after Resize (%d) should be less than before (%d)", tokensAfter, tokensBefore)
+	}
+	if cw.Len() < 2 {
+		t.Error("should have at least system prompt + some messages after Resize")
+	}
+	sysMsg, _ := cw.MessageAt(0)
+	if sysMsg.Role != RoleSystem {
+		t.Errorf("first message role = %q, want system (never evicted)", sysMsg.Role)
+	}
+
+	// Resize to the same value — should be idempotent (no change)
+	tokensAfter2 := cw.CurrentTokens()
+	cw.Resize(300, 0, 0)
+	if cw.CurrentTokens() != tokensAfter2 {
+		t.Error("Resize to same maxTokens should be idempotent")
+	}
+
+	// Resize to a larger window — no eviction needed
+	cw.Resize(2000, 0, 0)
+	_, maxLarger, _ := cw.TokenUsage()
+	if maxLarger != 2000 {
+		t.Errorf("maxTokens after growing Resize = %d, want 2000", maxLarger)
+	}
+}
+
+func TestResize_SummaryTokens_Recalculation(t *testing.T) {
+	// Small model (< 512k): summaryTokens should be 85% of maxTokens
+	cw := newTestCW(100000, 0)
+	cw.Resize(100000, 0, 0)
+	st := cw.SummaryTokens()
+	expected := 100000 * 85 / 100
+	if expected == 0 {
+		expected = 85000
+	}
+	if st != expected {
+		t.Errorf("summaryTokens for small window = %d, want %d", st, expected)
+	}
+
+	// Large model (>= 512k): summaryTokens should be 75% of maxTokens
+	cw.Resize(600000, 0, 0)
+	st = cw.SummaryTokens()
+	expected = 600000 * 75 / 100
+	if expected == 0 {
+		expected = 450000
+	}
+	if st != expected {
+		t.Errorf("summaryTokens for large window = %d, want %d", st, expected)
+	}
+}
+
+func TestResize_BufferTokens_AutoCalculate(t *testing.T) {
+	cw := newTestCW(1000, 100)
+	cw.Resize(500, 0, 0)
+	_, _, buffer := cw.TokenUsage()
+	if buffer != 50 {
+		t.Errorf("auto bufferTokens = %d, want 50 (maxTokens/10)", buffer)
 	}
 }

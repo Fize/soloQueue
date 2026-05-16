@@ -196,6 +196,47 @@ func TestAgent_ParentCtxCancel_StopsAgent(t *testing.T) {
 	}
 }
 
+// ─── Model override ──────────────────────────────────────────────────────────
+
+func TestEffectiveContextWindow(t *testing.T) {
+	// Does not require a started agent — SetModelOverride is atomic-pointer only
+	a := NewAgent(Definition{ID: "test", ContextWindow: 1048576}, &FakeLLM{}, nil)
+
+	// Default: falls back to Definition.ContextWindow
+	if got := a.EffectiveContextWindow(); got != 1048576 {
+		t.Errorf("EffectiveContextWindow = %d, want %d", got, 1048576)
+	}
+
+	// Override takes precedence
+	a.SetModelOverride(&ModelParams{ContextWindow: 131072})
+	if got := a.EffectiveContextWindow(); got != 131072 {
+		t.Errorf("after override = %d, want %d", got, 131072)
+	}
+
+	// Override with ContextWindow=0 does NOT override (uses Definition fallback)
+	a.SetModelOverride(&ModelParams{ContextWindow: 0, ModelID: "test-v2"})
+	if got := a.EffectiveContextWindow(); got != 1048576 {
+		t.Errorf("override with 0 should fall back to default, got %d", got)
+	}
+
+	// Clear reverts to Definition
+	a.SetModelOverride(&ModelParams{ContextWindow: 131072})
+	a.ClearModelOverride()
+	if got := a.EffectiveContextWindow(); got != 1048576 {
+		t.Errorf("after clear = %d, want %d", got, 1048576)
+	}
+}
+
+func TestEffectiveContextWindow_ExplicitModel(t *testing.T) {
+	// ExplicitModel makes SetModelOverride a no-op
+	a := NewAgent(Definition{ID: "test", ContextWindow: 1048576, ExplicitModel: true}, &FakeLLM{}, nil)
+
+	a.SetModelOverride(&ModelParams{ContextWindow: 131072})
+	if got := a.EffectiveContextWindow(); got != 1048576 {
+		t.Errorf("ExplicitModel should prevent override, got %d", got)
+	}
+}
+
 // ─── Ask happy path ──────────────────────────────────────────────────────────
 
 func TestAgent_Ask_Happy(t *testing.T) {
