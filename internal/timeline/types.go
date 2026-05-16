@@ -34,7 +34,7 @@ type Event struct {
 // newEvent 创建一个带当前时间戳的事件
 func newEvent(et EventType) Event {
 	return Event{
-		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Timestamp: time.Now().Format(time.RFC3339Nano),
 		EventType: et,
 	}
 }
