@@ -137,7 +137,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
   return (
     <>
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent className="sm:max-w-xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+        <DialogContent className="max-w-xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
           {/* Header */}
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle className="text-lg font-semibold leading-tight pr-4">

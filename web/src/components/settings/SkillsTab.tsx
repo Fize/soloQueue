@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useToolsAndSkillsStore } from '@/stores/toolsAndSkillsStore';
 import { Sparkles, BookOpen } from 'lucide-react';
 import type { SkillInfo } from '@/types';
@@ -58,6 +59,11 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
 export function SkillsTab() {
   const skills = useToolsAndSkillsStore((state) => state.skills);
   const loading = useToolsAndSkillsStore((state) => state.skillsLoading);
+  const fetchSkills = useToolsAndSkillsStore((state) => state.fetchSkills);
+
+  useEffect(() => {
+    fetchSkills();
+  }, [fetchSkills]);
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading skills...</div>;
@@ -87,7 +93,7 @@ export function SkillsTab() {
               {builtinSkills.length}
             </span>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-2">
             {builtinSkills.map((s) => (
               <SkillCard key={s.id} skill={s} />
             ))}
@@ -105,7 +111,7 @@ export function SkillsTab() {
               {userSkills.length}
             </span>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-2">
             {userSkills.map((s) => (
               <SkillCard key={s.id} skill={s} />
             ))}
