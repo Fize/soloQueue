@@ -39,13 +39,13 @@ export function Dashboard() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="grid grid-cols-4 gap-4 px-6 pt-6 pb-4">
+      <div className="hidden sm:grid sm:grid-cols-4 gap-4 px-6 pt-6 pb-4">
         <StatsCard title="Total Plans" value={stats.total} />
         <StatsCard title="Running" value={stats.running} />
         <StatsCard title="Completed" value={stats.done} />
         <StatsCard title="Active Agents" value={stats.agentsActive} />
       </div>
-      <div className="flex-1 min-h-0 px-6 pb-6">
+      <div className="flex-1 min-h-[280px] sm:min-h-0 px-3 sm:px-6 pt-3 sm:pt-0 pb-4 sm:pb-6">
         <AgentFlow />
       </div>
     </div>

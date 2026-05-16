@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useRuntime } from '@/hooks/useRuntime'
+import { Button } from '@/components/ui/button'
 import {
   LayoutDashboard,
   Kanban,
@@ -14,6 +15,7 @@ import {
   Sparkles,
   Server,
   Circle,
+  X,
 } from 'lucide-react'
 
 const mainNav = [
@@ -57,7 +59,7 @@ function NavItem({
   )
 }
 
-export function Sidebar() {
+export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const runtime = useRuntime()
@@ -71,12 +73,33 @@ export function Sidebar() {
     }
   }, [isSettingsActive, settingsOpen])
 
+  // Close mobile overlay on route change (skip initial mount)
+  const lastPathRef = useRef(location.pathname)
+  useEffect(() => {
+    if (location.pathname !== lastPathRef.current) {
+      lastPathRef.current = location.pathname
+      if (mobile) onClose?.()
+    }
+  }, [location.pathname, mobile, onClose])
+
   return (
-    <aside className="flex h-full w-[230px] shrink-0 flex-col border-r border-border bg-card">
+    <aside
+      className={cn(
+        'flex h-full shrink-0 flex-col border-r border-border bg-card',
+        mobile ? 'fixed inset-y-0 left-0 z-50 w-[280px] shadow-2xl' : 'w-[230px]'
+      )}
+    >
       {/* Logo */}
       <div className="flex h-14 items-center gap-2.5 px-5 border-b border-border">
-        <img src="/logo.png" alt="SoloQueue" className="h-7 w-7" />
-        <span className="text-base font-bold tracking-tight text-foreground">SoloQueue</span>
+        {mobile && (
+          <Button variant="ghost" size="icon-sm" onClick={onClose} className="mr-1 shrink-0">
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+        <img src="/logo.png" alt="SoloQueue" className="h-7 w-7 shrink-0" />
+        <span className="text-base font-bold tracking-tight text-foreground truncate">
+          SoloQueue
+        </span>
       </div>
 
       {/* Navigation */}
