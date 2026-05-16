@@ -1,31 +1,36 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Header } from '@/components/Header'
-import { RuntimeStatusBar } from '@/components/RuntimeStatusBar'
-import { Container } from '@/components/ui/Container'
-import { HomePage } from '@/components/HomePage'
-import { SettingsView } from '@/components/SettingsView'
+import { Sidebar } from '@/components/Sidebar'
+import { Dashboard } from '@/components/Dashboard'
+import { PlansPage } from '@/components/PlansPage'
 import { FilesPage } from '@/components/FilesPage'
+import { SettingsLayout } from '@/components/SettingsLayout'
+import { ConfigTab } from '@/components/settings/ConfigTab'
+import { ProfileTab } from '@/components/settings/ProfileTab'
+import { SkillsTab } from '@/components/settings/SkillsTab'
+import { MCPTab } from '@/components/settings/MCPTab'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { wsManager } from '@/lib/websocket'
-
-export type AppTab = 'home' | 'files' | 'settings'
 
 function App() {
   return (
     <TooltipProvider>
-      <div className="flex h-screen flex-col bg-background">
-        <Header />
-        <RuntimeStatusBar />
-        <main className="flex-1 overflow-hidden">
-          <Container className="h-full pb-4">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/files" element={<FilesPage />} />
-              <Route path="/settings/*" element={<SettingsView />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Container>
+      <div className="flex h-screen bg-background">
+        <Sidebar />
+        <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/plans" element={<PlansPage />} />
+            <Route path="/files" element={<FilesPage />} />
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route index element={<Navigate to="config" replace />} />
+              <Route path="config" element={<ConfigTab />} />
+              <Route path="profile" element={<ProfileTab />} />
+              <Route path="skills" element={<SkillsTab />} />
+              <Route path="mcp" element={<MCPTab />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
     </TooltipProvider>
