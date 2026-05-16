@@ -33,11 +33,16 @@ function toWire(servers: MCPServerConfig[]): MCPConfig {
 
 export function MCPTab() {
   const config = useMCPConfigStore((state) => state.config);
+  const fetchConfig = useMCPConfigStore((state) => state.fetch);
   const save = useMCPConfigStore((state) => state.save);
   const saving = useMCPConfigStore((state) => state.saving);
   const error = useMCPConfigStore((state) => state.error);
   const [local, setLocal] = useState<MCPServerConfig[] | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
 
   useEffect(() => {
     if (config && !local) {
