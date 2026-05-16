@@ -274,7 +274,7 @@ export function AgentFlow() {
           agent: {
             id: 'main',
             instance_id: 'placeholder-l1',
-            name: 'Main Agent',
+            name: 'L1 Agent',
             state: 'stopped',
             model_id: '',
             group: '',
@@ -289,7 +289,7 @@ export function AgentFlow() {
           isPlaceholder: true,
           isL1: true,
           templateId: 'main',
-          templateName: 'Main Agent',
+          templateName: 'L1 Agent',
         },
         position: { x: 0, y: 0 },
       })

@@ -148,7 +148,8 @@ func readMD(path string) (string, error) {
 }
 
 // ReadSoulName reads soul.md and extracts the assistant name.
-// It looks for the pattern "You are <name>," at the beginning of the file.
+// It first checks the "- Name:" field in the Personalization section;
+// if not found, falls back to "You are <name>," from the first line.
 // Returns an empty string if the file doesn't exist or no name is found.
 func ReadSoulName(promptCfg *PromptConfig) string {
 	data, err := os.ReadFile(promptCfg.soulPath())
@@ -159,18 +160,28 @@ func ReadSoulName(promptCfg *PromptConfig) string {
 }
 
 // extractSoulName parses the assistant name from soul.md content.
-// The soul starts with "You are <name>, ..." — we extract <name>.
+// Priority: "- Name:" field in Personalization > "You are <name>," in first line.
 func extractSoulName(content string) string {
-	const prefix = "You are "
-	idx := strings.Index(content, prefix)
+	// 1. Try "- Name:" in Personalization section (user's configured display name)
+	const namePrefix = "- Name:"
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, namePrefix) {
+			name := strings.TrimSpace(trimmed[len(namePrefix):])
+			if name != "" {
+				return name
+			}
+		}
+	}
+
+	// 2. Fallback: "You are <name>, ..."
+	const youPrefix = "You are "
+	idx := strings.Index(content, youPrefix)
 	if idx == -1 {
 		return ""
 	}
-	after := content[idx+len(prefix):]
-	// Find the comma that separates the name from the role description.
-	// The role description typically starts with " a " or " an " after the comma,
-	// e.g. "You are 小Q, a personal assistant" or "You are one of 小Q,大Q, an assistant".
-	// We look for ", a " or ", an " to avoid splitting on commas within the name itself.
+	after := content[idx+len(youPrefix):]
+	// e.g. "You are 小Q, a personal assistant" or "You are one of 小Q,大Q, an assistant"
 	for _, sep := range []string{", a ", ", an "} {
 		if commaIdx := strings.Index(after, sep); commaIdx != -1 {
 			name := strings.TrimSpace(after[:commaIdx])
@@ -179,7 +190,6 @@ func extractSoulName(content string) string {
 			}
 		}
 	}
-	// Fallback: simple comma split for patterns like "You are Name, something"
 	commaIdx := strings.Index(after, ",")
 	if commaIdx == -1 {
 		return ""

@@ -206,18 +206,18 @@ export function AgentsPanel() {
           <div className="flex items-center gap-1.5 px-1">
             <Star className="h-3.5 w-3.5 text-amber-500" />
             <span className="text-[10px] font-semibold text-muted-foreground uppercase">
-              L1 Main Agent
+              {l1Agent?.name || 'L1 Agent'}
             </span>
           </div>
           {l1Agent ? (
             <AgentCard agent={l1Agent} onClick={() => handleAgentClick(l1Agent, true)} />
           ) : (
             <PlaceholderCard
-              name="Main Agent"
+              name="L1 Agent"
               onClick={() => {
                 setSelectedAgent(null)
                 setSelectedTemplateId('main')
-                setSelectedTemplateName('Main Agent')
+                setSelectedTemplateName('L1 Agent')
                 setIsL1(true)
                 setIsDetailOpen(true)
               }}
