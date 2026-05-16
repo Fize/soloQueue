@@ -126,6 +126,37 @@ func TestCheckCredentials_DoubaoMissing(t *testing.T) {
 	}
 }
 
+func TestCheckCredentials_TencentDirectKey(t *testing.T) {
+	os.Unsetenv("ANY_ID")
+	os.Unsetenv("ANY_KEY")
+	m := &ImgModelCfg{Provider: "tencent", SecretId: "direct-id", SecretKey: "direct-key"}
+	if err := checkCredentials(m); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckCredentials_DoubaoDirectKey(t *testing.T) {
+	os.Unsetenv("ANY_KEY")
+	m := &ImgModelCfg{Provider: "doubao", APIKey: "direct-key"}
+	if err := checkCredentials(m); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckCredentials_DirectTakesPriority(t *testing.T) {
+	os.Setenv("ENV_ID", "env-id")
+	os.Setenv("ENV_KEY", "env-key")
+	defer os.Unsetenv("ENV_ID")
+	defer os.Unsetenv("ENV_KEY")
+	m := &ImgModelCfg{Provider: "tencent",
+		SecretId: "direct-id", SecretIdEnv: "ENV_ID",
+		SecretKey: "direct-key", SecretKeyEnv: "ENV_KEY",
+	}
+	if err := checkCredentials(m); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 // ─── Tool metadata ────────────────────────────────────────────────────
 
 func TestImageGenTool_Name(t *testing.T) {
