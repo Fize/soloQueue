@@ -101,9 +101,10 @@ function getExt(path: string): string {
 
 interface FileContentViewProps {
   path: string | null
+  onError?: (path: string) => void
 }
 
-export function FileContentView({ path }: FileContentViewProps) {
+export function FileContentView({ path, onError }: FileContentViewProps) {
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -141,8 +142,9 @@ export function FileContentView({ path }: FileContentViewProps) {
       .catch((err) => {
         setError(err.message)
         setLoading(false)
+        onError?.(path)
       })
-  }, [path])
+  }, [path, onError])
 
   if (!path) {
     return (
