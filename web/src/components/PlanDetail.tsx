@@ -4,15 +4,19 @@ import remarkGfm from 'remark-gfm'
 import type { Plan } from '@/types'
 import type { Components } from 'react-markdown'
 import { getPlan, toggleTodo, deleteTodo as apiDeleteTodo } from '@/lib/api'
+import { usePlanStore } from '@/stores/planStore'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { TodoList } from './TodoList'
 import { FilePreview } from './FilePreview'
-import { Calendar, Tag, User, Loader2, ListChecks } from 'lucide-react'
+import { Calendar, Tag, User, Loader2, ListChecks, Pencil, Trash2, Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface PlanDetailProps {
   plan: Plan
@@ -32,20 +36,43 @@ const statusBadgeClass = {
   done: 'bg-status-done text-foreground border-border',
 }
 
+const statusOptions = [
+  { value: 'plan', label: 'Plan' },
+  { value: 'running', label: 'Running' },
+  { value: 'done', label: 'Done' },
+]
+
 function linkifyFilePaths(content: string): string {
-  let result = content
-  result = result.replace(/(~\/\.soloqueue\/plan\/[^\s)\]]+)/g, '[$1](file://$1)')
-  result = result.replace(/(\/home\/\w+\/\.soloqueue\/plan\/[^\s)\]]+)/g, '[$1](file://$1)')
-  return result
+  return content
+    .replace(/(~\/\.soloqueue\/plan\/[^\s)\]]+)/g, '[$1](file://$1)')
+    .replace(/(\/home\/\w+\/\.soloqueue\/plan\/[^\s)\]]+)/g, '[$1](file://$1)')
 }
 
 export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
+  const updatePlan = usePlanStore((s) => s.updatePlan)
+  const deletePlan = usePlanStore((s) => s.deletePlan)
+  const storePlans = usePlanStore((s) => s.plans)
+
   const [fullPlan, setFullPlan] = useState<Plan | null>(null)
   const [loading, setLoading] = useState(false)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
 
+  const [editing, setEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editContent, setEditContent] = useState('')
+  const [editTags, setEditTags] = useState('')
+  const [editStatus, setEditStatus] = useState('plan')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const current = fullPlan ?? plan
+
   useEffect(() => {
     if (!open) return
+    setEditing(false)
+    setShowDeleteConfirm(false)
     setPreviewPath(null)
     setLoading(true)
     getPlan(plan.id)
@@ -54,18 +81,73 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
       .finally(() => setLoading(false))
   }, [open, plan.id, plan])
 
+  // Sync from store if plan was updated externally
+  useEffect(() => {
+    if (!open) return
+    const updated = storePlans.find((p) => p.id === plan.id)
+    if (updated && fullPlan && updated.updated_at !== fullPlan.updated_at) {
+      setFullPlan(updated)
+    }
+  }, [storePlans, plan.id, fullPlan, open])
+
+  function startEditing() {
+    setEditTitle(current.title)
+    setEditContent(current.content ?? '')
+    setEditTags(current.tags ?? '')
+    setEditStatus(current.status)
+    setSaveError(null)
+    setEditing(true)
+  }
+
+  function cancelEditing() {
+    setEditing(false)
+    setSaveError(null)
+  }
+
+  async function handleSave() {
+    if (!editTitle.trim()) {
+      setSaveError('Title is required')
+      return
+    }
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const updated = await updatePlan(current.id, {
+        title: editTitle.trim(),
+        content: editContent.trim() || undefined,
+        tags: editTags.trim() || undefined,
+        status: editStatus,
+      })
+      setFullPlan(updated)
+      setEditing(false)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await deletePlan(current.id)
+      setDeleting(false)
+      onClose()
+    } catch {
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
+
   const handleFileClick = useCallback((path: string) => {
     setPreviewPath(path)
   }, [])
 
-  const tags = fullPlan?.tags
-    ? fullPlan.tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean)
+  const tags = current.tags
+    ? current.tags.split(',').map((t) => t.trim()).filter(Boolean)
     : []
 
-  const todos = fullPlan?.todo_items ?? []
+  const todos = fullPlan?.todo_items ?? current.todo_items ?? []
   const completedCount = todos.filter((t) => t.completed).length
   const progressPct = todos.length > 0 ? Math.round((completedCount / todos.length) * 100) : 0
 
@@ -97,8 +179,8 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
   }
 
   const linkifiedContent = useMemo(
-    () => (fullPlan?.content ? linkifyFilePaths(fullPlan.content) : ''),
-    [fullPlan?.content]
+    () => (current.content ? linkifyFilePaths(current.content) : ''),
+    [current.content]
   )
 
   const markdownComponents: Components = useMemo(
@@ -136,13 +218,71 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <Dialog open={open} onOpenChange={(v) => !v && !deleting && onClose()}>
         <DialogContent className="max-w-xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
-          {/* Header */}
+          {/* Header with edit/delete actions */}
           <DialogHeader className="px-6 pt-6 pb-0">
-            <DialogTitle className="text-lg font-semibold leading-tight pr-4">
-              {fullPlan?.title ?? plan.title}
-            </DialogTitle>
+            <div className="flex items-start justify-between gap-2">
+              <DialogTitle className="text-lg font-semibold leading-tight pr-4 flex-1 min-w-0">
+                {editing ? (
+                  <input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-lg font-semibold outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50"
+                  />
+                ) : (
+                  current.title
+                )}
+              </DialogTitle>
+
+              {!loading && !editing && (
+                <div className="flex items-center gap-1 shrink-0 pt-1">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    onClick={startEditing}
+                    title="Edit"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+
+              {!loading && editing && (
+                <div className="flex items-center gap-1 shrink-0 pt-1">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    onClick={handleSave}
+                    disabled={saving}
+                    title="Save"
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 text-muted-foreground hover:text-muted-foreground/50"
+                    onClick={cancelEditing}
+                    disabled={saving}
+                    title="Cancel"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </DialogHeader>
 
           {loading ? (
@@ -154,31 +294,43 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
               <div className="space-y-5">
                 {/* Status + meta row */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      'border font-medium',
-                      statusBadgeClass[fullPlan?.status ?? plan.status]
-                    )}
-                  >
-                    {statusLabel[fullPlan?.status ?? plan.status]}
-                  </Badge>
+                  {editing ? (
+                    <Select
+                      options={statusOptions}
+                      value={editStatus}
+                      onChange={setEditStatus}
+                    />
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className={cn('border font-medium', statusBadgeClass[current.status])}
+                    >
+                      {statusLabel[current.status]}
+                    </Badge>
+                  )}
 
-                  {fullPlan?.creator && (
+                  {current.creator && (
                     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                       <User className="h-3 w-3" />
-                      {fullPlan.creator}
+                      {current.creator}
                     </span>
                   )}
 
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     <Calendar className="h-3 w-3" />
-                    {new Date(fullPlan?.created_at ?? plan.created_at).toLocaleDateString()}
+                    {new Date(current.created_at).toLocaleDateString()}
                   </span>
                 </div>
 
                 {/* Tags */}
-                {tags.length > 0 && (
+                {editing ? (
+                  <Input
+                    label="Tags"
+                    placeholder="Comma-separated, e.g. bug,frontend"
+                    value={editTags}
+                    onChange={(e) => setEditTags(e.target.value)}
+                  />
+                ) : tags.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {tags.map((tag) => (
                       <span
@@ -190,45 +342,85 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                       </span>
                     ))}
                   </div>
-                )}
+                ) : null}
 
                 {/* Content */}
-                {fullPlan?.content && (
+                {editing ? (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Content</label>
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      rows={10}
+                      className="w-full resize-y rounded-md border border-border bg-transparent px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 font-mono"
+                    />
+                  </div>
+                ) : current.content ? (
                   <div className="rounded-lg border-2 border-[#EEEEEE] bg-muted/30 p-4">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                       {linkifiedContent}
                     </ReactMarkdown>
                   </div>
+                ) : null}
+
+                {/* Save error */}
+                {saveError && (
+                  <p className="text-xs text-destructive">{saveError}</p>
                 )}
 
-                <Separator />
-
-                {/* Tasks section */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
-                      <ListChecks className="h-4 w-4 text-primary" />
-                      Tasks
-                    </h3>
-
-                    {todos.length > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs tabular-nums text-muted-foreground">
-                          {completedCount}/{todos.length}
-                        </span>
-                        <span className="text-xs text-muted-foreground">completed</span>
-                        <Progress value={progressPct} className="w-20 h-1.5" />
-                      </div>
-                    )}
+                {/* Delete confirmation */}
+                {showDeleteConfirm && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-sm font-medium text-destructive mb-3">
+                      Delete this plan? This action cannot be undone.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+                        {deleting ? (
+                          <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Deleting...</>
+                        ) : (
+                          'Delete'
+                        )}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
+                )}
 
-                  <TodoList
-                    todos={todos}
-                    onToggle={handleToggleTodo}
-                    onDelete={handleTodoDelete}
-                    planId={fullPlan?.id ?? plan.id}
-                  />
-                </div>
+                {!editing && !showDeleteConfirm && (
+                  <>
+                    <Separator />
+
+                    {/* Tasks section */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
+                          <ListChecks className="h-4 w-4 text-primary" />
+                          Tasks
+                        </h3>
+
+                        {todos.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                              {completedCount}/{todos.length}
+                            </span>
+                            <span className="text-xs text-muted-foreground">completed</span>
+                            <Progress value={progressPct} className="w-20 h-1.5" />
+                          </div>
+                        )}
+                      </div>
+
+                      <TodoList
+                        todos={todos}
+                        onToggle={handleToggleTodo}
+                        onDelete={handleTodoDelete}
+                        planId={current.id}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             </ScrollArea>
           )}

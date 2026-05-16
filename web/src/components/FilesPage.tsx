@@ -306,8 +306,8 @@ export function FilesPage() {
   )
 
   return (
-    <div className="flex h-full">
-      <div className="w-64 shrink-0 border-r border-border flex flex-col">
+    <div className="flex h-full p-3 gap-3">
+      <div className="w-64 shrink-0 border-r border-border flex flex-col rounded-lg border">
         {treeContent}
       </div>
 

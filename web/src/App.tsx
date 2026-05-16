@@ -9,6 +9,8 @@ import { ConfigTab } from '@/components/settings/ConfigTab'
 import { ProfileTab } from '@/components/settings/ProfileTab'
 import { SkillsTab } from '@/components/settings/SkillsTab'
 import { MCPTab } from '@/components/settings/MCPTab'
+import { User } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { wsManager } from '@/lib/websocket'
 
@@ -18,8 +20,14 @@ function App() {
       <div className="flex h-screen bg-background">
         <Sidebar />
         <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
+          <header className="flex h-14 shrink-0 items-center justify-end border-b border-border px-4 bg-card">
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="Logout">
+              <User className="h-4 w-4" />
+            </Button>
+          </header>
+          <div className="flex-1 overflow-hidden">
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
             <Route path="/plans" element={<PlansPage />} />
             <Route path="/files" element={<FilesPage />} />
             <Route path="/settings" element={<SettingsLayout />}>
@@ -30,7 +38,8 @@ function App() {
               <Route path="mcp" element={<MCPTab />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+            </Routes>
+          </div>
         </main>
       </div>
     </TooltipProvider>
