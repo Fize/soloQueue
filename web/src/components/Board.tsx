@@ -18,6 +18,13 @@ import {
 import { PlanCard } from './PlanCard'
 import { arrayMove } from '@dnd-kit/sortable'
 import { AlertTriangle, RefreshCw, Plus } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+const mobileColumnConfig: Record<PlanStatus, { label: string; dot: string }> = {
+  plan: { label: 'Plan', dot: 'bg-[#635BFF]' },
+  running: { label: 'Running', dot: 'bg-[#FFB020]' },
+  done: { label: 'Done', dot: 'bg-[#00D924]' },
+}
 
 export function Board() {
   const plans = usePlanStore((state) => state.plans)
@@ -26,6 +33,7 @@ export function Board() {
   const fetchPlans = usePlanStore((state) => state.fetchPlans)
 
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [activeStatus, setActiveStatus] = useState<PlanStatus>('plan')
 
   const plansByStatus = useMemo(
     () => ({
@@ -175,43 +183,90 @@ export function Board() {
   return (
     <div className="flex flex-1 flex-col min-h-0">
       {/* Top bar */}
-      <div className="flex items-center justify-between shrink-0 px-1 sm:px-1">
+      <div className="flex items-center justify-between shrink-0 px-1">
         <h2 className="text-sm font-semibold text-foreground">Plans Board</h2>
-        <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowCreateDialog(true)}>
+        <Button
+          size="sm"
+          className="h-7 gap-1 text-xs md:h-8 md:gap-1.5"
+          onClick={() => setShowCreateDialog(true)}
+        >
           <Plus className="h-3.5 w-3.5" />
           New Plan
         </Button>
       </div>
 
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="flex-1 min-h-0 flex">
-          <div className="flex w-full gap-3 sm:gap-4 overflow-x-auto py-3 sm:py-5 flex-1 min-h-0 snap-x snap-mandatory">
-            {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
-              <div
-                key={status}
-                className="min-w-[260px] sm:min-w-[250px] flex-1 flex flex-col min-h-0 snap-start"
-              >
-                <BoardColumn
-                  status={status}
-                  plans={displayPlans[status]}
-                  onPlanClick={handlePlanClick}
-                />
-              </div>
-            ))}
+      {/* Desktop: DnD Kanban */}
+      <div className="hidden md:flex flex-1 min-h-0">
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex-1 min-h-0 flex">
+            <div className="flex w-full gap-4 overflow-x-auto py-5 flex-1 min-h-0">
+              {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
+                <div key={status} className="min-w-[250px] flex-1 flex flex-col min-h-0">
+                  <BoardColumn
+                    status={status}
+                    plans={displayPlans[status]}
+                    onPlanClick={handlePlanClick}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
+
+          <DragOverlay
+            dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.83, 0.67)' }}
+          >
+            {activePlan && <PlanCard plan={activePlan} onClick={() => {}} isOverlay />}
+          </DragOverlay>
+        </DndContext>
+      </div>
+
+      {/* Mobile: Tab bar + single column */}
+      <div className="flex flex-col flex-1 min-h-0 md:hidden">
+        {/* Status tabs */}
+        <div className="flex gap-1.5 mb-2 mt-3">
+          {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => {
+            const cfg = mobileColumnConfig[status]
+            return (
+              <button
+                key={status}
+                onClick={() => setActiveStatus(status)}
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors',
+                  activeStatus === status
+                    ? 'bg-card border border-border shadow-sm text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <div className={cn('h-2 w-2 rounded-full shrink-0', cfg.dot)} />
+                <span>{cfg.label}</span>
+                <span className="ml-auto bg-muted px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums">
+                  {displayPlans[status].length}
+                </span>
+              </button>
+            )
+          })}
         </div>
 
-        <DragOverlay
-          dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.83, 0.67)' }}
-        >
-          {activePlan && <PlanCard plan={activePlan} onClick={() => {}} isOverlay />}
-        </DragOverlay>
-      </DndContext>
+        {/* Card list */}
+        <div className="flex-1 overflow-y-auto min-h-0 -mx-3 px-3">
+          <div className="space-y-2 pb-4">
+            {displayPlans[activeStatus].length === 0 ? (
+              <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+                No plans yet
+              </div>
+            ) : (
+              displayPlans[activeStatus].map((plan) => (
+                <PlanCard key={plan.id} plan={plan} onClick={() => handlePlanClick(plan)} />
+              ))
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Plan detail sheet */}
       {selectedPlan && (

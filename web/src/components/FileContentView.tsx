@@ -190,74 +190,76 @@ export function FileContentView({ path }: FileContentViewProps) {
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-4">
-        <div className="mb-3 border-b pb-2 flex items-center justify-between">
-          <p className="text-xs font-mono text-muted-foreground truncate">{fileName}</p>
-          {!isImage && !isAudio && !isVideo && content !== null && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleCopy}
-              title={copied ? 'Copied!' : 'Copy content'}
-            >
-              {copied ? (
-                <Check className="h-3.5 w-3.5 text-green-500" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          )}
-        </div>
-
-        {isImage && (
-          <div className="flex items-center justify-center">
-            <img
-              src={getFileUrl(path)}
-              alt={fileName}
-              className="max-h-[65vh] max-w-full rounded object-contain"
-            />
-          </div>
-        )}
-
-        {isAudio && (
-          <div className="flex flex-col items-center gap-3 py-8">
-            <audio controls src={getFileUrl(path)} className="w-full max-w-md" />
-          </div>
-        )}
-
-        {isVideo && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <video controls src={getFileUrl(path)} className="max-h-[55vh] max-w-full rounded" />
-          </div>
-        )}
-
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-2 border-b flex items-center justify-between shrink-0">
+        <p className="text-xs font-mono text-muted-foreground truncate">{fileName}</p>
         {!isImage && !isAudio && !isVideo && content !== null && (
-          <>
-            {isMarkdown && <MarkdownPreview content={content} />}
-            {language && (
-              <SyntaxHighlighter
-                language={language}
-                style={oneLight}
-                customStyle={{
-                  margin: 0,
-                  borderRadius: '0.5rem',
-                  fontSize: '0.8125rem',
-                  lineHeight: '1.6',
-                }}
-                showLineNumbers
-              >
-                {content}
-              </SyntaxHighlighter>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleCopy}
+            title={copied ? 'Copied!' : 'Copy content'}
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-green-500" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
             )}
-            {!isMarkdown && !language && (
-              <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs font-mono leading-relaxed">
-                {content}
-              </pre>
-            )}
-          </>
+          </Button>
         )}
       </div>
-    </ScrollArea>
+
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="p-4">
+          {isImage && (
+            <div className="flex items-center justify-center">
+              <img
+                src={getFileUrl(path)}
+                alt={fileName}
+                className="max-h-[65vh] max-w-full rounded object-contain"
+              />
+            </div>
+          )}
+
+          {isAudio && (
+            <div className="flex flex-col items-center gap-3 py-8">
+              <audio controls src={getFileUrl(path)} className="w-full max-w-md" />
+            </div>
+          )}
+
+          {isVideo && (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <video controls src={getFileUrl(path)} className="max-h-[55vh] max-w-full rounded" />
+            </div>
+          )}
+
+          {!isImage && !isAudio && !isVideo && content !== null && (
+            <>
+              {isMarkdown && <MarkdownPreview content={content} />}
+              {language && (
+                <SyntaxHighlighter
+                  language={language}
+                  style={oneLight}
+                  customStyle={{
+                    margin: 0,
+                    borderRadius: '0.5rem',
+                    fontSize: '0.8125rem',
+                    lineHeight: '1.6',
+                  }}
+                  showLineNumbers
+                >
+                  {content}
+                </SyntaxHighlighter>
+              )}
+              {!isMarkdown && !language && (
+                <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs font-mono leading-relaxed">
+                  {content}
+                </pre>
+              )}
+            </>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
   )
 }
