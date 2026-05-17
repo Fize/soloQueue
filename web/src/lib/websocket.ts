@@ -1,6 +1,7 @@
 import type { WSMessage, RuntimeStatus, AgentListResponse } from '@/types'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
+import { useAuthStore } from '@/stores/authStore'
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 
@@ -12,6 +13,10 @@ type MessageHandler = {
 
 function wsBase(): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const token = useAuthStore.getState().token
+  if (token) {
+    return `${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
+  }
   return `${proto}//${window.location.host}/ws`
 }
 

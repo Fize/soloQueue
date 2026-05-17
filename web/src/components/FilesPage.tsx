@@ -287,7 +287,9 @@ export function FilesPage() {
   const treeContent = (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-border px-3 py-2 flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Files</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Files
+        </span>
         <button
           type="button"
           onClick={handleRefresh}
@@ -372,7 +374,11 @@ export function FilesPage() {
           </span>
         </div>
         <div className="flex-1 min-h-0">
-          <FileContentView path={selectedPath} key={contentVersion} onError={() => setSelectedPath(null)} />
+          <FileContentView
+            path={selectedPath}
+            key={contentVersion}
+            onError={() => setSelectedPath(null)}
+          />
         </div>
       </div>
     </div>
