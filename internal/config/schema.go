@@ -34,6 +34,7 @@ type AgentConfig struct {
 // are uniformly output in English, no need to help frontend manage storage.
 type Settings struct {
 	Session       SessionConfig       `json:"session" toml:"session,omitempty"`
+	Auth          AuthConfig          `json:"auth" toml:"auth,omitempty"`
 	Log           LogConfig           `json:"log" toml:"log,omitempty"`
 	Tools         ToolsConfig         `json:"tools" toml:"tools,omitempty"`
 	Providers     []LLMProvider       `json:"providers" toml:"providers,omitempty"`
@@ -66,6 +67,15 @@ func (c QQBotConfig) ToQQBotConfig() qqbot.Config {
 		Intents:   c.Intents,
 		Sandbox:   c.Sandbox,
 	}
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+// AuthConfig configures HTTP authentication.
+// If User is empty, authentication is disabled.
+type AuthConfig struct {
+	User     string `json:"user" toml:"user,omitempty"`
+	Password string `json:"-" toml:"password,omitempty"`
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────

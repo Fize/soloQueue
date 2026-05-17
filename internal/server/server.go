@@ -63,11 +63,11 @@ type Mux struct {
 	toolsCfg       *tools.Config
 	skillReg       *skill.SkillRegistry
 	skillDirs      map[string]string // skill categories → paths, for on-demand reload
-	rebuildPrompt  func() error // rebuilds L1 system prompt after soul/rules edit
-	agentsDir      string       // path to ~/.soloqueue/agents directory
-	mcpLoader      *mcp.Loader  // MCP config loader for /api/mcp endpoints
-	basicAuthUser  string       // HTTP basic auth username (empty = disabled)
-	basicAuthPass  string       // HTTP basic auth password
+	rebuildPrompt func() error // rebuilds L1 system prompt after soul/rules edit
+	agentsDir     string       // path to ~/.soloqueue/agents directory
+	mcpLoader     *mcp.Loader  // MCP config loader for /api/mcp endpoints
+	authConfig    config.AuthConfig
+	tokenStore    *tokenStore
 }
 
 // reloadGroups loads groups from groupsDir. Returns empty map on error.
@@ -174,12 +174,14 @@ func WithMCPLoader(loader *mcp.Loader) MuxOption {
 	return func(m *Mux) { m.mcpLoader = loader }
 }
 
-// WithBasicAuth sets HTTP basic auth credentials for all routes.
-// An empty username disables authentication.
-func WithBasicAuth(user, pass string) MuxOption {
+// WithAuthConfig sets the auth configuration for token-based authentication.
+// An empty User disables authentication.
+func WithAuthConfig(cfg config.AuthConfig) MuxOption {
 	return func(m *Mux) {
-		m.basicAuthUser = user
-		m.basicAuthPass = pass
+		m.authConfig = cfg
+		if cfg.User != "" {
+			m.tokenStore = newTokenStore()
+		}
 	}
 }
 
@@ -187,19 +189,6 @@ func WithBasicAuth(user, pass string) MuxOption {
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
 	m.hub = hub
-}
-
-// basicAuthMiddleware returns a chi middleware that enforces HTTP basic auth.
-func (m *Mux) basicAuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u, p, ok := r.BasicAuth()
-		if !ok || u != m.basicAuthUser || p != m.basicAuthPass {
-			w.Header().Set("WWW-Authenticate", `Basic realm="soloqueue"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // NewMux creates a new HTTP handler with registered routes.
@@ -236,72 +225,79 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 		r.Use(al.Middleware)
 	}
 
-	// Basic auth (if configured)
-	if m.basicAuthUser != "" {
-		r.Use(m.basicAuthMiddleware)
-	}
+	// ── Public routes (before auth middleware) ──
+	r.Post("/api/auth/login", m.handleLogin)
+	r.Get("/api/auth/check", m.handleAuthCheck)
+	r.Post("/api/auth/logout", m.handleLogout)
 
-	// Health check
-	r.Get("/healthz", m.handleHealth)
+	// WebSocket: token via ?token= query param (validated in handler)
+	r.Get("/ws", m.handleWebSocket)
 
-	// Plan routes (full CRUD)
-	r.Route("/api/plans", func(r chi.Router) {
-		r.Get("/", m.handleListPlans)
-		r.Post("/", m.handleCreatePlan)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Get("/", m.handleGetPlan)
-			r.Put("/", m.handleUpdatePlan)
-			r.Delete("/", m.handleDeletePlan)
-			r.Patch("/status", m.handleUpdatePlanStatus)
+	// ── Auth middleware (protects all routes below) ──
+	r.Group(func(r chi.Router) {
+		if m.authConfig.User != "" {
+			r.Use(m.tokenAuthMiddleware)
+		}
 
-			// Todo item routes (read / update / delete only)
-			r.Route("/todos", func(r chi.Router) {
-				r.Get("/", m.handleListTodos)
-				r.Post("/reorder", m.handleReorderTodos)
-				r.Route("/{todoId}", func(r chi.Router) {
-					r.Put("/", m.handleUpdateTodo)
-					r.Delete("/", m.handleDeleteTodo)
-					r.Patch("/toggle", m.handleToggleTodo)
+		// Health check
+		r.Get("/healthz", m.handleHealth)
+
+		// Plan routes (full CRUD)
+		r.Route("/api/plans", func(r chi.Router) {
+			r.Get("/", m.handleListPlans)
+			r.Post("/", m.handleCreatePlan)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", m.handleGetPlan)
+				r.Put("/", m.handleUpdatePlan)
+				r.Delete("/", m.handleDeletePlan)
+				r.Patch("/status", m.handleUpdatePlanStatus)
+
+				// Todo item routes (read / update / delete only)
+				r.Route("/todos", func(r chi.Router) {
+					r.Get("/", m.handleListTodos)
+					r.Post("/reorder", m.handleReorderTodos)
+					r.Route("/{todoId}", func(r chi.Router) {
+						r.Put("/", m.handleUpdateTodo)
+						r.Delete("/", m.handleDeleteTodo)
+						r.Patch("/toggle", m.handleToggleTodo)
+					})
 				})
 			})
 		})
+
+		// Dependency routes
+		r.Route("/api/todos/{id}/dependencies", func(r chi.Router) {
+			r.Get("/", m.handleGetDependencies)
+			r.Put("/", m.handleSetDependencies)
+		})
+
+		// Agent routes
+		r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
+		r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
+		r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
+		r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
+		r.Get("/api/teams", m.handleListTeams)
+
+		// Config routes
+		r.Route("/api/config", func(r chi.Router) {
+			r.Get("/", m.handleGetConfig)
+			r.Get("/toml", m.handleGetConfigToml)
+		})
+
+		// Tools & Skills routes
+		r.Get("/api/tools", m.handleListTools)
+		r.Get("/api/skills", m.handleListSkills)
+
+		// MCP config routes
+		r.Get("/api/mcp", m.handleGetMCPConfig)
+		r.Patch("/api/mcp", m.handleUpdateMCPConfig)
+
+		// File routes (read-only access to plan directory and team workspaces)
+		r.Get("/api/files/roots", m.handleGetFileRoots)
+		r.Get("/api/files/content", m.handleGetFileContent)
+		r.Get("/api/files/list", m.handleListFiles)
+		r.Get("/api/files/info", m.handleGetFileInfo)
 	})
-
-	// Dependency routes
-	r.Route("/api/todos/{id}/dependencies", func(r chi.Router) {
-		r.Get("/", m.handleGetDependencies)
-		r.Put("/", m.handleSetDependencies)
-	})
-
-	// Agent routes
-	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
-	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
-	r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
-	r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
-	r.Get("/api/teams", m.handleListTeams)
-
-	// WebSocket endpoint for real-time state updates
-	r.Get("/ws", m.handleWebSocket)
-
-	// Config routes
-	r.Route("/api/config", func(r chi.Router) {
-		r.Get("/", m.handleGetConfig)
-		r.Get("/toml", m.handleGetConfigToml)
-	})
-
-	// Tools & Skills routes
-	r.Get("/api/tools", m.handleListTools)
-	r.Get("/api/skills", m.handleListSkills)
-
-	// MCP config routes
-	r.Get("/api/mcp", m.handleGetMCPConfig)
-	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
-
-	// File routes (read-only access to plan directory and team workspaces)
-	r.Get("/api/files/roots", m.handleGetFileRoots)
-	r.Get("/api/files/content", m.handleGetFileContent)
-	r.Get("/api/files/list", m.handleListFiles)
-	r.Get("/api/files/info", m.handleGetFileInfo)
 
 	// Static file server for embedded web UI (catch-all: only unmatched paths)
 	r.NotFound(http.FileServer(http.FS(distFS())).ServeHTTP)

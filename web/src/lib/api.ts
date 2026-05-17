@@ -17,14 +17,31 @@ import type {
   FileInfo,
   FileRoot,
 } from '@/types'
+import { useAuthStore } from '@/stores/authStore'
 
 const API_BASE = '/api'
 
+function getAuthHeaders(): Record<string, string> {
+  const token = useAuthStore.getState().token
+  if (token) {
+    return { Authorization: `Bearer ${token}` }
+  }
+  return {}
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+  }
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   })
+  if (res.status === 401) {
+    useAuthStore.getState().logout()
+    throw new Error('Unauthorized')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     console.error('API error:', err)
@@ -122,7 +139,13 @@ export async function getConfig(): Promise<AppConfig> {
 }
 
 export async function getConfigToml(): Promise<string> {
-  const res = await fetch(`${API_BASE}/config/toml`)
+  const res = await fetch(`${API_BASE}/config/toml`, {
+    headers: getAuthHeaders(),
+  })
+  if (res.status === 401) {
+    useAuthStore.getState().logout()
+    throw new Error('Unauthorized')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || `HTTP ${res.status}`)
@@ -153,21 +176,38 @@ export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
 // ─── File APIs ──────────────────────────────────────────────────────────────────
 
 export function getFileUrl(path: string): string {
-  return `${API_BASE}/files/content?path=${encodeURIComponent(path)}`
+  const base = `${API_BASE}/files/content?path=${encodeURIComponent(path)}`
+  const token = getAuthHeaders().Authorization
+  if (token) {
+    return `${base}&token=${encodeURIComponent(token.replace('Bearer ', ''))}`
+  }
+  return base
 }
 
 export async function listFiles(dir: string): Promise<FileInfo[]> {
-  const res = await fetch(`${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`, {
-    headers: { 'Content-Type': 'application/json' },
-  })
+  const headers = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+  }
+  const res = await fetch(`${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`, { headers })
+  if (res.status === 401) {
+    useAuthStore.getState().logout()
+    throw new Error('Unauthorized')
+  }
   if (!res.ok) throw new Error(`Failed to list files: ${res.statusText}`)
   return res.json()
 }
 
 export async function getFileRoots(): Promise<FileRoot[]> {
-  const res = await fetch(`${API_BASE}/files/roots`, {
-    headers: { 'Content-Type': 'application/json' },
-  })
+  const headers = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+  }
+  const res = await fetch(`${API_BASE}/files/roots`, { headers })
+  if (res.status === 401) {
+    useAuthStore.getState().logout()
+    throw new Error('Unauthorized')
+  }
   if (!res.ok) throw new Error(`Failed to fetch roots: ${res.statusText}`)
   return res.json()
 }

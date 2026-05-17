@@ -9,14 +9,29 @@ import { ConfigTab } from '@/components/settings/ConfigTab'
 import { ProfileTab } from '@/components/settings/ProfileTab'
 import { SkillsTab } from '@/components/settings/SkillsTab'
 import { MCPTab } from '@/components/settings/MCPTab'
-import { User, Menu } from 'lucide-react'
+import { LogOut, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { wsManager } from '@/lib/websocket'
+import { LoginPage } from '@/components/LoginPage'
+import { useAuthStore } from '@/stores/authStore'
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+  const { user, logout, isAuthenticated, isLoading } = useAuthStore()
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="text-sm text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />
+  }
 
   return (
     <TooltipProvider>
@@ -46,9 +61,18 @@ function App() {
             >
               <Menu className="h-5 w-5" />
             </button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" title="Logout">
-              <User className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-sm text-muted-foreground">{user}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title="Logout"
+                onClick={logout}
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
           </header>
           <div className="flex-1 overflow-hidden">
             <Routes>
@@ -72,12 +96,33 @@ function App() {
 }
 
 export default function AppWithRouter() {
+  const checkAuth = useAuthStore((s) => s.checkAuth)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const [ready, setReady] = useState(false)
+
   useEffect(() => {
-    wsManager.connect()
+    checkAuth().finally(() => setReady(true))
+  }, [checkAuth])
+
+  useEffect(() => {
+    if (!ready) return
+    if (isAuthenticated) {
+      wsManager.connect()
+    } else {
+      wsManager.disconnect()
+    }
     return () => {
       wsManager.disconnect()
     }
-  }, [])
+  }, [ready, isAuthenticated])
+
+  if (!ready) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="text-sm text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
 
   return (
     <BrowserRouter>
