@@ -3,9 +3,38 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
+
+// jobWatchdogGrace is the time to wait for a job to finish after ctx
+// cancellation before declaring it stuck and continuing the run loop.
+const jobWatchdogGrace = 1 * time.Second
+
+// runJob runs fn(ctx) in a goroutine with a watchdog. If the context is
+// cancelled and fn doesn't return within jobWatchdogGrace, a warning is
+// logged and runJob returns. The fn goroutine will eventually terminate
+// on its own (e.g., when orphan processes finish / a.emit detects ctx.Done).
+func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
+	done := make(chan struct{}, 1)
+	go func() {
+		fn(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		select {
+		case <-done:
+		case <-time.After(jobWatchdogGrace):
+			a.logError(ctx, logger.CatActor, "job did not stop after context cancellation",
+				fmt.Errorf("job stuck for %s after ctx.Done", jobWatchdogGrace),
+				"grace_period", jobWatchdogGrace.String(),
+			)
+		}
+	}
+}
 
 // ─── run goroutine ──────────────────────────────────────────────────────────
 
@@ -44,7 +73,7 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 		case jb := <-mailbox:
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
-			jb(ctx)
+			a.runJob(ctx, jb)
 			a.setRuntimeState(StateIdle)
 		}
 	}
@@ -83,7 +112,7 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 		case pj := <-pm.HighCh():
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
-			pj.job(ctx)
+			a.runJob(ctx, pj.job)
 			a.setRuntimeState(StateIdle)
 			continue
 		default:
@@ -101,12 +130,12 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 		case pj := <-pm.HighCh():
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
-			pj.job(ctx)
+			a.runJob(ctx, pj.job)
 			a.setRuntimeState(StateIdle)
 		case pj := <-pm.NormalCh():
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
-			pj.job(ctx)
+			a.runJob(ctx, pj.job)
 			a.setRuntimeState(StateIdle)
 		}
 	}

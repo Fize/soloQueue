@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 
 	"github.com/bmatcuk/doublestar/v4"
 
@@ -51,7 +52,14 @@ func (e *LocalExecutor) RunCommand(ctx context.Context, cmd string, opts RunComm
 		maxOut = 256 << 10
 	}
 
-	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c := exec.Command("/bin/sh", "-c", cmd)
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	c.Cancel = func() error {
+		if c.Process != nil && c.Process.Pid > 0 {
+			return syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
 	if opts.WorkingDirectory != "" {
 		wd := opts.WorkingDirectory
 		if strings.HasPrefix(wd, "~/") {
