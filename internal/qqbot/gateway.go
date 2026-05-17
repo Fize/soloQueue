@@ -312,6 +312,7 @@ func (g *Gateway) handleC2CMessage(ctx context.Context, raw json.RawMessage) {
 	msg := QQMessage{
 		Source:       SourceC2C,
 		Content:      event.Content,
+		ImageURLs:    ImageURLs(event.Attachments),
 		OpenID:       event.Author.UserOpenid,
 		TargetOpenID: event.Author.UserOpenid,
 		ChatID:       event.Author.UserOpenid,
@@ -331,6 +332,7 @@ func (g *Gateway) handleGroupAtMessage(ctx context.Context, raw json.RawMessage)
 	msg := QQMessage{
 		Source:       SourceGroup,
 		Content:      event.Content,
+		ImageURLs:    ImageURLs(event.Attachments),
 		OpenID:       event.Author.MemberOpenid,
 		TargetOpenID: event.GroupOpenid,
 		ChatID:       event.GroupOpenid,
@@ -350,6 +352,7 @@ func (g *Gateway) handleDirectMessage(ctx context.Context, raw json.RawMessage) 
 	msg := QQMessage{
 		Source:       SourceDirect,
 		Content:      event.Content,
+		ImageURLs:    ImageURLs(event.Attachments),
 		OpenID:       event.Author.UserOpenid,
 		TargetOpenID: event.Author.UserOpenid,
 		ChatID:       event.ChannelID,
@@ -369,6 +372,7 @@ func (g *Gateway) handlePublicAtMessage(ctx context.Context, raw json.RawMessage
 	msg := QQMessage{
 		Source:       SourcePublicGuild,
 		Content:      event.Content,
+		ImageURLs:    ImageURLs(event.Attachments),
 		OpenID:       event.Author.MemberOpenid,
 		TargetOpenID: event.ChannelID,
 		ChatID:       event.ChannelID,

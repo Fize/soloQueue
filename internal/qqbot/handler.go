@@ -131,10 +131,12 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		return
 	}
 
+	prompt := buildPrompt(msg)
+
 	// Use AskStream to capture the full response including reasoning content.
 	// Pass onIntermediate to send intermediate assistant responses (content
 	// from iterations that also produced tool calls) as active messages.
-	result, err := b.sess.AskStream(ctx, msg.Content, func(ctx context.Context, content string) {
+	result, err := b.sess.AskStream(ctx, prompt, func(ctx context.Context, content string) {
 		b.sendIntermediate(ctx, msg, content)
 	})
 	if err != nil {
@@ -324,6 +326,25 @@ func (b *SessionBridge) sendIntermediate(ctx context.Context, msg QQMessage, tex
 			"err", err.Error(),
 		)
 	}
+}
+
+// ─── Prompt Building ──────────────────────────────────────────────────────────
+
+// buildPrompt constructs the full prompt from a QQ message, including any
+// attached image URLs so the LLM can reference them for image tools.
+func buildPrompt(msg QQMessage) string {
+	if len(msg.ImageURLs) == 0 {
+		return msg.Content
+	}
+	var b strings.Builder
+	b.WriteString(msg.Content)
+	b.WriteString("\n[user-uploaded images:")
+	for _, u := range msg.ImageURLs {
+		b.WriteString("\n- ")
+		b.WriteString(u)
+	}
+	b.WriteString("]\n")
+	return b.String()
 }
 
 // ─── Message Splitting ────────────────────────────────────────────────────────
