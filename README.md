@@ -259,19 +259,3 @@ Contributions are welcome! Please follow these guidelines:
 ## 📄 License
 
 [Add license information]
-
----
-
-## 🔗 Quick Links
-
-- **Project Homepage**: [https://github.com/xiaobaitu/soloqueue](https://github.com/xiaobaitu/soloqueue)
-- **Issue Tracker**: [https://github.com/xiaobaitu/soloqueue/issues](https://github.com/xiaobaitu/soloqueue/issues)
-- **Discussions**: [https://github.com/xiaobaitu/soloqueue/discussions](https://github.com/xiaobaitu/soloqueue/discussions)
-
----
-
-<div align="center">
-
-**Built with ❤️ using Go, React, and AI**
-
-</div>

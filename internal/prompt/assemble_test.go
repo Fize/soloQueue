@@ -37,8 +37,14 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "<team_management>\nteam management\n</team_management>") {
 		t.Error("missing or incorrect team_management section")
 	}
-	if !strings.Contains(result, "<rules>\nrules content\n</rules>") {
+	if !strings.Contains(result, "<rules>\nrules content\n") {
 		t.Error("missing or incorrect rules section")
+	}
+	if !strings.Contains(result, "\n</rules>") {
+		t.Error("missing rules closing tag")
+	}
+	if !strings.Contains(result, "Proactive Reminders") {
+		t.Error("missing HardcodedL1Rules in rules section")
 	}
 	if !strings.Contains(result, "<plan_before_action>") {
 		t.Error("missing plan_before_action section when planDir is provided")
