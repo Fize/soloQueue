@@ -254,6 +254,11 @@ func (a *Agent) execToolsWithAsync(
 			// --- 用 AskStream + 手动消费替代 Ask ---
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
+				if delCtx.Err() == context.DeadlineExceeded {
+					if s, ok := action.Target.(interface{ Stop(time.Duration) error }); ok {
+						go func() { _ = s.Stop(5 * time.Second) }()
+					}
+				}
 				a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream failed",
 					"target_agent_id", task.targetAgentID,
 					"err", err.Error(),
@@ -319,6 +324,13 @@ func (a *Agent) execToolsWithAsync(
 
 			close(relayCh)
 			<-relayDone
+
+			// Stop target agent if delegation timed out.
+			if delCtx.Err() == context.DeadlineExceeded {
+				if s, ok := action.Target.(interface{ Stop(time.Duration) error }); ok {
+					go func() { _ = s.Stop(5 * time.Second) }()
+				}
+			}
 
 			// Notify that delegation is done so the target can be reaped immediately.
 			if dn, ok := action.Target.(iface.DoneNotifier); ok {
