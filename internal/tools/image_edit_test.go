@@ -318,29 +318,27 @@ func TestBuildPayload_SketchToImage(t *testing.T) {
 	}
 }
 
-func TestBuildPayload_LogoAddDefault(t *testing.T) {
+func TestBuildPayload_LogoAddAlwaysOff(t *testing.T) {
 	tool := newImageEditTool(Config{})
 	a := imageEditArgs{
-		Operation: "refine",
+		Operation: "style_transfer",
 		Image:     "https://example.com/img.jpg",
 	}
 	payload := tool.buildPayload(a, operationAction[a.Operation])
-	if payload["LogoAdd"].(int) != 1 {
-		t.Errorf("expected LogoAdd=1 (default), got %v", payload["LogoAdd"])
+	if v, ok := payload["LogoAdd"].(int); !ok || v != 0 {
+		t.Errorf("expected LogoAdd=0 for style_transfer, got %v", payload["LogoAdd"])
 	}
 }
 
-func TestBuildPayload_LogoAddCustom(t *testing.T) {
+func TestBuildPayload_NoLogoAddForRefine(t *testing.T) {
 	tool := newImageEditTool(Config{})
-	logoOff := int64(0)
 	a := imageEditArgs{
 		Operation: "refine",
 		Image:     "https://example.com/img.jpg",
-		LogoAdd:   &logoOff,
 	}
 	payload := tool.buildPayload(a, operationAction[a.Operation])
-	if payload["LogoAdd"].(int64) != 0 {
-		t.Errorf("expected LogoAdd=0, got %v", payload["LogoAdd"])
+	if _, ok := payload["LogoAdd"]; ok {
+		t.Error("expected no LogoAdd for refine, got one")
 	}
 }
 

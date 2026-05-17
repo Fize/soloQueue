@@ -1,6 +1,9 @@
 package qqbot
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // ─── OpCode constants ────────────────────────────────────────────────────────
 
@@ -98,6 +101,27 @@ type ReadyData struct {
 // ─── Resumed Event ───────────────────────────────────────────────────────────
 
 
+// ─── Attachment ──────────────────────────────────────────────────────────────
+
+// QQAttachment represents a message attachment (image, file, etc.).
+type QQAttachment struct {
+	ContentType string `json:"content_type"` // e.g. "image/png", "image/jpeg"
+	URL         string `json:"url"`
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
+}
+
+// ImageURLs returns image URLs from a slice of attachments.
+func ImageURLs(atts []QQAttachment) []string {
+	var urls []string
+	for _, a := range atts {
+		if strings.Contains(a.ContentType, "image") && a.URL != "" {
+			urls = append(urls, a.URL)
+		}
+	}
+	return urls
+}
+
 // ─── Message Events ──────────────────────────────────────────────────────────
 
 // EventType constants for dispatch events.
@@ -117,9 +141,10 @@ type C2CMessageEvent struct {
 		MemberOpenid string `json:"member_openid"`
 		UserOpenid   string `json:"user_openid"`
 	} `json:"author"`
-	Content    string `json:"content"`
-	Timestamp  string `json:"timestamp"`
-	SeqInChat  int    `json:"seq_in_chat,omitempty"`
+	Content     string          `json:"content"`
+	Attachments []QQAttachment  `json:"attachments,omitempty"`
+	Timestamp   string          `json:"timestamp"`
+	SeqInChat   int             `json:"seq_in_chat,omitempty"`
 }
 
 // GroupAtMessageEvent represents a group @bot message event.
@@ -129,10 +154,11 @@ type GroupAtMessageEvent struct {
 		MemberOpenid string `json:"member_openid"`
 		UserOpenid   string `json:"user_openid"`
 	} `json:"author"`
-	Content    string `json:"content"`
-	GroupOpenid string `json:"group_openid"`
-	Timestamp  string `json:"timestamp"`
-	SeqInChat  int    `json:"seq_in_chat,omitempty"`
+	Content     string          `json:"content"`
+	Attachments []QQAttachment  `json:"attachments,omitempty"`
+	GroupOpenid string          `json:"group_openid"`
+	Timestamp   string          `json:"timestamp"`
+	SeqInChat   int             `json:"seq_in_chat,omitempty"`
 }
 
 // DirectMessageEvent represents a guild direct message event.
@@ -141,10 +167,11 @@ type DirectMessageEvent struct {
 	Author    struct {
 		UserOpenid string `json:"user_openid"`
 	} `json:"author"`
-	Content    string `json:"content"`
-	ChannelID  string `json:"channel_id"`
-	Timestamp  string `json:"timestamp"`
-	SeqInChat  int    `json:"seq_in_chat,omitempty"`
+	Content     string          `json:"content"`
+	Attachments []QQAttachment  `json:"attachments,omitempty"`
+	ChannelID   string          `json:"channel_id"`
+	Timestamp   string          `json:"timestamp"`
+	SeqInChat   int             `json:"seq_in_chat,omitempty"`
 }
 
 // PublicAtMessageEvent represents a public guild @bot message event.
@@ -154,11 +181,12 @@ type PublicAtMessageEvent struct {
 		MemberOpenid string `json:"member_openid"`
 		UserOpenid   string `json:"user_openid"`
 	} `json:"author"`
-	Content    string `json:"content"`
-	ChannelID  string `json:"channel_id"`
-	GuildID    string `json:"guild_id"`
-	Timestamp  string `json:"timestamp"`
-	SeqInChat  int    `json:"seq_in_chat,omitempty"`
+	Content     string          `json:"content"`
+	Attachments []QQAttachment  `json:"attachments,omitempty"`
+	ChannelID   string          `json:"channel_id"`
+	GuildID     string          `json:"guild_id"`
+	Timestamp   string          `json:"timestamp"`
+	SeqInChat   int             `json:"seq_in_chat,omitempty"`
 }
 
 // ─── Unified QQMessage ───────────────────────────────────────────────────────
@@ -179,6 +207,7 @@ const (
 type QQMessage struct {
 	Source       MessageSource
 	Content      string // user message text
+	ImageURLs    []string // attachment image URLs
 	OpenID       string // user openid (C2C/group member)
 	TargetOpenID string // target openid for reply: user openid (C2C) or group openid (group)
 	ChatID       string // group_openid / channel_id / user_openid depending on source
