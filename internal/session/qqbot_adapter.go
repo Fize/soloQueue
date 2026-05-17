@@ -144,7 +144,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 				)
 			}
 		case agent.ToolExecDoneEvent:
-			if e.Name == "ImageGenerate" && e.Result != "" {
+			if (e.Name == "ImageGenerate" || e.Name == "ImageEdit") && e.Result != "" {
 				urls := parseImageGenResult(e.Result)
 				if len(urls) > 0 {
 					imageURLs = append(imageURLs, urls...)
