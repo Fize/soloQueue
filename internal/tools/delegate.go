@@ -244,6 +244,9 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 					"duration_ms", time.Since(start).Milliseconds(),
 				)
 			}
+			if s, ok := targetAgent.(interface{ Stop(time.Duration) error }); ok {
+				go func() { _ = s.Stop(5 * time.Second) }()
+			}
 			return "", fmt.Errorf("delegation to %s timed out after %s", dt.LeaderID, timeout)
 		}
 

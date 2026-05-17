@@ -618,7 +618,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 	// ── Resize context window to match effective model ──
 
 	// ── 创建可取消的 askCtx ──
-	askCtx, askCancel := context.WithCancel(ctx)
+	askCtx, askCancel := context.WithTimeout(ctx, 20*time.Minute)
 
 	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()
@@ -692,7 +692,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				}
 				ev = e
 			case <-askCtx.Done():
-				// askCtx 取消：移除 user prompt，标记 cancelled
+				// askCtx 取消：移除 user prompt，标记 cancelled，停 agent
+				go func() { _ = s.Agent.Stop(5 * time.Second) }()
 				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
@@ -709,7 +710,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			case out <- ev:
 				eventCount++
 			case <-askCtx.Done():
-				// askCtx 取消：移除 user prompt，标记 cancelled
+				// askCtx 取消：移除 user prompt，标记 cancelled，停 agent
+				go func() { _ = s.Agent.Stop(5 * time.Second) }()
 				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
@@ -761,6 +763,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 	done:
 		// 检查是否在 goto done 和此标签之间发生了取消（极窄竞态窗口）
 		if askCtx.Err() != nil {
+			go func() { _ = s.Agent.Stop(5 * time.Second) }()
 			s.cancelled.Store(true)
 			s.mu.Lock()
 			s.cw.PopLast()
