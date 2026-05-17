@@ -161,6 +161,23 @@ export interface RuntimeStatus {
   agent_streams: Record<string, AgentStreamState>
 }
 
+// ─── Auth Types ───────────────────────────────────────────────────────────────
+
+export interface LoginRequest {
+  user: string
+  password: string
+}
+
+export interface LoginResponse {
+  token: string
+  user: string
+}
+
+export interface AuthCheckResponse {
+  authenticated: boolean
+  user?: string
+}
+
 // ─── WebSocket Message Types ────────────────────────────────────────────────
 
 export interface WSStateMessage {

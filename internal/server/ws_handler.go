@@ -21,10 +21,24 @@ var wsUpgrader = websocket.Upgrader{
 
 // handleWebSocket upgrades an HTTP connection to WebSocket and manages the
 // client lifecycle through readPump and writePump goroutines.
+// Auth token is passed via ?token= query parameter.
 func (m *Mux) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if m.hub == nil {
 		http.Error(w, "websocket not available", http.StatusServiceUnavailable)
 		return
+	}
+
+	// Auth check
+	if m.authConfig.User != "" {
+		tok := r.URL.Query().Get("token")
+		if tok == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if _, ok := m.tokenStore.validateToken(tok); !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
