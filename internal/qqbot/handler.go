@@ -204,23 +204,23 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 
 	switch name {
 	case "/help", "/?":
-		text := "Commands: /help /cancel /clear /version"
+		text := "/help — 查看可用命令\n/cancel — 取消当前任务\n/clear — 清空对话历史\n/version — 查看版本号"
 		b.sendReply(ctx, msg, MsgTypeText, text)
 		return true
 
 	case "/cancel":
 		if err := b.sess.CancelCurrent("user requested cancellation"); err != nil {
-			b.sendReply(ctx, msg, MsgTypeText, "cancel failed: "+err.Error())
+			b.sendReply(ctx, msg, MsgTypeText, "取消失败："+err.Error())
 		} else {
-			b.sendReply(ctx, msg, MsgTypeText, "◆ task cancelled")
+			b.sendReply(ctx, msg, MsgTypeText, "已取消当前任务")
 		}
 		return true
 
 	case "/clear":
 		if err := b.sess.Clear(ctx); err != nil {
-			b.sendReply(ctx, msg, MsgTypeText, "clear session failed: "+err.Error())
+			b.sendReply(ctx, msg, MsgTypeText, "清空失败："+err.Error())
 		} else {
-			b.sendReply(ctx, msg, MsgTypeText, "◆ context cleared")
+			b.sendReply(ctx, msg, MsgTypeText, "对话历史已清空")
 		}
 		return true
 
