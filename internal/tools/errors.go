@@ -72,4 +72,7 @@ var (
 
 	// ErrImageGenFailed 图片生成失败
 	ErrImageGenFailed = errors.New("tools: image generation failed")
+
+	// ErrImageEditFailed 图片编辑/图生图失败
+	ErrImageEditFailed = errors.New("tools: image edit failed")
 )
