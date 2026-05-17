@@ -52,7 +52,7 @@ func (e *LocalExecutor) RunCommand(ctx context.Context, cmd string, opts RunComm
 		maxOut = 256 << 10
 	}
 
-	c := exec.Command("/bin/sh", "-c", cmd)
+	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	c.Cancel = func() error {
 		if c.Process != nil && c.Process.Pid > 0 {

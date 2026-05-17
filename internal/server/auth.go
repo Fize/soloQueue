@@ -15,8 +15,7 @@ import (
 const (
 	tokenLen         = 32
 	tokenCleanupInt  = 10 * time.Minute
-	tokenHardMaxAge  = 24 * time.Hour
-	tokenIdleTimeout = 30 * time.Minute
+	tokenHardMaxAge = 24 * time.Hour
 )
 
 type tokenEntry struct {
@@ -97,7 +96,7 @@ func (ts *tokenStore) cleanup() {
 	defer ts.mu.Unlock()
 	now := time.Now()
 	for tok, e := range ts.tokens {
-		if now.Sub(e.createdAt) > tokenHardMaxAge || now.Sub(e.lastUsed) > tokenIdleTimeout {
+		if now.Sub(e.createdAt) > tokenHardMaxAge {
 			delete(ts.tokens, tok)
 		}
 	}

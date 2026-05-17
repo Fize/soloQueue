@@ -19,8 +19,16 @@ const jobWatchdogGrace = 1 * time.Second
 func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 	done := make(chan struct{}, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err := fmt.Errorf("agent job panic: %v", r)
+				a.setRuntimeExitErr(err)
+				a.logError(ctx, logger.CatActor, "agent job panic", err)
+				a.cancel()
+			}
+			close(done)
+		}()
 		fn(ctx)
-		close(done)
 	}()
 	select {
 	case <-done:
