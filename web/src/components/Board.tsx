@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import type { Plan, PlanStatus } from '@/types'
 import { usePlanStore } from '@/stores/planStore'
 import { BoardColumn } from './BoardColumn'
@@ -55,6 +55,10 @@ export function Board() {
   const lastOverRef = useRef<{ id: string; status: PlanStatus } | null>(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  useEffect(() => {
+    fetchPlans()
+  }, [fetchPlans])
 
   function findPlanStatus(id: string, source: Record<PlanStatus, Plan[]>): PlanStatus | undefined {
     return (['plan', 'running', 'done'] as PlanStatus[]).find((s) =>

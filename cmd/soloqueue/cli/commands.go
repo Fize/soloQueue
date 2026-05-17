@@ -38,9 +38,6 @@ func ServeCmd(version string) *cobra.Command {
 	var host string
 	var verbose bool
 	var bypass bool
-	var authUser string
-	var authPass string
-
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the local HTTP/WebSocket server",
@@ -133,10 +130,6 @@ func ServeCmd(version string) *cobra.Command {
 		actualAddr := listener.Addr().String()
 		runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: actualAddr}
 		fmt.Println(actualAddr)
-		if authUser == "" {
-			fmt.Println("WARNING: no HTTP basic auth configured -- server is open to the local network")
-		}
-
 		mux := server.NewMux(workDir, log, rt.TodoStore,
 			server.WithRegistry(rt.AgentRegistry),
 			server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
@@ -150,7 +143,7 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithAgentsDir(filepath.Join(workDir, "agents")),
 			server.WithPromptRebuild(rebuildPrompt),
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),
-			server.WithBasicAuth(authUser, authPass),
+			server.WithAuthConfig(cfg.Get().Auth),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.
@@ -229,9 +222,6 @@ func ServeCmd(version string) *cobra.Command {
 	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
 	cmd.Flags().BoolVar(&bypass, "bypass", false, "bypass all tool confirmations for all agents")
-	cmd.Flags().StringVar(&authUser, "auth-user", "", "HTTP basic auth username (empty = no auth)")
-	cmd.Flags().StringVar(&authPass, "auth-pass", "", "HTTP basic auth password")
-
 	return cmd
 }
 
