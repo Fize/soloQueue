@@ -6,15 +6,26 @@ import type { Components } from 'react-markdown'
 import { getPlan, toggleTodo, deleteTodo as apiDeleteTodo } from '@/lib/api'
 import { usePlanStore } from '@/stores/planStore'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { TodoList } from './TodoList'
+import { DependencyChain } from './DependencyChain'
 import { FilePreview } from './FilePreview'
-import { Calendar, Tag, User, Loader2, ListChecks, Pencil, Trash2, Check, X } from 'lucide-react'
+import {
+  Calendar,
+  Tag,
+  User,
+  Loader2,
+  ListChecks,
+  Pencil,
+  Trash2,
+  Check,
+  X,
+  GitBranch,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -31,9 +42,9 @@ const statusLabel = {
 } as const
 
 const statusBadgeClass = {
-  plan: 'bg-status-plan text-foreground border-border',
-  running: 'bg-status-running text-foreground border-border',
-  done: 'bg-status-done text-foreground border-border',
+  plan: 'bg-blue-100 text-blue-700 border-blue-200',
+  running: 'bg-amber-100 text-amber-700 border-amber-200',
+  done: 'bg-emerald-100 text-emerald-700 border-emerald-200',
 }
 
 const statusOptions = [
@@ -66,8 +77,15 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showDepsGraph, setShowDepsGraph] = useState(false)
 
   const current = fullPlan ?? plan
+
+  const refreshPlan = useCallback(() => {
+    getPlan(plan.id)
+      .then((data) => setFullPlan(data))
+      .catch(() => {})
+  }, [plan.id])
 
   useEffect(() => {
     if (!open) return
@@ -222,7 +240,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
   return (
     <>
       <Dialog open={open} onOpenChange={(v) => !v && !deleting && onClose()}>
-        <DialogContent className="max-w-xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+        <DialogContent className="max-w-xl max-h-[85vh] flex flex-col p-0">
           {/* Header with edit/delete actions */}
           <DialogHeader className="px-6 pt-6 pb-0">
             <div className="flex items-start justify-between gap-2">
@@ -297,7 +315,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
               <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <ScrollArea className="flex-1 max-h-[calc(85vh-8rem)] px-6 py-5">
+            <div className="flex-1 overflow-y-auto min-h-0 px-6 py-5">
               <div className="space-y-5">
                 {/* Status + meta row */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -338,7 +356,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                     {tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                        className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
                       >
                         <Tag className="h-2.5 w-2.5" />
                         {tag}
@@ -359,7 +377,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                     />
                   </div>
                 ) : current.content ? (
-                  <div className="rounded-lg border-2 border-[#EEEEEE] bg-muted/30 p-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                       {linkifiedContent}
                     </ReactMarkdown>
@@ -371,8 +389,8 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
 
                 {/* Delete confirmation */}
                 {showDeleteConfirm && (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-                    <p className="text-sm font-medium text-destructive mb-3">
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                    <p className="text-sm font-medium text-red-600 mb-3">
                       Delete this plan? This action cannot be undone.
                     </p>
                     <div className="flex items-center gap-2">
@@ -420,7 +438,7 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                               {completedCount}/{todos.length}
                             </span>
                             <span className="text-xs text-muted-foreground">completed</span>
-                            <Progress value={progressPct} className="w-20 h-1.5" />
+                            <Progress value={progressPct} className="w-24 h-2" />
                           </div>
                         )}
                       </div>
@@ -430,12 +448,56 @@ export function PlanDetail({ plan, open, onClose }: PlanDetailProps) {
                         onToggle={handleToggleTodo}
                         onDelete={handleTodoDelete}
                         planId={current.id}
+                        onRefresh={refreshPlan}
                       />
+
+                      {/* Global dependency graph */}
+                      {todos.some(
+                        (t) => (t.depends_on ?? []).length > 0 || (t.blockers ?? []).length > 0
+                      ) && (
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowDepsGraph(!showDepsGraph)}
+                            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <GitBranch
+                              className={cn(
+                                'h-3 w-3 transition-transform',
+                                showDepsGraph && 'rotate-90'
+                              )}
+                            />
+                            Dependency graph
+                          </button>
+                          {showDepsGraph && (
+                            <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 animate-in fade-in slide-in-from-top-1 duration-150">
+                              <div className="px-3 pt-2 pb-1 max-h-64 overflow-y-auto">
+                                {/* Show chains for todos that have dependencies */}
+                                {todos
+                                  .filter(
+                                    (t) =>
+                                      (t.depends_on ?? []).length > 0 ||
+                                      (t.blockers ?? []).length > 0
+                                  )
+                                  .map((t) => (
+                                    <div key={t.id} className="mb-2 last:mb-0">
+                                      <DependencyChain
+                                        todos={todos}
+                                        selectedTodoId={t.id}
+                                        planId={current.id}
+                                      />
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </DialogContent>
       </Dialog>
