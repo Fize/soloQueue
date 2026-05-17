@@ -16,6 +16,8 @@ import type {
   MCPConfig,
   FileInfo,
   FileRoot,
+  DependenciesResponse,
+  SetDependenciesRequest,
 } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -210,4 +212,17 @@ export async function getFileRoots(): Promise<FileRoot[]> {
   }
   if (!res.ok) throw new Error(`Failed to fetch roots: ${res.statusText}`)
   return res.json()
+}
+
+// ─── Dependency APIs ───────────────────────────────────────────────────────────
+
+export async function getDependencies(todoId: string): Promise<DependenciesResponse> {
+  return request<DependenciesResponse>(`/todos/${todoId}/dependencies`)
+}
+
+export async function setDependencies(todoId: string, data: SetDependenciesRequest): Promise<void> {
+  await request(`/todos/${todoId}/dependencies`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
 }
