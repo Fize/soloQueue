@@ -178,6 +178,18 @@ export interface AuthCheckResponse {
   user?: string
 }
 
+// ─── Dependency Types ─────────────────────────────────────────────────────────
+
+export interface DependenciesResponse {
+  todo_id: string
+  depends_on: string[]
+  blockers: string[]
+}
+
+export interface SetDependenciesRequest {
+  depends_on: string[]
+}
+
 // ─── WebSocket Message Types ────────────────────────────────────────────────
 
 export interface WSStateMessage {
