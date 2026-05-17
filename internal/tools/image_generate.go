@@ -510,7 +510,7 @@ func urlBaseName(rawURL string, seq int) string {
 }
 
 func downloadTo(ctx context.Context, url, fpath string) error {
-	if err := os.MkdirAll(imgDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fpath), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

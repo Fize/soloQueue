@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -50,8 +52,7 @@ func (imageEditTool) Parameters() json.RawMessage {
     "resolution":{"type":"string","description":"Output resolution W:H for style_transfer, e.g. 768:1024."},
     "enhance":{"type":"integer","description":"1=enhance image clarity for style_transfer, 0=off."},
     "restore_face":{"type":"integer","description":"Max faces for detail restoration 0-6 for style_transfer. Default 0."},
-    "clothes_image":{"type":"string","description":"Clothes image URL or base64 for change_clothes."},
-    "logo_add":{"type":"integer","description":"1=add AI-generated watermark, 0=off. Default 1."}
+    "clothes_image":{"type":"string","description":"Clothes image URL or base64 for change_clothes."}
   },
   "required":["operation","image"]
 }`)
@@ -72,7 +73,6 @@ type imageEditArgs struct {
 	Enhance        *int64   `json:"enhance,omitempty"`
 	RestoreFace    *int64   `json:"restore_face,omitempty"`
 	ClothesImage   string   `json:"clothes_image,omitempty"`
-	LogoAdd        *int64   `json:"logo_add,omitempty"`
 }
 
 type imageEditResult struct {
@@ -160,7 +160,7 @@ func (t *imageEditTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	urls := []string{imageURL}
-	localPaths := saveImages(ctx, urls, t.logger)
+	localPaths := saveEditedImage(ctx, imageURL, t.logger)
 
 	r := imageEditResult{
 		Model:      model.ID,
@@ -198,14 +198,9 @@ func (t *imageEditTool) buildPayload(a imageEditArgs, action string) map[string]
 
 	setImageField("InputUrl", "InputImage", a.Image)
 
-	if a.LogoAdd != nil {
-		payload["LogoAdd"] = *a.LogoAdd
-	} else {
-		payload["LogoAdd"] = 1
-	}
-
 	switch a.Operation {
 	case "style_transfer":
+		payload["LogoAdd"] = 0
 		if a.Prompt != "" {
 			payload["Prompt"] = a.Prompt
 		}
@@ -229,8 +224,10 @@ func (t *imageEditTool) buildPayload(a imageEditArgs, action string) map[string]
 		}
 	case "refine":
 	case "inpaint":
+		payload["LogoAdd"] = 0
 		setImageField("MaskUrl", "Mask", a.Mask)
 	case "outpaint":
+		payload["LogoAdd"] = 0
 		payload["Ratio"] = a.Ratio
 	case "replace_background":
 		if a.Prompt != "" {
@@ -276,6 +273,36 @@ func parseEditResp(body []byte) (string, error) {
 		return "", fmt.Errorf("empty ResultImage in response")
 	}
 	return resp.Response.ResultImage, nil
+}
+
+// ─── Image saving ─────────────────────────────────────────────────────
+
+var artifactDir string
+
+func init() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.TempDir()
+	}
+	artifactDir = filepath.Join(home, ".soloqueue", "artifacts")
+}
+
+func saveEditedImage(ctx context.Context, url string, log *logger.Logger) []string {
+	fname := urlBaseName(url, 1)
+	fpath := filepath.Join(artifactDir, fname)
+
+	if err := downloadTo(ctx, url, fpath); err != nil {
+		if log != nil {
+			log.WarnContext(ctx, logger.CatTool, "image_edit: save failed",
+				"url", url, "path", fpath, "err", err.Error())
+		}
+		return nil
+	}
+	if log != nil {
+		log.InfoContext(ctx, logger.CatTool, "image_edit: saved",
+			"url", url, "path", fpath)
+	}
+	return []string{fpath}
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
