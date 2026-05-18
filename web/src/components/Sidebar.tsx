@@ -180,24 +180,73 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
               }}
             />
           </div>
+
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Tokens</span>
-            <span className="font-medium text-foreground tabular-nums">
-              {(runtime.prompt_tokens + runtime.output_tokens).toLocaleString()}
+            <span className="text-muted-foreground">Window</span>
+            <span
+              className={cn(
+                'font-medium tabular-nums',
+                runtime.context_pct >= 90
+                  ? 'text-destructive'
+                  : runtime.context_pct >= 70
+                    ? 'text-warning'
+                    : 'text-success'
+              )}
+            >
+              {runtime.context_pct}%
             </span>
           </div>
+          <div className="h-1.5 rounded-sm bg-muted overflow-hidden">
+            <div
+              className={cn(
+                'h-full rounded-sm transition-all duration-500',
+                runtime.context_pct >= 90
+                  ? 'bg-destructive'
+                  : runtime.context_pct >= 70
+                    ? 'bg-warning'
+                    : 'bg-success'
+              )}
+              style={{ width: `${Math.min(runtime.context_pct, 100)}%` }}
+            />
+          </div>
+
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Phase</span>
             <span className="inline-flex items-center gap-1 font-medium text-foreground">
               <Circle
                 className={cn(
                   'h-2 w-2 fill-current',
-                  runtime.phase === 'processing' ? 'text-success' : 'text-muted-foreground'
+                  runtime.phase === 'processing'
+                    ? 'text-success'
+                    : runtime.phase === 'stopping'
+                      ? 'text-warning'
+                      : 'text-muted-foreground'
                 )}
               />
-              {runtime.phase}
+              {runtime.phase || 'idle'}
             </span>
           </div>
+
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Iter</span>
+            <span className="font-medium text-foreground tabular-nums">{runtime.current_iter}</span>
+          </div>
+
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Delegations</span>
+            <span className="font-medium text-foreground tabular-nums">
+              {runtime.active_delegations}
+            </span>
+          </div>
+
+          {runtime.total_errors > 0 && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Errors</span>
+              <span className="font-medium text-destructive tabular-nums">
+                {runtime.total_errors}
+              </span>
+            </div>
+          )}
         </div>
       )}
     </aside>
