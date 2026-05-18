@@ -638,6 +638,26 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 
 	srcCh, err := s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
 	if err != nil {
+		// Agent 已停止：尝试重启后重试一次
+		if errors.Is(err, agent.ErrStopped) || errors.Is(err, agent.ErrNotStarted) {
+			s.logger.InfoContext(ctx, logger.CatApp, "askstream: agent not running, attempting restart",
+				"session_id", s.ID,
+				"err", err.Error(),
+			)
+			if startErr := s.Agent.Start(context.Background()); startErr != nil {
+				s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent restart failed",
+					"session_id", s.ID,
+					"err", startErr.Error(),
+				)
+			} else {
+				// 重试一次
+				srcCh, err = s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
+				if err == nil {
+					goto enqueued
+				}
+			}
+		}
+
 		// 入队失败：清理
 		s.cancelMu.Lock()
 		s.activeCancel = nil
@@ -655,6 +675,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		)
 		return nil, err
 	}
+
+enqueued:
 
 	out := make(chan agent.AgentEvent, 64)
 	go func() {
@@ -692,8 +714,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				}
 				ev = e
 			case <-askCtx.Done():
-				// askCtx 取消：移除 user prompt，标记 cancelled，停 agent
-				go func() { _ = s.Agent.Stop(5 * time.Second) }()
+				// askCtx 取消：移除 user prompt，标记 cancelled
+				// 注意：不停 agent。agent 内部的 merged ctx 已随 askCtx 取消，
+				// streamLoop 会在下一轮迭代检测到 ctx.Err() 并自动退出。
 				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
@@ -710,8 +733,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 			case out <- ev:
 				eventCount++
 			case <-askCtx.Done():
-				// askCtx 取消：移除 user prompt，标记 cancelled，停 agent
-				go func() { _ = s.Agent.Stop(5 * time.Second) }()
+				// askCtx 取消：移除 user prompt，标记 cancelled
 				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
@@ -763,7 +785,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 	done:
 		// 检查是否在 goto done 和此标签之间发生了取消（极窄竞态窗口）
 		if askCtx.Err() != nil {
-			go func() { _ = s.Agent.Stop(5 * time.Second) }()
 			s.cancelled.Store(true)
 			s.mu.Lock()
 			s.cw.PopLast()
