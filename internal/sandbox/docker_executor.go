@@ -65,17 +65,24 @@ func (e *DockerExecutor) RunCommand(ctx context.Context, cmd string, opts RunCom
 
 	if execErr, ok := err.(*ExecError); ok {
 		res.ExitCode = execErr.ExitCode
-		res.Stdout = execErr.Stdout
-		res.Stderr = execErr.Stderr
+		res.Stdout = truncateOutput(execErr.Stdout, opts.MaxOutput)
+		res.Stderr = truncateOutput(execErr.Stderr, opts.MaxOutput)
+		res.Truncated = isTruncated(execErr.Stdout, opts.MaxOutput) || isTruncated(execErr.Stderr, opts.MaxOutput)
 		return res, nil
 	}
 	if err != nil {
 		if e.log != nil {
 			e.log.LogError(ctx, logger.CatTool, "sandbox: run command failed", err, "command", cmd)
 		}
+		res.Stdout = truncateOutput(res.Stdout, opts.MaxOutput)
+		res.Stderr = truncateOutput(res.Stderr, opts.MaxOutput)
+		res.Truncated = isTruncated(res.Stdout, opts.MaxOutput) || isTruncated(res.Stderr, opts.MaxOutput)
 		return res, err
 	}
 
+	res.Stdout = truncateOutput(res.Stdout, opts.MaxOutput)
+	res.Stderr = truncateOutput(res.Stderr, opts.MaxOutput)
+	res.Truncated = isTruncated(res.Stdout, opts.MaxOutput) || isTruncated(res.Stderr, opts.MaxOutput)
 	return res, nil
 }
 
@@ -91,7 +98,7 @@ func (e *DockerExecutor) ReadFile(ctx context.Context, path string, opts ReadFil
 			return ReadFileResult{}, err
 		}
 		if fi.Size > opts.MaxSize {
-			return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d)", path, fi.Size, opts.MaxSize)
+			return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d). Use Bash with head/tail to read file portions", path, fi.Size, opts.MaxSize)
 		}
 	}
 
@@ -454,6 +461,19 @@ func parseCurlOutput(data []byte) (HTTPResponse, error) {
 		StatusCode: statusCode,
 		Body:       body,
 	}, nil
+}
+
+// truncateOutput 截断 []byte 到 max 字节。max <= 0 表示不限制。
+func truncateOutput(data []byte, max int64) []byte {
+	if max > 0 && int64(len(data)) > max {
+		return data[:max]
+	}
+	return data
+}
+
+// isTruncated 判断 data 是否需要截断（超出 max）。max <= 0 表示不限制。
+func isTruncated(data []byte, max int64) bool {
+	return max > 0 && int64(len(data)) > max
 }
 
 // Compile-time check

@@ -142,7 +142,7 @@ func (a *Agent) processStreamEvents(
 type streamStrategy interface {
 	// buildMessages returns the LLM messages for this iteration.
 	// Returns an error for overflow or other pre-flight failures.
-	buildMessages(a *Agent, iter int) ([]LLMMessage, error)
+	buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, error)
 
 	// execTools runs all tool calls and returns per-call result strings.
 	execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) []string
@@ -227,7 +227,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 		a.setWorkIter(iter)
 
-		msgs, err := strat.buildMessages(a, iter)
+		msgs, err := strat.buildMessages(ctx, a, iter)
 		if err != nil {
 			a.logError(ctx, logger.CatLLM, "build messages failed", err,
 				"iter", iter,
@@ -379,7 +379,7 @@ type simpleStrategy struct {
 	msgs         []LLMMessage // accumulated across iterations
 }
 
-func (s *simpleStrategy) buildMessages(a *Agent, iter int) ([]LLMMessage, error) {
+func (s *simpleStrategy) buildMessages(_ context.Context, a *Agent, iter int) ([]LLMMessage, error) {
 	if iter == 0 {
 		s.msgs = buildMessages(s.systemPrompt, s.prompt)
 	}
@@ -418,7 +418,7 @@ type historyStrategy struct {
 	prompt string
 }
 
-func (s *historyStrategy) buildMessages(a *Agent, iter int) ([]LLMMessage, error) {
+func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, error) {
 	// Drain pending user messages from the session queue before building
 	// the LLM payload. This injects queued messages at the next natural
 	// break point in the tool loop.
@@ -426,8 +426,18 @@ func (s *historyStrategy) buildMessages(a *Agent, iter int) ([]LLMMessage, error
 
 	// Overflow hard-limit check: prevent API 400
 	if s.cw.Overflow() {
-		current, max, _ := s.cw.TokenUsage()
-		return nil, fmt.Errorf("context overflow: current %d tokens exceed effective limit %d, please start a new session", current, max)
+		// Attempt synchronous compaction as a last resort before failing.
+		// This is a safety net when the async compactor hasn't finished yet.
+		_, err := s.cw.CompactAndReplace(ctx)
+		if err != nil {
+			a.logError(ctx, logger.CatLLM, "compact on overflow failed", err)
+		}
+		// If CompactAndReplace was skipped (no compactor, or only system prompt),
+		// or if it still overflows, return the overflow error.
+		if s.cw.Overflow() {
+			current, max, _ := s.cw.TokenUsage()
+			return nil, fmt.Errorf("context overflow: current %d tokens exceed effective limit %d, please start a new session", current, max)
+		}
 	}
 	payload := s.cw.BuildPayload()
 	return payloadToLLMMessages(payload), nil

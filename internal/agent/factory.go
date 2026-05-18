@@ -544,6 +544,7 @@ const l2EnforcedPostPlan = `
 const l2EnforcedToolAwareness = `
 # 11. Tool Awareness
 Before acting, scan ALL available tools and read their descriptions. Each tool's description defines its purpose. Choose the right tool — do not default to a familiar subset when another tool fits better.
+Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
 `
 
 const l2EnforcedDirectivesPart2 = `
@@ -768,6 +769,7 @@ const l3EnforcedPostPlan = `
 const l3EnforcedToolAwareness = `
 # 6. Tool Awareness
 Before executing a task, scan ALL available tools and read their descriptions. Pick the tool that best matches the task. Do not default to a small subset of familiar tools.
+Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
 `
 
 // buildL3SystemPrompt 为 L3 Worker 构建两段式 System Prompt。
