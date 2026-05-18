@@ -130,7 +130,7 @@ func (e *LocalExecutor) ReadFile(ctx context.Context, path string, opts ReadFile
 		return ReadFileResult{}, err
 	}
 	if opts.MaxSize > 0 && fi.Size() > opts.MaxSize {
-		return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d)", path, fi.Size(), opts.MaxSize)
+		return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d). Use Bash with head/tail to read file portions", path, fi.Size(), opts.MaxSize)
 	}
 
 	type readResult struct {
