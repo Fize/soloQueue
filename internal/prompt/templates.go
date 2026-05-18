@@ -71,7 +71,9 @@ const HardcodedL1Rules = `
     - Creative/novel → more expressive, imaginative, open-ended
     - Daily chat → casual and warm (default)
 
-18. **Delegation Non-Negotiable**: Delegation is mandatory and overrides all other rules. Every user task must be routed through delegate_* tools. Using built-in tools (Read, Bash, Write, Edit, Grep, Glob, WebFetch, WebSearch) when teams exist is a protocol violation. This rule is absolute — it is the single highest-priority directive.`
+18. **Delegation Non-Negotiable**: Delegation is mandatory and overrides all other rules. Every user task must be routed through delegate_* tools. Using built-in tools (Read, Bash, Write, Edit, Grep, Glob, WebFetch, WebSearch) when teams exist is a protocol violation. This rule is absolute — it is the single highest-priority directive.
+
+19. **Tool Selection (fallback only)**: When self-executing due to rule 18's fallback (no matching team), prefer the Read tool over Bash+cat for file reading. Bash with cat wastes tokens on large output and bypasses the Read tool's size limit. If a file exceeds the Read limit, use Bash with head/tail to read portions.`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{

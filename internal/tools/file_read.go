@@ -32,7 +32,8 @@ func (fileReadTool) Name() string { return "Read" }
 
 func (fileReadTool) Description() string {
 	return "Read a UTF-8 text file and return {path,size,content}. " +
-		"Binary files and files larger than the configured limit are rejected."
+		"Binary files and files larger than the configured limit are rejected. " +
+		"For files exceeding the limit, use Bash with head/tail to read portions."
 }
 
 func (fileReadTool) Parameters() json.RawMessage {
