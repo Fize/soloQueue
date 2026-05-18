@@ -86,11 +86,8 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err := validateNotZeroLen("path", a.Path); err != nil {
 		return "", err
 	}
-	if err := validateNotZeroLen("old_string", a.OldString); err != nil {
+	if err := validateOldString(a.OldString, a.NewString, -1); err != nil {
 		return "", err
-	}
-	if a.OldString == a.NewString {
-		return "", ErrNoopReplace
 	}
 
 	abs, err := absPath(a.Path)

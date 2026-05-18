@@ -125,11 +125,8 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 	current := before
 
 	for i, e := range a.Edits {
-		if e.OldString == "" {
-			return "", fmt.Errorf("%w: edits[%d].old_string is empty", ErrInvalidArgs, i)
-		}
-		if e.OldString == e.NewString {
-			return "", fmt.Errorf("%w: edits[%d]", ErrNoopReplace, i)
+		if err := validateOldString(e.OldString, e.NewString, i); err != nil {
+			return "", err
 		}
 		count := strings.Count(current, e.OldString)
 		if count == 0 {

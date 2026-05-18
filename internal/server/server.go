@@ -30,8 +30,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -299,8 +301,18 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 		r.Get("/api/files/info", m.handleGetFileInfo)
 	})
 
-	// Static file server for embedded web UI (catch-all: only unmatched paths)
-	r.NotFound(http.FileServer(http.FS(distFS())).ServeHTTP)
+	// Static file server for embedded web UI (catch-all: only unmatched paths).
+	// SPA fallback: if the path does not exist in the embedded FS,
+	// serve index.html so React Router can handle client-side routing.
+	fsys := distFS()
+	fileServer := http.FileServer(http.FS(fsys))
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if _, err := fs.Stat(fsys, path); err != nil {
+			r.URL.Path = "/"
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 
 	return m
 }

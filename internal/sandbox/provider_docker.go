@@ -46,7 +46,7 @@ type Sandbox interface {
 
 const (
 	containerName = "soloqueue-sandbox"
-	imageName     = "debian:bookworm"
+	imageName     = "malzaharguo/soloqueue-sandbox"
 )
 
 // DockerSandbox 基于 Docker SDK 的沙盒实现。

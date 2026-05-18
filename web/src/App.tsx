@@ -74,7 +74,7 @@ function App() {
               </Button>
             </div>
           </header>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/plans" element={<PlansPage />} />

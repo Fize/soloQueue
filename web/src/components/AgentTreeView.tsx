@@ -153,7 +153,7 @@ export function AgentTreeView() {
 
   return (
     <>
-      <div className="h-full overflow-y-auto space-y-3 px-2 pb-4">
+      <div className="h-full overflow-y-auto space-y-3 px-2 pb-4 max-w-3xl mx-auto w-full">
         {/* L1 Agent */}
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center gap-1.5 px-1">

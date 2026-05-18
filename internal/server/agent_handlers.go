@@ -227,10 +227,24 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 		s.Error = e.Err.Error()
 	}
 
-	// Release lock before calling onChange to avoid lock-ordering issues;
-	// onChange triggers Hub.Notify which eventually reads rm fields.
 	notify = rm.onChange
 	rm.agentStreamsMu.Unlock()
+
+	// Update cumulative metrics under separate lock.
+	rm.mu.Lock()
+	switch e := ev.(type) {
+	case agent.ContentDeltaEvent:
+		rm.ContentDeltas++
+	case agent.IterationDoneEvent:
+		rm.PromptTokens += int64(e.Usage.PromptTokens)
+		rm.OutputTokens += int64(e.Usage.CompletionTokens)
+		rm.CacheHitTokens += int64(e.Usage.PromptCacheHitTokens)
+		rm.CacheMissTokens += int64(e.Usage.PromptCacheMissTokens)
+		if e.Iter > rm.CurrentIter {
+			rm.CurrentIter = e.Iter
+		}
+	}
+	rm.mu.Unlock()
 
 	if notify != nil {
 		notify()
@@ -633,11 +647,12 @@ func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
 		return nil
 	}
 
-	phase, promptTokens, outputTokens, cacheHit, cacheMiss,
-		contextPct, currentIter, contentDeltas, activeDelegations, httpAddr := m.runtimeMetrics.Snapshot()
+	_, promptTokens, outputTokens, cacheHit, cacheMiss,
+		contextPct, currentIter, contentDeltas, _, httpAddr := m.runtimeMetrics.Snapshot()
 
 	// Count agents from registry and supervisors.
-	var totalAgents, runningAgents, idleAgents, totalErrors int
+	var totalAgents, runningAgents, idleAgents, totalErrors, activeDelegations int
+	phase := "idle"
 	if m.registry != nil {
 		allAgents := m.collectAllAgents()
 		totalAgents = len(allAgents)
@@ -645,12 +660,22 @@ func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
 			switch a.State() {
 			case agent.StateProcessing:
 				runningAgents++
-			case agent.StateIdle:
-				idleAgents++
+			case agent.StateStopping:
+				if phase != "processing" {
+					phase = "stopping"
+				}
+			case agent.StateStopped:
+				if phase != "processing" && phase != "stopping" {
+					phase = "stopped"
+				}
 			}
+			activeDelegations += a.PendingDelegations()
 			if ec := a.ErrorCount(); ec > 0 {
 				totalErrors += int(ec)
 			}
+		}
+		if runningAgents > 0 {
+			phase = "processing"
 		}
 	}
 

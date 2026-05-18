@@ -1,10 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { AgentFlow } from './AgentFlow'
 import { AgentTreeView } from './AgentTreeView'
 import { usePlanStore } from '@/stores/planStore'
 import { useRuntime } from '@/hooks/useRuntime'
 import { useAgentStore } from '@/stores/agentStore'
 import { cn } from '@/lib/utils'
+import { GitBranch, List } from 'lucide-react'
 
 function StatsCard({
   title,
@@ -28,6 +29,8 @@ export function Dashboard() {
   const runtime = useRuntime()
   const agentsData = useAgentStore((s) => s.agents)
 
+  const [viewMode, setViewMode] = useState<'flow' | 'tree'>('flow')
+
   const stats = useMemo(
     () => ({
       total: plans.length,
@@ -46,14 +49,37 @@ export function Dashboard() {
         <StatsCard title="Completed" value={stats.done} />
         <StatsCard title="Active Agents" value={stats.agentsActive} />
       </div>
-      <div className="flex-1 min-h-[280px] sm:min-h-0 px-3 sm:px-6 pt-3 sm:pt-0 pb-4 sm:pb-6">
-        {/* Mobile tree view */}
-        <div className="h-full md:hidden">
-          <AgentTreeView />
+      <div className="flex flex-1 flex-col min-h-0 px-3 sm:px-6 pt-3 sm:pt-0 pb-4 sm:pb-6">
+        <div className="flex items-center justify-end mb-2 shrink-0">
+          <div className="inline-flex items-center rounded-lg border bg-card p-0.5 shadow-sm">
+            <button
+              onClick={() => setViewMode('flow')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                viewMode === 'flow'
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <GitBranch className="size-3.5" />
+              Flow
+            </button>
+            <button
+              onClick={() => setViewMode('tree')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                viewMode === 'tree'
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <List className="size-3.5" />
+              List
+            </button>
+          </div>
         </div>
-        {/* Desktop flow graph */}
-        <div className="hidden md:block h-full">
-          <AgentFlow />
+        <div className="flex-1 min-h-0">
+          {viewMode === 'flow' ? <AgentFlow /> : <AgentTreeView />}
         </div>
       </div>
     </div>
