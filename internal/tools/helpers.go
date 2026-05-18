@@ -47,6 +47,24 @@ func validateNotZeroLen(field, s string) error {
 	return nil
 }
 
+// validateOldString validates that old_string is non-empty and differs from new_string.
+// idx is optional — pass -1 for single-edit tools (Edit), or the edit index for MultiEdit.
+func validateOldString(oldStr, newStr string, idx int) error {
+	if oldStr == "" {
+		if idx >= 0 {
+			return fmt.Errorf("%w: edits[%d].old_string is empty", ErrInvalidArgs, idx)
+		}
+		return fmt.Errorf("%w: old_string is empty", ErrInvalidArgs)
+	}
+	if oldStr == newStr {
+		if idx >= 0 {
+			return fmt.Errorf("%w: edits[%d]", ErrNoopReplace, idx)
+		}
+		return ErrNoopReplace
+	}
+	return nil
+}
+
 // ─── String truncation ──────────────────────────────────────────────────
 
 // truncateString 截断字符串用于展示（含省略号，rune-safe）

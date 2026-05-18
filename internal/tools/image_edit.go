@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -141,7 +139,7 @@ func (t *imageEditTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", fmt.Errorf("build request: %w", err)
 	}
 
-	respBody, err := doPost(ctx, url, body, headers)
+	respBody, err := doPost(ctx, t.cfg.Executor, url, body, headers)
 	if err != nil {
 		return "", fmt.Errorf("request: %w", err)
 	}
@@ -160,7 +158,7 @@ func (t *imageEditTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	urls := []string{imageURL}
-	localPaths := saveEditedImage(ctx, imageURL, t.logger)
+	localPaths := saveEditedImage(ctx, t.cfg.Executor, imageURL, t.logger)
 
 	r := imageEditResult{
 		Model:      model.ID,
@@ -273,36 +271,6 @@ func parseEditResp(body []byte) (string, error) {
 		return "", fmt.Errorf("empty ResultImage in response")
 	}
 	return resp.Response.ResultImage, nil
-}
-
-// ─── Image saving ─────────────────────────────────────────────────────
-
-var artifactDir string
-
-func init() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.TempDir()
-	}
-	artifactDir = filepath.Join(home, ".soloqueue", "artifacts")
-}
-
-func saveEditedImage(ctx context.Context, url string, log *logger.Logger) []string {
-	fname := urlBaseName(url, 1)
-	fpath := filepath.Join(artifactDir, fname)
-
-	if err := downloadTo(ctx, url, fpath); err != nil {
-		if log != nil {
-			log.WarnContext(ctx, logger.CatTool, "image_edit: save failed",
-				"url", url, "path", fpath, "err", err.Error())
-		}
-		return nil
-	}
-	if log != nil {
-		log.InfoContext(ctx, logger.CatTool, "image_edit: saved",
-			"url", url, "path", fpath)
-	}
-	return []string{fpath}
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────

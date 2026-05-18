@@ -2,6 +2,8 @@ import { useMemo, useState, useCallback, useEffect, useRef, memo } from 'react'
 import {
   ReactFlow,
   Background,
+  Controls,
+  MiniMap,
   useNodesState,
   useEdgesState,
   useReactFlow,
@@ -92,6 +94,9 @@ function AgentFlowNode({ data }: NodeProps<AppNode>) {
       ) : (
         <>
           <p className="text-[10px] text-muted-foreground truncate font-mono">{agent.model_id}</p>
+          {agent.task_level && (
+            <p className="text-[10px] text-muted-foreground/70 truncate">{agent.task_level}</p>
+          )}
           {agent.error_count > 0 && (
             <p className="text-[10px] text-destructive font-medium mt-0.5">✗{agent.error_count}</p>
           )}
@@ -195,6 +200,18 @@ const FlowView = memo(function FlowView({
         fitViewOptions={{ padding: 0.1, maxZoom: 1.2, duration: 300 }}
       >
         <Background gap={24} size={1} color="#E6EBF1" />
+        <MiniMap
+          position="bottom-right"
+          style={{ height: 100, width: 180 }}
+          nodeColor={(node) => {
+            const d = node.data as { agent?: { state: string } } | undefined
+            return d?.agent?.state
+              ? stateColors[d.agent.state as AgentState] || '#BBBBBB'
+              : '#BBBBBB'
+          }}
+          maskColor="rgba(0,0,0,0.08)"
+        />
+        <Controls position="bottom-left" />
         <FitViewOnChange count={flowNodes.length} />
       </ReactFlow>
     </div>

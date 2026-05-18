@@ -366,6 +366,15 @@ func Build(
 	seen := make(map[string]bool)
 	seen[workDir] = true
 	sandboxMounts = append(sandboxMounts, sandbox.Mount{HostPath: workDir})
+	if home, err := os.UserHomeDir(); err == nil {
+		sshDir := filepath.Join(home, ".ssh")
+		if info, stErr := os.Stat(sshDir); stErr == nil && info.IsDir() {
+			sandboxMounts = append(sandboxMounts, sandbox.Mount{
+				HostPath:      sshDir,
+				ContainerPath: "/root/.ssh",
+			})
+		}
+	}
 	for _, gf := range groups {
 		for _, ws := range gf.Frontmatter.Workspaces {
 			p := ws.Path
