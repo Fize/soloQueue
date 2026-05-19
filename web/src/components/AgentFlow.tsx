@@ -124,13 +124,23 @@ function layoutElements(nodes: AppNode[], edges: Edge[]): AppNode[] {
 
   dagre.layout(g)
 
-  return nodes.map((n) => {
+  const laidOut = nodes.map((n) => {
     const pos = g.node(n.id)
     return {
       ...n,
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
     }
   })
+
+  // Center the whole graph horizontally so the root doesn't stick to the left
+  const minX = Math.min(...laidOut.map((n) => n.position.x))
+  const maxX = Math.max(...laidOut.map((n) => n.position.x)) + NODE_WIDTH
+  const centerX = (minX + maxX) / 2
+
+  return laidOut.map((n) => ({
+    ...n,
+    position: { x: n.position.x - centerX, y: n.position.y },
+  }))
 }
 
 function FitViewOnChange({ count }: { count: number }) {
