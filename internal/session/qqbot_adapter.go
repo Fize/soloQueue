@@ -18,6 +18,7 @@ type SessionAskAdapter struct {
 	mgr           *SessionManager
 	log           *logger.Logger
 	supervisorsFn func() []*agent.Supervisor // optional: reap supervisor children on cancel
+	registry      *agent.Registry            // registry for cancel stop+unregister
 }
 
 // NewQQBotAdapter creates a SessionProvider backed by the given SessionManager.
@@ -30,9 +31,15 @@ func (a *SessionAskAdapter) SetSupervisorsFn(fn func() []*agent.Supervisor) {
 	a.supervisorsFn = fn
 }
 
+// SetRegistry sets the agent registry for agent lifecycle management on cancel.
+func (a *SessionAskAdapter) SetRegistry(reg *agent.Registry) {
+	a.registry = reg
+}
+
 // CancelCurrent implements qqbot.SessionProvider.CancelCurrent.
 // 1) Cancels the active AskStream context (stops L1 + propagates to delegated agents).
-// 2) As a safety net, reaps any supervisor children still in StateProcessing.
+// 2) Stops the L1 agent and unregisters it from the registry (restores initial state).
+// 3) As a safety net, reaps any supervisor children still in StateProcessing.
 func (a *SessionAskAdapter) CancelCurrent(reason string) error {
 	sess := a.mgr.Session()
 	if sess == nil {
@@ -42,6 +49,12 @@ func (a *SessionAskAdapter) CancelCurrent(reason string) error {
 	err := sess.CancelCurrent(reason)
 	if err != nil && !errors.Is(err, ErrNoActiveTask) {
 		return err
+	}
+
+	// Stop L1 agent and unregister from registry
+	_ = sess.Agent.Stop(5 * time.Second)
+	if a.registry != nil {
+		a.registry.Unregister(sess.Agent.InstanceID)
 	}
 
 	// Safety net: reap any orphaned supervisor children
@@ -83,6 +96,12 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	sess := a.mgr.Session()
 	if sess == nil {
 		return nil, errors.New("no active session")
+	}
+
+	// Re-register agent if it was unregistered by CancelCurrent.
+	// This ensures the web UI shows the agent when a new task begins.
+	if a.registry != nil {
+		_ = a.registry.Register(sess.Agent)
 	}
 
 	// Log CW state for debugging shared-session context.

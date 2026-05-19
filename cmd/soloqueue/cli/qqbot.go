@@ -24,7 +24,8 @@ const msgQueueInterval = 1700 * time.Millisecond
 // MessageQueue, and returns both the gateway and the queue for shutdown
 // coordination. Returns (nil, nil) if QQ bot is not enabled or not configured.
 // supervisorsFn provides access to L2 supervisors for child agent reaping on /cancel.
-func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor) (*qqbot.Gateway, *qqbot.MessageQueue) {
+// registry is used to unregister the L1 agent on /cancel (restore initial state).
+func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) (*qqbot.Gateway, *qqbot.MessageQueue) {
 	settings := cfg.Get()
 	qqCfg := settings.QQBot.ToQQBotConfig()
 
@@ -52,6 +53,7 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir 
 	qqAPI := qqbot.NewAPIClient(qqCfg, qqLog)
 	qqAdapter := session.NewQQBotAdapter(mgr, qqLog)
 	qqAdapter.SetSupervisorsFn(supervisorsFn)
+	qqAdapter.SetRegistry(registry)
 	qqBridge := qqbot.NewSessionBridge(qqAdapter, qqAPI, qqLog,
 		qqbot.WithVersion(version),
 		qqbot.WithMessageQueue(qqQueue),
