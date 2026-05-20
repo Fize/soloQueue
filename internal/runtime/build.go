@@ -288,7 +288,7 @@ func Build(
 			mcpServers = append(mcpServers, "builtin-lsp")
 		}
 	}
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, mcpServers)
+	systemPrompt, err := promptCfg.BuildPrompt(leaders, groups, memoryDir, memoryDir, planDir, mcpServers)
 	if err != nil {
 		return nil, fmt.Errorf("build system prompt: %w", err)
 	}

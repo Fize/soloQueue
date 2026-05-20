@@ -102,7 +102,7 @@ func ServeCmd(version string) *cobra.Command {
 			}
 			planDir, _ := config.PlanDir()
 			memoryDir := filepath.Join(workDir, "memory")
-			newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, memoryDir, memoryDir, planDir, rt.L1MCPServers())
+			newPrompt, err := rt.PromptCfg.BuildPrompt(leaders, rt.Groups, memoryDir, memoryDir, planDir, rt.L1MCPServers())
 			if err != nil {
 				return err
 			}
