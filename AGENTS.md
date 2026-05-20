@@ -43,15 +43,17 @@ Dev server proxies `/api` → `http://localhost:8765` and `/ws` → `ws://localh
 
 ## Binary modes
 
-`soloqueue serve --port 8765` is the primary mode. Binds `127.0.0.1` by default.
-Other subcommands: `version`, `cleanup` (remove Docker sandbox containers).
-Flags: `--bypass` (skip tool confirmations), `--verbose` / `-v` (logs to stderr).
+`soloqueue serve` is the primary mode. Default port 57647 (0 = random); dev convention uses `--port 8765` to match Vite proxy. Binds `127.0.0.1` by default.
+Other subcommands: `version`.
+`serve` flags: `--bypass` (skip tool confirmations), `--verbose` / `-v` (logs to stderr).
 
 ## Config & data
 
 - Work directory: `~/.soloqueue/` (from `config.DefaultWorkDir()`)
-- Agent templates: `~/.soloqueue/agents/*.md` (YAML frontmatter + markdown)
+- Agent templates: `~/.soloqueue/agents/*.md` (YAML frontmatter + markdown; hot-reload)
 - Config: `~/.soloqueue/settings.toml` (TOML, hot-reload via fsnotify)
+- MCP servers: `~/.soloqueue/mcp.json` (hot-reload)
+- Skills: `~/.soloqueue/skills/*.md` (hot-reload)
 - Timeline JSONL: `~/.soloqueue/logs/timelines/`
 - Ignored by git: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`
 
@@ -62,18 +64,28 @@ Config loading order (low→high priority): compiled defaults → `settings.toml
 ```
 cmd/soloqueue/      cobra entrypoint (main.go + cli/)
 internal/agent/     actor-model agent (LLM + tool loop + mailbox)
+internal/compactor/ LLM-based context compression engine
 internal/config/    hot-reload config
 internal/ctxwin/    context window (tiktoken, dual-waterline compaction)
+internal/iface/     shared interfaces (breaks agent↔tools cycle)
 internal/llm/       provider-agnostic LLM protocol + DeepSeek transport
-internal/session/   session manager (single active, inFlight atomic CAS)
-internal/timeline/  append-only JSONL event sourcing
-internal/server/    REST + WebSocket HTTP router (chi/v5)
-internal/tools/     Tool implementations (Bash, Edit, Write, Read, Grep, etc.)
-internal/router/    L0-L3 task classification & model routing
+internal/logger/    structured logging (file + console)
+internal/mcp/       MCP server manager + config + LSP integration
+internal/memory/    short-term memory manager
+internal/permanent/ embedding-based permanent memory + scheduler
+internal/prompt/    prompt assembly, templates, team management, parser
 internal/qqbot/     QQ official bot WebSocket integration
+internal/router/    L0-L3 task classification & model routing
+internal/runtime/   shared dependency container (Stack, built once)
+internal/server/    REST + WebSocket HTTP router (chi/v5)
+internal/session/   session manager (single active, inFlight atomic CAS)
 internal/skill/     Claude Code-compatible skill system
-internal/runtime/   shared runtime.Stack (built once per process)
-internal/sandbox/   LocalExecutor + DockerExecutor
+internal/sqlitedb/  shared SQLite wrapper (used by vectorstore + todo)
+internal/team/      team group reload
+internal/timeline/  append-only JSONL event sourcing
+internal/todo/      plan/task store (SQLite-backed)
+internal/tools/     Tool implementations + Sandbox execution backend
+internal/vectorstore/ SQLite-backed vector store for permanent memory
 web/                React web UI (Vite dev server)
 ```
 
@@ -89,8 +101,11 @@ web/                React web UI (Vite dev server)
 ## Key patterns
 
 - **Functional options**: constructors use variadic `With*` pattern (e.g., `WithTools`, `WithMailboxCap`, `WithSkills`).
-- **Logger categories**: `logger.CatApp`, `logger.CatActor`, `logger.CatMessages`, `logger.CatConfig`, `logger.CatTool`, `logger.CatLLM`.
+- **Logger categories**: `logger.CatApp`, `logger.CatActor`, `logger.CatMessages`, `logger.CatConfig`, `logger.CatTool`, `logger.CatLLM`, `logger.CatMCP`.
 - **Config hot-reload**: callers read latest via `cfg.Get()`; fsnotify under the hood.
+- **Agent state machine**: `Idle → Processing → (Idle | Stopping → Stopped)`. Start restarts after Stop.
 - **QQ returns `expires_in` as a string** (not int) in the access token response. Do not parse as integer.
 - **Agent bypass** — three layers: template (`permission: true`), global (`--bypass`), per-ask (`agent.WithBypassConfirmCtx(ctx)`).
 - **Test conventions**: no `TestMain` or shared fixtures. Tests are self-contained per package.
+- **FakeLLM** (`internal/agent/llm.go`): scripted LLM stub for testing tool loops, streaming, reasoning — use instead of mocking across packages.
+- **Platform-specific RunCommand**: `internal/tools/exec_unix.go` (`/bin/sh -c`, Setpgid+SIGKILL) vs `exec_windows.go` (auto-detects powershell.exe/cmd.exe). Build tags handle selection.
