@@ -9,7 +9,8 @@ import (
 // buildRoutingTable dynamically builds routing table text from a LeaderInfo list.
 // The primary Agent only needs to know what each team "can do", not the tool details.
 // When group info is present, display partitioned by group (block format); without group, fall back to old format (inline).
-func buildRoutingTable(leaders []LeaderInfo) string {
+// groups and workDir are used to display team workspace directories.
+func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile, workDir string) string {
 	if len(leaders) == 0 {
 		return "No Team Leaders are currently available. You must handle all tasks yourself."
 	}
@@ -46,6 +47,14 @@ func buildRoutingTable(leaders []LeaderInfo) string {
 					fmt.Fprintf(&b, "\n## %s — %s\n", l.Group, l.GroupDescription)
 				} else if l.Group != "" {
 					fmt.Fprintf(&b, "\n## %s\n", l.Group)
+				}
+				// Display workspace directories for this group
+				if gf, ok := groups[l.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
+					b.WriteString("Workspaces:\n")
+					for _, ws := range gf.Frontmatter.Workspaces {
+						displayPath := toTildePath(ws.Path, workDir)
+						fmt.Fprintf(&b, "  - %s: %s\n", ws.Name, displayPath)
+					}
 				}
 			}
 
