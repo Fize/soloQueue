@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -28,7 +27,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
@@ -361,39 +359,6 @@ func Build(
 	classifier := router.NewDefaultClassifier(classifierConfig, llmClient, classifierModel, log)
 	taskRouter := router.NewRouter(classifier, cfg, log)
 
-	// ── Docker Sandbox mounts (sandbox is started asynchronously by caller) ──
-	var sandboxMounts []sandbox.Mount
-	seen := make(map[string]bool)
-	seen[workDir] = true
-	sandboxMounts = append(sandboxMounts, sandbox.Mount{HostPath: workDir})
-	if home, err := os.UserHomeDir(); err == nil {
-		sshDir := filepath.Join(home, ".ssh")
-		if info, stErr := os.Stat(sshDir); stErr == nil && info.IsDir() {
-			sandboxMounts = append(sandboxMounts, sandbox.Mount{
-				HostPath:      sshDir,
-				ContainerPath: "/root/.ssh",
-			})
-		}
-	}
-	for _, gf := range groups {
-		for _, ws := range gf.Frontmatter.Workspaces {
-			p := ws.Path
-			if p == "" || p == "@default" {
-				continue
-			}
-			if strings.HasPrefix(p, "~/") || p == "~" {
-				if home, err := os.UserHomeDir(); err == nil {
-					p = filepath.Join(home, p[1:])
-				}
-			}
-			if seen[p] {
-				continue
-			}
-			seen[p] = true
-			sandboxMounts = append(sandboxMounts, sandbox.Mount{HostPath: p})
-		}
-	}
-
 	rt := &Stack{
 		Settings:        cfg,
 		LLMClient:       llmClient,
@@ -412,8 +377,6 @@ func Build(
 		RulesCreated:    rulesCreated,
 		TaskRouter:      taskRouter,
 		SkillRegistry:   skillReg,
-		DockerSandbox:   nil,
-		SandboxMounts:   sandboxMounts,
 		MemoryManager:   memoryMgr,
 		PermanentMemory: permanentMgr,
 		PermScheduler:   permScheduler,
@@ -562,25 +525,6 @@ func BuildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 			ReasoningEffort: m.Thinking.ReasoningEffort,
 		}, nil
 	}
-}
-
-// StartSandbox creates and starts a Docker sandbox, returning it along with
-// a configured DockerExecutor.
-func StartSandbox(ctx context.Context, mounts []sandbox.Mount, env []string, log *logger.Logger) (sandbox.Sandbox, *sandbox.DockerExecutor, error) {
-	dockerSandbox, err := sandbox.NewDockerSandbox(mounts, env)
-	if err != nil {
-		return nil, nil, fmt.Errorf("docker sandbox init failed: is Docker running? %w", err)
-	}
-	dockerSandbox.SetLogger(log)
-	if err := dockerSandbox.Start(ctx); err != nil {
-		return nil, nil, fmt.Errorf("docker sandbox start failed: %w", err)
-	}
-	log.Info(logger.CatApp, "docker sandbox started",
-		"image", "debian:bookworm-slim", "mounts", len(mounts))
-
-	executor := sandbox.NewDockerExecutor(dockerSandbox)
-	executor.SetLogger(log)
-	return dockerSandbox, executor, nil
 }
 
 // InitLogger creates a system-level Logger based on the current configuration.
