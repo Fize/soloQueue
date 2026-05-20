@@ -18,7 +18,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
@@ -46,8 +45,6 @@ type Stack struct {
 	RulesCreated  bool
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
-	DockerSandbox sandbox.Sandbox    // Docker sandbox (L3 tool execution isolation base)
-	SandboxMounts []sandbox.Mount    // Sandbox mount list (for deferred startup)
 	MemoryManager *memory.Manager    // Short-term memory manager
 	PermanentMemory *permanent.Manager // Permanent memory manager
 	PermScheduler *permanent.Scheduler
@@ -67,17 +64,10 @@ type Stack struct {
 	promptRebuildMu    sync.Mutex
 }
 
-// Shutdown gracefully reaps all child Agents managed by L2 Supervisors and destroys the Docker sandbox.
+// Shutdown gracefully reaps all child Agents managed by L2 Supervisors.
 func (s *Stack) Shutdown() {
 	for _, sv := range s.Supervisors {
 		_ = sv.ReapAll(5 * time.Second)
-	}
-	if s.DockerSandbox != nil {
-		destroyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := s.DockerSandbox.Destroy(destroyCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: docker sandbox destroy failed: %v\n", err)
-		}
 	}
 	if s.MCPManager != nil {
 		s.MCPManager.Shutdown()

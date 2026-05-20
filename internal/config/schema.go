@@ -43,7 +43,6 @@ type Settings struct {
 	DefaultModels DefaultModelsConfig `json:"defaultModels" toml:"default_models,omitempty"`
 	QQBot         QQBotConfig         `json:"qqbot" toml:"qqbot,omitempty"`
 	Agent         AgentConfig         `json:"agent" toml:"agent,omitempty"`
-	Sandbox       SandboxConfig       `json:"sandbox" toml:"sandbox,omitempty"`
 	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp,omitempty"`
 }
 
@@ -256,16 +255,6 @@ type ImageModelConfig struct {
 	Region       string `json:"region"       toml:"region,omitempty"`
 	IsDefault    bool   `json:"isDefault"    toml:"is_default,omitempty"`
 	Enabled      bool   `json:"enabled"      toml:"enabled,omitempty"`
-}
-
-// ─── Sandbox (container isolation) ─────────────────────────────────────────
-
-// SandboxConfig configures the container sandbox environment.
-type SandboxConfig struct {
-	// Env is a list of environment variables to inject into the sandbox.
-	// Each entry is either "KEY" (resolved from host process via os.Getenv)
-	// or "KEY=VALUE" (used literally).
-	Env []string `json:"env" toml:"env"`
 }
 
 // ─── LSP MCP (built-in LSP-based MCP server) ───────────────────────────────

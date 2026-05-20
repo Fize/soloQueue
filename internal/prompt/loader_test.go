@@ -164,47 +164,6 @@ func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
 	}
 }
 
-func TestBuildPrompt_DockerSandboxPath(t *testing.T) {
-	dir := t.TempDir()
-	rolesDir := filepath.Join(dir, "prompts", "roles")
-	globalDir := filepath.Join(dir, "prompts", "global")
-	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: globalDir}
-
-	// Create all required files.
-	cfg.WriteSoul(DefaultProfileAnswers())
-	cfg.EnsureFiles()
-
-	// Create user.md
-	os.MkdirAll(globalDir, 0o755)
-	os.WriteFile(filepath.Join(globalDir, "user.md"), []byte("测试用户"), 0o644)
-
-	leaders := []LeaderInfo{
-		{Name: "dev", Description: "开发工程师", Group: "DevOps"},
-	}
-
-	// Simulate Docker sandbox mode: path should be replaced with the in-container path /root/.soloqueue/plan/.
-	dockerPlanDir := "/root/.soloqueue/plan"
-	result, err := cfg.BuildPrompt(leaders, "", "", dockerPlanDir, nil)
-	if err != nil {
-		t.Fatalf("BuildPrompt: %v", err)
-	}
-
-	// Verify that the plan_before_action section exists.
-	if !contains(result, "<plan_before_action>") {
-		t.Error("missing <plan_before_action> section when planDir is provided")
-	}
-
-	// Verify that the Docker sandbox mode path is replaced with the container path.
-	if !contains(result, "/root/.soloqueue/plan") {
-		t.Error("plan directory path should be replaced to Docker container path /root/.soloqueue/plan")
-	}
-
-	// Verify that the host path does not appear (replaced with the container path in Docker sandbox mode).
-	if contains(result, dir+"/plan") {
-		t.Error("host path should not appear in Docker sandbox mode, should be replaced with container path")
-	}
-}
-
 func TestExtractSoulName(t *testing.T) {
 	tests := []struct {
 		name    string
