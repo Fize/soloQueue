@@ -138,6 +138,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	var sentLen int
 	var reasoningContent string
 	var imageURLs []string
+	var mediaList []qqbot.PendingMedia
 
 	for ev := range eventCh {
 		switch e := ev.(type) {
@@ -172,6 +173,32 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 				urls := parseImageGenResult(e.Result)
 				if len(urls) > 0 {
 					imageURLs = append(imageURLs, urls...)
+					for _, url := range urls {
+						mediaList = append(mediaList, qqbot.PendingMedia{
+							FileType: 1, // FileTypeImage
+							URL:      url,
+						})
+					}
+				}
+			} else if e.Name == "SendFile" && e.Result != "" {
+				res := parseSendFileResult(e.Result)
+				if res != nil {
+					ftype := 4 // Default: file
+					switch res.FileType {
+					case "image":
+						ftype = 1
+					case "video":
+						ftype = 2
+					case "voice":
+						ftype = 3
+					case "file":
+						ftype = 4
+					}
+					mediaList = append(mediaList, qqbot.PendingMedia{
+						FileType:   ftype,
+						URL:        res.URL,
+						Base64Data: res.Base64Data,
+					})
 				}
 			}
 		case agent.DoneEvent:
@@ -196,6 +223,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 		Content:          finalContent,
 		ReasoningContent: reasoningContent,
 		ImageURLs:        imageURLs,
+		MediaList:        mediaList,
 	}, nil
 }
 
@@ -212,4 +240,23 @@ func parseImageGenResult(raw string) []string {
 		return nil
 	}
 	return r.ImageURLs
+}
+
+type sendFileToolResult struct {
+	Status     string `json:"status"`
+	FileName   string `json:"file_name"`
+	FileType   string `json:"file_type"`
+	Base64Data string `json:"base64_data"`
+	URL        string `json:"url"`
+}
+
+func parseSendFileResult(raw string) *sendFileToolResult {
+	var r sendFileToolResult
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return nil
+	}
+	if r.Status != "success" {
+		return nil
+	}
+	return &r
 }
