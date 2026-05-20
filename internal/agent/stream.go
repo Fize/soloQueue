@@ -887,6 +887,11 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		}
 	}()
 
+	// Propagate working directory to child agents via context (for L2→L3 passthrough).
+	if a.WorkDir != "" {
+		toolCtx = iface.ContextWithWorkDir(toolCtx, a.WorkDir)
+	}
+
 	// Propagate model override to child agents via context (for delegation chain).
 	// When this tool is a DelegateTool, it reads this from ctx and sets it on the target agent.
 	if override := a.modelOverride.Load(); override != nil {

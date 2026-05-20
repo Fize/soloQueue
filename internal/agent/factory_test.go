@@ -162,7 +162,7 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 	}
 
 	// 创建 agent
-	agent, cw, err := factory.Create(context.Background(), tmpl)
+	agent, cw, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	}
 
 	// 先创建子 agent（这样 registry 中会有）
-	subAgent, _, err := factory.Create(context.Background(), subTmpl)
+	subAgent, _, err := factory.Create(context.Background(), subTmpl, "")
 	if err != nil {
 		t.Fatalf("create sub agent: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 		SystemPrompt: "You are main.",
 	}
 
-	mainAgent, _, err := factory.Create(context.Background(), mainTmpl)
+	mainAgent, _, err := factory.Create(context.Background(), mainTmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create main: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 		SystemPrompt: "You are ephemeral.",
 	}
 
-	agent, _, err := factory.Create(context.Background(), tmpl)
+	agent, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
 	}
@@ -309,14 +309,14 @@ func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	}
 
 	// Create first instance
-	a1, _, err := factory.Create(context.Background(), tmpl)
+	a1, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create first: %v", err)
 	}
 	defer a1.Stop(time.Second)
 
 	// Create second instance with same template — should succeed (different InstanceID)
-	a2, _, err := factory.Create(context.Background(), tmpl)
+	a2, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create second with same template should succeed: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestDefaultFactory_Create_StartError(t *testing.T) {
 		SystemPrompt: "You are a test agent.",
 	}
 
-	agent, cw, err := factory.Create(context.Background(), tmpl)
+	agent, cw, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestDefaultFactory_Create_ContextWindow(t *testing.T) {
 		SystemPrompt: "You are a test agent.",
 	}
 
-	agent, cw, err := factory.Create(context.Background(), tmpl)
+	agent, cw, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
 	}
@@ -497,7 +497,7 @@ This is a test skill.
 		SkillIDs:     []string{"test-skill"},
 	}
 
-	agent, _, err := factory.Create(context.Background(), tmpl)
+	agent, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
 	}
@@ -529,7 +529,7 @@ func TestNewDefaultFactory_NilLogger(t *testing.T) {
 		SystemPrompt: "You are a test.",
 	}
 
-	agent, _, err := factory.Create(context.Background(), tmpl)
+	agent, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create with nil logger: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
 		ModelID:      "nonexistent-model-xyz",
 	}
 
-	_, _, err = factory.Create(context.Background(), tmpl)
+	_, _, err = factory.Create(context.Background(), tmpl, "")
 	if err == nil {
 		t.Fatal("expected error for invalid model ID, got nil")
 	}
@@ -620,7 +620,7 @@ func TestDefaultFactory_Create_EmptyModel(t *testing.T) {
 		ModelID:      "", // empty
 	}
 
-	_, _, err = factory.Create(context.Background(), tmpl)
+	_, _, err = factory.Create(context.Background(), tmpl, "")
 	if err == nil {
 		t.Fatal("expected error for empty model ID, got nil")
 	}
@@ -665,7 +665,7 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 		ModelID:      "deepseek-v4-flash-thinking",
 	}
 
-	agent, _, err := factory.Create(context.Background(), tmpl)
+	agent, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
 	}
@@ -711,7 +711,7 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 		ModelID:      "any-random-model-name",
 	}
 
-	agent, _, err := factory.Create(context.Background(), tmpl)
+	agent, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create should succeed without resolver: %v", err)
 	}

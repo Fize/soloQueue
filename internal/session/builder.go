@@ -142,14 +142,14 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}
 
 		dt := tools.NewDelegateTool(leader.Name, leader.Description, 30*time.Minute, b.RT.AgentRegistry, sessLog)
-		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
+		dt.SpawnFn = func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
 			// Prefer an idle instance to avoid cold-start latency.
 			if loc, ok := b.RT.AgentRegistry.LocateIdle(leader.Name); ok {
 				return loc, nil
 			}
 			// No idle instance — create a new one with a unique InstanceID.
 			if leaderTmpl != nil {
-				child, _, err := b.RT.AgentFactory.Create(ctx, *leaderTmpl)
+				child, _, err := b.RT.AgentFactory.Create(ctx, *leaderTmpl, projectDir)
 				if err != nil {
 					return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
 				}
@@ -283,7 +283,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}
 
 		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog)
-		dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
+		dt.SpawnFn = func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
 			// Prefer an idle instance to enable parallel delegation.
 			if loc, ok := b.RT.AgentRegistry.LocateIdle(name); ok {
 				return loc, nil

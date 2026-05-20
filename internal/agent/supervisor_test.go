@@ -27,7 +27,7 @@ func TestSupervisor_SpawnChild_NilFactory(t *testing.T) {
 	a := NewAgent(Definition{ID: "l2"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
-	_, err := sv.SpawnChild(context.Background(), AgentTemplate{ID: "child1"})
+	_, err := sv.SpawnChild(context.Background(), AgentTemplate{ID: "child1"}, "")
 	if err == nil {
 		t.Error("expected error when factory is nil")
 	}
@@ -68,7 +68,7 @@ func TestSupervisor_SpawnFnFor(t *testing.T) {
 	}
 
 	// SpawnFn with nil factory should return error
-	_, err := spawnFn(context.Background(), "test task")
+	_, err := spawnFn(context.Background(), "test task", "")
 	if err == nil {
 		t.Error("expected error when factory is nil")
 	}
@@ -95,7 +95,7 @@ func TestSupervisor_SpawnFnForID_NotFound(t *testing.T) {
 		t.Fatal("SpawnFnForID returned nil for missing template")
 	}
 
-	_, err := spawnFnNotFound(context.Background(), "task")
+	_, err := spawnFnNotFound(context.Background(), "task", "")
 	if err == nil {
 		t.Error("expected error for missing template")
 	}

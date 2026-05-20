@@ -138,8 +138,11 @@ func (a *Agent) execToolsWithAsync(
 			}
 		}
 
-		// 注入 model override 到 context，使 DelegateTool 能传播给子 Agent
+		// 注入 model override + workDir 到 context，使 DelegateTool 能传播给子 Agent
 		asyncCtx := ctx
+		if a.WorkDir != "" {
+			asyncCtx = iface.ContextWithWorkDir(asyncCtx, a.WorkDir)
+		}
 		if override := a.modelOverride.Load(); override != nil {
 			asyncCtx = iface.ContextWithModelOverride(asyncCtx, &iface.ModelOverrideParams{
 				ProviderID:      override.ProviderID,

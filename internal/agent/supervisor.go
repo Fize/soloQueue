@@ -56,14 +56,15 @@ func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supe
 // SpawnChild instantiates an L3 child Agent from the given template.
 // Each call creates a new Agent instance with a unique InstanceID,
 // allowing multiple children of the same template to run concurrently.
+// workDir is passed through from the parent agent (L2→L3 passthrough).
 //
 // Flow: factory.Create → append to children[tmpl.ID] → return.
-func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate) (*Agent, error) {
+func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, error) {
 	if s.factory == nil {
 		return nil, fmt.Errorf("supervisor: no factory configured")
 	}
 
-	child, cw, err := s.factory.Create(ctx, tmpl)
+	child, cw, err := s.factory.Create(ctx, tmpl, workDir)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: spawn child %q: %w", tmpl.ID, err)
 	}
@@ -251,8 +252,8 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 			continue
 		}
 		tmpl := tmpl // capture loop variable
-		l2.SetDelegateSpawnFn(tmpl.ID, func(ctx context.Context, task string) (iface.Locatable, error) {
-			child, err := s.SpawnChild(ctx, tmpl)
+		l2.SetDelegateSpawnFn(tmpl.ID, func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
+			child, err := s.SpawnChild(ctx, tmpl, wd)
 			if err != nil {
 				return nil, err
 			}
@@ -270,9 +271,10 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 //
 // 注入到 L2 的 DelegateTool.SpawnFn 中，使 DelegateTool 可以动态孵化 L3。
 // DelegateTool 不感知 Supervisor/Factory 的存在，只调用注入的闭包。
-func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, task string) (iface.Locatable, error) {
-	return func(ctx context.Context, task string) (iface.Locatable, error) {
-		child, err := s.SpawnChild(ctx, tmpl)
+// workDir is passed through from the delegate tool.
+func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
+	return func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
+		child, err := s.SpawnChild(ctx, tmpl, wd)
 		if err != nil {
 			return nil, err
 		}
@@ -286,7 +288,7 @@ func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, ta
 // SpawnFnForID 根据 child ID 查找模板并创建 SpawnFn
 //
 // 如果找不到对应模板，返回错误。
-func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) func(ctx context.Context, task string) (iface.Locatable, error) {
+func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
 	var tmpl *AgentTemplate
 	for i := range allTemplates {
 		if allTemplates[i].ID == childID {
@@ -295,7 +297,7 @@ func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) 
 		}
 	}
 	if tmpl == nil {
-		return func(ctx context.Context, task string) (iface.Locatable, error) {
+		return func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
 			return nil, fmt.Errorf("supervisor: no template for child %q", childID)
 		}
 	}
