@@ -51,10 +51,15 @@ func (a *SessionAskAdapter) CancelCurrent(reason string) error {
 		return err
 	}
 
-	// Stop L1 agent and unregister from registry
+	// Stop L1 agent and restart to idle state (instead of unregistering).
+	// Keeping L1 in the registry lets the frontend show it as a solid-idle node
+	// rather than a dashed-border placeholder after cancellation.
 	_ = sess.Agent.Stop(5 * time.Second)
-	if a.registry != nil {
-		a.registry.Unregister(sess.Agent.InstanceID)
+	if err := sess.Agent.Start(context.Background()); err != nil {
+		a.log.WarnContext(context.Background(), logger.CatApp, "cancel: restart agent failed",
+			"session_id", sess.ID,
+			"err", err.Error(),
+		)
 	}
 
 	// Safety net: reap any orphaned supervisor children

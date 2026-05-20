@@ -761,6 +761,127 @@ func TestWithToolTimeout_ZeroDeletes(t *testing.T) {
 	}
 }
 
+// slowPreferredTool implements PreferredTimeout so execToolStream uses its
+// self-declared timeout instead of DefaultToolTimeout.
+type slowPreferredTool struct {
+	name            string
+	preferredDelay  time.Duration // returned by PreferredTimeout
+	executeDelay    time.Duration // how long Execute blocks
+}
+
+func (s *slowPreferredTool) Name() string                { return s.name }
+func (s *slowPreferredTool) Description() string         { return "slow preferred tool " + s.name }
+func (s *slowPreferredTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (s *slowPreferredTool) PreferredTimeout() time.Duration { return s.preferredDelay }
+func (s *slowPreferredTool) Execute(ctx context.Context, _ string) (string, error) {
+	select {
+	case <-time.After(s.executeDelay):
+		return "done", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// TestAskStream_PreferredTimeout_UsedInsteadOfDefault: a tool that implements
+// PreferredTimeout gets its declared timeout instead of DefaultToolTimeout.
+func TestAskStream_PreferredTimeout_UsedInsteadOfDefault(t *testing.T) {
+	// preferredTimeout = 50ms, executeDelay = 200ms.
+	// If DefaultToolTimeout (5m) were used, Execute would finish in 200ms with "done".
+	// If PreferredTimeout (50ms) is used, it times out first.
+	slow := &slowPreferredTool{
+		name:           "slowP",
+		preferredDelay: 50 * time.Millisecond,
+		executeDelay:   200 * time.Millisecond,
+	}
+
+	var capturedContent string
+	fake := &FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{{
+			ID:       "c1",
+			Function: llm.FunctionCall{Name: "slowP", Arguments: `{}`},
+		}}},
+		StreamDeltas: [][]string{nil, {"ok"}},
+		Hook: func(req LLMRequest) {
+			if n := len(req.Messages); n > 0 && req.Messages[n-1].Role == "tool" {
+				capturedContent = req.Messages[n-1].Content
+			}
+		},
+	}
+	a := NewAgent(Definition{ID: "a1"}, fake, nil, WithTools(slow))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	start := time.Now()
+	reply, err := a.Ask(context.Background(), "")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if reply != "ok" {
+		t.Errorf("reply = %q, want 'ok'", reply)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("timeout did not fire promptly; elapsed = %v", elapsed)
+	}
+	if !strings.HasPrefix(capturedContent, "error: tool timeout after") {
+		t.Errorf("fed-back content = %q, want 'error: tool timeout after ...'", capturedContent)
+	}
+}
+
+// TestAskStream_PreferredTimeout_OverriddenByWithToolTimeout: explicit
+// WithToolTimeout still beats PreferredTimeout.
+func TestAskStream_PreferredTimeout_OverriddenByWithToolTimeout(t *testing.T) {
+	// WithToolTimeout = 10ms, PreferredTimeout = 50ms, executeDelay = 200ms.
+	// If PreferredTimeout wins, timeout fires at ~50ms.
+	// If WithToolTimeout wins, timeout fires at ~10ms.
+	slow := &slowPreferredTool{
+		name:           "slowP",
+		preferredDelay: 50 * time.Millisecond,
+		executeDelay:   200 * time.Millisecond,
+	}
+
+	var capturedContent string
+	fake := &FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{{
+			ID:       "c1",
+			Function: llm.FunctionCall{Name: "slowP", Arguments: `{}`},
+		}}},
+		StreamDeltas: [][]string{nil, {"ok"}},
+		Hook: func(req LLMRequest) {
+			if n := len(req.Messages); n > 0 && req.Messages[n-1].Role == "tool" {
+				capturedContent = req.Messages[n-1].Content
+			}
+		},
+	}
+	a := NewAgent(Definition{ID: "a1"}, fake, nil,
+		WithTools(slow),
+		WithToolTimeout("slowP", 10*time.Millisecond),
+	)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	start := time.Now()
+	reply, err := a.Ask(context.Background(), "")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if reply != "ok" {
+		t.Errorf("reply = %q, want 'ok'", reply)
+	}
+	// Must be closer to 10ms than 50ms (generous margin).
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("explicit WithToolTimeout did not win; elapsed = %v", elapsed)
+	}
+	if !strings.HasPrefix(capturedContent, "error: tool timeout after") {
+		t.Errorf("fed-back content = %q, want 'error: tool timeout after ...'", capturedContent)
+	}
+}
+
 // ─── Error paths ────────────────────────────────────────────────────────────
 
 // TestAskStream_LLMReturnsErrorEvent_AbortsStream: llm.EventError → ErrorEvent + close.

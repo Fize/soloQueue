@@ -174,10 +174,14 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 		maxOut = 256 << 10
 	}
 
+	wd := a.WorkingDirectory
+	if wd == "" && t.cfg.WorkDir != "" {
+		wd = t.cfg.WorkDir
+	}
 	res, err := t.cfg.Sandbox.RunCommand(ctx, a.Command, RunCommandOptions{
 		Stdin:            a.Stdin,
 		MaxOutput:        maxOut,
-		WorkingDirectory: a.WorkingDirectory,
+		WorkingDirectory: wd,
 	})
 
 	shellRes := shellExecResult{

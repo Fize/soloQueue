@@ -109,6 +109,26 @@ type ModelOverridable interface {
 	SetModelOverride(params *ModelOverrideParams)
 }
 
+// ─── WorkDir Context Propagation ──────────────────────────────────────────────
+
+type workDirCtxKey struct{}
+
+// ContextWithWorkDir injects a working directory into the context.
+// Used by the agent framework to propagate the agent's workDir to tools.
+func ContextWithWorkDir(ctx context.Context, dir string) context.Context {
+	if dir == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, workDirCtxKey{}, dir)
+}
+
+// WorkDirFromContext extracts the working directory from context.
+// Returns "" if not set.
+func WorkDirFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(workDirCtxKey{}).(string)
+	return v
+}
+
 // Context helpers for model override propagation through tool execution.
 
 type modelOverrideCtxKey struct{}

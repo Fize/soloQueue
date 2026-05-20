@@ -652,7 +652,7 @@ func TestDelegateTool_IsAsync(t *testing.T) {
 	// With SpawnFn → async
 	dtAsync := &tools.DelegateTool{
 		LeaderID: "dev",
-		SpawnFn:  func(ctx context.Context, task string) (iface.Locatable, error) { return nil, nil },
+		SpawnFn:  func(ctx context.Context, task string, wd string) (iface.Locatable, error) { return nil, nil },
 	}
 	if !dtAsync.IsAsync() {
 		t.Error("IsAsync() = false, want true when SpawnFn is set")
@@ -672,13 +672,13 @@ func TestDelegateTool_ExecuteAsync(t *testing.T) {
 	target := &mockLocatable{}
 	dt := &tools.DelegateTool{
 		LeaderID: "dev",
-		SpawnFn: func(ctx context.Context, task string) (iface.Locatable, error) {
+		SpawnFn: func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
 			return target, nil
 		},
 		Timeout: 5 * time.Minute,
 	}
 
-	action, err := dt.ExecuteAsync(context.Background(), `{"task":"test"}`)
+	action, err := dt.ExecuteAsync(context.Background(), `{"task":"test","work_dir":"/tmp"}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync: %v", err)
 	}

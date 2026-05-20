@@ -71,6 +71,13 @@ type Agent struct {
 	// confirmStore 是会话级工具放行存储；默认内存实现，可通过 WithConfirmStore 替换。
 	confirmStore SessionConfirmStore
 
+	// WorkDir is the working directory for this agent's tool execution.
+	// L1 uses the global workDir (~/.soloqueue). L2/L3 use a project-specific
+	// directory chosen at delegation time. Tools like Bash default their cwd
+	// to this path. Project configs (.claude/, AGENTS.md, CLAUDE.md) are
+	// loaded relative to this directory.
+	WorkDir string
+
 	// InstanceID 是 Agent 实例的唯一标识（UUID），与 Def.ID（模板/角色标识）分离。
 	// 支持同一模板的多个 Agent 实例共存（并行调度）。
 	InstanceID string
@@ -236,12 +243,24 @@ func WithInstanceID(id string) Option {
 	}
 }
 
+// WithAgentWorkDir sets the working directory for this agent's tool execution.
+//
+// When set, tools like Bash will default their cwd to this directory.
+// Project configs (.claude/, AGENTS.md, CLAUDE.md) are loaded relative to
+// this path. L1 uses the global ~/.soloqueue; L2/L3 use a project-specific
+// directory chosen at delegation time.
+func WithAgentWorkDir(dir string) Option {
+	return func(a *Agent) {
+		a.WorkDir = dir
+	}
+}
+
 // SetDelegateSpawnFn replaces the SpawnFn on the DelegateTool with the given
 // leaderID. This is used after Supervisor creation to wire L2→L3 delegation
 // through the Supervisor so spawned L3 children are tracked.
 //
 // Returns true if a DelegateTool with that name was found and updated.
-func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Context, task string) (iface.Locatable, error)) bool {
+func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Context, task string, workDir string) (iface.Locatable, error)) bool {
 	if a.tools == nil {
 		return false
 	}

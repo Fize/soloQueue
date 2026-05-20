@@ -203,7 +203,7 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 		MCPServers:   fm.MCPServers,
 	}
 
-	ag, _, err := w.cfg.AgentFactory.Create(ctx, tmpl)
+	ag, _, err := w.cfg.AgentFactory.Create(ctx, tmpl, "")
 	if err != nil {
 		return fmt.Sprintf("Agent file '%s' written but instantiation failed: %v. Restart required.", fm.Name, err)
 	}

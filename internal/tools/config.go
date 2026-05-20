@@ -101,6 +101,12 @@ type Config struct {
 	// nil 时 Build 会自动注入 NewSandbox（保障测试和本地开发场景）。
 	Sandbox *Sandbox
 
+	// ── Work Directory ────────────────────────────────────────────
+	// WorkDir is the agent's working directory for tool execution.
+	// When non-empty, tools like Bash use this as the default working
+	// directory for commands. Set by the factory during agent creation.
+	WorkDir string
+
 	// ── Plan Directory ─────────────────────────────────────────────
 	// PlanDir is the absolute path to the plan directory (~/.soloqueue/plan/).
 	// When non-empty, writeFileImpl will auto-create intermediate directories
