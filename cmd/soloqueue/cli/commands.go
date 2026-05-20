@@ -19,7 +19,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
@@ -75,16 +74,6 @@ func ServeCmd(version string) *cobra.Command {
 				return err
 			}
 			defer rt.Shutdown()
-
-			// serve mode: start sandbox synchronously before session init
-			sb, executor, err := runtime.StartSandbox(context.Background(), rt.SandboxMounts, settings.Sandbox.Env, log)
-			if err != nil {
-				return err
-			}
-			rt.DockerSandbox = sb
-			rt.CfgMu.Lock()
-			rt.ToolsCfg.Executor = executor
-			rt.CfgMu.Unlock()
 
 			factory := session.BuildFactory(rt, workDir, cfg, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, log)
@@ -270,22 +259,4 @@ func VersionCmd(version string) *cobra.Command {
 	}
 }
 
-func CleanupCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "cleanup",
-		Short: "Remove all soloqueue sandbox containers",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			sb, err := sandbox.NewDockerSandbox(nil, nil)
-			if err != nil {
-				return fmt.Errorf("docker client init failed: is Docker running? %w", err)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := sb.Cleanup(ctx); err != nil {
-				return err
-			}
-			fmt.Println("cleanup done")
-			return nil
-		},
-	}
-}
+
