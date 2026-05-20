@@ -15,7 +15,7 @@ type recallMemoryTool struct {
 }
 
 func newRecallMemoryTool(cfg Config) *recallMemoryTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &recallMemoryTool{cfg: cfg, logger: cfg.Logger}
 }
 

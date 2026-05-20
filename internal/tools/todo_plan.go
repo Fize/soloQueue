@@ -17,7 +17,7 @@ type createPlanTool struct {
 }
 
 func newCreatePlanTool(cfg Config) *createPlanTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &createPlanTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -83,7 +83,7 @@ type updatePlanTool struct {
 }
 
 func newUpdatePlanTool(cfg Config) *updatePlanTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &updatePlanTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -157,7 +157,7 @@ type deletePlanTool struct {
 }
 
 func newDeletePlanTool(cfg Config) *deletePlanTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &deletePlanTool{cfg: cfg, logger: cfg.Logger}
 }
 

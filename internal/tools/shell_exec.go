@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"runtime"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // shellExecTool 执行 shell 命令（黑名单/确认名单校验）
@@ -35,7 +35,7 @@ type shellExecTool struct {
 }
 
 func newShellExecTool(cfg Config) *shellExecTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	t := &shellExecTool{cfg: cfg, logger: cfg.Logger}
 	for _, r := range cfg.ShellBlockRegexes {
 		re, err := regexp.Compile(r)
@@ -59,8 +59,12 @@ func newShellExecTool(cfg Config) *shellExecTool {
 func (shellExecTool) Name() string { return "Bash" }
 
 func (shellExecTool) Description() string {
+	shell := "/bin/sh -c"
+	if runtime.GOOS == "windows" {
+		shell = "powershell.exe -Command (falls back to cmd.exe /c)"
+	}
 	return "Run a shell command. Dangerous commands (rm, dd, mkfs, etc.) require user confirmation. " +
-		"Uses /bin/sh -c <cmd>. " +
+		"Uses " + shell + " <cmd>. " +
 		"Returns {exit_code,stdout,stderr,truncated}. " +
 		"Supports optional working_directory parameter."
 }
@@ -170,7 +174,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 		maxOut = 256 << 10
 	}
 
-	res, err := t.cfg.Executor.RunCommand(ctx, a.Command, sandbox.RunCommandOptions{
+	res, err := t.cfg.Sandbox.RunCommand(ctx, a.Command, RunCommandOptions{
 		Stdin:            a.Stdin,
 		MaxOutput:        maxOut,
 		WorkingDirectory: a.WorkingDirectory,

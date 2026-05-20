@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // globTool 在目录下按 doublestar pattern 找文件
@@ -27,7 +26,7 @@ type globTool struct {
 }
 
 func newGlobTool(cfg Config) *globTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &globTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -80,7 +79,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	fi, err := t.cfg.Executor.Stat(ctx, absDir)
+	fi, err := t.cfg.Sandbox.Stat(ctx, absDir)
 	if err != nil {
 		return "", err
 	}
@@ -93,7 +92,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		maxItems = 1000
 	}
 
-	matches, err := t.cfg.Executor.Glob(ctx, absDir, a.Pattern, sandbox.GlobOptions{
+	matches, err := t.cfg.Sandbox.Glob(ctx, absDir, a.Pattern, GlobOptions{
 		MaxItems: maxItems,
 		Timeout:  globTimeout(ctx),
 	})

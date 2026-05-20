@@ -108,7 +108,7 @@ func (t *imageGenTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", fmt.Errorf("build submit request: %w", err)
 	}
 
-	respBody, err := doPost(ctx, t.cfg.Executor, url, body, headers)
+	respBody, err := doPost(ctx, t.cfg.Sandbox, url, body, headers)
 	if err != nil {
 		return "", fmt.Errorf("submit request: %w", err)
 	}
@@ -136,7 +136,7 @@ func (t *imageGenTool) Execute(ctx context.Context, raw string) (string, error) 
 			return "", fmt.Errorf("build query request: %w", err)
 		}
 
-		respBody, err := doPost(ctx, t.cfg.Executor, url, body, headers)
+		respBody, err := doPost(ctx, t.cfg.Sandbox, url, body, headers)
 		if err != nil {
 			if t.logger != nil {
 				t.logger.WarnContext(ctx, logger.CatTool, "image_gen: query failed",
@@ -166,7 +166,7 @@ func (t *imageGenTool) Execute(ctx context.Context, raw string) (string, error) 
 					"job_id", jobID,
 					"num_urls", len(urls))
 			}
-			localPaths := saveImages(ctx, t.cfg.Executor, urls, t.logger)
+			localPaths := saveImages(ctx, t.cfg.Sandbox, urls, t.logger)
 			r := imageGenResult{
 				Model:         model.ID,
 				Status:        "completed",

@@ -31,7 +31,7 @@ type multiWriteTool struct {
 }
 
 func newMultiWriteTool(cfg Config) *multiWriteTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &multiWriteTool{cfg: cfg}
 }
 
