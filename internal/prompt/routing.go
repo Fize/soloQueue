@@ -58,7 +58,7 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 			}
 
 			toolName := "delegate_" + l.Name
-			fmt.Fprintf(&b, "- Leader: %s → call %s(task=\"...\")\n", l.Name, toolName)
+			fmt.Fprintf(&b, "- Leader: %s → call %s(task=\"...\", work_dir=\"...\")\n", l.Name, toolName)
 		}
 	} else {
 		// Old format: inline (backward compatible)

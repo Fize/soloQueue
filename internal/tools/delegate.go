@@ -24,7 +24,8 @@ const (
 
 // delegateArgs is the parameter struct for DelegateTool.
 type delegateArgs struct {
-	Task string `json:"task"`
+	Task    string `json:"task"`
+	WorkDir string `json:"work_dir,omitempty"`
 }
 
 // Pre-computed parameter schema.
@@ -34,6 +35,10 @@ var delegateParamsSchema = json.RawMessage(`{
     "task": {
       "type": "string",
       "description": "Task description to delegate"
+    },
+    "work_dir": {
+      "type": "string",
+      "description": "Working directory for the delegated agent. REQUIRED for L1→L2 delegation. Auto-inherited from parent for L2→L3."
     }
   },
   "required": ["task"]
@@ -68,7 +73,7 @@ type DelegateTool struct {
 	// or locates the target agent.
 	// nil = synchronous mode (use Locator)
 	// non-nil = asynchronous mode (AsyncTool.ExecuteAsync path)
-	SpawnFn func(ctx context.Context, task string) (iface.Locatable, error)
+	SpawnFn func(ctx context.Context, task string, workDir string) (iface.Locatable, error)
 }
 
 // Compile-time interface checks.
@@ -154,8 +159,13 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	var isSpawned bool
 
 	if dt.SpawnFn != nil {
+		// resolve workDir: prefer explicit arg, fallback to context (L2→L3 passthrough)
+		wd := dArgs.WorkDir
+		if wd == "" {
+			wd = iface.WorkDirFromContext(ctx)
+		}
 		var err error
-		targetAgent, err = dt.SpawnFn(ctx, dArgs.Task)
+		targetAgent, err = dt.SpawnFn(ctx, dArgs.Task, wd)
 		if err != nil {
 			if dt.logger != nil {
 				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: failed to spawn agent",
@@ -474,7 +484,12 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 	var err error
 
 	if dt.SpawnFn != nil {
-		target, err = dt.SpawnFn(ctx, dArgs.Task)
+		// resolve workDir: prefer explicit arg, fallback to context (L2→L3 passthrough)
+		wd := dArgs.WorkDir
+		if wd == "" {
+			wd = iface.WorkDirFromContext(ctx)
+		}
+		target, err = dt.SpawnFn(ctx, dArgs.Task, wd)
 		if err != nil {
 			if dt.logger != nil {
 				dt.logger.WarnContext(ctx, logger.CatTool, "delegate async: failed to spawn agent",

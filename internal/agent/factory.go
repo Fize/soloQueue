@@ -68,7 +68,9 @@ type ModelResolver func(modelID string) (ModelInfo, error)
 // AgentFactory 从模板实例化 Agent
 type AgentFactory interface {
 	// Create 根据 tmpl 创建并启动一个 Agent 实例
-	Create(ctx context.Context, tmpl AgentTemplate) (*Agent, *ctxwin.ContextWindow, error)
+	// workDir is the project working directory for this agent.
+	// Empty string means use the factory's global workDir (~/.soloqueue).
+	Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error)
 
 	// Registry 返回内部的 Agent Registry（供 Supervisor 使用）
 	Registry() *Registry
@@ -204,12 +206,15 @@ func (f *DefaultFactory) Registry() *Registry {
 //  1. 构建最终 SystemPrompt（L2 使用三段式拼接，L3 直接使用 body/description）
 //  2. Build(toolsCfg) → 内置 tools
 //  3. 加载 skills（LoadSkillsFromDir）
-//  4. 创建 Agent（WithTools, WithSkills, WithParallelTools）
+//  4. 创建 Agent（WithTools, WithSkills, WithParallelTools, WithAgentWorkDir）
 //  5. 创建 ContextWindow，push system prompt + skill catalog
 //  6. Register 到 registry
 //  7. Start Agent
 //  8. 返回 (agent, cw, nil)
-func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent, *ctxwin.ContextWindow, error) {
+//
+// workDir is the project working directory for this agent.
+// If empty, the factory's global workDir (~/.soloqueue) is used.
+func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error) {
 	// Snapshot hot-reloadable fields under read lock for a consistent agent creation.
 	f.mu.RLock()
 	llm := f.llm
@@ -233,11 +238,17 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		exploreDir = prompt.ExploreDir(f.workDir)
 	}
 
+	// Resolve effective workDir: use project-specific dir or fall back to global
+	effectiveWorkDir := workDir
+	if effectiveWorkDir == "" {
+		effectiveWorkDir = f.workDir
+	}
+
 	var finalPrompt string
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, f.workDir, exploreDir)
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir)
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, f.workDir, exploreDir)
+		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir)
 	}
 
 	// 2. 构建 Definition
@@ -281,6 +292,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 
 	// 2. 构建内置 tools
 	agentToolsCfg := toolsCfg
+	agentToolsCfg.WorkDir = effectiveWorkDir
 	allTools := tools.Build(agentToolsCfg)
 
 	// 2b. L2 领导者：注入同组 L3 Worker 的 delegate 工具
@@ -288,8 +300,8 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		for _, peer := range f.sameGroupWorkers(tmpl) {
 			peer := peer // capture loop variable
 			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log)
-			dt.SpawnFn = func(ctx context.Context, task string) (iface.Locatable, error) {
-				child, _, err := f.Create(ctx, peer)
+			dt.SpawnFn = func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
+				child, _, err := f.Create(ctx, peer, wd)
 				if err != nil {
 					return nil, err
 				}
@@ -356,6 +368,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	opts := []Option{
 		WithTools(allTools...),
 		WithSkills(skillList...),
+		WithAgentWorkDir(effectiveWorkDir),
 		WithParallelTools(true),
 		// File operation tools: 30s
 		WithToolTimeout("Glob", 30*time.Second),
@@ -377,7 +390,13 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 	// 5. 创建 Agent
 	a := NewAgent(def, llm, f.log, opts...)
 
-	// 6. 创建 ContextWindow
+	// 6b. Load project-specific configs from .claude/ (if workDir is a project dir).
+	//     Must happen before CW push so AGENTS.md/CLAUDE.md are included.
+	if effectiveWorkDir != "" && effectiveWorkDir != f.workDir {
+		f.loadProjectConfig(a, effectiveWorkDir)
+	}
+
+	// 7. 创建 ContextWindow
 	//   使用模型配置的上下文窗口大小；未配置时使用 DefaultContextWindow
 	maxTokens := def.ContextWindow
 	if maxTokens <= 0 {
@@ -388,18 +407,37 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}
 
-	// 7. Register 到 registry
+	// 8. Register 到 registry
 	if err := f.registry.Register(a); err != nil {
 		return nil, nil, fmt.Errorf("factory: register agent %q: %w", tmpl.ID, err)
 	}
 
-	// 8. Start Agent
+	// 9. Start Agent
 	if err := a.Start(ctx); err != nil {
 		f.registry.Unregister(a.InstanceID)
 		return nil, nil, fmt.Errorf("factory: start agent %q: %w", tmpl.ID, err)
 	}
 
 	return a, cw, nil
+}
+
+// loadProjectConfig loads project-specific configuration from the project
+// directory when the agent's workDir is a project directory (not the global
+// ~/.soloqueue). This provides Claude Code-compatible project config loading.
+//
+// Currently loads:
+//   - AGENTS.md or CLAUDE.md → prepended to system prompt
+//
+// Future: .claude/skills/, .claude/mcp.json, .claude/agents/
+func (f *DefaultFactory) loadProjectConfig(a *Agent, projectDir string) {
+	// Load AGENTS.md or CLAUDE.md
+	agentsMDPath := filepath.Join(projectDir, "AGENTS.md")
+	claudeMDPath := filepath.Join(projectDir, "CLAUDE.md")
+	if data, err := os.ReadFile(agentsMDPath); err == nil {
+		a.Def.SystemPrompt = a.Def.SystemPrompt + "\n\n# Project Instructions (from AGENTS.md)\n\n" + string(data)
+	} else if data, err := os.ReadFile(claudeMDPath); err == nil {
+		a.Def.SystemPrompt = a.Def.SystemPrompt + "\n\n# Project Instructions (from CLAUDE.md)\n\n" + string(data)
+	}
 }
 
 // ─── Template loading ──────────────────────────────────────────────────────
@@ -631,16 +669,20 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 2: 动态能力区 ──────────────────────────────
-	// 2a. Working Directory (global + team workspaces)
+	// 2a. Working Directory
 	b.WriteString("# Working Directory\n\n")
-	fmt.Fprintf(&b, "Your global working directory is `%s`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n", workDir)
+	fmt.Fprintf(&b, "Your working directory is `%s`. All project files, source code, and configurations reside under this directory. Use this as the base for all file operations.\n", workDir)
 	if tmpl.Group != "" {
 		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
 			b.WriteString("\nTeam workspaces:\n")
 			for _, ws := range gf.Frontmatter.Workspaces {
-				fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
+				mark := " "
+				if ws.Path == workDir {
+					mark = "▶"
+				}
+				fmt.Fprintf(&b, "- **%s**: %s %s\n", ws.Name, ws.Path, mark)
 			}
-			b.WriteString("\nWhen working in one of the workspaces above, you **must** check its root directory for project-specific instruction files before starting any task:\n")
+			b.WriteString("\nWhen starting a task, check the project root for instruction files:\n")
 			b.WriteString("1. `AGENTS.md` — AI agent tactical guidance (if this file exists, read it and skip `CLAUDE.md`)\n")
 			b.WriteString("2. `CLAUDE.md` — Project architecture, conventions, and guidelines (only read if `AGENTS.md` does not exist)\n")
 			b.WriteString("3. If neither file exists, proceed without project-specific instructions.\n")
@@ -804,14 +846,18 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 
 	// ── Working Directory ──────────────────────────────────
 	b.WriteString("# Working Directory\n\n")
-	fmt.Fprintf(&b, "Your global working directory is `%s`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n", workDir)
+	fmt.Fprintf(&b, "Your working directory is `%s`. All project files, source code, and configurations reside under this directory. Use this as the base for all file operations.\n", workDir)
 	if tmpl.Group != "" {
 		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
 			b.WriteString("\nTeam workspaces:\n")
 			for _, ws := range gf.Frontmatter.Workspaces {
-				fmt.Fprintf(&b, "- **%s**: %s\n", ws.Name, ws.Path)
+				mark := " "
+				if ws.Path == workDir {
+					mark = "▶"
+				}
+				fmt.Fprintf(&b, "- **%s**: %s %s\n", ws.Name, ws.Path, mark)
 			}
-			b.WriteString("\nWhen working in one of the workspaces above, you **must** check its root directory for project-specific instruction files before starting any task:\n")
+			b.WriteString("\nWhen starting a task, check the project root for instruction files:\n")
 			b.WriteString("1. `AGENTS.md` — AI agent tactical guidance (if this file exists, read it and skip `CLAUDE.md`)\n")
 			b.WriteString("2. `CLAUDE.md` — Project architecture, conventions, and guidelines (only read if `AGENTS.md` does not exist)\n")
 			b.WriteString("3. If neither file exists, proceed without project-specific instructions.\n")
