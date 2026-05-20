@@ -11,7 +11,7 @@ func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 		{Name: "EditorInChief", Description: "总编辑，负责内容策划", Group: "NovelCreationTeam"},
 	}
 
-	result := buildRoutingTable(leaders)
+	result := buildRoutingTable(leaders, nil, "")
 
 	if !strings.Contains(result, "dev (DevOps)") {
 		t.Error("missing dev leader entry")
@@ -25,7 +25,7 @@ func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 }
 
 func TestBuildRoutingTable_Empty(t *testing.T) {
-	result := buildRoutingTable(nil)
+	result := buildRoutingTable(nil, nil, "")
 
 	if !strings.Contains(result, "No Team Leaders") {
 		t.Errorf("empty leaders should show fallback message, got: %q", result)
@@ -37,7 +37,7 @@ func TestBuildRoutingTable_NoGroup(t *testing.T) {
 		{Name: "assistant", Description: "通用助手", Group: ""},
 	}
 
-	result := buildRoutingTable(leaders)
+	result := buildRoutingTable(leaders, nil, "")
 
 	if !strings.Contains(result, "assistant: 通用助手") {
 		t.Errorf("leader without group should not show parentheses, got: %q", result)
@@ -50,7 +50,7 @@ func TestBuildRoutingTable_SortedByGroup(t *testing.T) {
 		{Name: "a_leader", Description: "A leader", Group: "AGroup"},
 	}
 
-	result := buildRoutingTable(leaders)
+	result := buildRoutingTable(leaders, nil, "")
 
 	aIdx := strings.Index(result, "a_leader")
 	zIdx := strings.Index(result, "z_leader")

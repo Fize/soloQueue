@@ -30,9 +30,10 @@ func (p *PromptConfig) userCtxPath() string {
 
 // BuildPrompt assembles the complete system prompt.
 // leaders come from the runtime agent registry and are used to build the routing table.
+// groups provide team workspace directory info displayed in the routing table.
 // recentMemory is the short-term memory directory (may be empty).
 // permanentMemory is a long-term memory flag (when non-empty, injects RecallMemory/Remember tool instructions).
-func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanentMemory, planDir string, mcpServers []string) (string, error) {
+func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, groups map[string]GroupFile, recentMemory, permanentMemory, planDir string, mcpServers []string) (string, error) {
 	// 1. Load soul (required)
 	soul, err := readMD(p.soulPath())
 	if err != nil {
@@ -48,12 +49,13 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, recentMemory, permanent
 		return "", fmt.Errorf("load rules: %w", err)
 	}
 
-	// 4. Build routing table dynamically
-	routingTable := buildRoutingTable(leaders)
+	// Get workDir from RolesDir: RolesDir = <workDir>/prompts/roles
+	workDir := filepath.Dir(filepath.Dir(p.RolesDir))
+
+	// 4. Build routing table dynamically (with team workspace directories)
+	routingTable := buildRoutingTable(leaders, groups, workDir)
 
 	// 5. Team management guide
-	// Get workDir from RolesDir: RolesDir = <workDir>/.soloqueue/roles
-	workDir := filepath.Dir(filepath.Dir(p.RolesDir))
 	teamMgmt := buildTeamManagementSection(workDir)
 
 	// 6. Assemble XML
