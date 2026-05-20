@@ -139,7 +139,7 @@ func (t *imageEditTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", fmt.Errorf("build request: %w", err)
 	}
 
-	respBody, err := doPost(ctx, t.cfg.Executor, url, body, headers)
+	respBody, err := doPost(ctx, t.cfg.Sandbox, url, body, headers)
 	if err != nil {
 		return "", fmt.Errorf("request: %w", err)
 	}
@@ -158,7 +158,7 @@ func (t *imageEditTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	urls := []string{imageURL}
-	localPaths := saveEditedImage(ctx, t.cfg.Executor, imageURL, t.logger)
+	localPaths := saveEditedImage(ctx, t.cfg.Sandbox, imageURL, t.logger)
 
 	r := imageEditResult{
 		Model:      model.ID,

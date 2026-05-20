@@ -7,7 +7,6 @@ import (
 	"regexp"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // grepTool 在目录下按 Go 正则搜索
@@ -36,7 +35,7 @@ type grepTool struct {
 }
 
 func newGrepTool(cfg Config) *grepTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &grepTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -103,7 +102,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	fi, err := t.cfg.Executor.Stat(ctx, absDir)
+	fi, err := t.cfg.Sandbox.Stat(ctx, absDir)
 	if err != nil {
 		return "", err
 	}
@@ -120,7 +119,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		maxLine = 500
 	}
 
-	grepMatches, err := t.cfg.Executor.Grep(ctx, absDir, a.Pattern, sandbox.GrepOptions{
+	grepMatches, err := t.cfg.Sandbox.Grep(ctx, absDir, a.Pattern, GrepOptions{
 		MaxMatches:  maxMatches,
 		MaxLineLen:  maxLine,
 		GlobPattern: a.Glob,

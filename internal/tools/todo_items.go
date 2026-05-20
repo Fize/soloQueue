@@ -17,7 +17,7 @@ type addTodoItemsTool struct {
 }
 
 func newAddTodoItemsTool(cfg Config) *addTodoItemsTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &addTodoItemsTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -86,7 +86,7 @@ type deleteTodoItemsTool struct {
 }
 
 func newDeleteTodoItemsTool(cfg Config) *deleteTodoItemsTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &deleteTodoItemsTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -140,7 +140,7 @@ type toggleTodoTool struct {
 }
 
 func newToggleTodoTool(cfg Config) *toggleTodoTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &toggleTodoTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -200,7 +200,7 @@ type setTodoDependenciesTool struct {
 }
 
 func newSetTodoDependenciesTool(cfg Config) *setTodoDependenciesTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &setTodoDependenciesTool{cfg: cfg, logger: cfg.Logger}
 }
 

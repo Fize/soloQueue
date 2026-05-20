@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // fileReadTool 读取单个文件并返回 JSON payload
@@ -24,7 +23,7 @@ type fileReadTool struct {
 }
 
 func newFileReadTool(cfg Config) *fileReadTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &fileReadTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -74,7 +73,7 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	res, err := t.cfg.Executor.ReadFile(ctx, abs, sandbox.ReadFileOptions{
+	res, err := t.cfg.Sandbox.ReadFile(ctx, abs, ReadFileOptions{
 		MaxSize: t.cfg.MaxFileSize,
 	})
 	if err != nil {

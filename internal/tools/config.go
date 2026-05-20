@@ -6,7 +6,7 @@
 //   - 工具扁平布局（每个 .go 文件一个工具 + 一个 *_test.go）；不做子包。
 //     当 tool 数量超过 ~30 或按域划分更有意义时，再做 refactor。
 //   - 共享的配置 / helper（sandbox 检查、atomic write）分别在
-//     sandbox.go / helpers.go 集中管理。
+//     exec.go / helpers.go 集中管理。
 //   - 工具 Execute 总返回 JSON 字符串（便于 LLM 解析）或结构化错误；
 //     错误由 agent 层格式化为 "error: ..." 喂回 LLM，不中断循环。
 //
@@ -25,7 +25,6 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 )
 
@@ -98,9 +97,9 @@ type Config struct {
 	Logger *logger.Logger
 
 	// ── 沙盒执行器 ──────────────────────────────────────────────
-	// Executor 是所有工具的执行底座，所有宿主机交互必须通过它。
-	// nil 时 Build 会自动注入 LocalExecutor（保障测试和本地开发场景）。
-	Executor sandbox.Executor
+	// Sandbox 是所有工具的执行底座，所有宿主机交互必须通过它。
+	// nil 时 Build 会自动注入 NewSandbox（保障测试和本地开发场景）。
+	Sandbox *Sandbox
 
 	// ── Plan Directory ─────────────────────────────────────────────
 	// PlanDir is the absolute path to the plan directory (~/.soloqueue/plan/).
@@ -144,19 +143,19 @@ type ImgModelCfg struct {
 
 // ─── Build ────────────────────────────────────────────────────────────────
 
-// ensureExecutor 保证 cfg.Executor 不为 nil，否则注入 LocalExecutor。
-func ensureExecutor(cfg *Config) {
-	if cfg.Executor == nil {
-		cfg.Executor = sandbox.NewLocalExecutor()
+// ensureSandbox 保证 cfg.Sandbox 不为 nil，否则注入默认实现。
+func ensureSandbox(cfg *Config) {
+	if cfg.Sandbox == nil {
+		cfg.Sandbox = NewSandbox()
 	}
 }
 
 // Build 返回当前 Config 下启用的所有工具
 //
 // 返回切片顺序保持与声明顺序一致（便于 debug）。
-// 如果 cfg.Executor 为 nil，自动注入 LocalExecutor。
+// 如果 cfg.Sandbox 为 nil，自动注入默认实现。
 func Build(cfg Config) []Tool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	tools := []Tool{
 		newFileReadTool(cfg),
 		newGrepTool(cfg),

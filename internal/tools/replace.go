@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // replaceTool performs strict string replacement on a single file
@@ -35,7 +34,7 @@ type replaceTool struct {
 }
 
 func newReplaceTool(cfg Config) *replaceTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &replaceTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -94,7 +93,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	readRes, err := t.cfg.Executor.ReadFile(ctx, abs, sandbox.ReadFileOptions{
+	readRes, err := t.cfg.Sandbox.ReadFile(ctx, abs, ReadFileOptions{
 		MaxSize: t.cfg.MaxFileSize,
 	})
 	if err != nil {
@@ -119,7 +118,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("%w: result %d bytes > %d", ErrContentTooLarge, len(after), t.cfg.MaxWriteSize)
 	}
 
-	if _, werr := t.cfg.Executor.WriteFile(ctx, abs, []byte(after), sandbox.WriteFileOptions{
+	if _, werr := t.cfg.Sandbox.WriteFile(ctx, abs, []byte(after), WriteFileOptions{
 		Overwrite: true,
 		MaxSize:   t.cfg.MaxWriteSize,
 	}); werr != nil {

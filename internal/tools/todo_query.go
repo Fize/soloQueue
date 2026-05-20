@@ -18,7 +18,7 @@ type listPlansTool struct {
 }
 
 func newListPlansTool(cfg Config) *listPlansTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &listPlansTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -98,7 +98,7 @@ type getPlanTool struct {
 }
 
 func newGetPlanTool(cfg Config) *getPlanTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &getPlanTool{cfg: cfg, logger: cfg.Logger}
 }
 

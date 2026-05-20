@@ -11,7 +11,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // webSearchTool 通过 DuckDuckGo Lite 搜索网页
@@ -35,7 +34,7 @@ type webSearchTool struct {
 }
 
 func newWebSearchTool(cfg Config) *webSearchTool {
-	ensureExecutor(&cfg)
+	ensureSandbox(&cfg)
 	return &webSearchTool{
 		cfg:    cfg,
 		logger: cfg.Logger,
@@ -104,9 +103,9 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	form := url.Values{}
 	form.Set("q", a.Query)
 
-	httpResp, err := t.cfg.Executor.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
+	httpResp, err := t.cfg.Sandbox.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
 		form.Encode(),
-		sandbox.HTTPOptions{
+		HTTPOptions{
 			Timeout:     t.cfg.WebSearchTimeout,
 			MaxBody:     2 << 20,
 			ContentType: "application/x-www-form-urlencoded",

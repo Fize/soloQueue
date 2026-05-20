@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // ─── Provider interface ───────────────────────────────────────────────
@@ -278,7 +277,7 @@ func init() {
 	artifactDir = filepath.Join(home, ".soloqueue", "artifacts")
 }
 
-func saveImages(ctx context.Context, exec sandbox.Executor, urls []string, log *logger.Logger) []string {
+func saveImages(ctx context.Context, exec *Sandbox, urls []string, log *logger.Logger) []string {
 	var paths []string
 	for i, url := range urls {
 		fname := urlBaseName(url, i+1)
@@ -300,7 +299,7 @@ func saveImages(ctx context.Context, exec sandbox.Executor, urls []string, log *
 	return paths
 }
 
-func saveEditedImage(ctx context.Context, exec sandbox.Executor, url string, log *logger.Logger) []string {
+func saveEditedImage(ctx context.Context, exec *Sandbox, url string, log *logger.Logger) []string {
 	fname := urlBaseName(url, 1)
 	fpath := filepath.Join(artifactDir, fname)
 
@@ -339,11 +338,11 @@ func urlBaseName(rawURL string, seq int) string {
 	return fmt.Sprintf("%s_%d%s", nameNoExt, seq, ext)
 }
 
-func downloadTo(ctx context.Context, exec sandbox.Executor, url, fpath string) error {
+func downloadTo(ctx context.Context, exec *Sandbox, url, fpath string) error {
 	if err := os.MkdirAll(filepath.Dir(fpath), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	resp, err := exec.HTTPGet(ctx, url, sandbox.HTTPOptions{})
+	resp, err := exec.HTTPGet(ctx, url, HTTPOptions{})
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
@@ -361,8 +360,8 @@ func downloadTo(ctx context.Context, exec sandbox.Executor, url, fpath string) e
 	return nil
 }
 
-func doPost(ctx context.Context, exec sandbox.Executor, url string, body string, headers map[string]string) ([]byte, error) {
-	resp, err := exec.HTTPPost(ctx, url, body, sandbox.HTTPOptions{Headers: headers, MaxBody: 64 << 10})
+func doPost(ctx context.Context, exec *Sandbox, url string, body string, headers map[string]string) ([]byte, error) {
+	resp, err := exec.HTTPPost(ctx, url, body, HTTPOptions{Headers: headers, MaxBody: 64 << 10})
 	if err != nil {
 		return nil, fmt.Errorf("http post %s: %w", url, err)
 	}
