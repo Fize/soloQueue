@@ -109,3 +109,5 @@ web/                React web UI (Vite dev server)
 - **Test conventions**: no `TestMain` or shared fixtures. Tests are self-contained per package.
 - **FakeLLM** (`internal/agent/llm.go`): scripted LLM stub for testing tool loops, streaming, reasoning — use instead of mocking across packages.
 - **Platform-specific RunCommand**: `internal/tools/exec_unix.go` (`/bin/sh -c`, Setpgid+SIGKILL) vs `exec_windows.go` (auto-detects powershell.exe/cmd.exe). Build tags handle selection.
+- **Environment info in prompts**: `internal/prompt/environment.go` injects `<environment>` (L1) / `# Environment` (L2/L3) into all system prompts. Shows OS, arch, shell, working directory, explore directory, path separator. Uses `runtime.GOOS` / `runtime.GOARCH`.
+- **Explore directory**: `internal/prompt/ExploreDir(workDir)` → `workDir/explore` (e.g., `~/.soloqueue/explore`). Used by all three layers via `{{EXPLORE_DIR}}` placeholder, replaced at prompt assembly time.

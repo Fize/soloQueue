@@ -775,7 +775,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		"designer": otherTmpl,
 	}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue")
+	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// Segment 1: user-defined
 	if !strings.Contains(prompt, "You are a dev supervisor.") {
@@ -805,8 +805,8 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L2 prompt should contain exploration artifacts rule")
 	}
-	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
-		t.Error("L2 prompt should contain /tmp/soloqueue-explore path")
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L2 prompt should contain explore directory path")
 	}
 	if !strings.Contains(prompt, "same-day") {
 		t.Error("L2 prompt should mention same-day freshness window")
@@ -894,11 +894,10 @@ func TestBuildL2SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue")
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// 验证 L2 prompt 中包含 plan 目录路径
-	if !strings.Contains(prompt, "~/.soloqueue/plan") {
-		// Note: planDir is now displayed in tilde form (~/.soloqueue/plan) to avoid leaking host paths
+	if !strings.Contains(prompt, "/home/user/.soloqueue/plan") {
 		t.Errorf("L2 prompt should contain plan directory path %q", planDir)
 	}
 }
@@ -919,7 +918,7 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	groups := map[string]prompt.GroupFile{}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue")
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// 空 planDir 时，plan 相关规则不应出现
 	if strings.Contains(prompt, "MANDATORY Plan Before Execution") {
@@ -933,8 +932,8 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L2 prompt should contain exploration artifacts rule even when planDir is empty")
 	}
-	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
-		t.Error("L2 prompt should contain /tmp/soloqueue-explore path even when planDir is empty")
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L2 prompt should contain explore directory path even when planDir is empty")
 	}
 }
 
@@ -955,7 +954,7 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue")
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// 验证 Goal/Approach/Impact/Steps 结构约定在 L2 prompt 中体现
 	if !strings.Contains(prompt, "Goal") {
@@ -981,7 +980,7 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue")
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// 验证 L3 prompt 中包含 "Follow the Plan" 规则
 	if !strings.Contains(prompt, "Follow the Plan") {
@@ -995,8 +994,8 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L3 prompt should contain exploration artifacts rule")
 	}
-	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
-		t.Error("L3 prompt should contain /tmp/soloqueue-explore path")
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L3 prompt should contain explore directory path")
 	}
 	if !strings.Contains(prompt, "same-day") {
 		t.Error("L3 prompt should mention same-day freshness window")
@@ -1012,11 +1011,11 @@ func TestBuildL3SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue")
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
-	// 验证 L3 prompt 中包含 plan 目录路径（以 ~ 开头的形式）
-	if !strings.Contains(prompt, "~/.soloqueue/plan") {
-		t.Errorf("L3 prompt should contain plan directory path in ~ form, got: %s", prompt)
+	// 验证 L3 prompt 中包含 plan 目录路径
+	if !strings.Contains(prompt, "/home/user/.soloqueue/plan") {
+		t.Errorf("L3 prompt should contain plan directory path, got: %s", prompt)
 	}
 }
 
@@ -1028,7 +1027,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue")
+	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// 空 planDir 时，不要出现未替换的占位符
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
@@ -1039,8 +1038,8 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L3 prompt should contain exploration artifacts rule even when planDir is empty")
 	}
-	if !strings.Contains(prompt, "/tmp/soloqueue-explore") {
-		t.Error("L3 prompt should contain /tmp/soloqueue-explore path even when planDir is empty")
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L3 prompt should contain explore directory path even when planDir is empty")
 	}
 }
 
@@ -1053,7 +1052,7 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue")
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// 验证 Goal/Approach/Impact/Steps 结构约定在 L3 prompt 中体现
 	if !strings.Contains(prompt, "Goal") {

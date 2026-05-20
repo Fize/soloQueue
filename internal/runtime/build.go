@@ -318,6 +318,8 @@ func Build(
 	}
 	log.Debug(logger.CatApp, "build: skills loaded", "duration", time.Since(skillStart).String())
 
+	exploreDir := prompt.ExploreDir(workDir)
+
 	agentFactory := agent.NewDefaultFactory(
 		agentRegistry, llmClient, toolsCfg, log,
 		agent.WithModelResolver(modelResolver),
@@ -328,6 +330,7 @@ func Build(
 		agent.WithBypassConfirm(bypassConfirm),
 		agent.WithMCPManager(mcpMgr),
 		agent.WithSkillRegistry(skillReg),
+		agent.WithExploreDir(exploreDir),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────

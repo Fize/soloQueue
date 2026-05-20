@@ -6,6 +6,7 @@ import (
 )
 
 func TestAssembleWithXML_Full(t *testing.T) {
+	exploreDir := "/home/user/.soloqueue/explore"
 	result := assembleWithXML(
 		"profile content",
 		"user context",
@@ -16,6 +17,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
+		exploreDir,
 		nil,
 	)
 
@@ -25,8 +27,8 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "<working_directory>") {
 		t.Error("missing working_directory section")
 	}
-	if !strings.Contains(result, "~/.soloqueue") {
-		t.Error("working_directory should mention ~/.soloqueue")
+	if !strings.Contains(result, "/home/user/.soloqueue") {
+		t.Error("working_directory should mention resolved workDir path")
 	}
 	if !strings.Contains(result, "<user_context>\nuser context\n</user_context>") {
 		t.Error("missing or incorrect user_context section")
@@ -49,7 +51,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "<plan_before_action>") {
 		t.Error("missing plan_before_action section when planDir is provided")
 	}
-	if !strings.Contains(result, "~/.soloqueue/plan") {
+	if !strings.Contains(result, "/home/user/.soloqueue/plan") {
 		t.Error("missing plan directory path in plan_before_action section")
 	}
 }
@@ -65,6 +67,7 @@ func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
+		"/home/user/.soloqueue/explore",
 		nil,
 	)
 
@@ -84,6 +87,7 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
+		"/home/user/.soloqueue/explore",
 		nil,
 	)
 
@@ -94,8 +98,8 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 	if !strings.Contains(result, "<exploration_artifacts>") {
 		t.Error("exploration_artifacts section should always be present")
 	}
-	if !strings.Contains(result, "/tmp/soloqueue-explore") {
-		t.Error("exploration_artifacts should contain /tmp/soloqueue-explore path")
+	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
+		t.Error("exploration_artifacts should contain explore directory path")
 	}
 	if !strings.Contains(result, "same-day") {
 		t.Error("exploration_artifacts should mention same-day freshness window")
@@ -113,14 +117,15 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
+		"/home/user/.soloqueue/explore",
 		nil,
 	)
 
 	if !strings.Contains(result, "<exploration_artifacts>") {
 		t.Error("exploration_artifacts section should be present")
 	}
-	if !strings.Contains(result, "/tmp/soloqueue-explore") {
-		t.Error("exploration_artifacts should contain /tmp/soloqueue-explore path")
+	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
+		t.Error("exploration_artifacts should contain explore directory path")
 	}
 	if !strings.Contains(result, "same-day") {
 		t.Error("exploration_artifacts should mention same-day freshness window")
@@ -141,6 +146,7 @@ func TestAssembleWithXML_MCPServers(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
+		"/home/user/.soloqueue/explore",
 		[]string{"playwright", "github"},
 	)
 
@@ -166,6 +172,7 @@ func TestAssembleWithXML_NoMCPServers(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
+		"/home/user/.soloqueue/explore",
 		nil,
 	)
 

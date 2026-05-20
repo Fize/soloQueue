@@ -94,6 +94,7 @@ type DefaultFactory struct {
 	groups         map[string]prompt.GroupFile // group 信息，供 L2 prompt 注入团队上下文
 	bypassConfirm  bool                        // global --bypass: skip all confirmations
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
+	exploreDir     string                      // exploration artifact directory (platform-appropriate)
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -186,6 +187,13 @@ func WithSkillRegistry(reg *skill.SkillRegistry) FactoryOption {
 	}
 }
 
+// WithExploreDir sets the exploration artifacts directory (platform-appropriate).
+func WithExploreDir(exploreDir string) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.exploreDir = exploreDir
+	}
+}
+
 func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
 }
@@ -219,11 +227,17 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate) (*Agent
 			planDir = teamPlanDir
 		}
 	}
+	// Compute platform-appropriate explore directory
+	exploreDir := f.exploreDir
+	if exploreDir == "" && f.workDir != "" {
+		exploreDir = prompt.ExploreDir(f.workDir)
+	}
+
 	var finalPrompt string
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, f.workDir)
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, f.workDir, exploreDir)
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, f.workDir)
+		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, f.workDir, exploreDir)
 	}
 
 	// 2. 构建 Definition
@@ -507,7 +521,7 @@ GOOD: delegate todo1 (only item ready) → wait → ToggleTodo(1) → delegate t
 
 const l2EnforcedExplorationSection = `
 # 9. Exploration Artifacts
-When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to /tmp/soloqueue-explore if the exploration is complex or the findings are worth sharing with other agents.
+When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to {{EXPLORE_DIR}} if the exploration is complex or the findings are worth sharing with other agents.
 
 ## When to Save
 - Complex investigations with many files or nuanced conclusions
@@ -515,10 +529,10 @@ When you perform exploration tasks (reading files, searching code, investigating
 - Simple one-off lookups can skip saving
 
 ## Document Naming
-Format: /tmp/soloqueue-explore/<task-slug>_<agent-id>.md
+Format: {{EXPLORE_DIR}}/<task-slug>_<agent-id>.md
 Examples:
-- /tmp/soloqueue-explore/explore_auth_flow_dev-leader.md
-- /tmp/soloqueue-explore/investigate_race_condition_dev-leader.md
+- {{EXPLORE_DIR}}/explore_auth_flow_dev-leader.md
+- {{EXPLORE_DIR}}/investigate_race_condition_dev-leader.md
 
 ## Document Content
 - Agent: your id/name/layer
@@ -529,7 +543,7 @@ Examples:
 - Key Findings, Files Inspected, Reusable Context, Open Questions
 
 ## Reuse Rules
-1. Before delegating an exploration task to L3, check /tmp/soloqueue-explore for an existing artifact with the same task-slug and your agent-id.
+1. Before delegating an exploration task to L3, check {{EXPLORE_DIR}} for an existing artifact with the same task-slug and your agent-id.
 2. If an artifact exists and was created today, read it first and pass its findings to the L3 Worker to avoid redundant exploration.
 3. If you create or reuse an artifact, include its path in your response to L1 so other agents can access it.
 4. When delegating to L3, you may ask the Worker to write an artifact and return its path.
@@ -601,7 +615,7 @@ GOOD (to L1): "Task completed. The CSS styling issue on the login page has been 
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (动态能力区): Team Context + 同组 Agents 目录 + MCP Servers
 // Segment 3 (框架强制区): 不可篡改的底层契约
-func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir string) string {
+func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -619,7 +633,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	// ── Segment 2: 动态能力区 ──────────────────────────────
 	// 2a. Working Directory (global + team workspaces)
 	b.WriteString("# Working Directory\n\n")
-	b.WriteString("Your global working directory is `~/.soloqueue`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n")
+	fmt.Fprintf(&b, "Your global working directory is `%s`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n", workDir)
 	if tmpl.Group != "" {
 		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
 			b.WriteString("\nTeam workspaces:\n")
@@ -678,23 +692,22 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 3: 框架强制区 ──────────────────────────────
-	displayPlanDir := planDir
-		if workDir != "" && strings.HasPrefix(planDir, workDir) {
-			displayPlanDir = "~/.soloqueue" + planDir[len(workDir):]
-		}
-		b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart1, "{{PLAN_DIR}}", displayPlanDir))
-		if planDir != "" {
-			b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", displayPlanDir))
-		}
-		b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", displayPlanDir))
-		b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
-		b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
-		b.WriteString(strings.ReplaceAll(l2EnforcedToolAwareness, "{{PLAN_DIR}}", displayPlanDir))
-
-		return b.String()
+	b.WriteString(prompt.EnvSection(workDir, exploreDir, false))
+	b.WriteString("\n\n")
+	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart1, "{{PLAN_DIR}}", planDir))
+	if planDir != "" {
+		b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
 	}
+	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
+	b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l2EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 
-	// ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
+	return b.String()
+}
+
+// ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
 
 // l3EnforcedDirectives is the always-included portion of the L3 enforced rules.
 const l3EnforcedDirectives = `
@@ -733,7 +746,7 @@ GOOD: After every completed work item → ToggleTodo(id, "done"). No exceptions.
 
 const l3EnforcedExplorationSection = `
 # 4. Exploration Artifacts
-When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to /tmp/soloqueue-explore if the exploration is complex or the findings are worth sharing with other agents.
+When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to {{EXPLORE_DIR}} if the exploration is complex or the findings are worth sharing with other agents.
 
 ## When to Save
 - Complex investigations with many files or nuanced conclusions
@@ -741,10 +754,10 @@ When you perform exploration tasks (reading files, searching code, investigating
 - Simple one-off lookups can skip saving
 
 ## Document Naming
-Format: /tmp/soloqueue-explore/<task-slug>_<agent-id>.md
+Format: {{EXPLORE_DIR}}/<task-slug>_<agent-id>.md
 Examples:
-- /tmp/soloqueue-explore/explore_auth_flow_backend-worker.md
-- /tmp/soloqueue-explore/investigate_race_condition_backend-worker.md
+- {{EXPLORE_DIR}}/explore_auth_flow_backend-worker.md
+- {{EXPLORE_DIR}}/investigate_race_condition_backend-worker.md
 
 ## Document Content
 - Agent: your id/name/layer
@@ -755,7 +768,7 @@ Examples:
 - Key Findings, Files Inspected, Reusable Context, Open Questions
 
 ## Reuse Rules
-1. Before starting a new exploration, check /tmp/soloqueue-explore for an existing artifact with the same task-slug and your agent-id.
+1. Before starting a new exploration, check {{EXPLORE_DIR}} for an existing artifact with the same task-slug and your agent-id.
 2. If an artifact exists and was created today, read it first and reuse its findings when appropriate.
 3. If you create or reuse an artifact, include its path in your response to L2 so other agents can access it.
 `
@@ -776,7 +789,7 @@ Prefer the Read tool for reading files. Using Bash with cat wastes tokens and by
 //
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (框架强制区): 不可篡改的底层契约
-func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir string) string {
+func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -791,7 +804,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 
 	// ── Working Directory ──────────────────────────────────
 	b.WriteString("# Working Directory\n\n")
-	b.WriteString("Your global working directory is `~/.soloqueue`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n")
+	fmt.Fprintf(&b, "Your global working directory is `%s`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use this path.\n", workDir)
 	if tmpl.Group != "" {
 		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
 			b.WriteString("\nTeam workspaces:\n")
@@ -807,14 +820,13 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	b.WriteString("\n")
 
 	// ── Segment 2: 框架强制区 ──────────────────────────────
-	displayPlanDir := planDir
-		if workDir != "" && strings.HasPrefix(planDir, workDir) {
-			displayPlanDir = "~/.soloqueue" + planDir[len(workDir):]
-		}
-		b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", displayPlanDir))
-		b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", displayPlanDir))
-		b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", displayPlanDir))
-		b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", displayPlanDir))
+	b.WriteString(prompt.EnvSection(workDir, exploreDir, false))
+	b.WriteString("\n\n")
+	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
+	b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
+	b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 
-		return b.String()
+	return b.String()
 	}
