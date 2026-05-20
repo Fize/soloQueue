@@ -775,7 +775,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		"designer": otherTmpl,
 	}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
 
 	// Segment 1: user-defined
 	if !strings.Contains(prompt, "You are a dev supervisor.") {
@@ -894,7 +894,7 @@ func TestBuildL2SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
 
 	// 验证 L2 prompt 中包含 plan 目录路径
 	if !strings.Contains(prompt, "/home/user/.soloqueue/plan") {
@@ -918,7 +918,7 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	groups := map[string]prompt.GroupFile{}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
 
 	// 空 planDir 时，plan 相关规则不应出现
 	if strings.Contains(prompt, "MANDATORY Plan Before Execution") {
@@ -954,7 +954,7 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
 
 	// 验证 Goal/Approach/Impact/Steps 结构约定在 L2 prompt 中体现
 	if !strings.Contains(prompt, "Goal") {
@@ -1066,6 +1066,578 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Steps") {
 		t.Error("L3 prompt should contain 'Steps' in design document structure")
+	}
+}
+
+// ─── loadProjectResources tests ──────────────────────────────────────
+
+func TestLoadProjectResources_AGENTSMD(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), []byte("# Project Rules\nAlways write tests."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if res.projectPrompt == "" {
+		t.Fatal("projectPrompt should not be empty when AGENTS.md exists")
+	}
+	if !strings.Contains(res.projectPrompt, "AGENTS.md") {
+		t.Error("projectPrompt should reference AGENTS.md")
+	}
+	if !strings.Contains(res.projectPrompt, "Always write tests.") {
+		t.Error("projectPrompt should contain AGENTS.md content")
+	}
+}
+
+func TestLoadProjectResources_CLAUDEMDFallback(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "CLAUDE.md"), []byte("# Claude Rules\nUse Go."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if res.projectPrompt == "" {
+		t.Fatal("projectPrompt should not be empty when CLAUDE.md exists")
+	}
+	if !strings.Contains(res.projectPrompt, "CLAUDE.md") {
+		t.Error("projectPrompt should reference CLAUDE.md")
+	}
+	if !strings.Contains(res.projectPrompt, "Use Go.") {
+		t.Error("projectPrompt should contain CLAUDE.md content")
+	}
+}
+
+func TestLoadProjectResources_AGENTSMDTakesPrecedence(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), []byte("AGENTS content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "CLAUDE.md"), []byte("CLAUDE content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if !strings.Contains(res.projectPrompt, "AGENTS content") {
+		t.Error("AGENTS.md should take precedence over CLAUDE.md")
+	}
+	if strings.Contains(res.projectPrompt, "CLAUDE content") {
+		t.Error("CLAUDE.md content should not appear when AGENTS.md exists")
+	}
+}
+
+func TestLoadProjectResources_ProjectAgents(t *testing.T) {
+	projectDir := t.TempDir()
+	agentsDir := filepath.Join(projectDir, ".claude", "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	agentMD := `---
+name: project-worker
+description: Project-specific worker
+---
+You are a project worker.
+`
+	if err := os.WriteFile(filepath.Join(agentsDir, "worker.md"), []byte(agentMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if len(res.agents) != 1 {
+		t.Fatalf("expected 1 project agent, got %d", len(res.agents))
+	}
+	if res.agents[0].ID != "project-worker" {
+		t.Errorf("agent ID = %q, want %q", res.agents[0].ID, "project-worker")
+	}
+}
+
+func TestLoadProjectResources_ProjectSkills(t *testing.T) {
+	projectDir := t.TempDir()
+	skillDir := filepath.Join(projectDir, ".claude", "skills", "deploy")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	skillMD := `---
+name: deploy
+description: Deploy to production
+---
+# Deploy Skill
+Deploy the project.
+`
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if len(res.skills) != 1 {
+		t.Fatalf("expected 1 project skill, got %d", len(res.skills))
+	}
+	if res.skills[0].ID != "deploy" {
+		t.Errorf("skill ID = %q, want %q", res.skills[0].ID, "deploy")
+	}
+}
+
+func TestLoadProjectResources_ProjectMCPConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	claudeDir := filepath.Join(projectDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mcpJSON := `{
+  "mcpServers": {
+    "project-db": {
+      "command": "npx",
+      "args": ["db-mcp"],
+      "enabled": true
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(claudeDir, "mcp.json"), []byte(mcpJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if res.mcpCfg == nil {
+		t.Fatal("mcpCfg should not be nil when .claude/mcp.json exists")
+	}
+	if len(res.mcpCfg.Servers) != 1 {
+		t.Fatalf("expected 1 MCP server, got %d", len(res.mcpCfg.Servers))
+	}
+	if res.mcpCfg.Servers[0].Name != "project-db" {
+		t.Errorf("server name = %q, want %q", res.mcpCfg.Servers[0].Name, "project-db")
+	}
+}
+
+func TestLoadProjectResources_EmptyProjectDir(t *testing.T) {
+	projectDir := t.TempDir()
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if len(res.agents) != 0 {
+		t.Errorf("expected 0 agents, got %d", len(res.agents))
+	}
+	if len(res.skills) != 0 {
+		t.Errorf("expected 0 skills, got %d", len(res.skills))
+	}
+	if res.mcpCfg != nil {
+		t.Error("mcpCfg should be nil when no .claude/mcp.json")
+	}
+	if res.projectPrompt != "" {
+		t.Error("projectPrompt should be empty when no AGENTS.md/CLAUDE.md")
+	}
+}
+
+func TestLoadProjectResources_AllResources(t *testing.T) {
+	projectDir := t.TempDir()
+	claudeDir := filepath.Join(projectDir, ".claude")
+	agentsDir := filepath.Join(claudeDir, "agents")
+	skillDir := filepath.Join(claudeDir, "skills", "test-skill")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), []byte("Project rules"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	agentMD := `---
+name: proj-worker
+description: A project worker
+---
+You work on this project.
+`
+	if err := os.WriteFile(filepath.Join(agentsDir, "worker.md"), []byte(agentMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	skillMD := `---
+name: test-skill
+description: Test skill
+---
+# Test
+`
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mcpJSON := `{
+  "mcpServers": {
+    "proj-mcp": {
+      "command": "npx",
+      "args": ["proj-mcp-server"],
+      "enabled": true
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(claudeDir, "mcp.json"), []byte(mcpJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &DefaultFactory{}
+	res := f.loadProjectResources(projectDir)
+
+	if res.projectPrompt == "" {
+		t.Error("projectPrompt should not be empty")
+	}
+	if len(res.agents) != 1 {
+		t.Errorf("expected 1 agent, got %d", len(res.agents))
+	}
+	if len(res.skills) != 1 {
+		t.Errorf("expected 1 skill, got %d", len(res.skills))
+	}
+	if res.mcpCfg == nil {
+		t.Error("mcpCfg should not be nil")
+	}
+}
+
+// ─── visibleWorkers tests ──────────────────────────────────────
+
+func TestVisibleWorkers_SameGroupOnly(t *testing.T) {
+	f := &DefaultFactory{
+		templates: map[string]AgentTemplate{
+			"leader":   {ID: "leader", Group: "DevOps", IsLeader: true},
+			"backend":  {ID: "backend", Group: "DevOps", IsLeader: false},
+			"frontend": {ID: "frontend", Group: "DevOps", IsLeader: false},
+			"designer": {ID: "designer", Group: "Design", IsLeader: false},
+		},
+	}
+
+	leader := f.templates["leader"]
+	workers := f.visibleWorkers(leader, nil)
+
+	if len(workers) != 2 {
+		t.Fatalf("expected 2 workers, got %d", len(workers))
+	}
+
+	found := map[string]bool{}
+	for _, w := range workers {
+		found[w.ID] = true
+	}
+	if !found["backend"] || !found["frontend"] {
+		t.Errorf("expected backend and frontend, got %v", found)
+	}
+	if found["designer"] {
+		t.Error("designer from different group should not be visible")
+	}
+}
+
+func TestVisibleWorkers_ExcludesSelfAndLeaders(t *testing.T) {
+	f := &DefaultFactory{
+		templates: map[string]AgentTemplate{
+			"leader":    {ID: "leader", Group: "DevOps", IsLeader: true},
+			"leader2":   {ID: "leader2", Group: "DevOps", IsLeader: true},
+			"worker":    {ID: "worker", Group: "DevOps", IsLeader: false},
+		},
+	}
+
+	leader := f.templates["leader"]
+	workers := f.visibleWorkers(leader, nil)
+
+	if len(workers) != 1 {
+		t.Fatalf("expected 1 worker, got %d", len(workers))
+	}
+	if workers[0].ID != "worker" {
+		t.Errorf("expected worker, got %q", workers[0].ID)
+	}
+}
+
+func TestVisibleWorkers_ProjectAgentsOverrideGlobal(t *testing.T) {
+	f := &DefaultFactory{
+		templates: map[string]AgentTemplate{
+			"leader":   {ID: "leader", Group: "DevOps", IsLeader: true},
+			"backend":  {ID: "backend", Group: "DevOps", IsLeader: false, Description: "global backend"},
+			"frontend": {ID: "frontend", Group: "DevOps", IsLeader: false},
+		},
+	}
+
+	projectAgents := []AgentTemplate{
+		{ID: "backend", Group: "DevOps", IsLeader: false, Description: "project backend"},
+		{ID: "new-worker", Group: "DevOps", IsLeader: false, Description: "new project worker"},
+	}
+
+	leader := f.templates["leader"]
+	workers := f.visibleWorkers(leader, projectAgents)
+
+	if len(workers) != 3 {
+		t.Fatalf("expected 3 workers, got %d", len(workers))
+	}
+
+	byID := map[string]AgentTemplate{}
+	for _, w := range workers {
+		byID[w.ID] = w
+	}
+
+	if byID["backend"].Description != "project backend" {
+		t.Errorf("project backend should override global, got %q", byID["backend"].Description)
+	}
+	if _, ok := byID["new-worker"]; !ok {
+		t.Error("new project worker should be visible")
+	}
+	if _, ok := byID["frontend"]; !ok {
+		t.Error("global frontend should still be visible")
+	}
+}
+
+func TestVisibleWorkers_ProjectAgentExcludesSelfAndLeaders(t *testing.T) {
+	f := &DefaultFactory{
+		templates: map[string]AgentTemplate{
+			"leader": {ID: "leader", Group: "DevOps", IsLeader: true},
+		},
+	}
+
+	projectAgents := []AgentTemplate{
+		{ID: "leader", Group: "DevOps", IsLeader: false, Description: "project leader override"},
+		{ID: "proj-leader", Group: "DevOps", IsLeader: true, Description: "project leader"},
+		{ID: "proj-worker", Group: "DevOps", IsLeader: false, Description: "project worker"},
+	}
+
+	leader := f.templates["leader"]
+	workers := f.visibleWorkers(leader, projectAgents)
+
+	if len(workers) != 1 {
+		t.Fatalf("expected 1 worker, got %d", len(workers))
+	}
+	if workers[0].ID != "proj-worker" {
+		t.Errorf("expected proj-worker, got %q", workers[0].ID)
+	}
+}
+
+func TestVisibleWorkers_EmptyGroup(t *testing.T) {
+	f := &DefaultFactory{
+		templates: map[string]AgentTemplate{
+			"lone": {ID: "lone", Group: "", IsLeader: false},
+		},
+	}
+
+	lone := f.templates["lone"]
+	workers := f.visibleWorkers(lone, nil)
+
+	if len(workers) != 0 {
+		t.Errorf("expected 0 workers for empty group, got %d", len(workers))
+	}
+}
+
+// ─── Skills merge tests (via Create) ──────────────────────────────────────
+
+func TestDefaultFactory_Create_ProjectSkillsOverrideGlobal(t *testing.T) {
+	projectDir := t.TempDir()
+
+	globalSkillDir := filepath.Join(t.TempDir(), "global-skills")
+	if err := os.MkdirAll(filepath.Join(globalSkillDir, "deploy"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	globalSkillMD := `---
+name: deploy
+description: Global deploy skill
+---
+# Global Deploy
+`
+	if err := os.WriteFile(filepath.Join(globalSkillDir, "deploy", "SKILL.md"), []byte(globalSkillMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectSkillDir := filepath.Join(projectDir, ".claude", "skills")
+	if err := os.MkdirAll(filepath.Join(projectSkillDir, "deploy"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	projectSkillMD := `---
+name: deploy
+description: Project deploy skill
+---
+# Project Deploy
+`
+	if err := os.WriteFile(filepath.Join(projectSkillDir, "deploy", "SKILL.md"), []byte(projectSkillMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	globalSkills, err := skill.LoadSkillsFromDir(globalSkillDir)
+	if err != nil {
+		t.Fatalf("LoadSkillsFromDir global: %v", err)
+	}
+	globalReg := skill.NewSkillRegistry()
+	for _, s := range globalSkills {
+		_ = globalReg.Register(s)
+	}
+
+	log, err := logger.System(projectDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	registry := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+
+	workDir := t.TempDir()
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
+		WithSkillRegistry(globalReg),
+		WithWorkDir(workDir),
+	)
+
+	tmpl := AgentTemplate{
+		ID:           "skill-agent",
+		Name:         "Skill Agent",
+		SystemPrompt: "You are a skill agent.",
+		SkillIDs:     []string{"deploy"},
+	}
+
+	agent, _, err := factory.Create(context.Background(), tmpl, projectDir)
+	if err != nil {
+		t.Fatalf("factory.Create: %v", err)
+	}
+	defer agent.Stop(time.Second)
+
+	if agent.WorkDir != projectDir {
+		t.Errorf("WorkDir = %q, want %q", agent.WorkDir, projectDir)
+	}
+}
+
+// ─── buildL2SystemPrompt project agents tests ──────────────────────────────
+
+func TestBuildL2SystemPrompt_ProjectAgentsListed(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev": devTmpl,
+	}
+
+	projectAgents := []AgentTemplate{
+		{ID: "proj-backend", Name: "ProjBackend", Description: "Project backend worker", Group: "DevOps"},
+		{ID: "proj-frontend", Name: "ProjFrontend", Description: "Project frontend worker", Group: "DevOps"},
+	}
+
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents)
+
+	if !strings.Contains(promptStr, "ProjBackend") {
+		t.Error("L2 prompt should list project agent ProjBackend")
+	}
+	if !strings.Contains(promptStr, "ProjFrontend") {
+		t.Error("L2 prompt should list project agent ProjFrontend")
+	}
+	if !strings.Contains(promptStr, "Project backend worker") {
+		t.Error("L2 prompt should contain project agent description")
+	}
+}
+
+func TestBuildL2SystemPrompt_ProjectAgentOverridesGlobal(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	globalBackend := AgentTemplate{
+		ID:          "backend",
+		Name:        "Backend",
+		Description: "Global backend",
+		Group:       "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev":     devTmpl,
+		"backend": globalBackend,
+	}
+
+	projectAgents := []AgentTemplate{
+		{ID: "backend", Name: "ProjBackend", Description: "Project backend override", Group: "DevOps"},
+	}
+
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents)
+
+	if !strings.Contains(promptStr, "ProjBackend") {
+		t.Error("L2 prompt should list project-overridden backend")
+	}
+	if strings.Contains(promptStr, "Global backend") {
+		t.Error("L2 prompt should NOT contain global backend description after project override")
+	}
+	if !strings.Contains(promptStr, "Project backend override") {
+		t.Error("L2 prompt should contain project backend description")
+	}
+}
+
+func TestBuildL2SystemPrompt_ProjectAgentExcludesSelf(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev": devTmpl,
+	}
+
+	projectAgents := []AgentTemplate{
+		{ID: "dev", Name: "ProjDev", Description: "Should be excluded", Group: "DevOps"},
+		{ID: "worker", Name: "Worker", Description: "Valid worker", Group: "DevOps"},
+	}
+
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents)
+
+	if strings.Contains(promptStr, "Should be excluded") {
+		t.Error("L2 prompt should NOT list project agent with same ID as leader (self)")
+	}
+	if !strings.Contains(promptStr, "Valid worker") {
+		t.Error("L2 prompt should list valid project worker")
+	}
+}
+
+func TestBuildL2SystemPrompt_NilProjectAgents(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	frontendTmpl := AgentTemplate{
+		ID:          "frontend",
+		Name:        "Frontend",
+		Description: "Frontend worker",
+		Group:       "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{
+		"dev":      devTmpl,
+		"frontend": frontendTmpl,
+	}
+
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", nil)
+
+	if !strings.Contains(promptStr, "Frontend") {
+		t.Error("L2 prompt should list global peer even when projectAgents is nil")
 	}
 }
 

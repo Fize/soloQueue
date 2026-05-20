@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -244,11 +245,22 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		effectiveWorkDir = f.workDir
 	}
 
+	// Load project-level resources (.claude/agents, .claude/skills, .claude/mcp.json, AGENTS.md)
+	var projRes projectResources
+	if effectiveWorkDir != "" && effectiveWorkDir != f.workDir {
+		projRes = f.loadProjectResources(effectiveWorkDir)
+	}
+
 	var finalPrompt string
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir)
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir, projRes.agents)
 	} else {
 		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir)
+	}
+
+	// Inject project instructions (AGENTS.md / CLAUDE.md) into system prompt
+	if projRes.projectPrompt != "" {
+		finalPrompt = finalPrompt + projRes.projectPrompt
 	}
 
 	// 2. 构建 Definition
@@ -295,9 +307,9 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	agentToolsCfg.WorkDir = effectiveWorkDir
 	allTools := tools.Build(agentToolsCfg)
 
-	// 2b. L2 领导者：注入同组 L3 Worker 的 delegate 工具
+	// 2b. L2 领导者：注入同组 L3 Worker + project-level agents 的 delegate 工具
 	if tmpl.IsLeader {
-		for _, peer := range f.sameGroupWorkers(tmpl) {
+		for _, peer := range f.visibleWorkers(tmpl, projRes.agents) {
 			peer := peer // capture loop variable
 			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log)
 			dt.SpawnFn = func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
@@ -311,12 +323,22 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		}
 	}
 
-	// 3. 加载 skills — 从模板的 SkillIDs 在全局注册表中查找
+	// 3. 加载 skills — 合并全局注册表 + project-level skills（项目级覆盖全局）
+	mergedSkillReg := skill.NewSkillRegistry()
+	if f.skillRegistry != nil {
+		for _, s := range f.skillRegistry.Skills() {
+			_ = mergedSkillReg.Register(s)
+		}
+	}
+	for _, s := range projRes.skills {
+		_ = mergedSkillReg.Register(s) // override if same ID
+	}
+
 	var skillList []*skill.Skill
-	if f.skillRegistry != nil && len(tmpl.SkillIDs) > 0 {
+	if len(tmpl.SkillIDs) > 0 {
 		sr := skill.NewSkillRegistry()
 		for _, id := range tmpl.SkillIDs {
-			if s, ok := f.skillRegistry.GetSkill(id); ok {
+			if s, ok := mergedSkillReg.GetSkill(id); ok {
 				skillList = append(skillList, s)
 				_ = sr.Register(s)
 			}
@@ -349,9 +371,10 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	}
 
 	// 3d. Register MCP tools for servers listed in the agent template.
+	// Project-level MCP config overrides global config for the same server name.
 	if f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
 		for _, serverName := range tmpl.MCPServers {
-			mcpTools := f.mcpManager.GetTools(ctx, serverName)
+			mcpTools := f.mcpManager.GetToolsWithOverride(ctx, serverName, projRes.mcpCfg)
 			if mcpTools == nil {
 				if f.log != nil {
 					f.log.WarnContext(ctx, logger.CatMCP, "MCP server not found or disabled",
@@ -390,12 +413,6 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	// 5. 创建 Agent
 	a := NewAgent(def, llm, f.log, opts...)
 
-	// 6b. Load project-specific configs from .claude/ (if workDir is a project dir).
-	//     Must happen before CW push so AGENTS.md/CLAUDE.md are included.
-	if effectiveWorkDir != "" && effectiveWorkDir != f.workDir {
-		f.loadProjectConfig(a, effectiveWorkDir)
-	}
-
 	// 7. 创建 ContextWindow
 	//   使用模型配置的上下文窗口大小；未配置时使用 DefaultContextWindow
 	maxTokens := def.ContextWindow
@@ -421,23 +438,71 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	return a, cw, nil
 }
 
-// loadProjectConfig loads project-specific configuration from the project
-// directory when the agent's workDir is a project directory (not the global
-// ~/.soloqueue). This provides Claude Code-compatible project config loading.
+// projectResources holds all project-level configuration loaded from .claude/.
+type projectResources struct {
+	agents       []AgentTemplate
+	skills       []*skill.Skill
+	mcpCfg       *mcp.Config
+	projectPrompt string // AGENTS.md or CLAUDE.md content
+}
+
+// loadProjectResources loads all project-level configuration from the project
+// directory's .claude/ folder (and AGENTS.md/CLAUDE.md in the project root).
 //
-// Currently loads:
-//   - AGENTS.md or CLAUDE.md → prepended to system prompt
-//
-// Future: .claude/skills/, .claude/mcp.json, .claude/agents/
-func (f *DefaultFactory) loadProjectConfig(a *Agent, projectDir string) {
-	// Load AGENTS.md or CLAUDE.md
+// Loaded resources:
+//   - .claude/agents/*.md   → project-level agent definitions
+//   - .claude/skills/*/SKILL.md → project-level skills
+//   - .claude/mcp.json      → project-level MCP server config
+//   - AGENTS.md / CLAUDE.md → project instructions for system prompt
+func (f *DefaultFactory) loadProjectResources(projectDir string) projectResources {
+	var res projectResources
+
+	// 1. AGENTS.md or CLAUDE.md (project root)
 	agentsMDPath := filepath.Join(projectDir, "AGENTS.md")
 	claudeMDPath := filepath.Join(projectDir, "CLAUDE.md")
 	if data, err := os.ReadFile(agentsMDPath); err == nil {
-		a.Def.SystemPrompt = a.Def.SystemPrompt + "\n\n# Project Instructions (from AGENTS.md)\n\n" + string(data)
+		res.projectPrompt = "\n\n# Project Instructions (from AGENTS.md)\n\n" + string(data)
 	} else if data, err := os.ReadFile(claudeMDPath); err == nil {
-		a.Def.SystemPrompt = a.Def.SystemPrompt + "\n\n# Project Instructions (from CLAUDE.md)\n\n" + string(data)
+		res.projectPrompt = "\n\n# Project Instructions (from CLAUDE.md)\n\n" + string(data)
 	}
+
+	// 2. .claude/agents/*.md
+	agentsDir := filepath.Join(projectDir, ".claude", "agents")
+	if agents, err := LoadAgentTemplates(agentsDir); err == nil {
+		res.agents = agents
+		if f.log != nil && len(agents) > 0 {
+			f.log.InfoContext(context.Background(), logger.CatConfig,
+				"loadProjectResources: loaded project agents",
+				"count", len(agents), "project", projectDir)
+		}
+	}
+
+	// 3. .claude/skills/
+	skillsDir := filepath.Join(projectDir, ".claude", "skills")
+	if skills, err := skill.LoadSkillsFromDir(skillsDir); err == nil {
+		res.skills = skills
+		if f.log != nil && len(skills) > 0 {
+			f.log.InfoContext(context.Background(), logger.CatConfig,
+				"loadProjectResources: loaded project skills",
+				"count", len(skills), "project", projectDir)
+		}
+	}
+
+	// 4. .claude/mcp.json
+	mcpPath := filepath.Join(projectDir, ".claude", "mcp.json")
+	if data, err := os.ReadFile(mcpPath); err == nil {
+		var cfg mcp.Config
+		if json.Unmarshal(data, &cfg) == nil && len(cfg.Servers) > 0 {
+			res.mcpCfg = &cfg
+			if f.log != nil {
+				f.log.InfoContext(context.Background(), logger.CatConfig,
+					"loadProjectResources: loaded project MCP config",
+					"servers", len(cfg.Servers), "project", projectDir)
+			}
+		}
+	}
+
+	return res
 }
 
 // ─── Template loading ──────────────────────────────────────────────────────
@@ -483,17 +548,33 @@ func workspacePaths(gf prompt.GroupFile) []string {
 	return paths
 }
 
-// sameGroupWorkers 返回与 tmpl 同组的所有非 Leader agent 模板。
+// visibleWorkers 返回与 tmpl 同组的全局 agent 模板 + project-level agent 模板的合并列表。
+// Project-level agents override global agents with the same ID.
 // 用于为 L2 领导者注入 delegate_* 工具。
-func (f *DefaultFactory) sameGroupWorkers(tmpl AgentTemplate) []AgentTemplate {
-	var workers []AgentTemplate
+func (f *DefaultFactory) visibleWorkers(tmpl AgentTemplate, projectAgents []AgentTemplate) []AgentTemplate {
+	merged := make(map[string]AgentTemplate)
+
+	// Global workers from the same group
 	for _, t := range f.templates {
 		if t.IsLeader || t.ID == tmpl.ID {
 			continue
 		}
 		if t.Group == tmpl.Group && t.Group != "" {
-			workers = append(workers, t)
+			merged[t.ID] = t
 		}
+	}
+
+	// Project-level workers override global ones with the same ID
+	for _, t := range projectAgents {
+		if t.IsLeader || t.ID == tmpl.ID {
+			continue
+		}
+		merged[t.ID] = t
+	}
+
+	var workers []AgentTemplate
+	for _, t := range merged {
+		workers = append(workers, t)
 	}
 	return workers
 }
@@ -510,6 +591,12 @@ You are operating as a Layer 2 Supervisor. The following rules are ABSOLUTE and 
 
 # 1. Context-Rich Delegation
 Layer 3 Workers are stateless — they have no memory of prior tasks, no project overview, and no shared state. When delegating, pass ONLY the distilled findings from your own research: the exact file paths, the specific code to modify, the error to fix. Do NOT forward raw context from L1 or the conversation history. Your job is to research, distill, and delegate — each delegation must be self-contained and minimal.
+
+# 1a. Work Directory Propagation
+When delegating tasks to L3 Workers via delegate_* tools, you MUST always include the ` + "`" + `work_dir` + "`" + ` parameter. Set it to your current working directory. This ensures the L3 Worker loads project-specific configuration (AGENTS.md, CLAUDE.md, .claude/) from the correct directory.
+
+BAD: delegate_worker(task="Fix login bug")
+GOOD: delegate_worker(task="Fix login bug", work_dir="/path/to/project")
 
 # 2. Atomic Delegation
 Tasks MUST be deterministic and executable.
@@ -653,7 +740,7 @@ GOOD (to L1): "Task completed. The CSS styling issue on the login page has been 
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (动态能力区): Team Context + 同组 Agents 目录 + MCP Servers
 // Segment 3 (框架强制区): 不可篡改的底层契约
-func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string) string {
+func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, projectAgents []AgentTemplate) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -701,20 +788,27 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		}
 	}
 
-	// 2b. 同组 Agents 目录（排除 leader 自身）
-	var peers []AgentTemplate
+	// 2b. 同组 Agents 目录（排除 leader 自身）+ project-level agents 合并
+	mergedWorkers := make(map[string]AgentTemplate)
 	for id, t := range templates {
 		if id == tmpl.ID {
 			continue
 		}
 		if tmpl.Group != "" && t.Group == tmpl.Group {
-			peers = append(peers, t)
+			mergedWorkers[id] = t
 		}
 	}
-	if len(peers) > 0 {
+	// Project-level agents override global agents with the same ID
+	for _, t := range projectAgents {
+		if t.ID == tmpl.ID {
+			continue
+		}
+		mergedWorkers[t.ID] = t
+	}
+	if len(mergedWorkers) > 0 {
 		b.WriteString("# Available Workers\n\n")
 		b.WriteString("You can delegate tasks to the following workers:\n\n")
-		for _, peer := range peers {
+		for _, peer := range mergedWorkers {
 			desc := peer.Description
 			if desc == "" {
 				desc = "no description"

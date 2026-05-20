@@ -802,7 +802,10 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		}
 	}
 
-	// Apply per-tool timeout (WithToolTimeout), falling back to DefaultToolTimeout.
+	// Apply per-tool timeout in priority order:
+	//   1. Explicit WithToolTimeout config
+	//   2. Tool's own PreferredTimeout() (e.g. DelegateTool 25/30 min)
+	//   3. Global DefaultToolTimeout (5 min)
 	// Parent ctx cancellation still takes priority (WithTimeout adds a deadline).
 	execCtx := ctx
 	var timeoutDur time.Duration
@@ -811,6 +814,13 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		execCtx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 		timeoutDur = d
+	} else if tp, ok := tool.(interface{ PreferredTimeout() time.Duration }); ok {
+		if d := tp.PreferredTimeout(); d > 0 {
+			var cancel context.CancelFunc
+			execCtx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
+			timeoutDur = d
+		}
 	} else {
 		// Global fallback timeout — prevents indefinite blocking
 		var cancel context.CancelFunc

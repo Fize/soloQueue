@@ -25,7 +25,7 @@ const (
 // delegateArgs is the parameter struct for DelegateTool.
 type delegateArgs struct {
 	Task    string `json:"task"`
-	WorkDir string `json:"work_dir,omitempty"`
+	WorkDir string `json:"work_dir"`
 }
 
 // Pre-computed parameter schema.
@@ -38,10 +38,10 @@ var delegateParamsSchema = json.RawMessage(`{
     },
     "work_dir": {
       "type": "string",
-      "description": "Working directory for the delegated agent. REQUIRED for L1→L2 delegation. Auto-inherited from parent for L2→L3."
+      "description": "Working directory for the delegated agent. REQUIRED."
     }
   },
-  "required": ["task"]
+  "required": ["task", "work_dir"]
 }`)
 
 // DelegateTool delegates tasks to other agents.
@@ -159,13 +159,11 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	var isSpawned bool
 
 	if dt.SpawnFn != nil {
-		// resolve workDir: prefer explicit arg, fallback to context (L2→L3 passthrough)
-		wd := dArgs.WorkDir
-		if wd == "" {
-			wd = iface.WorkDirFromContext(ctx)
+		if dArgs.WorkDir == "" {
+			return "", fmt.Errorf("delegate '%s': work_dir is required", dt.LeaderID)
 		}
 		var err error
-		targetAgent, err = dt.SpawnFn(ctx, dArgs.Task, wd)
+		targetAgent, err = dt.SpawnFn(ctx, dArgs.Task, dArgs.WorkDir)
 		if err != nil {
 			if dt.logger != nil {
 				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: failed to spawn agent",
@@ -484,12 +482,10 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 	var err error
 
 	if dt.SpawnFn != nil {
-		// resolve workDir: prefer explicit arg, fallback to context (L2→L3 passthrough)
-		wd := dArgs.WorkDir
-		if wd == "" {
-			wd = iface.WorkDirFromContext(ctx)
+		if dArgs.WorkDir == "" {
+			return nil, fmt.Errorf("delegate '%s': work_dir is required", dt.LeaderID)
 		}
-		target, err = dt.SpawnFn(ctx, dArgs.Task, wd)
+		target, err = dt.SpawnFn(ctx, dArgs.Task, dArgs.WorkDir)
 		if err != nil {
 			if dt.logger != nil {
 				dt.logger.WarnContext(ctx, logger.CatTool, "delegate async: failed to spawn agent",
@@ -573,4 +569,16 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 // IsAsync returns whether this DelegateTool is configured for async mode.
 func (dt *DelegateTool) IsAsync() bool {
 	return dt.SpawnFn != nil
+}
+
+// PreferredTimeout returns the timeout this delegate tool expects for its
+// synchronous Execute path.  When the agent's execToolStream sees this value
+// it skips the global DefaultToolTimeout so that L2→L3 delegation is bounded
+// by the agent-level timeout (e.g. 25/30 min) rather than the 5-minute tool
+// fallback.
+func (dt *DelegateTool) PreferredTimeout() time.Duration {
+	if dt.Timeout > 0 {
+		return dt.Timeout
+	}
+	return DelegateDefaultTimeout
 }
