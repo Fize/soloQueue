@@ -1,10 +1,18 @@
 package prompt
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // buildTeamManagementSection returns the <team_management> section injected
 // into L1's system prompt. It teaches the LLM how to dynamically create and
 // manage teams/members using standard file-writing tools.
-func buildTeamManagementSection(_ string) string {
-	return `## CRITICAL: When to Use This Capability
+func buildTeamManagementSection(workDir string) string {
+	groupsDir := filepath.Join(workDir, "groups")
+	agentsDir := filepath.Join(workDir, "agents")
+
+	s := `## CRITICAL: When to Use This Capability
 
 - ONLY create or modify teams/members when the user EXPLICITLY asks you to do so.
 - NEVER proactively create teams, even if you think it would be helpful.
@@ -130,4 +138,11 @@ Rules for modifications:
 - Team and member names must be lowercase-with-hyphens (e.g. "frontend-team", "react-expert").
 - Exactly ONE member per team must have is_leader: true.
 - After any modification, the auto-reload system picks up the change immediately.`
+
+	sep := string(filepath.Separator)
+	s = strings.ReplaceAll(s, "~/.soloqueue/groups/", groupsDir+sep)
+	s = strings.ReplaceAll(s, "~/.soloqueue/agents/", agentsDir+sep)
+	s = strings.ReplaceAll(s, `"~/.soloqueue"`, `"`+workDir+`"`)
+	s = strings.ReplaceAll(s, "~/.soloqueue/", workDir+sep)
+	return s
 }
