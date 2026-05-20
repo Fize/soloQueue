@@ -45,13 +45,19 @@ func (m *Manager) RegisterVirtual(name string, getTools func() []tools.Tool) {
 // Connects lazily on first call. For virtual servers, calls the registered getter.
 // Returns nil if the server is not found or disabled.
 func (m *Manager) GetTools(ctx context.Context, serverName string) []tools.Tool {
+	return m.GetToolsWithOverride(ctx, serverName, nil)
+}
+
+// GetToolsWithOverride returns wrapped tools for the named server, with an optional
+// project-level config override. If the override config contains the server, it takes
+// precedence over the global config (project-level covers global).
+func (m *Manager) GetToolsWithOverride(ctx context.Context, serverName string, overrideCfg *Config) []tools.Tool {
 	// Fast path: already cached in toolMap.
 	m.mu.RLock()
 	if tools, ok := m.toolMap[serverName]; ok {
 		m.mu.RUnlock()
 		return tools
 	}
-	// Check virtual servers (in-process, no connection needed).
 	if getter, ok := m.virtualTools[serverName]; ok {
 		m.mu.RUnlock()
 		tools := getter()
@@ -76,14 +82,28 @@ func (m *Manager) GetTools(ctx context.Context, serverName string) []tools.Tool 
 		return tools
 	}
 
-	cfg := m.loader.Get()
+	// 1. Check override config first (project-level takes precedence)
 	var serverCfg *ServerConfig
-	for i := range cfg.Servers {
-		if cfg.Servers[i].Name == serverName {
-			serverCfg = &cfg.Servers[i]
-			break
+	if overrideCfg != nil {
+		for i := range overrideCfg.Servers {
+			if overrideCfg.Servers[i].Name == serverName {
+				serverCfg = &overrideCfg.Servers[i]
+				break
+			}
 		}
 	}
+
+	// 2. Fall back to global config
+	if serverCfg == nil {
+		cfg := m.loader.Get()
+		for i := range cfg.Servers {
+			if cfg.Servers[i].Name == serverName {
+				serverCfg = &cfg.Servers[i]
+				break
+			}
+		}
+	}
+
 	if serverCfg == nil || !serverCfg.Enabled {
 		if m.log != nil {
 			m.log.Warn(logger.CatMCP, "MCP server not found or disabled",

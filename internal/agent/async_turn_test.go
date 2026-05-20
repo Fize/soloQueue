@@ -678,7 +678,7 @@ func TestDelegateTool_ExecuteAsync(t *testing.T) {
 		Timeout: 5 * time.Minute,
 	}
 
-	action, err := dt.ExecuteAsync(context.Background(), `{"task":"test"}`)
+	action, err := dt.ExecuteAsync(context.Background(), `{"task":"test","work_dir":"/tmp"}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync: %v", err)
 	}
