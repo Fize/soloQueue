@@ -2,8 +2,10 @@ package session
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -194,10 +196,16 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 					case "file":
 						ftype = 4
 					}
+					b64 := res.Base64Data
+					if b64 == "" && res.Path != "" {
+						if data, err := os.ReadFile(res.Path); err == nil {
+							b64 = base64.StdEncoding.EncodeToString(data)
+						}
+					}
 					mediaList = append(mediaList, qqbot.PendingMedia{
 						FileType:   ftype,
 						URL:        res.URL,
-						Base64Data: res.Base64Data,
+						Base64Data: b64,
 					})
 				}
 			}
@@ -247,6 +255,7 @@ type sendFileToolResult struct {
 	FileName   string `json:"file_name"`
 	FileType   string `json:"file_type"`
 	Base64Data string `json:"base64_data"`
+	Path       string `json:"path"`
 	URL        string `json:"url"`
 }
 
