@@ -26,12 +26,15 @@ const (
 // 这些字段的内容通常是文件全文/命令输出/HTTP body，适合截断。
 // 其他字段（如 exit_code, path, size, truncated 等元数据）通常很短，不需要截断。
 var largeFields = map[string]bool{
-	"content": true,
-	"stdout":  true,
-	"stderr":  true,
-	"body":    true,
-	"text":    true,
-	"output":  true,
+	"content":      true,
+	"stdout":       true,
+	"stderr":       true,
+	"body":         true,
+	"text":         true,
+	"output":       true,
+	"base64_data":  true,
+	"data":         true,
+	"image":        true,
 }
 
 // ─── Step 1: 中间截断法 (Middle-Out Truncation) ─────────────────────────────
@@ -254,8 +257,21 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 			}
 			break // 没有 Turn 可删
 		}
-		// 只剩一个 Turn 时，不删除
+		// 只剩一个 Turn 时，不能删除整个 Turn（否则只剩 system prompt，LLM 无法工作）。
+		// 改为对该 Turn 内部的消息做更激进的截断。
 		if turnEnd >= len(cw.messages) {
+			aggressiveSaved := cw.aggressiveTruncateLastTurn(targetTokens)
+			if aggressiveSaved > 0 {
+				totalTokensFreed += aggressiveSaved
+				if cw.log != nil {
+					cw.log.InfoContext(context.Background(), logger.CatMessages, "slide_fifo: aggressive truncation applied to last turn",
+						"tokens_saved", aggressiveSaved,
+						"current_tokens", cw.currentTokens,
+						"target_tokens", targetTokens,
+					)
+				}
+				continue // 截断后重新检查容量
+			}
 			if cw.log != nil {
 				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: cannot remove more turns",
 					"reason", "only_one_turn_left",
@@ -332,6 +348,89 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 			"remaining_messages", len(cw.messages),
 		)
 	}
+}
+
+// aggressiveTruncateLastTurn 对最后一个 Turn 内部的消息做激进截断。
+// 按以下优先级尝试：
+//   1. 对 IsEphemeral 消息做更激进的掐头去尾（保留 5% 头 + 5% 尾）
+//   2. 对非 ephemeral 的长消息做激进截断（保留 10% 头 + 10% 尾）
+//   3. 如果还超，将最长消息的内容替换为占位符 "[content omitted]"
+// 返回实际节省的 token 数。
+func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
+	initialTokens := cw.currentTokens
+
+	// Step 1: aggressively truncate ephemeral messages
+	for i := 1; i < len(cw.messages); i++ {
+		msg := &cw.messages[i]
+		if !msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
+			continue
+		}
+		newContent := charLevelTruncate(msg.Content, 0.05, 0.05)
+		if newContent != msg.Content {
+			oldTokens := msg.Tokens
+			msg.Content = newContent
+			msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
+			if msg.Tokens < 1 {
+				msg.Tokens = 1
+			}
+			cw.currentTokens -= oldTokens - msg.Tokens
+			if cw.currentTokens < 0 {
+				cw.currentTokens = 0
+			}
+		}
+	}
+	if cw.currentTokens <= targetTokens {
+		return initialTokens - cw.currentTokens
+	}
+
+	// Step 2: aggressively truncate non-ephemeral long messages
+	for i := 1; i < len(cw.messages); i++ {
+		msg := &cw.messages[i]
+		if msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
+			continue
+		}
+		newContent := charLevelTruncate(msg.Content, 0.10, 0.10)
+		if newContent != msg.Content {
+			oldTokens := msg.Tokens
+			msg.Content = newContent
+			msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
+			if msg.Tokens < 1 {
+				msg.Tokens = 1
+			}
+			cw.currentTokens -= oldTokens - msg.Tokens
+			if cw.currentTokens < 0 {
+				cw.currentTokens = 0
+			}
+		}
+	}
+	if cw.currentTokens <= targetTokens {
+		return initialTokens - cw.currentTokens
+	}
+
+	// Step 3: replace the longest remaining message with a placeholder
+	maxIdx := -1
+	maxTokens := 0
+	for i := 1; i < len(cw.messages); i++ {
+		if cw.messages[i].Tokens > maxTokens {
+			maxTokens = cw.messages[i].Tokens
+			maxIdx = i
+		}
+	}
+	if maxIdx > 0 {
+		msg := &cw.messages[maxIdx]
+		oldTokens := msg.Tokens
+		msg.Content = "[content omitted: too large to fit in context window]"
+		msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
+		if msg.Tokens < 1 {
+			msg.Tokens = 1
+		}
+		cw.currentTokens -= oldTokens - msg.Tokens
+		if cw.currentTokens < 0 {
+			cw.currentTokens = 0
+		}
+	}
+
+	return initialTokens - cw.currentTokens
 }
 
 // findTurnEnd 找到从 start 开始的 Turn 的结束位置

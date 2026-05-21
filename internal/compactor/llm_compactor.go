@@ -15,6 +15,23 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
+// charLevelTruncate aggressively truncates a string, keeping headRatio
+// from the start and tailRatio from the end.  Used by the compactor to
+// bound its own input so it never triggers an API 400.
+func charLevelTruncate(s string, headRatio, tailRatio float64) string {
+	runes := []rune(s)
+	n := len(runes)
+	headLen := int(float64(n) * headRatio)
+	tailLen := int(float64(n) * tailRatio)
+	if headLen+tailLen >= n || (headLen == 0 && tailLen == 0) {
+		return s
+	}
+	head := string(runes[:headLen])
+	tail := string(runes[n-tailLen:])
+	omitted := n - headLen - tailLen
+	return head + fmt.Sprintf("\n[...omitted %d characters...]\n", omitted) + tail
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 // ChatClient is the minimal LLM chat interface needed by Compactor.

@@ -501,3 +501,58 @@ func TestDriftAfterCalibrate(t *testing.T) {
 	// FIFO 减去的是估算值，currentTokens 会产生漂移
 	// 但功能仍然正确：currentTokens 仍用于淘汰决策
 }
+
+func TestAggressiveTruncateLastTurn(t *testing.T) {
+	tok := NewTokenizer()
+	cw := NewContextWindow(1000, 100, 0, tok)
+
+	// Build a single turn that exceeds capacity
+	cw.Push(RoleSystem, "system prompt")
+
+	// Push a very large ephemeral message
+	bigContent := strings.Repeat("a", 5000) // ~1250 tokens
+	cw.Push(RoleUser, bigContent)
+
+	// Push assistant reply
+	cw.Push(RoleAssistant, "result")
+
+	// Push automatically triggers eviction.  Because there is only one
+	// turn, slideFIFO cannot delete it; it falls back to
+	// aggressiveTruncateLastTurn, which truncates the big ephemeral
+	// message so the window fits.
+	if cw.Overflow() {
+		t.Errorf("still overflow after automatic eviction: current=%d, max=%d", cw.CurrentTokens(), cw.maxTokens)
+	}
+
+	// System prompt should be preserved
+	if cw.Len() < 1 {
+		t.Fatal("system prompt was removed")
+	}
+	m0, _ := cw.MessageAt(0)
+	if m0.Role != RoleSystem {
+		t.Errorf("msg[0].Role = %q, want system", m0.Role)
+	}
+}
+
+func TestAggressiveTruncateLastTurn_OmitsContent(t *testing.T) {
+	tok := NewTokenizer()
+	cw := NewContextWindow(100, 10, 0, tok)
+
+	cw.Push(RoleSystem, "system")
+	cw.Push(RoleUser, strings.Repeat("x", 2000)) // huge user message
+	cw.Push(RoleAssistant, strings.Repeat("y", 2000)) // huge assistant message
+
+	target := cw.maxTokens - cw.bufferTokens // 90
+	cw.slideFIFO(target)
+
+	// Should fit now
+	if cw.Overflow() {
+		t.Errorf("still overflow after aggressive truncation")
+	}
+
+	// At least system prompt should remain
+	m0, _ := cw.MessageAt(0)
+	if m0.Role != RoleSystem {
+		t.Errorf("system prompt removed")
+	}
+}

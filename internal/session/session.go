@@ -374,6 +374,41 @@ func (s *Session) ClearSilent() error {
 	return nil
 }
 
+// FlushMemory snapshots all unpersisted messages from the context window and
+// writes them to short-term memory files. Unlike ClearSilent, it does NOT
+// reset the context window — this is a read-only flush for periodic persistence
+// (e.g. daily midnight task).
+func (s *Session) FlushMemory(ctx context.Context) {
+	if s.memoryHook == nil || s.memoryManager == nil {
+		return
+	}
+
+	s.mu.Lock()
+	payload := s.cw.BuildPayload()
+	cursor := s.memoryManager.LastRecordedAt()
+	s.mu.Unlock()
+
+	filtered := filterPayloadSince(payload, cursor)
+	if len(filtered) == 0 {
+		return
+	}
+
+	var latest time.Time
+	groups := groupPayloadByDate(filtered)
+	for _, g := range groups {
+		text := formatPayloadForMemory(g.msgs)
+		s.memoryHook(ctx, text, g.date)
+		for _, m := range g.msgs {
+			if m.Timestamp.After(latest) {
+				latest = m.Timestamp
+			}
+		}
+	}
+	if !latest.IsZero() {
+		s.memoryManager.AdvanceLastRecordedAt(latest)
+	}
+}
+
 // checkAutoClear checks if the session has been idle for long enough and
 // the context window is large enough to warrant automatic compression.
 // If both conditions are met, it compresses the conversation history into
@@ -1002,7 +1037,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 		)
 		return nil, fmt.Errorf("agent factory: %w", err)
 	}
-	id := newSessionID()
+	// L1 orchestrator uses a fixed session ID so it is always the same session
+	// regardless of how many times the server restarts.
+	id := "l1-session"
 
 	sessionLogger := m.logger.Child()
 	s := NewSession(id, teamID, a, cw, tl, sessionLogger)

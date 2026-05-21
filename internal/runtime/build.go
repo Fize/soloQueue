@@ -220,7 +220,31 @@ func Build(
 							minSim = 0.65
 						}
 						permBuildStart := time.Now()
-						permanentMgr = permanent.NewManager(store, embClient, nil, "", memoryDir, log, minSim, normFlag)
+						var summarizer permanent.Summarizer
+						if llmClient != nil {
+							summarizer = permanent.SummarizeFunc(func(ctx context.Context, req permanent.SummarizeRequest) (permanent.SummarizeResponse, error) {
+								var msgs []agent.LLMMessage
+								for _, m := range req.Messages {
+									msgs = append(msgs, agent.LLMMessage{
+										Role:    m.Role,
+										Content: m.Content,
+									})
+								}
+								resp, err := llmClient.Chat(ctx, agent.LLMRequest{
+									Model:       req.Model,
+									Messages:    msgs,
+									MaxTokens:   req.MaxTokens,
+									Temperature: req.Temperature,
+								})
+								if err != nil {
+									return permanent.SummarizeResponse{}, err
+								}
+								return permanent.SummarizeResponse{
+									Content: resp.Content,
+								}, nil
+							})
+						}
+						permanentMgr = permanent.NewManager(store, embClient, summarizer, fastModelID, memoryDir, log, minSim, normFlag)
 						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
 							log.Error(logger.CatApp, msg)
 						})

@@ -196,7 +196,7 @@ func TestListExpiredFiles(t *testing.T) {
 	}
 
 	create(10, "old")
-	create(3, "recent")
+	create(1, "recent")
 	create(8, "also-old")
 	// Non-date file — should be ignored
 	_ = os.WriteFile(filepath.Join(memoryDir, "not-a-date.md"), []byte("x"), 0644)

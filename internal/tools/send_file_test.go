@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -47,9 +46,8 @@ func TestSendFile_HappyLocalPath(t *testing.T) {
 	if res.FileType != "image" {
 		t.Errorf("file_type = %q, want 'image'", res.FileType)
 	}
-	expectedBase64 := base64.StdEncoding.EncodeToString(content)
-	if res.Base64Data != expectedBase64 {
-		t.Errorf("base64_data = %q, want %q", res.Base64Data, expectedBase64)
+	if res.Path != path {
+		t.Errorf("path = %q, want %q", res.Path, path)
 	}
 	if res.URL != "" {
 		t.Errorf("url should be empty, got %q", res.URL)
@@ -84,8 +82,8 @@ func TestSendFile_HappyURL(t *testing.T) {
 	if res.URL != testURL {
 		t.Errorf("url = %q, want %q", res.URL, testURL)
 	}
-	if res.Base64Data != "" {
-		t.Errorf("base64_data should be empty, got %q", res.Base64Data)
+	if res.Path != "" {
+		t.Errorf("path should be empty for URL mode, got %q", res.Path)
 	}
 }
 
