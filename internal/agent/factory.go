@@ -770,10 +770,6 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 				}
 				fmt.Fprintf(&b, "- **%s**: %s %s\n", ws.Name, ws.Path, mark)
 			}
-			b.WriteString("\nWhen starting a task, check the project root for instruction files:\n")
-			b.WriteString("1. `AGENTS.md` — AI agent tactical guidance (if this file exists, read it and skip `CLAUDE.md`)\n")
-			b.WriteString("2. `CLAUDE.md` — Project architecture, conventions, and guidelines (only read if `AGENTS.md` does not exist)\n")
-			b.WriteString("3. If neither file exists, proceed without project-specific instructions.\n")
 		}
 	}
 	b.WriteString("\n")
@@ -969,10 +965,6 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 				}
 				fmt.Fprintf(&b, "- **%s**: %s %s\n", ws.Name, ws.Path, mark)
 			}
-			b.WriteString("\nWhen starting a task, check the project root for instruction files:\n")
-			b.WriteString("1. `AGENTS.md` — AI agent tactical guidance (if this file exists, read it and skip `CLAUDE.md`)\n")
-			b.WriteString("2. `CLAUDE.md` — Project architecture, conventions, and guidelines (only read if `AGENTS.md` does not exist)\n")
-			b.WriteString("3. If neither file exists, proceed without project-specific instructions.\n")
 		}
 	}
 	b.WriteString("\n")
