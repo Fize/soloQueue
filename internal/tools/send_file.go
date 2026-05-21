@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -46,11 +45,11 @@ type sendFileArgs struct {
 }
 
 type sendFileResult struct {
-	Status     string `json:"status"`
-	FileName   string `json:"file_name"`
-	FileType   string `json:"file_type"`
-	Base64Data string `json:"base64_data,omitempty"`
-	URL        string `json:"url,omitempty"`
+	Status   string `json:"status"`
+	FileName string `json:"file_name"`
+	FileType string `json:"file_type"`
+	Path     string `json:"path,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
 func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) {
@@ -72,7 +71,7 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 
 	var fileType string
 	var fileName string
-	var base64Data string
+	var path string
 	var url string
 
 	if a.Path != "" {
@@ -81,26 +80,13 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 			return "", err
 		}
 		fileName = filepath.Base(abs)
+		path = abs
 
 		if a.FileType != "" {
 			fileType = a.FileType
 		} else {
 			fileType = detectFileType(fileName)
 		}
-
-		// Read file contents (limit to config's max file size, or default 10MB for uploads if max file size is small)
-		maxSize := t.cfg.MaxFileSize
-		if maxSize < 10<<20 {
-			maxSize = 10 << 20 // 10MB default for sending/sharing files
-		}
-		res, err := t.cfg.Sandbox.ReadFile(ctx, abs, ReadFileOptions{
-			MaxSize: maxSize,
-		})
-		if err != nil {
-			return "", err
-		}
-
-		base64Data = base64.StdEncoding.EncodeToString(res.Data)
 	} else {
 		url = a.URL
 		fileName = filepath.Base(url)
@@ -118,15 +104,15 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 
 	if t.logger != nil {
 		t.logger.InfoContext(ctx, logger.CatTool, "send_file: completed",
-			"file_name", fileName, "file_type", fileType, "has_base64", base64Data != "")
+			"file_name", fileName, "file_type", fileType, "path", path, "url", url)
 	}
 
 	out := sendFileResult{
-		Status:     "success",
-		FileName:   fileName,
-		FileType:   fileType,
-		Base64Data: base64Data,
-		URL:        url,
+		Status:   "success",
+		FileName: fileName,
+		FileType: fileType,
+		Path:     path,
+		URL:      url,
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil

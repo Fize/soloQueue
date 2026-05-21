@@ -43,7 +43,9 @@ func NewBuilder(rt *runtime.Stack, workDir string, cfg *config.GlobalService, co
 // Build creates a new session with its own agent, context window, and
 // timeline writer. Implements AgentFactory signature.
 func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
-	agentID := runtime.NewAgentID()
+	// L1 orchestrator uses a fixed agent ID so timeline replays are deterministic
+	// across restarts and never mix with old sessions.
+	agentID := "l1-agent"
 
 	// Snapshot configuration-derived fields (concurrency-safe, each Build uses latest hot-reload values).
 	defModel := b.RT.ReadDefaultModel()
@@ -312,42 +314,58 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
-	summaryHook := func(summary string, msgs []ctxwin.Message) {
-		if err := tl.AppendControl(&timeline.ControlPayload{
-			Action:  "summary",
-			Reason:  "auto_compact",
-			Content: summary,
-		}); err != nil {
-			sessLog.Error(logger.CatActor, "timeline summary append failed",
-				"err", err.Error(), "agent_id", agentID)
-		}
-		// Record to short-term memory (fire-and-forget, non-blocking).
-		// Filter by dedup cursor and group by date to avoid duplicate entries.
+	summaryHook := func(segments []ctxwin.SummarySegment) {
+		cutoff := time.Now().AddDate(0, 0, -3)
+		cursor := time.Time{}
 		if b.RT.MemoryManager != nil {
-			cursor := b.RT.MemoryManager.LastRecordedAt()
-			filtered := filterMessagesSince(msgs, cursor)
+			cursor = b.RT.MemoryManager.LastRecordedAt()
+		}
+		var latest time.Time
+
+		for _, seg := range segments {
+			// Dedup: skip messages already recorded by cursor
+			filtered := filterMessagesSince(seg.Msgs, cursor)
 			if len(filtered) == 0 {
-				return
+				continue
 			}
-			var latest time.Time
-			groups := groupMessagesByDate(filtered)
-			for _, g := range groups {
-				go func(date time.Time, msgs []ctxwin.Message) {
-					defer func() {
-						if r := recover(); r != nil {
-							sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
-								"panic", fmt.Sprintf("%v", r))
-						}
-					}()
-					text := FormatCtxwinMessages(msgs)
-					_ = b.RT.MemoryManager.RecordAt(context.Background(), text, date)
-				}(g.date, g.msgs)
-				for _, m := range g.msgs {
-					if m.Timestamp.After(latest) {
-						latest = m.Timestamp
-					}
+
+			if seg.Date.Before(cutoff) {
+				// >3 days old: write directly to permanent (long-term) memory
+				if b.RT.PermanentMemory != nil {
+					_ = b.RT.PermanentMemory.Remember(context.Background(), seg.Summary, seg.Date)
+				}
+			} else {
+				// ≤3 days: timeline control event + short-term memory
+				if err := tl.AppendControl(&timeline.ControlPayload{
+					Action:  "summary",
+					Reason:  "auto_compact",
+					Content: seg.Summary,
+				}); err != nil {
+					sessLog.Error(logger.CatActor, "timeline summary append failed",
+						"err", err.Error(), "agent_id", agentID)
+				}
+				if b.RT.MemoryManager != nil {
+					go func(date time.Time, msgs []ctxwin.Message) {
+						defer func() {
+							if r := recover(); r != nil {
+								sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
+									"panic", fmt.Sprintf("%v", r))
+							}
+						}()
+						text := FormatCtxwinMessages(msgs)
+						_ = b.RT.MemoryManager.RecordAt(context.Background(), text, date)
+					}(seg.Date, filtered)
 				}
 			}
+
+			for _, m := range filtered {
+				if m.Timestamp.After(latest) {
+					latest = m.Timestamp
+				}
+			}
+		}
+
+		if b.RT.MemoryManager != nil && !latest.IsZero() {
 			b.RT.MemoryManager.AdvanceLastRecordedAt(latest)
 		}
 	}
@@ -397,7 +415,9 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	}
 
 	// Replay the last 10 conversation turns (not the full timeline).
-	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10)
+	// Only replay messages from the current L1 agent and after the most
+	// recent /clear, so old sessions never pollute a new restart.
+	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10, agentID)
 	if err != nil {
 		sessLog.Warn(logger.CatActor, "builder: ReadTail failed", "err", err.Error(), "dir", tlDir)
 	} else if len(segments) == 0 {

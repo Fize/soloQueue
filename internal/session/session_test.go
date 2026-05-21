@@ -9,6 +9,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
@@ -562,5 +563,106 @@ func TestLevelLocked_BlocksRouting(t *testing.T) {
 	// A non-level-lock prompt while locked should use cached result
 	if isLevelLockCommand("what does this code do?") {
 		t.Error("regular prompt should not be detected as lock command")
+	}
+}
+
+// ─── Session.FlushMemory ──────────────────────────────────────────────
+
+func TestSession_FlushMemory_PersistsUnrecordedMessages(t *testing.T) {
+	fake := &agent.FakeLLM{Responses: []string{"# 2026-01-01\n\n## 2026-01-01 10:00\n- merged\n"}}
+	a := startAgent(t, fake)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	s := NewSession("s1", "t1", a, cw, nil, nil)
+
+	// Push some messages with timestamps older than the cursor so they get filtered.
+	// We need timestamps strictly after the cursor.
+	cw.Push(ctxwin.RoleUser, "hello", ctxwin.WithTimestamp(time.Now()))
+	cw.Push(ctxwin.RoleAssistant, "hi there", ctxwin.WithTimestamp(time.Now()))
+
+	memDir := t.TempDir()
+	memMgr := memory.NewManager(memDir, fake, "fast", nil)
+	s.SetMemoryManager(memMgr)
+
+	var hookCalled bool
+	s.SetMemoryHook(func(ctx context.Context, text string, at time.Time) {
+		hookCalled = true
+		_ = memMgr.RecordAt(ctx, text, at)
+	})
+
+	s.FlushMemory(context.Background())
+
+	if !hookCalled {
+		t.Error("expected memory hook to be called")
+	}
+
+	// Verify memory file was created
+	files, _ := memMgr.ListMemoryFiles()
+	if len(files) == 0 {
+		t.Error("expected at least one memory file after flush")
+	}
+}
+
+func TestSession_FlushMemory_SkipsWhenNoNewMessages(t *testing.T) {
+	fake := &agent.FakeLLM{}
+	a := startAgent(t, fake)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	s := NewSession("s1", "t1", a, cw, nil, nil)
+
+	memDir := t.TempDir()
+	memMgr := memory.NewManager(memDir, fake, "fast", nil)
+	// Set cursor to now so no messages pass the filter
+	memMgr.AdvanceLastRecordedAt(time.Now())
+	s.SetMemoryManager(memMgr)
+
+	var hookCalled bool
+	s.SetMemoryHook(func(ctx context.Context, text string, at time.Time) {
+		hookCalled = true
+	})
+
+	s.FlushMemory(context.Background())
+
+	if hookCalled {
+		t.Error("memory hook should NOT be called when no new messages exist")
+	}
+}
+
+func TestSession_FlushMemory_SkipsWhenNoHook(t *testing.T) {
+	fake := &agent.FakeLLM{}
+	a := startAgent(t, fake)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	s := NewSession("s1", "t1", a, cw, nil, nil)
+	cw.Push(ctxwin.RoleUser, "hello", ctxwin.WithTimestamp(time.Now()))
+
+	// No memory hook or manager set — should not panic
+	s.FlushMemory(context.Background())
+}
+
+// ─── timeUntilNextMidnight ────────────────────────────────────────────
+
+func TestTimeUntilNextMidnight(t *testing.T) {
+	d := timeUntilNextMidnight()
+	if d <= 0 {
+		t.Errorf("expected positive duration, got %v", d)
+	}
+	if d > 24*time.Hour {
+		t.Errorf("duration should be less than 24h, got %v", d)
+	}
+}
+
+// ─── DailyMemoryFlusher construction ──────────────────────────────────
+
+func TestNewDailyMemoryFlusher(t *testing.T) {
+	fake := &agent.FakeLLM{}
+	factory := factoryFromFake(t, fake)
+	mgr := NewSessionManager(factory, nil)
+	flusher := NewDailyMemoryFlusher(mgr, nil, nil)
+	if flusher == nil {
+		t.Fatal("expected non-nil flusher")
+	}
+	if flusher.sessionMgr != mgr {
+		t.Error("sessionMgr mismatch")
+	}
+	if flusher.permMgr != nil {
+		t.Error("permMgr should be nil")
 	}
 }

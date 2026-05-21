@@ -736,6 +736,12 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			needsConfirm, prompt := c.CheckConfirmation(args)
 			if needsConfirm {
 				options := c.ConfirmationOptions(args)
+
+				slot := &confirmSlot{ch: make(chan string, 1)}
+				a.confirmMu.Lock()
+				a.pendingConfirm[tc.ID] = slot
+				a.confirmMu.Unlock()
+
 				a.logInfo(ctx, logger.CatTool, "execToolStream: emitting confirm event",
 					"tool_name", name,
 					"call_id", tc.ID,
@@ -756,13 +762,11 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 					"emitted", emitted,
 				)
 				if !emitted {
+					a.confirmMu.Lock()
+					delete(a.pendingConfirm, tc.ID)
+					a.confirmMu.Unlock()
 					return "error: " + ctx.Err().Error()
 				}
-
-				slot := &confirmSlot{ch: make(chan string, 1)}
-				a.confirmMu.Lock()
-				a.pendingConfirm[tc.ID] = slot
-				a.confirmMu.Unlock()
 
 				var choice string
 				select {

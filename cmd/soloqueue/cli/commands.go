@@ -87,6 +87,11 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("init session: %w", err)
 			}
 
+			// ── Daily memory flush (midnight) ──
+			if rt.MemoryManager != nil {
+				flusher := session.NewDailyMemoryFlusher(mgr, rt.PermanentMemory, log)
+				go flusher.Run(context.Background())
+			}
 
 				// ── QQ Bot integration ──
 				qqGateway, qqQueue := StartQQBot(cfg, mgr, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)

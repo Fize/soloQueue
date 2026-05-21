@@ -1,5 +1,5 @@
 // Package permanent provides long-term permanent memory backed by embedding vectors.
-// It periodically migrates expired short-term memory files (>7 days) to a vector store.
+// It periodically migrates expired short-term memory files (>3 days) to a vector store.
 // Each memory entry is individually summarized via LLM before storage.
 package permanent
 
@@ -21,7 +21,7 @@ import (
 
 const (
 	defaultTopK       = 5
-	defaultMaxAgeDays = 7
+	defaultMaxAgeDays = 3
 	maxSummaryLen     = 300 // max chars per summarized entry
 	maxDisplayLen     = 200 // max chars when displaying entries in system prompt
 )

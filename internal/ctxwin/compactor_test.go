@@ -261,3 +261,180 @@ func TestAsyncCompactDeduplication(t *testing.T) {
 		t.Errorf("Compactor called %d times, expected at most 3 (deduplication should prevent excessive calls)", called)
 	}
 }
+
+// ─── Segmented Compaction Tests ────────────────────────────────────────────
+
+func TestFilterOversizedToolMessages(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleTool, Content: strings.Repeat("a", 100)},   // small, keep
+		{Role: RoleTool, Content: strings.Repeat("b", 2001)},      // oversized, drop
+		{Role: RoleUser, Content: strings.Repeat("c", 5000)},    // not tool, keep
+		{Role: RoleTool, Content: strings.Repeat("d", 2000)},    // exactly at limit, keep
+	}
+	out := filterOversizedToolMessages(msgs)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(out))
+	}
+	if out[0].Content != msgs[0].Content {
+		t.Error("first message should be the small tool message")
+	}
+	if out[1].Content != msgs[2].Content {
+		t.Error("second message should be the user message")
+	}
+	if out[2].Content != msgs[3].Content {
+		t.Error("third message should be the exactly-2000 tool message")
+	}
+}
+
+func TestGroupMessagesByDate(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleUser, Content: "a", Timestamp: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)},
+		{Role: RoleAssistant, Content: "b", Timestamp: time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC)},
+		{Role: RoleUser, Content: "c", Timestamp: time.Date(2026, 5, 21, 9, 0, 0, 0, time.UTC)},
+		{Role: RoleAssistant, Content: "d", Timestamp: time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)},
+		{Role: RoleUser, Content: "e", Timestamp: time.Time{}}, // zero timestamp, skipped
+	}
+	groups := groupMessagesByDate(msgs)
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
+	}
+	if groups[0].date.Format("2006-01-02") != "2026-05-20" {
+		t.Errorf("first group date = %v, want 2026-05-20", groups[0].date)
+	}
+	if len(groups[0].msgs) != 2 {
+		t.Errorf("first group msgs = %d, want 2", len(groups[0].msgs))
+	}
+	if groups[1].date.Format("2006-01-02") != "2026-05-21" {
+		t.Errorf("second group date = %v, want 2026-05-21", groups[1].date)
+	}
+	if len(groups[1].msgs) != 2 {
+		t.Errorf("second group msgs = %d, want 2", len(groups[1].msgs))
+	}
+}
+
+func TestSplitBatchByTokens(t *testing.T) {
+	// Create 5 messages with ~20 chars each
+	msgs := []Message{
+		{Role: RoleUser, Content: "msg one xxxxxxxxxxx"},
+		{Role: RoleUser, Content: "msg two xxxxxxxxxxx"},
+		{Role: RoleUser, Content: "msg three xxxxxxxxx"},
+		{Role: RoleUser, Content: "msg four xxxxxxxxxx"},
+		{Role: RoleUser, Content: "msg five xxxxxxxxxx"},
+	}
+
+	// maxTokens=1 should trigger split, but minMsgsPerBatch=3 prevents tiny batches
+	batches := splitBatchByTokens(msgs, 1)
+	if len(batches) > 2 {
+		t.Errorf("expected at most 2 batches for 5 msgs, got %d", len(batches))
+	}
+	total := 0
+	for _, b := range batches {
+		total += len(b)
+	}
+	if total != 5 {
+		t.Errorf("total messages in batches = %d, want 5", total)
+	}
+
+	// maxTokens large enough → single batch
+	batches2 := splitBatchByTokens(msgs, 1000000)
+	if len(batches2) != 1 {
+		t.Errorf("expected 1 batch, got %d", len(batches2))
+	}
+
+	// Single message → no split
+	batches3 := splitBatchByTokens(msgs[:1], 1)
+	if len(batches3) != 1 {
+		t.Errorf("expected 1 batch for single msg, got %d", len(batches3))
+	}
+}
+
+func TestAsyncCompact_MultiSegment(t *testing.T) {
+	callCount := 0
+	mc := &mockCompactor{
+		compactFn: func(ctx context.Context, msgs []Message) (string, error) {
+			callCount++
+			return "Summary " + string(rune('A'+callCount-1)) + ".", nil
+		},
+	}
+
+	// Use large summaryTokens so Push doesn't auto-trigger compaction.
+	// We will call CompactAndReplace manually.
+	cw := NewContextWindow(100000, 2000, 50000, NewTokenizer(), WithCompactor(mc))
+
+	cw.Push(RoleSystem, "System")
+	cw.Push(RoleUser, "Day1 msg1")
+	cw.Push(RoleAssistant, "Day1 reply1")
+	cw.Push(RoleUser, "Day1 msg2")
+	cw.Push(RoleAssistant, "Day1 reply2")
+	cw.Push(RoleUser, "Day2 msg1")
+	cw.Push(RoleAssistant, "Day2 reply1")
+
+	var hookCalled bool
+	var hookSegments []SummarySegment
+	cw.summaryHook = func(segments []SummarySegment) {
+		hookCalled = true
+		hookSegments = segments
+	}
+
+	_, err := cw.CompactAndReplace(context.Background())
+	if err != nil {
+		t.Fatalf("CompactAndReplace failed: %v", err)
+	}
+
+	if !hookCalled {
+		t.Fatal("summaryHook should have been called")
+	}
+	if len(hookSegments) == 0 {
+		t.Fatal("expected at least one segment from hook")
+	}
+
+	// CW should have system prompt + merged summary
+	if cw.Len() != 2 {
+		t.Errorf("CW len = %d, want 2 (system + merged summary)", cw.Len())
+	}
+
+	msg1, _ := cw.MessageAt(1)
+	if msg1.Role != RoleSystem {
+		t.Errorf("second message role = %v, want system", msg1.Role)
+	}
+}
+
+func TestAsyncCompact_PartialFailure(t *testing.T) {
+	callCount := 0
+	mc := &mockCompactor{
+		compactFn: func(ctx context.Context, msgs []Message) (string, error) {
+			callCount++
+			if callCount == 1 {
+				return "", context.DeadlineExceeded // first batch fails
+			}
+			return "Summary.", nil
+		},
+	}
+
+	cw := NewContextWindow(100000, 2000, 50000, NewTokenizer(), WithCompactor(mc))
+
+	// Build a synthetic message slice with 2 date groups so compactSegments
+	// creates multiple sub-batches.  Manually call compactSegments to avoid
+	// Push auto-triggering async compaction.
+	now := time.Now()
+	yesterday := now.AddDate(0, 0, -1)
+	msgs := []Message{
+		{Role: RoleSystem, Content: "System", Timestamp: now},
+		{Role: RoleUser, Content: strings.Repeat("a", 30000), Timestamp: yesterday},
+		{Role: RoleAssistant, Content: strings.Repeat("b", 30000), Timestamp: yesterday},
+		{Role: RoleUser, Content: strings.Repeat("c", 30000), Timestamp: now},
+		{Role: RoleAssistant, Content: strings.Repeat("d", 30000), Timestamp: now},
+	}
+
+	segments, finalSummary, err := cw.compactSegments(context.Background(), msgs)
+	if err != nil {
+		t.Fatalf("compactSegments failed: %v", err)
+	}
+
+	if len(segments) == 0 {
+		t.Fatal("expected at least one successful segment")
+	}
+	if finalSummary == "" {
+		t.Error("expected non-empty finalSummary from successful batches")
+	}
+}

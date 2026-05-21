@@ -39,17 +39,20 @@ func listTimelineFiles(dir, baseName string) ([]string, error) {
 
 // ReadTail reads the last maxTurns conversation turns from timeline files.
 // Returns messages and a cursor for paginating further back.
-func ReadTail(dir, baseName string, maxTurns int) ([]Segment, *time.Time, error) {
-	return readTailSince(dir, baseName, maxTurns, time.Time{})
+func ReadTail(dir, baseName string, maxTurns int, agentID string) ([]Segment, *time.Time, error) {
+	return readTailSince(dir, baseName, maxTurns, time.Time{}, agentID)
 }
 
-// ReadTailBefore reads up to maxTurns turns strictly before the cursor.
-func ReadTailBefore(dir, baseName string, maxTurns int, before time.Time) ([]Segment, *time.Time, error) {
-	return readTailSince(dir, baseName, maxTurns, before)
+func ReadTailBefore(dir, baseName string, maxTurns int, before time.Time, agentID string) ([]Segment, *time.Time, error) {
+	return readTailSince(dir, baseName, maxTurns, before, agentID)
 }
 
 // readTailSince is the shared implementation.
-func readTailSince(dir, baseName string, maxTurns int, since time.Time) ([]Segment, *time.Time, error) {
+//
+// It respects /clear control events as segment boundaries: only messages
+// after the most recent /clear are replayed.  It also filters by agentID
+// so old sessions do not pollute a new L1 session on restart.
+func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID string) ([]Segment, *time.Time, error) {
 	files, err := listTimelineFiles(dir, baseName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("timeline: list files: %w", err)
@@ -72,6 +75,30 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time) ([]Segme
 		return nil, nil, nil
 	}
 
+	// Split events into segments by /clear control events.
+	// Only the last segment (after the most recent /clear) is replayed.
+	var segments [][]Event
+	var currentSegment []Event
+	for _, evt := range allEvents {
+		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "clear" {
+			if len(currentSegment) > 0 {
+				segments = append(segments, currentSegment)
+				currentSegment = nil
+			}
+		} else {
+			currentSegment = append(currentSegment, evt)
+		}
+	}
+	if len(currentSegment) > 0 {
+		segments = append(segments, currentSegment)
+	}
+
+	if len(segments) == 0 {
+		return nil, nil, nil
+	}
+
+	lastSegmentEvents := segments[len(segments)-1]
+
 	// Collect messages from the end, stopping after maxTurns user messages
 	// or when hitting a message at/after the since cursor.
 	type collected struct {
@@ -81,8 +108,8 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time) ([]Segme
 	var rev []collected
 	userCount := 0
 
-	for i := len(allEvents) - 1; i >= 0 && userCount < maxTurns; i-- {
-		evt := allEvents[i]
+	for i := len(lastSegmentEvents) - 1; i >= 0 && userCount < maxTurns; i-- {
+		evt := lastSegmentEvents[i]
 		if evt.EventType != EventMessage || evt.Message == nil {
 			continue
 		}
@@ -95,6 +122,12 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time) ([]Segme
 					continue
 				}
 			}
+		}
+
+		// Agent ID filter: ignore messages from other sessions.
+		// Empty AgentID (legacy data) is allowed through.
+		if agentID != "" && msg.AgentID != "" && msg.AgentID != agentID {
+			continue
 		}
 
 		// Skip system prompts (CW metadata, not conversation).
