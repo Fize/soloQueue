@@ -273,6 +273,17 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				"iter", iter,
 				"duration_ms", durMs,
 			)
+			// Auto-recover from context overflow: compact and retry once
+			if strings.Contains(err.Error(), "maximum context length") && iter < maxIter-1 {
+				a.logInfo(ctx, logger.CatLLM, "llm chat overflow, compacting and retrying")
+				if hs, ok := strat.(*historyStrategy); ok {
+					_, cerr := hs.cw.CompactAndReplace(ctx)
+					if cerr == nil {
+						continue
+					}
+					a.logError(ctx, logger.CatLLM, "compact on overflow retry failed", cerr)
+				}
+			}
 			a.RecordError(err)
 			a.IncrementConsecutiveFailures()
 			a.emit(ctx, out, ErrorEvent{Err: err})
