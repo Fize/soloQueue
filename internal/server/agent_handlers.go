@@ -118,6 +118,9 @@ func (rm *RuntimeMetrics) StartAgentWatch(a *agent.Agent) {
 		rm.agentStreams = make(map[string]*AgentStreamState)
 		rm.agentCancels = make(map[string]func())
 	}
+	if oldCancel, ok := rm.agentCancels[a.InstanceID]; ok {
+		oldCancel()
+	}
 	rm.agentCancels[a.InstanceID] = cancel
 	rm.agentStreamsMu.Unlock()
 
@@ -258,6 +261,10 @@ func (rm *RuntimeMetrics) AgentStreams() map[string]*AgentStreamState {
 	out := make(map[string]*AgentStreamState, len(rm.agentStreams))
 	for id, s := range rm.agentStreams {
 		cp := *s
+		if len(s.Segments) > 0 {
+			cp.Segments = make([]Segment, len(s.Segments))
+			copy(cp.Segments, s.Segments)
+		}
 		out[id] = &cp
 	}
 	return out

@@ -92,6 +92,10 @@ func (r *Registry) Register(a *Agent) error {
 	}
 
 	r.mu.Lock()
+	if _, exists := r.agents[id]; exists {
+		r.mu.Unlock()
+		return nil
+	}
 	r.agents[id] = a
 	tmplID := a.Def.ID
 	if tmplID != "" {

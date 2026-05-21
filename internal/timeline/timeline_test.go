@@ -223,7 +223,7 @@ func TestWriter_Rotation(t *testing.T) {
 
 func TestReadTail_NoFiles(t *testing.T) {
 	dir := t.TempDir()
-	segs, _, err := ReadTail(dir, "timeline", 10)
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestReadTail_NoFiles(t *testing.T) {
 
 func TestReadTail_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	segs, _, err := ReadTail(dir, "timeline", 10)
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestReadTail_ReturnsMessages(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
 	w.Close()
 
-	segs, _, err := ReadTail(dir, "timeline", 10)
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestReadTail_MixedLegacyAndDateSizeFiles(t *testing.T) {
 		t.Fatalf("write datesize: %v", err)
 	}
 
-	segs, _, err := ReadTail(dir, "timeline", 10)
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestReadTail_RespectsMaxTurns(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a3"})
 	w.Close()
 
-	segs, _, err := ReadTail(dir, "timeline", 2) // only last 2 turns
+	segs, _, err := ReadTail(dir, "timeline", 2, "") // only last 2 turns
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestReadTail_SkipsIdentitySystem(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "hi"})
 	w.Close()
 
-	segs, _, err := ReadTail(dir, "timeline", 1)
+	segs, _, err := ReadTail(dir, "timeline", 1, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestReadTail_SkipsSummarySystem(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "hello"})
 	w.Close()
 
-	segs, _, err := ReadTail(dir, "timeline", 1)
+	segs, _, err := ReadTail(dir, "timeline", 1, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -360,6 +360,75 @@ func TestReadTail_SkipsSummarySystem(t *testing.T) {
 	}
 	if len(segs[0].Messages) != 1 || segs[0].Messages[0].Content != "hello" {
 		t.Errorf("expected only 'hello', got %+v", segs[0].Messages)
+	}
+}
+
+func TestReadTail_RespectsClearControl(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	// Segment 1: pre-clear
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "before clear"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "ok"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	// Segment 2: post-clear
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "after clear"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "sure"})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 2 {
+		t.Errorf("expected 2 messages (post-clear only), got %d", len(segs[0].Messages))
+	}
+	if segs[0].Messages[0].Content != "after clear" {
+		t.Errorf("msg[0] = %q, want 'after clear'", segs[0].Messages[0].Content)
+	}
+}
+
+func TestReadTail_FiltersByAgentID(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "mine", AgentID: "l1-agent"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply", AgentID: "l1-agent"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "other", AgentID: "other-agent"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "other reply", AgentID: "other-agent"})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "l1-agent")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	if len(segs[0].Messages) != 2 {
+		t.Errorf("expected 2 messages (l1-agent only), got %d", len(segs[0].Messages))
+	}
+	if segs[0].Messages[0].Content != "mine" {
+		t.Errorf("msg[0] = %q, want 'mine'", segs[0].Messages[0].Content)
+	}
+}
+
+func TestReadTail_AllowsLegacyEmptyAgentID(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "legacy"})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "l1-agent")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segs) != 1 || len(segs[0].Messages) != 1 {
+		t.Fatalf("expected 1 message, got %+v", segs)
+	}
+	if segs[0].Messages[0].Content != "legacy" {
+		t.Errorf("msg[0] = %q, want 'legacy'", segs[0].Messages[0].Content)
 	}
 }
 
@@ -676,22 +745,21 @@ func TestWriteThenRead_RoundTrip(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "new topic"})
 	w.Close()
 
-	segs, _, err := ReadTail(dir, "timeline", 10)
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
-	// ReadTail ignores /clear cut points; returns last N turns.
-	// 2 user turns → all 4 conversation messages (system passes through,
-	// control events are ignored).
+	// ReadTail respects /clear as a segment boundary: only messages
+	// after the most recent /clear are returned.
+	// After /clear, only "new topic" remains.
 	if len(segs) != 1 {
 		t.Fatalf("expected 1 segment, got %d", len(segs))
 	}
-	if len(segs[0].Messages) != 4 {
-		t.Errorf("segment has %d messages, want 4", len(segs[0].Messages))
+	if len(segs[0].Messages) != 1 {
+		t.Errorf("segment has %d messages, want 1 (only post-clear)", len(segs[0].Messages))
 	}
-	// First user message is "hello"
-	if segs[0].Messages[1].Content != "hello" {
-		t.Errorf("msg[1] = %q, want 'hello'", segs[0].Messages[1].Content)
+	if segs[0].Messages[0].Content != "new topic" {
+		t.Errorf("msg[0] = %q, want 'new topic'", segs[0].Messages[0].Content)
 	}
 }
 
@@ -713,7 +781,7 @@ func TestWriteThenReplay_RoundTrip(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1", ReasoningContent: "thinking..."})
 	w.Close()
 
-	segs, _, _ := ReadTail(dir, "timeline", 10)
+	segs, _, _ := ReadTail(dir, "timeline", 10, "")
 
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)
@@ -951,7 +1019,7 @@ func TestReadTailBefore_Pagination(t *testing.T) {
 	w.Close()
 
 	// Read all 3 turns
-	segs, cursor, err := ReadTail(dir, "timeline", 10)
+	segs, cursor, err := ReadTail(dir, "timeline", 10, "")
 	if err != nil {
 		t.Fatalf("ReadTail: %v", err)
 	}
@@ -963,7 +1031,7 @@ func TestReadTailBefore_Pagination(t *testing.T) {
 	}
 
 	// ReadTailBefore with cursor from oldest message should return nothing
-	segs2, cursor2, err := ReadTailBefore(dir, "timeline", 10, *cursor)
+	segs2, cursor2, err := ReadTailBefore(dir, "timeline", 10, *cursor, "")
 	if err != nil {
 		t.Fatalf("ReadTailBefore: %v", err)
 	}
@@ -975,7 +1043,7 @@ func TestReadTailBefore_Pagination(t *testing.T) {
 	}
 
 	// Read only last 1 turn, then page back
-	segs3, cursor3, err := ReadTail(dir, "timeline", 1)
+	segs3, cursor3, err := ReadTail(dir, "timeline", 1, "")
 	if err != nil {
 		t.Fatalf("ReadTail(1): %v", err)
 	}
@@ -983,7 +1051,7 @@ func TestReadTailBefore_Pagination(t *testing.T) {
 		t.Errorf("msg[0] = %q, want q3", segs3[0].Messages[0].Content)
 	}
 
-	segs4, _, err := ReadTailBefore(dir, "timeline", 1, *cursor3)
+	segs4, _, err := ReadTailBefore(dir, "timeline", 1, *cursor3, "")
 	if err != nil {
 		t.Fatalf("ReadTailBefore(1): %v", err)
 	}

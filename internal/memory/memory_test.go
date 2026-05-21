@@ -81,14 +81,14 @@ func TestRecord_MergesWithExisting(t *testing.T) {
 func TestRecord_CleansUpOldFiles(t *testing.T) {
 	mgr, dir := newTestManager(t)
 
-	// Create a file older than 7 days (should be cleaned up)
+	// Create a file older than 3 days (should be cleaned up)
 	oldDate := time.Now().AddDate(0, 0, -10).Format("2006-01-02")
 	oldPath := filepath.Join(dir, oldDate+".md")
 	_ = os.MkdirAll(dir, 0755)
 	_ = os.WriteFile(oldPath, []byte("# "+oldDate+"\nold content"), 0644)
 
-	// Create a recent file within 7 days (should survive)
-	recentDate := time.Now().AddDate(0, 0, -5).Format("2006-01-02")
+	// Create a recent file within 3 days (should survive)
+	recentDate := time.Now().AddDate(0, 0, -2).Format("2006-01-02")
 	recentPath := filepath.Join(dir, recentDate+".md")
 	_ = os.WriteFile(recentPath, []byte("# "+recentDate+"\nrecent content"), 0644)
 

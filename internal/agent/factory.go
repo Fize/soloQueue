@@ -252,10 +252,11 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	}
 
 	var finalPrompt string
+	hasPermanentMemory := toolsCfg.PermanentManager != nil
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir, projRes.agents)
+		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir)
+		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir, hasPermanentMemory)
 	}
 
 	// Inject project instructions (AGENTS.md / CLAUDE.md) into system prompt
@@ -740,7 +741,7 @@ GOOD (to L1): "Task completed. The CSS styling issue on the login page has been 
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (动态能力区): Team Context + 同组 Agents 目录 + MCP Servers
 // Segment 3 (框架强制区): 不可篡改的底层契约
-func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, projectAgents []AgentTemplate) string {
+func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, projectAgents []AgentTemplate, hasPermanentMemory bool) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -830,6 +831,10 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	// ── Segment 3: 框架强制区 ──────────────────────────────
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false))
 	b.WriteString("\n\n")
+	if hasPermanentMemory {
+		b.WriteString(permanentMemorySection)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart1, "{{PLAN_DIR}}", planDir))
 	if planDir != "" {
 		b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
@@ -844,6 +849,19 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 }
 
 // ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
+
+// permanentMemorySection is injected into L2/L3 prompts when permanent memory is enabled.
+const permanentMemorySection = `
+# Long-Term Memory
+You have access to long-term memory through the RecallMemory and Remember tools. Long-term memory stores condensed summaries from past conversations.
+
+Use RecallMemory when:
+- The user refers to past conversations or previous sessions
+- You need historical context about past decisions, preferences, or project history
+- The user asks about something discussed before but you can't recall
+
+Use Remember to save important information that may be useful in future conversations.
+`
 
 // l3EnforcedDirectives is the always-included portion of the L3 enforced rules.
 const l3EnforcedDirectives = `
@@ -925,7 +943,7 @@ Prefer the Read tool for reading files. Using Bash with cat wastes tokens and by
 //
 // Segment 1 (用户定义区): 用户的业务 Role + System Prompt
 // Segment 2 (框架强制区): 不可篡改的底层契约
-func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string) string {
+func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, hasPermanentMemory bool) string {
 	var b strings.Builder
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
@@ -962,6 +980,10 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	// ── Segment 2: 框架强制区 ──────────────────────────────
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false))
 	b.WriteString("\n\n")
+	if hasPermanentMemory {
+		b.WriteString(permanentMemorySection)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))

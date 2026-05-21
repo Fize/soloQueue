@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,9 +105,17 @@ func WithTimestamp(ts time.Time) PushOption {
 // replayMode 期间 Hook 不会被调用，避免双重写入。
 type PushHook func(msg Message)
 
-// SummaryHook 在异步压缩完成后被调用（用于持久化 summary 到 timeline）
-// messages is the snapshot of all messages before compaction (useful for memory systems).
-type SummaryHook func(summary string, messages []Message)
+// SummarySegment is one compressed chunk of conversation history,
+// produced by the new segmented compaction logic.
+type SummarySegment struct {
+	Summary string    // the LLM-generated summary for this chunk
+	Msgs    []Message // the original messages in this chunk (for cursor filtering)
+	Date    time.Time // the calendar date of the messages (for routing to short vs permanent memory)
+}
+
+// SummaryHook 在压缩完成后被调用，传入所有分段（含已过期和近期）。
+// 调用方负责按 Date 决定存入短期 memory、长期 memory 还是 timeline。
+type SummaryHook func(segments []SummarySegment)
 
 // ─── Option ─────────────────────────────────────────────────────────────────
 
@@ -678,6 +688,12 @@ func (cw *ContextWindow) Recalculate() int {
 
 // ─── Compression ──────────────────────────────────────────────────────────
 
+// constMaxToolContentLen is the max content length (runes) for a tool
+// message to be kept for compaction. Tool outputs longer than this are
+// dropped entirely — memory only needs to know "what tool was called",
+// not the full output.
+const maxToolContentLen = 2000
+
 // CompactAndReplace compresses all messages synchronously and replaces
 // the context window content with system_prompt + summary.
 //
@@ -688,9 +704,9 @@ func (cw *ContextWindow) Recalculate() int {
 //
 // Flow:
 //  1. RLock: snapshot messages
-//  2. Release lock, call Compactor.Compact
-//  3. Lock: replace messages[1:] with summary
-//  4. Unlock: call summaryHook for persistence
+//  2. Release lock, call segmented compaction engine
+//  3. Lock: replace messages[1:] with merged summary
+//  4. Unlock: call summaryHook with all segments
 //
 // Returns the summary on success, error on failure. On error, CW is NOT modified.
 // Returns ("", nil) if no compactor is set.
@@ -714,25 +730,23 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 			"messages_count", len(msgs), "tokens_before", tokensBefore)
 	}
 
-	compactStart := time.Now()
-	summary, err := cw.compactor.Compact(ctx, msgs)
-	compactDuration := time.Since(compactStart)
+	segments, finalSummary, err := cw.compactSegments(ctx, msgs)
 	if err != nil {
 		if cw.log != nil {
 			cw.log.WarnContext(ctx, logger.CatMessages, "compact_and_replace: compression failed",
-				"err", err.Error(), "duration", compactDuration.String())
+				"err", err.Error())
 		}
 		return "", err
 	}
 
 	cw.Lock()
-	summaryTokens := cw.tokenizer.Count(summary)
-	summaryMsg := Message{
-		Role:    RoleSystem,
-		Content: "[Previous Conversation Summary]\n" + summary,
-		Tokens:  summaryTokens,
-	}
-	if len(cw.messages) > 0 {
+	if len(cw.messages) > 0 && finalSummary != "" {
+		summaryTokens := cw.tokenizer.Count(finalSummary)
+		summaryMsg := Message{
+			Role:    RoleSystem,
+			Content: "[Previous Conversation Summary]\n" + finalSummary,
+			Tokens:  summaryTokens,
+		}
 		tokensAfter := cw.messages[0].Tokens + summaryTokens
 		removedTokens := tokensBefore - tokensAfter
 
@@ -746,18 +760,18 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 				"tokens_before", tokensBefore,
 				"tokens_after", tokensAfter,
 				"tokens_saved", removedTokens,
-				"summary_len", len(summary),
-				"compact_duration", compactDuration.String(),
+				"summary_len", len(finalSummary),
+				"segments", len(segments),
 			)
 		}
 	}
 	cw.Unlock()
 
-	if cw.summaryHook != nil {
-		cw.summaryHook(summary, msgs)
+	if cw.summaryHook != nil && len(segments) > 0 {
+		cw.summaryHook(segments)
 	}
 
-	return summary, nil
+	return finalSummary, nil
 }
 
 // asyncCompact compresses the conversation history using the Compactor.
@@ -768,8 +782,8 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 // Flow:
 //  1. CAS summarizing false→true
 //  2. RLock: snapshot messages
-//  3. Release lock, call Compactor.Compact (allows concurrent reads/writes)
-//  4. Lock: replace messages[1:] with single summary message
+//  3. Release lock, call segmented compaction engine
+//  4. Lock: replace messages[1:] with merged summary message
 //  5. Update currentTokens
 //  6. Set summarizing false
 func (cw *ContextWindow) asyncCompact() {
@@ -789,6 +803,10 @@ func (cw *ContextWindow) asyncCompact() {
 	tokensBefore := cw.currentTokens
 	cw.RUnlock()
 
+	if len(msgs) <= 1 {
+		return
+	}
+
 	if cw.log != nil {
 		cw.log.DebugContext(context.Background(), logger.CatMessages, "async_compact: snapshot taken",
 			"messages_count", len(msgs),
@@ -796,29 +814,24 @@ func (cw *ContextWindow) asyncCompact() {
 		)
 	}
 
-	// Compress without holding any lock (allows concurrent operations)
-	compactStart := time.Now()
-	summary, err := cw.compactor.Compact(context.Background(), msgs)
-	compactDuration := time.Since(compactStart)
+	segments, finalSummary, err := cw.compactSegments(context.Background(), msgs)
 	if err != nil {
 		if cw.log != nil {
 			cw.log.WarnContext(context.Background(), logger.CatMessages, "async_compact: compression failed",
-				"err", err.Error(),
-				"duration", compactDuration.String(),
-			)
+				"err", err.Error())
 		}
 		return // compression failed, keep current state
 	}
 
 	// Replace history with summary under write lock
 	cw.Lock()
-	summaryTokens := cw.tokenizer.Count(summary)
-	summaryMsg := Message{
-		Role:    RoleSystem,
-		Content: "[Conversation Summary]\n" + summary,
-		Tokens:  summaryTokens,
-	}
-	if len(cw.messages) > 0 {
+	if len(cw.messages) > 0 && finalSummary != "" {
+		summaryTokens := cw.tokenizer.Count(finalSummary)
+		summaryMsg := Message{
+			Role:    RoleSystem,
+			Content: "[Conversation Summary]\n" + finalSummary,
+			Tokens:  summaryTokens,
+		}
 		tokensAfter := cw.messages[0].Tokens + summaryTokens
 		removedTokens := tokensBefore - tokensAfter
 
@@ -833,17 +846,271 @@ func (cw *ContextWindow) asyncCompact() {
 				"tokens_after", tokensAfter,
 				"tokens_saved", removedTokens,
 				"tokens_saved_pct", float64(removedTokens)*100.0/float64(tokensBefore),
-				"summary_len", len(summary),
-				"compact_duration", compactDuration.String(),
+				"summary_len", len(finalSummary),
+				"segments", len(segments),
+				"compact_duration", "", // not tracked in this path; add if needed
 			)
 		}
 	}
 	cw.Unlock()
 
-	// Persist summary to timeline (outside lock)
-	if cw.summaryHook != nil {
-		cw.summaryHook(summary, msgs)
+	// Persist all segments (outside lock)
+	if cw.summaryHook != nil && len(segments) > 0 {
+		cw.summaryHook(segments)
 	}
+}
+
+// compactSegments is the shared compaction engine.
+//
+// It filters oversized tool messages, groups by date, splits by tokens,
+// compacts each batch, and merges recent (≤3 days) segments into a single
+// final summary. Segments older than 3 days are kept in the returned slice
+// but do NOT participate in the final CW summary.
+//
+// Returns:
+//   - segments: all successfully compressed segments (including expired)
+//   - finalSummary: the merged summary for recent segments (empty if none)
+//   - err: only if every single batch failed
+func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([]SummarySegment, string, error) {
+	// 1. Drop oversized tool messages (memory only needs "what tool was called")
+	filtered := filterOversizedToolMessages(msgs[1:]) // skip system prompt
+
+	// 2. Group by calendar date
+	byDate := groupMessagesByDate(filtered)
+	if len(byDate) == 0 {
+		return nil, "", nil
+	}
+
+	// 3. Compact each date group (split if > summaryTokens)
+	var segments []SummarySegment
+	for _, g := range byDate {
+		tokens := cw.estimateBatchTokens(g.msgs)
+		if tokens > cw.summaryTokens {
+			subBatches := splitBatchByTokens(g.msgs, cw.summaryTokens)
+			for _, sub := range subBatches {
+				summary, err := cw.compactor.Compact(ctx, sub)
+				if err != nil {
+					if cw.log != nil {
+						cw.log.WarnContext(ctx, logger.CatMessages, "compact_segments: sub-batch failed",
+							"err", err.Error(), "date", g.date.Format("2006-01-02"))
+					}
+					continue // skip this sub-batch, keep going
+				}
+				segments = append(segments, SummarySegment{
+					Summary: summary,
+					Msgs:    sub,
+					Date:    g.date,
+				})
+			}
+		} else {
+			summary, err := cw.compactor.Compact(ctx, g.msgs)
+			if err != nil {
+				if cw.log != nil {
+					cw.log.WarnContext(ctx, logger.CatMessages, "compact_segments: batch failed",
+						"err", err.Error(), "date", g.date.Format("2006-01-02"))
+				}
+				continue // skip this date group, keep going
+			}
+			segments = append(segments, SummarySegment{
+				Summary: summary,
+				Msgs:    g.msgs,
+				Date:    g.date,
+			})
+		}
+	}
+
+	// If every batch failed, return empty segments but no error.
+	// The caller (CompactAndReplace / asyncCompact) will keep CW unchanged.
+	if len(segments) == 0 {
+		return nil, "", nil
+	}
+
+	// 4. Extract recent segments (≤3 days)
+	cutoff := time.Now().AddDate(0, 0, -3)
+	var recent []SummarySegment
+	for _, seg := range segments {
+		if !seg.Date.Before(cutoff) { // seg.Date >= cutoff
+			recent = append(recent, seg)
+		}
+	}
+
+	// 5. Merge recent summaries into a single final summary
+	var finalSummary string
+	switch len(recent) {
+	case 0:
+		finalSummary = ""
+	case 1:
+		finalSummary = recent[0].Summary
+	default:
+		finalSummary = cw.mergeSummaries(ctx, recent)
+	}
+
+	return segments, finalSummary, nil
+}
+
+// mergeSummaries merges multiple daily summaries into one concise summary.
+// If the second compactor call fails, it falls back to simple concatenation.
+func (cw *ContextWindow) mergeSummaries(ctx context.Context, segments []SummarySegment) string {
+	// Build a synthetic conversation for the compactor
+	mergeMsgs := []Message{
+		{
+			Role:    RoleSystem,
+			Content: "You are a context compression assistant. Merge the following conversation summaries into a single concise summary. Preserve all key decisions, file paths, code changes, and outcomes. Omit redundant details.",
+		},
+	}
+	for _, seg := range segments {
+		mergeMsgs = append(mergeMsgs, Message{
+			Role:    RoleUser,
+			Content: seg.Summary,
+		})
+	}
+
+	merged, err := cw.compactor.Compact(ctx, mergeMsgs)
+	if err != nil {
+		if cw.log != nil {
+			cw.log.WarnContext(ctx, logger.CatMessages, "merge_summaries: second-pass compaction failed, falling back to concat",
+				"err", err.Error())
+		}
+		// Fallback: concatenate with separators
+		var parts []string
+		for _, seg := range segments {
+			parts = append(parts, seg.Summary)
+		}
+		merged = strings.Join(parts, "\n\n---\n\n")
+	}
+	return merged
+}
+
+// ─── Compaction Helpers ────────────────────────────────────────────────────
+
+// filterOversizedToolMessages drops tool messages whose content exceeds
+// maxToolContentLen runes.  Memory only needs to know "what tool was
+// called", not the full multi-megabyte output.
+func filterOversizedToolMessages(msgs []Message) []Message {
+	out := make([]Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == RoleTool && len([]rune(m.Content)) > maxToolContentLen {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// dateGroup holds messages sharing the same calendar date.
+type dateGroup struct {
+	date time.Time
+	msgs []Message
+}
+
+// groupMessagesByDate groups messages by the calendar date of their Timestamp.
+// Messages with zero timestamp are skipped.  System prompt (index 0) must be
+// excluded before calling.  Results are sorted oldest → newest.
+func groupMessagesByDate(msgs []Message) []dateGroup {
+	byDate := make(map[string][]Message)
+	for _, m := range msgs {
+		if m.Timestamp.IsZero() {
+			continue
+		}
+		key := m.Timestamp.Format("2006-01-02")
+		byDate[key] = append(byDate[key], m)
+	}
+
+	var groups []dateGroup
+	for key, gmsgs := range byDate {
+		t, _ := time.Parse("2006-01-02", key)
+		groups = append(groups, dateGroup{date: t, msgs: gmsgs})
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].date.Before(groups[j].date)
+	})
+	return groups
+}
+
+// estimateBatchTokens returns the total estimated tokens for a batch of
+// messages, using the same logic as Push.
+func (cw *ContextWindow) estimateBatchTokens(msgs []Message) int {
+	total := 0
+	for _, m := range msgs {
+		t := cw.tokenizer.Count(m.Content) + cw.tokenizer.Count(m.ReasoningContent)
+		if len(m.ToolCalls) > 0 {
+			t += cw.tokenizer.Count(toolCallsToJSON(m.ToolCalls))
+		}
+		total += t
+	}
+	return total
+}
+
+// minMsgsPerBatch is the minimum number of messages in a compaction sub-batch.
+// It prevents excessive compactor calls when the message count is small.
+const minMsgsPerBatch = 3
+
+// splitBatchByTokens splits msgs into sub-batches so that each sub-batch
+// has roughly equal message counts.  The caller already verified that the
+// total exceeds maxTokens.
+func splitBatchByTokens(msgs []Message, maxTokens int) [][]Message {
+	// Fast path: if a single message already exceeds maxTokens,
+	// we can't split it further; return as-is and let the compactor truncate.
+	if len(msgs) == 1 {
+		return [][]Message{msgs}
+	}
+
+	// Compute how many sub-batches we need.
+	// Use the average tokens per message as a heuristic.
+	totalTokens := 0
+	for _, m := range msgs {
+		t := len(m.Content) + len(m.ReasoningContent)
+		if len(m.ToolCalls) > 0 {
+			t += len(toolCallsToJSON(m.ToolCalls))
+		}
+		totalTokens += t
+	}
+	// If total fits within maxTokens, no split needed.
+	if totalTokens <= maxTokens {
+		return [][]Message{msgs}
+	}
+
+	avg := totalTokens / len(msgs)
+	if avg == 0 {
+		avg = 1
+	}
+	n := totalTokens / maxTokens
+	if totalTokens%maxTokens > 0 {
+		n++
+	}
+	if n < 2 {
+		n = 2
+	}
+
+	// Cap by minimum messages per batch so we don't create tiny batches.
+	maxBatches := len(msgs) / minMsgsPerBatch
+	if len(msgs)%minMsgsPerBatch > 0 {
+		maxBatches++
+	}
+	if n > maxBatches {
+		n = maxBatches
+	}
+	if n < 2 {
+		n = 2
+	}
+	if n > len(msgs) {
+		n = len(msgs)
+	}
+
+	batchSize := len(msgs) / n
+	remainder := len(msgs) % n
+
+	var batches [][]Message
+	idx := 0
+	for i := 0; i < n; i++ {
+		sz := batchSize
+		if i < remainder {
+			sz++
+		}
+		batches = append(batches, msgs[idx:idx+sz])
+		idx += sz
+	}
+	return batches
 }
 
 // ─── Internal ───────────────────────────────────────────────────────────────

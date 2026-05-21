@@ -775,7 +775,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		"designer": otherTmpl,
 	}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
+	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
 	// Segment 1: user-defined
 	if !strings.Contains(prompt, "You are a dev supervisor.") {
@@ -894,7 +894,7 @@ func TestBuildL2SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
 	// 验证 L2 prompt 中包含 plan 目录路径
 	if !strings.Contains(prompt, "/home/user/.soloqueue/plan") {
@@ -918,7 +918,7 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	groups := map[string]prompt.GroupFile{}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
 	// 空 planDir 时，plan 相关规则不应出现
 	if strings.Contains(prompt, "MANDATORY Plan Before Execution") {
@@ -954,7 +954,7 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
 	// 验证 Goal/Approach/Impact/Steps 结构约定在 L2 prompt 中体现
 	if !strings.Contains(prompt, "Goal") {
@@ -980,7 +980,7 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
 	// 验证 L3 prompt 中包含 "Follow the Plan" 规则
 	if !strings.Contains(prompt, "Follow the Plan") {
@@ -1011,7 +1011,7 @@ func TestBuildL3SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
 	// 验证 L3 prompt 中包含 plan 目录路径
 	if !strings.Contains(prompt, "/home/user/.soloqueue/plan") {
@@ -1027,7 +1027,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
 	// 空 planDir 时，不要出现未替换的占位符
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
@@ -1052,7 +1052,7 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
 	// 验证 Goal/Approach/Impact/Steps 结构约定在 L3 prompt 中体现
 	if !strings.Contains(prompt, "Goal") {
@@ -1066,6 +1066,88 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Steps") {
 		t.Error("L3 prompt should contain 'Steps' in design document structure")
+	}
+}
+
+func TestBuildL2SystemPrompt_PermanentMemory(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{"dev": devTmpl}
+	groups := map[string]prompt.GroupFile{}
+
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "/plan", "/workdir", "/explore", nil, true)
+
+	if !strings.Contains(prompt, "Long-Term Memory") {
+		t.Error("L2 prompt should contain Long-Term Memory section when permanent memory is enabled")
+	}
+	if !strings.Contains(prompt, "RecallMemory") {
+		t.Error("L2 prompt should mention RecallMemory tool")
+	}
+	if !strings.Contains(prompt, "Remember") {
+		t.Error("L2 prompt should mention Remember tool")
+	}
+}
+
+func TestBuildL2SystemPrompt_NoPermanentMemory(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+
+	templates := map[string]AgentTemplate{"dev": devTmpl}
+	groups := map[string]prompt.GroupFile{}
+
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "/plan", "/workdir", "/explore", nil, false)
+
+	if strings.Contains(prompt, "Long-Term Memory") {
+		t.Error("L2 prompt should NOT contain Long-Term Memory section when permanent memory is disabled")
+	}
+}
+
+func TestBuildL3SystemPrompt_PermanentMemory(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore", true)
+
+	if !strings.Contains(prompt, "Long-Term Memory") {
+		t.Error("L3 prompt should contain Long-Term Memory section when permanent memory is enabled")
+	}
+	if !strings.Contains(prompt, "RecallMemory") {
+		t.Error("L3 prompt should mention RecallMemory tool")
+	}
+	if !strings.Contains(prompt, "Remember") {
+		t.Error("L3 prompt should mention Remember tool")
+	}
+}
+
+func TestBuildL3SystemPrompt_NoPermanentMemory(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore", false)
+
+	if strings.Contains(prompt, "Long-Term Memory") {
+		t.Error("L3 prompt should NOT contain Long-Term Memory section when permanent memory is disabled")
 	}
 }
 
@@ -1531,7 +1613,7 @@ func TestBuildL2SystemPrompt_ProjectAgentsListed(t *testing.T) {
 		{ID: "proj-frontend", Name: "ProjFrontend", Description: "Project frontend worker", Group: "DevOps"},
 	}
 
-	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents)
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents, false)
 
 	if !strings.Contains(promptStr, "ProjBackend") {
 		t.Error("L2 prompt should list project agent ProjBackend")
@@ -1570,7 +1652,7 @@ func TestBuildL2SystemPrompt_ProjectAgentOverridesGlobal(t *testing.T) {
 		{ID: "backend", Name: "ProjBackend", Description: "Project backend override", Group: "DevOps"},
 	}
 
-	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents)
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents, false)
 
 	if !strings.Contains(promptStr, "ProjBackend") {
 		t.Error("L2 prompt should list project-overridden backend")
@@ -1602,7 +1684,7 @@ func TestBuildL2SystemPrompt_ProjectAgentExcludesSelf(t *testing.T) {
 		{ID: "worker", Name: "Worker", Description: "Valid worker", Group: "DevOps"},
 	}
 
-	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents)
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", projectAgents, false)
 
 	if strings.Contains(promptStr, "Should be excluded") {
 		t.Error("L2 prompt should NOT list project agent with same ID as leader (self)")
@@ -1634,7 +1716,7 @@ func TestBuildL2SystemPrompt_NilProjectAgents(t *testing.T) {
 		"frontend": frontendTmpl,
 	}
 
-	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", nil)
+	promptStr := buildL2SystemPrompt(devTmpl, templates, nil, "/plan", "/workdir", "/explore", nil, false)
 
 	if !strings.Contains(promptStr, "Frontend") {
 		t.Error("L2 prompt should list global peer even when projectAgents is nil")

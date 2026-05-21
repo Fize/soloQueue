@@ -38,6 +38,35 @@ func TestRegistry_RegisterGet(t *testing.T) {
 	}
 }
 
+func TestRegistry_Register_DoubleRegistration(t *testing.T) {
+	r := NewRegistry(nil)
+	a := newBareAgentWithInstance("dev", "inst-1")
+
+	var onRegisterCallCount int
+	r.SetOnRegister(func(agent *Agent) {
+		onRegisterCallCount++
+	})
+
+	if err := r.Register(a); err != nil {
+		t.Fatalf("First Register: %v", err)
+	}
+	if err := r.Register(a); err != nil {
+		t.Fatalf("Second Register should succeed: %v", err)
+	}
+
+	if r.Len() != 1 {
+		t.Errorf("Len = %d, want 1", r.Len())
+	}
+	if onRegisterCallCount != 1 {
+		t.Errorf("onRegister called %d times, want 1", onRegisterCallCount)
+	}
+
+	byTmpl := r.GetByTemplate("dev")
+	if len(byTmpl) != 1 {
+		t.Errorf("GetByTemplate len = %d, want 1", len(byTmpl))
+	}
+}
+
 func TestRegistry_Register_Nil(t *testing.T) {
 	r := NewRegistry(nil)
 	err := r.Register(nil)
