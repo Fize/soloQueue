@@ -2,10 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -47,12 +45,11 @@ type sendFileArgs struct {
 }
 
 type sendFileResult struct {
-	Status     string `json:"status"`
-	FileName   string `json:"file_name"`
-	FileType   string `json:"file_type"`
-	Base64Data string `json:"base64_data,omitempty"`
-	Path       string `json:"path,omitempty"`
-	URL        string `json:"url,omitempty"`
+	Status   string `json:"status"`
+	FileName string `json:"file_name"`
+	FileType string `json:"file_type"`
+	Path     string `json:"path,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
 func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) {
@@ -89,28 +86,6 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 			fileType = a.FileType
 		} else {
 			fileType = detectFileType(fileName)
-		}
-
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			return "", fmt.Errorf("failed to read file: %w", err)
-		}
-
-		if fileType == "image" || fileType == "video" || fileType == "voice" {
-			enc := base64.StdEncoding.EncodeToString(data)
-			out := sendFileResult{
-				Status:     "success",
-				FileName:   fileName,
-				FileType:   fileType,
-				Base64Data: enc,
-				Path:       path,
-			}
-			if t.logger != nil {
-				t.logger.InfoContext(ctx, logger.CatTool, "send_file: completed",
-					"file_name", fileName, "file_type", fileType)
-			}
-			b, _ := json.Marshal(out)
-			return string(b), nil
 		}
 
 		out := sendFileResult{

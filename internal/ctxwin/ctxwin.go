@@ -241,7 +241,7 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 
 	// Capacity check & eviction
 	capacity := cw.maxTokens - cw.bufferTokens
-	if msg.Tokens > capacity {
+	if msg.Tokens > capacity || len(msg.Content) > cw.maxTokens {
 		msg.Content = charLevelTruncate(msg.Content, 0.02, 0.02)
 		msg.Tokens = cw.tokenizer.Count(msg.Content) + cw.tokenizer.Count(msg.ReasoningContent)
 		if len(msg.ToolCalls) > 0 {
