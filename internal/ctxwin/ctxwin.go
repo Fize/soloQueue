@@ -241,6 +241,13 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 
 	// Capacity check & eviction
 	capacity := cw.maxTokens - cw.bufferTokens
+	if msg.Tokens > capacity {
+		msg.Content = charLevelTruncate(msg.Content, 0.02, 0.02)
+		msg.Tokens = cw.tokenizer.Count(msg.Content) + cw.tokenizer.Count(msg.ReasoningContent)
+		if len(msg.ToolCalls) > 0 {
+			msg.Tokens += cw.tokenizer.Count(toolCallsToJSON(msg.ToolCalls))
+		}
+	}
 	if cw.currentTokens+msg.Tokens > capacity {
 		if cw.log != nil {
 			cw.log.DebugContext(context.Background(), logger.CatMessages, "push: capacity check triggered",
@@ -1123,6 +1130,9 @@ func (cw *ContextWindow) evict(newMsgTokens int) {
 	cw.truncateMiddleOut()
 	capacity := cw.maxTokens - cw.bufferTokens
 	target := capacity - newMsgTokens
+	if target < 0 {
+		target = 0
+	}
 	if cw.currentTokens > target {
 		cw.slideFIFO(target)
 	}
