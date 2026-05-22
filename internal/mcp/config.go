@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // ServerConfig defines one MCP server in mcp.json.
@@ -61,6 +62,9 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 				Enabled:   enabled,
 			})
 		}
+		sort.Slice(servers, func(i, j int) bool {
+			return servers[i].Name < servers[j].Name
+		})
 		c.Servers = servers
 		return nil
 	}

@@ -45,13 +45,72 @@ func TestFileRead_Happy(t *testing.T) {
 }
 
 func TestFileRead_TooLarge(t *testing.T) {
-	tool, dir := mkFileReadTool(t, 10)
+	// Read tool no longer rejects by MaxFileSize — instead it truncates by token limit.
+	// A 25KB file (~25000 chars) should fit within ReadDefaultMaxTokens (~8000 tokens).
+	// A 200KB file (~200000 chars ≈ 60K+ tokens) should exceed the limit and be truncated.
+	big := strings.Repeat("hello world this is test content for truncation check. ", 5000)
+	tool, dir := mkFileReadTool(t, 100<<20)
 	path := filepath.Join(dir, "big.txt")
-	_ = os.WriteFile(path, []byte("this is way more than ten bytes"), 0o644)
+	_ = os.WriteFile(path, []byte(big), 0o644)
 	args, _ := json.Marshal(map[string]string{"path": path})
-	_, err := tool.Execute(context.Background(), string(args))
-	if err == nil || !strings.Contains(err.Error(), "file too large") {
-		t.Errorf("err = %v, want file too large", err)
+	out, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var res fileReadResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !res.Truncated {
+		t.Error("expected truncated=true for file exceeding token limit")
+	}
+	if res.Error == "" {
+		t.Error("expected error message about token limit")
+	}
+	if len(res.Content) < 1000 {
+		t.Error("truncated content should still be substantial")
+	}
+}
+
+func TestFileRead_Offset(t *testing.T) {
+	tool, dir := mkFileReadTool(t, 100<<20)
+	content := "abcdefghijklmnopqrstuvwxyz"
+	path := filepath.Join(dir, "offset.txt")
+	_ = os.WriteFile(path, []byte(content), 0o644)
+
+	args, _ := json.Marshal(map[string]any{"path": path, "offset": 5})
+	out, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var res fileReadResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if res.Content != "fghijklmnopqrstuvwxyz" {
+		t.Errorf("content = %q, want 'fghijklmnopqrstuvwxyz'", res.Content)
+	}
+	if res.Size != 26 {
+		t.Errorf("size = %d, want 26", res.Size)
+	}
+}
+
+func TestFileRead_LimitParam(t *testing.T) {
+	tool, dir := mkFileReadTool(t, 100<<20)
+	path := filepath.Join(dir, "limit.txt")
+	_ = os.WriteFile(path, []byte("hello world this is a test file"), 0o644)
+
+	args, _ := json.Marshal(map[string]any{"path": path, "limit": 1})
+	out, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var res fileReadResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !res.Truncated {
+		t.Error("expected truncated=true for limit=1")
 	}
 }
 
