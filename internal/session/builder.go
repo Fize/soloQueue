@@ -451,9 +451,9 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 		return nil
 	}
 	rtr := rt.TaskRouter
-	return func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
+	return func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
 		// Use the router package's Route method directly
-		decision, err := rtr.Route(ctx, prompt, parseClassificationLevel(priorLevel))
+		decision, err := rtr.Route(ctx, prompt, parseClassificationLevel(priorLevel), history)
 		if err != nil {
 			return RouteResult{}, err
 		}

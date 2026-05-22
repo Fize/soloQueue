@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
@@ -34,19 +35,20 @@ const (
 
 // llmClassifierSystemPrompt is the system prompt for the task classifier.
 // It forces structured JSON output for fast, deterministic parsing.
-const llmClassifierSystemPrompt = `You are a task complexity classifier. Analyze the user's request and respond with ONLY a valid JSON object. No other text, no markdown, no explanation.
+const llmClassifierSystemPrompt = `You are a task complexity classifier. Analyze the user's request, considering the provided conversation history, and respond with ONLY a valid JSON object. No other text, no markdown, no explanation.
 
 Classification rules:
 - "intent": "chat" (explanation, question, discussion, greeting) or "action" (requires executing commands, modifying files, or producing artifacts)
 - "level": 0 (pure conversation, no action needed), 1 (single clear action with clear target), 2 (multiple steps, cross-concern coordination, needs planning), 3 (architecture changes, deep investigation, high uncertainty, system-wide impact)
 - "reason": one short English sentence explaining your decision
 
-IMPORTANT OVERRIDE RULES:
-- If user explicitly requests deep thinking or careful analysis (e.g., "仔细想", "think carefully", "thorough"), raise level by 1
-- Greetings and chitchat are always level 0
-- Simple single-target actions (fix a bug, add a field, rename something) are level 1
-- Multi-target changes, migrations, integrations are level 2
-- Rewrites, architectural decisions, complex debugging, system design are level 3
+IMPORTANT OVERRIDE & HISTORY RULES:
+- Greetings and chitchat are always level 0.
+- Simple single-target actions (fix a bug, add a field, rename something) are level 1.
+- Multi-target changes, migrations, integrations are level 2.
+- Rewrites, architectural decisions, complex debugging, system design are level 3.
+- If user explicitly requests deep thinking or careful analysis (e.g., "仔细想", "think carefully", "thorough"), raise level by 1.
+- CONTEXT & HISTORY: If the user's message is a follow-up (e.g., asking for tweaks, additions, continuation, or asking questions about a previously established task in the history), maintain the level of that task (level 1, 2, or 3) rather than downgrading to 0. Treat follow-up modifications or corrections as action tasks, not chitchat.
 
 Output format (ONLY this JSON, nothing else):
 {"intent":"chat|action","level":0,"reason":"..."}`
@@ -91,9 +93,9 @@ func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *L
 //  4. Parse structured JSON response
 //  5. On timeout/error → return safe L1 default (never blocks the pipeline)
 //  6. On success → cache and return
-func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ ClassificationLevel) (ClassificationResult, error) {
+func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ ClassificationLevel, history []ctxwin.PayloadMessage) (ClassificationResult, error) {
 	// 1. Check cache
-	key := hashPrompt(prompt)
+	key := hashPrompt(prompt, history)
 	if cached, ok := lc.cache.Load(key); ok {
 		result := cached.(ClassificationResult)
 		lc.logger.DebugContext(ctx, logger.CatApp, "llm classifier cache hit",
@@ -106,7 +108,14 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 	classCtx, cancel := context.WithTimeout(ctx, lc.timeout)
 	defer cancel()
 
-	// 3. Build request (non-streaming, no thinking, compact output)
+	// 3. Format history and build messages
+	formattedHistory := formatHistoryForLLM(history)
+	messages := make([]agent.LLMMessage, 0, len(formattedHistory)+2)
+	messages = append(messages, agent.LLMMessage{Role: "system", Content: llmClassifierSystemPrompt})
+	messages = append(messages, formattedHistory...)
+	messages = append(messages, agent.LLMMessage{Role: "user", Content: prompt})
+
+	// 4. Build request (non-streaming, no thinking, compact output)
 	req := agent.LLMRequest{
 		Model:           lc.model,
 		Temperature:     0, // deterministic
@@ -114,13 +123,10 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 		ThinkingEnabled: false, // critical: no CoT for speed
 		ResponseJSON:    true,  // force JSON output format
 		ReasoningEffort: "",    // no reasoning
-		Messages: []agent.LLMMessage{
-			{Role: "system", Content: llmClassifierSystemPrompt},
-			{Role: "user", Content: prompt},
-		},
+		Messages:        messages,
 	}
 
-	// 4. Synchronous call
+	// 5. Synchronous call
 	resp, err := lc.client.Chat(classCtx, req)
 	if err != nil {
 		// Timeout or API error → graceful degradation to L1
@@ -134,7 +140,7 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 		}, nil // swallow error, return safe default
 	}
 
-	// 5. Parse JSON response
+	// 6. Parse JSON response
 	result := parseLLMClassifyResponse(resp.Content)
 
 	lc.logger.DebugContext(ctx, logger.CatApp, "llm classification complete",
@@ -143,7 +149,7 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 		"reason", result.Reason,
 	)
 
-	// 6. Cache and return
+	// 7. Cache and return
 	lc.cache.Store(key, result)
 	return result, nil
 }
@@ -212,10 +218,48 @@ func parseLLMClassifyResponse(content string) ClassificationResult {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// hashPrompt returns a FNV-64 hash of the normalized prompt for cache lookup.
-func hashPrompt(prompt string) uint64 {
+// hashPrompt returns a FNV-64 hash of the normalized prompt and history for cache lookup.
+func hashPrompt(prompt string, history []ctxwin.PayloadMessage) uint64 {
 	h := fnv.New64a()
 	normalized := strings.ToLower(strings.TrimSpace(prompt))
 	h.Write([]byte(normalized))
+	for _, msg := range history {
+		if msg.Role == "user" || msg.Role == "assistant" {
+			h.Write([]byte(msg.Role))
+			content := msg.Content
+			if len(content) > 500 {
+				content = content[:500]
+			}
+			h.Write([]byte(strings.ToLower(strings.TrimSpace(content))))
+		}
+	}
 	return h.Sum64()
+}
+
+// formatHistoryForLLM extracts up to 6 user/assistant messages from history,
+// ignoring tools, and truncating message content to 500 characters.
+func formatHistoryForLLM(history []ctxwin.PayloadMessage) []agent.LLMMessage {
+	var out []agent.LLMMessage
+	var filtered []ctxwin.PayloadMessage
+	for _, msg := range history {
+		if msg.Role == "user" || msg.Role == "assistant" {
+			filtered = append(filtered, msg)
+		}
+	}
+	startIdx := 0
+	if len(filtered) > 6 {
+		startIdx = len(filtered) - 6
+	}
+	for i := startIdx; i < len(filtered); i++ {
+		msg := filtered[i]
+		content := msg.Content
+		if len(content) > 500 {
+			content = content[:500] + "...(truncated)"
+		}
+		out = append(out, agent.LLMMessage{
+			Role:    msg.Role,
+			Content: content,
+		})
+	}
+	return out
 }
