@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
@@ -86,13 +87,13 @@ type RouteDecision struct {
 // - The recommended model ID resolved from config
 // - Thinking configuration (enabled + effort level)
 // - Any warnings or special handling notes
-func (r *Router) Route(ctx context.Context, prompt string, priorLevel ClassificationLevel) (RouteDecision, error) {
+func (r *Router) Route(ctx context.Context, prompt string, priorLevel ClassificationLevel, history []ctxwin.PayloadMessage) (RouteDecision, error) {
 	decision := RouteDecision{
 		Warnings: []string{},
 	}
 
 	// Classify the prompt
-	classification, err := r.classifier.Classify(ctx, prompt, priorLevel)
+	classification, err := r.classifier.Classify(ctx, prompt, priorLevel, history)
 	if err != nil {
 		return decision, fmt.Errorf("classification failed: %w", err)
 	}

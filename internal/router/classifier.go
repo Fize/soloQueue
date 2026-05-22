@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
@@ -11,7 +12,7 @@ import (
 type Classifier interface {
 	// Classify analyzes a user prompt and returns a classification result.
 	// priorLevel is the session's current task level (LevelUnknown if none).
-	Classify(ctx context.Context, prompt string, priorLevel ClassificationLevel) (ClassificationResult, error)
+	Classify(ctx context.Context, prompt string, priorLevel ClassificationLevel, history []ctxwin.PayloadMessage) (ClassificationResult, error)
 }
 
 // DefaultClassifier combines fast-track rules with optional LLM validation
@@ -64,11 +65,11 @@ func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, mo
 //
 // Fast-track is always preferred when confident because it has
 // zero latency and zero token cost. LLM is the fallback for ambiguous cases.
-func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorLevel ClassificationLevel) (ClassificationResult, error) {
+func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorLevel ClassificationLevel, history []ctxwin.PayloadMessage) (ClassificationResult, error) {
 	if !dc.config.EnableFastTrack {
 		// LLM-only mode (not typical)
 		if dc.llm != nil {
-			result, err := dc.llm.Classify(ctx, prompt, priorLevel)
+			result, err := dc.llm.Classify(ctx, prompt, priorLevel, history)
 			if err == nil {
 				result = dc.applyHybrid(result, priorLevel)
 			}
@@ -113,7 +114,7 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 		"threshold", dc.config.FastTrackConfidenceThreshold,
 	)
 
-	llmResult, err := dc.llm.Classify(ctx, prompt, priorLevel)
+	llmResult, err := dc.llm.Classify(ctx, prompt, priorLevel, history)
 	if err != nil {
 		// LLM error: use fast-track result regardless of confidence
 		dc.logger.DebugContext(ctx, logger.CatApp, "LLM classifier error, using fast-track",
@@ -178,10 +179,10 @@ func (dc *DefaultClassifier) applyHybridLogic(result ClassificationResult, prior
 	// Follow-up questions naturally contain L0 keywords (解释,为什么,etc.)
 	// that score high enough to falsely trigger L0. Require a very strong
 	// conversation signal (confidence >= 96) to override a complex session.
-	if priorLevel >= LevelMediumMultiFile && result.Level <= LevelConversation {
+	if priorLevel >= LevelSimpleSingleFile && result.Level <= LevelConversation {
 		if result.Confidence < 96 {
 			result.Level = LevelSimpleSingleFile
-			result.Reason += "; complex session: L0 prevented, min L1 maintained"
+			result.Reason += "; task session: L0 prevented, min L1 maintained"
 			result.Confidence = min(result.Confidence, 45)
 			return result
 		}

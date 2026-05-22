@@ -69,7 +69,7 @@ type RouteResult struct {
 // priorLevel is the session's current task level string ("" if none).
 // Used to inject the router without creating import cycles.
 // Returns error if classification fails; caller proceeds with defaults.
-type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error)
+type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error)
 
 // MemoryHook is called when conversation context is being discarded (compaction or /clear).
 // conversationText is a plain-text representation of the messages being forgotten.
@@ -617,7 +617,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 				"level", result.Level,
 			)
 		} else {
-			result, err = s.Router(ctx, prompt, priorLevel)
+			result, err = s.Router(ctx, prompt, priorLevel, s.cw.BuildPayload())
 			if err != nil {
 				s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
 					"session_id", s.ID,
