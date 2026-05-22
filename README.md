@@ -35,6 +35,31 @@ go test ./...
 cd web && pnpm check && pnpm test
 ```
 
+## Token Optimization with RTK (Recommended)
+
+SoloQueue integrates with [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) to optimize tool executions and compress command outputs (e.g. `git`, test runners, linters, directory structures), reducing LLM token consumption by 60%–90%.
+
+### Installation
+
+We highly recommend installing RTK for your operating system:
+
+- **macOS (via Homebrew):**
+  ```bash
+  brew install rtk
+  ```
+
+- **Linux/macOS (via script):**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+  ```
+
+- **Windows:**
+  Follow the instructions in the [RTK README](https://github.com/rtk-ai/rtk#installation) or run SoloQueue in **WSL** with RTK installed.
+
+### How it works
+
+When SoloQueue starts up, it automatically detects if `rtk` is installed in the system's `PATH` and whether the system platform is supported (macOS/Linux). If so, SoloQueue will transparently route all command executions in the `Bash` tool through `rtk rewrite` to compress output before sending it to the LLM context. No extra configuration is needed.
+
 ## License
 
 MIT

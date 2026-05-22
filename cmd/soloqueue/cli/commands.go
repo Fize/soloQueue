@@ -21,6 +21,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // MCPLoaderFromRT extracts the MCP loader from the runtime stack.
@@ -59,6 +60,12 @@ func ServeCmd(version string) *cobra.Command {
 
 			log.Info(logger.CatApp, "soloqueue serve starting",
 				"host", host, "port", port, "version", version)
+
+			if tools.IsRTKEnabled() {
+				log.Info(logger.CatApp, "RTK command is available; Bash tool will compress outputs using RTK")
+			} else {
+				log.Info(logger.CatApp, "RTK command is not available or platform not supported; Bash tool output compression disabled")
+			}
 
 			cfg.SetLogger(log)
 

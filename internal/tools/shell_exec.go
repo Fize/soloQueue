@@ -1,15 +1,34 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
+
+var useRTK = false
+
+func init() {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("rtk"); err == nil {
+			useRTK = true
+		}
+	}
+}
+
+// IsRTKEnabled returns whether RTK is enabled (supported platform and rtk binary found).
+func IsRTKEnabled() bool {
+	return useRTK
+}
 
 // shellExecTool 执行 shell 命令（黑名单/确认名单校验）
 //
@@ -163,9 +182,21 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", fmt.Errorf("%w: %s", ErrCommandBlocked, a.Command)
 	}
 
+	cmdToRun := a.Command
+	if useRTK {
+		rewritten := rewriteCommand(ctx, cmdToRun)
+		if rewritten != cmdToRun {
+			if t.logger != nil {
+				t.logger.InfoContext(ctx, logger.CatTool, "shell: rewritten by rtk",
+					"original", cmdToRun, "rewritten", rewritten)
+			}
+			cmdToRun = rewritten
+		}
+	}
+
 	if t.logger != nil {
 		t.logger.InfoContext(ctx, logger.CatTool, "shell: executing",
-			"command", a.Command)
+			"command", cmdToRun)
 	}
 	start := time.Now()
 
@@ -178,7 +209,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	if wd == "" && t.cfg.WorkDir != "" {
 		wd = t.cfg.WorkDir
 	}
-	res, err := t.cfg.Sandbox.RunCommand(ctx, a.Command, RunCommandOptions{
+	res, err := t.cfg.Sandbox.RunCommand(ctx, cmdToRun, RunCommandOptions{
 		Stdin:            a.Stdin,
 		MaxOutput:        maxOut,
 		WorkingDirectory: wd,
@@ -198,18 +229,51 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	if t.logger != nil {
 		if res.ExitCode != 0 {
 			t.logger.DebugContext(ctx, logger.CatTool, "shell: non-zero exit",
-				"command", a.Command,
+				"command", cmdToRun,
 				"exit_code", res.ExitCode,
 				"duration_ms", time.Since(start).Milliseconds())
 		} else {
 			t.logger.InfoContext(ctx, logger.CatTool, "shell: completed",
-				"command", a.Command,
+				"command", cmdToRun,
 				"exit_code", res.ExitCode,
 				"duration_ms", time.Since(start).Milliseconds())
 		}
 	}
 	b, _ := json.Marshal(shellRes)
 	return string(b), nil
+}
+
+func rewriteCommand(ctx context.Context, cmd string) string {
+	if !useRTK {
+		return cmd
+	}
+
+	// Set a strict timeout of 500ms for rtk rewrite to avoid hanging.
+	rewriteCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	c := exec.CommandContext(rewriteCtx, "rtk", "rewrite", cmd)
+	var stdout bytes.Buffer
+	c.Stdout = &stdout
+
+	err := c.Run()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code := exitErr.ExitCode()
+			if code != 3 && code != 0 {
+				return cmd
+			}
+		} else {
+			return cmd
+		}
+	}
+
+	rewritten := strings.TrimSpace(stdout.String())
+	if rewritten != "" {
+		return rewritten
+	}
+	return cmd
 }
 
 // Compile-time checks
