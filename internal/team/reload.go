@@ -18,6 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -37,6 +38,10 @@ type AutoReloadConfig struct {
 	// The caller should add the worker to the appropriate supervisor via AdoptChild.
 	// tmpl is the full parsed template (not a reference — safe to retain).
 	OnWorkerCreated func(ctx context.Context, name, group string, ag *agent.Agent, tmpl agent.AgentTemplate)
+
+	// TeamStore is an optional teamstore.Store for syncing DB records when
+	// agent/group files are auto-reloaded. If nil, DB sync is skipped.
+	TeamStore *teamstore.Store
 }
 
 // WrapWithAutoReload wraps a file-writing tool so that writes to the agents/
@@ -129,6 +134,28 @@ var (
 
 // --- Path extraction ---
 
+// convertWorkspaces converts []prompt.Workspace to []teamstore.Workspace.
+// The types are structurally identical.
+func convertWorkspaces(src []prompt.Workspace) []teamstore.Workspace {
+	if src == nil {
+		return nil
+	}
+	out := make([]teamstore.Workspace, len(src))
+	for i, w := range src {
+		out[i] = teamstore.Workspace{
+			Name: w.Name,
+			Path: w.Path,
+			AutoWork: teamstore.AutoWorkConfig{
+				Enabled:                 w.AutoWork.Enabled,
+				InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
+				PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
+				MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
+			},
+		}
+	}
+	return out
+}
+
 // pathArgs is a generic struct for extracting the "path" field from tool args.
 type pathArgs struct {
 	Path  string     `json:"path"`
@@ -203,6 +230,34 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 		MCPServers:   fm.MCPServers,
 	}
 
+	// Sync to teamstore DB if configured (non-fatal).
+	if w.cfg.TeamStore != nil {
+		storeAgent := &teamstore.Agent{
+			Name:         fm.Name,
+			Description:  fm.Description,
+			TeamName:     fm.Group,
+			IsLeader:     fm.IsLeader,
+			Model:        fm.Model,
+			SystemPrompt: af.Body,
+			Permission:   fm.Permission,
+			MCPServers:   fm.MCPServers,
+			SkillIDs:     fm.Skills,
+		}
+		existing, err := w.cfg.TeamStore.GetAgentByName(ctx, fm.Name)
+		if err == nil && existing != nil {
+			storeAgent.ID = existing.ID
+			if err := w.cfg.TeamStore.UpdateAgent(ctx, fm.Name, storeAgent); err != nil && w.cfg.Logger != nil {
+				w.cfg.Logger.Info(logger.CatActor, "auto-reload: teamstore update agent failed",
+					"name", fm.Name, "err", err.Error())
+			}
+		} else {
+			if err := w.cfg.TeamStore.CreateAgent(ctx, storeAgent); err != nil && w.cfg.Logger != nil {
+				w.cfg.Logger.Info(logger.CatActor, "auto-reload: teamstore create agent failed",
+					"name", fm.Name, "err", err.Error())
+			}
+		}
+	}
+
 	ag, _, err := w.cfg.AgentFactory.Create(ctx, tmpl, "")
 	if err != nil {
 		return fmt.Sprintf("Agent file '%s' written but instantiation failed: %v. Restart required.", fm.Name, err)
@@ -220,7 +275,7 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 	return fmt.Sprintf("Worker '%s' (%s) created and activated.", fm.Name, fm.Group)
 }
 
-func (w *reloadWrapper) reloadGroup(_ context.Context, path string) string {
+func (w *reloadWrapper) reloadGroup(ctx context.Context, path string) string {
 	gf, err := prompt.ParseGroupFile(path)
 	if err != nil {
 		if w.cfg.Logger != nil {
@@ -229,5 +284,28 @@ func (w *reloadWrapper) reloadGroup(_ context.Context, path string) string {
 		}
 		return ""
 	}
+
+	// Sync to teamstore DB if configured (non-fatal).
+	if w.cfg.TeamStore != nil {
+		storeTeam := &teamstore.Team{
+			Name:        gf.Frontmatter.Name,
+			Description: gf.Body,
+			Workspaces:  convertWorkspaces(gf.Frontmatter.Workspaces),
+		}
+		existing, err := w.cfg.TeamStore.GetTeamByName(ctx, gf.Frontmatter.Name)
+		if err == nil && existing != nil {
+			storeTeam.ID = existing.ID
+			if err := w.cfg.TeamStore.UpdateTeam(ctx, gf.Frontmatter.Name, storeTeam); err != nil && w.cfg.Logger != nil {
+				w.cfg.Logger.Info(logger.CatActor, "auto-reload: teamstore update team failed",
+					"name", gf.Frontmatter.Name, "err", err.Error())
+			}
+		} else {
+			if err := w.cfg.TeamStore.CreateTeam(ctx, storeTeam); err != nil && w.cfg.Logger != nil {
+				w.cfg.Logger.Info(logger.CatActor, "auto-reload: teamstore create team failed",
+					"name", gf.Frontmatter.Name, "err", err.Error())
+			}
+		}
+	}
+
 	return fmt.Sprintf("Team '%s' registered. You can now create members for this team.", gf.Frontmatter.Name)
 }

@@ -12,6 +12,7 @@ import { ConfigTab } from '@/components/settings/ConfigTab'
 import { ProfileTab } from '@/components/settings/ProfileTab'
 import { SkillsTab } from '@/components/settings/SkillsTab'
 import { MCPTab } from '@/components/settings/MCPTab'
+import TeamsTab from '@/components/settings/TeamsTab'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { wsManager } from '@/lib/websocket'
 import { useAuthStore } from '@/stores/authStore'
@@ -64,6 +65,7 @@ function App() {
                 <Route path="profile" element={<ProfileTab />} />
                 <Route path="skills" element={<SkillsTab />} />
                 <Route path="mcp" element={<MCPTab />} />
+                <Route path="teams" element={<TeamsTab />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

@@ -108,6 +108,11 @@ func ServeCmd(version string) *cobra.Command {
 		defer stop()
 
 		rebuildPrompt := func() error {
+			if rt.TeamStore != nil {
+				if err := rt.ReloadFromTeamStore(); err != nil {
+					log.Warn(logger.CatApp, "reload from teamstore failed during prompt rebuild", "err", err.Error())
+				}
+			}
 			leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), rt.Groups)
 			if err != nil {
 				leaders = rt.Leaders
@@ -144,7 +149,8 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithAgentsDir(filepath.Join(workDir, "agents")),
 			server.WithPromptRebuild(rebuildPrompt),
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),
-			server.WithAuthConfig(cfg.Get().Auth),
+			server.WithTeamStore(rt.TeamStore),
+		server.WithAuthConfig(cfg.Get().Auth),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.
