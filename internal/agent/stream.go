@@ -273,15 +273,19 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				"iter", iter,
 				"duration_ms", durMs,
 			)
-			// Auto-recover from context overflow: compact and retry once
+			// Auto-recover from context overflow: compact/truncate and retry once
 			if strings.Contains(err.Error(), "maximum context length") && iter < maxIter-1 {
 				a.logInfo(ctx, logger.CatLLM, "llm chat overflow, compacting and retrying")
-				if hs, ok := strat.(*historyStrategy); ok {
-					_, cerr := hs.cw.CompactAndReplace(ctx)
+				switch s := strat.(type) {
+				case *historyStrategy:
+					_, cerr := s.cw.CompactAndReplace(ctx)
 					if cerr == nil {
 						continue
 					}
 					a.logError(ctx, logger.CatLLM, "compact on overflow retry failed", cerr)
+				case *simpleStrategy:
+					s.truncateLargeResults()
+					continue
 				}
 			}
 			a.RecordError(err)
@@ -384,15 +388,41 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 // --- simpleStrategy: in-memory message accumulation (runOnceStream) ---
 
+const (
+	simpleBufferTokens = 4000  // reserve for system prompt + overhead
+	simpleTruncRatio   = 0.05  // keep 5% head + 5% tail when truncating
+)
+
 type simpleStrategy struct {
 	systemPrompt string
 	prompt       string
 	msgs         []LLMMessage // accumulated across iterations
+	maxTokens    int          // context window budget
+	tok          *ctxwin.Tokenizer
+	totalTokens  int // running BPE token count across all messages
+}
+
+// msgTokens counts BPE tokens in a single message.
+func msgTokens(tok *ctxwin.Tokenizer, msg LLMMessage) int {
+	n := tok.Count(msg.Content)
+	n += tok.Count(msg.ReasoningContent)
+	for _, tc := range msg.ToolCalls {
+		n += tok.Count(tc.Function.Name)
+		n += tok.Count(tc.Function.Arguments)
+	}
+	return n
 }
 
 func (s *simpleStrategy) buildMessages(_ context.Context, a *Agent, iter int) ([]LLMMessage, error) {
 	if iter == 0 {
 		s.msgs = buildMessages(s.systemPrompt, s.prompt)
+		s.totalTokens = 0
+		for _, msg := range s.msgs {
+			s.totalTokens += msgTokens(s.tok, msg)
+		}
+	}
+	if s.totalTokens > s.maxTokens-simpleBufferTokens {
+		s.truncateLargeResults()
 	}
 	return s.msgs, nil
 }
@@ -402,22 +432,89 @@ func (s *simpleStrategy) execTools(a *Agent, ctx context.Context, iter int, call
 }
 
 func (s *simpleStrategy) postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, results []string, out chan<- AgentEvent) bool {
-	// Append assistant + tool results to in-memory message list
-	s.msgs = append(s.msgs, LLMMessage{
+	asstMsg := LLMMessage{
 		Role:             "assistant",
 		Content:          acc.content.String(),
 		ReasoningContent: acc.reasoning.String(),
 		ToolCalls:        calls,
-	})
+	}
+	s.msgs = append(s.msgs, asstMsg)
+	s.totalTokens += msgTokens(s.tok, asstMsg)
+
 	for i, tc := range calls {
-		s.msgs = append(s.msgs, LLMMessage{
+		toolMsg := LLMMessage{
 			Role:       "tool",
 			ToolCallID: tc.ID,
 			Name:       tc.Function.Name,
 			Content:    results[i],
-		})
+		}
+		s.msgs = append(s.msgs, toolMsg)
+		s.totalTokens += msgTokens(s.tok, toolMsg)
+	}
+
+	if s.totalTokens > s.maxTokens-simpleBufferTokens {
+		s.truncateLargeResults()
 	}
 	return false
+}
+
+// truncateLargeResults reduces oversized tool-result messages to stay within
+// the token budget. Iterates from largest tool result downward, applying
+// head+tail character truncation (keep simpleTruncRatio at each end).
+// This is the simpleStrategy counterpart of ContextWindow compaction.
+func (s *simpleStrategy) truncateLargeResults() {
+	target := s.maxTokens - simpleBufferTokens
+	if target <= 0 {
+		target = s.maxTokens / 2
+	}
+
+	// Repeatedly truncate the largest remaining tool-result until under budget
+	for s.totalTokens > target {
+		largestIdx := -1
+		largestTokens := 0
+		for i := len(s.msgs) - 1; i >= 0; i-- {
+			if s.msgs[i].Role != "tool" {
+				continue
+			}
+			t := msgTokens(s.tok, s.msgs[i])
+			if t > largestTokens {
+				largestTokens = t
+				largestIdx = i
+			}
+		}
+		if largestIdx < 0 || largestTokens < 100 {
+			break
+		}
+
+		original := s.msgs[largestIdx].Content
+		s.msgs[largestIdx].Content = truncateHeadTail(original, simpleTruncRatio, simpleTruncRatio)
+		delta := largestTokens - msgTokens(s.tok, s.msgs[largestIdx])
+		if delta <= 0 {
+			// Truncation didn't help — clear the content to make progress
+			s.msgs[largestIdx].Content = "[content truncated due to context limit]"
+			delta = largestTokens - msgTokens(s.tok, s.msgs[largestIdx])
+			if delta <= 0 {
+				break
+			}
+		}
+		s.totalTokens -= delta
+	}
+}
+
+// truncateHeadTail keeps headRatio at the start and tailRatio at the end,
+// replacing the middle with an omission marker.
+func truncateHeadTail(s string, headRatio, tailRatio float64) string {
+	runes := []rune(s)
+	n := len(runes)
+	headLen := int(float64(n) * headRatio)
+	tailLen := int(float64(n) * tailRatio)
+	if headLen+tailLen >= n || (headLen == 0 && tailLen == 0) {
+		return s
+	}
+	head := string(runes[:headLen])
+	tail := string(runes[n-tailLen:])
+	omitted := n - headLen - tailLen
+	return head + fmt.Sprintf("\n[...omitted %d characters...]\n", omitted) + tail
 }
 
 func (s *simpleStrategy) promptLen() int { return len(s.prompt) }
@@ -530,9 +627,16 @@ func (s *historyStrategy) promptLen() int { return len(s.prompt) }
 func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- AgentEvent) {
 	a.setWorkStart(prompt)
 	defer a.clearWork()
+
+	maxTokens := a.Def.ContextWindow
+	if maxTokens <= 0 {
+		maxTokens = DefaultContextWindow
+	}
 	a.streamLoop(ctx, out, &simpleStrategy{
 		systemPrompt: a.Def.SystemPrompt,
 		prompt:       prompt,
+		maxTokens:    maxTokens,
+		tok:          ctxwin.NewTokenizer(),
 	}, 0)
 }
 
