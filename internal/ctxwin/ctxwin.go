@@ -556,10 +556,7 @@ func (cw *ContextWindow) Resize(maxTokens, bufferTokens, summaryTokens int) {
 
 	capacity := cw.maxTokens - cw.bufferTokens
 	if cw.currentTokens > capacity {
-		cw.truncateMiddleOut()
-		if cw.currentTokens > capacity {
-			cw.slideFIFO(capacity)
-		}
+		cw.evictTo(capacity)
 	}
 }
 
@@ -1122,21 +1119,28 @@ func splitBatchByTokens(msgs []Message, maxTokens int) [][]Message {
 
 // ─── Internal ───────────────────────────────────────────────────────────────
 
+// evictTo runs the context eviction/truncation sequence.
+func (cw *ContextWindow) evictTo(target int) {
+	cw.pruneOlderTurnsEphemeralContent(2)
+	cw.truncateMiddleOut()
+	if cw.currentTokens > target {
+		cw.slideFIFO(target)
+	}
+}
+
 // evict runs the two-step eviction policy.
 //
 // Step 1: Middle-Out Truncation — targeting IsEphemeral Tool output
 // Step 2: Turn-granularity FIFO sliding window
 func (cw *ContextWindow) evict(newMsgTokens int) {
-	cw.truncateMiddleOut()
 	capacity := cw.maxTokens - cw.bufferTokens
 	target := capacity - newMsgTokens
 	if target < 0 {
 		target = 0
 	}
-	if cw.currentTokens > target {
-		cw.slideFIFO(target)
-	}
+	cw.evictTo(target)
 }
+
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

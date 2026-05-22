@@ -556,3 +556,80 @@ func TestAggressiveTruncateLastTurn_OmitsContent(t *testing.T) {
 		t.Errorf("system prompt removed")
 	}
 }
+
+func TestPruneOlderTurnsEphemeralContent(t *testing.T) {
+	tok := NewTokenizer()
+	// Create context window with plenty of space to avoid triggering automatic evictions during pushes
+	cw := NewContextWindow(100000, 1000, 0, tok)
+
+	// Push messages
+	cw.Push(RoleSystem, "system prompt") // idx 0
+
+	// Turn 1 (Oldest):
+	cw.Push(RoleUser, "read file A") // idx 1
+	cw.Push(RoleAssistant, "tool call") // idx 2
+	// Ephemeral JSON output
+	cw.Push(RoleTool, `{"path":"a.txt","content":"huge file content of A"}`, WithEphemeral(true), WithToolCallID("call_a")) // idx 3
+	cw.Push(RoleAssistant, "Answer A") // idx 4
+
+	// Turn 2:
+	cw.Push(RoleUser, "read file B") // idx 5
+	cw.Push(RoleAssistant, "tool call") // idx 6
+	// Ephemeral non-JSON output
+	cw.Push(RoleTool, "huge plain text content of B", WithEphemeral(true), WithToolCallID("call_b")) // idx 7
+	cw.Push(RoleAssistant, "Answer B") // idx 8
+
+	// Turn 3 (Newest):
+	cw.Push(RoleUser, "read file C") // idx 9
+	cw.Push(RoleAssistant, "tool call") // idx 10
+	// Ephemeral JSON output
+	cw.Push(RoleTool, `{"path":"c.txt","content":"huge file content of C"}`, WithEphemeral(true), WithToolCallID("call_c")) // idx 11
+	cw.Push(RoleAssistant, "Answer C") // idx 12
+
+	// We protect the last 2 user turns (Turn 3 and Turn 2).
+	// So the 2nd user from the end is Turn 2 User ("read file B" at idx 5).
+	// Everything before idx 5 (i.e. Turn 1) should be pruned if ephemeral.
+	// Turn 1 ephemeral tool output is at idx 3.
+	cw.pruneOlderTurnsEphemeralContent(2)
+
+	// Verify Turn 1 tool result is pruned/evicted
+	msgA, _ := cw.MessageAt(3)
+	var parsedA map[string]any
+	if err := json.Unmarshal([]byte(msgA.Content), &parsedA); err != nil {
+		t.Fatalf("Turn 1 tool output should still be valid JSON, got: %s", msgA.Content)
+	}
+	if parsedA["path"] != "a.txt" {
+		t.Errorf("Turn 1 metadata 'path' should be preserved, got %v", parsedA["path"])
+	}
+	if parsedA["content"] != "[evicted]" {
+		t.Errorf("Turn 1 'content' should be pruned to '[evicted]', got %v", parsedA["content"])
+	}
+
+	// Verify Turn 2 and Turn 3 tool results are NOT pruned
+	msgB, _ := cw.MessageAt(7)
+	if msgB.Content != "huge plain text content of B" {
+		t.Errorf("Turn 2 tool output should not be pruned, got %q", msgB.Content)
+	}
+
+	msgC, _ := cw.MessageAt(11)
+	var parsedC map[string]any
+	if err := json.Unmarshal([]byte(msgC.Content), &parsedC); err != nil {
+		t.Fatalf("Turn 3 tool output should be valid JSON, got: %s", msgC.Content)
+	}
+	if parsedC["content"] != "huge file content of C" {
+		t.Errorf("Turn 3 tool output should not be pruned, got %q", parsedC["content"])
+	}
+
+	// Now try protecting only 1 turn (Turn 3 is protected).
+	// Boundary is Turn 3 User ("read file C" at idx 9).
+	// Everything before idx 9 (Turn 1 and Turn 2) should be pruned.
+	cw.pruneOlderTurnsEphemeralContent(1)
+
+	// Turn 2 tool result is at idx 7, it is plain text.
+	// Since it's not JSON, it should be replaced with "[evicted to save space]".
+	msgB2, _ := cw.MessageAt(7)
+	if msgB2.Content != "[evicted to save space]" {
+		t.Errorf("Turn 2 tool output should be evicted to save space, got %q", msgB2.Content)
+	}
+}
+

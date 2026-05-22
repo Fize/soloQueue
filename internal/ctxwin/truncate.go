@@ -445,3 +445,93 @@ func (cw *ContextWindow) findTurnEnd(start int) int {
 	}
 	return len(cw.messages)
 }
+
+// pruneOlderTurnsEphemeralContent 找出受保护轮次的起始边界（倒数第 protectTurns 个 user 消息所在的索引）。
+// 针对该边界之前的 IsEphemeral 消息，剥离其大字段内容（如果是 JSON 则把 largeFields 中的键替换为 "[evicted]"，
+// 如果不是则整个替换为 "[evicted to save space]"），并更新 token 计数。
+func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
+	if len(cw.messages) <= 1 {
+		return
+	}
+
+	// 寻找边界：受保护的倒数第 protectTurns 个 user 消息的索引。
+	boundaryIdx := -1
+	userCount := 0
+	for i := len(cw.messages) - 1; i >= 0; i-- {
+		if cw.messages[i].Role == RoleUser {
+			userCount++
+			if userCount == protectTurns {
+				boundaryIdx = i
+				break
+			}
+		}
+	}
+
+	// 如果没有足够的 user 轮次，说明当前还不需要对老轮次进行剪裁
+	if boundaryIdx < 0 {
+		return
+	}
+
+	prunedCount := 0
+	totalSavedTokens := 0
+
+	for i := 0; i < boundaryIdx; i++ {
+		msg := &cw.messages[i]
+		if !msg.IsEphemeral || msg.Content == "" {
+			continue
+		}
+
+		if msg.Content == "[evicted to save space]" {
+			continue
+		}
+
+		oldTokens := msg.Tokens
+		newContent := ""
+
+		// 尝试解析为 JSON 对象
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(msg.Content), &obj); err == nil {
+			modified := false
+			for key := range obj {
+				if largeFields[key] {
+					if str, ok := obj[key].(string); ok && str == "[evicted]" {
+						continue
+					}
+					obj[key] = "[evicted]"
+					modified = true
+				}
+			}
+			if modified {
+				if b, err := json.Marshal(obj); err == nil {
+					newContent = string(b)
+				}
+			}
+		}
+
+		if newContent == "" {
+			// 如果不是 JSON 或 JSON 处理失败，则直接全量替换为占位符
+			newContent = "[evicted to save space]"
+		}
+
+		if newContent != msg.Content {
+			msg.Content = newContent
+			msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
+			if msg.Tokens < 1 {
+				msg.Tokens = 1
+			}
+			savedTokens := oldTokens - msg.Tokens
+			cw.currentTokens -= savedTokens
+			prunedCount++
+			totalSavedTokens += savedTokens
+		}
+	}
+
+	if prunedCount > 0 && cw.log != nil {
+		cw.log.InfoContext(context.Background(), logger.CatMessages, "pruneOlderTurnsEphemeralContent: completed",
+			"messages_pruned", prunedCount,
+			"total_tokens_saved", totalSavedTokens,
+			"current_tokens", cw.currentTokens,
+		)
+	}
+}
+

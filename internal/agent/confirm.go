@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -83,7 +84,52 @@ func (a *Agent) ToolSpecs() []llm.ToolDef {
 	if a.tools == nil {
 		return nil
 	}
-	return a.tools.Specs()
+	specs := a.tools.Specs()
+	level := a.EffectiveTaskLevel()
+	if level == "" {
+		return specs
+	}
+
+	filtered := make([]llm.ToolDef, 0, len(specs))
+	for _, spec := range specs {
+		if !isToolPruned(level, spec.Function.Name) {
+			filtered = append(filtered, spec)
+		}
+	}
+	return filtered
+}
+
+// isToolPruned 匹配剪裁映射逻辑，决定某个工具在当前级别是否被剪裁
+func isToolPruned(level string, name string) bool {
+	if level == "" {
+		return false
+	}
+	lvl := strings.ToUpper(strings.TrimSpace(level))
+	if strings.HasPrefix(lvl, "L0") {
+		// L0-Conversation: only allow Read, Grep, Glob, WebSearch, RecallMemory, inspect_agent
+		switch name {
+		case "Read", "Grep", "Glob", "WebSearch", "RecallMemory", "inspect_agent":
+			return false
+		default:
+			return true
+		}
+	}
+	if strings.HasPrefix(lvl, "L1") {
+		// L1-SimpleSingleFile: prune delegate_*, Skill, and all todo tools
+		if strings.HasPrefix(name, "delegate_") {
+			return true
+		}
+		if name == "Skill" {
+			return true
+		}
+		switch name {
+		case "CreatePlan", "UpdatePlan", "DeletePlan", "ListPlans", "GetPlan",
+			"AddTodoItems", "DeleteTodoItems", "ToggleTodo", "SetTodoDependencies":
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 const (
@@ -92,3 +138,4 @@ const (
 )
 
 // Agent 不直接实现 tools.Locatable；由 locatableAdapter 包装提供适配
+
