@@ -182,7 +182,7 @@ func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
 	s := NewSession("s1", "t1", a, cw, nil, nil)
 
 	// Set up router that routes to fast model with 128K context
-	s.Router = func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
+	s.Router = func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
 		return RouteResult{
 			ProviderID:    "test",
 			ModelID:       "fast-model",
@@ -252,7 +252,7 @@ func TestSession_AskStream_ResizesAndEvicts_WhenSmallerWindow(t *testing.T) {
 	}
 
 	// Router returns a much smaller window
-	s.Router = func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
+	s.Router = func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
 		return RouteResult{
 			ProviderID:    "test",
 			ModelID:       "tiny-model",
@@ -527,7 +527,7 @@ func TestLevelLocked_BlocksRouting(t *testing.T) {
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
 	// Set up a router that would classify everything as L0
-	s.Router = func(ctx context.Context, prompt string, priorLevel string) (RouteResult, error) {
+	s.Router = func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
 		return RouteResult{
 			ProviderID:    "test",
 			ModelID:       "test-model",

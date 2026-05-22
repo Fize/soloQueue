@@ -52,7 +52,7 @@ func TestIntegration_FullRoutingFlow(t *testing.T) {
 
 			// Route the prompt
 			ctx := context.Background()
-			decision, err := router.Route(ctx, tt.prompt, LevelUnknown)
+			decision, err := router.Route(ctx, tt.prompt, LevelUnknown, nil)
 			if err != nil {
 				t.Fatalf("Route() failed: %v", err)
 			}
@@ -109,7 +109,7 @@ func TestIntegration_ConfidenceThreshold(t *testing.T) {
 			classifier := NewDefaultClassifier(config, nil, "", nil)
 			router := NewRouter(classifier, NewMockModelService(), nil)
 
-			decision, err := router.Route(ctx, tt.prompt, LevelUnknown)
+			decision, err := router.Route(ctx, tt.prompt, LevelUnknown, nil)
 			if err != nil {
 				t.Fatalf("Route() failed: %v", err)
 			}
