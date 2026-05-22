@@ -116,20 +116,21 @@ func TestConfig_UnmarshalMCPServers(t *testing.T) {
 		t.Fatalf("expected 2 servers, got %d", len(cfg.Servers))
 	}
 
+	// Servers are sorted by name after unmarshal.
 	s0 := cfg.Servers[0]
-	if s0.Name != "playwright" || s0.Command != "npx" || s0.Enabled != true {
+	if s0.Name != "github" || s0.Enabled != false {
 		t.Errorf("unexpected server 0: %+v", s0)
 	}
-	if s0.Transport != "stdio" {
-		t.Errorf("expected default transport stdio, got %q", s0.Transport)
+	if s0.Env["GITHUB_TOKEN"] != "abc123" {
+		t.Errorf("unexpected env: %v", s0.Env)
 	}
 
 	s1 := cfg.Servers[1]
-	if s1.Name != "github" || s1.Enabled != false {
+	if s1.Name != "playwright" || s1.Command != "npx" || s1.Enabled != true {
 		t.Errorf("unexpected server 1: %+v", s1)
 	}
-	if s1.Env["GITHUB_TOKEN"] != "abc123" {
-		t.Errorf("unexpected env: %v", s1.Env)
+	if s1.Transport != "stdio" {
+		t.Errorf("expected default transport stdio, got %q", s1.Transport)
 	}
 }
 
