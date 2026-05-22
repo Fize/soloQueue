@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -521,3 +522,134 @@ func TestMemoryConfirmStore(t *testing.T) {
 		t.Error("Bash should not be confirmed after Clear")
 	}
 }
+
+// ─── 任务级工具剪裁与拦截单元测试 ──────────────────────────────────────────
+
+func TestAgent_ToolPruningAndInterception(t *testing.T) {
+	// 注册各种工具以涵盖不同剪裁等级
+	readTool := newFakeTool("Read")
+	writeTool := newFakeTool("Write")
+	delegateTool := newFakeTool("delegate_task")
+	skillTool := newFakeTool("Skill")
+	planTool := newFakeTool("CreatePlan")
+
+	fake := &FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{
+			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "Write", Arguments: `{"file":"foo.txt","content":"hello"}`}},
+		}},
+		Responses: []string{"final answer"},
+	}
+
+	a := startedAgentWithTools(t, fake, readTool, writeTool, delegateTool, skillTool, planTool)
+
+	// 1. 验证 L0-Conversation 下的过滤
+	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
+	specsL0 := a.ToolSpecs()
+	hasRead := false
+	hasWrite := false
+	for _, spec := range specsL0 {
+		if spec.Function.Name == "Read" {
+			hasRead = true
+		}
+		if spec.Function.Name == "Write" {
+			hasWrite = true
+		}
+	}
+	if !hasRead || hasWrite || len(specsL0) != 1 {
+		t.Errorf("L0 filter failed: specs count = %d, hasRead = %v, hasWrite = %v", len(specsL0), hasRead, hasWrite)
+	}
+
+	// 2. 验证 L1-SimpleSingleFile 下的过滤
+	a.modelOverride.Store(&ModelParams{Level: "L1-SimpleSingleFile"})
+	specsL1 := a.ToolSpecs()
+	hasDelegate := false
+	hasSkill := false
+	hasPlan := false
+	hasRead = false
+	hasWrite = false
+	for _, spec := range specsL1 {
+		switch spec.Function.Name {
+		case "Read":
+			hasRead = true
+		case "Write":
+			hasWrite = true
+		case "delegate_task":
+			hasDelegate = true
+		case "Skill":
+			hasSkill = true
+		case "CreatePlan":
+			hasPlan = true
+		}
+	}
+	if !hasRead || !hasWrite || hasDelegate || hasSkill || hasPlan || len(specsL1) != 2 {
+		t.Errorf("L1 filter failed: specs count = %d, hasRead = %v, hasWrite = %v, hasDelegate = %v, hasSkill = %v, hasPlan = %v",
+			len(specsL1), hasRead, hasWrite, hasDelegate, hasSkill, hasPlan)
+	}
+
+	// 3. 验证 L2 下的过滤 (应该全部保留)
+	a.modelOverride.Store(&ModelParams{Level: "L2"})
+	specsL2 := a.ToolSpecs()
+	if len(specsL2) != 5 {
+		t.Errorf("L2 filter failed: specs count = %d, want 5", len(specsL2))
+	}
+
+	// 4. 验证空级别下的过滤 (应该全部保留)
+	a.modelOverride.Store(&ModelParams{Level: ""})
+	specsEmpty := a.ToolSpecs()
+	if len(specsEmpty) != 5 {
+		t.Errorf("empty level filter failed: specs count = %d, want 5", len(specsEmpty))
+	}
+
+	// 5. 验证 execToolStream 中拦截剪裁的工具调用并返回错误
+	// 我们将等级设为 L0-Conversation 并调用 Write (应被拦截)
+	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
+
+	ch, err := a.AskStream(context.Background(), "write file")
+	if err != nil {
+		t.Fatalf("AskStream failed: %v", err)
+	}
+
+	events := drainEvents(t, ch, 2*time.Second)
+
+	var (
+		foundStart bool
+		foundDone  bool
+		doneErr    error
+		doneResult string
+	)
+
+	for _, ev := range events {
+		switch e := ev.(type) {
+		case ToolExecStartEvent:
+			if e.Name == "Write" {
+				foundStart = true
+			}
+		case ToolExecDoneEvent:
+			if e.Name == "Write" {
+				foundDone = true
+				doneErr = e.Err
+				doneResult = e.Result
+			}
+		}
+	}
+
+	if !foundStart {
+		t.Error("expected ToolExecStartEvent for intercepted tool")
+	}
+	if !foundDone {
+		t.Error("expected ToolExecDoneEvent for intercepted tool")
+	}
+	if doneErr == nil || !strings.Contains(doneErr.Error(), "not available under the current classification level") {
+		t.Errorf("unexpected done error: %v", doneErr)
+	}
+	expectedResult := "error: tool Write is not available under the current classification level L0-Conversation"
+	if doneResult != expectedResult {
+		t.Errorf("doneResult = %q, want %q", doneResult, expectedResult)
+	}
+
+	// 确保工具从未实际执行过
+	if writeTool.CallCount() != 0 {
+		t.Errorf("writeTool should not have been executed, got callCount = %d", writeTool.CallCount())
+	}
+}
+
