@@ -809,6 +809,24 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	args := tc.Function.Arguments
 	defer a.clearWorkTool()
 
+	level := a.EffectiveTaskLevel()
+	if level != "" && isToolPruned(level, name) {
+		err := fmt.Errorf("tool %s is not available under the current classification level %s", name, level)
+		a.logError(ctx, logger.CatTool, "tool is pruned", err,
+			"tool_name", name,
+			"tool_call_id", tc.ID,
+			"level", level,
+		)
+		result := "error: " + err.Error()
+		a.emit(ctx, out, ToolExecStartEvent{
+			Iter: iter, CallID: tc.ID, Name: name, Args: args,
+		})
+		a.emit(ctx, out, ToolExecDoneEvent{
+			Iter: iter, CallID: tc.ID, Name: name, Result: result, Err: err,
+		})
+		return result
+	}
+
 	var tool tools.Tool
 	var ok bool
 	if a.tools != nil {
