@@ -245,3 +245,32 @@ func TestShell_Confirmable_CompileTimeCheck(t *testing.T) {
 	// 编译时检查：shellExecTool 实现了 Confirmable
 	var _ Confirmable = (*shellExecTool)(nil)
 }
+
+func TestShell_RewriteCommand(t *testing.T) {
+	// 1. Test when useRTK is disabled (explicitly disabled)
+	oldUseRTK := useRTK
+	useRTK = false
+	defer func() { useRTK = oldUseRTK }()
+
+	cmd := "git status"
+	rewritten := rewriteCommand(context.Background(), cmd)
+	if rewritten != cmd {
+		t.Errorf("expected no rewrite when useRTK is false, got: %q", rewritten)
+	}
+
+	// 2. Test unsupported command (should not change)
+	useRTK = oldUseRTK
+	unsupportedCmd := "echo hello"
+	rewrittenUnsupported := rewriteCommand(context.Background(), unsupportedCmd)
+	if rewrittenUnsupported != unsupportedCmd {
+		t.Errorf("expected no rewrite for unsupported command, got: %q", rewrittenUnsupported)
+	}
+
+	// 3. If RTK is installed and enabled, test standard command rewrite
+	if useRTK {
+		rewrittenGit := rewriteCommand(context.Background(), "git status")
+		if rewrittenGit != "rtk git status" {
+			t.Errorf("expected git status to rewrite to 'rtk git status', got: %q", rewrittenGit)
+		}
+	}
+}
