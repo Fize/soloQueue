@@ -44,6 +44,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -65,10 +66,11 @@ type Mux struct {
 	toolsCfg       *tools.Config
 	skillReg       *skill.SkillRegistry
 	skillDirs      map[string]string // skill categories → paths, for on-demand reload
-	rebuildPrompt func() error // rebuilds L1 system prompt after soul/rules edit
-	agentsDir     string       // path to ~/.soloqueue/agents directory
-	mcpLoader     *mcp.Loader  // MCP config loader for /api/mcp endpoints
+	rebuildPrompt func() error     // rebuilds L1 system prompt after soul/rules edit
+	agentsDir     string           // path to ~/.soloqueue/agents directory
+	mcpLoader     *mcp.Loader      // MCP config loader for /api/mcp endpoints
 	authConfig    config.AuthConfig
+	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 }
 
 // reloadGroups loads groups from groupsDir. Returns empty map on error.
@@ -183,6 +185,13 @@ func WithAuthConfig(cfg config.AuthConfig) MuxOption {
 	}
 }
 
+// WithTeamStore sets the team/agent SQLite store for CRUD endpoints.
+// When nil, POST/PUT/DELETE team and agent endpoints return 503;
+// GET endpoints fall back to file-based loading.
+func WithTeamStore(store *teamstore.Store) MuxOption {
+	return func(m *Mux) { m.teamstore = store }
+}
+
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
@@ -266,12 +275,25 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 		r.Put("/", m.handleSetDependencies)
 	})
 
-	// Agent routes
+	// Agent config/profile routes (specific sub-paths registered before {name} catch-all)
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
 	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
 	r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
 	r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
+
+	// Agent CRUD (DB-backed; registered after specific sub-paths to avoid conflicts)
+	r.Get("/api/agents", m.handleListAgents)
+	r.Post("/api/agents", m.handleCreateAgent)
+	r.Get("/api/agents/{name}", m.handleGetAgent)
+	r.Put("/api/agents/{name}", m.handleUpdateAgent)
+	r.Delete("/api/agents/{name}", m.handleDeleteAgent)
+
+	// Teams CRUD (DB-backed with file fallback for GET)
 	r.Get("/api/teams", m.handleListTeams)
+	r.Post("/api/teams", m.handleCreateTeam)
+	r.Get("/api/teams/{name}", m.handleGetTeam)
+	r.Put("/api/teams/{name}", m.handleUpdateTeam)
+	r.Delete("/api/teams/{name}", m.handleDeleteTeam)
 
 	// Config routes
 	r.Route("/api/config", func(r chi.Router) {

@@ -20,6 +20,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -56,12 +57,32 @@ type Stack struct {
 
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
+	TeamStore *teamstore.Store // DB-backed team/agent store (nil = disabled)
+
 	// compactorInstance stores the concrete type for internal use.
 	compactorInstance *compactor.LLMCompactor
 
 	// promptRebuildFuncs holds callbacks to rebuild the L1 system prompt.
 	promptRebuildFuncs []func() error
 	promptRebuildMu    sync.Mutex
+}
+
+// ReloadFromTeamStore reloads groups, leaders, and templates from the DB-backed
+// team store. If TeamStore is nil, this is a no-op.
+func (s *Stack) ReloadFromTeamStore() error {
+	if s.TeamStore == nil {
+		return nil
+	}
+	s.CfgMu.Lock()
+	defer s.CfgMu.Unlock()
+	dbGroups, dbLeaders, dbTemplates, err := loadFromTeamStore(s.TeamStore)
+	if err != nil {
+		return err
+	}
+	s.Groups = dbGroups
+	s.Leaders = dbLeaders
+	s.AllTemplates = dbTemplates
+	return nil
 }
 
 // Shutdown gracefully reaps all child Agents managed by L2 Supervisors.

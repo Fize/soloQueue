@@ -402,3 +402,75 @@ export interface FileRoot {
   path: string
   group: string
 }
+
+// ─── Team & Agent CRUD Types (DB-backed) ────────────────────────────────────
+
+export interface TeamWorkspace {
+  name: string
+  path: string
+  autoWork?: {
+    enabled: boolean
+    initialCooldownMinutes: number
+    postTaskCooldownMinutes: number
+    maxIntervalsPerDay: number
+  }
+}
+
+export interface TeamResponse {
+  id: string
+  name: string
+  description: string
+  workspaces: TeamWorkspace[]
+  agents?: AgentResponse[]
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentResponse {
+  id: string
+  name: string
+  description: string
+  team_name: string
+  is_leader: boolean
+  model: string
+  system_prompt: string
+  permission: boolean
+  mcp_servers: string[]
+  skill_ids: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTeamRequest {
+  name: string
+  description?: string
+  workspaces?: TeamWorkspace[]
+}
+
+export interface UpdateTeamRequest {
+  description?: string
+  workspaces?: TeamWorkspace[]
+}
+
+export interface CreateAgentRequest {
+  name: string
+  description?: string
+  team_name: string
+  is_leader?: boolean
+  model?: string
+  system_prompt?: string
+  permission?: boolean
+  mcp_servers?: string[]
+  skill_ids?: string[]
+}
+
+export interface UpdateAgentRequest {
+  description?: string
+  team_name?: string
+  is_leader?: boolean
+  model?: string
+  system_prompt?: string
+  permission?: boolean
+  mcp_servers?: string[]
+  skill_ids?: string[]
+}

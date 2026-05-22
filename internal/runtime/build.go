@@ -28,6 +28,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -69,6 +70,12 @@ func Build(
 	if err := bc.buildLLMClient(); err != nil {
 		return nil, err
 	}
+
+	// Phase 2.5: Shared DB + TeamStore (must happen before prompt for DB-backed loading)
+	if err := bc.initSharedDB(); err != nil {
+		return nil, err
+	}
+	bc.teamstore = teamstore.NewStore(bc.sharedDB)
 
 	// Phase 3: Independent subsystems (no cross-deps)
 	bc.buildMCP()
@@ -284,6 +291,7 @@ type buildContext struct {
 	skillDirs         map[string]string
 	exploreDir        string
 	agentFactory      *agent.DefaultFactory
+	teamstore         *teamstore.Store
 	supervisors       []*agent.Supervisor
 	tokenizer         *ctxwin.Tokenizer
 	compactorInstance *compactor.LLMCompactor
@@ -331,6 +339,19 @@ func (bc *buildContext) buildLLMClient() error {
 	return nil
 }
 
+func (bc *buildContext) initSharedDB() error {
+	sharedDBPath := filepath.Join(bc.workDir, "permanent_memory", "entries.db")
+	if err := os.MkdirAll(filepath.Dir(sharedDBPath), 0o755); err != nil {
+		return fmt.Errorf("create permanent_memory dir: %w", err)
+	}
+	sharedDB, err := sqlitedb.Open(sharedDBPath)
+	if err != nil {
+		return fmt.Errorf("open shared sqlite db: %w", err)
+	}
+	bc.sharedDB = sharedDB
+	return nil
+}
+
 func (bc *buildContext) assembleStack() *Stack {
 	return &Stack{
 		Settings:          bc.cfg,
@@ -359,6 +380,7 @@ func (bc *buildContext) assembleStack() *Stack {
 		BypassConfirm:     bc.bypassConfirm,
 		MCPManager:        bc.mcpMgr,
 		LSPManager:        bc.lspMgr,
+		TeamStore:         bc.teamstore,
 		compactorInstance: bc.compactorInstance,
 	}
 }

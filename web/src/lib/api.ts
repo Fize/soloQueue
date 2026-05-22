@@ -10,6 +10,12 @@ import type {
   UpdateAgentProfileRequest,
   UpdateAgentConfigRequest,
   TeamListResponse,
+  TeamResponse,
+  AgentResponse,
+  CreateTeamRequest,
+  UpdateTeamRequest,
+  CreateAgentRequest,
+  UpdateAgentRequest,
   AppConfig,
   ToolListResponse,
   SkillListResponse,
@@ -216,4 +222,63 @@ export async function setDependencies(todoId: string, data: SetDependenciesReque
     method: 'PUT',
     body: JSON.stringify(data),
   })
+}
+
+// ─── Team CRUD APIs ─────────────────────────────────────────────────────────
+
+export async function listTeams(): Promise<TeamResponse[]> {
+  const data = await request<{ teams: TeamResponse[] }>('/teams')
+  return data.teams ?? []
+}
+
+export async function getTeam(name: string): Promise<TeamResponse> {
+  return request<TeamResponse>(`/teams/${encodeURIComponent(name)}`)
+}
+
+export async function createTeam(data: CreateTeamRequest): Promise<TeamResponse> {
+  return request<TeamResponse>('/teams', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateTeam(name: string, data: UpdateTeamRequest): Promise<TeamResponse> {
+  return request<TeamResponse>(`/teams/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteTeam(name: string): Promise<void> {
+  await request(`/teams/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
+// ─── Agent CRUD APIs ────────────────────────────────────────────────────────
+
+export async function listAgents(team?: string): Promise<AgentResponse[]> {
+  const query = team ? `?team=${encodeURIComponent(team)}` : ''
+  const data = await request<{ agents: AgentResponse[] }>(`/agents${query}`)
+  return data.agents ?? []
+}
+
+export async function getAgent(name: string): Promise<AgentResponse> {
+  return request<AgentResponse>(`/agents/${encodeURIComponent(name)}`)
+}
+
+export async function createAgent(data: CreateAgentRequest): Promise<AgentResponse> {
+  return request<AgentResponse>('/agents', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateAgent(name: string, data: UpdateAgentRequest): Promise<AgentResponse> {
+  return request<AgentResponse>(`/agents/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteAgent(name: string): Promise<void> {
+  await request(`/agents/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }

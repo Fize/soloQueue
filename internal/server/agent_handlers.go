@@ -363,57 +363,6 @@ type TeamListResponse struct {
 	Teams []TeamInfoResponse `json:"teams"`
 }
 
-// handleListTeams returns all teams and their agent templates.
-// GET /api/teams
-func (m *Mux) handleListTeams(w http.ResponseWriter, _ *http.Request) {
-	templates := m.reloadTemplates()
-	if templates == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
-		return
-	}
-
-	// Group templates by group name
-	teamMap := make(map[string]*TeamInfoResponse)
-	groups := m.reloadGroups()
-
-	for _, tmpl := range templates {
-		groupName := tmpl.Group
-		if groupName == "" {
-			groupName = "Default"
-		}
-
-		if _, ok := teamMap[groupName]; !ok {
-			teamMap[groupName] = &TeamInfoResponse{
-				Name:        groupName,
-				Description: "",
-				Agents:      []AgentTemplateResponse{},
-			}
-
-			// Get group description if available
-			if group, ok := groups[groupName]; ok {
-				teamMap[groupName].Description = group.Body
-			}
-		}
-
-		teamMap[groupName].Agents = append(teamMap[groupName].Agents, AgentTemplateResponse{
-			ID:          tmpl.ID,
-			Name:        tmpl.Name,
-			Description: tmpl.Description,
-			IsLeader:    tmpl.IsLeader,
-			Group:       tmpl.Group,
-			ModelID:     tmpl.ModelID,
-		})
-	}
-
-	// Convert map to slice
-	teams := make([]TeamInfoResponse, 0, len(teamMap))
-	for _, team := range teamMap {
-		teams = append(teams, *team)
-	}
-
-	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: teams})
-}
-
 // handleGetAgentProfile returns the soul.md and rules.md content for the main agent.
 // GET /api/agents/{id}/profile
 func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {

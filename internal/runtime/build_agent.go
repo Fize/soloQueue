@@ -33,6 +33,7 @@ func (bc *buildContext) buildAgentInfra() {
 		agent.WithMCPManager(bc.mcpMgr),
 		agent.WithSkillRegistry(bc.skillReg),
 		agent.WithExploreDir(bc.exploreDir),
+		agent.WithTeamStore(bc.teamstore),
 	)
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────

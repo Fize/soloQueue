@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { LogOut, FileText, User, Sparkles, Server } from 'lucide-react'
+import { LogOut, FileText, User, Sparkles, Server, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -8,6 +8,7 @@ const settingsTabs = [
   { to: '/settings/profile', icon: User, label: 'Profile' },
   { to: '/settings/skills', icon: Sparkles, label: 'Skills' },
   { to: '/settings/mcp', icon: Server, label: 'MCP' },
+  { to: '/settings/teams', icon: Users, label: 'Agents & Teams' },
 ]
 
 export function SettingsLayout() {

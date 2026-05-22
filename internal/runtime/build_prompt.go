@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
 
 // buildPrompt initializes the prompt configuration, groups, templates, and the L1 system prompt.
@@ -60,6 +62,24 @@ func (bc *buildContext) buildPrompt() error {
 	}
 	bc.allTemplates = allTemplates
 
+	// ── DB-backed override (teamstore) ────────────────────────────────────
+	if bc.teamstore != nil {
+		groupsDir := filepath.Join(bc.workDir, "groups")
+		agentsDir := filepath.Join(bc.workDir, "agents")
+		if err := bc.teamstore.MigrateFromFiles(groupsDir, agentsDir); err != nil {
+			bc.log.Warn(logger.CatApp, "migrate teams/agents to DB failed", "err", err.Error())
+		}
+		// Override with DB data
+		dbGroups, dbLeaders, dbTemplates, err := loadFromTeamStore(bc.teamstore)
+		if err != nil {
+			bc.log.Warn(logger.CatApp, "load from teamstore failed", "err", err.Error())
+		} else {
+			bc.groups = dbGroups
+			bc.leaders = dbLeaders
+			bc.allTemplates = dbTemplates
+		}
+	}
+
 	// ── Build L1 System Prompt ───────────────────────────────────────────────
 	var mcpServers []string
 	if bc.mcpMgr != nil {
@@ -100,4 +120,78 @@ func (bc *buildContext) buildPrompt() error {
 	bc.systemPrompt = systemPrompt
 
 	return nil
+}
+
+// loadFromTeamStore loads teams and agents from the DB-backed store and converts
+// them to the in-memory types used by the prompt and agent systems.
+func loadFromTeamStore(store *teamstore.Store) (map[string]prompt.GroupFile, []prompt.LeaderInfo, []agent.AgentTemplate, error) {
+	// Load teams → GroupFile map
+	teams, err := store.ListTeams(context.Background())
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list teams: %w", err)
+	}
+
+	groups := make(map[string]prompt.GroupFile, len(teams))
+	for _, t := range teams {
+		workspaces := make([]prompt.Workspace, 0, len(t.Workspaces))
+		for _, w := range t.Workspaces {
+			workspaces = append(workspaces, prompt.Workspace{
+				Name: w.Name,
+				Path: w.Path,
+				AutoWork: prompt.AutoWorkConfig{
+					Enabled:                 w.AutoWork.Enabled,
+					InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
+					PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
+					MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
+				},
+			})
+		}
+		groups[t.Name] = prompt.GroupFile{
+			Frontmatter: prompt.GroupFrontmatter{
+				Name:       t.Name,
+				Workspaces: workspaces,
+			},
+			Body: t.Description,
+		}
+	}
+
+	// Load agents → LeaderInfo + AgentTemplate slices
+	agents, err := store.ListAgents(context.Background())
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list agents: %w", err)
+	}
+
+	var leaders []prompt.LeaderInfo
+	var templates []agent.AgentTemplate
+
+	for _, a := range agents {
+		dbTmpl := a.ToAgentTemplate()
+		tmpl := agent.AgentTemplate{
+			ID:           dbTmpl.ID,
+			Name:         dbTmpl.Name,
+			Description:  dbTmpl.Description,
+			SystemPrompt: dbTmpl.SystemPrompt,
+			ModelID:      dbTmpl.ModelID,
+			IsLeader:     dbTmpl.IsLeader,
+			Group:        dbTmpl.Group,
+			Permission:   dbTmpl.Permission,
+			MCPServers:   dbTmpl.MCPServers,
+			SkillIDs:     dbTmpl.SkillIDs,
+		}
+		templates = append(templates, tmpl)
+
+		if a.IsLeader {
+			li := prompt.LeaderInfo{
+				Name:        a.Name,
+				Description: a.Description,
+				Group:       a.TeamName,
+			}
+			if gf, ok := groups[a.TeamName]; ok {
+				li.GroupDescription = gf.Body
+			}
+			leaders = append(leaders, li)
+		}
+	}
+
+	return groups, leaders, templates, nil
 }
