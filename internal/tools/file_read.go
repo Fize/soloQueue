@@ -4,8 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+)
+
+const (
+	// ReadToolMaxBytes is the maximum file size Read will accept (100 MB).
+	ReadToolMaxBytes = 100 << 20
+	// ReadDefaultMaxTokens is the default token limit per Read call.
+	ReadDefaultMaxTokens = 25000
 )
 
 // fileReadTool 读取单个文件并返回 JSON payload
@@ -13,10 +22,13 @@ import (
 // Schema:
 //
 //	{
-//	  "path": "...absolute or relative path..."
+//	  "path": "...",
+//	  "offset": 0,  // optional byte offset
+//	  "limit": 25000  // optional max tokens (default 25000)
 //	}
 //
 // 限制：MaxFileSize（超出返回 ErrFileTooLarge）；含 NUL 字节返回 ErrBinaryContent。
+// 单次返回内容不超过 ReadDefaultMaxTokens token；超过时返回截断内容 + 分页提示。
 type fileReadTool struct {
 	cfg    Config
 	logger *logger.Logger
@@ -30,29 +42,36 @@ func newFileReadTool(cfg Config) *fileReadTool {
 func (fileReadTool) Name() string { return "Read" }
 
 func (fileReadTool) Description() string {
-	return "Read a UTF-8 text file and return {path,size,content}. " +
-		"Binary files and files larger than the configured limit are rejected. " +
-		"For files exceeding the limit, use Bash with head/tail to read portions."
+	return "Read a UTF-8 text file and return {path,size,content,truncated?,error?}. " +
+		"Use offset (byte) and limit (tokens) to paginate. " +
+		"Default limit is 25000 tokens. Binary files are rejected. " +
+		"Prefer Grep/Glob first to locate content, then Read with offset/limit."
 }
 
 func (fileReadTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "path":{"type":"string","description":"Absolute path, or relative to the process CWD"}
+    "path":{"type":"string","description":"Absolute path, or relative to the process CWD"},
+    "offset":{"type":"integer","description":"Byte offset to start reading (0-based). Use totalsize from a prior Read to paginate."},
+    "limit":{"type":"integer","description":"Max tokens to return (default 25000, capped at 25000). Use smaller values for large files."}
   },
   "required":["path"]
 }`)
 }
 
 type fileReadArgs struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Offset int64  `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
 type fileReadResult struct {
-	Path    string `json:"path"`
-	Size    int64  `json:"size"`
-	Content string `json:"content"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) {
@@ -68,20 +87,68 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
+	maxTokens := a.Limit
+	if maxTokens <= 0 {
+		maxTokens = ReadDefaultMaxTokens
+	}
+	if maxTokens > ReadDefaultMaxTokens {
+		maxTokens = ReadDefaultMaxTokens
+	}
+
 	abs, err := absPath(a.Path)
 	if err != nil {
 		return "", err
 	}
 
 	res, err := t.cfg.Sandbox.ReadFile(ctx, abs, ReadFileOptions{
-		MaxSize: t.cfg.MaxFileSize,
+		MaxSize: ReadToolMaxBytes,
 	})
 	if err != nil {
 		return "", err
 	}
 	data := res.Data
+	if a.Offset > 0 {
+		if a.Offset >= int64(len(data)) {
+			data = nil
+		} else {
+			data = data[a.Offset:]
+			// Skip to next valid UTF-8 rune start
+			for len(data) > 0 && !utf8.RuneStart(data[0]) {
+				data = data[1:]
+			}
+		}
+	}
+
 	if looksBinary(data) {
 		return "", fmt.Errorf("%w: %s", ErrBinaryContent, abs)
+	}
+
+	content := string(data)
+
+	// Enforce token limit
+	tok := ctxwin.NewTokenizer()
+	if tok.Count(content) > maxTokens {
+		content = truncateTokens(content, maxTokens, tok)
+		if t.logger != nil {
+			t.logger.InfoContext(ctx, logger.CatTool, "file_read: truncated",
+				"path", abs,
+				"max_tokens", maxTokens,
+				"original_bytes", len(data),
+			)
+		}
+		out := fileReadResult{
+			Path:      abs,
+			Size:      int64(len(res.Data)),
+			Content:   content,
+			Truncated: true,
+			Error: fmt.Sprintf(
+				"Content exceeds %d-token single-read limit. Use offset/limit to read in chunks "+
+					"(e.g. offset=%d, limit=%d for the next page).",
+				maxTokens, a.Offset+int64(len(content)), maxTokens,
+			),
+		}
+		b, _ := json.Marshal(out)
+		return string(b), nil
 	}
 
 	if t.logger != nil {
@@ -91,11 +158,30 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 
 	out := fileReadResult{
 		Path:    abs,
-		Size:    int64(len(data)),
-		Content: string(data),
+		Size:    int64(len(res.Data)),
+		Content: content,
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
+}
+
+// truncateTokens returns the longest prefix of s that fits within maxTokens.
+func truncateTokens(s string, maxTokens int, tok *ctxwin.Tokenizer) string {
+	if tok.Count(s) <= maxTokens {
+		return s
+	}
+	// Binary search on rune length
+	runes := []rune(s)
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if tok.Count(string(runes[:mid])) <= maxTokens {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return string(runes[:lo])
 }
 
 // Compile-time check
