@@ -16,6 +16,11 @@ vi.mock('@/lib/api', () => ({
   deleteTodo: vi.fn(),
 }))
 
+vi.mock('react-router-dom', () => ({
+  useParams: () => ({ id: 'p1' }),
+  useNavigate: () => () => vi.fn(),
+}))
+
 vi.mock('./TodoList', () => ({
   TodoList: ({
     onToggle,
