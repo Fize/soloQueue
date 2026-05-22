@@ -1,8 +1,8 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { Plan, PlanStatus } from '@/types'
 import { usePlanStore } from '@/stores/planStore'
 import { BoardColumn } from './BoardColumn'
-import { PlanDetail } from './PlanDetail'
 import { PlanCreateDialog } from './PlanCreateDialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +27,7 @@ const mobileColumnConfig: Record<PlanStatus, { label: string; dot: string }> = {
 }
 
 export function Board() {
+  const navigate = useNavigate()
   const plans = usePlanStore((state) => state.plans)
   const error = usePlanStore((state) => state.error)
   const movePlan = usePlanStore((state) => state.movePlan)
@@ -44,7 +45,6 @@ export function Board() {
     [plans]
   )
 
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
 
   // Local state for optimistic reordering during drag
@@ -181,7 +181,7 @@ export function Board() {
   }
 
   function handlePlanClick(plan: Plan) {
-    setSelectedPlan(plan)
+    navigate(`/plans/${plan.id}`)
   }
 
   return (
@@ -271,11 +271,6 @@ export function Board() {
           </div>
         </div>
       </div>
-
-      {/* Plan detail sheet */}
-      {selectedPlan && (
-        <PlanDetail plan={selectedPlan} open={true} onClose={() => setSelectedPlan(null)} />
-      )}
 
       <PlanCreateDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} />
     </div>

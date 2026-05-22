@@ -24,10 +24,6 @@ import { useAuthStore } from '@/stores/authStore'
 const API_BASE = '/api'
 
 function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().token
-  if (token) {
-    return { Authorization: `Bearer ${token}` }
-  }
   return {}
 }
 
@@ -178,12 +174,7 @@ export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
 // ─── File APIs ──────────────────────────────────────────────────────────────────
 
 export function getFileUrl(path: string): string {
-  const base = `${API_BASE}/files/content?path=${encodeURIComponent(path)}`
-  const token = getAuthHeaders().Authorization
-  if (token) {
-    return `${base}&token=${encodeURIComponent(token.replace('Bearer ', ''))}`
-  }
-  return base
+  return `${API_BASE}/files/content?path=${encodeURIComponent(path)}`
 }
 
 export async function listFiles(dir: string): Promise<FileInfo[]> {
