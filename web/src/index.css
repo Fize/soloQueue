@@ -1,70 +1,84 @@
+/* ─── Obsidian Console Design System ─────────────────────────────────────
+ *
+ * A dark-first design system with warm amber/gold accents,
+ * glassmorphism cards, and luminous UI surfaces.
+ *
+ * System theme auto-detect: add to index.html or main.tsx:
+ *   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+ *   document.documentElement.classList.toggle('dark', prefersDark)
+ *   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+ *     document.documentElement.classList.toggle('dark', e.matches)
+ *   })
+ *
+ * ──────────────────────────────────────────────────────────────────────── */
+
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
 
-/* ─── SaaS Design System (Inspired by Stripe/Linear) ─────────────────── */
+/* ─── Obsidian Console Theme Tokens ──────────────────────────────────── */
 @theme {
-  /* Brand Colors - Blurple Primary */
-  --color-primary: #635bff;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #0a2540;
-  --color-secondary-foreground: #ffffff;
+  /* Brand Colors - Warm Amber/Gold Primary */
+  --color-primary: #f0b429;
+  --color-primary-foreground: #1c1917;
+  --color-secondary: #292524;
+  --color-secondary-foreground: #fafaf9;
 
-  /* Backgrounds */
-  --color-background: #f6f9fc;
-  --color-foreground: #0a2540;
+  /* Backgrounds (light defaults in @theme, overridden by :root / .dark) */
+  --color-background: #fafaf9;
+  --color-foreground: #1c1917;
   --color-card: #ffffff;
-  --color-card-foreground: #0a2540;
+  --color-card-foreground: #1c1917;
   --color-popover: #ffffff;
-  --color-popover-foreground: #0a2540;
+  --color-popover-foreground: #1c1917;
 
   /* Muted */
-  --color-muted: #f3f6f8;
-  --color-muted-foreground: #8898aa;
+  --color-muted: #f5f5f4;
+  --color-muted-foreground: #78716c;
 
-  /* Accent */
-  --color-accent: #00d4ff;
-  --color-accent-foreground: #0a2540;
+  /* Accent - Teal */
+  --color-accent: #2dd4bf;
+  --color-accent-foreground: #1c1917;
 
-  /* Destructive */
-  --color-destructive: #ff2f4c;
+  /* Destructive - Coral */
+  --color-destructive: #f87171;
   --color-destructive-foreground: #ffffff;
 
   /* Border / Input / Ring */
-  --color-border: #e6ebf1;
-  --color-border-light: #f3f6f8;
-  --color-input: #e6ebf1;
-  --color-ring: rgba(99, 91, 255, 0.18);
+  --color-border: #e7e5e4;
+  --color-border-light: #f5f5f4;
+  --color-input: #e7e5e4;
+  --color-ring: rgba(240, 180, 41, 0.25);
 
   /* Status Colors */
-  --color-status-plan: #e6ebf1;
-  --color-status-running: #fff8e1;
-  --color-status-done: #e6f9ed;
+  --color-status-plan: #e7e5e4;
+  --color-status-running: #fef3c7;
+  --color-status-done: #d1fae5;
 
   /* Semantic Colors */
-  --color-success: #00d924;
-  --color-success-foreground: #007a14;
-  --color-warning: #ffb020;
-  --color-warning-foreground: #8a5a00;
-  --color-info: #0073ff;
-  --color-info-foreground: #004aad;
-  --color-error: #ff2f4c;
-  --color-error-foreground: #cc0033;
+  --color-success: #2dd4bf;
+  --color-success-foreground: #115e59;
+  --color-warning: #f0b429;
+  --color-warning-foreground: #92400e;
+  --color-info: #38bdf8;
+  --color-info-foreground: #0c4a6e;
+  --color-error: #f87171;
+  --color-error-foreground: #991b1b;
 
   /* Chart */
-  --color-chart-1: #635bff;
-  --color-chart-2: #00d4ff;
-  --color-chart-3: #00d924;
-  --color-chart-4: #ffb020;
-  --color-chart-5: #ff2f4c;
+  --color-chart-1: #f0b429;
+  --color-chart-2: #2dd4bf;
+  --color-chart-3: #38bdf8;
+  --color-chart-4: #a78bfa;
+  --color-chart-5: #f87171;
 }
 
 @theme inline {
   --font-sans:
-    Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', sans-serif;
+    'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-mono:
     'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
@@ -110,92 +124,96 @@
   --color-background: var(--background);
 }
 
-/* ─── CSS Variables (shadcn consumption + SaaS tokens) ───────────────── */
+/* ─── CSS Variables: Light Theme (default) ───────────────────────────── */
 :root {
-  --background: #f6f9fc;
-  --foreground: #0a2540;
+  --background: #fafaf9;
+  --foreground: #1c1917;
   --card: #ffffff;
-  --card-foreground: #0a2540;
+  --card-foreground: #1c1917;
   --popover: #ffffff;
-  --popover-foreground: #0a2540;
-  --primary: #635bff;
-  --primary-foreground: #ffffff;
-  --secondary: #0a2540;
-  --secondary-foreground: #ffffff;
-  --muted: #f3f6f8;
-  --muted-foreground: #8898aa;
-  --accent: #00d4ff;
-  --accent-foreground: #0a2540;
-  --destructive: #ff2f4c;
+  --popover-foreground: #1c1917;
+  --primary: #f0b429;
+  --primary-foreground: #1c1917;
+  --secondary: #292524;
+  --secondary-foreground: #fafaf9;
+  --muted: #f5f5f4;
+  --muted-foreground: #78716c;
+  --accent: #2dd4bf;
+  --accent-foreground: #1c1917;
+  --destructive: #f87171;
   --destructive-foreground: #ffffff;
-  --border: #e6ebf1;
-  --border-light: #f3f6f8;
-  --input: #e6ebf1;
-  --ring: rgba(99, 91, 255, 0.18);
+  --border: #e7e5e4;
+  --border-light: #f5f5f4;
+  --input: #e7e5e4;
+  --ring: rgba(240, 180, 41, 0.25);
   --radius: 8px;
 
-  /* Shadows - Multi-layered soft shadows */
-  --shadow-sm: 0 2px 5px -1px rgba(50, 50, 93, 0.25), 0 1px 3px -1px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 6px 12px -2px rgba(50, 50, 93, 0.25), 0 3px 7px -3px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 13px 27px -5px rgba(50, 50, 93, 0.25), 0 8px 16px -8px rgba(0, 0, 0, 0.3);
+  /* Shadows - Soft warm shadows for light */
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.08);
 
   /* Status */
-  --status-plan: #e6ebf1;
-  --status-running: #fff8e1;
-  --status-done: #e6f9ed;
+  --status-plan: #e7e5e4;
+  --status-running: #fef3c7;
+  --status-done: #d1fae5;
 
   /* Semantic */
-  --success: #00d924;
-  --success-foreground: #007a14;
-  --warning: #ffb020;
-  --warning-foreground: #8a5a00;
-  --info: #0073ff;
-  --info-foreground: #004aad;
-  --error: #ff2f4c;
-  --error-foreground: #cc0033;
+  --success: #2dd4bf;
+  --success-foreground: #115e59;
+  --warning: #f0b429;
+  --warning-foreground: #92400e;
+  --info: #38bdf8;
+  --info-foreground: #0c4a6e;
+  --error: #f87171;
+  --error-foreground: #991b1b;
 }
 
+/* ─── CSS Variables: Dark Theme ──────────────────────────────────────── */
 .dark {
-  --background: #0a2540;
-  --foreground: #e0e0e0;
-  --card: #1a2a44;
-  --card-foreground: #e0e0e0;
-  --popover: #1a2a44;
-  --popover-foreground: #e0e0e0;
-  --primary: #635bff;
-  --primary-foreground: #ffffff;
-  --secondary: #1a2a44;
-  --secondary-foreground: #e0e0e0;
-  --muted: #1a2a44;
-  --muted-foreground: #6b7a94;
-  --accent: #00d4ff;
-  --accent-foreground: #0a2540;
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --card: #161b22;
+  --card-foreground: #e6edf3;
+  --popover: #1c2128;
+  --popover-foreground: #e6edf3;
+  --primary: #f0b429;
+  --primary-foreground: #1c1917;
+  --secondary: #1c2128;
+  --secondary-foreground: #e6edf3;
+  --muted: #1c2128;
+  --muted-foreground: #7d8590;
+  --accent: #2dd4bf;
+  --accent-foreground: #0d1117;
   --destructive: #5c2020;
-  --destructive-foreground: #ff9999;
-  --border: #2a3a54;
-  --border-light: #1a2a44;
-  --input: #2a3a54;
-  --ring: rgba(99, 91, 255, 0.25);
+  --destructive-foreground: #f87171;
+  --border: rgba(240, 246, 252, 0.1);
+  --border-light: rgba(240, 246, 252, 0.05);
+  --input: rgba(240, 246, 252, 0.1);
+  --ring: rgba(240, 180, 41, 0.3);
 
-  --shadow-sm: 0 2px 5px -1px rgba(0, 0, 0, 0.4), 0 1px 3px -1px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 6px 12px -2px rgba(0, 0, 0, 0.4), 0 3px 7px -3px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 13px 27px -5px rgba(0, 0, 0, 0.5), 0 8px 16px -8px rgba(0, 0, 0, 0.6);
+  /* Shadows - Subtle glow on dark */
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
 
-  --status-plan: #2a3a54;
-  --status-running: #4a3f20;
-  --status-done: #1f3a28;
+  /* Status */
+  --status-plan: rgba(240, 246, 252, 0.08);
+  --status-running: rgba(240, 180, 41, 0.15);
+  --status-done: rgba(45, 212, 191, 0.15);
 
-  --success: #1f3a28;
-  --success-foreground: #69db7c;
-  --warning: #4a3f20;
-  --warning-foreground: #ffd43b;
-  --info: #2a3550;
-  --info-foreground: #74c0fc;
+  /* Semantic */
+  --success: rgba(45, 212, 191, 0.15);
+  --success-foreground: #2dd4bf;
+  --warning: rgba(240, 180, 41, 0.15);
+  --warning-foreground: #f0b429;
+  --info: rgba(56, 189, 248, 0.15);
+  --info-foreground: #38bdf8;
   --error: #5c2020;
-  --error-foreground: #ff9999;
+  --error-foreground: #f87171;
 }
 
-/* ─── Base Layer ─────────────────────────────────────────────────────────── */
+/* ─── Base Layer ─────────────────────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -203,9 +221,16 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-weight: 400;
-    background-image: linear-gradient(180deg, #ffffff 0%, #f6f9fc 100%);
-    background-repeat: no-repeat;
     min-height: 100vh;
+  }
+  /* Light theme: warm cream gradient */
+  body {
+    background-image: linear-gradient(180deg, #ffffff 0%, #fafaf9 100%);
+    background-repeat: no-repeat;
+  }
+  .dark body {
+    background-image: none;
+    background-color: #0d1117;
   }
   html {
     @apply font-sans;
@@ -218,25 +243,119 @@
   }
 }
 
-/* ─── SaaS Card Utility ─────────────────────────────────────────────────── */
+/* ─── Glass Card Utilities ───────────────────────────────────────────── */
 @layer components {
+  /* Glassmorphism card: backdrop-blur, luminous thin border, subtle bg */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: var(--radius);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: var(--shadow-sm);
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease,
+      border-color 0.2s ease;
+  }
+  .glass-card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    border-color: rgba(0, 0, 0, 0.1);
+  }
+
+  .dark .glass-card {
+    background: rgba(22, 27, 34, 0.8);
+    border-color: rgba(240, 246, 252, 0.1);
+  }
+  .dark .glass-card:hover {
+    border-color: rgba(240, 246, 252, 0.18);
+    box-shadow:
+      var(--shadow-md),
+      0 0 0 1px rgba(240, 180, 41, 0.05);
+  }
+
+  /* Active variant with amber/gold left accent */
+  .glass-card-active {
+    border-left: 3px solid #f0b429;
+  }
+  .dark .glass-card-active {
+    border-left-color: #f0b429;
+    box-shadow:
+      var(--shadow-sm),
+      inset 3px 0 8px -3px rgba(240, 180, 41, 0.1);
+  }
+
+  /* Ghost / placeholder variant */
+  .glass-card-ghost {
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    opacity: 0.6;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    transition: opacity 0.2s ease;
+  }
+  .glass-card-ghost:hover {
+    opacity: 0.8;
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* Legacy saas-card alias → glass-card */
   .saas-card {
-    background: var(--card);
+    background: rgba(255, 255, 255, 0.8);
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
-    border: 1px solid var(--border);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     transition:
       transform 0.2s ease,
       box-shadow 0.2s ease;
   }
-
   .saas-card:hover {
-    transform: translateY(-2px);
+    transform: translateY(-1px);
     box-shadow: var(--shadow-md);
+  }
+  .dark .saas-card {
+    background: rgba(22, 27, 34, 0.8);
+    border-color: rgba(240, 246, 252, 0.1);
   }
 }
 
-/* ─── Mobile Safeguards ──────────────────────────────────────────────────── */
+/* ─── Status & Reveal Animations ─────────────────────────────────────── */
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+.status-pulse {
+  animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-reveal {
+  animation: fadeSlideUp 0.4s ease-out forwards;
+  animation-delay: var(--reveal-delay, 0s);
+  opacity: 0;
+}
+
+/* ─── Mobile Safeguards ──────────────────────────────────────────────── */
 @layer base {
   /* Prevent iOS tap highlight */
   body {
@@ -255,6 +374,7 @@
 
 /* Disable hover lift on touch devices */
 @media (hover: none) {
+  .glass-card:hover,
   .saas-card:hover {
     transform: none;
     box-shadow: var(--shadow-sm);

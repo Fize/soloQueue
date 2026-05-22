@@ -9,10 +9,14 @@ vi.mock('@/stores/planStore', () => ({
   usePlanStore: vi.fn(),
 }))
 
-vi.mock('./PlanDetail', () => ({
-  PlanDetail: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="plan-detail">Plan Detail</div> : null,
-}))
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  }
+})
 
 vi.mock('./PlanCreateDialog', () => ({
   PlanCreateDialog: ({ open }: { open: boolean }) =>
@@ -57,6 +61,7 @@ const mockPlans: Plan[] = [
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockNavigate.mockReset()
   ;(usePlanStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (selector: (s: Record<string, unknown>) => unknown) =>
       selector({
@@ -97,11 +102,11 @@ describe('Board', () => {
     expect(screen.getByText('Retry')).toBeInTheDocument()
   })
 
-  it('opens plan detail when a plan card is clicked', async () => {
+  it('navigates to plan detail when a plan card is clicked', async () => {
     const user = userEvent.setup()
     render(<Board />)
     const planCard = screen.getAllByText(/Plan [ABC]/)
     await user.click(planCard[0])
-    expect(screen.getByTestId('plan-detail')).toBeInTheDocument()
+    expect(mockNavigate).toHaveBeenCalledWith('/plans/p1')
   })
 })

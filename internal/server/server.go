@@ -69,7 +69,6 @@ type Mux struct {
 	agentsDir     string       // path to ~/.soloqueue/agents directory
 	mcpLoader     *mcp.Loader  // MCP config loader for /api/mcp endpoints
 	authConfig    config.AuthConfig
-	tokenStore    *tokenStore
 }
 
 // reloadGroups loads groups from groupsDir. Returns empty map on error.
@@ -176,14 +175,11 @@ func WithMCPLoader(loader *mcp.Loader) MuxOption {
 	return func(m *Mux) { m.mcpLoader = loader }
 }
 
-// WithAuthConfig sets the auth configuration for token-based authentication.
+// WithAuthConfig sets the auth configuration.
 // An empty User disables authentication.
 func WithAuthConfig(cfg config.AuthConfig) MuxOption {
 	return func(m *Mux) {
 		m.authConfig = cfg
-		if cfg.User != "" {
-			m.tokenStore = newTokenStore()
-		}
 	}
 }
 
@@ -227,79 +223,75 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 		r.Use(al.Middleware)
 	}
 
-	// ── Public routes (before auth middleware) ──
-	r.Post("/api/auth/login", m.handleLogin)
-	r.Get("/api/auth/check", m.handleAuthCheck)
-	r.Post("/api/auth/logout", m.handleLogout)
+	// ── Auth middleware (protects all routes below if enabled) ──
+	if m.authConfig.User != "" {
+		r.Use(m.tokenAuthMiddleware)
+	}
 
-	// WebSocket: token via ?token= query param (validated in handler)
+	// WebSocket
 	r.Get("/ws", m.handleWebSocket)
 
-	// ── Auth middleware (protects all routes below) ──
-	r.Group(func(r chi.Router) {
-		if m.authConfig.User != "" {
-			r.Use(m.tokenAuthMiddleware)
-		}
+	// Auth check
+	r.Get("/api/auth/check", m.handleAuthCheck)
 
-		// Health check
-		r.Get("/healthz", m.handleHealth)
+	// Health check
+	r.Get("/healthz", m.handleHealth)
 
-		// Plan routes (full CRUD)
-		r.Route("/api/plans", func(r chi.Router) {
-			r.Get("/", m.handleListPlans)
-			r.Post("/", m.handleCreatePlan)
-			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", m.handleGetPlan)
-				r.Put("/", m.handleUpdatePlan)
-				r.Delete("/", m.handleDeletePlan)
-				r.Patch("/status", m.handleUpdatePlanStatus)
+	// Plan routes (full CRUD)
+	r.Route("/api/plans", func(r chi.Router) {
+		r.Get("/", m.handleListPlans)
+		r.Post("/", m.handleCreatePlan)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Get("/", m.handleGetPlan)
+			r.Put("/", m.handleUpdatePlan)
+			r.Delete("/", m.handleDeletePlan)
+			r.Patch("/status", m.handleUpdatePlanStatus)
 
-				// Todo item routes (read / update / delete only)
-				r.Route("/todos", func(r chi.Router) {
-					r.Get("/", m.handleListTodos)
-					r.Post("/reorder", m.handleReorderTodos)
-					r.Route("/{todoId}", func(r chi.Router) {
-						r.Put("/", m.handleUpdateTodo)
-						r.Delete("/", m.handleDeleteTodo)
-						r.Patch("/toggle", m.handleToggleTodo)
-					})
+			// Todo item routes (read / update / delete only)
+			r.Route("/todos", func(r chi.Router) {
+				r.Get("/", m.handleListTodos)
+				r.Post("/reorder", m.handleReorderTodos)
+				r.Route("/{todoId}", func(r chi.Router) {
+					r.Put("/", m.handleUpdateTodo)
+					r.Delete("/", m.handleDeleteTodo)
+					r.Patch("/toggle", m.handleToggleTodo)
 				})
 			})
 		})
-
-		// Dependency routes
-		r.Route("/api/todos/{id}/dependencies", func(r chi.Router) {
-			r.Get("/", m.handleGetDependencies)
-			r.Put("/", m.handleSetDependencies)
-		})
-
-		// Agent routes
-		r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
-		r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
-		r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
-		r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
-		r.Get("/api/teams", m.handleListTeams)
-
-		// Config routes
-		r.Route("/api/config", func(r chi.Router) {
-			r.Get("/", m.handleGetConfig)
-			r.Get("/toml", m.handleGetConfigToml)
-		})
-
-		// Tools & Skills routes
-		r.Get("/api/tools", m.handleListTools)
-		r.Get("/api/skills", m.handleListSkills)
-
-		// MCP config routes
-		r.Get("/api/mcp", m.handleGetMCPConfig)
-		r.Patch("/api/mcp", m.handleUpdateMCPConfig)
-
-		// File routes (read-only access to plan directory and team workspaces)
-		r.Get("/api/files/roots", m.handleGetFileRoots)
-		r.Get("/api/files/content", m.handleGetFileContent)
-		r.Get("/api/files/list", m.handleListFiles)
-		r.Get("/api/files/info", m.handleGetFileInfo)
 	})
+
+	// Dependency routes
+	r.Route("/api/todos/{id}/dependencies", func(r chi.Router) {
+		r.Get("/", m.handleGetDependencies)
+		r.Put("/", m.handleSetDependencies)
+	})
+
+	// Agent routes
+	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
+	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
+	r.Get("/api/agents/{id}/config", m.handleGetAgentConfig)
+	r.Put("/api/agents/{id}/config", m.handleUpdateAgentConfig)
+	r.Get("/api/teams", m.handleListTeams)
+
+	// Config routes
+	r.Route("/api/config", func(r chi.Router) {
+		r.Get("/", m.handleGetConfig)
+		r.Get("/toml", m.handleGetConfigToml)
+	})
+
+	// Tools & Skills routes
+	r.Get("/api/tools", m.handleListTools)
+	r.Get("/api/skills", m.handleListSkills)
+
+	// MCP config routes
+	r.Get("/api/mcp", m.handleGetMCPConfig)
+	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
+
+	// File routes (read-only access to plan directory and team workspaces)
+	r.Get("/api/files/roots", m.handleGetFileRoots)
+	r.Get("/api/files/content", m.handleGetFileContent)
+	r.Get("/api/files/list", m.handleListFiles)
+	r.Get("/api/files/info", m.handleGetFileInfo)
 
 	// Static file server for embedded web UI (catch-all: only unmatched paths).
 	// SPA fallback: if the path does not exist in the embedded FS,
