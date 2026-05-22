@@ -16,6 +16,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -98,6 +99,7 @@ type DefaultFactory struct {
 	bypassConfirm  bool                        // global --bypass: skip all confirmations
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 	exploreDir     string                      // exploration artifact directory (platform-appropriate)
+	teamstore      *teamstore.Store            // DB-backed team/agent store (nil = disabled)
 }
 
 // NewDefaultFactory 创建 DefaultFactory
@@ -194,6 +196,13 @@ func WithSkillRegistry(reg *skill.SkillRegistry) FactoryOption {
 func WithExploreDir(exploreDir string) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.exploreDir = exploreDir
+	}
+}
+
+// WithTeamStore sets the DB-backed team/agent store for the factory.
+func WithTeamStore(store *teamstore.Store) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.teamstore = store
 	}
 }
 

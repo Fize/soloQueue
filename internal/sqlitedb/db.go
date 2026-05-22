@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -111,6 +111,37 @@ func (d *DB) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_plans_status      ON plans(status);
 		CREATE INDEX IF NOT EXISTS idx_todo_deps_todo    ON todo_dependencies(todo_id);
 		CREATE INDEX IF NOT EXISTS idx_todo_deps_depends ON todo_dependencies(depends_on);
+		`,
+
+		// v1 → v2: teams and agents tables.
+		`
+		CREATE TABLE IF NOT EXISTS teams (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			workspaces TEXT NOT NULL DEFAULT '[]',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE TABLE IF NOT EXISTS agents (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			team_name TEXT NOT NULL DEFAULT '',
+			is_leader INTEGER NOT NULL DEFAULT 0,
+			model TEXT NOT NULL DEFAULT '',
+			system_prompt TEXT NOT NULL DEFAULT '',
+			permission INTEGER NOT NULL DEFAULT 0,
+			mcp_servers TEXT NOT NULL DEFAULT '[]',
+			skill_ids TEXT NOT NULL DEFAULT '[]',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (team_name) REFERENCES teams(name) ON DELETE SET DEFAULT
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_agents_team ON agents(team_name);
+		CREATE INDEX IF NOT EXISTS idx_agents_leader ON agents(is_leader);
 		`,
 	}
 

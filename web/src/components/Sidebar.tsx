@@ -14,6 +14,7 @@ import {
   User,
   Sparkles,
   Server,
+  Users,
   Circle,
   X,
   PanelLeftClose,
@@ -33,6 +34,7 @@ const settingsChildren = [
   { to: '/settings/profile', icon: User, label: 'Profile' },
   { to: '/settings/skills', icon: Sparkles, label: 'Skills' },
   { to: '/settings/mcp', icon: Server, label: 'MCP' },
+  { to: '/settings/teams', icon: Users, label: 'Agents & Teams' },
 ]
 
 function NavItem({

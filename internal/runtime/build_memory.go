@@ -13,6 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
 )
@@ -25,19 +26,24 @@ func (bc *buildContext) buildMemory() error {
 
 	// ── Shared SQLite DB ──────────────────────────────────────────────────
 	embStart := time.Now()
-	sharedDBPath := filepath.Join(bc.workDir, "permanent_memory", "entries.db")
-	sharedDB, sharedDBErr := sqlitedb.Open(sharedDBPath)
-	if sharedDBErr != nil {
-		return fmt.Errorf("open shared sqlite db: %w", sharedDBErr)
+	if bc.sharedDB == nil {
+		sharedDBPath := filepath.Join(bc.workDir, "permanent_memory", "entries.db")
+		sharedDB, sharedDBErr := sqlitedb.Open(sharedDBPath)
+		if sharedDBErr != nil {
+			return fmt.Errorf("open shared sqlite db: %w", sharedDBErr)
+		}
+		bc.sharedDB = sharedDB
+		bc.log.Debug(logger.CatApp, "build: sqlite opened", "duration", time.Since(embStart).String())
 	}
-	bc.sharedDB = sharedDB
-	bc.log.Debug(logger.CatApp, "build: sqlite opened", "duration", time.Since(embStart).String())
+	if bc.teamstore == nil {
+		bc.teamstore = teamstore.NewStore(bc.sharedDB)
+	}
 
 	// ── Permanent Memory Manager ──────────────────────────────────────────
 	bc.buildPermanentMemory()
 
 	// ── Todo Store ──────────────────────────────────────────────────────
-	todoStore := todo.NewStoreFromDB(sharedDB.DB, &sharedDB.WMu)
+	todoStore := todo.NewStoreFromDB(bc.sharedDB.DB, &bc.sharedDB.WMu)
 	bc.todoStore = todoStore
 
 	return nil
