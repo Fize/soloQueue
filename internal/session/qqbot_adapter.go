@@ -212,6 +212,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 		case agent.DoneEvent:
 			reasoningContent = e.ReasoningContent
 		case agent.ErrorEvent:
+			_ = sess.isCancelledAndReset()
 			return nil, e.Err
 		}
 	}

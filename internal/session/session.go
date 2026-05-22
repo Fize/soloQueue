@@ -558,6 +558,12 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 		return nil, ErrSessionClosed
 	}
 
+	// 重置 cancelled 标志，防止前一次 AskStream 的残留标志泄漏到本次调用。
+	// 见 isCancelledAndReset — forwarder goroutine 在 askCtx 取消时设置此标志，
+	// 由适配器（如 qqbot_adapter）在事件循环后消耗。如果适配器因 ErrorEvent
+	// 提前返回而未消耗，残留标志会导致下次 AskStream 错误地报告取消。
+	s.cancelled.Store(false)
+
 	// L1 异步委派期间不阻塞新消息。Agent mailbox 保证 job 串行执行：
 	// resumeTurn（高优先级）会先于新消息 job 执行，CW 排序自然正确。
 
