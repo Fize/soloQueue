@@ -17,12 +17,11 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/embedding"
-	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	lspmcp "github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
+	lspmcp "github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
@@ -30,7 +29,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
-	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ProfileSetupFn writes the user profile on first startup.
@@ -51,381 +50,44 @@ func Build(
 ) (*Stack, error) {
 	buildStart := time.Now()
 	settings := cfg.Get()
-	provider := cfg.DefaultProvider()
-	if provider == nil {
-		return nil, errors.New("no default provider configured")
-	}
-	defaultModel := cfg.DefaultModelByRole("fast")
-	if defaultModel == nil {
-		return nil, errors.New("no default model configured (fast role)")
-	}
 
-	// ── LLM Client ──────────────────────────────────────────────────────────────
-	llmClient, err := BuildLLMClient(provider, log)
-	if err != nil {
-		return nil, fmt.Errorf("build llm client: %w", err)
-	}
-	log.Debug(logger.CatApp, "build: LLM client ready", "duration", time.Since(buildStart).String())
-
-	// ── Tools Config ───────────────────────────────────────────────────────────
-	toolsCfg := settings.Tools.ToToolsConfig()
-
-	// ── MCP Manager ──────────────────────────────────────────────────────────
-	mcpConfigPath := filepath.Join(workDir, "mcp.json")
-	mcpLoader, mcpLoaderErr := mcp.NewLoader(mcpConfigPath, log)
-	if mcpLoaderErr != nil {
-		log.Warn(logger.CatMCP, "failed to create MCP config loader", "err", mcpLoaderErr)
-	}
-	var mcpMgr *mcp.Manager
-	if mcpLoader != nil {
-		if err := mcpLoader.Load(); err != nil {
-			log.Warn(logger.CatMCP, "failed to load mcp.json, creating default", "err", err.Error())
-		}
-		if err := mcpLoader.Watch(); err != nil {
-			log.Warn(logger.CatMCP, "failed to watch mcp.json for hot-reload", "err", err.Error())
-		}
-		mcpMgr = mcp.NewManager(mcpLoader, log)
+	bc := &buildContext{
+		workDir:       workDir,
+		cfg:           cfg,
+		settings:      settings,
+		log:           log,
+		profileSetup:  profileSetup,
+		bypassConfirm: bypassConfirm,
 	}
 
-	// ── LSP MCP (built-in LSP-based MCP) ─────────────────────────────────────
-	var lspMgr *lspmcp.Manager
-	rootPath, _ := os.Getwd()
-	lspMgr = lspmcp.NewManager(rootPath, log)
-	defs := lspmcp.BuiltinServers()
-
-	// Apply user overrides from settings if present.
-	if len(settings.LSPMCP.Servers) > 0 {
-		userDefs := make(map[string]config.LSPMCPEntry)
-		for _, s := range settings.LSPMCP.Servers {
-			userDefs[s.ID] = s
-		}
-		filtered := defs[:0]
-		for _, d := range defs {
-			if u, ok := userDefs[d.ID]; ok {
-				if u.Disabled {
-					continue
-				}
-				if u.Command != "" {
-					d.Command = u.Command
-				}
-				if u.Args != nil {
-					d.Args = u.Args
-				}
-				if u.Languages != nil {
-					d.Languages = u.Languages
-				}
-				if u.Extensions != nil {
-					d.Extensions = u.Extensions
-				}
-			}
-			filtered = append(filtered, d)
-		}
-		defs = filtered
+	// Phase 1: Validate & resolve config
+	if err := bc.resolveConfig(); err != nil {
+		return nil, err
 	}
 
-	if err := lspMgr.Start(context.Background(), defs); err != nil {
-		log.Warn(logger.CatMCP, "failed to start LSP MCP", "err", err.Error())
-	} else if mcpMgr != nil {
-		mcpMgr.RegisterVirtual("builtin-lsp", lspMgr.GetTools)
+	// Phase 2: LLM Client (critical path)
+	if err := bc.buildLLMClient(); err != nil {
+		return nil, err
 	}
 
-	// ── Prompt System ──────────────────────────────────────────────────────────
-	promptStart := time.Now()
-	promptCfg := &prompt.PromptConfig{
-		RolesDir:  filepath.Join(workDir, "prompts", "roles"),
-		GlobalDir: filepath.Join(workDir, "prompts", "global"),
+	// Phase 3: Independent subsystems (no cross-deps)
+	bc.buildMCP()
+	if err := bc.buildPrompt(); err != nil {
+		return nil, err
 	}
-	rulesCreated, err := promptCfg.EnsureFiles()
-	if err != nil {
-		var profileErr *prompt.SoulNeededError
-		if errors.As(err, &profileErr) {
-			if writeErr := profileSetup(promptCfg); writeErr != nil {
-				return nil, fmt.Errorf("write soul: %w", writeErr)
-			}
-			rulesCreated, err = promptCfg.EnsureFiles()
-			if err != nil {
-				return nil, fmt.Errorf("ensure prompt files: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("ensure prompt files: %w", err)
-		}
+	if err := bc.buildMemory(); err != nil {
+		return nil, err
 	}
-	log.Debug(logger.CatApp, "build: prompt system ready", "duration", time.Since(promptStart).String())
+	bc.buildSkills()
 
-	// ── Groups ─────────────────────────────────────────────────────────────
-	groups, err := prompt.LoadGroups(filepath.Join(workDir, "groups"))
-	if err != nil {
-		log.Warn(logger.CatApp, "failed to load groups", "err", err.Error())
-		groups = nil
-	}
+	// Phase 4: Build agent infra (depends on Phase 2+3)
+	bc.buildAgentInfra()
 
-	// ── Leaders + Agent Templates ────────────────────────────────────────────────
-	leaders, err := prompt.LoadLeaders(filepath.Join(workDir, "agents"), groups)
-	if err != nil {
-		log.Warn(logger.CatApp, "failed to load leaders", "err", err.Error())
-		leaders = nil
-	}
-	allTemplates, err := agent.LoadAgentTemplates(filepath.Join(workDir, "agents"))
-	if err != nil {
-		log.Warn(logger.CatApp, "failed to load agent templates", "err", err.Error())
-		allTemplates = nil
-	}
+	// Phase 5: Assemble Stack
+	rt := bc.assembleStack()
 
-	// ── Short-term Memory Manager ─────────────────────────────────
-	memoryDir := filepath.Join(workDir, "memory")
-	fastModel := cfg.DefaultModelByRole("fast")
-	fastModelID := ""
-	if fastModel != nil {
-		fastModelID = fastModel.ID
-	}
-	memoryMgr := memory.NewManager(memoryDir, llmClient, fastModelID, log)
-
-	// ── Shared SQLite DB ──────────────────────────────────────────────────
-	embStart := time.Now()
-	sharedDBPath := filepath.Join(workDir, "permanent_memory", "entries.db")
-	sharedDB, sharedDBErr := sqlitedb.Open(sharedDBPath)
-	if sharedDBErr != nil {
-		return nil, fmt.Errorf("open shared sqlite db: %w", sharedDBErr)
-	}
-	log.Debug(logger.CatApp, "build: sqlite opened", "duration", time.Since(embStart).String())
-
-	// ── Permanent Memory Manager ──────────────────────────────────────────
-	var permanentMgr *permanent.Manager
-	var permScheduler *permanent.Scheduler
-	var permCancel context.CancelFunc
-
-	if settings.Embedding.Enabled {
-		embModel := cfg.DefaultEmbeddingModel()
-		if embModel != nil && embModel.Enabled {
-			embProvider := cfg.EmbeddingProviderByID(embModel.ProviderID)
-			if embProvider != nil && embProvider.Enabled {
-				apiKey := embProvider.APIKey
-			if apiKey == "" {
-				apiKey = os.Getenv(embProvider.APIKeyEnv)
-			}
-				embClient, embErr := embedding.NewOpenAI(embedding.OpenAIConfig{
-					BaseURL:   embProvider.BaseURL,
-					APIKey:    apiKey,
-					ModelID:   embModel.ID,
-					Dimension: embModel.Dimension,
-				})
-				if embErr == nil {
-					normFlag := embModel.Normalize
-					store := vectorstore.NewSQLiteStoreFromDB(sharedDB.DB, &sharedDB.WMu,
-						vectorstore.WithLogger(log),
-					)
-					{
-						minSim := settings.Embedding.MinSimilarity
-						if minSim == 0 {
-							minSim = 0.65
-						}
-						permBuildStart := time.Now()
-						var summarizer permanent.Summarizer
-						if llmClient != nil {
-							summarizer = permanent.SummarizeFunc(func(ctx context.Context, req permanent.SummarizeRequest) (permanent.SummarizeResponse, error) {
-								var msgs []agent.LLMMessage
-								for _, m := range req.Messages {
-									msgs = append(msgs, agent.LLMMessage{
-										Role:    m.Role,
-										Content: m.Content,
-									})
-								}
-								resp, err := llmClient.Chat(ctx, agent.LLMRequest{
-									Model:       req.Model,
-									Messages:    msgs,
-									MaxTokens:   req.MaxTokens,
-									Temperature: req.Temperature,
-								})
-								if err != nil {
-									return permanent.SummarizeResponse{}, err
-								}
-								return permanent.SummarizeResponse{
-									Content: resp.Content,
-								}, nil
-							})
-						}
-						permanentMgr = permanent.NewManager(store, embClient, summarizer, fastModelID, memoryDir, log, minSim, normFlag)
-						permScheduler = permanent.NewScheduler(permanentMgr, log, func(msg string) {
-							log.Error(logger.CatApp, msg)
-						})
-						permCtx, cancel := context.WithCancel(context.Background())
-						permCancel = cancel
-						go func() {
-							defer func() {
-								if r := recover(); r != nil {
-									log.Error(logger.CatApp, "permScheduler goroutine panic recovered",
-										"panic", fmt.Sprintf("%v", r))
-								}
-							}()
-							permScheduler.Run(permCtx)
-						}()
-
-						toolsCfg.PermanentManager = permanentMgr
-						log.Debug(logger.CatApp, "build: permanent memory ready", "duration", time.Since(permBuildStart).String())
-					}
-				} else {
-					log.Warn(logger.CatApp, "permanent memory: failed to create embedder", "err", embErr)
-				}
-			}
-		}
-	}
-
-	// ── Plan Directory ───────────────────────────────────────────────────
-	planDir, planErr := config.PlanDir()
-	if planErr != nil {
-		log.Warn(logger.CatApp, "failed to create plan directory", "err", planErr)
-	} else {
-		toolsCfg.PlanDir = planDir
-	}
-
-	// ── Todo Store ──────────────────────────────────────────────────────
-	todoStore := todo.NewStoreFromDB(sharedDB.DB, &sharedDB.WMu)
-	toolsCfg.TodoStore = todoStore
-
-	var mcpServers []string
-	if mcpMgr != nil {
-		// External MCP servers (from mcp.json)
-		externalAllowed := cfg.Get().Agent.ExternalMCPServers
-		var externalSet map[string]bool
-		if externalAllowed != nil {
-			externalSet = make(map[string]bool, len(externalAllowed))
-			for _, name := range externalAllowed {
-				externalSet[name] = true
-			}
-		}
-		for _, srv := range mcpMgr.Loader().Get().Servers {
-			if srv.Enabled && (externalSet == nil || externalSet[srv.Name]) {
-				mcpServers = append(mcpServers, srv.Name)
-			}
-		}
-
-		// Builtin MCP servers (e.g. builtin-lsp)
-		builtinAllowed := cfg.Get().Agent.BuiltinMCPServers
-		var builtinSet map[string]bool
-		if builtinAllowed != nil {
-			builtinSet = make(map[string]bool, len(builtinAllowed))
-			for _, name := range builtinAllowed {
-				builtinSet[name] = true
-			}
-		}
-		if lspMgr != nil && (builtinSet == nil || builtinSet["builtin-lsp"]) {
-			mcpServers = append(mcpServers, "builtin-lsp")
-		}
-	}
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, groups, memoryDir, memoryDir, planDir, mcpServers)
-	if err != nil {
-		return nil, fmt.Errorf("build system prompt: %w", err)
-	}
-
-	// ── Agent Registry + Factory ──────────────────────────────────────────────
-	agentRegistry := agent.NewRegistry(log)
-
-	// Build model resolver: validates agent model IDs against settings.toml
-	modelResolver := BuildModelResolver(cfg)
-
-	// Load global skill registry
-	skillStart := time.Now()
-	skill.SetPackageLogger(log)
-	skillReg := skill.NewSkillRegistry()
-
-	// 1. Register builtin skills first (lower priority)
-	skill.RegisterBuiltinSkills(skillReg)
-
-	// 2. Load user skills from ~/.soloqueue/skills/ (overrides builtin with same ID)
-	skillDirs := map[string]string{
-		"user": filepath.Join(workDir, "skills"),
-	}
-	if skills, err := skill.LoadSkillsFromDirs(skillDirs); err == nil {
-		for _, s := range skills {
-			_ = skillReg.Register(s)
-		}
-	}
-	log.Debug(logger.CatApp, "build: skills loaded", "duration", time.Since(skillStart).String())
-
-	exploreDir := prompt.ExploreDir(workDir)
-
-	agentFactory := agent.NewDefaultFactory(
-		agentRegistry, llmClient, toolsCfg, log,
-		agent.WithModelResolver(modelResolver),
-		agent.WithDefaultModelID(defaultModel.ID),
-		agent.WithTemplates(allTemplates),
-		agent.WithGroups(groups),
-		agent.WithWorkDir(workDir),
-		agent.WithBypassConfirm(bypassConfirm),
-		agent.WithMCPManager(mcpMgr),
-		agent.WithSkillRegistry(skillReg),
-		agent.WithExploreDir(exploreDir),
-	)
-
-	// ── L2 Supervisors ────────────────────────────────────────────────────────
-	var supervisors []*agent.Supervisor
-
-	// ── Compactor (context compression engine) ────────────────────────────
-	compactorModel := cfg.DefaultModelByRole("fast")
-	if compactorModel == nil {
-		compactorModel = defaultModel
-	}
-	compactorModelID := compactorModel.APIModel
-	if compactorModelID == "" {
-		compactorModelID = compactorModel.ID
-	}
-	llmCompactor := compactor.NewLLMCompactor(
-		compactor.NewAgentChatClient(llmClient),
-		compactorModelID,
-		compactor.WithLogger(log),
-	)
-
-	tok := ctxwin.NewTokenizer()
-
-	// ── Task Router Classifier ───────────────────────────────────────────────
-	classifierModel := defaultModel.APIModel
-	if classifierModel == "" {
-		classifierModel = defaultModel.ID
-	}
-	classifierConfig := router.DefaultClassifierConfig()
-	classifier := router.NewDefaultClassifier(classifierConfig, llmClient, classifierModel, log)
-	taskRouter := router.NewRouter(classifier, cfg, log)
-
-	rt := &Stack{
-		Settings:        cfg,
-		LLMClient:       llmClient,
-		AgentRegistry:   agentRegistry,
-		AgentFactory:    agentFactory,
-		Supervisors:     supervisors,
-		Leaders:         leaders,
-		AllTemplates:    allTemplates,
-		Groups:          groups,
-		SystemPrompt:    systemPrompt,
-		PromptCfg:       promptCfg,
-		DefaultModel:    defaultModel,
-		Tokenizer:       tok,
-		Compactor:       llmCompactor,
-		ToolsCfg:        toolsCfg,
-		RulesCreated:    rulesCreated,
-		TaskRouter:      taskRouter,
-		SkillRegistry:   skillReg,
-		MemoryManager:   memoryMgr,
-		PermanentMemory: permanentMgr,
-		PermScheduler:   permScheduler,
-		PermCancel:      permCancel,
-		TodoStore:       todoStore,
-		SharedDB:        sharedDB,
-		BypassConfirm:   bypassConfirm,
-		MCPManager:      mcpMgr,
-		LSPManager:      lspMgr,
-	}
-
-	// MCP config hot-reload: reload manager when mcp.json changes.
-	if mcpLoader != nil && mcpMgr != nil {
-		mcpLoader.OnChange(func(_ mcp.Config) {
-			if err := mcpMgr.Reload(context.Background()); err != nil {
-				log.Error(logger.CatMCP, "MCP hot-reload failed", "err", err.Error())
-			}
-		})
-	}
-
-	// Skills hot-reload: watch the skills directory for changes.
-	registerSkillHotReload(skillReg, skillDirs, log)
+	// Phase 6: Post-build hooks (hot-reload wiring)
+	bc.registerHotReload(rt)
 
 	log.Debug(logger.CatApp, "build: total", "duration", time.Since(buildStart).String())
 	return rt, nil
@@ -578,4 +240,137 @@ func NewAgentID() string {
 		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
 	}
 	return "agent-" + hex.EncodeToString(b[:])
+}
+
+// buildContext holds intermediate build state during initialization.
+// Kept unexported as it is only used internally by the Build process.
+type buildContext struct {
+	workDir       string
+	cfg           *config.GlobalService
+	settings      config.Settings
+	log           *logger.Logger
+	profileSetup  ProfileSetupFn
+	bypassConfirm bool
+
+	// Resolved config
+	provider     *config.LLMProvider
+	defaultModel *config.LLMModel
+	fastModelID  string
+
+	// Constructed values
+	llmClient         agent.LLMClient
+	toolsCfg          tools.Config
+	mcpLoader         *mcp.Loader
+	mcpMgr            *mcp.Manager
+	lspMgr            *lspmcp.Manager
+	promptCfg         *prompt.PromptConfig
+	rulesCreated      bool
+	groups            map[string]prompt.GroupFile
+	leaders           []prompt.LeaderInfo
+	allTemplates      []agent.AgentTemplate
+	memoryDir         string
+	memoryMgr         *memory.Manager
+	sharedDB          *sqlitedb.DB
+	permanentMgr      *permanent.Manager
+	permScheduler     *permanent.Scheduler
+	permCancel        context.CancelFunc
+	planDir           string
+	todoStore         *todo.Store
+	mcpServers        []string
+	systemPrompt      string
+	agentRegistry     *agent.Registry
+	modelResolver     agent.ModelResolver
+	skillReg          *skill.SkillRegistry
+	skillDirs         map[string]string
+	exploreDir        string
+	agentFactory      *agent.DefaultFactory
+	supervisors       []*agent.Supervisor
+	tokenizer         *ctxwin.Tokenizer
+	compactorInstance *compactor.LLMCompactor
+	taskRouter        *router.Router
+}
+
+func (bc *buildContext) resolveConfig() error {
+	provider := bc.cfg.DefaultProvider()
+	if provider == nil {
+		return errors.New("no default provider configured")
+	}
+	bc.provider = provider
+
+	defaultModel := bc.cfg.DefaultModelByRole("fast")
+	if defaultModel == nil {
+		return errors.New("no default model configured (fast role)")
+	}
+	bc.defaultModel = defaultModel
+
+	fastModel := bc.cfg.DefaultModelByRole("fast")
+	if fastModel != nil {
+		bc.fastModelID = fastModel.ID
+	}
+
+	bc.memoryDir = filepath.Join(bc.workDir, "memory")
+
+	planDir, planErr := config.PlanDir()
+	if planErr != nil {
+		bc.log.Warn(logger.CatApp, "failed to create plan directory", "err", planErr)
+	} else {
+		bc.planDir = planDir
+	}
+
+	return nil
+}
+
+func (bc *buildContext) buildLLMClient() error {
+	buildStart := time.Now()
+	llmClient, err := BuildLLMClient(bc.provider, bc.log)
+	if err != nil {
+		return fmt.Errorf("build llm client: %w", err)
+	}
+	bc.llmClient = llmClient
+	bc.log.Debug(logger.CatApp, "build: LLM client ready", "duration", time.Since(buildStart).String())
+	return nil
+}
+
+func (bc *buildContext) assembleStack() *Stack {
+	return &Stack{
+		Settings:          bc.cfg,
+		LLMClient:         bc.llmClient,
+		AgentRegistry:     bc.agentRegistry,
+		AgentFactory:      bc.agentFactory,
+		Supervisors:       bc.supervisors,
+		Leaders:           bc.leaders,
+		AllTemplates:      bc.allTemplates,
+		Groups:            bc.groups,
+		SystemPrompt:      bc.systemPrompt,
+		PromptCfg:         bc.promptCfg,
+		DefaultModel:      bc.defaultModel,
+		Tokenizer:         bc.tokenizer,
+		Compactor:         bc.compactorInstance,
+		ToolsCfg:          bc.toolsCfg,
+		RulesCreated:      bc.rulesCreated,
+		TaskRouter:        bc.taskRouter,
+		SkillRegistry:     bc.skillReg,
+		MemoryManager:     bc.memoryMgr,
+		PermanentMemory:   bc.permanentMgr,
+		PermScheduler:     bc.permScheduler,
+		PermCancel:        bc.permCancel,
+		TodoStore:         bc.todoStore,
+		SharedDB:          bc.sharedDB,
+		BypassConfirm:     bc.bypassConfirm,
+		MCPManager:        bc.mcpMgr,
+		LSPManager:        bc.lspMgr,
+		compactorInstance: bc.compactorInstance,
+	}
+}
+
+func (bc *buildContext) registerHotReload(rt *Stack) {
+	if bc.mcpLoader != nil && bc.mcpMgr != nil {
+		bc.mcpLoader.OnChange(func(_ mcp.Config) {
+			if err := bc.mcpMgr.Reload(context.Background()); err != nil {
+				bc.log.Error(logger.CatMCP, "MCP hot-reload failed", "err", err.Error())
+			}
+		})
+	}
+
+	registerSkillHotReload(bc.skillReg, bc.skillDirs, bc.log)
 }
