@@ -65,6 +65,7 @@ type Stack struct {
 	// promptRebuildFuncs holds callbacks to rebuild the L1 system prompt.
 	promptRebuildFuncs []func() error
 	promptRebuildMu    sync.Mutex
+	promptWatcherClose func()
 }
 
 // ReloadFromTeamStore reloads groups, leaders, and templates from the DB-backed
@@ -87,6 +88,9 @@ func (s *Stack) ReloadFromTeamStore() error {
 
 // Shutdown gracefully reaps all child Agents managed by L2 Supervisors.
 func (s *Stack) Shutdown() {
+	if s.promptWatcherClose != nil {
+		s.promptWatcherClose()
+	}
 	for _, sv := range s.Supervisors {
 		_ = sv.ReapAll(5 * time.Second)
 	}
