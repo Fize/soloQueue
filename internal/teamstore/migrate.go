@@ -1,6 +1,7 @@
 package teamstore
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,7 +54,7 @@ func (s *Store) migrateTeams(dir string) error {
 		}
 
 		// Idempotency: skip if team already exists
-		if _, err := s.GetTeamByName(nil, name); err == nil {
+		if _, err := s.GetTeamByName(context.Background(), name); err == nil {
 			continue
 		}
 
@@ -78,7 +79,7 @@ func (s *Store) migrateTeams(dir string) error {
 			Workspaces:  workspaces,
 		}
 		// Use context.Background() for migration (no request context).
-		if err := s.CreateTeam(nil, t); err != nil {
+		if err := s.CreateTeam(context.Background(), t); err != nil {
 			return fmt.Errorf("teamstore: migrate team %q: %w", name, err)
 		}
 	}
@@ -113,7 +114,7 @@ func (s *Store) migrateAgents(dir string) error {
 		}
 
 		// Idempotency: skip if agent already exists
-		if _, err := s.GetAgentByName(nil, name); err == nil {
+		if _, err := s.GetAgentByName(context.Background(), name); err == nil {
 			continue
 		}
 
@@ -128,7 +129,7 @@ func (s *Store) migrateAgents(dir string) error {
 			MCPServers:   af.Frontmatter.MCPServers,
 			SkillIDs:     af.Frontmatter.Skills,
 		}
-		if err := s.CreateAgent(nil, a); err != nil {
+		if err := s.CreateAgent(context.Background(), a); err != nil {
 			return fmt.Errorf("teamstore: migrate agent %q: %w", name, err)
 		}
 	}
