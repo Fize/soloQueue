@@ -395,4 +395,90 @@ func (bc *buildContext) registerHotReload(rt *Stack) {
 	}
 
 	registerSkillHotReload(bc.skillReg, bc.skillDirs, bc.log)
+	registerPromptHotReload(rt, bc.log)
+}
+
+// registerPromptHotReload watches the roles directory and rebuilds the system prompt when soul.md or rules.md changes.
+func registerPromptHotReload(rt *Stack, log *logger.Logger) {
+	if rt.PromptCfg == nil {
+		return
+	}
+	dirToWatch := rt.PromptCfg.RolesDir
+	if dirToWatch == "" {
+		return
+	}
+
+	if err := os.MkdirAll(dirToWatch, 0o755); err != nil {
+		log.Warn(logger.CatApp, "prompt hot-reload: cannot create roles dir", "err", err.Error())
+		return
+	}
+
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Warn(logger.CatApp, "prompt hot-reload: cannot create watcher", "err", err.Error())
+		return
+	}
+	if err := w.Add(dirToWatch); err != nil {
+		_ = w.Close()
+		log.Warn(logger.CatApp, "prompt hot-reload: cannot watch roles dir", "err", err.Error())
+		return
+	}
+
+	var debounceMu sync.Mutex
+	var debounceTimer *time.Timer
+
+	rt.promptWatcherClose = func() {
+		debounceMu.Lock()
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+		debounceMu.Unlock()
+		if err := w.Close(); err != nil {
+			log.Warn(logger.CatApp, "prompt hot-reload: failed to close watcher", "err", err.Error())
+		}
+	}
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error(logger.CatApp, "prompt hot-reload goroutine panic recovered", "panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		for {
+			select {
+			case evt, ok := <-w.Events:
+				if !ok {
+					return
+				}
+				if !evt.Has(fsnotify.Write) && !evt.Has(fsnotify.Create) && !evt.Has(fsnotify.Rename) && !evt.Has(fsnotify.Remove) {
+					continue
+				}
+
+				// Only watch rules.md and soul.md in roles dir
+				filename := filepath.Base(evt.Name)
+				if filename != "soul.md" && filename != "rules.md" {
+					continue
+				}
+
+				debounceMu.Lock()
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+				debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
+					if err := rt.RebuildPrompt(); err != nil {
+						log.Warn(logger.CatApp, "prompt hot-reload: rebuild failed", "err", err.Error())
+					} else {
+						log.Info(logger.CatApp, "prompt hot-reload completed", "file", filename)
+					}
+				})
+				debounceMu.Unlock()
+			case err, ok := <-w.Errors:
+				if !ok {
+					return
+				}
+				log.Warn(logger.CatApp, "prompt hot-reload watch error", "err", err.Error())
+			}
+		}
+	}()
+	log.Debug(logger.CatApp, "prompt hot-reload: watching directory", "path", dirToWatch)
 }

@@ -8,7 +8,6 @@ import { StatusBadge, StatusDot } from '@/components/ui/status-badge'
 import { GlassCard } from '@/components/ui/glass-card'
 import type { AgentInfo, AgentTemplate, TeamInfo } from '@/types'
 import {
-  Search,
   Star,
   FolderOpen,
   ChevronDown,
@@ -41,7 +40,6 @@ export function AgentListPage() {
   const teamsLoading = useAgentStore((state) => state.teamsLoading)
 
   // UI state
-  const [searchQuery, setSearchQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState<
     'all' | 'processing' | 'idle' | 'stopped' | 'errors'
   >('all')
@@ -138,24 +136,12 @@ export function AgentListPage() {
     })
   }
 
-  // Filter & Search Logic
+  // Filter Logic
   const filteredTeamNodes = useMemo(() => {
     return teamNodes
       .map((node) => {
         const filteredAgents = node.agents.filter((item) => {
-          // 1. Search Query Filter
-          const query = searchQuery.toLowerCase()
-          const matchesSearch =
-            searchQuery === '' ||
-            (item.template?.name && item.template.name.toLowerCase().includes(query)) ||
-            item.agents.some(
-              (a) =>
-                a.name.toLowerCase().includes(query) || a.model_id.toLowerCase().includes(query)
-            )
-
-          if (!matchesSearch) return false
-
-          // 2. Status Tab Filter
+          // Status Tab Filter
           if (activeFilter === 'all') return true
 
           // If no running instance, it matches 'stopped' filter
@@ -175,28 +161,17 @@ export function AgentListPage() {
           agents: filteredAgents,
         }
       })
-      .filter((node) => node.agents.length > 0 || searchQuery === '') // Hide empty teams during search/filter
-  }, [teamNodes, searchQuery, activeFilter])
+  }, [teamNodes, activeFilter])
 
   // Check if L1 Agent matches filters
   const matchesL1Filter = useMemo(() => {
-    // Search filter
-    const query = searchQuery.toLowerCase()
-    const matchesSearch =
-      searchQuery === '' ||
-      (l1Agent && l1Agent.name.toLowerCase().includes(query)) ||
-      (l1Agent && l1Agent.model_id.toLowerCase().includes(query)) ||
-      (!l1Agent && 'l1 agent'.includes(query))
-
-    if (!matchesSearch) return false
-
     // Status filter
     if (activeFilter === 'all') return true
     if (!l1Agent) return activeFilter === 'stopped' // Placeholder is stopped
 
     if (activeFilter === 'errors') return l1Agent.error_count > 0
     return l1Agent.state === activeFilter
-  }, [l1Agent, searchQuery, activeFilter])
+  }, [l1Agent, activeFilter])
 
   // Count Stats
   const stats = useMemo(() => {
@@ -222,29 +197,18 @@ export function AgentListPage() {
   }
 
   return (
-    <div className="flex-1 space-y-6 px-4 py-6 md:px-8 md:py-8 max-w-6xl mx-auto pb-20 md:pb-8">
-      {/* Page Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <Bot className="h-6 w-6 text-primary" />
-            Obsidian Console
-          </h1>
-          <p className="text-sm text-muted-foreground">Monitor and manage active team workflows</p>
+    <div className="h-full overflow-y-auto">
+      <div className="space-y-6 px-4 py-6 md:px-8 md:py-8 max-w-6xl mx-auto pb-20 md:pb-8">
+        {/* Page Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <Bot className="h-6 w-6 text-primary" />
+              Obsidian Console
+            </h1>
+            <p className="text-sm text-muted-foreground">Monitor and manage active team workflows</p>
+          </div>
         </div>
-
-        {/* Search */}
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search agents..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full h-9 pl-9 pr-4 text-sm bg-muted/40 border border-border/80 rounded-lg outline-none focus:border-primary/55 focus:bg-muted/10 transition-all placeholder:text-muted-foreground"
-          />
-        </div>
-      </div>
 
       {/* Filter Tabs */}
       <div className="flex border-b border-border/60 overflow-x-auto no-scrollbar gap-2 scroll-smooth py-1">
@@ -517,7 +481,8 @@ export function AgentListPage() {
         )}
       </div>
     </div>
-  )
+  </div>
+)
 }
 
 // Local PlaceholderCard helper component for mobile/L1 views
