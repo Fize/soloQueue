@@ -90,11 +90,6 @@ func ServeCmd(version string) *cobra.Command {
 			mgr.SetMemoryManager(rt.MemoryManager)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
 
-			_, err = mgr.Init(context.Background(), "")
-			if err != nil {
-				return fmt.Errorf("init session: %w", err)
-			}
-
 			// Initialize Scheduled Tasks (Cron & Timers) system
 			cronStore := cron.NewDBStore(rt.SharedDB)
 			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{mgr: mgr}, log)
@@ -103,12 +98,30 @@ func ServeCmd(version string) *cobra.Command {
 			}
 			defer cronScheduler.Stop()
 
+			mgr.SetCronHandler(func(ctx context.Context, expression, instruction string) (string, time.Time, error) {
+				nextRun, err := cron.NextTrigger(expression, time.Now())
+				if err != nil {
+					return "", time.Time{}, err
+				}
+				task, err := cronStore.CreateTask(ctx, expression, instruction, "L1", nextRun)
+				if err != nil {
+					return "", time.Time{}, err
+				}
+				cronScheduler.Schedule(*task)
+				return task.ID, task.NextRunAt, nil
+			})
+
 			// Wire the cron store and scheduler into tools configuration
 			toolsCfg := rt.ReadToolsCfg()
 			toolsCfg.CronStore = cronStore
 			toolsCfg.CronScheduler = cronScheduler
 			rt.SetToolsCfg(toolsCfg)
 			rt.AgentFactory.SetToolsConfig(toolsCfg)
+
+			_, err = mgr.Init(context.Background(), "")
+			if err != nil {
+				return fmt.Errorf("init session: %w", err)
+			}
 
 			// ── Daily memory flush (midnight) ──
 			if rt.MemoryManager != nil {
@@ -117,7 +130,7 @@ func ServeCmd(version string) *cobra.Command {
 			}
 
 				// ── QQ Bot integration ──
-				qqGateway, qqQueue := StartQQBot(cfg, mgr, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
+				qqGateway, qqQueue := StartQQBot(cfg, mgr, cronScheduler, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
 
 		rootCtx, stop := signal.NotifyContext(context.Background(),
 			os.Interrupt, syscall.SIGTERM)

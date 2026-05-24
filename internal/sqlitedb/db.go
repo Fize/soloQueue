@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 3
+const currentSchemaVersion = 4
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -159,6 +159,14 @@ func (d *DB) migrate() error {
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
+		`,
+
+		// v3 -> v4: add qq bot metadata to scheduled tasks.
+		`
+		ALTER TABLE scheduled_tasks ADD COLUMN qq_source INTEGER DEFAULT -1;
+		ALTER TABLE scheduled_tasks ADD COLUMN qq_openid TEXT;
+		ALTER TABLE scheduled_tasks ADD COLUMN qq_target_openid TEXT;
+		ALTER TABLE scheduled_tasks ADD COLUMN qq_chat_id TEXT;
 		`,
 	}
 
