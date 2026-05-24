@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
@@ -664,5 +666,49 @@ func TestNewDailyMemoryFlusher(t *testing.T) {
 	}
 	if flusher.permMgr != nil {
 		t.Error("permMgr should be nil")
+	}
+}
+
+func TestSession_AskStream_InterceptsCron(t *testing.T) {
+	fake := &agent.FakeLLM{}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+	var gotExpr, gotInst string
+	s.cronHandler = func(ctx context.Context, expression, instruction string) (string, time.Time, error) {
+		gotExpr = expression
+		gotInst = instruction
+		return "test-task-id", time.Now().Add(1 * time.Hour), nil
+	}
+
+	ch, err := s.AskStream(context.Background(), "/cron 0 12 * * 1 Check daily emails")
+	if err != nil {
+		t.Fatalf("AskStream /cron: %v", err)
+	}
+
+	var events []iface.AgentEvent
+	for ev := range ch {
+		events = append(events, ev)
+	}
+
+	if gotExpr != "0 12 * * 1" {
+		t.Errorf("gotExpr = %q, want '0 12 * * 1'", gotExpr)
+	}
+	if gotInst != "Check daily emails" {
+		t.Errorf("gotInst = %q, want 'Check daily emails'", gotInst)
+	}
+
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events, got %d", len(events))
+	}
+
+	delta, ok := events[0].(agent.ContentDeltaEvent)
+	if !ok || !strings.Contains(delta.Delta, "定时任务已成功创建") {
+		t.Errorf("unexpected first event: %+v", events[0])
+	}
+
+	done, ok := events[len(events)-1].(agent.DoneEvent)
+	if !ok || done.Content != "Cron task created." {
+		t.Errorf("unexpected last event: %+v", events[len(events)-1])
 	}
 }
