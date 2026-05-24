@@ -336,6 +336,14 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.mux.ServeHTTP(w, r)
 }
 
+// Close closes any resources held by the Mux (e.g., the access logger).
+func (m *Mux) Close() error {
+	if m.accessLogger != nil {
+		return m.accessLogger.Close()
+	}
+	return nil
+}
+
 // ─── Health ─────────────────────────────────────────────────────────────────
 
 func (m *Mux) handleHealth(w http.ResponseWriter, _ *http.Request) {
