@@ -71,6 +71,7 @@ type Mux struct {
 	mcpLoader     *mcp.Loader      // MCP config loader for /api/mcp endpoints
 	authConfig    config.AuthConfig
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
+	onConfigChange func() error     // callback on LLM config update
 }
 
 // reloadGroups loads groups from groupsDir. Returns empty map on error.
@@ -192,6 +193,11 @@ func WithTeamStore(store *teamstore.Store) MuxOption {
 	return func(m *Mux) { m.teamstore = store }
 }
 
+// WithOnConfigChange sets the callback triggered when database configurations change.
+func WithOnConfigChange(fn func() error) MuxOption {
+	return func(m *Mux) { m.onConfigChange = fn }
+}
+
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
@@ -299,6 +305,30 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	r.Route("/api/config", func(r chi.Router) {
 		r.Get("/", m.handleGetConfig)
 		r.Get("/toml", m.handleGetConfigToml)
+
+		// DB-backed providers & models endpoints
+		r.Route("/providers", func(r chi.Router) {
+			r.Get("/", m.handleListProviders)
+			r.Post("/", m.handleCreateProvider)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Put("/", m.handleUpdateProvider)
+				r.Delete("/", m.handleDeleteProvider)
+			})
+		})
+
+		r.Route("/models", func(r chi.Router) {
+			r.Get("/", m.handleListModels)
+			r.Post("/", m.handleCreateModel)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Put("/", m.handleUpdateModel)
+				r.Delete("/", m.handleDeleteModel)
+			})
+		})
+
+		r.Route("/default-models", func(r chi.Router) {
+			r.Get("/", m.handleGetDefaultModels)
+			r.Put("/", m.handleUpdateDefaultModels)
+		})
 	})
 
 	// Tools & Skills routes

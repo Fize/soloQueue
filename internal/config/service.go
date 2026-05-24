@@ -1,9 +1,13 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
 // GlobalService is the global configuration service, embedding Loader[Settings]
@@ -11,6 +15,10 @@ import (
 // Provides business-related convenience query interfaces on top of that
 type GlobalService struct {
 	*Loader[Settings]
+	db         *sqlitedb.DB
+	dbSettings Settings
+	dbMu       sync.RWMutex
+	hasDB      bool
 }
 
 // New creates a GlobalService
@@ -27,9 +35,137 @@ func New(workDir string) (*GlobalService, error) {
 	return &GlobalService{Loader: loader}, nil
 }
 
+// Get returns the current config snapshot (DB-backed values override file values if DB is ready)
+func (s *GlobalService) Get() Settings {
+	s.dbMu.RLock()
+	if s.hasDB {
+		fileSettings := s.Loader.Get()
+		fileSettings.Providers = s.dbSettings.Providers
+		fileSettings.Models = s.dbSettings.Models
+		fileSettings.DefaultModels = s.dbSettings.DefaultModels
+		s.dbMu.RUnlock()
+		return fileSettings
+	}
+	s.dbMu.RUnlock()
+	return s.Loader.Get()
+}
+
+// SetDB sets the SQLite connection and syncs/loads configurations
+func (s *GlobalService) SetDB(db *sqlitedb.DB) error {
+	s.dbMu.Lock()
+	s.db = db
+	s.dbMu.Unlock()
+
+	if err := s.seedDatabaseIfNeeded(); err != nil {
+		return err
+	}
+
+	return s.ReloadFromDB()
+}
+
+// GetDB returns the database connection of the config service.
+func (s *GlobalService) GetDB() *sqlitedb.DB {
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+	return s.db
+}
+
+func (s *GlobalService) seedDatabaseIfNeeded() error {
+	s.dbMu.RLock()
+	db := s.db
+	s.dbMu.RUnlock()
+	if db == nil {
+		return nil
+	}
+
+	ctx := context.Background()
+
+	// Check if providers are empty
+	var count int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM llm_providers`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("seed check: %w", err)
+	}
+
+	if count > 0 {
+		return nil // Already seeded
+	}
+
+	// Seed from file settings
+	fileSettings := s.Loader.Get()
+
+	// 1. Seed providers
+	for _, p := range fileSettings.Providers {
+		if err := SaveProvider(ctx, db, p); err != nil {
+			return fmt.Errorf("seed provider %s: %w", p.ID, err)
+		}
+	}
+
+	// 2. Seed models
+	for _, m := range fileSettings.Models {
+		if err := SaveModel(ctx, db, m); err != nil {
+			return fmt.Errorf("seed model %s: %w", m.ID, err)
+		}
+	}
+
+	// 3. Seed default models config
+	if err := SaveDefaultModels(ctx, db, fileSettings.DefaultModels); err != nil {
+		return fmt.Errorf("seed default models: %w", err)
+	}
+
+	return nil
+}
+
+// ReloadFromDB loads configuration from SQLite into memory cache
+func (s *GlobalService) ReloadFromDB() error {
+	s.dbMu.RLock()
+	db := s.db
+	s.dbMu.RUnlock()
+	if db == nil {
+		return nil
+	}
+
+	ctx := context.Background()
+
+	providers, err := LoadProviders(ctx, db)
+	if err != nil {
+		return err
+	}
+
+	models, err := LoadModels(ctx, db)
+	if err != nil {
+		return err
+	}
+
+	defaultModels, err := LoadDefaultModels(ctx, db)
+	if err != nil {
+		return err
+	}
+
+	s.dbMu.Lock()
+	s.dbSettings.Providers = providers
+	s.dbSettings.Models = models
+	s.dbSettings.DefaultModels = defaultModels
+	s.hasDB = true
+	s.dbMu.Unlock()
+
+	return nil
+}
+
 // LoadFromDisk reads settings from disk without modifying the loader cache.
 func (s *GlobalService) LoadFromDisk() (Settings, error) {
-	return s.Loader.ReadFromDisk()
+	settings, err := s.Loader.ReadFromDisk()
+	if err != nil {
+		return settings, err
+	}
+	s.dbMu.RLock()
+	if s.hasDB {
+		settings.Providers = s.dbSettings.Providers
+		settings.Models = s.dbSettings.Models
+		settings.DefaultModels = s.dbSettings.DefaultModels
+	}
+	s.dbMu.RUnlock()
+	return settings, nil
 }
 
 // ─── Convenience Queries ──────────────────────────────────────────────────────
