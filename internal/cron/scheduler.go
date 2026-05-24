@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,9 @@ type SessionManager interface {
 	Session() Session
 }
 
+// TaskCompletedHook defines the callback invoked when a scheduled task completes.
+type TaskCompletedHook func(ctx context.Context, task Task, reply string)
+
 // Scheduler manages executing scheduled tasks (both cron and timer-based) in the background.
 type Scheduler struct {
 	dbStore    *DBStore
@@ -31,9 +35,17 @@ type Scheduler struct {
 	logger     *logger.Logger
 	cron       *robfig.Cron
 
-	mu      sync.Mutex
-	entries map[string]robfig.EntryID
-	timers  map[string]*time.Timer
+	mu              sync.Mutex
+	entries         map[string]robfig.EntryID
+	timers          map[string]*time.Timer
+	onTaskCompleted TaskCompletedHook
+}
+
+// OnTaskCompleted registers a callback for completed tasks.
+func (s *Scheduler) OnTaskCompleted(h TaskCompletedHook) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onTaskCompleted = h
 }
 
 // NewScheduler constructs a new Scheduler.
@@ -169,12 +181,27 @@ func (s *Scheduler) executeTask(t Task) {
 		return
 	}
 
-	// Drain the channel to run the agent turn to completion
-	for range ch {
+	// Drain the channel and collect assistant response text
+	var contentBuf strings.Builder
+	for ev := range ch {
+		if consumer, ok := ev.(iface.EventConsumer); ok {
+			if delta, ok := consumer.ContentDelta(); ok {
+				contentBuf.WriteString(delta)
+			}
+		}
 	}
+	replyText := contentBuf.String()
 
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: task execution completed successfully", "task_id", t.ID, "duration_ms", duration.Milliseconds())
+
+	// Invoke callback if registered and task originated from QQ bot
+	s.mu.Lock()
+	hook := s.onTaskCompleted
+	s.mu.Unlock()
+	if hook != nil && t.QQSource != -1 {
+		hook(context.Background(), t, replyText)
+	}
 
 	// Update DB timestamps
 	ctx := context.Background()
