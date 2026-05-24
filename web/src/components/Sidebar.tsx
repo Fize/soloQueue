@@ -20,6 +20,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   LogOut,
+  Clock,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -27,6 +28,7 @@ const mainNav = [
   { to: '/', icon: Bot, label: 'Agents' },
   { to: '/plans', icon: Kanban, label: 'Plans' },
   { to: '/files', icon: FolderOpen, label: 'Files' },
+  { to: '/cron', icon: Clock, label: 'Cron Tasks' },
 ]
 
 const settingsChildren = [

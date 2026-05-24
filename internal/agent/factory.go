@@ -210,6 +210,13 @@ func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
 }
 
+// SetToolsConfig updates the tools config of the factory dynamically.
+func (f *DefaultFactory) SetToolsConfig(cfg tools.Config) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.toolsCfg = cfg
+}
+
 // Create 根据 tmpl 创建并启动一个 Agent 实例
 //
 // 流程：
