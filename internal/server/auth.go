@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net"
 	"net/http"
 )
 
@@ -23,6 +24,10 @@ func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if isLocalhostAccess(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		user, password, ok := r.BasicAuth()
 		if !ok || user != m.authConfig.User || password != m.authConfig.Password {
 			w.Header().Set("WWW-Authenticate", `Basic realm="SoloQueue"`)
@@ -32,4 +37,21 @@ func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isLocalhostAccess(r *http.Request) bool {
+	host := r.Host
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		host = h
+	}
+	if host != "localhost" && host != "127.0.0.1" && host != "[::1]" && host != "::1" {
+		return false
+	}
+
+	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		clientIP = r.RemoteAddr
+	}
+	ip := net.ParseIP(clientIP)
+	return ip != nil && ip.IsLoopback()
 }
