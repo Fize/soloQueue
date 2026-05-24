@@ -7,6 +7,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -25,7 +26,7 @@ const msgQueueInterval = 1700 * time.Millisecond
 // coordination. Returns (nil, nil) if QQ bot is not enabled or not configured.
 // supervisorsFn provides access to L2 supervisors for child agent reaping on /cancel.
 // registry is used to unregister the L1 agent on /cancel (restore initial state).
-func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) (*qqbot.Gateway, *qqbot.MessageQueue) {
+func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, cronSched *cron.Scheduler, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) (*qqbot.Gateway, *qqbot.MessageQueue) {
 	settings := cfg.Get()
 	qqCfg := settings.QQBot.ToQQBotConfig()
 
@@ -58,6 +59,24 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, workDir 
 		qqbot.WithVersion(version),
 		qqbot.WithMessageQueue(qqQueue),
 	)
+
+	if cronSched != nil {
+		cronSched.OnTaskCompleted(func(ctx context.Context, task cron.Task, reply string) {
+			msg := qqbot.QQMessage{
+				Source:       qqbot.MessageSource(task.QQSource),
+				OpenID:       task.QQOpenID,
+				TargetOpenID: task.QQTargetOpenID,
+				ChatID:       task.QQChatID,
+			}
+			formatted := qqbot.QQMarkdown(reply)
+			if err := qqBridge.SendActiveMessage(ctx, msg, qqbot.MsgTypeMarkdown, formatted); err != nil {
+				qqLog.Error(logger.CatApp, "qqbot cron: failed to send active message reply", "task_id", task.ID, "err", err)
+			} else {
+				qqLog.Info(logger.CatApp, "qqbot cron: active message reply sent successfully", "task_id", task.ID)
+			}
+		})
+	}
+
 	gateway := qqbot.NewGateway(qqCfg, qqBridge, qqAPI, qqLog)
 
 	go func() {

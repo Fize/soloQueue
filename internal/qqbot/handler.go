@@ -132,6 +132,8 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		"content_len", len(msg.Content),
 		"open_id", msg.OpenID)
 
+	ctx = context.WithValue(ctx, "qq_message", msg)
+
 	// Handle slash commands locally.
 	// Known builtins are handled here; unrecognized slash commands and skills
 	// are forwarded to the LLM as normal input.
@@ -293,6 +295,11 @@ func (b *SessionBridge) sendReply(ctx context.Context, msg QQMessage, msgType in
 			return
 		}
 	}
+}
+
+// SendActiveMessage sends an active message (no message reference) to the QQ conversation.
+func (b *SessionBridge) SendActiveMessage(ctx context.Context, msg QQMessage, msgType int, text string) error {
+	return b.sendActiveMessage(ctx, msg, msgType, text)
 }
 
 // sendActiveMessage sends an active message (no msg_id/msg_seq reference) to
