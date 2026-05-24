@@ -77,6 +77,11 @@ func Build(
 	}
 	bc.teamstore = teamstore.NewStore(bc.sharedDB)
 
+	// Wire DB to Config and load DB-backed settings
+	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
+		return nil, fmt.Errorf("failed to wire DB to config: %w", err)
+	}
+
 	// Phase 3: Independent subsystems (no cross-deps)
 	bc.buildMCP()
 	if err := bc.buildPrompt(); err != nil {
@@ -356,6 +361,7 @@ func (bc *buildContext) assembleStack() *Stack {
 	return &Stack{
 		Settings:          bc.cfg,
 		LLMClient:         bc.llmClient,
+		Log:               bc.log,
 		AgentRegistry:     bc.agentRegistry,
 		AgentFactory:      bc.agentFactory,
 		Supervisors:       bc.supervisors,

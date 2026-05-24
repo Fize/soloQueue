@@ -12,6 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
@@ -32,6 +33,7 @@ type Stack struct {
 	ToolsCfg     tools.Config
 	DefaultModel *config.LLMModel
 	Settings     *config.GlobalService
+	Log          *logger.Logger
 
 	AgentRegistry *agent.Registry
 	AgentFactory  *agent.DefaultFactory
@@ -255,4 +257,39 @@ func (s *Stack) builtinMCPSet() map[string]bool {
 		set[name] = true
 	}
 	return set
+}
+
+// OnConfigChange rebuilds the LLM client and updates the stack's cached configurations
+// dynamically when DB settings change.
+func (s *Stack) OnConfigChange() error {
+	s.CfgMu.Lock()
+	defer s.CfgMu.Unlock()
+
+	provider := s.Settings.DefaultProvider()
+	if provider == nil {
+		return fmt.Errorf("no default provider configured")
+	}
+
+	// Rebuild LLM client
+	client, err := BuildLLMClient(provider, s.Log)
+	if err != nil {
+		return fmt.Errorf("failed to rebuild LLM client: %w", err)
+	}
+
+	s.LLMClient = client
+
+	fastModel := s.Settings.DefaultModelByRole("fast")
+	if fastModel != nil {
+		s.DefaultModel = fastModel
+		if s.AgentFactory != nil {
+			s.AgentFactory.UpdateDefaultModelID(fastModel.ID)
+		}
+	}
+
+	if s.AgentFactory != nil {
+		s.AgentFactory.UpdateLLM(client)
+	}
+
+	s.Log.Info(logger.CatConfig, "LLM provider and default model configurations hot-reloaded successfully from DB")
+	return nil
 }

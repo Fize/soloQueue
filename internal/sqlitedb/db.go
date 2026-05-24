@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 4
+const currentSchemaVersion = 5
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -167,6 +167,50 @@ func (d *DB) migrate() error {
 		ALTER TABLE scheduled_tasks ADD COLUMN qq_openid TEXT;
 		ALTER TABLE scheduled_tasks ADD COLUMN qq_target_openid TEXT;
 		ALTER TABLE scheduled_tasks ADD COLUMN qq_chat_id TEXT;
+		`,
+
+		// v4 -> v5: LLM providers, LLM models, and default models tables.
+		`
+		CREATE TABLE IF NOT EXISTS llm_providers (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			base_url TEXT NOT NULL,
+			api_key TEXT NOT NULL DEFAULT '',
+			api_key_env TEXT NOT NULL DEFAULT '',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			is_default INTEGER NOT NULL DEFAULT 0,
+			timeout_ms INTEGER NOT NULL DEFAULT 0,
+			max_retries INTEGER NOT NULL DEFAULT 0,
+			initial_delay_ms INTEGER NOT NULL DEFAULT 0,
+			max_delay_ms INTEGER NOT NULL DEFAULT 0,
+			backoff_multiplier REAL NOT NULL DEFAULT 0.0,
+			headers TEXT NOT NULL DEFAULT '{}',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE TABLE IF NOT EXISTS llm_models (
+			id TEXT PRIMARY KEY,
+			provider_id TEXT NOT NULL REFERENCES llm_providers(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			api_model TEXT NOT NULL DEFAULT '',
+			context_window INTEGER NOT NULL DEFAULT 0,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			temperature REAL NOT NULL DEFAULT 0.0,
+			max_tokens INTEGER NOT NULL DEFAULT 0,
+			thinking_enabled INTEGER NOT NULL DEFAULT 0,
+			reasoning_effort TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE TABLE IF NOT EXISTS llm_default_models (
+			role TEXT PRIMARY KEY,
+			model_ref TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON llm_models(provider_id);
 		`,
 	}
 
