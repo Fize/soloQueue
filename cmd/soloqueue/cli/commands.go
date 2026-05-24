@@ -15,6 +15,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
@@ -93,6 +94,21 @@ func ServeCmd(version string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("init session: %w", err)
 			}
+
+			// Initialize Scheduled Tasks (Cron & Timers) system
+			cronStore := cron.NewDBStore(rt.SharedDB)
+			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{mgr: mgr}, log)
+			if err := cronScheduler.Start(context.Background()); err != nil {
+				return fmt.Errorf("start cron scheduler: %w", err)
+			}
+			defer cronScheduler.Stop()
+
+			// Wire the cron store and scheduler into tools configuration
+			toolsCfg := rt.ReadToolsCfg()
+			toolsCfg.CronStore = cronStore
+			toolsCfg.CronScheduler = cronScheduler
+			rt.SetToolsCfg(toolsCfg)
+			rt.AgentFactory.SetToolsConfig(toolsCfg)
 
 			// ── Daily memory flush (midnight) ──
 			if rt.MemoryManager != nil {
@@ -275,6 +291,18 @@ func VersionCmd(version string) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+type cronSessionManagerWrapper struct {
+	mgr *session.SessionManager
+}
+
+func (w cronSessionManagerWrapper) Session() cron.Session {
+	s := w.mgr.Session()
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 

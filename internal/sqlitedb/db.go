@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -142,6 +142,23 @@ func (d *DB) migrate() error {
 
 		CREATE INDEX IF NOT EXISTS idx_agents_team ON agents(team_name);
 		CREATE INDEX IF NOT EXISTS idx_agents_leader ON agents(is_leader);
+		`,
+
+		// v2 → v3: scheduled tasks table.
+		`
+		CREATE TABLE IF NOT EXISTS scheduled_tasks (
+			id TEXT PRIMARY KEY,
+			expression TEXT NOT NULL,
+			instruction TEXT NOT NULL,
+			target_agent TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed')),
+			last_run_at TEXT,
+			next_run_at TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
 		`,
 	}
 

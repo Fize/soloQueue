@@ -24,6 +24,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -76,6 +77,9 @@ type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string, 
 // recordedAt indicates the date of the conversation segment for correct file routing.
 type MemoryHook func(ctx context.Context, conversationText string, recordedAt time.Time)
 
+// CronHandler is a callback to handle /cron command parsing, validation, scheduling, and DB persistence.
+type CronHandler func(ctx context.Context, expression, instruction string) (string, time.Time, error)
+
 // ─── Session ──────────────────────────────────────────────────────────────
 
 // Session 是一个对话会话
@@ -125,6 +129,7 @@ type Session struct {
 
 	memoryHook    MemoryHook        // optional callback for short-term memory (nil = disabled)
 	memoryManager *memory.Manager   // for dedup cursor; set alongside memoryHook
+	cronHandler   CronHandler       // optional callback to execute /cron command
 
 	idleTimeout     time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int          // 0 = disabled; minimum CW tokens to trigger compact
@@ -205,6 +210,11 @@ func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cw
+}
+
+// Idle returns true if there is no Ask or AskStream currently in flight.
+func (s *Session) Idle() bool {
+	return s.inFlight.Load() == 0
 }
 
 // CW returns the underlying ContextWindow pointer without locking.
@@ -552,10 +562,24 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 // 异步委派支持：当 L1 委派任务给 L2 时，DelegationStartedEvent 会释放 inFlight，
 // 允许用户在此期间发送新消息。新消息的 CW push 会等待委派轮次完成后执行，
 // 以保证 ContextWindow 中的消息顺序正确（先完成委派回复，再出现新用户消息）。
-func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.AgentEvent, error) {
+func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session closed")
 		return nil, ErrSessionClosed
+	}
+
+	// Intercept /cron slash command
+	if strings.HasPrefix(strings.TrimSpace(prompt), "/cron") {
+		if !s.inFlight.CompareAndSwap(0, 1) {
+			s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
+				"session_id", s.ID,
+				"prompt_len", len(prompt),
+			)
+			s.pending.Enqueue(prompt)
+			return nil, ErrQueued
+		}
+		s.touch()
+		return s.handleCronCommand(ctx, prompt)
 	}
 
 	// 重置 cancelled 标志，防止前一次 AskStream 的残留标志泄漏到本次调用。
@@ -719,7 +743,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan agent.Ag
 
 enqueued:
 
-	out := make(chan agent.AgentEvent, 64)
+	out := make(chan iface.AgentEvent, 64)
 	go func() {
 		// 清理：goroutine 结束时清除 activeCancel 并释放 askCtx
 		defer func() {
@@ -958,6 +982,7 @@ type SessionManager struct {
 	routerFunc    TaskRouterFunc
 	memoryHook    MemoryHook
 	memoryManager *memory.Manager
+	cronHandler   CronHandler
 	logger        *logger.Logger
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
@@ -999,6 +1024,12 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
 func (m *SessionManager) SetMemoryManager(mm *memory.Manager) {
 	m.memoryManager = mm
+}
+
+// SetCronHandler sets the callback for /cron slash commands.
+// Must be called before Init(). Not thread-safe for setup.
+func (m *SessionManager) SetCronHandler(h CronHandler) {
+	m.cronHandler = h
 }
 
 // SetIdleReaper enables automatic context compression for idle sessions.
@@ -1058,6 +1089,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	}
 	if m.memoryManager != nil {
 		s.memoryManager = m.memoryManager
+	}
+	if m.cronHandler != nil {
+		s.cronHandler = m.cronHandler
 	}
 	if m.idleTimeout > 0 {
 		s.idleTimeout = m.idleTimeout
@@ -1267,4 +1301,74 @@ func groupMessagesByDate(msgs []ctxwin.Message) []messageDateGroup {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].date.Before(result[j].date) })
 	return result
+}
+
+func (s *Session) handleCronCommand(ctx context.Context, command string) (<-chan iface.AgentEvent, error) {
+	out := make(chan iface.AgentEvent, 2)
+	go func() {
+		defer close(out)
+		defer s.inFlight.Store(0)
+		defer s.touch()
+
+		expr, inst, err := parseCronCommandLine(command)
+		if err != nil {
+			out <- agent.ErrorEvent{Err: fmt.Errorf("invalid cron command format: %w", err)}
+			return
+		}
+
+		if s.cronHandler == nil {
+			out <- agent.ErrorEvent{Err: fmt.Errorf("cron system is not configured")}
+			return
+		}
+
+		taskID, nextRun, err := s.cronHandler(ctx, expr, inst)
+		if err != nil {
+			out <- agent.ErrorEvent{Err: err}
+			return
+		}
+
+		// Send success message to chat UI
+		out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("定时任务已成功创建！\n- **任务ID**: %s\n- **计划**: %s\n- **任务**: %s\n- **下次执行**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
+		out <- agent.DoneEvent{Content: "Cron task created."}
+	}()
+	return out, nil
+}
+
+func parseCronCommandLine(cmd string) (expr string, inst string, err error) {
+	cmd = strings.TrimPrefix(cmd, "/cron")
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return "", "", fmt.Errorf("empty command")
+	}
+
+	parts := strings.Fields(cmd)
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("insufficient arguments, format: /cron <expression/datetime> <instruction>")
+	}
+
+	// 1. Check if first part looks like a date (e.g., YYYY-MM-DD)
+	if strings.Contains(parts[0], "-") && len(parts) >= 3 {
+		// Datetime expression: parts[0] is date, parts[1] is time
+		expr = parts[0] + " " + parts[1]
+		inst = strings.TrimSpace(strings.TrimPrefix(cmd, expr))
+		return expr, inst, nil
+	}
+
+	// 2. Check if first part is a shorthand
+	shorthand := strings.ToLower(parts[0])
+	isShorthand := strings.HasPrefix(shorthand, "@") ||
+		shorthand == "daily" || shorthand == "weekly" || shorthand == "hourly" || shorthand == "monthly"
+	if isShorthand {
+		expr = parts[0]
+		inst = strings.TrimSpace(strings.TrimPrefix(cmd, expr))
+		return expr, inst, nil
+	}
+
+	// 3. Otherwise assume 5-field cron expression
+	if len(parts) < 6 {
+		return "", "", fmt.Errorf("cron expression requires 5 fields + instruction, got %d fields", len(parts))
+	}
+	expr = strings.Join(parts[:5], " ")
+	inst = strings.TrimSpace(strings.TrimPrefix(cmd, expr))
+	return expr, inst, nil
 }

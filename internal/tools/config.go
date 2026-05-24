@@ -23,6 +23,7 @@ package tools
 import (
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
@@ -125,6 +126,10 @@ type Config struct {
 	// ToggleTodo, SetTodoDependencies, ListPlans, GetPlan 工具仅在非 nil 时生效。
 	TodoStore *todo.Store
 
+	// ── Cron 定时任务 ─────────────────────────────────────────
+	CronStore     *cron.DBStore
+	CronScheduler *cron.Scheduler
+
 	// ── Image Generation ─────────────────────────────────────
 	// ImageModels 图片生成模型列表。只要有一个 Enabled 的模型就注册 ImageGenerate 工具。
 	ImageModels []ImgModelCfg
@@ -189,6 +194,9 @@ func Build(cfg Config) []Tool {
 			newListPlansTool(cfg),
 			newGetPlanTool(cfg),
 		)
+	}
+	if cfg.CronStore != nil && cfg.CronScheduler != nil {
+		tools = append(tools, newScheduleTaskTool(cfg))
 	}
 	hasImgModel := false
 	for _, m := range cfg.ImageModels {

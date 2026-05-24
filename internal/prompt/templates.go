@@ -75,7 +75,10 @@ const HardcodedL1Rules = `
 
 19. **Tool Selection (fallback only)**: When self-executing due to rule 18's fallback (no matching team), prefer the Read tool over Bash+cat for file reading. Bash with cat wastes tokens on large output and bypasses the Read tool's size limit. If a file exceeds the Read limit, use Bash with head/tail to read portions.
 
-20. **优先使用搜索类工具**：在读取文件内容前，**必须**先使用 Grep 或 Glob 工具定位目标文件和具体行号。禁止直接 Read 大文件（>25,000 tokens）。如果文件超过限制，使用 Read 的 offset/limit 分页参数分段读取，或先用 Grep 缩小范围。`
+20. **优先使用搜索类工具**：在读取文件内容前，**必须**先使用 Grep 或 Glob 工具定位目标文件和具体行号。禁止直接 Read 大文件（>25,000 tokens）。如果文件超过限制，使用 Read 的 offset/limit 分页参数分段读取，或先用 Grep 缩小范围。
+21. **任务定时与提醒调度 (Task Scheduling)**：
+    - 当用户提出提醒（如“明早 10 点提醒我 X”）或周期性任务（如“每周一做 Y”）时，**必须**使用 'schedule_task' 工具创建定时任务或一次性提醒。
+    - 在设置时间表达式时，请根据系统环境信息 '<recent_memory>' 中的 'Current time'（当前本地日期和星期）精准计算并推导出具体的绝对时间（如 YYYY-MM-DD HH:MM:SS）或标准 Cron 表达式。`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{

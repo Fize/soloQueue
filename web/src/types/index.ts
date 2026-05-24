@@ -474,3 +474,30 @@ export interface UpdateAgentRequest {
   mcp_servers?: string[]
   skill_ids?: string[]
 }
+
+// ─── Cron/Timer Task Types ──────────────────────────────────────────────────
+
+export interface CronTask {
+  id: string
+  expression: string
+  instruction: string
+  target_agent: string
+  status: 'active' | 'paused' | 'completed'
+  last_run_at?: string
+  next_run_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateCronTaskRequest {
+  expression: string
+  instruction: string
+  target_agent?: string
+}
+
+export interface UpdateCronTaskRequest {
+  expression?: string
+  instruction?: string
+  target_agent?: string
+  status?: 'active' | 'paused'
+}

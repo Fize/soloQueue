@@ -24,6 +24,9 @@ import type {
   FileRoot,
   DependenciesResponse,
   SetDependenciesRequest,
+  CronTask,
+  CreateCronTaskRequest,
+  UpdateCronTaskRequest,
 } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -281,4 +284,28 @@ export async function updateAgent(name: string, data: UpdateAgentRequest): Promi
 
 export async function deleteAgent(name: string): Promise<void> {
   await request(`/agents/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
+// ─── Cron Task APIs ──────────────────────────────────────────────────────────
+
+export async function listCronTasks(): Promise<CronTask[]> {
+  return request<CronTask[]>('/cron')
+}
+
+export async function createCronTask(data: CreateCronTaskRequest): Promise<CronTask> {
+  return request<CronTask>('/cron', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateCronTask(id: string, data: UpdateCronTaskRequest): Promise<CronTask> {
+  return request<CronTask>(`/cron/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteCronTask(id: string): Promise<void> {
+  await request(`/cron/${id}`, { method: 'DELETE' })
 }

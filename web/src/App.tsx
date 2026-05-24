@@ -7,6 +7,7 @@ import { AgentDetailPage } from '@/components/AgentDetailPage'
 import { PlansPage } from '@/components/PlansPage'
 import { PlanDetail } from '@/components/PlanDetail'
 import { FilesPage } from '@/components/FilesPage'
+import { CronPage } from '@/components/CronPage'
 import { SettingsLayout } from '@/components/SettingsLayout'
 import { ConfigTab } from '@/components/settings/ConfigTab'
 import { ProfileTab } from '@/components/settings/ProfileTab'
@@ -59,6 +60,7 @@ function App() {
               <Route path="/plans" element={<PlansPage />} />
               <Route path="/plans/:id" element={<PlanDetail />} />
               <Route path="/files" element={<FilesPage />} />
+              <Route path="/cron" element={<CronPage />} />
               <Route path="/settings" element={<SettingsLayout />}>
                 <Route index element={<Navigate to="config" replace />} />
                 <Route path="config" element={<ConfigTab />} />

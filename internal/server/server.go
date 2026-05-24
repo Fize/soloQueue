@@ -305,6 +305,16 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	r.Get("/api/tools", m.handleListTools)
 	r.Get("/api/skills", m.handleListSkills)
 
+	// Cron routes
+	r.Route("/api/cron", func(r chi.Router) {
+		r.Get("/", m.handleListCronTasks)
+		r.Post("/", m.handleCreateCronTask)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Put("/", m.handleUpdateCronTask)
+			r.Delete("/", m.handleDeleteCronTask)
+		})
+	})
+
 	// MCP config routes
 	r.Get("/api/mcp", m.handleGetMCPConfig)
 	r.Patch("/api/mcp", m.handleUpdateMCPConfig)

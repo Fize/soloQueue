@@ -123,6 +123,13 @@ func (s *Stack) ReadToolsCfg() tools.Config {
 	return s.ToolsCfg
 }
 
+// SetToolsCfg updates the tools config (concurrency-safe).
+func (s *Stack) SetToolsCfg(cfg tools.Config) {
+	s.CfgMu.Lock()
+	defer s.CfgMu.Unlock()
+	s.ToolsCfg = cfg
+}
+
 // ReadDefaultModel returns the current default model (concurrency-safe).
 func (s *Stack) ReadDefaultModel() *config.LLMModel {
 	s.CfgMu.RLock()
