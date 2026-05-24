@@ -179,7 +179,8 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithPromptRebuild(rebuildPrompt),
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),
 			server.WithTeamStore(rt.TeamStore),
-		server.WithAuthConfig(cfg.Get().Auth),
+			server.WithAuthConfig(cfg.Get().Auth),
+			server.WithOnConfigChange(rt.OnConfigChange),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.

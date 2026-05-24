@@ -217,6 +217,25 @@ func (f *DefaultFactory) SetToolsConfig(cfg tools.Config) {
 	f.toolsCfg = cfg
 }
 
+// UpdateLLM updates the LLM Client of the factory dynamically.
+func (f *DefaultFactory) UpdateLLM(llm LLMClient) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.llm = llm
+}
+
+// UpdateDefaultModelID updates the default model ID of the factory dynamically.
+func (f *DefaultFactory) UpdateDefaultModelID(modelID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.defaultModelID = modelID
+}
+
+// Log returns the structured logger of the factory.
+func (f *DefaultFactory) Log() *logger.Logger {
+	return f.log
+}
+
 // Create 根据 tmpl 创建并启动一个 Agent 实例
 //
 // 流程：

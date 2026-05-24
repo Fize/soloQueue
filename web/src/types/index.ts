@@ -225,6 +225,7 @@ export interface LLMProvider {
   id: string
   name: string
   baseUrl: string
+  apiKey?: string
   apiKeyEnv: string
   enabled: boolean
   isDefault: boolean

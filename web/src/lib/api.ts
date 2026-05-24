@@ -27,6 +27,9 @@ import type {
   CronTask,
   CreateCronTaskRequest,
   UpdateCronTaskRequest,
+  LLMProvider,
+  LLMModel,
+  DefaultModelsConfig,
 } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -143,6 +146,63 @@ export async function getTeams(): Promise<TeamListResponse> {
 
 export async function getConfig(): Promise<AppConfig> {
   return request<AppConfig>('/config')
+}
+
+// ─── DB-backed Config APIs ──────────────────────────────────────────────────
+
+export async function listProviders(): Promise<LLMProvider[]> {
+  return request<LLMProvider[]>('/config/providers')
+}
+
+export async function createProvider(data: LLMProvider): Promise<LLMProvider> {
+  return request<LLMProvider>('/config/providers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateProvider(id: string, data: LLMProvider): Promise<LLMProvider> {
+  return request<LLMProvider>(`/config/providers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+  await request(`/config/providers/${id}`, { method: 'DELETE' })
+}
+
+export async function listModels(): Promise<LLMModel[]> {
+  return request<LLMModel[]>('/config/models')
+}
+
+export async function createModel(data: LLMModel): Promise<LLMModel> {
+  return request<LLMModel>('/config/models', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateModel(id: string, data: LLMModel): Promise<LLMModel> {
+  return request<LLMModel>(`/config/models/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteModel(id: string): Promise<void> {
+  await request(`/config/models/${id}`, { method: 'DELETE' })
+}
+
+export async function getDefaultModels(): Promise<DefaultModelsConfig> {
+  return request<DefaultModelsConfig>('/config/default-models')
+}
+
+export async function updateDefaultModels(data: DefaultModelsConfig): Promise<DefaultModelsConfig> {
+  return request<DefaultModelsConfig>('/config/default-models', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
 }
 
 export async function getConfigToml(): Promise<string> {
