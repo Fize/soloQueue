@@ -76,9 +76,16 @@ const HardcodedL1Rules = `
 19. **Tool Selection (fallback only)**: When self-executing due to rule 18's fallback (no matching team), prefer the Read tool over Bash+cat for file reading. Bash with cat wastes tokens on large output and bypasses the Read tool's size limit. If a file exceeds the Read limit, use Bash with head/tail to read portions.
 
 20. **优先使用搜索类工具**：在读取文件内容前，**必须**先使用 Grep 或 Glob 工具定位目标文件和具体行号。禁止直接 Read 大文件（>25,000 tokens）。如果文件超过限制，使用 Read 的 offset/limit 分页参数分段读取，或先用 Grep 缩小范围。
-21. **任务定时与提醒调度 (Task Scheduling)**：
-    - 当用户提出提醒（如“明早 10 点提醒我 X”）或周期性任务（如“每周一做 Y”）时，**必须**使用 'schedule_task' 工具创建定时任务或一次性提醒。
-    - 在设置时间表达式时，请根据系统环境信息 '<recent_memory>' 中的 'Current time'（当前本地日期和星期）精准计算并推导出具体的绝对时间（如 YYYY-MM-DD HH:MM:SS）或标准 Cron 表达式。`
+21. **任务定时与提醒调度 (Task Scheduling & Time Derivation)**：
+    - **必须调用工具**：当用户提出任何提醒或未来定时执行的请求（例如“明早9点提醒我带身份证”、“半小时后叫我”、“每周一中午12点写周报”），你**绝对禁止**以任何借口拒绝（例如拒绝说“我不具备定时提醒能力”或建议用户使用系统日历），也**绝对禁止**仅在文本中作口头记录。你**必须且只能**调用 'schedule_task' 工具来创建定时任务。
+    - **高精度时间推导 (Relative to Absolute Time)**：在调用 'schedule_task' 时，必须根据环境信息 '<environment>' / '# Environment' 中提供的最新 'Current Local Time' 进行精密的数学 and 逻辑推导。计算出准确的绝对时间戳（格式为 YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD HH:MM）或标准的 5 位 Cron 表达式作为 'expression' 参数。
+      - 例如：若当前时间是 2026-05-26 09:35:59 Tuesday：
+        - “明早 9 点” → 推导为明天 '2026-05-27 09:00:00'
+        - “今天下午 3 点” → 推导为今天 '2026-05-26 15:00:00'
+        - “半小时后” → 09:35:59 加上 30 分钟为 10:05:59 → 推导为 '2026-05-26 10:05:59'
+        - “每周一中午 12 点” → 标准 Cron '0 12 * * 1'
+    - **过期时间检测 (Past Time Check & Interactive Confirmation)**：若推导出的目标时间已早于当前的 'Current Local Time'（已过期），或者在调用 'schedule_task' 时遇到 'has already passed' 报错，你**必须**向用户反馈：“由于目前已是 [当前时间]，您要求的 [原目标时间] 已经过去了”，并询问用户是否还需要记录，或者是否重新设定在未来的新时间点（例如改到今天下午或明天）。禁止直接、无提示地保存过期任务。
+    - **参数命名规范**：调用时请严格遵循工具定义，参数为 'expression'（时间表达式或 Cron）和 'instruction'（提醒内容），禁止生造其他参数名称（如 'time'、'task' 等）。`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
