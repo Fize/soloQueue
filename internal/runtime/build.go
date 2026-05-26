@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,7 +76,7 @@ func Build(
 	if err := bc.initSharedDB(); err != nil {
 		return nil, err
 	}
-	bc.teamstore = teamstore.NewStore(bc.sharedDB)
+	bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"))
 
 	// Wire DB to Config and load DB-backed settings
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
@@ -401,20 +402,23 @@ func (bc *buildContext) registerHotReload(rt *Stack) {
 	}
 
 	registerSkillHotReload(bc.skillReg, bc.skillDirs, bc.log)
-	registerPromptHotReload(rt, bc.log)
+	
+	groupsDir := filepath.Join(bc.workDir, "groups")
+	agentsDir := filepath.Join(bc.workDir, "agents")
+	registerPromptHotReload(rt, bc.log, groupsDir, agentsDir)
 }
 
-// registerPromptHotReload watches the roles directory and rebuilds the system prompt when soul.md or rules.md changes.
-func registerPromptHotReload(rt *Stack, log *logger.Logger) {
+// registerPromptHotReload watches the roles, groups, and agents directories and rebuilds the system prompt when soul.md, rules.md or team/agent markdown files change.
+func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir string) {
 	if rt.PromptCfg == nil {
 		return
 	}
-	dirToWatch := rt.PromptCfg.RolesDir
-	if dirToWatch == "" {
+	rolesDir := rt.PromptCfg.RolesDir
+	if rolesDir == "" {
 		return
 	}
 
-	if err := os.MkdirAll(dirToWatch, 0o755); err != nil {
+	if err := os.MkdirAll(rolesDir, 0o755); err != nil {
 		log.Warn(logger.CatApp, "prompt hot-reload: cannot create roles dir", "err", err.Error())
 		return
 	}
@@ -424,10 +428,25 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger) {
 		log.Warn(logger.CatApp, "prompt hot-reload: cannot create watcher", "err", err.Error())
 		return
 	}
-	if err := w.Add(dirToWatch); err != nil {
+
+	if err := w.Add(rolesDir); err != nil {
 		_ = w.Close()
 		log.Warn(logger.CatApp, "prompt hot-reload: cannot watch roles dir", "err", err.Error())
 		return
+	}
+
+	if groupsDir != "" {
+		_ = os.MkdirAll(groupsDir, 0o755)
+		if err := w.Add(groupsDir); err != nil {
+			log.Warn(logger.CatApp, "prompt hot-reload: cannot watch groups dir", "err", err.Error())
+		}
+	}
+
+	if agentsDir != "" {
+		_ = os.MkdirAll(agentsDir, 0o755)
+		if err := w.Add(agentsDir); err != nil {
+			log.Warn(logger.CatApp, "prompt hot-reload: cannot watch agents dir", "err", err.Error())
+		}
 	}
 
 	var debounceMu sync.Mutex
@@ -460,9 +479,19 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger) {
 					continue
 				}
 
-				// Only watch rules.md and soul.md in roles dir
 				filename := filepath.Base(evt.Name)
-				if filename != "soul.md" && filename != "rules.md" {
+				dir := filepath.Dir(evt.Name)
+
+				absDir, _ := filepath.Abs(dir)
+				absRoles, _ := filepath.Abs(rolesDir)
+				absGroups, _ := filepath.Abs(groupsDir)
+				absAgents, _ := filepath.Abs(agentsDir)
+
+				isRolesFile := (absDir == absRoles) && (filename == "soul.md" || filename == "rules.md")
+				isGroupsFile := (absDir == absGroups) && strings.HasSuffix(filename, ".md")
+				isAgentsFile := (absDir == absAgents) && strings.HasSuffix(filename, ".md")
+
+				if !isRolesFile && !isGroupsFile && !isAgentsFile {
 					continue
 				}
 
@@ -486,5 +515,7 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger) {
 			}
 		}
 	}()
-	log.Debug(logger.CatApp, "prompt hot-reload: watching directory", "path", dirToWatch)
+	log.Debug(logger.CatApp, "prompt hot-reload: watching directories", "roles", rolesDir, "groups", groupsDir, "agents", agentsDir)
 }
+
+

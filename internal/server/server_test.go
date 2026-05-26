@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
 
 func startTestServer(t *testing.T) *httptest.Server {
@@ -93,3 +98,97 @@ func TestHTTP_Auth(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTP_TeamAgents(t *testing.T) {
+	tempDir := t.TempDir()
+	groupsDir := filepath.Join(tempDir, "groups")
+	agentsDir := filepath.Join(tempDir, "agents")
+	_ = os.MkdirAll(groupsDir, 0755)
+	_ = os.MkdirAll(agentsDir, 0755)
+
+	store := teamstore.NewStore(groupsDir, agentsDir)
+	ctx := context.Background()
+
+	// Create a team
+	err := store.CreateTeam(ctx, &teamstore.Team{
+		Name:        "Devs",
+		Description: "Dev team",
+	})
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+
+	// Create an agent
+	err = store.CreateAgent(ctx, &teamstore.Agent{
+		Name:        "Alice",
+		TeamName:    "Devs",
+		Description: "Coder",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	mux := NewMux(tempDir, nil, nil, WithTeamStore(store))
+	defer mux.Close()
+
+	// 1. Test GET /api/teams
+	{
+		req := httptest.NewRequest("GET", "/api/teams", nil)
+		req.Host = "localhost:8765"
+		req.RemoteAddr = "127.0.0.1:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET /api/teams status = %d", rec.Code)
+		}
+
+		body, _ := io.ReadAll(rec.Body)
+		var resp struct {
+			Teams []struct {
+				Name   string `json:"name"`
+				Agents []struct {
+					Name string `json:"name"`
+				} `json:"agents"`
+			} `json:"teams"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("Unmarshal teams: %v, body = %s", err, body)
+		}
+
+		if len(resp.Teams) != 1 || resp.Teams[0].Name != "Devs" {
+			t.Errorf("expected team Devs, got %+v", resp.Teams)
+		}
+		if len(resp.Teams[0].Agents) != 1 || resp.Teams[0].Agents[0].Name != "Alice" {
+			t.Errorf("expected agent Alice in team Devs, got %+v", resp.Teams[0].Agents)
+		}
+	}
+
+	// 2. Test GET /api/agents
+	{
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req.Host = "localhost:8765"
+		req.RemoteAddr = "127.0.0.1:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET /api/agents status = %d", rec.Code)
+		}
+
+		body, _ := io.ReadAll(rec.Body)
+		var resp struct {
+			Agents []struct {
+				Name string `json:"name"`
+			} `json:"agents"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("Unmarshal agents: %v, body = %s", err, body)
+		}
+
+		if len(resp.Agents) != 1 || resp.Agents[0].Name != "Alice" {
+			t.Errorf("expected agent Alice, got %+v", resp.Agents)
+		}
+	}
+}
+

@@ -54,7 +54,7 @@ func TestRegisterPromptHotReload(t *testing.T) {
 		return nil
 	})
 
-	registerPromptHotReload(rt, log)
+	registerPromptHotReload(rt, log, "", "")
 	defer rt.Shutdown()
 
 	// Modify soul.md

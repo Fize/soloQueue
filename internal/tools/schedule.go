@@ -24,8 +24,9 @@ func (scheduleTaskTool) Name() string { return "schedule_task" }
 
 func (scheduleTaskTool) Description() string {
 	return "Schedules a task to run automatically in the future. " +
-		"Supports recurring tasks (using standard 5-field cron expression or daily/weekly/hourly/monthly shorthands) " +
-		"and one-time tasks (using absolute datetime string like YYYY-MM-DD HH:MM:SS)."
+		"Supports recurring tasks (using standard 5-field cron expression) " +
+		"and one-time tasks (using absolute local datetime string like 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD ...'). " +
+		"CRITICAL: You MUST derive the absolute datetime from the 'Current Local Time' in the environment section of the prompt."
 }
 
 func (scheduleTaskTool) Parameters() json.RawMessage {
@@ -34,7 +35,7 @@ func (scheduleTaskTool) Parameters() json.RawMessage {
   "properties": {
     "expression": {
       "type": "string",
-      "description": "Standard cron expression (e.g. '0 8 * * *' for 8am daily, '0 12 * * 1' for Monday noon) or a specific local datetime string ('YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM') for one-time triggers."
+      "description": "CRITICAL: Standard 5-field cron expression (e.g. '0 8 * * *' for 8am daily, '0 12 * * 1' for Monday noon) OR a specific absolute local datetime string ('YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM') derived from the Current Local Time. Do NOT pass relative terms."
     },
     "instruction": {
       "type": "string",
@@ -85,6 +86,13 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 	nextRun, err := cron.NextTrigger(a.Expression, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("invalid schedule expression: %w", err)
+	}
+
+	// For one-time tasks, check if the target time has already passed by more than 1 minute
+	if cron.IsOneTimeExpression(a.Expression) && nextRun.Before(time.Now().Add(-1*time.Minute)) {
+		return "", fmt.Errorf("the scheduled time %s has already passed (current time: %s)",
+			nextRun.Format("2006-01-02 15:04:05"),
+			time.Now().Format("2006-01-02 15:04:05"))
 	}
 
 	task, err := t.cfg.CronStore.CreateTask(ctx, a.Expression, a.Instruction, a.TargetAgent, nextRun)

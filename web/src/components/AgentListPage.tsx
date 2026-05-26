@@ -138,29 +138,28 @@ export function AgentListPage() {
 
   // Filter Logic
   const filteredTeamNodes = useMemo(() => {
-    return teamNodes
-      .map((node) => {
-        const filteredAgents = node.agents.filter((item) => {
-          // Status Tab Filter
-          if (activeFilter === 'all') return true
+    return teamNodes.map((node) => {
+      const filteredAgents = node.agents.filter((item) => {
+        // Status Tab Filter
+        if (activeFilter === 'all') return true
 
-          // If no running instance, it matches 'stopped' filter
-          if (item.agents.length === 0) {
-            return activeFilter === 'stopped'
-          }
-
-          // Otherwise, filter by actual running instance states
-          return item.agents.some((a) => {
-            if (activeFilter === 'errors') return a.error_count > 0
-            return a.state === activeFilter
-          })
-        })
-
-        return {
-          ...node,
-          agents: filteredAgents,
+        // If no running instance, it matches 'stopped' filter
+        if (item.agents.length === 0) {
+          return activeFilter === 'stopped'
         }
+
+        // Otherwise, filter by actual running instance states
+        return item.agents.some((a) => {
+          if (activeFilter === 'errors') return a.error_count > 0
+          return a.state === activeFilter
+        })
       })
+
+      return {
+        ...node,
+        agents: filteredAgents,
+      }
+    })
   }, [teamNodes, activeFilter])
 
   // Check if L1 Agent matches filters
@@ -206,283 +205,285 @@ export function AgentListPage() {
               <Bot className="h-6 w-6 text-primary" />
               Obsidian Console
             </h1>
-            <p className="text-sm text-muted-foreground">Monitor and manage active team workflows</p>
+            <p className="text-sm text-muted-foreground">
+              Monitor and manage active team workflows
+            </p>
           </div>
         </div>
 
-      {/* Filter Tabs */}
-      <div className="flex border-b border-border/60 overflow-x-auto no-scrollbar gap-2 scroll-smooth py-1">
-        {(['all', 'processing', 'idle', 'stopped', 'errors'] as const).map((filter) => {
-          const isActive = activeFilter === filter
-          const countMap = {
-            all: stats.total,
-            processing: stats.active,
-            idle: stats.idle,
-            stopped: stats.total - stats.active - stats.idle,
-            errors: stats.errors,
-          }
-          return (
-            <button
-              key={filter}
-              onClick={() => setActiveFilter(filter)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-all duration-200 capitalize whitespace-nowrap ${
-                isActive
-                  ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                  : 'bg-card/40 border-border/80 text-muted-foreground hover:text-foreground hover:bg-muted/40'
-              }`}
-            >
-              {filter === 'processing' ? 'running' : filter}
-              <span
-                className={`ml-1.5 px-1 py-0.25 text-[9px] rounded-full font-bold ${
+        {/* Filter Tabs */}
+        <div className="flex border-b border-border/60 overflow-x-auto no-scrollbar gap-2 scroll-smooth py-1">
+          {(['all', 'processing', 'idle', 'stopped', 'errors'] as const).map((filter) => {
+            const isActive = activeFilter === filter
+            const countMap = {
+              all: stats.total,
+              processing: stats.active,
+              idle: stats.idle,
+              stopped: stats.total - stats.active - stats.idle,
+              errors: stats.errors,
+            }
+            return (
+              <button
+                key={filter}
+                onClick={() => setActiveFilter(filter)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-all duration-200 capitalize whitespace-nowrap ${
                   isActive
-                    ? 'bg-primary-foreground/20 text-primary-foreground'
-                    : 'bg-muted text-muted-foreground'
+                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                    : 'bg-card/40 border-border/80 text-muted-foreground hover:text-foreground hover:bg-muted/40'
                 }`}
               >
-                {countMap[filter]}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Main Content Area */}
-      <div className="space-y-6">
-        {/* L1 Agent Section */}
-        {matchesL1Filter && (
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Star className="h-3.5 w-3.5 fill-primary text-primary" />
-              L1 Root Coordinator
-            </h2>
-            {l1Agent ? (
-              <div className="max-w-md">
-                <AgentCard
-                  agent={l1Agent}
-                  onClick={() => navigate(`/agents/${l1Agent.instance_id}`)}
-                />
-              </div>
-            ) : (
-              <div className="max-w-md">
-                <PlaceholderCard
-                  name="L1 Agent"
-                  isLeader
-                  onClick={() => navigate('/agents/main')}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Collapsible Teams */}
-        <div className="space-y-4">
-          {filteredTeamNodes.map((node) => {
-            const isCollapsed = collapsedTeams.has(node.team.name)
-            const activeInstances = node.agents.filter((a) => a.agents.length > 0).length
-            const totalTeamAgents = node.team.agents.length
-
-            return (
-              <GlassCard
-                key={node.team.name}
-                variant="flat"
-                size="none"
-                className="overflow-hidden border border-border/80 bg-card/60 backdrop-blur-sm"
-              >
-                {/* Team Header */}
-                <button
-                  onClick={() => toggleTeam(node.team.name)}
-                  className="flex w-full items-center gap-3 px-4 py-3.5 text-left border-b border-border/60 hover:bg-muted/20 active:bg-muted/40 transition-colors"
+                {filter === 'processing' ? 'running' : filter}
+                <span
+                  className={`ml-1.5 px-1 py-0.25 text-[9px] rounded-full font-bold ${
+                    isActive
+                      ? 'bg-primary-foreground/20 text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
                 >
-                  <FolderOpen className="h-4.5 w-4.5 text-primary shrink-0" />
-                  <span className="font-semibold text-foreground text-sm flex-1">
-                    {node.team.name}
-                  </span>
-
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] font-medium text-muted-foreground gap-1.5 py-0 px-2"
-                    >
-                      <Users className="h-3 w-3" />
-                      {activeInstances}/{totalTeamAgents}
-                    </Badge>
-                    {isCollapsed ? (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-
-                {/* Team Content */}
-                {!isCollapsed && (
-                  <div className="p-3">
-                    {isMobile ? (
-                      /* Mobile Layout: Stacked Cards */
-                      <div className="grid grid-cols-1 gap-2.5">
-                        {node.agents.map((item) => {
-                          const key = item.template?.id || 'unknown'
-                          if (item.agents.length > 0) {
-                            return item.agents.map((a) => (
-                              <AgentCard
-                                key={a.instance_id}
-                                agent={a}
-                                onClick={() => navigate(`/agents/${a.instance_id}`)}
-                              />
-                            ))
-                          }
-                          return (
-                            <PlaceholderCard
-                              key={key}
-                              name={item.template?.name}
-                              isLeader={item.template?.is_leader}
-                              onClick={
-                                item.template
-                                  ? () => navigate(`/agents/${item.template!.id}`)
-                                  : undefined
-                              }
-                            />
-                          )
-                        })}
-                      </div>
-                    ) : (
-                      /* Desktop Layout: Sleek Grid/Table */
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-sm">
-                          <thead>
-                            <tr className="border-b border-border/40 text-muted-foreground font-medium text-xs">
-                              <th className="py-2.5 px-3">Agent</th>
-                              <th className="py-2.5 px-3">Model</th>
-                              <th className="py-2.5 px-3">Status</th>
-                              <th className="py-2.5 px-3">Task Level</th>
-                              <th className="py-2.5 px-3">Mailbox</th>
-                              <th className="py-2.5 px-3 text-right">Errors</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {node.agents.map((item) => {
-                              const key = item.template?.id || 'unknown'
-                              if (item.agents.length > 0) {
-                                return item.agents.map((a) => {
-                                  const hasMail = a.mailbox_high > 0 || a.mailbox_normal > 0
-                                  return (
-                                    <tr
-                                      key={a.instance_id}
-                                      onClick={() => navigate(`/agents/${a.instance_id}`)}
-                                      className="border-b border-border/20 last:border-0 hover:bg-muted/10 cursor-pointer transition-colors group"
-                                    >
-                                      <td className="py-3 px-3">
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                          <StatusDot state={a.state} />
-                                          <span className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                                            {a.name}
-                                          </span>
-                                          {a.is_leader && (
-                                            <Badge
-                                              variant="primary"
-                                              className="text-[9px] uppercase tracking-wider py-0 px-1.5"
-                                            >
-                                              Leader
-                                            </Badge>
-                                          )}
-                                        </div>
-                                      </td>
-                                      <td className="py-3 px-3 font-mono text-xs text-muted-foreground truncate max-w-[150px]">
-                                        {a.model_id}
-                                      </td>
-                                      <td className="py-3 px-3">
-                                        <StatusBadge state={a.state} size="sm" />
-                                      </td>
-                                      <td className="py-3 px-3 text-muted-foreground font-medium text-xs">
-                                        {a.task_level ? `Level ${a.task_level}` : '-'}
-                                      </td>
-                                      <td className="py-3 px-3">
-                                        {hasMail ? (
-                                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                            <Mail className="h-3.5 w-3.5" />
-                                            <span className="font-mono">
-                                              {a.mailbox_high > 0 ? `${a.mailbox_high}H/` : ''}
-                                              {a.mailbox_normal}N
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          <span className="text-muted-foreground/45">-</span>
-                                        )}
-                                      </td>
-                                      <td className="py-3 px-3 text-right">
-                                        {a.error_count > 0 ? (
-                                          <Badge
-                                            variant="destructive"
-                                            className="font-bold text-[10px] py-0 px-2 gap-1"
-                                          >
-                                            <AlertCircle className="h-3 w-3" />
-                                            {a.error_count}
-                                          </Badge>
-                                        ) : (
-                                          <span className="text-muted-foreground/45">-</span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  )
-                                })
-                              }
-                              return (
-                                <tr
-                                  key={key}
-                                  onClick={
-                                    item.template
-                                      ? () => navigate(`/agents/${item.template!.id}`)
-                                      : undefined
-                                  }
-                                  className="border-b border-border/20 last:border-0 hover:bg-muted/10 cursor-pointer transition-colors opacity-55 text-muted-foreground"
-                                >
-                                  <td className="py-3 px-3" colSpan={6}>
-                                    <div className="flex items-center gap-2">
-                                      <div className="h-2.5 w-2.5 rounded-full border border-dashed border-border-light shrink-0" />
-                                      <span className="font-medium text-xs">
-                                        {item.template?.name || 'Unassigned placeholder'}
-                                      </span>
-                                      {item.template?.is_leader && (
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[9px] uppercase tracking-wider py-0 px-1 text-muted-foreground/60 border-dashed"
-                                        >
-                                          Leader
-                                        </Badge>
-                                      )}
-                                      <span className="text-[10px] italic ml-auto text-muted-foreground/60">
-                                        Offline (Click to configure)
-                                      </span>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </GlassCard>
+                  {countMap[filter]}
+                </span>
+              </button>
             )
           })}
         </div>
 
-        {/* Empty State */}
-        {filteredTeamNodes.length === 0 && !matchesL1Filter && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Bot className="h-10 w-10 text-muted-foreground/50 mb-3" />
-            <p className="font-semibold text-foreground text-sm">No agents match filters</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Try adjusting your search query or status filter.
-            </p>
+        {/* Main Content Area */}
+        <div className="space-y-6">
+          {/* L1 Agent Section */}
+          {matchesL1Filter && (
+            <div className="space-y-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Star className="h-3.5 w-3.5 fill-primary text-primary" />
+                L1 Root Coordinator
+              </h2>
+              {l1Agent ? (
+                <div className="max-w-md">
+                  <AgentCard
+                    agent={l1Agent}
+                    onClick={() => navigate(`/agents/${l1Agent.instance_id}`)}
+                  />
+                </div>
+              ) : (
+                <div className="max-w-md">
+                  <PlaceholderCard
+                    name="L1 Agent"
+                    isLeader
+                    onClick={() => navigate('/agents/main')}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Collapsible Teams */}
+          <div className="space-y-4">
+            {filteredTeamNodes.map((node) => {
+              const isCollapsed = collapsedTeams.has(node.team.name)
+              const activeInstances = node.agents.filter((a) => a.agents.length > 0).length
+              const totalTeamAgents = node.team.agents.length
+
+              return (
+                <GlassCard
+                  key={node.team.name}
+                  variant="flat"
+                  size="none"
+                  className="overflow-hidden border border-border/80 bg-card/60 backdrop-blur-sm"
+                >
+                  {/* Team Header */}
+                  <button
+                    onClick={() => toggleTeam(node.team.name)}
+                    className="flex w-full items-center gap-3 px-4 py-3.5 text-left border-b border-border/60 hover:bg-muted/20 active:bg-muted/40 transition-colors"
+                  >
+                    <FolderOpen className="h-4.5 w-4.5 text-primary shrink-0" />
+                    <span className="font-semibold text-foreground text-sm flex-1">
+                      {node.team.name}
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] font-medium text-muted-foreground gap-1.5 py-0 px-2"
+                      >
+                        <Users className="h-3 w-3" />
+                        {activeInstances}/{totalTeamAgents}
+                      </Badge>
+                      {isCollapsed ? (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                  </button>
+
+                  {/* Team Content */}
+                  {!isCollapsed && (
+                    <div className="p-3">
+                      {isMobile ? (
+                        /* Mobile Layout: Stacked Cards */
+                        <div className="grid grid-cols-1 gap-2.5">
+                          {node.agents.map((item) => {
+                            const key = item.template?.id || 'unknown'
+                            if (item.agents.length > 0) {
+                              return item.agents.map((a) => (
+                                <AgentCard
+                                  key={a.instance_id}
+                                  agent={a}
+                                  onClick={() => navigate(`/agents/${a.instance_id}`)}
+                                />
+                              ))
+                            }
+                            return (
+                              <PlaceholderCard
+                                key={key}
+                                name={item.template?.name}
+                                isLeader={item.template?.is_leader}
+                                onClick={
+                                  item.template
+                                    ? () => navigate(`/agents/${item.template!.id}`)
+                                    : undefined
+                                }
+                              />
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        /* Desktop Layout: Sleek Grid/Table */
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-sm">
+                            <thead>
+                              <tr className="border-b border-border/40 text-muted-foreground font-medium text-xs">
+                                <th className="py-2.5 px-3">Agent</th>
+                                <th className="py-2.5 px-3">Model</th>
+                                <th className="py-2.5 px-3">Status</th>
+                                <th className="py-2.5 px-3">Task Level</th>
+                                <th className="py-2.5 px-3">Mailbox</th>
+                                <th className="py-2.5 px-3 text-right">Errors</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {node.agents.map((item) => {
+                                const key = item.template?.id || 'unknown'
+                                if (item.agents.length > 0) {
+                                  return item.agents.map((a) => {
+                                    const hasMail = a.mailbox_high > 0 || a.mailbox_normal > 0
+                                    return (
+                                      <tr
+                                        key={a.instance_id}
+                                        onClick={() => navigate(`/agents/${a.instance_id}`)}
+                                        className="border-b border-border/20 last:border-0 hover:bg-muted/10 cursor-pointer transition-colors group"
+                                      >
+                                        <td className="py-3 px-3">
+                                          <div className="flex items-center gap-2.5 min-w-0">
+                                            <StatusDot state={a.state} />
+                                            <span className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                                              {a.name}
+                                            </span>
+                                            {a.is_leader && (
+                                              <Badge
+                                                variant="primary"
+                                                className="text-[9px] uppercase tracking-wider py-0 px-1.5"
+                                              >
+                                                Leader
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="py-3 px-3 font-mono text-xs text-muted-foreground truncate max-w-[150px]">
+                                          {a.model_id}
+                                        </td>
+                                        <td className="py-3 px-3">
+                                          <StatusBadge state={a.state} size="sm" />
+                                        </td>
+                                        <td className="py-3 px-3 text-muted-foreground font-medium text-xs">
+                                          {a.task_level ? `Level ${a.task_level}` : '-'}
+                                        </td>
+                                        <td className="py-3 px-3">
+                                          {hasMail ? (
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                              <Mail className="h-3.5 w-3.5" />
+                                              <span className="font-mono">
+                                                {a.mailbox_high > 0 ? `${a.mailbox_high}H/` : ''}
+                                                {a.mailbox_normal}N
+                                              </span>
+                                            </div>
+                                          ) : (
+                                            <span className="text-muted-foreground/45">-</span>
+                                          )}
+                                        </td>
+                                        <td className="py-3 px-3 text-right">
+                                          {a.error_count > 0 ? (
+                                            <Badge
+                                              variant="destructive"
+                                              className="font-bold text-[10px] py-0 px-2 gap-1"
+                                            >
+                                              <AlertCircle className="h-3 w-3" />
+                                              {a.error_count}
+                                            </Badge>
+                                          ) : (
+                                            <span className="text-muted-foreground/45">-</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    )
+                                  })
+                                }
+                                return (
+                                  <tr
+                                    key={key}
+                                    onClick={
+                                      item.template
+                                        ? () => navigate(`/agents/${item.template!.id}`)
+                                        : undefined
+                                    }
+                                    className="border-b border-border/20 last:border-0 hover:bg-muted/10 cursor-pointer transition-colors opacity-55 text-muted-foreground"
+                                  >
+                                    <td className="py-3 px-3" colSpan={6}>
+                                      <div className="flex items-center gap-2">
+                                        <div className="h-2.5 w-2.5 rounded-full border border-dashed border-border-light shrink-0" />
+                                        <span className="font-medium text-xs">
+                                          {item.template?.name || 'Unassigned placeholder'}
+                                        </span>
+                                        {item.template?.is_leader && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[9px] uppercase tracking-wider py-0 px-1 text-muted-foreground/60 border-dashed"
+                                          >
+                                            Leader
+                                          </Badge>
+                                        )}
+                                        <span className="text-[10px] italic ml-auto text-muted-foreground/60">
+                                          Offline (Click to configure)
+                                        </span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </GlassCard>
+              )
+            })}
           </div>
-        )}
+
+          {/* Empty State */}
+          {filteredTeamNodes.length === 0 && !matchesL1Filter && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <Bot className="h-10 w-10 text-muted-foreground/50 mb-3" />
+              <p className="font-semibold text-foreground text-sm">No agents match filters</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Try adjusting your search query or status filter.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
-  </div>
-)
+  )
 }
 
 // Local PlaceholderCard helper component for mobile/L1 views

@@ -556,7 +556,7 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	for _, af := range agentFiles {
 		fm := af.Frontmatter
 		tmpl := AgentTemplate{
-			ID:           fm.Name,
+			ID:           strings.ToLower(fm.Name),
 			Name:         fm.Name,
 			Description:  fm.Description,
 			SystemPrompt: af.Body,

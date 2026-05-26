@@ -383,7 +383,7 @@ func (m *Mux) handleListAgentsFromDB(w http.ResponseWriter, r *http.Request) {
 	for i := range agents {
 		result = append(result, agentToResponse(&agents[i]))
 	}
-	m.writeJSON(w, http.StatusOK, result)
+	m.writeJSON(w, http.StatusOK, map[string]any{"agents": result})
 }
 
 // handleListAgentsFromFiles falls back to file-based template loading.
@@ -405,7 +405,7 @@ func (m *Mux) handleListAgentsFromFiles(w http.ResponseWriter) {
 			Model:       tmpl.ModelID,
 		})
 	}
-	m.writeJSON(w, http.StatusOK, result)
+	m.writeJSON(w, http.StatusOK, map[string]any{"agents": result})
 }
 
 // createAgentRequest is the JSON body for POST /api/agents.

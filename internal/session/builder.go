@@ -137,7 +137,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		// Find the AgentTemplate matching this leader for dynamic creation.
 		var leaderTmpl *agent.AgentTemplate
 		for i := range b.RT.AllTemplates {
-			if b.RT.AllTemplates[i].IsLeader && b.RT.AllTemplates[i].ID == leader.Name {
+			if b.RT.AllTemplates[i].IsLeader && strings.EqualFold(b.RT.AllTemplates[i].ID, leader.Name) {
 				leaderTmpl = &b.RT.AllTemplates[i]
 				break
 			}
@@ -254,7 +254,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		var oldSV *agent.Supervisor
 		b.RT.CfgMu.RLock()
 		for _, sv := range b.RT.Supervisors {
-			if sv.Agent() != nil && sv.Agent().Def.ID == name {
+			if sv.Agent() != nil && strings.EqualFold(sv.Agent().Def.ID, name) {
 				oldSV = sv
 				break
 			}
