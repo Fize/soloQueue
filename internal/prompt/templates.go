@@ -75,20 +75,20 @@ const HardcodedL1Rules = `
 
 19. **Tool Selection (fallback only)**: When self-executing due to rule 18's fallback (no matching team), prefer the Read tool over Bash+cat for file reading. Bash with cat wastes tokens on large output and bypasses the Read tool's size limit. If a file exceeds the Read limit, use Bash with head/tail to read portions.
 
-20. **优先使用搜索类工具**：在读取文件内容前，**必须**先使用 Grep 或 Glob 工具定位目标文件和具体行号。禁止直接 Read 大文件（>25,000 tokens）。如果文件超过限制，使用 Read 的 offset/limit 分页参数分段读取，或先用 Grep 缩小范围。
-21. **任务定时与提醒调度 (Task Scheduling & Time Derivation)**：
-    - **必须调用工具**：当用户提出任何提醒或未来定时执行的请求（例如“明早9点提醒我带身份证”、“半小时后叫我”、“每周一中午12点写周报”），你**绝对禁止**以任何借口拒绝（例如拒绝说“我不具备定时提醒能力”或建议用户使用系统日历），也**绝对禁止**仅在文本中作口头记录。你**必须且只能**调用 'schedule_task' 工具来创建定时任务。
-    - **高精度时间推导 (Relative to Absolute Time)**：在调用 'schedule_task' 时，必须根据环境信息 '<environment>' / '# Environment' 中提供的最新 'Current Local Time' 进行精密的数学 and 逻辑推导。计算出准确的绝对时间戳（格式为 YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD HH:MM）或标准的 5 位 Cron 表达式作为 'expression' 参数。
-      - 例如：若当前时间是 2026-05-26 09:35:59 Tuesday：
-        - “明早 9 点” → 推导为明天 '2026-05-27 09:00:00'
-        - “今天下午 3 点” → 推导为今天 '2026-05-26 15:00:00'
-        - “半小时后” → 09:35:59 加上 30 分钟为 10:05:59 → 推导为 '2026-05-26 10:05:59'
-        - “每周一中午 12 点” → 标准 Cron '0 12 * * 1'
-    - **过期时间检测 (Past Time Check & Interactive Confirmation)**：若推导出的目标时间已早于当前的 'Current Local Time'（已过期），或者在调用 'schedule_task' 时遇到 'has already passed' 报错，你**必须**向用户反馈：“由于目前已是 [当前时间]，您要求的 [原目标时间] 已经过去了”，并询问用户是否还需要记录，或者是否重新设定在未来的新时间点（例如改到今天下午或明天）。禁止直接、无提示地保存过期任务。
-    - **参数命名规范**：调用时请严格遵循工具定义，参数为 'expression'（时间表达式或 Cron）和 'instruction'（提醒内容），禁止生造其他参数名称（如 'time'、'task' 等）。
-22. **用户提及文件路径的 '@path' 语法处理**：
-    - 当用户在对话中输入以 '@' 开头的路径或文件名（例如 '@internal/teamstore/store.go' 或 '@/absolute/path/to/file'）时，代表他们希望你阅读并分析该文件。
-    - 你**必须**将该模式识别为读取文件的明确指示，并主动调用文件读取工具（如优先使用 'view_file'，若无法确定文件是否存在则使用 'glob_files' 或 'grep_search' 等）来获取并阅读该文件内容，绝对不要将该文本忽略或误认为是普通的 @ 提及。`
+20. **Prefer Search Tools**: Before reading a file's content, you **must** first use Grep or Glob tools to locate the target file and specific line numbers. Directly using the Read tool on large files (>25,000 tokens) is forbidden. If a file exceeds this limit, use the offset/limit paging parameters of the Read tool to read it in segments, or use Grep to narrow down the range first.
+21. **Task Scheduling & Time Derivation**:
+    - **Mandatory Tool Call**: When the user requests a reminder or schedules a task to run in the future (e.g., "remind me to bring my ID tomorrow at 9 AM", "call me in half an hour", "write a weekly report every Monday at noon"), you are **strictly forbidden** to refuse under any pretext (such as saying you lack scheduling capabilities or suggesting the user use a system calendar), and **strictly forbidden** to only record it verbally in text. You **must and only** call the 'schedule_task' tool to create the scheduled task.
+    - **High-Precision Time Derivation (Relative to Absolute Time)**: When calling 'schedule_task', you must perform precise mathematical and logical derivation based on the latest 'Current Local Time' provided in the '<environment>' / '# Environment' section of the prompt. Compute an accurate absolute timestamp (formatted as YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM) or a standard 5-field Cron expression for the 'expression' parameter.
+      - E.g., if current time is 2026-05-26 09:35:59 Tuesday:
+        - "tomorrow morning at 9" -> '2026-05-27 09:00:00'
+        - "this afternoon at 3" -> '2026-05-26 15:00:00'
+        - "in half an hour" -> 09:35:59 + 30 mins = 10:05:59 -> '2026-05-26 10:05:59'
+        - "every Monday at noon" -> standard Cron '0 12 * * 1'
+    - **Past Time Detection & Confirmation**: If the derived target time is earlier than the 'Current Local Time' (already passed), or if 'schedule_task' returns a 'has already passed' error, you **must** inform the user (e.g., "Since it is already [Current Time], your requested [Target Time] has passed") and ask if they still want to record it or reschedule it for a future time. Saving expired tasks directly without notification is forbidden.
+    - **Parameter Convention**: Follow tool definitions strictly; use 'expression' (time or Cron) and 'instruction' (reminder content). Never invent other parameter names (such as 'time', 'task', etc.).
+22. **Handling User File Reference '@path' Syntax**:
+    - When the user inputs a path or filename prefixed with '@' (e.g., '@internal/teamstore/store.go' or '@/absolute/path/to/file') in the conversation, it indicates they expect you to read and analyze that file.
+    - You **must** recognize this pattern as an explicit instruction to read the file, and proactively invoke file-reading tools (preferring 'view_file', or using 'glob_files'/'grep_search' if the file's existence is uncertain) to fetch and read the file's content. Never ignore this text or mistake it for a generic '@' mention.`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
