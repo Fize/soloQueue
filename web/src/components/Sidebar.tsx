@@ -19,10 +19,8 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
-  LogOut,
   Clock,
 } from 'lucide-react'
-import { useAuthStore } from '@/stores/authStore'
 
 const mainNav = [
   { to: '/', icon: Bot, label: 'Agents' },
@@ -75,7 +73,6 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
   const location = useLocation()
   const navigate = useNavigate()
   const runtime = useRuntime()
-  const { user, logout } = useAuthStore()
 
   const isSettingsActive = location.pathname.startsWith('/settings')
   const [settingsOpen, setSettingsOpen] = useState(isSettingsActive)
@@ -294,22 +291,8 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
         </div>
       )}
 
-      {/* Collapse toggle (desktop) + User/Logout footer */}
+      {/* Collapse toggle (desktop) */}
       <div className="border-t border-border shrink-0">
-        {(!collapsed || mobile) && (
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-xs text-muted-foreground truncate">{user}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              title="Logout"
-              onClick={logout}
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        )}
         {!mobile && (
           <button
             onClick={toggleCollapse}

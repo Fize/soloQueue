@@ -11,20 +11,26 @@ import (
 
 // AgentFrontmatter 对应 ~/.soloqueue/agents/*.md 的 YAML frontmatter。
 type AgentFrontmatter struct {
+	ID          string   `yaml:"id,omitempty"`
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
 	Model       string   `yaml:"model"`
 	Group       string   `yaml:"group"`
 	IsLeader    bool     `yaml:"is_leader"`
 	Permission  bool     `yaml:"permission"`
-	MCPServers  []string `yaml:"mcp_servers"`
-	Skills      []string `yaml:"skills"`
+	MCPServers  []string `yaml:"mcp_servers,omitempty"`
+	Skills      []string `yaml:"skills,omitempty"`
+	CreatedAt   string   `yaml:"created_at,omitempty"`
+	UpdatedAt   string   `yaml:"updated_at,omitempty"`
 }
 
 // GroupFrontmatter 对应 ~/.soloqueue/groups/*.md 的 YAML frontmatter。
 type GroupFrontmatter struct {
+	ID         string      `yaml:"id,omitempty"`
 	Name       string      `yaml:"name"`
-	Workspaces []Workspace `yaml:"workspaces"`
+	Workspaces []Workspace `yaml:"workspaces,omitempty"`
+	CreatedAt  string      `yaml:"created_at,omitempty"`
+	UpdatedAt  string      `yaml:"updated_at,omitempty"`
 }
 
 // Workspace 描述团队关联的工作空间。

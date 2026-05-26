@@ -1,10 +1,5 @@
 import { useEffect, useState } from 'react'
-import {
-  listCronTasks,
-  createCronTask,
-  updateCronTask,
-  deleteCronTask,
-} from '@/lib/api'
+import { listCronTasks, createCronTask, updateCronTask, deleteCronTask } from '@/lib/api'
 import type { CronTask } from '@/types'
 import { GlassCard } from '@/components/ui/glass-card'
 import { Button } from '@/components/ui/button'
@@ -38,7 +33,7 @@ export function CronPage() {
   const [tasks, setTasks] = useState<CronTask[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
+
   // Dialog State
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<CronTask | null>(null)
@@ -173,7 +168,13 @@ export function CronPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={fetchTasks} disabled={loading} className="h-8">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchTasks}
+            disabled={loading}
+            className="h-8"
+          >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
           <Button size="sm" onClick={handleOpenCreateDialog} className="h-8 gap-1.5 shadow-sm">
@@ -200,13 +201,20 @@ export function CronPage() {
             </div>
           </div>
         ) : tasks.length === 0 ? (
-          <GlassCard variant="ghost" className="flex flex-col items-center justify-center py-16 text-center border-dashed">
+          <GlassCard
+            variant="ghost"
+            className="flex flex-col items-center justify-center py-16 text-center border-dashed"
+          >
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-4 animate-pulse">
               <Clock className="h-6 w-6" />
             </div>
             <h3 className="text-base font-semibold text-foreground">No scheduled tasks</h3>
             <p className="max-w-md text-sm text-muted-foreground mt-1 mb-6">
-              Remind yourself or trigger automated commands. Try chatting with AI: <span className="font-mono text-primary bg-primary/5 px-1 rounded">"Reminder to daily check database at 9am"</span>.
+              Remind yourself or trigger automated commands. Try chatting with AI:{' '}
+              <span className="font-mono text-primary bg-primary/5 px-1 rounded">
+                "Reminder to daily check database at 9am"
+              </span>
+              .
             </p>
             <Button size="sm" onClick={handleOpenCreateDialog} className="gap-1.5">
               <Plus className="h-4 w-4" />
@@ -275,17 +283,19 @@ export function CronPage() {
                             task.status === 'active'
                               ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                               : task.status === 'completed'
-                              ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
-                              : 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20'
+                                ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                                : 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20'
                           }`}
                         >
-                          <span className={`h-1.5 w-1.5 rounded-full ${
-                            task.status === 'active'
-                              ? 'bg-emerald-500 animate-pulse'
-                              : task.status === 'completed'
-                              ? 'bg-blue-500'
-                              : 'bg-zinc-500'
-                          }`} />
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              task.status === 'active'
+                                ? 'bg-emerald-500 animate-pulse'
+                                : task.status === 'completed'
+                                  ? 'bg-blue-500'
+                                  : 'bg-zinc-500'
+                            }`}
+                          />
                           {task.status}
                         </span>
                       </td>
@@ -340,7 +350,10 @@ export function CronPage() {
             {/* Mobile/Tablet Card View */}
             <div className="grid gap-3.5 lg:hidden">
               {tasks.map((task) => (
-                <GlassCard key={task.id} className="relative flex flex-col gap-3.5 border-border bg-card/30">
+                <GlassCard
+                  key={task.id}
+                  className="relative flex flex-col gap-3.5 border-border bg-card/30"
+                >
                   <div className="flex items-start justify-between">
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1.5">
@@ -348,11 +361,16 @@ export function CronPage() {
                           <Clock className="h-3 w-3 text-primary" />
                           {task.expression}
                         </div>
-                        <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-background/50">
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] py-0 px-1.5 bg-background/50"
+                        >
                           {task.target_agent || 'L1'}
                         </Badge>
                       </div>
-                      <span className="text-[10px] text-muted-foreground font-mono mt-0.5">{task.id}</span>
+                      <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        {task.id}
+                      </span>
                     </div>
 
                     <span
@@ -361,13 +379,19 @@ export function CronPage() {
                         task.status === 'active'
                           ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                           : task.status === 'completed'
-                          ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
-                          : 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20'
+                            ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                            : 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20'
                       }`}
                     >
-                      <span className={`h-1.5 w-1.5 rounded-full ${
-                        task.status === 'active' ? 'bg-emerald-500 animate-pulse' : task.status === 'completed' ? 'bg-blue-500' : 'bg-zinc-500'
-                      }`} />
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          task.status === 'active'
+                            ? 'bg-emerald-500 animate-pulse'
+                            : task.status === 'completed'
+                              ? 'bg-blue-500'
+                              : 'bg-zinc-500'
+                        }`}
+                      />
                       {task.status}
                     </span>
                   </div>
@@ -392,13 +416,17 @@ export function CronPage() {
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleToggleStatus(task)}
                         className="p-1.5 rounded bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        {task.status === 'active' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                        {task.status === 'active' ? (
+                          <Pause className="h-3.5 w-3.5" />
+                        ) : (
+                          <Play className="h-3.5 w-3.5" />
+                        )}
                       </button>
                       <button
                         onClick={() => handleOpenEditDialog(task)}
@@ -439,11 +467,15 @@ export function CronPage() {
               onChange={(e) => setExpression(e.target.value)}
             />
             <p className="text-[10px] text-muted-foreground/80 leading-relaxed -mt-2.5 px-0.5">
-              Supports standard 5-field cron (<code>m h dom mon dow</code>), shorthands (<code>daily</code>, <code>weekly</code>, <code>hourly</code>) or local absolute datetime (<code>YYYY-MM-DD HH:MM:SS</code>).
+              Supports standard 5-field cron (<code>m h dom mon dow</code>), shorthands (
+              <code>daily</code>, <code>weekly</code>, <code>hourly</code>) or local absolute
+              datetime (<code>YYYY-MM-DD HH:MM:SS</code>).
             </p>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Instruction Prompt *</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                Instruction Prompt *
+              </label>
               <textarea
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
@@ -468,7 +500,12 @@ export function CronPage() {
               <span />
             )}
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)} disabled={dialogSaving}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDialogOpen(false)}
+                disabled={dialogSaving}
+              >
                 Cancel
               </Button>
               <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving}>

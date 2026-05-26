@@ -16,9 +16,13 @@ import (
 func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 	out := make([]LLMMessage, 0, len(payload))
 	for _, p := range payload {
+		content := p.Content
+		if p.Role == "user" && !p.Timestamp.IsZero() {
+			content = fmt.Sprintf("[%s] %s", p.Timestamp.Format("2006-01-02 15:04:05"), p.Content)
+		}
 		out = append(out, LLMMessage{
 			Role:             p.Role,
-			Content:          p.Content,
+			Content:          content,
 			ReasoningContent: p.ReasoningContent,
 			Name:             p.Name,
 			ToolCallID:       p.ToolCallID,

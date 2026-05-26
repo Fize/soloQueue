@@ -24,7 +24,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Users, Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon } from 'lucide-react'
+import { MarkdownPreview } from '@/components/ui/markdown-preview'
+import { cn } from '@/lib/utils'
 
 // ─── Team Dialog ────────────────────────────────────────────────────────────
 
@@ -42,10 +44,13 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [teamTab, setTeamTab] = useState<'edit' | 'preview'>('preview')
+
   const isEdit = !!editTeam
 
   useEffect(() => {
     if (open) {
+      setTeamTab('preview')
       if (editTeam) {
         setName(editTeam.name)
         setDescription(editTeam.description || '')
@@ -106,11 +111,39 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
     }
   }
 
+  // Generate workspaces Markdown preview
+  let workspacesPreviewMD = '### Workspaces Configured\n\n'
+  if (workspacesJson.trim()) {
+    try {
+      const parsed = JSON.parse(workspacesJson)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed.forEach((ws: any, idx: number) => {
+          const wsName = ws.name || `Workspace #${idx + 1}`
+          const wsPath = ws.path || '*No path set*'
+          workspacesPreviewMD += `- **${wsName}**: \`${wsPath}\`\n`
+          if (ws.autoWork?.enabled) {
+            workspacesPreviewMD += `  - *AutoWork*: Cooldown: ${ws.autoWork.initialCooldownMinutes}m / Max: ${ws.autoWork.maxIntervalsPerDay} intervals/day\n`
+          }
+        })
+      } else {
+        workspacesPreviewMD += '*No workspaces configured.*'
+      }
+    } catch {
+      workspacesPreviewMD =
+        '⚠️ **Invalid JSON Format**\n\nPlease switch to **Edit** mode to correct the JSON syntax.'
+    }
+  } else {
+    workspacesPreviewMD += '*No workspaces configured yet.*'
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="md:max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Team' : 'Create Team'}</DialogTitle>
+          <div className="flex items-center gap-2">
+            <DialogTitle>{isEdit ? 'Edit Team' : 'Create Team'}</DialogTitle>
+            {isEdit && <Badge variant="outline">{editTeam?.name}</Badge>}
+          </div>
           <DialogDescription>
             {isEdit
               ? `Update team "${editTeam?.name}" details`
@@ -118,41 +151,90 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {!isEdit && (
-            <Input
-              label="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Team name"
-            />
-          )}
+        <div className="flex flex-col md:flex-row gap-6 my-2 text-left">
+          {/* Left Column: Info */}
+          <div className="flex-1 space-y-4">
+            {!isEdit && (
+              <Input
+                label="Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Team name"
+              />
+            )}
 
-          <div className="flex flex-col gap-1.5">
-            <Label>Description</Label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="flex w-full rounded-md border bg-transparent px-3 py-1.5 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 resize-y"
-              placeholder="Brief description of this team"
-            />
+            <div className="flex flex-col gap-1.5">
+              <Label>Description</Label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                className="flex w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/30 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
+                placeholder="Brief description of this team"
+              />
+            </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label>Workspaces (JSON array)</Label>
-            <textarea
-              value={workspacesJson}
-              onChange={(e) => setWorkspacesJson(e.target.value)}
-              rows={4}
-              className="flex w-full rounded-md border bg-[#1E1E2E] px-3 py-1.5 font-mono text-xs text-[#E5E7EB] transition-colors outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 resize-y"
-              placeholder='[{"name":"my-project","path":"~/code/my-project"}]'
-              spellCheck={false}
-            />
-          </div>
+          {/* Right Column: Workspaces JSON + Preview */}
+          <div className="flex-1 flex flex-col gap-3 min-h-[300px]">
+            <div className="flex items-center justify-between">
+              <Label className="font-semibold">Workspaces Configuration</Label>
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+              {/* Tab toggles */}
+              <div className="flex rounded-md bg-muted/60 p-0.5 border border-border">
+                <button
+                  type="button"
+                  onClick={() => setTeamTab('edit')}
+                  className={cn(
+                    'flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium transition-all',
+                    teamTab === 'edit'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <FileTextIcon className="h-3 w-3" />
+                  Edit JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTeamTab('preview')}
+                  className={cn(
+                    'flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium transition-all',
+                    teamTab === 'preview'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Eye className="h-3 w-3" />
+                  Preview
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 flex flex-col min-h-[220px]">
+              {teamTab === 'edit' ? (
+                <div className="flex flex-col gap-1.5 h-full">
+                  <textarea
+                    value={workspacesJson}
+                    onChange={(e) => setWorkspacesJson(e.target.value)}
+                    className="flex-1 w-full min-h-[220px] rounded-md border border-border bg-[#1E1E2E] px-3 py-2 font-mono text-xs text-[#E5E7EB] transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
+                    placeholder='[{"name":"my-project","path":"~/code/my-project"}]'
+                    spellCheck={false}
+                  />
+                  <p className="text-[10px] text-muted-foreground/80 leading-normal">
+                    Enter valid JSON array representing project workspace configurations.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 w-full min-h-[220px] max-h-[300px] overflow-y-auto rounded-md border border-border bg-muted/5 p-3 text-sm text-foreground prose prose-sm dark:prose-invert">
+                  <MarkdownPreview content={workspacesPreviewMD} />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
+
+        {error && <p className="text-xs text-destructive text-left">{error}</p>}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
@@ -199,10 +281,13 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [promptTab, setPromptTab] = useState<'edit' | 'preview'>('preview')
+
   const isEdit = !!editAgent
 
   useEffect(() => {
     if (open) {
+      setPromptTab('preview')
       if (editAgent) {
         setName(editAgent.name)
         setDescription(editAgent.description || '')
@@ -287,84 +372,167 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="md:max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Agent' : 'Create Agent'}</DialogTitle>
+          <div className="flex items-center gap-2">
+            <DialogTitle>{isEdit ? 'Edit Agent' : 'Create Agent'}</DialogTitle>
+            {isEdit && <Badge variant="outline">{editAgent?.name}</Badge>}
+          </div>
           <DialogDescription>
             {isEdit
-              ? `Update agent "${editAgent?.name}" configuration`
-              : 'Add a new agent to a team'}
+              ? `Configure settings and prompt rules for this agent`
+              : 'Configure and register a new team member'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {!isEdit && (
-            <Input
-              label="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Agent name"
-            />
-          )}
+        <div className="flex flex-col md:flex-row gap-6 my-2 text-left">
+          {/* Left Column: Settings */}
+          <div className="flex-1 space-y-4">
+            {!isEdit && (
+              <Input
+                label="Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Agent name"
+              />
+            )}
 
-          <Select label="Team" options={teamOptions} value={teamName} onChange={setTeamName} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select label="Team" options={teamOptions} value={teamName} onChange={setTeamName} />
+              <Input
+                label="Model Override"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="e.g. deepseek-chat"
+              />
+            </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label>Description</Label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="flex w-full rounded-md border bg-transparent px-3 py-1.5 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 resize-y"
-              placeholder="Brief description of this agent"
-            />
+            <div className="flex flex-col gap-1.5">
+              <Label>Description</Label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="flex w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/30 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
+                placeholder="Brief description of this agent's capabilities"
+              />
+            </div>
+
+            {/* Switches in visual cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/10">
+                <div className="flex items-center justify-between">
+                  <Label
+                    className="text-xs font-semibold cursor-pointer"
+                    htmlFor="is-leader-switch"
+                  >
+                    Is Leader
+                  </Label>
+                  <Switch id="is-leader-switch" checked={isLeader} onCheckedChange={setIsLeader} />
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-normal">
+                  Orchestrates tasks, plans, and delegates to worker sub-agents.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/10">
+                <div className="flex items-center justify-between">
+                  <Label
+                    className="text-xs font-semibold cursor-pointer"
+                    htmlFor="permission-switch"
+                  >
+                    Bypass Confirm
+                  </Label>
+                  <Switch
+                    id="permission-switch"
+                    checked={permission}
+                    onCheckedChange={setPermission}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-normal">
+                  Skip confirmation dialogs when running tools (automatic execution).
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="MCP Servers (comma-separated)"
+                value={mcpServersInput}
+                onChange={(e) => setMcpServersInput(e.target.value)}
+                placeholder="server1, server2"
+              />
+              <Input
+                label="Skill IDs (comma-separated)"
+                value={skillIdsInput}
+                onChange={(e) => setSkillIdsInput(e.target.value)}
+                placeholder="skill-id-1, skill-id-2"
+              />
+            </div>
           </div>
 
-          <Input
-            label="Model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="e.g. deepseek-chat"
-          />
+          {/* Right Column: System Prompt & Markdown Preview */}
+          <div className="flex-1 flex flex-col gap-3 min-h-[350px]">
+            <div className="flex items-center justify-between">
+              <Label className="font-semibold">System Prompt</Label>
 
-          <div className="flex items-center justify-between">
-            <Label>Is Leader</Label>
-            <Switch checked={isLeader} onCheckedChange={setIsLeader} />
+              {/* Tab toggles */}
+              <div className="flex rounded-md bg-muted/60 p-0.5 border border-border">
+                <button
+                  type="button"
+                  onClick={() => setPromptTab('edit')}
+                  className={cn(
+                    'flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium transition-all',
+                    promptTab === 'edit'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <FileTextIcon className="h-3 w-3" />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPromptTab('preview')}
+                  className={cn(
+                    'flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium transition-all',
+                    promptTab === 'preview'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Eye className="h-3 w-3" />
+                  Preview
+                </button>
+              </div>
+            </div>
+
+            {/* Prompt Editor/Preview Area */}
+            <div className="flex-1 flex flex-col min-h-[300px]">
+              {promptTab === 'edit' ? (
+                <textarea
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                  className="flex-1 w-full min-h-[300px] rounded-md border border-border bg-[#1E1E2E] px-3 py-2 font-mono text-xs text-[#E5E7EB] transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
+                  placeholder="Paste or write the system instructions here..."
+                  spellCheck={false}
+                />
+              ) : (
+                <div className="flex-1 w-full min-h-[300px] max-h-[400px] overflow-y-auto rounded-md border border-border bg-muted/5 p-3 text-sm text-foreground prose prose-sm dark:prose-invert">
+                  {systemPrompt.trim() ? (
+                    <MarkdownPreview content={systemPrompt} />
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">
+                      No prompt instructions entered yet.
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-
-          <div className="flex items-center justify-between">
-            <Label>Permission (bypass confirm)</Label>
-            <Switch checked={permission} onCheckedChange={setPermission} />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>System Prompt</Label>
-            <textarea
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              rows={4}
-              className="flex w-full rounded-md border bg-[#1E1E2E] px-3 py-1.5 font-mono text-xs text-[#E5E7EB] transition-colors outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 resize-y"
-              placeholder="System prompt for this agent"
-              spellCheck={false}
-            />
-          </div>
-
-          <Input
-            label="MCP Servers (comma-separated)"
-            value={mcpServersInput}
-            onChange={(e) => setMcpServersInput(e.target.value)}
-            placeholder="server1, server2"
-          />
-
-          <Input
-            label="Skill IDs (comma-separated)"
-            value={skillIdsInput}
-            onChange={(e) => setSkillIdsInput(e.target.value)}
-            placeholder="skill-id-1, skill-id-2"
-          />
-
-          {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
+
+        {error && <p className="text-xs text-destructive text-left">{error}</p>}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
