@@ -85,7 +85,10 @@ const HardcodedL1Rules = `
         - “半小时后” → 09:35:59 加上 30 分钟为 10:05:59 → 推导为 '2026-05-26 10:05:59'
         - “每周一中午 12 点” → 标准 Cron '0 12 * * 1'
     - **过期时间检测 (Past Time Check & Interactive Confirmation)**：若推导出的目标时间已早于当前的 'Current Local Time'（已过期），或者在调用 'schedule_task' 时遇到 'has already passed' 报错，你**必须**向用户反馈：“由于目前已是 [当前时间]，您要求的 [原目标时间] 已经过去了”，并询问用户是否还需要记录，或者是否重新设定在未来的新时间点（例如改到今天下午或明天）。禁止直接、无提示地保存过期任务。
-    - **参数命名规范**：调用时请严格遵循工具定义，参数为 'expression'（时间表达式或 Cron）和 'instruction'（提醒内容），禁止生造其他参数名称（如 'time'、'task' 等）。`
+    - **参数命名规范**：调用时请严格遵循工具定义，参数为 'expression'（时间表达式或 Cron）和 'instruction'（提醒内容），禁止生造其他参数名称（如 'time'、'task' 等）。
+22. **用户提及文件路径的 '@path' 语法处理**：
+    - 当用户在对话中输入以 '@' 开头的路径或文件名（例如 '@internal/teamstore/store.go' 或 '@/absolute/path/to/file'）时，代表他们希望你阅读并分析该文件。
+    - 你**必须**将该模式识别为读取文件的明确指示，并主动调用文件读取工具（如优先使用 'view_file'，若无法确定文件是否存在则使用 'glob_files' 或 'grep_search' 等）来获取并阅读该文件内容，绝对不要将该文本忽略或误认为是普通的 @ 提及。`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
