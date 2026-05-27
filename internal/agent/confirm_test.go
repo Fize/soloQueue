@@ -531,7 +531,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 	writeTool := newFakeTool("Write")
 	delegateTool := newFakeTool("delegate_task")
 	skillTool := newFakeTool("Skill")
-	planTool := newFakeTool("CreatePlan")
+	planTool := newFakeTool("ManageIssue")
 
 	fake := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
@@ -577,7 +577,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 			hasDelegate = true
 		case "Skill":
 			hasSkill = true
-		case "CreatePlan":
+		case "ManageIssue":
 			hasPlan = true
 		}
 	}

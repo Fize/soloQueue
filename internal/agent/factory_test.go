@@ -822,10 +822,10 @@ func TestL2EnforcedDirectives_ContainsPlanBeforeExecutionRule(t *testing.T) {
 	}
 }
 
-func TestL2EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
-	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan
-	if !strings.Contains(combined, "{{PLAN_DIR}}") {
-		t.Error("L2 enforced directives should contain '{{PLAN_DIR}}' placeholder")
+func TestL2EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
+	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan + l2EnforcedExplorationSection
+	if !strings.Contains(combined, "{{EXPLORE_DIR}}") {
+		t.Error("L2 enforced directives should contain '{{EXPLORE_DIR}}' placeholder")
 	}
 }
 
@@ -852,10 +852,10 @@ func TestL3EnforcedDirectives_ContainsFollowThePlanRule(t *testing.T) {
 	}
 }
 
-func TestL3EnforcedDirectives_ContainsPlanDirPlaceholder(t *testing.T) {
-	combined := l3EnforcedDirectives + l3EnforcedPostPlan
-	if !strings.Contains(combined, "{{PLAN_DIR}}") {
-		t.Error("L3 enforced directives should contain '{{PLAN_DIR}}' placeholder")
+func TestL3EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
+	combined := l3EnforcedDirectives + l3EnforcedPostPlan + l3EnforcedExplorationSection
+	if !strings.Contains(combined, "{{EXPLORE_DIR}}") {
+		t.Error("L3 enforced directives should contain '{{EXPLORE_DIR}}' placeholder")
 	}
 }
 
@@ -877,7 +877,7 @@ func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 
 // ─── buildL2SystemPrompt / buildL3SystemPrompt: plan-related tests ────────
 
-func TestBuildL2SystemPrompt_ContainsPlanDirPath(t *testing.T) {
+func TestBuildL2SystemPrompt_ContainsExploreDirPath(t *testing.T) {
 	devTmpl := AgentTemplate{
 		ID:           "dev",
 		Name:         "Dev",
@@ -893,12 +893,12 @@ func TestBuildL2SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 
 	groups := map[string]prompt.GroupFile{}
 
-	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
+	exploreDir := "/home/user/.soloqueue/explore"
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", exploreDir, nil, false)
 
-	// 验证 L2 prompt 中包含 plan 目录路径
-	if !strings.Contains(prompt, "/home/user/.soloqueue/plan") {
-		t.Errorf("L2 prompt should contain plan directory path %q", planDir)
+	// 验证 L2 prompt 中包含 explore 目录路径
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Errorf("L2 prompt should contain explore directory path %q", exploreDir)
 	}
 }
 
@@ -986,8 +986,8 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	if !strings.Contains(prompt, "Follow the Plan") {
 		t.Error("L3 prompt should contain 'Follow the Plan' rule")
 	}
-	if !strings.Contains(prompt, "PLAN_ID") {
-		t.Error("L3 prompt should contain PLAN_ID requirement")
+	if !strings.Contains(prompt, "ISSUE_ID") {
+		t.Error("L3 prompt should contain ISSUE_ID requirement")
 	}
 
 	// 验证 L3 prompt 中包含 Exploration Artifacts 规则
@@ -1002,7 +1002,7 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	}
 }
 
-func TestBuildL3SystemPrompt_ContainsPlanDirPath(t *testing.T) {
+func TestBuildL3SystemPrompt_ContainsExploreDirPath(t *testing.T) {
 	tmpl := AgentTemplate{
 		ID:           "backend",
 		Name:         "Backend",
@@ -1010,12 +1010,12 @@ func TestBuildL3SystemPrompt_ContainsPlanDirPath(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+	exploreDir := "/home/user/.soloqueue/explore"
+	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", exploreDir, false)
 
-	// 验证 L3 prompt 中包含 plan 目录路径
-	if !strings.Contains(prompt, "/home/user/.soloqueue/plan") {
-		t.Errorf("L3 prompt should contain plan directory path, got: %s", prompt)
+	// 验证 L3 prompt 中包含 explore 目录路径
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Errorf("L3 prompt should contain explore directory path, got: %s", prompt)
 	}
 }
 

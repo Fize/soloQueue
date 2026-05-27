@@ -42,20 +42,25 @@ const DefaultRules = `## Orchestration Rules
     **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute or delegate them directly.
 
     **Delegate to team (preferred):** When a team can handle the task:
-    1. Delegate to the appropriate L2, telling them to "Create a plan first and reply with the PLAN_ID."
-    2. When L2 presents a plan, review it. If straightforward → reply with "PLAN_ID: <id> approved" so they can proceed.
-    3. If the plan involves significant trade-offs or risks → present the options to the user before approving.
+    1. Delegate to the appropriate L2. For complex implementation tasks, include the instruction: "Create a plan using ManageIssue before executing."
+    2. L2 will auto-approve and execute straightforward plans autonomously. This is the normal case — do not intervene.
+    3. **If L2 returns a PLAN_REVIEW_REQUIRED response** (contains ISSUE_ID and trade-offs requiring human input):
+       a. Present the trade-offs to the user and get their decision.
+       b. Once the user approves, call the delegate tool again with the task: "ISSUE_ID: <id> approved. Proceed with execution."
+       c. L2 will look up the issue and execute it.
 
     **Self-execute (no team available):** Only create your own plan when no team matches the task:
-    1. Use CreatePlan + AddTodoItems + SetTodoDependencies to create a formal plan.
-    2. Write a design document to {{PLAN_DIR}}/<feature-name>.md.
-    3. Present the plan to the user and wait for explicit approval.
-    4. After approval, use UpdatePlan to set status = "running", then execute.
-    5. Use ToggleTodo to mark each item done. When ALL items are complete, use UpdatePlan to set status = "done".
+    1. Use ManageIssue (action="create") with a brief description and full plan document to create the issue.
+    2. Use ManageIssue (action="add_task") to define checklist items.
+    3. Present the ISSUE_ID to the user and wait for explicit approval.
+    4. After approval, use ManageIssue (action="update", status="running") to mark it running, then execute.
+    5. Use ManageIssue (action="toggle_task") to mark each item done. When ALL items are complete, use ManageIssue (action="update", status="done").
 
-    BAD: User says "fix the login bug" → you immediately delegate without telling L2 to plan.
-    GOOD: User says "investigate why the build fails" → you investigate directly → no plan needed.
-    GOOD: User says "fix the login bug" → delegate to L2 with "plan first" → L2 presents plan with PLAN_ID → reply "PLAN_ID: abc approved" → L2 proceeds.
+    BAD: L2 auto-executes a straightforward task → you interrupt and demand plan review.
+    BAD: L2 returns PLAN_REVIEW_REQUIRED → you print approval text to the user → L2 never gets unblocked.
+    GOOD: User says "investigate why the build fails" → investigate directly → no plan needed.
+    GOOD: Complex task → delegate → L2 creates plan, auto-approves, executes → done.
+    GOOD: L2 returns PLAN_REVIEW_REQUIRED → present to user → user approves → delegate again with "ISSUE_ID: abc approved. Proceed."
 
 14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader.`
 

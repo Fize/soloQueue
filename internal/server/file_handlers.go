@@ -204,10 +204,7 @@ type FileRoot struct {
 // handleGetFileRoots returns all configured browse roots:
 // global Plan directory + each group's workspace directories.
 func (m *Mux) handleGetFileRoots(w http.ResponseWriter, r *http.Request) {
-	planDir := filepath.Join(m.workDir, "plan")
-	roots := []FileRoot{
-		{Label: "Plan", Path: planDir, Group: ""},
-	}
+	roots := []FileRoot{}
 
 	groups := m.reloadGroups()
 	for key, gf := range groups {

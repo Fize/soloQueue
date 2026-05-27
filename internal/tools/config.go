@@ -184,15 +184,7 @@ func Build(cfg Config) []Tool {
 	}
 	if cfg.TodoStore != nil {
 		tools = append(tools,
-			newCreatePlanTool(cfg),
-			newUpdatePlanTool(cfg),
-			newDeletePlanTool(cfg),
-			newAddTodoItemsTool(cfg),
-			newDeleteTodoItemsTool(cfg),
-			newToggleTodoTool(cfg),
-			newSetTodoDependenciesTool(cfg),
-			newListPlansTool(cfg),
-			newGetPlanTool(cfg),
+			newManageIssueTool(cfg),
 		)
 	}
 	if cfg.CronStore != nil && cfg.CronScheduler != nil {

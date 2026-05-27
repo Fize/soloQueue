@@ -57,8 +57,8 @@ function App() {
               <Route path="/" element={<AgentListPage />} />
               <Route path="/agents" element={<AgentListPage />} />
               <Route path="/agents/:id" element={<AgentDetailPage />} />
-              <Route path="/plans" element={<PlansPage />} />
-              <Route path="/plans/:id" element={<PlanDetail />} />
+              <Route path="/kanban" element={<PlansPage />} />
+              <Route path="/kanban/:id" element={<PlanDetail />} />
               <Route path="/files" element={<FilesPage />} />
               <Route path="/cron" element={<CronPage />} />
               <Route path="/settings" element={<SettingsLayout />}>

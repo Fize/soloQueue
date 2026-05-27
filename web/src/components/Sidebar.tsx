@@ -24,7 +24,7 @@ import {
 
 const mainNav = [
   { to: '/', icon: Bot, label: 'Agents' },
-  { to: '/plans', icon: Kanban, label: 'Plans' },
+  { to: '/kanban', icon: Kanban, label: 'Kanban' },
   { to: '/files', icon: FolderOpen, label: 'Files' },
   { to: '/cron', icon: Clock, label: 'Cron Tasks' },
 ]
