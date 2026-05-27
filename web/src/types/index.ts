@@ -348,6 +348,7 @@ export type SkillCategory = 'builtin' | 'user'
 
 export interface SkillInfo {
   id: string
+  name: string
   description: string
   when_to_use: string
   category: SkillCategory
@@ -357,6 +358,9 @@ export interface SkillInfo {
   agent: string
   file_path: string
   allowed_tools: string[]
+  triggers?: string[]
+  enabled?: boolean
+  body?: string
 }
 
 export interface SkillListResponse {

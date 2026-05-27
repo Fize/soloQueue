@@ -7,6 +7,7 @@ help: ## Show this help
 build-web: ## Build web UI (Vite + TypeScript + copy dist)
 	cd web && pnpm build
 	rm -rf internal/server/dist && cp -r web/dist internal/server/dist
+	cp -r skills internal/server/dist/skills
 
 build: build-web ## Full build: web + Go binary
 	go build -o soloqueue ./cmd/soloqueue
