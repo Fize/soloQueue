@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 5
+const currentSchemaVersion = 7
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -43,13 +43,15 @@ func Open(path string) (*DB, error) {
 	// WAL for concurrent readers + busy_timeout so competing writers wait
 	// rather than returning SQLITE_BUSY immediately. foreign_keys=ON is
 	// required for ON DELETE CASCADE on todo_dependencies / todo_items.
-	dsn := path + "?_journal_mode=WAL&_foreign_keys=ON&_busy_timeout=5000"
+	dsn := path + "?_journal_mode=WAL&_foreign_keys=ON&_busy_timeout=5000&_pragma=synchronous(normal)&_txlock=immediate"
 	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitedb: open: %w", err)
 	}
-	// Keep the pool small; SQLite writes are serialized anyway.
-	raw.SetMaxOpenConns(4)
+	// Optimize pool settings: allow up to 100 conns, keep up to 10 idle conns warm.
+	raw.SetMaxOpenConns(100)
+	raw.SetMaxIdleConns(10)
+	raw.SetConnMaxLifetime(0)
 
 	db := &DB{DB: raw}
 	if err := db.migrate(); err != nil {
@@ -211,6 +213,56 @@ func (d *DB) migrate() error {
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON llm_models(provider_id);
+		`,
+
+		// v5 -> v6: migrate plans/todo tables to issue/todo_items with status check, plan column, and comments
+		`
+		ALTER TABLE plans RENAME TO old_plans;
+		CREATE TABLE IF NOT EXISTS issue (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			plan TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'backlog' CHECK(status IN ('backlog','todo','running','done')),
+			tags TEXT NOT NULL DEFAULT '',
+			creator TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		INSERT INTO issue (id, title, plan, status, tags, creator, created_at, updated_at)
+		SELECT id, title, content, CASE WHEN status = 'plan' THEN 'todo' ELSE status END, tags, creator, created_at, updated_at FROM old_plans;
+		DROP TABLE old_plans;
+
+		ALTER TABLE todo_items RENAME TO old_todo_items;
+		CREATE TABLE IF NOT EXISTS todo_items (
+			id TEXT PRIMARY KEY,
+			issue_id TEXT NOT NULL REFERENCES issue(id) ON DELETE CASCADE,
+			content TEXT NOT NULL,
+			completed INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL
+		);
+		INSERT INTO todo_items (id, issue_id, content, completed, sort_order, created_at)
+		SELECT id, plan_id, content, completed, sort_order, created_at FROM old_todo_items;
+		DROP TABLE old_todo_items;
+
+		CREATE INDEX IF NOT EXISTS idx_todo_issue ON todo_items(issue_id);
+		CREATE INDEX IF NOT EXISTS idx_issue_status ON issue(status);
+
+		CREATE TABLE IF NOT EXISTS issue_comments (
+			id TEXT PRIMARY KEY,
+			issue_id TEXT NOT NULL REFERENCES issue(id) ON DELETE CASCADE,
+			author TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_issue_comments_issue_id ON issue_comments(issue_id);
+		`,
+
+		// v6 -> v7: add description column to issue table and restore content/plan separation
+		`
+		ALTER TABLE issue ADD COLUMN description TEXT NOT NULL DEFAULT '';
+		UPDATE issue SET description = plan;
+		UPDATE issue SET plan = '';
 		`,
 	}
 

@@ -12,7 +12,8 @@ interface PlanCreateDialogProps {
 }
 
 const statusOptions = [
-  { value: 'plan', label: 'Plan' },
+  { value: 'backlog', label: 'Backlog' },
+  { value: 'todo', label: 'Todo' },
   { value: 'running', label: 'Running' },
   { value: 'done', label: 'Done' },
 ]
@@ -20,9 +21,10 @@ const statusOptions = [
 export function PlanCreateDialog({ open, onClose }: PlanCreateDialogProps) {
   const createPlan = usePlanStore((s) => s.createPlan)
   const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
+  const [description, setDescription] = useState('')
+  const [plan, setPlan] = useState('')
   const [tags, setTags] = useState('')
-  const [status, setStatus] = useState('plan')
+  const [status, setStatus] = useState('backlog')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,15 +38,17 @@ export function PlanCreateDialog({ open, onClose }: PlanCreateDialogProps) {
     try {
       await createPlan({
         title: title.trim(),
-        content: content.trim() || undefined,
+        description: description.trim() || undefined,
+        plan: plan.trim() || undefined,
         tags: tags.trim() || undefined,
         status,
         creator: 'user',
       })
       setTitle('')
-      setContent('')
+      setDescription('')
+      setPlan('')
       setTags('')
-      setStatus('plan')
+      setStatus('backlog')
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create plan')
@@ -56,9 +60,10 @@ export function PlanCreateDialog({ open, onClose }: PlanCreateDialogProps) {
   function handleClose() {
     if (saving) return
     setTitle('')
-    setContent('')
+    setDescription('')
+    setPlan('')
     setTags('')
-    setStatus('plan')
+    setStatus('backlog')
     setError(null)
     onClose()
   }
@@ -69,26 +74,39 @@ export function PlanCreateDialog({ open, onClose }: PlanCreateDialogProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Plus className="h-4 w-4" />
-            New Plan
+            New Issue
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <Input
             label="Title *"
-            placeholder="Plan title"
+            placeholder="Issue title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             error={error ?? undefined}
           />
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Content</label>
+            <label className="text-xs font-medium text-muted-foreground">Description</label>
             <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Markdown content (optional)"
-              rows={6}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Brief description (optional)"
+              rows={3}
+              className="w-full resize-y rounded-md border border-border bg-transparent px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Plan Document (Markdown)
+            </label>
+            <textarea
+              value={plan}
+              onChange={(e) => setPlan(e.target.value)}
+              placeholder="Markdown plan / design doc (optional)"
+              rows={5}
               className="w-full resize-y rounded-md border border-border bg-transparent px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50"
             />
           </div>

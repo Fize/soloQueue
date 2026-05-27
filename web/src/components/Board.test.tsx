@@ -28,7 +28,7 @@ const mockPlans: Plan[] = [
     id: 'p1',
     title: 'Plan A',
     content: '',
-    status: 'plan',
+    status: 'todo',
     tags: '',
     creator: 'user',
     created_at: '2024-01-01T00:00:00Z',
@@ -76,14 +76,14 @@ beforeEach(() => {
 describe('Board', () => {
   it('renders columns with correct plan counts', () => {
     render(<Board />)
-    expect(screen.getByText('Plans Board')).toBeInTheDocument()
-    expect(screen.getByText('New Plan')).toBeInTheDocument()
+    expect(screen.getByText('Kanban Board')).toBeInTheDocument()
+    expect(screen.getByText('New Issue')).toBeInTheDocument()
   })
 
-  it('opens create dialog on New Plan click', async () => {
+  it('opens create dialog on New Issue click', async () => {
     const user = userEvent.setup()
     render(<Board />)
-    await user.click(screen.getByText('New Plan'))
+    await user.click(screen.getByText('New Issue'))
     expect(screen.getByTestId('plan-create-dialog')).toBeInTheDocument()
   })
 
@@ -102,11 +102,33 @@ describe('Board', () => {
     expect(screen.getByText('Retry')).toBeInTheDocument()
   })
 
-  it('navigates to plan detail when a plan card is clicked', async () => {
+  it('navigates to plan detail on mobile when a plan card is clicked', async () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 500 })
     const user = userEvent.setup()
     render(<Board />)
     const planCard = screen.getAllByText(/Plan [ABC]/)
     await user.click(planCard[0])
-    expect(mockNavigate).toHaveBeenCalledWith('/plans/p1')
+    expect(mockNavigate).toHaveBeenCalledWith('/kanban/p1')
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: originalWidth,
+    })
+  })
+
+  it('opens detail dialog on desktop when a plan card is clicked', async () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1024 })
+    const user = userEvent.setup()
+    render(<Board />)
+    const planCard = screen.getAllByText(/Plan [ABC]/)
+    await user.click(planCard[0])
+    expect(mockNavigate).not.toHaveBeenCalled()
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: originalWidth,
+    })
   })
 })

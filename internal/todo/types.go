@@ -15,11 +15,12 @@ import "time"
 
 // ─── Domain Types ──────────────────────────────────────────────────────────
 
-// PlanStatus represents the lifecycle state of a plan.
+// PlanStatus represents the lifecycle state of a plan (now issue).
 type PlanStatus string
 
 const (
-	StatusPlan    PlanStatus = "plan"
+	StatusBacklog PlanStatus = "backlog"
+	StatusTodo    PlanStatus = "todo"
 	StatusRunning PlanStatus = "running"
 	StatusDone    PlanStatus = "done"
 )
@@ -27,25 +28,36 @@ const (
 // ValidPlanStatus checks whether a status string is a valid PlanStatus.
 func ValidPlanStatus(s string) bool {
 	switch PlanStatus(s) {
-	case StatusPlan, StatusRunning, StatusDone:
+	case StatusBacklog, StatusTodo, StatusRunning, StatusDone:
 		return true
 	}
 	return false
 }
 
-// Plan is a task plan with embedded todo items.
+// Comment is a comment on an issue.
+type Comment struct {
+	ID        string    `json:"id"`
+	IssueID   string    `json:"issue_id"`
+	Author    string    `json:"author"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Plan is a task plan (now issue) with embedded todo items.
 type Plan struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Content   string     `json:"content"`
-	Status    PlanStatus `json:"status"`
-	Tags      string     `json:"tags"` // comma-separated, e.g. "bug,frontend"
-	Creator   string     `json:"creator"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID          string     `json:"id"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Plan        string     `json:"plan"`
+	Status      PlanStatus `json:"status"`
+	Tags        string     `json:"tags"` // comma-separated, e.g. "bug,frontend"
+	Creator     string     `json:"creator"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 
 	// Populated on detail queries
 	TodoItems []TodoItemWithDeps `json:"todo_items,omitempty"`
+	Comments  []Comment          `json:"comments,omitempty"`
 }
 
 // TodoItem is a single checkable item within a plan.
@@ -69,20 +81,22 @@ type TodoItemWithDeps struct {
 
 // CreatePlanRequest is the input for creating a new plan.
 type CreatePlanRequest struct {
-	Title     string              `json:"title"`
-	Content   string              `json:"content,omitempty"`
-	Status    string              `json:"status,omitempty"`
-	Tags      string              `json:"tags,omitempty"`
-	Creator   string              `json:"creator,omitempty"`
-	TodoItems []CreateTodoRequest `json:"todo_items,omitempty"`
+	Title       string              `json:"title"`
+	Description string              `json:"description,omitempty"`
+	Plan        string              `json:"plan,omitempty"`
+	Status      string              `json:"status,omitempty"`
+	Tags        string              `json:"tags,omitempty"`
+	Creator     string              `json:"creator,omitempty"`
+	TodoItems   []CreateTodoRequest `json:"todo_items,omitempty"`
 }
 
 // UpdatePlanRequest is the input for updating an existing plan.
 type UpdatePlanRequest struct {
-	Title   *string `json:"title,omitempty"`
-	Content *string `json:"content,omitempty"`
-	Status  *string `json:"status,omitempty"`
-	Tags    *string `json:"tags,omitempty"`
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Plan        *string `json:"plan,omitempty"`
+	Status      *string `json:"status,omitempty"`
+	Tags        *string `json:"tags,omitempty"`
 }
 
 // CreateTodoRequest is the input for creating todo items.

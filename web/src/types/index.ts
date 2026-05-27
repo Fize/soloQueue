@@ -1,15 +1,26 @@
-export type PlanStatus = 'plan' | 'running' | 'done'
+export type PlanStatus = 'backlog' | 'todo' | 'running' | 'done'
+
+export interface Comment {
+  id: string
+  issue_id: string
+  author: string
+  content: string
+  created_at: string
+}
 
 export interface Plan {
   id: string
   title: string
-  content: string
+  description: string
+  plan: string
+  content?: string
   status: PlanStatus
   tags: string
   creator: string
   created_at: string
   updated_at: string
   todo_items?: TodoItemWithDeps[]
+  comments?: Comment[]
 }
 
 export interface TodoItemWithDeps {
@@ -30,6 +41,8 @@ export interface PlanListResponse {
 
 export interface CreatePlanRequest {
   title: string
+  description?: string
+  plan?: string
   content?: string
   status?: string
   tags?: string
@@ -38,6 +51,8 @@ export interface CreatePlanRequest {
 
 export interface UpdatePlanRequest {
   title?: string
+  description?: string
+  plan?: string
   content?: string
   status?: string
   tags?: string

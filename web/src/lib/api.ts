@@ -2,6 +2,7 @@ import type {
   Plan,
   PlanListResponse,
   PlanStatus,
+  Comment,
   CreatePlanRequest,
   UpdatePlanRequest,
   TodoItemWithDeps,
@@ -64,49 +65,62 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 // ─── Plan APIs ────────────────────────────────────────────────────────────────
 
 export async function listPlans(): Promise<Plan[]> {
-  const data = await request<PlanListResponse>('/plans')
+  const data = await request<PlanListResponse>('/issues')
   return data.plans ?? []
 }
 
 export async function getPlan(id: string): Promise<Plan> {
-  return request<Plan>(`/plans/${id}`)
+  return request<Plan>(`/issues/${id}`)
 }
 
 export async function updatePlanStatus(id: string, status: PlanStatus): Promise<Plan> {
-  return request<Plan>(`/plans/${id}/status`, {
+  return request<Plan>(`/issues/${id}/status`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
   })
 }
 
 export async function createPlan(data: CreatePlanRequest): Promise<Plan> {
-  return request<Plan>('/plans', {
+  return request<Plan>('/issues', {
     method: 'POST',
     body: JSON.stringify(data),
   })
 }
 
 export async function updatePlan(id: string, data: UpdatePlanRequest): Promise<Plan> {
-  return request<Plan>(`/plans/${id}`, {
+  return request<Plan>(`/issues/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   })
 }
 
 export async function deletePlan(id: string): Promise<void> {
-  await request(`/plans/${id}`, { method: 'DELETE' })
+  await request(`/issues/${id}`, { method: 'DELETE' })
+}
+
+// ─── Comments APIs ────────────────────────────────────────────────────────────
+
+export async function addComment(issueId: string, content: string): Promise<Comment> {
+  return request<Comment>(`/issues/${issueId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  })
+}
+
+export async function listComments(issueId: string): Promise<Comment[]> {
+  return request<Comment[]>(`/issues/${issueId}/comments`)
 }
 
 // ─── Todo APIs ────────────────────────────────────────────────────────────────
 
 export async function toggleTodo(planId: string, todoId: string): Promise<TodoItemWithDeps> {
-  return request<TodoItemWithDeps>(`/plans/${planId}/todos/${todoId}/toggle`, {
+  return request<TodoItemWithDeps>(`/issues/${planId}/todos/${todoId}/toggle`, {
     method: 'PATCH',
   })
 }
 
 export async function deleteTodo(planId: string, todoId: string): Promise<void> {
-  await request(`/plans/${planId}/todos/${todoId}`, { method: 'DELETE' })
+  await request(`/issues/${planId}/todos/${todoId}`, { method: 'DELETE' })
 }
 
 // ─── Agent APIs ───────────────────────────────────────────────────────────────

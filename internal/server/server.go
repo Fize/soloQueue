@@ -252,8 +252,8 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	// Health check
 	r.Get("/healthz", m.handleHealth)
 
-	// Plan routes (full CRUD)
-	r.Route("/api/plans", func(r chi.Router) {
+	// Issue / Kanban routes (full CRUD)
+	r.Route("/api/issues", func(r chi.Router) {
 		r.Get("/", m.handleListPlans)
 		r.Post("/", m.handleCreatePlan)
 		r.Route("/{id}", func(r chi.Router) {
@@ -261,6 +261,12 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 			r.Put("/", m.handleUpdatePlan)
 			r.Delete("/", m.handleDeletePlan)
 			r.Patch("/status", m.handleUpdatePlanStatus)
+
+			// Comments routes
+			r.Route("/comments", func(r chi.Router) {
+				r.Get("/", m.handleListComments)
+				r.Post("/", m.handleCreateComment)
+			})
 
 			// Todo item routes (read / update / delete only)
 			r.Route("/todos", func(r chi.Router) {
@@ -676,4 +682,44 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ─── Comments Handlers ──────────────────────────────────────────────────────
+
+func (m *Mux) handleListComments(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	issueID := chi.URLParam(r, "id")
+	svc := todo.NewService(m.todoStore)
+	comments, err := svc.ListComments(r.Context(), issueID)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, comments)
+}
+
+func (m *Mux) handleCreateComment(w http.ResponseWriter, r *http.Request) {
+	if m.todoStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "todo system not available"})
+		return
+	}
+	issueID := chi.URLParam(r, "id")
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	svc := todo.NewService(m.todoStore)
+	// User-initiated comment: hardcode author as "user"
+	comment, err := svc.AddComment(r.Context(), issueID, "user", req.Content)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusCreated, comment)
 }

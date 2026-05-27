@@ -13,13 +13,15 @@ interface PlanCardProps {
 }
 
 const statusIcon = {
-  plan: Circle,
+  backlog: Circle,
+  todo: Circle,
   running: Clock,
   done: CheckCircle2,
 }
 
 const statusColor = {
-  plan: 'text-[#635BFF]',
+  backlog: 'text-[#A8A8A8]',
+  todo: 'text-[#635BFF]',
   running: 'text-[#FFB020]',
   done: 'text-[#00D924]',
 }

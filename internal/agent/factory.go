@@ -651,19 +651,18 @@ const l2EnforcedPlanSection = `
 **For implementation tasks:**
 1. Assess complexity:
    - **Simple task** (single file, narrow change) → delegate directly to L3. L3 will self-plan if needed.
-    - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan (steps 2-13).
-2. Use CreatePlan to create a plan. Set its content to the absolute path of the design document.
-3. Use AddTodoItems + SetTodoDependencies to define concrete steps with dependency relationships. You MUST set dependencies correctly — they drive the execution order.
-4. Write the design document to {{PLAN_DIR}}/<feature-name>.md. It MUST contain: Goal, Approach, Impact, and Steps.
-5. Present the plan to L1. **MUST include PLAN_ID: <id> in your response.** L1 will reply "PLAN_ID: <id> approved" when ready.
-6. After approval, parse the PLAN_ID from L1's reply. If no PLAN_ID found → use ListPlans to find your plan (status="plan"). Then UpdatePlan to "running".
+   - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan (steps 2-12).
+2. Use ManageIssue with action="create" to create a new issue. Record the detailed plan/design (Goal, Approach, Impact, Steps) in the "plan" parameter.
+3. Use ManageIssue with action="add_task" to define concrete steps with dependency relationships. You MUST set dependencies correctly — they drive the execution order.
+4. Present the plan to L1. **MUST include ISSUE_ID: <id> in your response.** L1 will reply "ISSUE_ID: <id> approved" when ready.
+5. After approval, parse the ISSUE_ID from L1's reply. If no ISSUE_ID found → use ManageIssue with action="list" and status="todo" to find it. Then update status to "running" using ManageIssue with action="update".
 
 **Execution loop — you MUST follow these steps EXACTLY in order, no skipping:**
 
-7. Read the plan's todos and their dependencies (use ListTodos or ListPlans).
+6. Read the issue's tasks and their dependencies (use ManageIssue with action="get").
    You MUST check dependencies — they determine what can run in parallel.
-8. Identify ALL todos whose dependencies are satisfied (no uncompleted blockers).
-9. CRITICAL — Delegate ALL identified todos IN PARALLEL in a SINGLE turn.
+7. Identify ALL tasks whose dependencies are satisfied (no uncompleted blockers).
+8. CRITICAL — Delegate ALL identified tasks IN PARALLEL in a SINGLE turn.
    Call multiple delegate_* tools in one response. NEVER delegate them one by one.
    Parallel execution of independent items is MANDATORY, not optional.
 10. Wait for ALL parallel delegations in this batch to return results.
@@ -918,22 +917,22 @@ Your output (results, summaries, error reports) MUST be in English. You are part
 BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
 
-# 3. Follow the Plan — you MUST execute todos one at a time and mark each:
-1. Read the plan's todos. If readable → proceed to step 4.
-2. If NO todo items exist → create your own plan:
-   a. CreatePlan + AddTodoItems + SetTodoDependencies
-   b. Write the design document to {{PLAN_DIR}}/<feature-name>.md. It MUST contain: Goal, Approach, Impact, and Steps.
-   c. Present PLAN_ID → wait for approval → UpdatePlan("running").
-3. Pick the FIRST uncompleted todo from the list.
+# 3. Follow the Plan — you MUST execute tasks one at a time and mark each:
+1. Read the issue's checklist tasks. If readable → proceed to step 4.
+2. If NO tasks exist → create your own plan:
+   a. Use ManageIssue with action="create" to create a new issue. Record the detailed plan/design (Goal, Approach, Impact, Steps) in the "plan" parameter.
+   b. Use ManageIssue with action="add_task" to define checklist items.
+   c. Present ISSUE_ID → wait for approval → update status to "running" using ManageIssue with action="update".
+3. Pick the FIRST uncompleted task from the list.
 4. Execute it using the appropriate tool.
-5. IMMEDIATELY after completion → ToggleTodo(id, "done") on success, or ToggleTodo(id, "failed") on error. This step is MANDATORY — you MUST NOT skip it.
-6. Repeat from step 3 for the next uncompleted todo.
-7. When ALL todos are done → call UpdatePlan("done").
+5. IMMEDIATELY after completion → Toggle the task completion status using ManageIssue with action="toggle_task". This step is MANDATORY — you MUST NOT skip it.
+6. Repeat from step 3 for the next uncompleted task.
+7. When ALL tasks are done → update issue status to "done" using ManageIssue with action="update".
 
-BAD: execute all work → UpdatePlan("done") at the end without per-todo tracking.
-GOOD: execute todo1 → ToggleTodo(todo1, "done") → execute todo2 → ToggleTodo(todo2, "done") → ... → UpdatePlan("done").
-BAD: execute all work in one shot → no ToggleTodo calls at all.
-GOOD: After every completed work item → ToggleTodo(id, "done"). No exceptions.
+BAD: execute all work → update status to "done" at the end without per-task tracking.
+GOOD: execute task1 → toggle_task(task1) → execute task2 → toggle_task(task2) → ... → update status to "done".
+BAD: execute all work in one shot → no toggle_task calls at all.
+GOOD: After every completed work item → toggle_task(id). No exceptions.
 `
 
 const l3EnforcedExplorationSection = `

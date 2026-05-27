@@ -6,7 +6,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 
 const columnConfig: Record<PlanStatus, { label: string; dot: string; bg: string }> = {
-  plan: { label: 'Plan', dot: 'bg-[#635BFF]', bg: 'bg-muted/50' },
+  backlog: { label: 'Backlog', dot: 'bg-[#A8A8A8]', bg: 'bg-muted/30' },
+  todo: { label: 'Todo', dot: 'bg-[#635BFF]', bg: 'bg-muted/50' },
   running: { label: 'Running', dot: 'bg-[#FFB020]', bg: 'bg-amber-50/50' },
   done: { label: 'Done', dot: 'bg-[#00D924]', bg: 'bg-green-50/50' },
 }
