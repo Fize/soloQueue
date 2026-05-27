@@ -28,7 +28,7 @@ func (m *Mux) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auth check
-	if m.authConfig.User != "" {
+	if m.authConfig.User != "" && !isLocalhostAccess(r) {
 		user, password, ok := r.BasicAuth()
 		if !ok || user != m.authConfig.User || password != m.authConfig.Password {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
