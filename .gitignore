@@ -38,4 +38,4 @@ node_modules/
 package-lock.json
 dist
 dist-ssr
-*.tsbuildinfo
+*.tsbuildinfoskills/
