@@ -186,8 +186,13 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	inspectTool := tools.NewInspectAgentTool(agent.RegistryInspectQuery(b.RT.AgentRegistry))
 	allTools = append(allTools, inspectTool)
 
-	// Skills: use the global skillRegistry
-	skillList := b.RT.SkillRegistry.Skills()
+	// Skills: use the global skillRegistry, filtering out disabled ones
+	var skillList []*skill.Skill
+	for _, s := range b.RT.SkillRegistry.Skills() {
+		if !s.Disabled {
+			skillList = append(skillList, s)
+		}
+	}
 
 	// SkillTool: only register when skills exist
 	if b.RT.SkillRegistry.Len() > 0 {
