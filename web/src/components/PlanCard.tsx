@@ -94,7 +94,7 @@ export function PlanCard({ plan, onClick, isOverlay, isDragging }: PlanCardProps
 
       {/* Footer */}
       <div className="mt-2.5 flex items-center justify-between text-[11px] text-muted-foreground">
-        {plan.creator && <span>@{plan.creator}</span>}
+        {plan.author && <span>@{plan.author}</span>}
         <span>{new Date(plan.updated_at).toLocaleDateString()}</span>
       </div>
     </div>

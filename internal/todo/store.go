@@ -84,11 +84,11 @@ func (s *Store) ListPlans(ctx context.Context, status string) ([]Plan, error) {
 
 	if ValidPlanStatus(status) {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+			`SELECT id, title, description, plan, status, tags, author, created_at, updated_at
 			 FROM issue WHERE status = ? ORDER BY updated_at DESC`, status)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+			`SELECT id, title, description, plan, status, tags, author, created_at, updated_at
 			 FROM issue ORDER BY updated_at DESC`)
 	}
 	if err != nil {
@@ -100,7 +100,7 @@ func (s *Store) ListPlans(ctx context.Context, status string) ([]Plan, error) {
 	for rows.Next() {
 		var p Plan
 		var cAt, uAt string
-		if err := rows.Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Author, &cAt, &uAt); err != nil {
 			return nil, fmt.Errorf("scan plan: %w", err)
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, cAt)
@@ -119,9 +119,9 @@ func (s *Store) GetPlan(ctx context.Context, id string) (*Plan, error) {
 	var p Plan
 	var cAt, uAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+		`SELECT id, title, description, plan, status, tags, author, created_at, updated_at
 		 FROM issue WHERE id = ?`, id).
-		Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt)
+		Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Author, &cAt, &uAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("plan %q not found", id)
 	}
@@ -171,9 +171,9 @@ func (s *Store) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Plan, e
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO issue (id, title, description, plan, status, tags, creator, created_at, updated_at)
+		`INSERT INTO issue (id, title, description, plan, status, tags, author, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, req.Title, req.Description, req.Plan, status, req.Tags, req.Creator, now, now)
+		id, req.Title, req.Description, req.Plan, status, req.Tags, req.Author, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("create plan: insert: %w", err)
 	}
@@ -191,7 +191,7 @@ func (s *Store) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Plan, e
 
 	return &Plan{
 		ID: id, Title: req.Title, Description: req.Description, Plan: req.Plan,
-		Status: status, Tags: req.Tags, Creator: req.Creator,
+		Status: status, Tags: req.Tags, Author: req.Author,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}, nil
 }
@@ -538,9 +538,9 @@ func (s *Store) getPlanInTx(ctx context.Context, id string) (*Plan, error) {
 	var p Plan
 	var cAt, uAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+		`SELECT id, title, description, plan, status, tags, author, created_at, updated_at
 		 FROM issue WHERE id = ?`, id).
-		Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt)
+		Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Author, &cAt, &uAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("plan %q not found", id)
 	}

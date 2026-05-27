@@ -9,7 +9,7 @@ const basePlan: Plan = {
   content: 'Some content',
   status: 'todo',
   tags: 'bug,frontend',
-  creator: 'user',
+  author: 'user',
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
   todo_items: [
@@ -50,7 +50,7 @@ describe('PlanCard', () => {
     expect(screen.getByText('50%')).toBeInTheDocument()
   })
 
-  it('shows creator and date', () => {
+  it('shows author and date', () => {
     render(<PlanCard plan={basePlan} onClick={vi.fn()} />)
     expect(screen.getByText('@user')).toBeInTheDocument()
   })

@@ -33,7 +33,7 @@ func (svc *Service) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Pla
 	req.Description = strings.TrimSpace(req.Description)
 	req.Plan = strings.TrimSpace(req.Plan)
 	req.Tags = strings.TrimSpace(req.Tags)
-	req.Creator = strings.TrimSpace(req.Creator)
+	req.Author = strings.TrimSpace(req.Author)
 
 	return svc.store.CreatePlan(ctx, req)
 }

@@ -37,7 +37,7 @@ describe('PlanCreateDialog', () => {
 
     await waitFor(() => {
       expect(mockCreatePlan).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'My New Plan', creator: 'user' })
+        expect.objectContaining({ title: 'My New Plan', author: 'user' })
       )
     })
     expect(onClose).toHaveBeenCalled()

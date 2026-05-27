@@ -1039,6 +1039,11 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		toolCtx = iface.ContextWithWorkDir(toolCtx, a.WorkDir)
 	}
 
+	// Propagate agent name to tools via context (e.g. for defaulting creator/author).
+	if a.Def.Name != "" {
+		toolCtx = iface.ContextWithAgentName(toolCtx, a.Def.Name)
+	}
+
 	// Propagate model override to child agents via context (for delegation chain).
 	// When this tool is a DelegateTool, it reads this from ctx and sets it on the target agent.
 	if override := a.modelOverride.Load(); override != nil {

@@ -645,41 +645,55 @@ GOOD: "Read /workspace/main.go, find the panic on line 42, fix it, and return th
 `
 
 const l2EnforcedPlanSection = `
-# 3. MANDATORY Plan Before Execution
+# 3. MANDATORY Plan Before Execution (Plan & Issue Tracking in Kanban)
+This rule establishes a **MANDATORY Plan Before Execution** policy for all non-trivial implementation tasks.
 **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute or delegate them without a plan.
 
 **For implementation tasks:**
 1. Assess complexity:
    - **Simple task** (single file, narrow change) → delegate directly to L3. L3 will self-plan if needed.
    - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan (steps 2-12).
-2. Use ManageIssue with action="create" to create a new issue. Record the detailed plan/design (Goal, Approach, Impact, Steps) in the "plan" parameter.
-3. Use ManageIssue with action="add_task" to define concrete steps with dependency relationships. You MUST set dependencies correctly — they drive the execution order.
-4. Present the plan to L1. **MUST include ISSUE_ID: <id> in your response.** L1 will reply "ISSUE_ID: <id> approved" when ready.
-5. After approval, parse the ISSUE_ID from L1's reply. If no ISSUE_ID found → use ManageIssue with action="list" and status="todo" to find it. Then update status to "running" using ManageIssue with action="update".
+2. Use ManageIssue with action="create" to create a new issue:
+   - Provide a brief summary in the "description" parameter (this is a short description, not the full plan).
+   - Record the detailed technical design / steps (Goal, Approach, Impact, Steps) in the "plan" parameter (this is the markdown document for your implementation plan).
+   - Set the "author" parameter to your agent name (e.g. "Dev", "QA", etc.).
+3. Use ManageIssue with action="add_task" to define checklist items for the issue. You MUST specify dependencies where applicable to drive the correct execution order.
+4. **Approval decision — choose ONE:**
+   - **Auto-approve (default for most tasks):** If the plan is straightforward and low-risk → proceed directly to execution without waiting for L1. Update status to "running" using ManageIssue (action="update", status="running", id="<id>").
+   - **Escalate to L1 (only for significant trade-offs):** If the plan involves irreversible changes, significant architectural decisions, or conflicts with unclear requirements → return a structured response to L1:
+     ` + "`" + `PLAN_REVIEW_REQUIRED
+ISSUE_ID: <id>
+Summary: <one-line summary of the plan>
+Trade-offs: <what requires human decision>` + "`" + `
+     Wait for L1 to re-delegate with "ISSUE_ID: <id> approved" before executing.
+5. After approval (auto or from L1's re-delegation), update the issue status to "running".
 
 **Execution loop — you MUST follow these steps EXACTLY in order, no skipping:**
 
-6. Read the issue's tasks and their dependencies (use ManageIssue with action="get").
+6. Read the issue's tasks and their dependencies using ManageIssue with action="get" and id="<id>".
    You MUST check dependencies — they determine what can run in parallel.
 7. Identify ALL tasks whose dependencies are satisfied (no uncompleted blockers).
 8. CRITICAL — Delegate ALL identified tasks IN PARALLEL in a SINGLE turn.
    Call multiple delegate_* tools in one response. NEVER delegate them one by one.
    Parallel execution of independent items is MANDATORY, not optional.
 10. Wait for ALL parallel delegations in this batch to return results.
-11. For EACH completed delegation → call ToggleTodo(id, "done") on success,
-    or ToggleTodo(id, "failed") on error. This is REQUIRED after every batch.
-12. Repeat from step 7. Find the next batch of todos whose dependencies
-    are now satisfied. Continue the loop until no remaining todos.
-13. When ALL todos are marked done/failed → call UpdatePlan("done").
+11. For EACH completed delegation →:
+    a. Call ManageIssue with action="toggle_task" and task_id="<task_id>" to mark it complete.
+    b. Call ManageIssue with action="add_comment" and set "author" to your agent name to record the results/findings/diffs of that task.
+12. Repeat from step 7. Find the next batch of checklist tasks whose dependencies are now satisfied. Continue the loop until no remaining tasks.
+13. When ALL checklist tasks are marked completed → call ManageIssue with action="update", id="<id>", and status="done".
 
 **When L3 submits a plan for review:**
-- Approve autonomously if straightforward → reply "PLAN_ID: <id> approved"
-- Escalate to L1 only for significant trade-offs
+- Approve autonomously if straightforward → reply "ISSUE_ID: <id> approved" and proceed.
+- Escalate to L1 only for significant trade-offs using the PLAN_REVIEW_REQUIRED format above.
 
-BAD: delegate todo1 → wait → ToggleTodo(todo1) → delegate todo2 → wait → ToggleTodo(todo2) → delegate todo3 → wait → ToggleTodo(todo3)
-BAD: delegate todo1+todo2+todo3 in parallel → wait → mark ZERO todos → go to step 7
-GOOD: delegate todo1+todo2+todo3 (all independent) → wait all → ToggleTodo(1)+ToggleTodo(2)+ToggleTodo(3) → delegate next batch → ...
-GOOD: delegate todo1 (only item ready) → wait → ToggleTodo(1) → delegate todo2+todo3 (now unblocked) → wait both → ToggleTodo(2)+ToggleTodo(3) → UpdatePlan("done")
+**When L1 re-delegates with "ISSUE_ID: <id> approved":**
+- Look up the issue using ManageIssue (action="get", id="<id>") to retrieve the plan and tasks.
+- Proceed directly to the execution loop (step 5 onwards).
+
+BAD: delegate task1 → wait → Toggle task1 → delegate task2 → wait ...
+BAD: delegate task1+task2+task3 in parallel → wait → mark ZERO tasks complete
+GOOD: delegate task1+task2+task3 (all independent) → wait all → toggle_task(1)+toggle_task(2)+toggle_task(3) → delegate next batch.
 `
 
 
@@ -900,7 +914,6 @@ Use RecallMemory when:
 Use Remember to save important information that may be useful in future conversations.
 `
 
-// l3EnforcedDirectives is the always-included portion of the L3 enforced rules.
 const l3EnforcedDirectives = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
@@ -918,21 +931,24 @@ BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
 
 # 3. Follow the Plan — you MUST execute tasks one at a time and mark each:
-1. Read the issue's checklist tasks. If readable → proceed to step 4.
+1. Read the issue's checklist tasks. If readable → proceed to step 3.
 2. If NO tasks exist → create your own plan:
-   a. Use ManageIssue with action="create" to create a new issue. Record the detailed plan/design (Goal, Approach, Impact, Steps) in the "plan" parameter.
+   a. Use ManageIssue with action="create" to create a new issue:
+      - Record a brief summary in the "description" parameter (this is a short description, not the full plan).
+      - Record the detailed plan/design (Goal, Approach, Impact, Steps) in the "plan" parameter (this is the markdown document for your implementation plan).
+      - Set the "author" parameter to your agent name (e.g. "Refactorer-Worker", "Go-Worker").
    b. Use ManageIssue with action="add_task" to define checklist items.
-   c. Present ISSUE_ID → wait for approval → update status to "running" using ManageIssue with action="update".
+   c. Present ISSUE_ID → wait for approval → update status to "running" using ManageIssue with action="update" and status="running" and id="<id>".
 3. Pick the FIRST uncompleted task from the list.
 4. Execute it using the appropriate tool.
-5. IMMEDIATELY after completion → Toggle the task completion status using ManageIssue with action="toggle_task". This step is MANDATORY — you MUST NOT skip it.
+5. IMMEDIATELY after completion:
+   a. Toggle the task completion status using ManageIssue with action="toggle_task" and task_id="<task_id>". This step is MANDATORY — you MUST NOT skip it.
+   b. Call ManageIssue with action="add_comment" and set "author" to your agent name to summarize the changes made and tests run for this task.
 6. Repeat from step 3 for the next uncompleted task.
-7. When ALL tasks are done → update issue status to "done" using ManageIssue with action="update".
+7. When ALL tasks are done → update issue status to "done" using ManageIssue with action="update" and status="done" and id="<id>".
 
 BAD: execute all work → update status to "done" at the end without per-task tracking.
-GOOD: execute task1 → toggle_task(task1) → execute task2 → toggle_task(task2) → ... → update status to "done".
-BAD: execute all work in one shot → no toggle_task calls at all.
-GOOD: After every completed work item → toggle_task(id). No exceptions.
+GOOD: execute task1 → ManageIssue(action="toggle_task", task_id="1") → execute task2 → ManageIssue(action="toggle_task", task_id="2") ... → ManageIssue(action="update", status="done", id="<id>").
 `
 
 const l3EnforcedExplorationSection = `

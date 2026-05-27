@@ -374,9 +374,9 @@ export function PlanDetail({
             <GlassCard className="p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/20 pb-2.5">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                  {current.creator && (
+                  {current.author && (
                     <span className="flex items-center gap-1.5">
-                      <User className="h-3.5 w-3.5" />@{current.creator}
+                      <User className="h-3.5 w-3.5" />@{current.author}
                     </span>
                   )}
                   {current.created_at && (

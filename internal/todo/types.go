@@ -51,7 +51,7 @@ type Plan struct {
 	Plan        string     `json:"plan"`
 	Status      PlanStatus `json:"status"`
 	Tags        string     `json:"tags"` // comma-separated, e.g. "bug,frontend"
-	Creator     string     `json:"creator"`
+	Author      string     `json:"author"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 
@@ -86,7 +86,7 @@ type CreatePlanRequest struct {
 	Plan        string              `json:"plan,omitempty"`
 	Status      string              `json:"status,omitempty"`
 	Tags        string              `json:"tags,omitempty"`
-	Creator     string              `json:"creator,omitempty"`
+	Author      string              `json:"author,omitempty"`
 	TodoItems   []CreateTodoRequest `json:"todo_items,omitempty"`
 }
 

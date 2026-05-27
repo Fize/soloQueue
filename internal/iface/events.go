@@ -148,3 +148,22 @@ func ModelOverrideFromContext(ctx context.Context) *ModelOverrideParams {
 	v, _ := ctx.Value(modelOverrideCtxKey{}).(*ModelOverrideParams)
 	return v
 }
+
+// ─── AgentName Context Propagation ──────────────────────────────────────────────
+
+type agentNameCtxKey struct{}
+
+// ContextWithAgentName injects an agent name into the context.
+func ContextWithAgentName(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, agentNameCtxKey{}, name)
+}
+
+// AgentNameFromContext extracts the agent name from context.
+// Returns "" if not set.
+func AgentNameFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(agentNameCtxKey{}).(string)
+	return v
+}
