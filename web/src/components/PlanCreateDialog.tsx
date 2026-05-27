@@ -42,7 +42,7 @@ export function PlanCreateDialog({ open, onClose }: PlanCreateDialogProps) {
         plan: plan.trim() || undefined,
         tags: tags.trim() || undefined,
         status,
-        creator: 'user',
+        author: 'user',
       })
       setTitle('')
       setDescription('')

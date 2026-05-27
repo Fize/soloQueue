@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 7
+const currentSchemaVersion = 8
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -263,6 +263,13 @@ func (d *DB) migrate() error {
 		ALTER TABLE issue ADD COLUMN description TEXT NOT NULL DEFAULT '';
 		UPDATE issue SET description = plan;
 		UPDATE issue SET plan = '';
+		`,
+
+		// v7 -> v8: add author column to issue table, copy creator values, and drop creator column
+		`
+		ALTER TABLE issue ADD COLUMN author TEXT NOT NULL DEFAULT '';
+		UPDATE issue SET author = creator;
+		ALTER TABLE issue DROP COLUMN creator;
 		`,
 	}
 

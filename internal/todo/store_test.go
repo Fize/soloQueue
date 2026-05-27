@@ -81,7 +81,7 @@ func TestStore_CreatePlan(t *testing.T) {
 		Description: "Test content",
 		Plan:        "Test plan doc",
 		Tags:        "tag1,tag2",
-		Creator:     "tester",
+		Author:      "tester",
 	})
 	if err != nil {
 		t.Fatalf("CreatePlan: %v", err)
@@ -589,7 +589,7 @@ func TestFullWorkflow(t *testing.T) {
 		Description: "## Description\nImplement feature X with proper testing.",
 		Plan:        "## Plan\nDetailed plan doc",
 		Tags:        "feature,backend",
-		Creator:     "alice",
+		Author:      "alice",
 		TodoItems: []CreateTodoRequest{
 			{Content: "Design API"},
 			{Content: "Implement handler"},

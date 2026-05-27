@@ -8,9 +8,9 @@ const mockPlan = {
   id: 'p1',
   title: 'Test Plan',
   content: '# Test',
-  status: 'plan' as const,
+  status: 'todo' as const,
   tags: 'test',
-  creator: 'user',
+  author: 'user',
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
 }
@@ -40,17 +40,17 @@ describe('planStore', () => {
   })
 
   it('movePlan does optimistic update and rolls back on failure', async () => {
-    usePlanStore.setState({ plans: [{ ...mockPlan, id: 'p1', status: 'plan' }] })
+    usePlanStore.setState({ plans: [{ ...mockPlan, id: 'p1', status: 'todo' }] })
     vi.mocked(api.updatePlanStatus).mockRejectedValue(new Error('fail'))
 
     await usePlanStore.getState().movePlan('p1', 'running')
 
-    // After rollback, status should be back to 'plan'
-    expect(usePlanStore.getState().plans[0].status).toBe('plan')
+    // After rollback, status should be back to 'todo'
+    expect(usePlanStore.getState().plans[0].status).toBe('todo')
   })
 
   it('movePlan succeeds', async () => {
-    usePlanStore.setState({ plans: [{ ...mockPlan, id: 'p1', status: 'plan' }] })
+    usePlanStore.setState({ plans: [{ ...mockPlan, id: 'p1', status: 'todo' }] })
     vi.mocked(api.updatePlanStatus).mockResolvedValue({ ...mockPlan, status: 'running' })
 
     await usePlanStore.getState().movePlan('p1', 'running')

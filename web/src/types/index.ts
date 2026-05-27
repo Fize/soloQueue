@@ -16,7 +16,7 @@ export interface Plan {
   content?: string
   status: PlanStatus
   tags: string
-  creator: string
+  author: string
   created_at: string
   updated_at: string
   todo_items?: TodoItemWithDeps[]
@@ -46,7 +46,7 @@ export interface CreatePlanRequest {
   content?: string
   status?: string
   tags?: string
-  creator?: string
+  author?: string
 }
 
 export interface UpdatePlanRequest {

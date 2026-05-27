@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
 )
@@ -39,9 +40,8 @@ func (manageIssueTool) Parameters() json.RawMessage {
     "plan":{"type":"string","description":"Markdown formatted plan / design doc. Optional for create/update."},
     "status":{"type":"string","enum":["backlog","todo","running","done"],"description":"Issue status: backlog, todo, running, or done. Optional for list/update."},
     "tags":{"type":"string","description":"Comma-separated tags (e.g. 'bug,frontend'). Optional for create/update."},
-    "creator":{"type":"string","description":"Creator identifier (e.g. agent name). Optional for create."},
     "comment_content":{"type":"string","description":"Content of the comment. Required for add_comment."},
-    "author":{"type":"string","description":"Author of the comment. Required for add_comment."},
+    "author":{"type":"string","description":"Author / creator of the issue or comment. Optional for create (defaults to agent name); required for add_comment."},
     "task_id":{"type":"string","description":"Task/checklist item ID. Required for toggle_task, set_dependencies."},
     "task_content":{"type":"string","description":"Text content of the checklist item. Required for add_task."},
     "depends_on":{"type":"array","items":{"type":"string"},"description":"Task IDs that this checklist item depends on. Optional for add_task, required for set_dependencies."}
@@ -84,13 +84,20 @@ func (t *manageIssueTool) Execute(ctx context.Context, raw string) (string, erro
 		if args.Title == "" {
 			return "", fmt.Errorf("title is required for create")
 		}
+		author := args.Author
+		if author == "" {
+			author = args.Creator
+		}
+		if author == "" {
+			author = iface.AgentNameFromContext(ctx)
+		}
 		p, err := svc.CreatePlan(ctx, todo.CreatePlanRequest{
 			Title:       args.Title,
 			Description: args.Description,
 			Plan:        args.Plan,
 			Status:      args.Status,
 			Tags:        args.Tags,
-			Creator:     args.Creator,
+			Author:      author,
 		})
 		if err != nil {
 			return "", err

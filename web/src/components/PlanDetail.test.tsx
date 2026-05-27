@@ -49,7 +49,7 @@ const mockPlan: Plan = {
   content: '## Hello\n\nThis is **markdown** content.',
   status: 'running',
   tags: 'bug,frontend',
-  creator: 'user',
+  author: 'user',
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
   todo_items: [
