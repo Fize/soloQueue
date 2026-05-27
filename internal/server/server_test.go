@@ -97,6 +97,43 @@ func TestHTTP_Auth(t *testing.T) {
 			t.Errorf("expected 200 OK with correct Basic Auth, got %d", rec.Code)
 		}
 	}
+
+	// 5. WebSocket: Access via localhost loopback -> Bypasses auth (returns 503 Service Unavailable because hub is nil, not 401)
+	{
+		req := httptest.NewRequest("GET", "/ws", nil)
+		req.Host = "localhost:8765"
+		req.RemoteAddr = "127.0.0.1:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("expected 503 Service Unavailable for localhost WebSocket loopback, got %d", rec.Code)
+		}
+	}
+
+	// 6. WebSocket: Access via external IP -> 401 Unauthorized
+	{
+		req := httptest.NewRequest("GET", "/ws", nil)
+		req.Host = "192.168.1.100:8765"
+		req.RemoteAddr = "192.168.1.100:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized for external WebSocket access, got %d", rec.Code)
+		}
+	}
+
+	// 7. WebSocket: Access via external IP with correct Basic Auth -> Bypasses auth (returns 503 Service Unavailable because hub is nil, not 401)
+	{
+		req := httptest.NewRequest("GET", "/ws", nil)
+		req.Host = "192.168.1.100:8765"
+		req.RemoteAddr = "192.168.1.100:12345"
+		req.SetBasicAuth("admin", "password123")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("expected 503 Service Unavailable for authenticated external WebSocket access, got %d", rec.Code)
+		}
+	}
 }
 
 func TestHTTP_TeamAgents(t *testing.T) {
