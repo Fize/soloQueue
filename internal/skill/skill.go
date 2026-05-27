@@ -42,6 +42,9 @@ type Skill struct {
 	// ID 唯一标识（如 "commit", "deploy"），必须非空
 	ID string
 
+	// Name 人类可读名称
+	Name string
+
 	// Description 给 LLM 看的自然语言描述（简要说明）
 	Description string
 
@@ -81,6 +84,12 @@ type Skill struct {
 
 	// Dir SKILL.md 所在目录（支持文件引用解析）
 	Dir string
+
+	// Triggers 触发词
+	Triggers []string
+
+	// Disabled 是否被禁用
+	Disabled bool
 }
 
 // ─── 构造函数 ──────────────────────────────────────────────────────────────
@@ -120,6 +129,7 @@ func WithAgent(agent string) SkillOption {
 func NewBuiltinSkill(id, desc, instructions string, opts ...SkillOption) *Skill {
 	s := &Skill{
 		ID:            id,
+		Name:          id,
 		Description:   desc,
 		Instructions:  instructions,
 		UserInvocable: true,

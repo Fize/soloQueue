@@ -18,6 +18,7 @@ import type {
   UpdateAgentRequest,
   AppConfig,
   ToolListResponse,
+  SkillInfo,
   SkillListResponse,
   MCPConfig,
   FileInfo,
@@ -368,4 +369,72 @@ export async function updateCronTask(id: string, data: UpdateCronTaskRequest): P
 
 export async function deleteCronTask(id: string): Promise<void> {
   await request(`/cron/${id}`, { method: 'DELETE' })
+}
+
+// ─── Skill Management & Store APIs ──────────────────────────────────────────
+
+export interface InstallSkillRequest {
+  source: 'store' | 'local' | 'github'
+  id?: string
+  path?: string
+  url?: string
+}
+
+export interface SkillFileEntry {
+  path: string
+  kind: 'file' | 'directory'
+  size?: number
+}
+
+export async function fetchStoreSkills(): Promise<SkillListResponse> {
+  return request<SkillListResponse>('/skills/store')
+}
+
+export async function installSkill(data: InstallSkillRequest): Promise<void> {
+  await request('/skills/install', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function fetchSkillDetail(id: string): Promise<SkillInfo> {
+  return request<SkillInfo>(`/skills/${encodeURIComponent(id)}`)
+}
+
+export async function updateSkill(
+  id: string,
+  data: { description: string; body: string; triggers: string[] }
+): Promise<void> {
+  await request(`/skills/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteSkill(id: string): Promise<void> {
+  await request(`/skills/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function fetchSkillFiles(id: string): Promise<{ files: SkillFileEntry[] }> {
+  return request<{ files: SkillFileEntry[] }>(`/skills/${encodeURIComponent(id)}/files`)
+}
+
+export async function toggleSkill(id: string): Promise<{ id: string; enabled: boolean }> {
+  return request<{ id: string; enabled: boolean }>(`/skills/${encodeURIComponent(id)}/toggle`, {
+    method: 'POST',
+  })
+}
+
+export async function importSkill(data: {
+  name: string
+  description: string
+  body: string
+  triggers: string[]
+}): Promise<void> {
+  await request('/skills', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
 }

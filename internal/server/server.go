@@ -333,7 +333,19 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 
 	// Tools & Skills routes
 	r.Get("/api/tools", m.handleListTools)
-	r.Get("/api/skills", m.handleListSkills)
+	r.Route("/api/skills", func(r chi.Router) {
+		r.Get("/", m.handleListSkills)
+		r.Post("/", m.handleImportSkill)
+		r.Get("/store", m.handleListStoreSkills)
+		r.Post("/install", m.handleInstallSkill)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Get("/", m.handleGetSkillDetail)
+			r.Put("/", m.handleUpdateSkill)
+			r.Delete("/", m.handleDeleteSkill)
+			r.Get("/files", m.handleGetSkillFiles)
+			r.Post("/toggle", m.handleToggleSkill)
+		})
+	})
 
 	// Cron routes
 	r.Route("/api/cron", func(r chi.Router) {

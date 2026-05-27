@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,15 +28,19 @@ func SetPackageLogger(l *logger.Logger) {
 // SkillMDConfig 是 SKILL.md 的 YAML frontmatter
 //
 // 对齐 Claude Code 的 Skill frontmatter 字段。
+// SkillMDConfig 是 SKILL.md 的 YAML frontmatter
+//
+// 对齐 Claude Code 的 Skill frontmatter 字段。
 type SkillMDConfig struct {
-	Name                   string `yaml:"name"`
-	Description            string `yaml:"description"`
-	WhenToUse              string `yaml:"when_to_use"`
-	AllowedTools           string `yaml:"allowed-tools"`
-	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
-	UserInvocable          *bool  `yaml:"user-invocable"` // 指针区分"未设置"和"false"
-	Context                string `yaml:"context"`
-	Agent                  string `yaml:"agent"`
+	Name                   string   `yaml:"name"`
+	Description            string   `yaml:"description"`
+	WhenToUse              string   `yaml:"when_to_use"`
+	AllowedTools           string   `yaml:"allowed-tools"`
+	DisableModelInvocation bool     `yaml:"disable-model-invocation"`
+	UserInvocable          *bool    `yaml:"user-invocable"` // 指针区分"未设置"和"false"
+	Context                string   `yaml:"context"`
+	Agent                  string   `yaml:"agent"`
+	Triggers               []string `yaml:"triggers"`
 }
 
 // ParseSkillMD 解析单个 SKILL.md 文件
@@ -91,8 +96,14 @@ func ParseSkillMD(path string) (*Skill, error) {
 	// filePath: 绝对路径
 	absPath, _ := filepath.Abs(path)
 
+	disabled := false
+	if _, err := os.Stat(filepath.Join(filepath.Dir(absPath), ".disabled")); err == nil {
+		disabled = true
+	}
+
 	return &Skill{
 		ID:                     name,
+		Name:                   name,
 		Description:            desc,
 		WhenToUse:              cfg.WhenToUse,
 		Instructions:           strings.TrimSpace(body),
@@ -104,6 +115,8 @@ func ParseSkillMD(path string) (*Skill, error) {
 		Category:               SkillUser,
 		FilePath:               absPath,
 		Dir:                    filepath.Dir(absPath),
+		Triggers:               cfg.Triggers,
+		Disabled:               disabled,
 	}, nil
 }
 
@@ -261,3 +274,77 @@ func firstParagraph(body string) string {
 	}
 	return desc
 }
+
+// ParseSkillMDFromFS parses a single SKILL.md file from a virtual filesystem.
+func ParseSkillMDFromFS(fsys fs.FS, path string) (*Skill, error) {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return nil, fmt.Errorf("read skill md from fs: %w", err)
+	}
+
+	cfg, body, err := parseFrontmatter(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse frontmatter %s: %w", path, err)
+	}
+
+	name := cfg.Name
+	if name == "" {
+		name = skillNameFromPath(path)
+	}
+
+	desc := cfg.Description
+	if desc == "" {
+		desc = firstParagraph(body)
+	}
+
+	userInvocable := true
+	if cfg.UserInvocable != nil {
+		userInvocable = *cfg.UserInvocable
+	}
+
+	var allowedTools []string
+	if cfg.AllowedTools != "" {
+		allowedTools = ParseAllowedTools(cfg.AllowedTools)
+	}
+
+	return &Skill{
+		ID:                     name,
+		Name:                   name,
+		Description:            desc,
+		WhenToUse:              cfg.WhenToUse,
+		Instructions:           strings.TrimSpace(body),
+		AllowedTools:           allowedTools,
+		DisableModelInvocation: cfg.DisableModelInvocation,
+		UserInvocable:          userInvocable,
+		Context:                cfg.Context,
+		Agent:                  cfg.Agent,
+		Category:               SkillBuiltin,
+		FilePath:               path,
+		Dir:                    filepath.ToSlash(filepath.Dir(path)),
+		Triggers:               cfg.Triggers,
+		Disabled:               false,
+	}, nil
+}
+
+// LoadSkillsFromFS walks a virtual directory in fs.FS and parses all SKILL.md files.
+func LoadSkillsFromFS(fsys fs.FS, dir string) ([]*Skill, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return nil, nil
+	}
+
+	var skills []*Skill
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		skillFile := filepath.ToSlash(filepath.Join(dir, e.Name(), "SKILL.md"))
+		md, err := ParseSkillMDFromFS(fsys, skillFile)
+		if err != nil {
+			continue
+		}
+		skills = append(skills, md)
+	}
+	return skills, nil
+}
+

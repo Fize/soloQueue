@@ -363,11 +363,15 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	mergedSkillReg := skill.NewSkillRegistry()
 	if f.skillRegistry != nil {
 		for _, s := range f.skillRegistry.Skills() {
-			_ = mergedSkillReg.Register(s)
+			if !s.Disabled {
+				_ = mergedSkillReg.Register(s)
+			}
 		}
 	}
 	for _, s := range projRes.skills {
-		_ = mergedSkillReg.Register(s) // override if same ID
+		if !s.Disabled {
+			_ = mergedSkillReg.Register(s) // override if same ID
+		}
 	}
 
 	var skillList []*skill.Skill
