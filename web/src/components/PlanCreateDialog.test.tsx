@@ -20,8 +20,8 @@ beforeEach(() => {
 describe('PlanCreateDialog', () => {
   it('renders form fields', () => {
     render(<PlanCreateDialog open={true} onClose={vi.fn()} />)
-    expect(screen.getByPlaceholderText('Plan title')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('Plan')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Issue title')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Backlog')).toBeInTheDocument()
     expect(screen.getByText('Create')).toBeInTheDocument()
     expect(screen.getByText('Cancel')).toBeInTheDocument()
   })
@@ -32,7 +32,7 @@ describe('PlanCreateDialog', () => {
     const onClose = vi.fn()
     render(<PlanCreateDialog open={true} onClose={onClose} />)
 
-    await user.type(screen.getByPlaceholderText('Plan title'), 'My New Plan')
+    await user.type(screen.getByPlaceholderText('Issue title'), 'My New Plan')
     await user.click(screen.getByText('Create'))
 
     await waitFor(() => {
@@ -55,7 +55,7 @@ describe('PlanCreateDialog', () => {
     const user = userEvent.setup()
     mockCreatePlan.mockRejectedValue(new Error('Server error'))
     render(<PlanCreateDialog open={true} onClose={vi.fn()} />)
-    await user.type(screen.getByPlaceholderText('Plan title'), 'Test')
+    await user.type(screen.getByPlaceholderText('Issue title'), 'Test')
     await user.click(screen.getByText('Create'))
     await waitFor(() => {
       const errors = screen.getAllByText('Server error')

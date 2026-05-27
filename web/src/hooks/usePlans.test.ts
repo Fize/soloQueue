@@ -9,7 +9,7 @@ const mockPlan = {
   id: 'p1',
   title: 'Test',
   content: '',
-  status: 'plan' as const,
+  status: 'todo' as const,
   tags: '',
   creator: 'user',
   created_at: '2024-01-01T00:00:00Z',
@@ -38,14 +38,16 @@ describe('usePlans', () => {
 
   it('groups plans by status', async () => {
     const plans = [
-      { ...mockPlan, id: 'p1', status: 'plan' as const },
-      { ...mockPlan, id: 'p2', status: 'running' as const },
-      { ...mockPlan, id: 'p3', status: 'done' as const },
+      { ...mockPlan, id: 'p1', status: 'backlog' as const },
+      { ...mockPlan, id: 'p2', status: 'todo' as const },
+      { ...mockPlan, id: 'p3', status: 'running' as const },
+      { ...mockPlan, id: 'p4', status: 'done' as const },
     ]
     vi.mocked(api.listPlans).mockResolvedValue(plans)
     const { result } = renderHook(() => usePlans())
-    await waitFor(() => expect(result.current.plans).toHaveLength(3))
-    expect(result.current.plansByStatus.plan).toHaveLength(1)
+    await waitFor(() => expect(result.current.plans).toHaveLength(4))
+    expect(result.current.plansByStatus.backlog).toHaveLength(1)
+    expect(result.current.plansByStatus.todo).toHaveLength(1)
     expect(result.current.plansByStatus.running).toHaveLength(1)
     expect(result.current.plansByStatus.done).toHaveLength(1)
   })

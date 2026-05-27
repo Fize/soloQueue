@@ -32,9 +32,9 @@ func TestStore_NewStore_CreatesTables(t *testing.T) {
 	store := newTestStore(t)
 
 	// Verify tables exist by querying them
-	_, err := store.db.Exec(`SELECT 1 FROM plans LIMIT 0`)
+	_, err := store.db.Exec(`SELECT 1 FROM issue LIMIT 0`)
 	if err != nil {
-		t.Errorf("plans table missing: %v", err)
+		t.Errorf("issue table missing: %v", err)
 	}
 	_, err = store.db.Exec(`SELECT 1 FROM todo_items LIMIT 0`)
 	if err != nil {
@@ -77,10 +77,11 @@ func TestStore_CreatePlan(t *testing.T) {
 	ctx := context.Background()
 
 	plan, err := svc.CreatePlan(ctx, CreatePlanRequest{
-		Title:   "Test Plan",
-		Content: "Test content",
-		Tags:    "tag1,tag2",
-		Creator: "tester",
+		Title:       "Test Plan",
+		Description: "Test content",
+		Plan:        "Test plan doc",
+		Tags:        "tag1,tag2",
+		Creator:     "tester",
 	})
 	if err != nil {
 		t.Fatalf("CreatePlan: %v", err)
@@ -91,8 +92,14 @@ func TestStore_CreatePlan(t *testing.T) {
 	if plan.Title != "Test Plan" {
 		t.Errorf("title = %q, want %q", plan.Title, "Test Plan")
 	}
-	if plan.Status != StatusPlan {
-		t.Errorf("status = %q, want %q", plan.Status, StatusPlan)
+	if plan.Description != "Test content" {
+		t.Errorf("description = %q, want %q", plan.Description, "Test content")
+	}
+	if plan.Plan != "Test plan doc" {
+		t.Errorf("plan = %q, want %q", plan.Plan, "Test plan doc")
+	}
+	if plan.Status != StatusBacklog {
+		t.Errorf("status = %q, want %q", plan.Status, StatusBacklog)
 	}
 }
 
@@ -521,7 +528,8 @@ func TestValidPlanStatus(t *testing.T) {
 		status string
 		valid  bool
 	}{
-		{"plan", true},
+		{"backlog", true},
+		{"todo", true},
 		{"running", true},
 		{"done", true},
 		{"", false},
@@ -577,10 +585,11 @@ func TestFullWorkflow(t *testing.T) {
 
 	// 1. Create a plan
 	plan, err := svc.CreatePlan(ctx, CreatePlanRequest{
-		Title:   "Build Feature X",
-		Content: "## Description\nImplement feature X with proper testing.",
-		Tags:    "feature,backend",
-		Creator: "alice",
+		Title:       "Build Feature X",
+		Description: "## Description\nImplement feature X with proper testing.",
+		Plan:        "## Plan\nDetailed plan doc",
+		Tags:        "feature,backend",
+		Creator:     "alice",
 		TodoItems: []CreateTodoRequest{
 			{Content: "Design API"},
 			{Content: "Implement handler"},

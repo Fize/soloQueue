@@ -30,7 +30,8 @@ func (svc *Service) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Pla
 		return nil, err
 	}
 	req.Title = strings.TrimSpace(req.Title)
-	req.Content = strings.TrimSpace(req.Content)
+	req.Description = strings.TrimSpace(req.Description)
+	req.Plan = strings.TrimSpace(req.Plan)
 	req.Tags = strings.TrimSpace(req.Tags)
 	req.Creator = strings.TrimSpace(req.Creator)
 
@@ -62,12 +63,16 @@ func (svc *Service) UpdatePlan(ctx context.Context, id string, req UpdatePlanReq
 		}
 		req.Title = &t
 	}
-	if req.Content != nil {
-		c := strings.TrimSpace(*req.Content)
-		req.Content = &c
+	if req.Description != nil {
+		d := strings.TrimSpace(*req.Description)
+		req.Description = &d
+	}
+	if req.Plan != nil {
+		p := strings.TrimSpace(*req.Plan)
+		req.Plan = &p
 	}
 	if req.Status != nil && !ValidPlanStatus(*req.Status) {
-		return nil, fmt.Errorf("invalid status: %q (must be plan, running, or done)", *req.Status)
+		return nil, fmt.Errorf("invalid status: %q (must be backlog, todo, running, or done)", *req.Status)
 	}
 	if req.Tags != nil {
 		t := strings.TrimSpace(*req.Tags)
@@ -290,4 +295,28 @@ func validateTitle(title string) error {
 		return fmt.Errorf("title too long (max 500 chars)")
 	}
 	return nil
+}
+
+// ─── Comments Operations ───────────────────────────────────────────────────
+
+// AddComment validates and creates a comment.
+func (svc *Service) AddComment(ctx context.Context, issueID, author, content string) (*Comment, error) {
+	if issueID == "" {
+		return nil, fmt.Errorf("issue ID is required")
+	}
+	if strings.TrimSpace(author) == "" {
+		return nil, fmt.Errorf("author is required")
+	}
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("comment content cannot be empty")
+	}
+	return svc.store.AddComment(ctx, issueID, strings.TrimSpace(author), strings.TrimSpace(content))
+}
+
+// ListComments returns all comments for an issue.
+func (svc *Service) ListComments(ctx context.Context, issueID string) ([]Comment, error) {
+	if issueID == "" {
+		return nil, fmt.Errorf("issue ID is required")
+	}
+	return svc.store.ListComments(ctx, issueID)
 }

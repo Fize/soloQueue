@@ -304,9 +304,7 @@ export function FilesPage() {
           {/* Global */}
           {globalRoots.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                Plan (global)
-              </div>
+              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground">Global</div>
               {renderFileNodes(globalRoots.map(rootToNode), 0)}
             </div>
           )}

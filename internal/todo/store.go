@@ -73,7 +73,7 @@ func (s *Store) DB() *sql.DB {
 
 // ─── Plan CRUD ──────────────────────────────────────────────────────────────
 
-// ListPlans returns plans, optionally filtered by status.
+// ListPlans returns plans (now issues), optionally filtered by status.
 func (s *Store) ListPlans(ctx context.Context, status string) ([]Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -84,12 +84,12 @@ func (s *Store) ListPlans(ctx context.Context, status string) ([]Plan, error) {
 
 	if ValidPlanStatus(status) {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, title, content, status, tags, creator, created_at, updated_at
-			 FROM plans WHERE status = ? ORDER BY updated_at DESC`, status)
+			`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+			 FROM issue WHERE status = ? ORDER BY updated_at DESC`, status)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, title, content, status, tags, creator, created_at, updated_at
-			 FROM plans ORDER BY updated_at DESC`)
+			`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+			 FROM issue ORDER BY updated_at DESC`)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list plans: %w", err)
@@ -100,7 +100,7 @@ func (s *Store) ListPlans(ctx context.Context, status string) ([]Plan, error) {
 	for rows.Next() {
 		var p Plan
 		var cAt, uAt string
-		if err := rows.Scan(&p.ID, &p.Title, &p.Content, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt); err != nil {
 			return nil, fmt.Errorf("scan plan: %w", err)
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, cAt)
@@ -110,7 +110,7 @@ func (s *Store) ListPlans(ctx context.Context, status string) ([]Plan, error) {
 	return plans, rows.Err()
 }
 
-// GetPlan returns a single plan with its todo items and dependency graph.
+// GetPlan returns a single plan (now issue) with its todo items and dependency graph.
 func (s *Store) GetPlan(ctx context.Context, id string) (*Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -119,9 +119,9 @@ func (s *Store) GetPlan(ctx context.Context, id string) (*Plan, error) {
 	var p Plan
 	var cAt, uAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, content, status, tags, creator, created_at, updated_at
-		 FROM plans WHERE id = ?`, id).
-		Scan(&p.ID, &p.Title, &p.Content, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt)
+		`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+		 FROM issue WHERE id = ?`, id).
+		Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("plan %q not found", id)
 	}
@@ -138,6 +138,13 @@ func (s *Store) GetPlan(ctx context.Context, id string) (*Plan, error) {
 	}
 	p.TodoItems = todos
 
+	// Load comments
+	comments, err := s.ListComments(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get plan comments: %w", err)
+	}
+	p.Comments = comments
+
 	return &p, nil
 }
 
@@ -149,7 +156,7 @@ func (s *Store) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Plan, e
 
 	id := newID()
 	now := time.Now().Format(time.RFC3339)
-	status := StatusPlan
+	status := StatusBacklog
 	if ValidPlanStatus(req.Status) {
 		status = PlanStatus(req.Status)
 	}
@@ -164,9 +171,9 @@ func (s *Store) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Plan, e
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO plans (id, title, content, status, tags, creator, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, req.Title, req.Content, status, req.Tags, req.Creator, now, now)
+		`INSERT INTO issue (id, title, description, plan, status, tags, creator, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, req.Title, req.Description, req.Plan, status, req.Tags, req.Creator, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("create plan: insert: %w", err)
 	}
@@ -183,7 +190,7 @@ func (s *Store) CreatePlan(ctx context.Context, req CreatePlanRequest) (*Plan, e
 	}
 
 	return &Plan{
-		ID: id, Title: req.Title, Content: req.Content,
+		ID: id, Title: req.Title, Description: req.Description, Plan: req.Plan,
 		Status: status, Tags: req.Tags, Creator: req.Creator,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}, nil
@@ -212,9 +219,13 @@ func (s *Store) UpdatePlan(ctx context.Context, id string, req UpdatePlanRequest
 		sets = append(sets, "title = ?")
 		args = append(args, *req.Title)
 	}
-	if req.Content != nil {
-		sets = append(sets, "content = ?")
-		args = append(args, *req.Content)
+	if req.Description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, *req.Description)
+	}
+	if req.Plan != nil {
+		sets = append(sets, "plan = ?")
+		args = append(args, *req.Plan)
 	}
 	if req.Status != nil && ValidPlanStatus(*req.Status) {
 		sets = append(sets, "status = ?")
@@ -234,7 +245,7 @@ func (s *Store) UpdatePlan(ctx context.Context, id string, req UpdatePlanRequest
 	args = append(args, now, id)
 
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE plans SET `+strings.Join(sets, ", ")+` WHERE id = ?`,
+		`UPDATE issue SET `+strings.Join(sets, ", ")+` WHERE id = ?`,
 		args...)
 	if err != nil {
 		return nil, fmt.Errorf("update plan: %w", err)
@@ -258,7 +269,7 @@ func (s *Store) DeletePlan(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	res, err := s.db.ExecContext(ctx, `DELETE FROM plans WHERE id = ?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM issue WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete plan: %w", err)
 	}
@@ -303,7 +314,7 @@ func (s *Store) CreateTodoItem(ctx context.Context, planID string, req CreateTod
 
 	itemID := newID()
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO todo_items (id, plan_id, content, completed, sort_order, created_at)
+		`INSERT INTO todo_items (id, issue_id, content, completed, sort_order, created_at)
 		 VALUES (?, ?, ?, 0, ?, ?)`,
 		itemID, planID, req.Content, req.SortOrder, now)
 	if err != nil {
@@ -428,7 +439,7 @@ func (s *Store) ReorderTodoItems(ctx context.Context, planID string, ids []strin
 
 	for i, id := range ids {
 		_, err = tx.ExecContext(ctx,
-			`UPDATE todo_items SET sort_order = ? WHERE id = ? AND plan_id = ?`,
+			`UPDATE todo_items SET sort_order = ? WHERE id = ? AND issue_id = ?`,
 			i, id, planID)
 		if err != nil {
 			return fmt.Errorf("reorder todos: update %q: %w", id, err)
@@ -527,9 +538,9 @@ func (s *Store) getPlanInTx(ctx context.Context, id string) (*Plan, error) {
 	var p Plan
 	var cAt, uAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, content, status, tags, creator, created_at, updated_at
-		 FROM plans WHERE id = ?`, id).
-		Scan(&p.ID, &p.Title, &p.Content, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt)
+		`SELECT id, title, description, plan, status, tags, creator, created_at, updated_at
+		 FROM issue WHERE id = ?`, id).
+		Scan(&p.ID, &p.Title, &p.Description, &p.Plan, &p.Status, &p.Tags, &p.Creator, &cAt, &uAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("plan %q not found", id)
 	}
@@ -543,8 +554,8 @@ func (s *Store) getPlanInTx(ctx context.Context, id string) (*Plan, error) {
 
 func (s *Store) listTodoItemsWithDeps(ctx context.Context, planID string) ([]TodoItemWithDeps, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, plan_id, content, completed, sort_order, created_at
-		 FROM todo_items WHERE plan_id = ?
+		`SELECT id, issue_id, content, completed, sort_order, created_at
+		 FROM todo_items WHERE issue_id = ?
 		 ORDER BY sort_order ASC, created_at ASC`, planID)
 	if err != nil {
 		return nil, err
@@ -577,7 +588,7 @@ func (s *Store) getTodoItemWithDeps(ctx context.Context, id string) (*TodoItemWi
 	var comp int
 	var cAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, plan_id, content, completed, sort_order, created_at
+		`SELECT id, issue_id, content, completed, sort_order, created_at
 		 FROM todo_items WHERE id = ?`, id).
 		Scan(&t.ID, &t.PlanID, &t.Content, &comp, &t.SortOrder, &cAt)
 	if err == sql.ErrNoRows {
@@ -635,7 +646,7 @@ func (s *Store) getDepsForItem(ctx context.Context, todoID string) (dependsOn, b
 func (s *Store) insertTodoItemTx(ctx context.Context, tx *sql.Tx, planID string, req CreateTodoRequest, now string) error {
 	itemID := newID()
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO todo_items (id, plan_id, content, completed, sort_order, created_at)
+		`INSERT INTO todo_items (id, issue_id, content, completed, sort_order, created_at)
 		 VALUES (?, ?, ?, 0, ?, ?)`,
 		itemID, planID, req.Content, req.SortOrder, now)
 	if err != nil {
@@ -651,6 +662,60 @@ func (s *Store) insertTodoItemTx(ctx context.Context, tx *sql.Tx, planID string,
 		}
 	}
 	return nil
+}
+
+// ─── Comments ────────────────────────────────────────────────────────────────
+
+// AddComment inserts a comment for an issue.
+func (s *Store) AddComment(ctx context.Context, issueID, author, content string) (*Comment, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	id := newID()
+	now := time.Now().Format(time.RFC3339)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO issue_comments (id, issue_id, author, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+		id, issueID, author, content, now)
+	if err != nil {
+		return nil, fmt.Errorf("add comment: %w", err)
+	}
+	return &Comment{
+		ID:        id,
+		IssueID:   issueID,
+		Author:    author,
+		Content:   content,
+		CreatedAt: time.Now(),
+	}, nil
+}
+
+// ListComments retrieves all comments for an issue in chronological order.
+func (s *Store) ListComments(ctx context.Context, issueID string) ([]Comment, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, issue_id, author, content, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC`,
+		issueID)
+	if err != nil {
+		return nil, fmt.Errorf("list comments: %w", err)
+	}
+	defer rows.Close()
+	var comments []Comment
+	for rows.Next() {
+		var c Comment
+		var cAt string
+		if err := rows.Scan(&c.ID, &c.IssueID, &c.Author, &c.Content, &cAt); err != nil {
+			return nil, err
+		}
+		c.CreatedAt, _ = time.Parse(time.RFC3339, cAt)
+		comments = append(comments, c)
+	}
+	if comments == nil {
+		comments = []Comment{}
+	}
+	return comments, rows.Err()
 }
 
 // ─── ID Generation ─────────────────────────────────────────────────────────

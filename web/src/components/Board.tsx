@@ -4,6 +4,8 @@ import type { Plan, PlanStatus } from '@/types'
 import { usePlanStore } from '@/stores/planStore'
 import { BoardColumn } from './BoardColumn'
 import { PlanCreateDialog } from './PlanCreateDialog'
+import { PlanDetail } from './PlanDetail'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
   DndContext,
@@ -21,7 +23,8 @@ import { AlertTriangle, RefreshCw, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const mobileColumnConfig: Record<PlanStatus, { label: string; dot: string }> = {
-  plan: { label: 'Plan', dot: 'bg-[#635BFF]' },
+  backlog: { label: 'Backlog', dot: 'bg-[#A8A8A8]' },
+  todo: { label: 'Todo', dot: 'bg-[#635BFF]' },
   running: { label: 'Running', dot: 'bg-[#FFB020]' },
   done: { label: 'Done', dot: 'bg-[#00D924]' },
 }
@@ -34,11 +37,13 @@ export function Board() {
   const fetchPlans = usePlanStore((state) => state.fetchPlans)
 
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [activeStatus, setActiveStatus] = useState<PlanStatus>('plan')
+  const [activeStatus, setActiveStatus] = useState<PlanStatus>('backlog')
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
 
   const plansByStatus = useMemo(
     () => ({
-      plan: plans.filter((p) => p.status === 'plan'),
+      backlog: plans.filter((p) => p.status === 'backlog'),
+      todo: plans.filter((p) => p.status === 'todo'),
       running: plans.filter((p) => p.status === 'running'),
       done: plans.filter((p) => p.status === 'done'),
     }),
@@ -61,7 +66,7 @@ export function Board() {
   }, [fetchPlans])
 
   function findPlanStatus(id: string, source: Record<PlanStatus, Plan[]>): PlanStatus | undefined {
-    return (['plan', 'running', 'done'] as PlanStatus[]).find((s) =>
+    return (['backlog', 'todo', 'running', 'done'] as PlanStatus[]).find((s) =>
       source[s].some((p) => p.id === id)
     )
   }
@@ -72,12 +77,15 @@ export function Board() {
     plansMap: Record<PlanStatus, Plan[]>
   ): PlanStatus | undefined {
     // Direct column droppable match
-    if ((['plan', 'running', 'done'] as PlanStatus[]).includes(overId as PlanStatus)) {
+    if ((['backlog', 'todo', 'running', 'done'] as PlanStatus[]).includes(overId as PlanStatus)) {
       return overId as PlanStatus
     }
     // Sortable item data (most reliable for cross-column)
     const dataStatus = data?.status as PlanStatus | undefined
-    if (dataStatus && (['plan', 'running', 'done'] as PlanStatus[]).includes(dataStatus)) {
+    if (
+      dataStatus &&
+      (['backlog', 'todo', 'running', 'done'] as PlanStatus[]).includes(dataStatus)
+    ) {
       return dataStatus
     }
     // Fallback: lookup in current plan map
@@ -110,7 +118,7 @@ export function Board() {
       // Same column: reorder
       const items = [...displayPlans[sourceStatus]]
       const oldIndex = items.findIndex((p) => p.id === activeId)
-      const isOverColumn = (['plan', 'running', 'done'] as PlanStatus[]).includes(
+      const isOverColumn = (['backlog', 'todo', 'running', 'done'] as PlanStatus[]).includes(
         overId as PlanStatus
       )
       const newIndex = isOverColumn ? items.length : items.findIndex((p) => p.id === overId)
@@ -127,7 +135,7 @@ export function Board() {
       if (!plan) return
 
       const destItems = [...displayPlans[destStatus]]
-      const isOverColumn = (['plan', 'running', 'done'] as PlanStatus[]).includes(
+      const isOverColumn = (['backlog', 'todo', 'running', 'done'] as PlanStatus[]).includes(
         overId as PlanStatus
       )
       const overIndex = isOverColumn
@@ -181,21 +189,25 @@ export function Board() {
   }
 
   function handlePlanClick(plan: Plan) {
-    navigate(`/plans/${plan.id}`)
+    if (window.innerWidth < 768) {
+      navigate(`/kanban/${plan.id}`)
+    } else {
+      setSelectedPlanId(plan.id)
+    }
   }
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
       {/* Top bar */}
       <div className="flex items-center justify-between shrink-0 px-1">
-        <h2 className="text-sm font-semibold text-foreground">Plans Board</h2>
+        <h2 className="text-sm font-semibold text-foreground">Kanban Board</h2>
         <Button
           size="sm"
           className="h-7 gap-1 text-xs md:h-8 md:gap-1.5"
           onClick={() => setShowCreateDialog(true)}
         >
           <Plus className="h-3.5 w-3.5" />
-          New Plan
+          New Issue
         </Button>
       </div>
 
@@ -209,7 +221,7 @@ export function Board() {
         >
           <div className="flex-1 min-h-0 flex">
             <div className="flex w-full gap-4 overflow-x-auto py-5 flex-1 min-h-0">
-              {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => (
+              {(['backlog', 'todo', 'running', 'done'] as PlanStatus[]).map((status) => (
                 <div key={status} className="min-w-[250px] flex-1 flex flex-col min-h-0">
                   <BoardColumn
                     status={status}
@@ -233,7 +245,7 @@ export function Board() {
       <div className="flex flex-col flex-1 min-h-0 md:hidden">
         {/* Status tabs */}
         <div className="flex gap-1.5 mb-2 mt-3">
-          {(['plan', 'running', 'done'] as PlanStatus[]).map((status) => {
+          {(['backlog', 'todo', 'running', 'done'] as PlanStatus[]).map((status) => {
             const cfg = mobileColumnConfig[status]
             return (
               <button
@@ -261,7 +273,7 @@ export function Board() {
           <div className="space-y-2 pb-4">
             {displayPlans[activeStatus].length === 0 ? (
               <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-                No plans yet
+                No issues yet
               </div>
             ) : (
               displayPlans[activeStatus].map((plan) => (
@@ -273,6 +285,21 @@ export function Board() {
       </div>
 
       <PlanCreateDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} />
+
+      <Dialog open={!!selectedPlanId} onOpenChange={(v) => !v && setSelectedPlanId(null)}>
+        <DialogContent className="max-w-4xl h-[85vh] p-0 border-0 flex flex-col overflow-hidden bg-card shadow-2xl">
+          {selectedPlanId && (
+            <PlanDetail
+              plan={plans.find((p) => p.id === selectedPlanId)}
+              open={true}
+              onClose={() => {
+                setSelectedPlanId(null)
+                fetchPlans()
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -123,8 +123,7 @@ func isToolPruned(level string, name string) bool {
 			return true
 		}
 		switch name {
-		case "CreatePlan", "UpdatePlan", "DeletePlan", "ListPlans", "GetPlan",
-			"AddTodoItems", "DeleteTodoItems", "ToggleTodo", "SetTodoDependencies":
+		case "ManageIssue":
 			return true
 		}
 		return false

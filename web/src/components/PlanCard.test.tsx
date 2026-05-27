@@ -7,7 +7,7 @@ const basePlan: Plan = {
   id: 'p1',
   title: 'Test Plan',
   content: 'Some content',
-  status: 'plan',
+  status: 'todo',
   tags: 'bug,frontend',
   creator: 'user',
   created_at: '2024-01-01T00:00:00Z',

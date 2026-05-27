@@ -44,6 +44,8 @@ vi.mock('./FilePreview', () => ({
 const mockPlan: Plan = {
   id: 'p1',
   title: 'Test Plan',
+  description: 'Test description',
+  plan: '## Hello\n\nThis is **markdown** content.',
   content: '## Hello\n\nThis is **markdown** content.',
   status: 'running',
   tags: 'bug,frontend',
@@ -143,7 +145,7 @@ describe('PlanDetail', () => {
     await waitFor(() => expect(screen.getByTitle('Delete')).toBeInTheDocument())
     await user.click(screen.getByTitle('Delete'))
 
-    expect(screen.getByText('Delete this plan? This action cannot be undone.')).toBeInTheDocument()
+    expect(screen.getByText('Delete this issue? This action cannot be undone.')).toBeInTheDocument()
   })
 
   it('executes delete from confirmation', async () => {
@@ -170,16 +172,22 @@ describe('PlanDetail', () => {
   })
 
   it('shows task list', async () => {
+    const user = userEvent.setup()
     render(<PlanDetail plan={mockPlan} open={true} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTitle('Edit')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /checklist/i }))
     await waitFor(() => {
       expect(screen.getByTestId('todo-list')).toBeInTheDocument()
     })
   })
 
   it('shows progress for tasks', async () => {
+    const user = userEvent.setup()
     render(<PlanDetail plan={mockPlan} open={true} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTitle('Edit')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /checklist/i }))
     await waitFor(() => {
-      expect(screen.getByText('1/2')).toBeInTheDocument()
+      expect(screen.getAllByText('1/2').length).toBeGreaterThan(0)
     })
   })
 
@@ -196,6 +204,8 @@ describe('PlanDetail', () => {
     })
     const user = userEvent.setup()
     render(<PlanDetail plan={mockPlan} open={true} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTitle('Edit')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /checklist/i }))
     await waitFor(() => expect(screen.getByTestId('todo-list')).toBeInTheDocument())
     await user.click(screen.getByText('Toggle'))
     expect(api.toggleTodo).toHaveBeenCalledWith('p1', 't1')

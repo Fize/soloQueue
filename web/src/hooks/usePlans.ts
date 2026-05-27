@@ -45,7 +45,8 @@ export function usePlans() {
   )
 
   const plansByStatus = {
-    plan: plans.filter((p) => p.status === 'plan'),
+    backlog: plans.filter((p) => p.status === 'backlog'),
+    todo: plans.filter((p) => p.status === 'todo'),
     running: plans.filter((p) => p.status === 'running'),
     done: plans.filter((p) => p.status === 'done'),
   }
