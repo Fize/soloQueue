@@ -26,16 +26,19 @@ import (
 //
 // 来源于 ~/.soloqueue/agents/*.md 的 YAML frontmatter + markdown body。
 type AgentTemplate struct {
-	ID           string   // 唯一标识（如 "dev"、"fe"）
-	Name         string   // 显示名称
-	Description  string   // 给 LLM 看的描述
-	SystemPrompt string   // markdown body
-	ModelID      string   // 模型 ID（由全局默认模型填充，不再从配置文件读取）
-	IsLeader     bool     // 是否为 L2 领导者
-	Group        string   // 所属 group name
-	Permission   bool     // 特权模式，跳过工具确认
-	MCPServers   []string // MCP Server 名称列表
-	SkillIDs     []string // 该 agent 需要的 skill ID 列表
+	ID           string            // 唯一标识（如 "dev"、"fe"）
+	Name         string            // 显示名称
+	Description  string            // 给 LLM 看的描述
+	SystemPrompt string            // markdown body
+	ModelID      string            // 模型 ID（由全局默认模型填充，不再从配置文件读取）
+	IsLeader     bool              // 是否为 L2 领导者
+	Group        string            // 所属 group name
+	Permission   bool              // 特权模式，跳过工具确认
+	MCPServers   []string          // MCP Server 名称列表
+	SkillIDs     []string          // 该 agent 需要的 skill ID 列表
+	ExternalType string            // 外部 Agent 类型 ("claude", "codex", "opencode")
+	CustomArgs   []string          // 用户自定义 CLI 参数
+	CustomEnv    map[string]string // 用户自定义环境变量
 }
 
 // ─── ModelInfo ────────────────────────────────────────────────────────────
@@ -312,8 +315,18 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		BypassConfirm:   f.bypassConfirm || tmpl.Permission,
 	}
 
+	if tmpl.ExternalType != "" {
+		if !tmpl.IsLeader && tmpl.Group == "" {
+			return nil, nil, fmt.Errorf("agent %q: external agent type %q is only allowed for L2 leaders or L3 workers", tmpl.ID, tmpl.ExternalType)
+		}
+		def.Kind = KindExternal
+		def.ExternalType = tmpl.ExternalType
+		def.CustomArgs = tmpl.CustomArgs
+		def.CustomEnv = tmpl.CustomEnv
+	}
+
 	// 1b. Validate and resolve model configuration
-	if f.resolveModel != nil {
+	if f.resolveModel != nil && tmpl.ExternalType == "" {
 		modelID := tmpl.ModelID
 		if modelID == "" {
 			modelID = defaultModelID
@@ -570,6 +583,9 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 			Permission:   fm.Permission,
 			MCPServers:   fm.MCPServers,
 			SkillIDs:     fm.Skills,
+			ExternalType: fm.ExternalType,
+			CustomArgs:   fm.CustomArgs,
+			CustomEnv:    fm.CustomEnv,
 		}
 		templates = append(templates, tmpl)
 	}

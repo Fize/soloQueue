@@ -131,8 +131,7 @@ func (rm *RuntimeMetrics) StartAgentWatch(a *agent.Agent) {
 	}()
 }
 
-// StopAgentWatch cancels the Watch subscription. The accumulated stream state
-// is preserved so the Web UI keeps showing historical output.
+// StopAgentWatch cancels the Watch subscription and deletes the stream state.
 func (rm *RuntimeMetrics) StopAgentWatch(instanceID string) {
 	var notify func()
 	rm.agentStreamsMu.Lock()
@@ -141,11 +140,7 @@ func (rm *RuntimeMetrics) StopAgentWatch(instanceID string) {
 		cancel()
 		delete(rm.agentCancels, instanceID)
 	}
-	// Preserve stream state for historical display; do NOT delete.
-	// New StartAgentWatch for the same instanceID will overwrite it.
-	if s, ok := rm.agentStreams[instanceID]; ok {
-		s.Processing = false
-	}
+	delete(rm.agentStreams, instanceID)
 	notify = rm.onChange
 	rm.agentStreamsMu.Unlock()
 	if notify != nil {
