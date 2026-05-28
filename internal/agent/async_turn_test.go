@@ -452,9 +452,6 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 	out := make(chan AgentEvent, 64)
 
 	// 创建 asyncTurnState（pending=0 表示所有异步任务已完成）
-	var pending atomic.Int32
-	pending.Store(0)
-
 	turnState := &asyncTurnState{
 		agentID: "l1",
 		out:     out,
@@ -471,7 +468,6 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 			},
 		},
 		results:   []string{"async-result"},
-		pending:   pending,
 		callerCtx: context.Background(),
 	}
 
@@ -890,9 +886,6 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 	results := []string{"error: L3 response truncated due to max_tokens"}
 
 	// 创建 asyncTurnState
-	var pending atomic.Int32
-	pending.Store(0) // 所有任务已完成
-
 	turnState := &asyncTurnState{
 		agentID:   "l2",
 		out:       make(chan AgentEvent, 64),
@@ -900,7 +893,6 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 		iter:      0,
 		toolCalls: toolCalls,
 		results:   results,
-		pending:   pending,
 		callerCtx: context.Background(),
 	}
 
@@ -987,9 +979,6 @@ func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
 	results := []string{"result1"}
 
 	// 创建 asyncTurnState
-	var pending atomic.Int32
-	pending.Store(0)
-
 	turnState := &asyncTurnState{
 		agentID:   "l2",
 		out:       make(chan AgentEvent, 64),
@@ -997,7 +986,6 @@ func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
 		iter:      0,
 		toolCalls: toolCalls,
 		results:   results,
-		pending:   pending,
 		callerCtx: context.Background(),
 	}
 
@@ -1424,9 +1412,6 @@ func TestResumeTurn_PushesUserMessage(t *testing.T) {
 		}),
 	)
 
-	var pending atomic.Int32
-	pending.Store(0)
-
 	out := make(chan AgentEvent, 64)
 	turnState := &asyncTurnState{
 		agentID:   "l1",
@@ -1444,7 +1429,6 @@ func TestResumeTurn_PushesUserMessage(t *testing.T) {
 			},
 		},
 		results:   []string{"Code reviewed successfully: all clean"},
-		pending:   pending,
 		callerCtx: ctx,
 	}
 

@@ -42,7 +42,7 @@ func (f *fakeConfirmableTool) CheckConfirmation(args string) (bool, string) {
 	return f.needsConfirm, f.prompt
 }
 
-func (fakeConfirmableTool) ConfirmationOptions(_ string) []string { return nil }
+func (*fakeConfirmableTool) ConfirmationOptions(_ string) []string { return nil }
 
 func (f *fakeConfirmableTool) ConfirmArgs(original string, choice tools.ConfirmChoice) string {
 	if choice != tools.ChoiceApprove {
@@ -57,7 +57,7 @@ func (f *fakeConfirmableTool) ConfirmArgs(original string, choice tools.ConfirmC
 	return string(b)
 }
 
-func (fakeConfirmableTool) SupportsSessionWhitelist() bool { return true }
+func (*fakeConfirmableTool) SupportsSessionWhitelist() bool { return true }
 
 // ─── 单个 Confirmable tool：用户确认后继续执行 ────────────────────────────
 
