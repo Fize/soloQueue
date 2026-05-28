@@ -13,7 +13,8 @@ const (
 type Kind string
 
 const (
-	KindCustom Kind = "custom"
+	KindCustom   Kind = "custom"
+	KindExternal Kind = "external"
 )
 
 // Definition 是 agent 的静态配置
@@ -30,7 +31,7 @@ type Definition struct {
 	Temperature  float64
 	MaxTokens    int
 
-	// ReasoningEffort 推理努力等级，用于支持思考模式的 V4 模型
+	// ReasoningEffort 推理努力等级，用于支持思考模式 of V4 模型
 	// "high" | "max" | ""（空表示不发送此参数）
 	ReasoningEffort string
 
@@ -56,6 +57,15 @@ type Definition struct {
 	// BypassConfirm skips all tool confirmations for this agent.
 	// Set from agent template `permission: true` or global --bypass flag.
 	BypassConfirm bool
+
+	// ExternalType indicates if this agent runs via an external CLI (e.g. "claude", "codex", "opencode")
+	ExternalType string
+
+	// CustomArgs contains user-defined CLI arguments for external agents
+	CustomArgs []string
+
+	// CustomEnv contains user-defined environment variables for external agents
+	CustomEnv map[string]string
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────

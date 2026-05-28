@@ -1,4 +1,4 @@
-import type { WSMessage, RuntimeStatus, AgentListResponse } from '@/types'
+import type { WSMessage, RuntimeStatus, AgentListResponse, AgentStreamState } from '@/types'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 
@@ -17,6 +17,7 @@ function wsBase(): string {
 
 class WebSocketManager {
   private ws: WebSocket | null = null
+  private cachedStreams: Record<string, AgentStreamState> = {}
   private handlers: MessageHandler = {
     runtime: new Set(),
     agents: new Set(),
@@ -92,6 +93,21 @@ class WebSocketManager {
   private dispatch(msg: WSMessage) {
     if (msg.type === 'state') {
       if (msg.runtime) {
+        if (msg.runtime.agent_streams) {
+          // 1. Update cache with incoming streams
+          for (const [id, stream] of Object.entries(msg.runtime.agent_streams)) {
+            this.cachedStreams[id] = stream
+          }
+          // 2. Merge back any cached streams that are no longer sent by backend
+          for (const [id, cachedStream] of Object.entries(this.cachedStreams)) {
+            if (!msg.runtime.agent_streams[id]) {
+              msg.runtime.agent_streams[id] = {
+                ...cachedStream,
+                processing: false,
+              }
+            }
+          }
+        }
         useRuntimeStore.getState().setStatus(msg.runtime)
         this.handlers.runtime.forEach((h) => h(msg.runtime))
       }
