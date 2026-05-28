@@ -625,6 +625,11 @@ func (s *historyStrategy) promptLen() int { return len(s.prompt) }
 // runOnceStream is the execution body of AskStream (runs in the agent
 // goroutine). Uses in-memory message accumulation without ContextWindow.
 func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- AgentEvent) {
+	if a.Def.Kind == KindExternal {
+		defer close(out)
+		a.runExternalCLI(ctx, prompt, out, nil)
+		return
+	}
 	a.setWorkStart(prompt)
 	defer a.clearWork()
 
@@ -648,6 +653,11 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 // the caller must keep the context alive until resumeTurn completes.
 func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) bool {
 	defer a.ClearModelOverride()
+	if a.Def.Kind == KindExternal {
+		defer close(out)
+		a.runExternalCLI(ctx, prompt, out, cw)
+		return false
+	}
 	a.setWorkStart(prompt)
 	yielded := a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
 	if !yielded {

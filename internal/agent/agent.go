@@ -106,6 +106,8 @@ type Agent struct {
 	watchSeq   int64
 
 	onStateChange func(State) // called after every state transition
+
+	externalSessionID string // session ID for external CLI agents
 }
 
 // confirmSlot 是单次 tool_call 的待确认槽位
