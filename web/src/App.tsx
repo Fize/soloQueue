@@ -22,6 +22,7 @@ import { useAuthStore } from '@/stores/authStore'
 
 function App() {
   const { isAuthenticated, isLoading } = useAuthStore()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   if (isLoading) {
     return (
@@ -79,7 +80,20 @@ function App() {
         </main>
 
         {/* Mobile bottom navigation tab bar */}
-        <MobileNav />
+        <MobileNav onMenuClick={() => setMobileMenuOpen(true)} />
+
+        {/* Mobile sidebar (drawer) overlay */}
+        {mobileMenuOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden animate-in fade-in duration-200"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <div className="fixed inset-y-0 left-0 z-50 md:hidden animate-in slide-in-from-left duration-200">
+              <Sidebar mobile onClose={() => setMobileMenuOpen(false)} />
+            </div>
+          </>
+        )}
       </div>
     </TooltipProvider>
   )
