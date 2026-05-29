@@ -36,7 +36,7 @@ type AgentTemplate struct {
 	Permission   bool              // 特权模式，跳过工具确认
 	MCPServers   []string          // MCP Server 名称列表
 	SkillIDs     []string          // 该 agent 需要的 skill ID 列表
-	ExternalType string            // 外部 Agent 类型 ("claude", "codex", "opencode")
+	ExternalType string            // 外部 Agent 类型 ("claude", "codex", "opencode", "gemini")
 	CustomArgs   []string          // 用户自定义 CLI 参数
 	CustomEnv    map[string]string // 用户自定义环境变量
 }
