@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/proxy"
 )
 
@@ -83,9 +84,13 @@ func (m *Mux) serveReverseProxy(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 
-	targetURLStr := m.proxyManager.GetProxyTarget(id)
-	if targetURLStr == "" {
+	targetURLStr, healthy, exists := m.proxyManager.GetProxyStatus(id)
+	if !exists {
 		http.Error(w, "Proxy not found", http.StatusNotFound)
+		return
+	}
+	if !healthy {
+		http.Error(w, "Proxy target is unhealthy", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -96,6 +101,13 @@ func (m *Mux) serveReverseProxy(w http.ResponseWriter, r *http.Request, id strin
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		if m.log != nil {
+			m.log.DebugContext(r.Context(), logger.CatHTTP, "http: proxy error", "err", err.Error(), "url", r.URL.String())
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	}
 
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {

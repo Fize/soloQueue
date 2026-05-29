@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/proxy"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
@@ -294,4 +298,130 @@ func TestHTTP_ProxyCookieHijackDefense(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTP_ProxyErrorHandling(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Use an invalid/unreachable target server to trigger proxy error
+	targetURL := "http://127.0.0.1:57648" // hopefully unreachable
+
+	pm, err := proxy.NewProxyManager(tempDir, filepath.Join(tempDir, "proxies.json"))
+	if err != nil {
+		t.Fatalf("failed to create proxy manager: %v", err)
+	}
+	_, err = pm.AddProxy("error-proxy", targetURL)
+	if err != nil {
+		t.Fatalf("failed to add proxy: %v", err)
+	}
+
+	// Create logger that captures log records to file
+	sysLog, err := logger.System(tempDir, logger.WithConsole(false), logger.WithLevel(slog.LevelDebug))
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	defer sysLog.Close()
+
+	mux := NewMux(tempDir, sysLog, nil, WithProxyManager(pm))
+	defer mux.Close()
+
+	// 1. Initially it is healthy (by default). Request it and expect 502 Bad Gateway.
+	{
+		// Redirect stderr to verify nothing is printed to console
+		oldStderr := os.Stderr
+		pipeR, pipeW, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe: %v", err)
+		}
+		os.Stderr = pipeW
+
+		// Request proxy path to trigger connection refused error
+		req := httptest.NewRequest("GET", "/unreachable-path", nil)
+		req.Header.Set("Accept", "*/*")
+		req.AddCookie(&http.Cookie{Name: "soloqueue_active_proxy", Value: "error-proxy"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		// Restore stderr
+		pipeW.Close()
+		os.Stderr = oldStderr
+
+		if rec.Code != http.StatusBadGateway {
+			t.Errorf("expected 502 Bad Gateway, got %d", rec.Code)
+		}
+
+		// Read captured stderr
+		var stderrBuf strings.Builder
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var buf [256]byte
+			for {
+				n, err := pipeR.Read(buf[:])
+				if n > 0 {
+					stderrBuf.Write(buf[:n])
+				}
+				if err != nil {
+					break
+				}
+			}
+		}()
+		wg.Wait()
+
+		capturedStderr := stderrBuf.String()
+		if strings.Contains(capturedStderr, "proxy error") {
+			t.Errorf("did not expect standard library log output to print 'proxy error' to stderr, got:\n%s", capturedStderr)
+		}
+	}
+
+	// 2. Start the proxy manager and trigger health checks to mark it unhealthy.
+	if err := pm.Start(); err != nil {
+		t.Fatalf("failed to start proxy manager: %v", err)
+	}
+	// Trigger checks to reach 3 failures
+	// (Start() runs checkHealth() once on startup, which is 1st failure)
+	pm.Shutdown() // stop background checking loop to avoid race, but structure remains
+	
+	// Manually trigger remaining CheckHealth calls to safely simulate 3 failures
+	pm.CheckHealth() // 2nd failure
+	pm.CheckHealth() // 3rd failure
+
+	// Verify health status is now false
+	_, healthy, _ := pm.GetProxyStatus("error-proxy")
+	if healthy {
+		t.Fatalf("expected proxy to be marked unhealthy")
+	}
+
+	// 3. Request proxy path now that it is unhealthy -> should get 503 Service Unavailable
+	{
+		req := httptest.NewRequest("GET", "/unreachable-path", nil)
+		req.Header.Set("Accept", "*/*")
+		req.AddCookie(&http.Cookie{Name: "soloqueue_active_proxy", Value: "error-proxy"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("expected 503 Service Unavailable, got %d", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "Proxy target is unhealthy") {
+			t.Errorf("expected body to mention 'Proxy target is unhealthy', got %q", rec.Body.String())
+		}
+	}
+
+	// Verify log file contains the debug proxy error log
+	sysLog.Close() // Flush logs
+	httpLogFile := filepath.Join(tempDir, "logs", "system", "http-"+time.Now().Format("2006-01-02")+".jsonl")
+	data, err := os.ReadFile(httpLogFile)
+	if err != nil {
+		t.Fatalf("failed to read http log file: %v", err)
+	}
+	logContent := string(data)
+	if !strings.Contains(logContent, "http: proxy error") {
+		t.Errorf("expected http log file to contain 'http: proxy error', got log content:\n%s", logContent)
+	}
+	if !strings.Contains(logContent, "DEBUG") {
+		t.Errorf("expected http log file to contain 'DEBUG' level log, got log content:\n%s", logContent)
+	}
+}
+
 

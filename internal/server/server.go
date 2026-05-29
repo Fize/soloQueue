@@ -443,7 +443,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 			}
 		}
 
-		if targetProxyID != "" && m.proxyManager != nil && m.proxyManager.GetProxyTarget(targetProxyID) != "" {
+		if targetProxyID != "" && m.proxyManager != nil && m.proxyManager.HasProxy(targetProxyID) {
 			m.proxyManager.CachePath(r.URL.Path, targetProxyID)
 			m.serveReverseProxy(w, r, targetProxyID)
 			return
@@ -461,7 +461,7 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 func (m *Mux) proxyEntryPointMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxyID := r.URL.Query().Get("soloqueue_proxy")
-		if proxyID != "" && m.proxyManager != nil && m.proxyManager.GetProxyTarget(proxyID) != "" {
+		if proxyID != "" && m.proxyManager != nil && m.proxyManager.HasProxy(proxyID) {
 			m.serveReverseProxy(w, r, proxyID)
 			return
 		}
