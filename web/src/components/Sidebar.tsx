@@ -20,6 +20,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Clock,
+  Monitor,
 } from 'lucide-react'
 
 const mainNav = [
@@ -35,6 +36,7 @@ const settingsChildren = [
   { to: '/settings/skills', icon: Sparkles, label: 'Skills' },
   { to: '/settings/mcp', icon: Server, label: 'MCP' },
   { to: '/settings/teams', icon: Users, label: 'Agents & Teams' },
+  { to: '/settings/proxies', icon: Monitor, label: 'Proxies' },
 ]
 
 function NavItem({
@@ -77,6 +79,26 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
   const isSettingsActive = location.pathname.startsWith('/settings')
   const [settingsOpen, setSettingsOpen] = useState(isSettingsActive)
   const [collapsed, setCollapsed] = useState(false)
+  const [proxies, setProxies] = useState<{ id: string }[]>([])
+
+  const fetchProxies = async () => {
+    try {
+      const res = await fetch('/api/proxy')
+      if (res.ok) {
+        const data = await res.json()
+        setProxies(data || [])
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    fetchProxies()
+    const handleProxyUpdated = () => fetchProxies()
+    window.addEventListener('proxy-updated', handleProxyUpdated)
+    return () => window.removeEventListener('proxy-updated', handleProxyUpdated)
+  }, [])
 
   useEffect(() => {
     if (isSettingsActive && !settingsOpen) {
@@ -146,6 +168,32 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
             }
           />
         ))}
+
+        {/* Dynamic Proxy/Iframe links */}
+        {proxies.length > 0 && (
+          <div className="pt-2 pb-1">
+            <div
+              className={cn(
+                'text-xs font-semibold text-muted-foreground mb-1',
+                collapsed && !mobile ? 'text-center' : 'px-3'
+              )}
+            >
+              {collapsed && !mobile ? 'Apps' : 'Tools'}
+            </div>
+            <div className="space-y-0.5">
+              {proxies.map((proxy) => (
+                <NavItem
+                  key={`proxy-${proxy.id}`}
+                  to={`/iframe/${proxy.id}`}
+                  icon={Monitor}
+                  label={proxy.id}
+                  collapsed={collapsed && !mobile}
+                  active={location.pathname === `/iframe/${proxy.id}`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Settings with submenu */}
         <div className="pt-2">

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/proxy"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
 
@@ -225,6 +226,71 @@ func TestHTTP_TeamAgents(t *testing.T) {
 
 		if len(resp.Agents) != 1 || resp.Agents[0].Name != "Alice" {
 			t.Errorf("expected agent Alice, got %+v", resp.Agents)
+		}
+	}
+}
+
+func TestHTTP_ProxyCookieHijackDefense(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a dummy target server that the proxy forwards to
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("proxied_response"))
+	}))
+	defer targetServer.Close()
+
+	pm, err := proxy.NewProxyManager(tempDir, filepath.Join(tempDir, "proxies.json"))
+	if err != nil {
+		t.Fatalf("failed to create proxy manager: %v", err)
+	}
+	_, err = pm.AddProxy("test-proxy", targetServer.URL)
+	if err != nil {
+		t.Fatalf("failed to add proxy: %v", err)
+	}
+
+	mux := NewMux(tempDir, nil, nil, WithProxyManager(pm))
+	defer mux.Close()
+
+	// 1. Request GET / with Cookie set and Accept: text/html -> Should NOT be proxied (should fall through to FileServer/dashboard)
+	{
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("Accept", "text/html")
+		req.AddCookie(&http.Cookie{Name: "soloqueue_active_proxy", Value: "test-proxy"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		body := rec.Body.String()
+		if strings.Contains(body, "proxied_response") {
+			t.Errorf("GET / with Accept: text/html was hijacked by proxy")
+		}
+	}
+
+	// 2. Request GET /something-else with Cookie set and Accept: */* (non-HTML asset) -> Should be proxied
+	{
+		req := httptest.NewRequest("GET", "/something-else", nil)
+		req.Header.Set("Accept", "*/*")
+		req.AddCookie(&http.Cookie{Name: "soloqueue_active_proxy", Value: "test-proxy"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		body := rec.Body.String()
+		if !strings.Contains(body, "proxied_response") {
+			t.Errorf("expected proxied response for asset request, got %q (status %d)", body, rec.Code)
+		}
+	}
+
+	// 3. Request GET /favicon.ico (an asset that exists in fsys) with Cookie set -> Should NOT be proxied
+	{
+		req := httptest.NewRequest("GET", "/favicon.ico", nil)
+		req.AddCookie(&http.Cookie{Name: "soloqueue_active_proxy", Value: "test-proxy"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		body := rec.Body.String()
+		if strings.Contains(body, "proxied_response") {
+			t.Errorf("GET /favicon.ico (existing fsys asset) was hijacked by proxy")
 		}
 	}
 }

@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -43,6 +44,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/proxy"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/todo"
@@ -72,6 +74,7 @@ type Mux struct {
 	authConfig    config.AuthConfig
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
+	proxyManager   *proxy.ProxyManager
 }
 
 // reloadGroups loads groups from groupsDir. Returns empty map on error.
@@ -198,6 +201,11 @@ func WithOnConfigChange(fn func() error) MuxOption {
 	return func(m *Mux) { m.onConfigChange = fn }
 }
 
+// WithProxyManager sets the proxy manager for the /api/proxy endpoints.
+func WithProxyManager(pm *proxy.ProxyManager) MuxOption {
+	return func(m *Mux) { m.proxyManager = pm }
+}
+
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
@@ -212,16 +220,29 @@ func (m *Mux) SetHub(hub *Hub) {
 func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...MuxOption) *Mux {
 	r := chi.NewRouter()
 
-	// Global middleware
-	r.Use(middleware.Recoverer)
-	r.Use(corsMiddleware)
-
 	m := &Mux{
 		log:       log,
 		mux:       r,
 		workDir:   workDir,
 		todoStore: todoStore,
 	}
+
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(m.corsMiddleware)
+	r.Use(m.proxyEntryPointMiddleware)
+
+	// Logging middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if m.accessLogger != nil {
+				m.accessLogger.Middleware(next).ServeHTTP(w, r)
+			} else {
+				next.ServeHTTP(w, r)
+			}
+		})
+	})
+	r.Use(middleware.Recoverer)
 
 	for _, opt := range opts {
 		opt(m)
@@ -353,6 +374,15 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 		})
 	})
 
+	// Proxy routes
+	r.Route("/api/proxy", func(r chi.Router) {
+		r.Get("/", m.handleListProxies)
+		r.Post("/", m.handleCreateProxy)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Delete("/", m.handleDeleteProxy)
+		})
+	})
+
 	// Cron routes
 	r.Route("/api/cron", func(r chi.Router) {
 		r.Get("/", m.handleListCronTasks)
@@ -379,7 +409,46 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	fsys := distFS()
 	fileServer := http.FileServer(http.FS(fsys))
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		// Serve SoloQueue's own embedded static files first to prevent them from being hijacked by the proxy.
 		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path != "" {
+			if info, err := fs.Stat(fsys, path); err == nil && !info.IsDir() {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		var targetProxyID string
+
+		// Attempt Referer-based proxy routing
+		referer := r.Header.Get("Referer")
+		if referer != "" {
+			if refURL, err := url.Parse(referer); err == nil {
+				if id := refURL.Query().Get("soloqueue_proxy"); id != "" {
+					targetProxyID = id
+				} else if m.proxyManager != nil {
+					targetProxyID = m.proxyManager.GetCachedProxy(refURL.Path)
+				}
+			}
+		}
+
+		// Fallback for WebSockets or subsequent API calls from iframe
+		if targetProxyID == "" {
+			isWebsocket := strings.ToLower(r.Header.Get("Upgrade")) == "websocket" || r.Header.Get("Sec-WebSocket-Key") != ""
+			isHTML := strings.Contains(r.Header.Get("Accept"), "text/html")
+			if isWebsocket || (!isHTML && r.URL.Path != "/") {
+				if cookie, err := r.Cookie("soloqueue_active_proxy"); err == nil && cookie.Value != "" {
+					targetProxyID = cookie.Value
+				}
+			}
+		}
+
+		if targetProxyID != "" && m.proxyManager != nil && m.proxyManager.GetProxyTarget(targetProxyID) != "" {
+			m.proxyManager.CachePath(r.URL.Path, targetProxyID)
+			m.serveReverseProxy(w, r, targetProxyID)
+			return
+		}
+
 		if _, err := fs.Stat(fsys, path); err != nil {
 			r.URL.Path = "/"
 		}
@@ -387,6 +456,17 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	})
 
 	return m
+}
+
+func (m *Mux) proxyEntryPointMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyID := r.URL.Query().Get("soloqueue_proxy")
+		if proxyID != "" && m.proxyManager != nil && m.proxyManager.GetProxyTarget(proxyID) != "" {
+			m.serveReverseProxy(w, r, proxyID)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ServeHTTP implements http.Handler.
@@ -667,7 +747,7 @@ func (m *Mux) logError(ctx context.Context, msg string, err error) {
 }
 
 // corsMiddleware handles CORS for the Web UI dev server.
-func corsMiddleware(next http.Handler) http.Handler {
+func (m *Mux) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {

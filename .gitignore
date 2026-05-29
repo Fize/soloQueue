@@ -39,3 +39,6 @@ package-lock.json
 dist
 dist-ssr
 *.tsbuildinfoskills/
+multica/
+open-design/
+skills/
