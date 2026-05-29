@@ -211,25 +211,43 @@ func (pm *ProxyManager) CheckHealth() {
 	}
 	pm.mu.RUnlock()
 
-	for _, task := range tasks {
-		success := dialTarget(task.targetURL)
-
-		pm.mu.Lock()
-		entry, exists := pm.proxies[task.id]
-		if exists && entry.TargetURL == task.targetURL {
-			if success {
-				entry.Healthy = true
-				entry.FailCount = 0
-			} else {
-				entry.FailCount++
-				if entry.FailCount >= 3 {
-					entry.Healthy = false
-				}
-			}
-			pm.proxies[task.id] = entry
-		}
-		pm.mu.Unlock()
+	if len(tasks) == 0 {
+		return
 	}
+
+	// Limit concurrency to 20 active dial tasks
+	sem := make(chan struct{}, 20)
+	var wg sync.WaitGroup
+
+	for _, task := range tasks {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(t checkTask) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+
+			success := dialTarget(t.targetURL)
+
+			pm.mu.Lock()
+			entry, exists := pm.proxies[t.id]
+			if exists && entry.TargetURL == t.targetURL {
+				if success {
+					entry.Healthy = true
+					entry.FailCount = 0
+				} else {
+					entry.FailCount++
+					if entry.FailCount >= 3 {
+						entry.Healthy = false
+					}
+				}
+				pm.proxies[t.id] = entry
+			}
+			pm.mu.Unlock()
+		}(task)
+	}
+	wg.Wait()
 }
 
 func dialTarget(targetURL string) bool {
