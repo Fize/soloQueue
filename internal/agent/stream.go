@@ -238,6 +238,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		}
 
 		req := LLMRequest{
+			ProviderID:      a.Def.ProviderID,
 			Model:           a.Def.ModelID,
 			Temperature:     a.Def.Temperature,
 			MaxTokens:       a.Def.MaxTokens,
@@ -252,6 +253,9 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		if override := a.modelOverride.Load(); override != nil {
 			if override.ModelID != "" {
 				req.Model = override.ModelID
+			}
+			if override.ProviderID != "" {
+				req.ProviderID = override.ProviderID
 			}
 			req.ThinkingEnabled = override.ThinkingEnabled
 			req.ReasoningEffort = override.ReasoningEffort

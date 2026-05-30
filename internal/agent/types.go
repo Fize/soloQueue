@@ -26,6 +26,7 @@ type Definition struct {
 	Name         string
 	Role         Role
 	Kind         Kind
+	ProviderID   string
 	ModelID      string
 	SystemPrompt string
 	Temperature  float64
@@ -58,7 +59,7 @@ type Definition struct {
 	// Set from agent template `permission: true` or global --bypass flag.
 	BypassConfirm bool
 
-	// ExternalType indicates if this agent runs via an external CLI (e.g. "claude", "codex", "opencode")
+	// ExternalType indicates if this agent runs via an external CLI (e.g. "claude", "codex", "opencode", "gemini")
 	ExternalType string
 
 	// CustomArgs contains user-defined CLI arguments for external agents

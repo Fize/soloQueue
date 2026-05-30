@@ -62,17 +62,7 @@ func Build(
 		bypassConfirm: bypassConfirm,
 	}
 
-	// Phase 1: Validate & resolve config
-	if err := bc.resolveConfig(); err != nil {
-		return nil, err
-	}
-
-	// Phase 2: LLM Client (critical path)
-	if err := bc.buildLLMClient(); err != nil {
-		return nil, err
-	}
-
-	// Phase 2.5: Shared DB + TeamStore (must happen before prompt for DB-backed loading)
+	// Phase 1: Shared DB + TeamStore (must happen first so config layer is DB-backed)
 	if err := bc.initSharedDB(); err != nil {
 		return nil, err
 	}
@@ -81,6 +71,16 @@ func Build(
 	// Wire DB to Config and load DB-backed settings
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
 		return nil, fmt.Errorf("failed to wire DB to config: %w", err)
+	}
+
+	// Phase 2: Validate & resolve config (now fully DB-backed)
+	if err := bc.resolveConfig(); err != nil {
+		return nil, err
+	}
+
+	// Phase 2.5: LLM Client (critical path)
+	if err := bc.buildLLMClient(); err != nil {
+		return nil, err
 	}
 
 	// Phase 3: Independent subsystems (no cross-deps)
@@ -219,6 +219,7 @@ func BuildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 			return agent.ModelInfo{}, fmt.Errorf("model %q is disabled in settings", modelID)
 		}
 		return agent.ModelInfo{
+			ProviderID:      m.ProviderID,
 			APIModel:        m.APIModel,
 			ContextWindow:   m.ContextWindow,
 			Temperature:     m.Generation.Temperature,
@@ -336,12 +337,28 @@ func (bc *buildContext) resolveConfig() error {
 
 func (bc *buildContext) buildLLMClient() error {
 	buildStart := time.Now()
-	llmClient, err := BuildLLMClient(bc.provider, bc.log)
-	if err != nil {
-		return fmt.Errorf("build llm client: %w", err)
+
+	settings := bc.cfg.Get()
+	clients := make(map[string]agent.LLMClient)
+
+	for _, prov := range settings.Providers {
+		if !prov.Enabled {
+			continue
+		}
+
+		client, err := BuildLLMClient(&prov, bc.log)
+		if err != nil {
+			return fmt.Errorf("build llm client for provider %q: %w", prov.ID, err)
+		}
+		clients[prov.ID] = client
 	}
-	bc.llmClient = llmClient
-	bc.log.Debug(logger.CatApp, "build: LLM client ready", "duration", time.Since(buildStart).String())
+
+	if len(clients) == 0 {
+		return fmt.Errorf("no LLM client could be initialized")
+	}
+
+	bc.llmClient = agent.NewRoutingClient(clients)
+	bc.log.Debug(logger.CatApp, "build: LLM multi-client ready", "duration", time.Since(buildStart).String(), "count", len(clients))
 	return nil
 }
 

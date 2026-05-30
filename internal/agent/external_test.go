@@ -69,6 +69,23 @@ func TestExternalAgent_CreationValidation(t *testing.T) {
 		t.Errorf("expected ExternalType to be claude, got %s", a.Def.ExternalType)
 	}
 
+	// L2 (leader) configured with ExternalType "gemini" should succeed
+	tmplGemini := AgentTemplate{
+		ID:           "l2-gemini",
+		Name:         "L2 Gemini",
+		ExternalType: "gemini",
+		IsLeader:     true,
+		Group:        "",
+	}
+	aGemini, _, err := f.Create(context.Background(), tmplGemini, "")
+	if err != nil {
+		t.Fatalf("unexpected error creating L2 Gemini agent: %v", err)
+	}
+	defer func() { _ = aGemini.Stop(time.Second) }()
+	if aGemini.Def.ExternalType != "gemini" {
+		t.Errorf("expected ExternalType to be gemini, got %s", aGemini.Def.ExternalType)
+	}
+
 	// L3 (worker in group) configured with ExternalType should succeed
 	tmplL3 := AgentTemplate{
 		ID:           "l3-external",

@@ -25,6 +25,7 @@ type LLMMessage struct {
 
 // LLMRequest 是 LLMClient.Chat / ChatStream 的输入
 type LLMRequest struct {
+	ProviderID  string
 	Model       string
 	Messages    []LLMMessage
 	Temperature float64

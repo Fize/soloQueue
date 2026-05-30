@@ -36,7 +36,7 @@ type AgentTemplate struct {
 	Permission   bool              // 特权模式，跳过工具确认
 	MCPServers   []string          // MCP Server 名称列表
 	SkillIDs     []string          // 该 agent 需要的 skill ID 列表
-	ExternalType string            // 外部 Agent 类型 ("claude", "codex", "opencode")
+	ExternalType string            // 外部 Agent 类型 ("claude", "codex", "opencode", "gemini")
 	CustomArgs   []string          // 用户自定义 CLI 参数
 	CustomEnv    map[string]string // 用户自定义环境变量
 }
@@ -46,6 +46,8 @@ type AgentTemplate struct {
 // ModelInfo holds the resolved model configuration for an agent.
 // Populated by ModelResolver from the settings model registry.
 type ModelInfo struct {
+	ProviderID string
+
 	// APIModel is the actual model name sent to the LLM API.
 	// Empty means use the model ID itself.
 	APIModel string
@@ -344,6 +346,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		} else {
 			def.ModelID = modelID
 		}
+		def.ProviderID = info.ProviderID
 		def.ContextWindow = info.ContextWindow
 		def.Temperature = info.Temperature
 		def.MaxTokens = info.MaxTokens

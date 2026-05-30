@@ -265,18 +265,31 @@ func (s *Stack) OnConfigChange() error {
 	s.CfgMu.Lock()
 	defer s.CfgMu.Unlock()
 
-	provider := s.Settings.DefaultProvider()
-	if provider == nil {
-		return fmt.Errorf("no default provider configured")
+	settings := s.Settings.Get()
+	clients := make(map[string]agent.LLMClient)
+
+	for _, prov := range settings.Providers {
+		if !prov.Enabled {
+			continue
+		}
+		client, err := BuildLLMClient(&prov, s.Log)
+		if err != nil {
+			return fmt.Errorf("failed to rebuild LLM client for provider %q: %w", prov.ID, err)
+		}
+		clients[prov.ID] = client
 	}
 
-	// Rebuild LLM client
-	client, err := BuildLLMClient(provider, s.Log)
-	if err != nil {
-		return fmt.Errorf("failed to rebuild LLM client: %w", err)
+	if len(clients) == 0 {
+		return fmt.Errorf("no LLM client could be initialized on config change")
 	}
 
-	s.LLMClient = client
+	// Update existing routing client if it exists, or create a new one
+	if rc, ok := s.LLMClient.(*agent.RoutingClient); ok {
+		rc.UpdateClients(clients)
+	} else {
+		// Fallback (e.g. if LLMClient was a FakeLLM or other mock in tests)
+		s.LLMClient = agent.NewRoutingClient(clients)
+	}
 
 	fastModel := s.Settings.DefaultModelByRole("fast")
 	if fastModel != nil {
@@ -287,7 +300,7 @@ func (s *Stack) OnConfigChange() error {
 	}
 
 	if s.AgentFactory != nil {
-		s.AgentFactory.UpdateLLM(client)
+		s.AgentFactory.UpdateLLM(s.LLMClient)
 	}
 
 	s.Log.Info(logger.CatConfig, "LLM provider and default model configurations hot-reloaded successfully from DB")

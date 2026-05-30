@@ -128,6 +128,8 @@ func (a *Agent) runExternalCLI(ctx context.Context, prompt string, out chan<- Ag
 		backend = &codexBackend{execPath: execPath, logger: a.Log}
 	case "opencode":
 		backend = &opencodeBackend{execPath: execPath, logger: a.Log}
+	case "gemini":
+		backend = &geminiBackend{execPath: execPath, logger: a.Log}
 	case "mock":
 		backend = testExternalBackend
 		if backend == nil {
