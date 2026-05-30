@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 8
+const currentSchemaVersion = 9
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -270,6 +270,15 @@ func (d *DB) migrate() error {
 		ALTER TABLE issue ADD COLUMN author TEXT NOT NULL DEFAULT '';
 		UPDATE issue SET author = creator;
 		ALTER TABLE issue DROP COLUMN creator;
+		`,
+
+		// v8 -> v9: generic system settings table for JSON-serialized configs.
+		`
+		CREATE TABLE IF NOT EXISTS system_settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
 		`,
 	}
 
