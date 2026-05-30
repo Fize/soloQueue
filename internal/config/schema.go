@@ -274,3 +274,19 @@ type LSPMCPEntry struct {
 	Extensions []string `json:"extensions" toml:"extensions"`
 	Disabled   bool     `json:"disabled" toml:"disabled"`
 }
+
+// MarshalTOML implements toml.Marshaler to customize TOML serialization.
+// It ensures that migrated settings (Providers, Models, DefaultModels, Tools, QQBot, LSPMCP, Embedding, Session)
+// are NOT written back to settings.toml, leaving only process/environment specific settings (Auth, Log, Agent).
+func (s Settings) MarshalTOML() (interface{}, error) {
+	type FileSettings struct {
+		Auth  AuthConfig  `toml:"auth,omitempty"`
+		Log   LogConfig   `toml:"log,omitempty"`
+		Agent AgentConfig `toml:"agent,omitempty"`
+	}
+	return FileSettings{
+		Auth:  s.Auth,
+		Log:   s.Log,
+		Agent: s.Agent,
+	}, nil
+}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -307,4 +308,56 @@ func SaveDefaultModels(ctx context.Context, db *sqlitedb.DB, c DefaultModelsConf
 	}
 
 	return nil
+}
+
+// SaveSystemSetting serializes config struct to JSON and upserts into system_settings.
+func SaveSystemSetting(ctx context.Context, db *sqlitedb.DB, key string, val interface{}) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	bytes, err := json.Marshal(val)
+	if err != nil {
+		return fmt.Errorf("config db: marshal %s: %w", key, err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+
+	db.WMu.Lock()
+	defer db.WMu.Unlock()
+
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO system_settings (key, value, updated_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET
+		 	value = excluded.value,
+		 	updated_at = excluded.updated_at`,
+		key, string(bytes), now,
+	)
+	if err != nil {
+		return fmt.Errorf("config db: save setting %s: %w", key, err)
+	}
+	return nil
+}
+
+// LoadSystemSetting loads config struct from JSON in system_settings.
+// Returns (true, nil) if found and unmarshalled successfully, (false, nil) if not found.
+func LoadSystemSetting(ctx context.Context, db *sqlitedb.DB, key string, target interface{}) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+
+	var valStr string
+	err := db.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key = ?`, key).Scan(&valStr)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("config db: load setting %s: %w", key, err)
+	}
+
+	if err := json.Unmarshal([]byte(valStr), target); err != nil {
+		return false, fmt.Errorf("config db: unmarshal setting %s: %w", key, err)
+	}
+	return true, nil
 }

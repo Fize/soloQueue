@@ -297,12 +297,35 @@ func (s *Stack) OnConfigChange() error {
 		if s.AgentFactory != nil {
 			s.AgentFactory.UpdateDefaultModelID(fastModel.ID)
 		}
+		if s.TaskRouter != nil {
+			effectiveModel := fastModel.APIModel
+			if effectiveModel == "" {
+				effectiveModel = fastModel.ID
+			}
+			s.TaskRouter.UpdateClassifierModel(effectiveModel)
+		}
+	}
+
+	// Update tools config dynamically, preserving runtime dependencies and fields
+	newToolsCfg := settings.Tools.ToToolsConfig()
+	newToolsCfg.PermanentManager = s.ToolsCfg.PermanentManager
+	newToolsCfg.PlanDir = s.ToolsCfg.PlanDir
+	newToolsCfg.TodoStore = s.ToolsCfg.TodoStore
+	newToolsCfg.CronStore = s.ToolsCfg.CronStore
+	newToolsCfg.CronScheduler = s.ToolsCfg.CronScheduler
+	newToolsCfg.Logger = s.ToolsCfg.Logger
+	newToolsCfg.Sandbox = s.ToolsCfg.Sandbox
+	newToolsCfg.WorkDir = s.ToolsCfg.WorkDir
+
+	s.ToolsCfg = newToolsCfg
+	if s.AgentFactory != nil {
+		s.AgentFactory.SetToolsConfig(newToolsCfg)
 	}
 
 	if s.AgentFactory != nil {
 		s.AgentFactory.UpdateLLM(s.LLMClient)
 	}
 
-	s.Log.Info(logger.CatConfig, "LLM provider and default model configurations hot-reloaded successfully from DB")
+	s.Log.Info(logger.CatConfig, "LLM provider, default model, and tools configurations hot-reloaded successfully from DB")
 	return nil
 }
