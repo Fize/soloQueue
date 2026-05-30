@@ -26,6 +26,7 @@ type Definition struct {
 	Name         string
 	Role         Role
 	Kind         Kind
+	ProviderID   string
 	ModelID      string
 	SystemPrompt string
 	Temperature  float64

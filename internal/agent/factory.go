@@ -46,6 +46,8 @@ type AgentTemplate struct {
 // ModelInfo holds the resolved model configuration for an agent.
 // Populated by ModelResolver from the settings model registry.
 type ModelInfo struct {
+	ProviderID string
+
 	// APIModel is the actual model name sent to the LLM API.
 	// Empty means use the model ID itself.
 	APIModel string
@@ -344,6 +346,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		} else {
 			def.ModelID = modelID
 		}
+		def.ProviderID = info.ProviderID
 		def.ContextWindow = info.ContextWindow
 		def.Temperature = info.Temperature
 		def.MaxTokens = info.MaxTokens
