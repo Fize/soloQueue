@@ -32,6 +32,11 @@ import type {
   LLMProvider,
   LLMModel,
   DefaultModelsConfig,
+  SessionConfig,
+  ToolsConfig,
+  EmbeddingConfig,
+  QQBotConfig,
+  LSPMCPConfig,
 } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -449,6 +454,63 @@ export async function importSkill(data: {
 }): Promise<void> {
   await request('/skills', {
     method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+// ─── System Settings DB-backed APIs ─────────────────────────────────────────
+
+export async function getToolsConfig(): Promise<ToolsConfig> {
+  return request<ToolsConfig>('/config/tools')
+}
+
+export async function updateToolsConfig(data: ToolsConfig): Promise<ToolsConfig> {
+  return request<ToolsConfig>('/config/tools', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function getQQBotConfig(): Promise<QQBotConfig> {
+  return request<QQBotConfig>('/config/qqbot')
+}
+
+export async function updateQQBotConfig(data: QQBotConfig): Promise<QQBotConfig> {
+  return request<QQBotConfig>('/config/qqbot', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function getLSPMCPConfig(): Promise<LSPMCPConfig> {
+  return request<LSPMCPConfig>('/config/lspmcp')
+}
+
+export async function updateLSPMCPConfig(data: LSPMCPConfig): Promise<LSPMCPConfig> {
+  return request<LSPMCPConfig>('/config/lspmcp', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
+  return request<EmbeddingConfig>('/config/embedding')
+}
+
+export async function updateEmbeddingConfig(data: EmbeddingConfig): Promise<EmbeddingConfig> {
+  return request<EmbeddingConfig>('/config/embedding', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function getSessionConfig(): Promise<SessionConfig> {
+  return request<SessionConfig>('/config/session')
+}
+
+export async function updateSessionConfig(data: SessionConfig): Promise<SessionConfig> {
+  return request<SessionConfig>('/config/session', {
+    method: 'PUT',
     body: JSON.stringify(data),
   })
 }

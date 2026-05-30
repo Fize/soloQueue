@@ -48,6 +48,13 @@ func NewRouter(
 	}
 }
 
+// UpdateClassifierModel dynamically updates the classifier's model ID if it supports updates.
+func (r *Router) UpdateClassifierModel(model string) {
+	if updatable, ok := r.classifier.(interface{ SetModel(string) }); ok {
+		updatable.SetModel(model)
+	}
+}
+
 // RouteDecision represents the router's decision about how to handle a task
 type RouteDecision struct {
 	// Level is the determined routing level

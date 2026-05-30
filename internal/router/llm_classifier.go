@@ -60,6 +60,7 @@ type LLMClassifier struct {
 	timeout time.Duration
 	cache   sync.Map // uint64 → ClassificationResult
 	logger  *logger.Logger
+	mu      sync.RWMutex
 }
 
 // NewLLMClassifier creates a new LLM-based classifier.
@@ -68,6 +69,7 @@ type LLMClassifier struct {
 //   - client: shared LLM client (concurrent-safe)
 //   - model: API model name to use (typically the "fast" model without thinking)
 //   - logger: optional logger (nil = creates minimal system-layer logger)
+// func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *LLMClassifier {
 func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *LLMClassifier {
 	if l == nil {
 		var err error
@@ -83,6 +85,21 @@ func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *L
 		logger:  l,
 	}
 }
+
+// SetModel updates the classifier model name in a thread-safe manner.
+func (lc *LLMClassifier) SetModel(model string) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	lc.model = model
+}
+
+// GetModel returns the current classifier model name in a thread-safe manner.
+func (lc *LLMClassifier) GetModel() string {
+	lc.mu.RLock()
+	defer lc.mu.RUnlock()
+	return lc.model
+}
+
 
 // Classify performs LLM-based semantic classification of a user prompt.
 //
@@ -117,7 +134,7 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 
 	// 4. Build request (non-streaming, no thinking, compact output)
 	req := agent.LLMRequest{
-		Model:           lc.model,
+		Model:           lc.GetModel(),
 		Temperature:     0, // deterministic
 		MaxTokens:       llmClassifierMaxTokens,
 		ThinkingEnabled: false, // critical: no CoT for speed

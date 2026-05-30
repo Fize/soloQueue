@@ -53,6 +53,13 @@ func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, mo
 	}
 }
 
+// SetModel updates the model ID used by the LLM-based task classifier dynamically.
+func (dc *DefaultClassifier) SetModel(model string) {
+	if dc.llm != nil {
+		dc.llm.SetModel(model)
+	}
+}
+
 // Classify implements the Classifier interface
 //
 // Classification strategy (dual-channel + session sticky):

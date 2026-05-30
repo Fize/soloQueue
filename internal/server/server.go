@@ -356,6 +356,31 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 			r.Get("/", m.handleGetDefaultModels)
 			r.Put("/", m.handleUpdateDefaultModels)
 		})
+
+		r.Route("/tools", func(r chi.Router) {
+			r.Get("/", m.handleGetToolsConfig)
+			r.Put("/", m.handleUpdateToolsConfig)
+		})
+
+		r.Route("/qqbot", func(r chi.Router) {
+			r.Get("/", m.handleGetQQBotConfig)
+			r.Put("/", m.handleUpdateQQBotConfig)
+		})
+
+		r.Route("/lspmcp", func(r chi.Router) {
+			r.Get("/", m.handleGetLSPMCPConfig)
+			r.Put("/", m.handleUpdateLSPMCPConfig)
+		})
+
+		r.Route("/embedding", func(r chi.Router) {
+			r.Get("/", m.handleGetEmbeddingConfig)
+			r.Put("/", m.handleUpdateEmbeddingConfig)
+		})
+
+		r.Route("/session", func(r chi.Router) {
+			r.Get("/", m.handleGetSessionConfig)
+			r.Put("/", m.handleUpdateSessionConfig)
+		})
 	})
 
 	// Tools & Skills routes

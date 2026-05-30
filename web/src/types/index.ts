@@ -219,8 +219,6 @@ export type WSMessage = WSStateMessage
 
 export interface SessionConfig {
   timelineMaxFileMB: number
-  timelineMaxFiles: number
-  contextIdleThresholdMin: number
 }
 
 export interface LogConfig {
@@ -270,6 +268,22 @@ export interface LLMModel {
   thinking: ThinkingConfig
 }
 
+export interface ImageModelConfig {
+  id: string
+  name: string
+  provider: string
+  secretId: string
+  secretIdEnv: string
+  secretKey: string
+  secretKeyEnv: string
+  apiKey: string
+  apiKeyEnv: string
+  apiBaseHost: string
+  region: string
+  isDefault: boolean
+  enabled: boolean
+}
+
 export interface ToolsConfig {
   maxFileSize: number
   maxMatches: number
@@ -287,12 +301,14 @@ export interface ToolsConfig {
   shellConfirmRegexes?: string[]
   shellMaxOutput: number
   webSearchTimeoutMs: number
+  imageModels?: ImageModelConfig[]
 }
 
 export interface EmbeddingProvider {
   id: string
   name: string
   baseUrl: string
+  apiKey?: string
   apiKeyEnv: string
   enabled: boolean
 }
@@ -310,6 +326,7 @@ export interface EmbeddingModel {
 
 export interface EmbeddingConfig {
   enabled: boolean
+  minSimilarity: number
   providers: EmbeddingProvider[]
   models: EmbeddingModel[]
 }
@@ -331,7 +348,8 @@ export interface QQBotConfig {
 }
 
 export interface L1AgentSettings {
-  mcpServers: string[]
+  builtinMcpServers?: string[]
+  externalMcpServers?: string[]
 }
 
 export interface AppConfig {
@@ -344,6 +362,7 @@ export interface AppConfig {
   defaultModels: DefaultModelsConfig
   qqbot: QQBotConfig
   agent: L1AgentSettings
+  lspmcp: LSPMCPConfig
 }
 
 // ─── Tool & Skill Types ────────────────────────────────────────────────────
@@ -520,4 +539,17 @@ export interface UpdateCronTaskRequest {
   instruction?: string
   target_agent?: string
   status?: 'active' | 'paused'
+}
+
+export interface LSPMCPEntry {
+  id: string
+  command: string
+  args: string[]
+  languages: string[]
+  extensions: string[]
+  disabled: boolean
+}
+
+export interface LSPMCPConfig {
+  servers: LSPMCPEntry[]
 }

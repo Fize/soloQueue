@@ -43,6 +43,11 @@ func (s *GlobalService) Get() Settings {
 		fileSettings.Providers = s.dbSettings.Providers
 		fileSettings.Models = s.dbSettings.Models
 		fileSettings.DefaultModels = s.dbSettings.DefaultModels
+		fileSettings.Tools = s.dbSettings.Tools
+		fileSettings.QQBot = s.dbSettings.QQBot
+		fileSettings.LSPMCP = s.dbSettings.LSPMCP
+		fileSettings.Embedding = s.dbSettings.Embedding
+		fileSettings.Session = s.dbSettings.Session
 		s.dbMu.RUnlock()
 		return fileSettings
 	}
@@ -58,6 +63,11 @@ func (s *GlobalService) SetDB(db *sqlitedb.DB) error {
 
 	if err := s.seedDatabaseIfNeeded(); err != nil {
 		return err
+	}
+
+	// Save configuration back to settings.toml to clean up/strip migrated keys
+	if err := s.Loader.Save(); err != nil {
+		// Non-fatal: don't fail startup if file write fails, but we should proceed.
 	}
 
 	return s.ReloadFromDB()
@@ -79,6 +89,7 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 	}
 
 	ctx := context.Background()
+	fileSettings := s.Loader.Get()
 
 	// Check if providers are empty
 	var count int
@@ -87,30 +98,58 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 		return fmt.Errorf("seed check: %w", err)
 	}
 
-	if count > 0 {
-		return nil // Already seeded
-	}
+	if count == 0 {
+		// 1. Seed providers
+		for _, p := range fileSettings.Providers {
+			if err := SaveProvider(ctx, db, p); err != nil {
+				return fmt.Errorf("seed provider %s: %w", p.ID, err)
+			}
+		}
 
-	// Seed from file settings
-	fileSettings := s.Loader.Get()
+		// 2. Seed models
+		for _, m := range fileSettings.Models {
+			if err := SaveModel(ctx, db, m); err != nil {
+				return fmt.Errorf("seed model %s: %w", m.ID, err)
+			}
+		}
 
-	// 1. Seed providers
-	for _, p := range fileSettings.Providers {
-		if err := SaveProvider(ctx, db, p); err != nil {
-			return fmt.Errorf("seed provider %s: %w", p.ID, err)
+		// 3. Seed default models config
+		if err := SaveDefaultModels(ctx, db, fileSettings.DefaultModels); err != nil {
+			return fmt.Errorf("seed default models: %w", err)
 		}
 	}
 
-	// 2. Seed models
-	for _, m := range fileSettings.Models {
-		if err := SaveModel(ctx, db, m); err != nil {
-			return fmt.Errorf("seed model %s: %w", m.ID, err)
-		}
+	// 4. Seed system settings individually
+	hasSetting := func(key string) bool {
+		var cnt int
+		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM system_settings WHERE key = ?`, key).Scan(&cnt)
+		return cnt > 0
 	}
 
-	// 3. Seed default models config
-	if err := SaveDefaultModels(ctx, db, fileSettings.DefaultModels); err != nil {
-		return fmt.Errorf("seed default models: %w", err)
+	if !hasSetting("tools") {
+		if err := SaveSystemSetting(ctx, db, "tools", fileSettings.Tools); err != nil {
+			return fmt.Errorf("seed tools: %w", err)
+		}
+	}
+	if !hasSetting("qqbot") {
+		if err := SaveSystemSetting(ctx, db, "qqbot", fileSettings.QQBot); err != nil {
+			return fmt.Errorf("seed qqbot: %w", err)
+		}
+	}
+	if !hasSetting("lspmcp") {
+		if err := SaveSystemSetting(ctx, db, "lspmcp", fileSettings.LSPMCP); err != nil {
+			return fmt.Errorf("seed lspmcp: %w", err)
+		}
+	}
+	if !hasSetting("embedding") {
+		if err := SaveSystemSetting(ctx, db, "embedding", fileSettings.Embedding); err != nil {
+			return fmt.Errorf("seed embedding: %w", err)
+		}
+	}
+	if !hasSetting("session") {
+		if err := SaveSystemSetting(ctx, db, "session", fileSettings.Session); err != nil {
+			return fmt.Errorf("seed session: %w", err)
+		}
 	}
 
 	return nil
@@ -142,10 +181,50 @@ func (s *GlobalService) ReloadFromDB() error {
 		return err
 	}
 
+	var tools ToolsConfig
+	if ok, err := LoadSystemSetting(ctx, db, "tools", &tools); err != nil {
+		return err
+	} else if !ok {
+		tools = DefaultSettings().Tools
+	}
+
+	var qqbot QQBotConfig
+	if ok, err := LoadSystemSetting(ctx, db, "qqbot", &qqbot); err != nil {
+		return err
+	} else if !ok {
+		qqbot = DefaultSettings().QQBot
+	}
+
+	var lspmcp LSPMCPConfig
+	if ok, err := LoadSystemSetting(ctx, db, "lspmcp", &lspmcp); err != nil {
+		return err
+	} else if !ok {
+		lspmcp = DefaultSettings().LSPMCP
+	}
+
+	var embedding EmbeddingConfig
+	if ok, err := LoadSystemSetting(ctx, db, "embedding", &embedding); err != nil {
+		return err
+	} else if !ok {
+		embedding = DefaultSettings().Embedding
+	}
+
+	var session SessionConfig
+	if ok, err := LoadSystemSetting(ctx, db, "session", &session); err != nil {
+		return err
+	} else if !ok {
+		session = DefaultSettings().Session
+	}
+
 	s.dbMu.Lock()
 	s.dbSettings.Providers = providers
 	s.dbSettings.Models = models
 	s.dbSettings.DefaultModels = defaultModels
+	s.dbSettings.Tools = tools
+	s.dbSettings.QQBot = qqbot
+	s.dbSettings.LSPMCP = lspmcp
+	s.dbSettings.Embedding = embedding
+	s.dbSettings.Session = session
 	s.hasDB = true
 	s.dbMu.Unlock()
 
@@ -163,6 +242,11 @@ func (s *GlobalService) LoadFromDisk() (Settings, error) {
 		settings.Providers = s.dbSettings.Providers
 		settings.Models = s.dbSettings.Models
 		settings.DefaultModels = s.dbSettings.DefaultModels
+		settings.Tools = s.dbSettings.Tools
+		settings.QQBot = s.dbSettings.QQBot
+		settings.LSPMCP = s.dbSettings.LSPMCP
+		settings.Embedding = s.dbSettings.Embedding
+		settings.Session = s.dbSettings.Session
 	}
 	s.dbMu.RUnlock()
 	return settings, nil

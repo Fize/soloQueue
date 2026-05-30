@@ -291,3 +291,178 @@ func (m *Mux) triggerOnConfigChange() {
 func rContext() context.Context {
 	return context.Background()
 }
+
+// ─── Tools Config ────────────────────────────────────────────────────────────
+
+// GET /api/config/tools
+func (m *Mux) handleGetToolsConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	settings := m.configSvc.Get()
+	m.writeJSON(w, http.StatusOK, settings.Tools)
+}
+
+// PUT /api/config/tools
+func (m *Mux) handleUpdateToolsConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	var cfg config.ToolsConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "tools", cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.configSvc.ReloadFromDB(); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, http.StatusOK, cfg)
+}
+
+// ─── QQ Bot Config ───────────────────────────────────────────────────────────
+
+// GET /api/config/qqbot
+func (m *Mux) handleGetQQBotConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	settings := m.configSvc.Get()
+	m.writeJSON(w, http.StatusOK, settings.QQBot)
+}
+
+// PUT /api/config/qqbot
+func (m *Mux) handleUpdateQQBotConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	var cfg config.QQBotConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "qqbot", cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.configSvc.ReloadFromDB(); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, http.StatusOK, cfg)
+}
+
+// ─── LSP MCP Config ──────────────────────────────────────────────────────────
+
+// GET /api/config/lspmcp
+func (m *Mux) handleGetLSPMCPConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	settings := m.configSvc.Get()
+	m.writeJSON(w, http.StatusOK, settings.LSPMCP)
+}
+
+// PUT /api/config/lspmcp
+func (m *Mux) handleUpdateLSPMCPConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	var cfg config.LSPMCPConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "lspmcp", cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.configSvc.ReloadFromDB(); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, http.StatusOK, cfg)
+}
+
+// ─── Embedding Config ────────────────────────────────────────────────────────
+
+// GET /api/config/embedding
+func (m *Mux) handleGetEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	settings := m.configSvc.Get()
+	m.writeJSON(w, http.StatusOK, settings.Embedding)
+}
+
+// PUT /api/config/embedding
+func (m *Mux) handleUpdateEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	var cfg config.EmbeddingConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "embedding", cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.configSvc.ReloadFromDB(); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, http.StatusOK, cfg)
+}
+
+// ─── Session Config ──────────────────────────────────────────────────────────
+
+// GET /api/config/session
+func (m *Mux) handleGetSessionConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	settings := m.configSvc.Get()
+	m.writeJSON(w, http.StatusOK, settings.Session)
+}
+
+// PUT /api/config/session
+func (m *Mux) handleUpdateSessionConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	var cfg config.SessionConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "session", cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.configSvc.ReloadFromDB(); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, http.StatusOK, cfg)
+}
