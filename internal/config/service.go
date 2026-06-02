@@ -119,7 +119,16 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 		}
 	}
 
-	// 4. Seed system settings individually
+	// 4. Ensure system_settings table exists (may have been missed by migration)
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS system_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`); err != nil {
+		return fmt.Errorf("seed check: ensure system_settings table: %w", err)
+	}
+
+	// 5. Seed system settings individually
 	hasSetting := func(key string) bool {
 		var cnt int
 		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM system_settings WHERE key = ?`, key).Scan(&cnt)
