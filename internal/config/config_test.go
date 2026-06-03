@@ -300,6 +300,37 @@ func TestLoader_Load_MissingLocalFile_OK(t *testing.T) {
 
 
 
+func TestLoader_Save_PreservesFalseBooleans(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	loader, _ := NewLoader(DefaultSettings(), path)
+	_ = loader.Load()
+
+	// Modify settings to set booleans to false
+	loader.mu.Lock()
+	loader.current.Log.Console = false
+	loader.current.Log.File = false
+	loader.mu.Unlock()
+
+	if err := loader.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Load again from a new loader to simulate restart
+	newLoader, _ := NewLoader(DefaultSettings(), path)
+	if err := newLoader.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	got := newLoader.Get()
+	if got.Log.Console != false {
+		t.Errorf("expected console to remain false on reload, got %v", got.Log.Console)
+	}
+	if got.Log.File != false {
+		t.Errorf("expected file to remain false on reload, got %v", got.Log.File)
+	}
+}
+
 func TestLoader_Save_WritesCurrent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.toml")

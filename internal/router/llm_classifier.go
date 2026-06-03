@@ -55,23 +55,26 @@ Output format (ONLY this JSON, nothing else):
 
 // LLMClassifier performs semantic task classification using a lightweight LLM call.
 type LLMClassifier struct {
-	client  agent.LLMClient
-	model   string // API model name for classification (e.g., "deepseek-v4-flash")
-	timeout time.Duration
-	cache   sync.Map // uint64 → ClassificationResult
-	logger  *logger.Logger
-	mu      sync.RWMutex
+	client     agent.LLMClient
+	providerID string
+	model      string // API model name for classification (e.g., "deepseek-v4-flash")
+	timeout    time.Duration
+	cache      sync.Map // uint64 → ClassificationResult
+	logger     *logger.Logger
+	mu         sync.RWMutex
 }
 
 // NewLLMClassifier creates a new LLM-based classifier.
 //
 // Parameters:
 //   - client: shared LLM client (concurrent-safe)
+//   - providerID: the LLM provider ID
 //   - model: API model name to use (typically the "fast" model without thinking)
 //   - logger: optional logger (nil = creates minimal system-layer logger)
-// func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *LLMClassifier {
-func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *LLMClassifier {
+// func NewLLMClassifier(client agent.LLMClient, providerID, model string, l *logger.Logger) *LLMClassifier {
+func NewLLMClassifier(client agent.LLMClient, providerID, model string, l *logger.Logger) *LLMClassifier {
 	if l == nil {
+		// Create a minimal system-layer logger for classification
 		var err error
 		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
 		if err != nil {
@@ -79,10 +82,11 @@ func NewLLMClassifier(client agent.LLMClient, model string, l *logger.Logger) *L
 		}
 	}
 	return &LLMClassifier{
-		client:  client,
-		model:   model,
-		timeout: llmClassifierTimeout,
-		logger:  l,
+		client:     client,
+		providerID: providerID,
+		model:      model,
+		timeout:    llmClassifierTimeout,
+		logger:     l,
 	}
 }
 
@@ -93,11 +97,26 @@ func (lc *LLMClassifier) SetModel(model string) {
 	lc.model = model
 }
 
+// SetModelAndProvider updates both model name and provider ID in a thread-safe manner.
+func (lc *LLMClassifier) SetModelAndProvider(provider, model string) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	lc.providerID = provider
+	lc.model = model
+}
+
 // GetModel returns the current classifier model name in a thread-safe manner.
 func (lc *LLMClassifier) GetModel() string {
 	lc.mu.RLock()
 	defer lc.mu.RUnlock()
 	return lc.model
+}
+
+// GetModelAndProvider returns both provider ID and model name in a thread-safe manner.
+func (lc *LLMClassifier) GetModelAndProvider() (string, string) {
+	lc.mu.RLock()
+	defer lc.mu.RUnlock()
+	return lc.providerID, lc.model
 }
 
 
@@ -133,8 +152,10 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 	messages = append(messages, agent.LLMMessage{Role: "user", Content: prompt})
 
 	// 4. Build request (non-streaming, no thinking, compact output)
+	providerID, model := lc.GetModelAndProvider()
 	req := agent.LLMRequest{
-		Model:           lc.GetModel(),
+		ProviderID:      providerID,
+		Model:           model,
 		Temperature:     0, // deterministic
 		MaxTokens:       llmClassifierMaxTokens,
 		ThinkingEnabled: false, // critical: no CoT for speed

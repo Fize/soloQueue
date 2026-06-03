@@ -28,7 +28,7 @@ func (m *mockChatClient) Chat(ctx context.Context, req ChatRequest) (*ChatRespon
 
 func TestLLMCompactorCompact(t *testing.T) {
 	mc := &mockChatClient{}
-	c := NewLLMCompactor(mc, "test-model")
+	c := NewLLMCompactor(mc, "deepseek", "test-model")
 
 	msgs := []ctxwin.Message{
 		{Role: ctxwin.RoleSystem, Content: "You are a helpful assistant."},
@@ -61,7 +61,7 @@ func TestLLMCompactorCompactWithReasoning(t *testing.T) {
 			return &ChatResponse{Content: "Compressed with reasoning."}, nil
 		},
 	}
-	c := NewLLMCompactor(mc, "test-model")
+	c := NewLLMCompactor(mc, "deepseek", "test-model")
 
 	msgs := []ctxwin.Message{
 		{Role: ctxwin.RoleUser, Content: "Explain recursion"},
@@ -82,7 +82,7 @@ func TestLLMCompactorCompactWithReasoning(t *testing.T) {
 
 func TestLLMCompactorCompactEmpty(t *testing.T) {
 	mc := &mockChatClient{}
-	c := NewLLMCompactor(mc, "test-model")
+	c := NewLLMCompactor(mc, "deepseek", "test-model")
 
 	summary, err := c.Compact(context.Background(), nil)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestLLMCompactorError(t *testing.T) {
 			return nil, fmt.Errorf("API error")
 		},
 	}
-	c := NewLLMCompactor(mc, "test-model")
+	c := NewLLMCompactor(mc, "deepseek", "test-model")
 
 	msgs := []ctxwin.Message{
 		{Role: ctxwin.RoleUser, Content: "Hello"},
@@ -122,7 +122,7 @@ func TestLLMCompactorUsesCorrectModel(t *testing.T) {
 			return &ChatResponse{Content: "Summary"}, nil
 		},
 	}
-	c := NewLLMCompactor(mc, "deepseek-v4-flash")
+	c := NewLLMCompactor(mc, "deepseek", "deepseek-v4-flash")
 
 	msgs := []ctxwin.Message{
 		{Role: ctxwin.RoleUser, Content: "Test"},

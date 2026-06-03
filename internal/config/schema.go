@@ -87,8 +87,8 @@ type SessionConfig struct {
 
 type LogConfig struct {
 	Level   string `json:"level"   toml:"level,omitempty"`
-	Console bool   `json:"console" toml:"console,omitempty"`
-	File    bool   `json:"file"    toml:"file,omitempty"`
+	Console bool   `json:"console" toml:"console"`
+	File    bool   `json:"file"    toml:"file"`
 }
 
 // ─── Tools ────────────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ func newTestManager(t *testing.T) (*Manager, string) {
 		"# " + today + "\n\n## " + now + "\n- User asked about task routing\n- Implemented fix\n",
 		"# " + today + "\n\n## " + now + "\n- User asked about task routing\n- Implemented fix\n\n## " + now + "\n- User asked about second topic\n- Discussed more things\n",
 	}}
-	return NewManager(memoryDir, llm, "fast-model", nil), memoryDir
+	return NewManager(memoryDir, llm, "deepseek", "fast-model", nil), memoryDir
 }
 
 func TestRecord_CreatesNewFile(t *testing.T) {

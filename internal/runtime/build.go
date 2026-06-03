@@ -267,9 +267,10 @@ type buildContext struct {
 	bypassConfirm bool
 
 	// Resolved config
-	provider     *config.LLMProvider
-	defaultModel *config.LLMModel
-	fastModelID  string
+	provider            *config.LLMProvider
+	defaultModel        *config.LLMModel
+	fastModelID         string
+	fastModelProviderID string
 
 	// Constructed values
 	llmClient         agent.LLMClient
@@ -321,6 +322,7 @@ func (bc *buildContext) resolveConfig() error {
 	fastModel := bc.cfg.DefaultModelByRole("fast")
 	if fastModel != nil {
 		bc.fastModelID = fastModel.ID
+		bc.fastModelProviderID = fastModel.ProviderID
 	}
 
 	bc.memoryDir = filepath.Join(bc.workDir, "memory")

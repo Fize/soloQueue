@@ -22,7 +22,7 @@ import (
 // and permanent memory (embedding + vectorstore + scheduler).
 func (bc *buildContext) buildMemory() error {
 	// ── Short-term Memory Manager ─────────────────────────────────
-	bc.memoryMgr = memory.NewManager(bc.memoryDir, bc.llmClient, bc.fastModelID, bc.log)
+	bc.memoryMgr = memory.NewManager(bc.memoryDir, bc.llmClient, bc.fastModelProviderID, bc.fastModelID, bc.log)
 
 	// ── Shared SQLite DB ──────────────────────────────────────────────────
 	embStart := time.Now()
@@ -103,6 +103,7 @@ func (bc *buildContext) buildPermanentMemory() {
 				})
 			}
 			resp, err := bc.llmClient.Chat(ctx, agent.LLMRequest{
+				ProviderID:  req.ProviderID,
 				Model:       req.Model,
 				Messages:    msgs,
 				MaxTokens:   req.MaxTokens,
@@ -116,7 +117,7 @@ func (bc *buildContext) buildPermanentMemory() {
 			}, nil
 		})
 	}
-	permanentMgr := permanent.NewManager(store, embClient, summarizer, bc.fastModelID, bc.memoryDir, bc.log, minSim, normFlag)
+	permanentMgr := permanent.NewManager(store, embClient, summarizer, bc.fastModelProviderID, bc.fastModelID, bc.memoryDir, bc.log, minSim, normFlag)
 	permScheduler := permanent.NewScheduler(permanentMgr, bc.log, func(msg string) {
 		bc.log.Error(logger.CatApp, msg)
 	})

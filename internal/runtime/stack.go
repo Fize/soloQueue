@@ -302,7 +302,7 @@ func (s *Stack) OnConfigChange() error {
 			if effectiveModel == "" {
 				effectiveModel = fastModel.ID
 			}
-			s.TaskRouter.UpdateClassifierModel(effectiveModel)
+			s.TaskRouter.UpdateClassifierModel(fastModel.ProviderID, effectiveModel)
 		}
 	}
 
