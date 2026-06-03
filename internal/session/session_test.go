@@ -582,7 +582,7 @@ func TestSession_FlushMemory_PersistsUnrecordedMessages(t *testing.T) {
 	cw.Push(ctxwin.RoleAssistant, "hi there", ctxwin.WithTimestamp(time.Now()))
 
 	memDir := t.TempDir()
-	memMgr := memory.NewManager(memDir, fake, "fast", nil)
+	memMgr := memory.NewManager(memDir, fake, "deepseek", "fast", nil)
 	s.SetMemoryManager(memMgr)
 
 	var hookCalled bool
@@ -611,7 +611,7 @@ func TestSession_FlushMemory_SkipsWhenNoNewMessages(t *testing.T) {
 	s := NewSession("s1", "t1", a, cw, nil, nil)
 
 	memDir := t.TempDir()
-	memMgr := memory.NewManager(memDir, fake, "fast", nil)
+	memMgr := memory.NewManager(memDir, fake, "deepseek", "fast", nil)
 	// Set cursor to now so no messages pass the filter
 	memMgr.AdvanceLastRecordedAt(time.Now())
 	s.SetMemoryManager(memMgr)

@@ -7,7 +7,7 @@ import (
 
 func TestRouter_Route(t *testing.T) {
 	classifierCfg := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(classifierCfg, nil, "", nil)
+	classifier := NewDefaultClassifier(classifierCfg, nil, "deepseek", "", nil)
 	modelService := NewMockModelService()
 	router := NewRouter(classifier, modelService, nil)
 
@@ -91,7 +91,7 @@ func TestRouter_Route(t *testing.T) {
 
 func TestRouter_Warnings(t *testing.T) {
 	classifierCfg := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(classifierCfg, nil, "", nil)
+	classifier := NewDefaultClassifier(classifierCfg, nil, "deepseek", "", nil)
 	modelService := NewMockModelService()
 	router := NewRouter(classifier, modelService, nil)
 
@@ -108,7 +108,7 @@ func TestRouter_Warnings(t *testing.T) {
 }
 
 func TestRouter_ModelForClassification(t *testing.T) {
-	classifier := NewDefaultClassifier(DefaultClassifierConfig(), nil, "", nil)
+	classifier := NewDefaultClassifier(DefaultClassifierConfig(), nil, "deepseek", "", nil)
 	modelService := NewMockModelService()
 	router := NewRouter(classifier, modelService, nil)
 

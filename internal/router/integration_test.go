@@ -47,7 +47,7 @@ func TestIntegration_FullRoutingFlow(t *testing.T) {
 				EnableLLMClassification:      false,
 				FastTrackConfidenceThreshold: 75,
 			}
-			classifier := NewDefaultClassifier(config, nil, "", nil)
+			classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 			router := NewRouter(classifier, NewMockModelService(), nil)
 
 			// Route the prompt
@@ -106,7 +106,7 @@ func TestIntegration_ConfidenceThreshold(t *testing.T) {
 				EnableLLMClassification:      false,
 				FastTrackConfidenceThreshold: tt.threshold,
 			}
-			classifier := NewDefaultClassifier(config, nil, "", nil)
+			classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 			router := NewRouter(classifier, NewMockModelService(), nil)
 
 			decision, err := router.Route(ctx, tt.prompt, LevelUnknown, nil)

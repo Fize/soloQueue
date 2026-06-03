@@ -48,9 +48,11 @@ func NewRouter(
 	}
 }
 
-// UpdateClassifierModel dynamically updates the classifier's model ID if it supports updates.
-func (r *Router) UpdateClassifierModel(model string) {
-	if updatable, ok := r.classifier.(interface{ SetModel(string) }); ok {
+// UpdateClassifierModel dynamically updates the classifier's model ID and provider ID if it supports updates.
+func (r *Router) UpdateClassifierModel(provider, model string) {
+	if updatable, ok := r.classifier.(interface{ SetModelAndProvider(string, string) }); ok {
+		updatable.SetModelAndProvider(provider, model)
+	} else if updatable, ok := r.classifier.(interface{ SetModel(string) }); ok {
 		updatable.SetModel(model)
 	}
 }

@@ -34,6 +34,7 @@ type Summarizer interface {
 
 // SummarizeRequest mirrors agent.LLMRequest with only the fields needed for summarization.
 type SummarizeRequest struct {
+	ProviderID  string
 	Model       string
 	Messages    []SummarizeMessage
 	MaxTokens   int
@@ -56,6 +57,7 @@ type Manager struct {
 	store      vectorstore.VectorStore
 	embedder   embedding.Embedder
 	llm        Summarizer
+	providerID string
 	modelID    string
 	memoryDir  string
 	maxAgeDays int
@@ -67,15 +69,17 @@ type Manager struct {
 
 // NewManager creates a permanent memory manager.
 // llm may be nil if summarization is not needed (e.g. in tests without LLM).
+// providerID is the LLM provider ID.
 // modelID is the fast/cheap model to use for summarization during migration.
 // minSim is the minimum cosine similarity threshold for memory queries;
 // pass 0 to disable the threshold entirely.
 // normalize controls whether embeddings are L2-normalized before storage and query.
-func NewManager(store vectorstore.VectorStore, embedder embedding.Embedder, llm Summarizer, modelID, memoryDir string, l *logger.Logger, minSim float32, normalize bool) *Manager {
+func NewManager(store vectorstore.VectorStore, embedder embedding.Embedder, llm Summarizer, providerID, modelID, memoryDir string, l *logger.Logger, minSim float32, normalize bool) *Manager {
 	return &Manager{
 		store:      store,
 		embedder:   embedder,
 		llm:        llm,
+		providerID: providerID,
 		modelID:    modelID,
 		memoryDir:  memoryDir,
 		maxAgeDays: defaultMaxAgeDays,
@@ -291,7 +295,8 @@ Entry:
 Summary (one line, under %d chars):`, tsStr, e.content, maxSummaryLen)
 
 	req := SummarizeRequest{
-		Model: m.modelID,
+		ProviderID:  m.providerID,
+		Model:       m.modelID,
 		Messages: []SummarizeMessage{
 			{Role: "user", Content: prompt},
 		},
