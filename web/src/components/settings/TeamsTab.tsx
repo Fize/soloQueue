@@ -611,6 +611,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 export default function TeamsTab() {
   const [teams, setTeams] = useState<TeamResponse[]>([])
   const [agents, setAgents] = useState<AgentResponse[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -629,9 +630,14 @@ export default function TeamsTab() {
     setLoading(true)
     setError(null)
     try {
-      const [teamsData, agentsData] = await Promise.all([listTeams(), listAgents()])
+      const [teamsData, agentsData, projectsData] = await Promise.all([
+        listTeams(),
+        listAgents(),
+        listProjects(),
+      ])
       setTeams(teamsData)
       setAgents(agentsData)
+      setProjects(projectsData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -770,15 +776,19 @@ export default function TeamsTab() {
                     )}
                     {team.projects && team.projects.length > 0 && (
                       <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                        {team.projects.map((projId) => (
-                          <Badge
-                            key={projId}
-                            variant="secondary"
-                            className="text-[9px] px-1 py-0 h-4"
-                          >
-                            Project: {projId}
-                          </Badge>
-                        ))}
+                        {team.projects.map((projId) => {
+                          const proj = projects.find((p) => p.id === projId)
+                          const displayName = proj ? proj.name : projId
+                          return (
+                            <Badge
+                              key={projId}
+                              variant="secondary"
+                              className="text-[9px] px-1.5 py-0.5 h-4"
+                            >
+                              {displayName}
+                            </Badge>
+                          )
+                        })}
                       </div>
                     )}
                   </div>

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -130,10 +131,23 @@ func (m *Mux) handleListTeamsFromDB(w http.ResponseWriter, r *http.Request) {
 				ModelID:     a.Model,
 			})
 		}
+		ws := t.Workspaces
+		if ws == nil {
+			ws = []teamstore.Workspace{}
+		}
+		projs := t.Projects
+		if projs == nil {
+			projs = []string{}
+		}
 		result = append(result, TeamInfoResponse{
+			ID:          t.ID,
 			Name:        t.Name,
 			Description: t.Description,
+			Workspaces:  ws,
+			Projects:    projs,
 			Agents:      agtResp,
+			CreatedAt:   t.CreatedAt,
+			UpdatedAt:   t.UpdatedAt,
 		})
 	}
 
@@ -159,10 +173,46 @@ func (m *Mux) handleListTeamsFromFiles(w http.ResponseWriter) {
 		}
 
 		if _, ok := teamMap[groupName]; !ok {
+			id := strings.ToLower(groupName)
+			var ws []teamstore.Workspace
+			var projs []string
+			var createdAt, updatedAt string
+
+			if group, ok := groups[groupName]; ok {
+				id = group.Frontmatter.ID
+				if id == "" {
+					id = strings.ToLower(groupName)
+				}
+				if len(group.Frontmatter.Workspaces) > 0 {
+					ws = make([]teamstore.Workspace, len(group.Frontmatter.Workspaces))
+					for idx, w := range group.Frontmatter.Workspaces {
+						ws[idx] = teamstore.Workspace{
+							Name: w.Name,
+							Path: w.Path,
+						}
+					}
+				}
+				projs = group.Frontmatter.Projects
+				createdAt = group.Frontmatter.CreatedAt
+				updatedAt = group.Frontmatter.UpdatedAt
+			}
+
+			if ws == nil {
+				ws = []teamstore.Workspace{}
+			}
+			if projs == nil {
+				projs = []string{}
+			}
+
 			teamMap[groupName] = &TeamInfoResponse{
+				ID:          id,
 				Name:        groupName,
 				Description: "",
+				Workspaces:  ws,
+				Projects:    projs,
 				Agents:      []AgentTemplateResponse{},
+				CreatedAt:   createdAt,
+				UpdatedAt:   updatedAt,
 			}
 
 			if group, ok := groups[groupName]; ok {
