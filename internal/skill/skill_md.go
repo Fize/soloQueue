@@ -41,6 +41,7 @@ type SkillMDConfig struct {
 	Context                string   `yaml:"context"`
 	Agent                  string   `yaml:"agent"`
 	Triggers               []string `yaml:"triggers"`
+	Upstream               string   `yaml:"upstream"`
 }
 
 // ParseSkillMD 解析单个 SKILL.md 文件
@@ -117,6 +118,7 @@ func ParseSkillMD(path string) (*Skill, error) {
 		Dir:                    filepath.Dir(absPath),
 		Triggers:               cfg.Triggers,
 		Disabled:               disabled,
+		Upstream:               cfg.Upstream,
 	}, nil
 }
 
@@ -323,6 +325,7 @@ func ParseSkillMDFromFS(fsys fs.FS, path string) (*Skill, error) {
 		Dir:                    filepath.ToSlash(filepath.Dir(path)),
 		Triggers:               cfg.Triggers,
 		Disabled:               false,
+		Upstream:               cfg.Upstream,
 	}, nil
 }
 
