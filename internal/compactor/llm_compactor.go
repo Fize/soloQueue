@@ -44,8 +44,9 @@ type ChatClient interface {
 
 // ChatRequest is the input for a chat completion call.
 type ChatRequest struct {
-	Model    string
-	Messages []ChatMessage
+	ProviderID string
+	Model      string
+	Messages   []ChatMessage
 }
 
 // ChatMessage is a single message in a chat request.
@@ -83,16 +84,18 @@ func WithLogger(l *logger.Logger) CompactorOption {
 
 // LLMCompactor compresses conversation history using any LLM backend.
 type LLMCompactor struct {
-	client  ChatClient
-	modelID string
-	logger  *logger.Logger
+	client     ChatClient
+	providerID string
+	modelID    string
+	logger     *logger.Logger
 }
 
-// NewLLMCompactor creates a new LLMCompactor with the given client and model.
-func NewLLMCompactor(client ChatClient, modelID string, opts ...CompactorOption) *LLMCompactor {
+// NewLLMCompactor creates a new LLMCompactor with the given client, provider, and model.
+func NewLLMCompactor(client ChatClient, providerID, modelID string, opts ...CompactorOption) *LLMCompactor {
 	c := &LLMCompactor{
-		client:  client,
-		modelID: modelID,
+		client:     client,
+		providerID: providerID,
+		modelID:    modelID,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -134,8 +137,9 @@ func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (stri
 	}
 
 	resp, err := c.client.Chat(ctx, ChatRequest{
-		Model:    c.modelID,
-		Messages: chatMsgs,
+		ProviderID: c.providerID,
+		Model:      c.modelID,
+		Messages:   chatMsgs,
 	})
 	if err != nil {
 		if c.logger != nil {

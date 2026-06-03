@@ -39,6 +39,7 @@ const (
 type Manager struct {
 	workDir        string
 	llm            agent.LLMClient
+	providerID     string
 	modelID        string
 	logger         *logger.Logger
 	mu             sync.Mutex
@@ -47,12 +48,13 @@ type Manager struct {
 
 // NewManager creates a new memory manager.
 // workDir is typically ~/.soloqueue/memory/.
-func NewManager(workDir string, llm agent.LLMClient, modelID string, l *logger.Logger) *Manager {
+func NewManager(workDir string, llm agent.LLMClient, providerID string, modelID string, l *logger.Logger) *Manager {
 	return &Manager{
-		workDir: workDir,
-		llm:     llm,
-		modelID: modelID,
-		logger:  l,
+		workDir:    workDir,
+		llm:        llm,
+		providerID: providerID,
+		modelID:    modelID,
+		logger:     l,
 	}
 }
 
@@ -140,6 +142,7 @@ func (m *Manager) readFile(fileDate string) (string, error) {
 func (m *Manager) mergeAndSummarize(ctx context.Context, existing, conversationText string, recordedAt time.Time) (string, error) {
 	prompt := buildMergePrompt(existing, conversationText, recordedAt)
 	req := agent.LLMRequest{
+		ProviderID:  m.providerID,
 		Model:       m.modelID,
 		Messages:    []agent.LLMMessage{{Role: "user", Content: prompt}},
 		MaxTokens:   2048,

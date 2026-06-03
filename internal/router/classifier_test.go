@@ -8,7 +8,7 @@ import (
 
 func TestDefaultClassifier_Classify(t *testing.T) {
 	config := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	tests := []struct {
 		name             string
@@ -80,7 +80,7 @@ func TestDefaultClassifier_Classify(t *testing.T) {
 func TestDefaultClassifier_WithDisabledFastTrack(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.EnableFastTrack = false
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	ctx := context.Background()
 	result, err := classifier.Classify(ctx, "Explain closures", LevelUnknown, nil)
@@ -97,7 +97,7 @@ func TestDefaultClassifier_WithDisabledFastTrack(t *testing.T) {
 
 func TestClassificationResultDetails(t *testing.T) {
 	config := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	ctx := context.Background()
 
@@ -129,7 +129,7 @@ func TestClassificationResultDetails(t *testing.T) {
 func TestHybridLogic_LowConfidenceInheritsPrior(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.FastTrackConfidenceThreshold = 85
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	// "再次测试" alone would classify as L1 with low confidence
 	// But with priorLevel=L3, it should inherit L3
@@ -147,7 +147,7 @@ func TestHybridLogic_LowConfidenceInheritsPrior(t *testing.T) {
 func TestHybridLogic_HighConfidenceOverridesPrior(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.FastTrackConfidenceThreshold = 85
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	// "hello, how are you?" has high L0 confidence (93), but in a complex
 	// session (prior L3), downgrading to L0 requires confidence >= 96.
@@ -167,7 +167,7 @@ func TestHybridLogic_HighConfidenceOverridesPrior(t *testing.T) {
 func TestHybridLogic_ComplexSessionL0Blocked(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.FastTrackConfidenceThreshold = 85
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	ctx := context.Background()
 
@@ -210,7 +210,7 @@ func TestHybridLogic_ComplexSessionL0Blocked(t *testing.T) {
 func TestHybridLogic_MediumConfidenceKeepsHigherPrior(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.FastTrackConfidenceThreshold = 85
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	// "run the tests" has medium confidence for L1
 	// With priorLevel=L3, it should stay at L3
@@ -228,7 +228,7 @@ func TestHybridLogic_MediumConfidenceKeepsHigherPrior(t *testing.T) {
 
 func TestHybridLogic_NoPriorLevelNormalClassify(t *testing.T) {
 	config := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	// Without prior level, normal classification applies
 	ctx := context.Background()
@@ -253,7 +253,7 @@ func TestConfidenceThresholds(t *testing.T) {
 		L2ConfidenceThreshold:        70,
 		L3ConfidenceThreshold:        60,
 	}
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	ctx := context.Background()
 
@@ -268,7 +268,7 @@ func TestConfidenceThresholds(t *testing.T) {
 func TestHybridLogic_L1SessionL0Blocked(t *testing.T) {
 	config := DefaultClassifierConfig()
 	config.FastTrackConfidenceThreshold = 85
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	ctx := context.Background()
 	// "这个是什么意思" has L0 intent
@@ -284,7 +284,7 @@ func TestHybridLogic_L1SessionL0Blocked(t *testing.T) {
 
 func TestFastTrack_NewKeywords(t *testing.T) {
 	config := DefaultClassifierConfig()
-	classifier := NewDefaultClassifier(config, nil, "", nil)
+	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 	ctx := context.Background()
 
 	// "微调" should be classified as L1

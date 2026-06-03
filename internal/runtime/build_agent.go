@@ -50,6 +50,7 @@ func (bc *buildContext) buildAgentInfra() {
 	}
 	bc.compactorInstance = compactor.NewLLMCompactor(
 		compactor.NewAgentChatClient(bc.llmClient),
+		compactorModel.ProviderID,
 		compactorModelID,
 		compactor.WithLogger(bc.log),
 	)
@@ -62,6 +63,6 @@ func (bc *buildContext) buildAgentInfra() {
 		classifierModel = bc.defaultModel.ID
 	}
 	classifierConfig := router.DefaultClassifierConfig()
-	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, classifierModel, bc.log)
+	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, bc.defaultModel.ProviderID, classifierModel, bc.log)
 	bc.taskRouter = router.NewRouter(classifier, bc.cfg, bc.log)
 }

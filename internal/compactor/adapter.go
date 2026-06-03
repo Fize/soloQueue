@@ -43,8 +43,9 @@ func (a *AgentChatClient) Chat(ctx context.Context, req ChatRequest) (*ChatRespo
 	}
 
 	resp, err := a.Client.Chat(ctx, agent.LLMRequest{
-		Model:    req.Model,
-		Messages: msgs,
+		ProviderID: req.ProviderID,
+		Model:      req.Model,
+		Messages:   msgs,
 	})
 	if err != nil {
 		return nil, err

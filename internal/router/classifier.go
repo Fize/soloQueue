@@ -28,9 +28,10 @@ type DefaultClassifier struct {
 // Parameters:
 //   - config: classifier behavior settings (thresholds, feature flags)
 //   - llmClient: shared LLM client for semantic fallback (nil = disable LLM)
+//   - providerID: LLM provider ID
 //   - model: API model name for the LLM classifier (used only if llmClient != nil)
 //   - logger: optional logger (nil = default System-layer logger)
-func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, model string, l *logger.Logger) *DefaultClassifier {
+func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, providerID, model string, l *logger.Logger) *DefaultClassifier {
 	if l == nil {
 		// Create a minimal system-layer logger for classification
 		var err error
@@ -42,7 +43,7 @@ func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, mo
 
 	var lc *LLMClassifier
 	if config.EnableLLMClassification && llmClient != nil && model != "" {
-		lc = NewLLMClassifier(llmClient, model, l)
+		lc = NewLLMClassifier(llmClient, providerID, model, l)
 	}
 
 	return &DefaultClassifier{
@@ -57,6 +58,13 @@ func NewDefaultClassifier(config ClassifierConfig, llmClient agent.LLMClient, mo
 func (dc *DefaultClassifier) SetModel(model string) {
 	if dc.llm != nil {
 		dc.llm.SetModel(model)
+	}
+}
+
+// SetModelAndProvider updates both provider and model ID used by the LLM-based task classifier dynamically.
+func (dc *DefaultClassifier) SetModelAndProvider(provider, model string) {
+	if dc.llm != nil {
+		dc.llm.SetModelAndProvider(provider, model)
 	}
 }
 
