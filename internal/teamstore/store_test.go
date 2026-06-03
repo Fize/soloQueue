@@ -242,3 +242,63 @@ QA team description.
 		t.Errorf("expected projects list to remain unchanged, got: %+v", retrievedTeam2.Projects)
 	}
 }
+
+func TestBuiltinEngineeringTeam(t *testing.T) {
+	tempDir := t.TempDir()
+	groupsDir := filepath.Join(tempDir, "groups")
+	agentsDir := filepath.Join(tempDir, "agents")
+
+	store := NewStore(groupsDir, agentsDir, nil)
+	ctx := context.Background()
+
+	// 1. EnsureBuiltinTechTeam creates engineering and architect files.
+	err := store.EnsureBuiltinTechTeam(ctx)
+	if err != nil {
+		t.Fatalf("EnsureBuiltinTechTeam failed: %v", err)
+	}
+
+	// Verify engineering group file exists.
+	groupPath := filepath.Join(groupsDir, "engineering.md")
+	if _, err := os.Stat(groupPath); err != nil {
+		t.Errorf("engineering.md not created: %v", err)
+	}
+
+	// Verify architect agent file exists.
+	agentPath := filepath.Join(agentsDir, "architect.md")
+	if _, err := os.Stat(agentPath); err != nil {
+		t.Errorf("architect.md not created: %v", err)
+	}
+
+	// 2. Verify we cannot modify architect's system prompt.
+	architect, err := store.GetAgentByName(ctx, "architect")
+	if err != nil {
+		t.Fatalf("failed to retrieve architect: %v", err)
+	}
+
+	architect.SystemPrompt = "modified prompt"
+	err = store.UpdateAgent(ctx, "architect", architect)
+	if err == nil {
+		t.Error("expected UpdateAgent to fail when modifying architect prompt")
+	}
+
+	// Check if prompt was reverted on disk.
+	architect2, err := store.GetAgentByName(ctx, "architect")
+	if err != nil {
+		t.Fatalf("failed to retrieve architect after failed update: %v", err)
+	}
+	if architect2.SystemPrompt == "modified prompt" {
+		t.Error("expected architect prompt to be reverted")
+	}
+
+	// 3. Verify we cannot delete architect or engineering.
+	err = store.DeleteAgent(ctx, "architect")
+	if err == nil {
+		t.Error("expected DeleteAgent to fail for architect")
+	}
+
+	err = store.DeleteTeam(ctx, "engineering")
+	if err == nil {
+		t.Error("expected DeleteTeam to fail for engineering")
+	}
+}
+

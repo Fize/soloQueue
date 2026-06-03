@@ -214,6 +214,10 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if strings.EqualFold(name, "engineering") {
+		return fmt.Errorf("teamstore: deletion of built-in team %q is not allowed", name)
+	}
+
 	path := getTeamFilePath(s.groupsDir, name)
 	if _, err := os.Stat(path); err != nil {
 		foundPath, _, err2 := s.findFileCaseInsensitive(s.groupsDir, name)
@@ -242,6 +246,12 @@ func (s *Store) CreateAgent(ctx context.Context, a *Agent) error {
 	now := time.Now().Format(time.RFC3339)
 	a.CreatedAt = now
 	a.UpdatedAt = now
+
+	if strings.EqualFold(a.Name, "architect") {
+		if a.SystemPrompt != BuiltinLeaderPrompt {
+			return fmt.Errorf("teamstore: built-in leader %q must use the built-in prompt", a.Name)
+		}
+	}
 
 	// Check if already exists
 	path := getAgentFilePath(s.agentsDir, a.Name)
@@ -354,6 +364,15 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 		return err
 	}
 
+	if strings.EqualFold(name, "architect") {
+		if a.SystemPrompt != BuiltinLeaderPrompt {
+			// Write the original unmodified prompt back to disk (revert file modification if any)
+			existing.SystemPrompt = BuiltinLeaderPrompt
+			_ = s.writeAgentFile(path, existing)
+			return fmt.Errorf("teamstore: modification of built-in leader %q prompt is not allowed", name)
+		}
+	}
+
 	existing.Description = a.Description
 	existing.TeamName = a.TeamName
 	existing.IsLeader = a.IsLeader
@@ -371,6 +390,10 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 func (s *Store) DeleteAgent(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if strings.EqualFold(name, "architect") {
+		return fmt.Errorf("teamstore: deletion of built-in leader %q is not allowed", name)
+	}
 
 	path := getAgentFilePath(s.agentsDir, name)
 	if _, err := os.Stat(path); err != nil {

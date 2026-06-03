@@ -71,6 +71,9 @@ func Build(
 	if err := bc.teamstore.MigrateWorkspacesToProjects(context.Background()); err != nil {
 		bc.log.Warn(logger.CatApp, "failed to migrate team workspaces to projects", "err", err.Error())
 	}
+	if err := bc.teamstore.EnsureBuiltinTechTeam(context.Background()); err != nil {
+		bc.log.Warn(logger.CatApp, "failed to ensure built-in technical team", "err", err.Error())
+	}
 
 	// Wire DB to Config and load DB-backed settings
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
