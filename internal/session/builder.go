@@ -66,6 +66,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		ReasoningEffort: defModel.Thinking.ReasoningEffort,
 		ThinkingEnabled: defModel.Thinking.Enabled,
 		MaxIterations:   200,
+		ProviderID:      defModel.ProviderID,
 		ContextWindow:   defModel.ContextWindow,
 		SystemPrompt:    b.RT.SystemPrompt,
 	}
