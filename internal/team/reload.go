@@ -230,6 +230,20 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 		MCPServers:   fm.MCPServers,
 	}
 
+	var wasModified bool
+	if strings.EqualFold(fm.Name, "architect") {
+		var builtinPrompt string
+		if w.cfg.TeamStore != nil {
+			builtinPrompt = w.cfg.TeamStore.GetBuiltinLeaderPrompt()
+		} else {
+			builtinPrompt = teamstore.BuiltinLeaderPrompt
+		}
+		if tmpl.SystemPrompt != builtinPrompt {
+			tmpl.SystemPrompt = builtinPrompt
+			wasModified = true
+		}
+	}
+
 	// Sync to teamstore DB if configured (non-fatal).
 	if w.cfg.TeamStore != nil {
 		storeAgent := &teamstore.Agent{
@@ -265,14 +279,22 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 
 	if fm.IsLeader && w.cfg.OnLeaderCreated != nil {
 		w.cfg.OnLeaderCreated(ctx, fm.Name, fm.Group, ag, tmpl)
-		return fmt.Sprintf("Leader '%s' (%s) created and activated. Use delegate_%s to assign tasks.", fm.Name, fm.Group, fm.Name)
+		msg := fmt.Sprintf("Leader '%s' (%s) created and activated. Use delegate_%s to assign tasks.", fm.Name, fm.Group, fm.Name)
+		if wasModified {
+			msg += " Note: modification of built-in leader prompt is not allowed and has been reverted."
+		}
+		return msg
 	}
 
 	if !fm.IsLeader && w.cfg.OnWorkerCreated != nil {
 		w.cfg.OnWorkerCreated(ctx, fm.Name, fm.Group, ag, tmpl)
 	}
 
-	return fmt.Sprintf("Worker '%s' (%s) created and activated.", fm.Name, fm.Group)
+	msg := fmt.Sprintf("Worker '%s' (%s) created and activated.", fm.Name, fm.Group)
+	if wasModified {
+		msg += " Note: modification of built-in leader prompt is not allowed and has been reverted."
+	}
+	return msg
 }
 
 func (w *reloadWrapper) reloadGroup(ctx context.Context, path string) string {
