@@ -251,6 +251,18 @@ func (s *Store) CreateAgent(ctx context.Context, a *Agent) error {
 		if a.SystemPrompt != BuiltinLeaderPrompt {
 			return fmt.Errorf("teamstore: built-in leader %q must use the built-in prompt", a.Name)
 		}
+	} else if strings.EqualFold(a.Name, "explorer") {
+		if a.SystemPrompt != BuiltinExplorerPrompt {
+			return fmt.Errorf("teamstore: built-in agent %q must use the built-in prompt", a.Name)
+		}
+	} else if strings.EqualFold(a.Name, "editor") {
+		if a.SystemPrompt != BuiltinEditorPrompt {
+			return fmt.Errorf("teamstore: built-in agent %q must use the built-in prompt", a.Name)
+		}
+	} else if strings.EqualFold(a.Name, "tester") {
+		if a.SystemPrompt != BuiltinTesterPrompt {
+			return fmt.Errorf("teamstore: built-in agent %q must use the built-in prompt", a.Name)
+		}
 	}
 
 	// Check if already exists
@@ -371,6 +383,24 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 			_ = s.writeAgentFile(path, existing)
 			return fmt.Errorf("teamstore: modification of built-in leader %q prompt is not allowed", name)
 		}
+	} else if strings.EqualFold(name, "explorer") {
+		if a.SystemPrompt != BuiltinExplorerPrompt {
+			existing.SystemPrompt = BuiltinExplorerPrompt
+			_ = s.writeAgentFile(path, existing)
+			return fmt.Errorf("teamstore: modification of built-in agent %q prompt is not allowed", name)
+		}
+	} else if strings.EqualFold(name, "editor") {
+		if a.SystemPrompt != BuiltinEditorPrompt {
+			existing.SystemPrompt = BuiltinEditorPrompt
+			_ = s.writeAgentFile(path, existing)
+			return fmt.Errorf("teamstore: modification of built-in agent %q prompt is not allowed", name)
+		}
+	} else if strings.EqualFold(name, "tester") {
+		if a.SystemPrompt != BuiltinTesterPrompt {
+			existing.SystemPrompt = BuiltinTesterPrompt
+			_ = s.writeAgentFile(path, existing)
+			return fmt.Errorf("teamstore: modification of built-in agent %q prompt is not allowed", name)
+		}
 	}
 
 	existing.Description = a.Description
@@ -391,8 +421,11 @@ func (s *Store) DeleteAgent(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if strings.EqualFold(name, "architect") {
-		return fmt.Errorf("teamstore: deletion of built-in leader %q is not allowed", name)
+	if strings.EqualFold(name, "architect") ||
+		strings.EqualFold(name, "explorer") ||
+		strings.EqualFold(name, "editor") ||
+		strings.EqualFold(name, "tester") {
+		return fmt.Errorf("teamstore: deletion of built-in agent %q is not allowed", name)
 	}
 
 	path := getAgentFilePath(s.agentsDir, name)
