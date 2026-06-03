@@ -612,6 +612,7 @@ func (s *Store) resolveTeamWorkspaces(ctx context.Context, t *Team) error {
 // MigrateWorkspacesToProjects scans all group markdown files. If any team has workspaces
 // directly defined, it creates corresponding project records in the database, associates
 // them with the team, and updates the group markdown file (migrating them from workspaces to projects).
+// It also cleans up any orphaned/non-existent project IDs from the team's associated projects list.
 func (s *Store) MigrateWorkspacesToProjects(ctx context.Context) error {
 	if s.db == nil {
 		return nil
@@ -619,6 +620,12 @@ func (s *Store) MigrateWorkspacesToProjects(ctx context.Context) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Check if database projects table already has data.
+	// If it does, we do NOT perform any workspace merging/creation.
+	var count int
+	errCount := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&count)
+	dbHasData := (errCount == nil && count > 0)
 
 	entries, err := os.ReadDir(s.groupsDir)
 	if err != nil {
@@ -639,9 +646,10 @@ func (s *Store) MigrateWorkspacesToProjects(ctx context.Context) error {
 			continue
 		}
 
-		// If there are direct workspaces defined in the frontmatter, migrate them.
-		if len(t.Workspaces) > 0 {
-			modified := false
+		workspacesPresent := len(t.Workspaces) > 0
+
+		// 1. If database has NO data, migrate workspaces to projects in database and associate them.
+		if !dbHasData && workspacesPresent {
 			for _, ws := range t.Workspaces {
 				// Check if a project with this name or path already exists in database
 				var existingID string
@@ -694,16 +702,32 @@ func (s *Store) MigrateWorkspacesToProjects(ctx context.Context) error {
 				}
 				if !existsInTeam {
 					t.Projects = append(t.Projects, existingID)
-					modified = true
 				}
 			}
+		}
 
-			if modified {
-				// Clear direct workspaces as they are now projects
-				t.Workspaces = nil
-				// Save team file back to group markdown
-				_ = s.writeTeamFile(path, t)
+		// 2. Clean up non-existent project IDs from the team's projects list.
+		// This runs regardless of dbHasData.
+		var validProjects []string
+		projectsChanged := false
+		for _, pID := range t.Projects {
+			var tempID string
+			errVal := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE id = ?`, pID).Scan(&tempID)
+			if errVal == nil {
+				validProjects = append(validProjects, pID)
+			} else {
+				// Project doesn't exist in DB, filter it out
+				projectsChanged = true
 			}
+		}
+
+		// 3. Clear workspaces and rewrite file if we modified projects or need to clear obsolete workspaces
+		if (workspacesPresent && !dbHasData) || projectsChanged || (workspacesPresent && dbHasData) {
+			t.Workspaces = nil
+			if projectsChanged {
+				t.Projects = validProjects
+			}
+			_ = s.writeTeamFile(path, t)
 		}
 	}
 

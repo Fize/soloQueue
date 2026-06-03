@@ -14,6 +14,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
 
 // ─── RuntimeMetrics ─────────────────────────────────────────────────────────
@@ -348,9 +349,14 @@ type AgentTemplateResponse struct {
 
 // TeamInfoResponse is a single team with its agents.
 type TeamInfoResponse struct {
+	ID          string                  `json:"id"`
 	Name        string                  `json:"name"`
 	Description string                  `json:"description"`
+	Workspaces  []teamstore.Workspace   `json:"workspaces"`
+	Projects    []string                `json:"projects"`
 	Agents      []AgentTemplateResponse `json:"agents"`
+	CreatedAt   string                  `json:"created_at"`
+	UpdatedAt   string                  `json:"updated_at"`
 }
 
 // TeamListResponse is the response for GET /api/teams.

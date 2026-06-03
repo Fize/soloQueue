@@ -203,4 +203,42 @@ QA team description.
 	if len(retrievedTeam.Projects) != 1 || retrievedTeam.Projects[0] != "qa-qacode" {
 		t.Errorf("mismatch in team projects association: %+v", retrievedTeam.Projects)
 	}
+
+	// 5. If database is not empty, running migration again should NOT create new projects or modify file projects if we add a new workspace.
+	// Write a new workspace to qa.md.
+	teamMD2 := `---
+name: QA
+workspaces:
+  - name: extra
+    path: /workspace/extra
+projects:
+  - qa-qacode
+---
+QA team description.
+`
+	err = os.WriteFile(filepath.Join(groupsDir, "qa.md"), []byte(teamMD2), 0644)
+	if err != nil {
+		t.Fatalf("failed to write raw team file: %v", err)
+	}
+
+	// Run migration again. Since DB is not empty, it should NOT migrate "extra" into DB.
+	err = store.MigrateWorkspacesToProjects(ctx)
+	if err != nil {
+		t.Fatalf("failed to run migration again: %v", err)
+	}
+
+	// Verify "qa-extra" does NOT exist in DB.
+	_, err = store.GetProject(ctx, "qa-extra")
+	if err == nil {
+		t.Error("expected qa-extra project not to be created since DB is not empty")
+	}
+
+	// Verify the qa.md file workspaces block is cleared, but projects is still only ["qa-qacode"].
+	retrievedTeam2, err := store.GetTeamByName(ctx, "QA")
+	if err != nil {
+		t.Fatalf("failed to get migrated team: %v", err)
+	}
+	if len(retrievedTeam2.Projects) != 1 || retrievedTeam2.Projects[0] != "qa-qacode" {
+		t.Errorf("expected projects list to remain unchanged, got: %+v", retrievedTeam2.Projects)
+	}
 }
