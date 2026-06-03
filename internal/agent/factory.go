@@ -273,16 +273,30 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 			planDir = teamPlanDir
 		}
 	}
-	// Compute platform-appropriate explore directory
-	exploreDir := f.exploreDir
-	if exploreDir == "" && f.workDir != "" {
-		exploreDir = prompt.ExploreDir(f.workDir)
+	// Resolve effective workDir: use project-specific dir or fall back to global/group workspace
+	effectiveWorkDir := workDir
+	if effectiveWorkDir == "" || effectiveWorkDir == f.workDir {
+		if tmpl.Group != "" && f.workDir != "" {
+			effectiveWorkDir = filepath.Join(f.workDir, "workspace", tmpl.Group)
+		} else if effectiveWorkDir == "" {
+			effectiveWorkDir = f.workDir
+		}
 	}
 
-	// Resolve effective workDir: use project-specific dir or fall back to global
-	effectiveWorkDir := workDir
-	if effectiveWorkDir == "" {
-		effectiveWorkDir = f.workDir
+	// Make sure the effective working directory exists
+	if effectiveWorkDir != "" {
+		if err := os.MkdirAll(effectiveWorkDir, 0o755); err != nil {
+			if f.log != nil {
+				f.log.WarnContext(ctx, logger.CatConfig, "failed to create working directory",
+					"dir", effectiveWorkDir, "err", err.Error())
+			}
+		}
+	}
+
+	// Compute platform-appropriate explore directory
+	exploreDir := f.exploreDir
+	if exploreDir == "" && effectiveWorkDir != "" {
+		exploreDir = prompt.ExploreDir(effectiveWorkDir)
 	}
 
 	// Load project-level resources (.claude/agents, .claude/skills, .claude/mcp.json, AGENTS.md)

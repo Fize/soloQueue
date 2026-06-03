@@ -1592,6 +1592,73 @@ description: Project deploy skill
 	}
 }
 
+func TestDefaultFactory_Create_WorkDirFallbackGroupWorkspace(t *testing.T) {
+	globalWorkDir := t.TempDir()
+
+	log, err := logger.System(globalWorkDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	registry := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
+		WithWorkDir(globalWorkDir),
+	)
+
+	// Case 1: tmpl has Group, workDir passed to Create is empty
+	tmplWithGroup := AgentTemplate{
+		ID:           "dev-agent",
+		Name:         "Dev Agent",
+		SystemPrompt: "You are dev.",
+		Group:        "DevOps",
+	}
+	ag1, _, err := factory.Create(context.Background(), tmplWithGroup, "")
+	if err != nil {
+		t.Fatalf("factory.Create case 1: %v", err)
+	}
+	defer ag1.Stop(time.Second)
+
+	expectedWorkspaceDir := filepath.Join(globalWorkDir, "workspace", "DevOps")
+	if ag1.WorkDir != expectedWorkspaceDir {
+		t.Errorf("ag1.WorkDir = %q, want %q", ag1.WorkDir, expectedWorkspaceDir)
+	}
+	if info, err := os.Stat(expectedWorkspaceDir); err != nil || !info.IsDir() {
+		t.Errorf("expected workspace directory %q to be created: %v", expectedWorkspaceDir, err)
+	}
+
+	// Case 2: tmpl has Group, workDir passed to Create is the global workDir
+	ag2, _, err := factory.Create(context.Background(), tmplWithGroup, globalWorkDir)
+	if err != nil {
+		t.Fatalf("factory.Create case 2: %v", err)
+	}
+	defer ag2.Stop(time.Second)
+
+	if ag2.WorkDir != expectedWorkspaceDir {
+		t.Errorf("ag2.WorkDir = %q, want %q", ag2.WorkDir, expectedWorkspaceDir)
+	}
+
+	// Case 3: tmpl has no Group, workDir passed to Create is empty
+	tmplNoGroup := AgentTemplate{
+		ID:           "lone-agent",
+		Name:         "Lone Agent",
+		SystemPrompt: "You are alone.",
+		Group:        "",
+	}
+	ag3, _, err := factory.Create(context.Background(), tmplNoGroup, "")
+	if err != nil {
+		t.Fatalf("factory.Create case 3: %v", err)
+	}
+	defer ag3.Stop(time.Second)
+
+	if ag3.WorkDir != globalWorkDir {
+		t.Errorf("ag3.WorkDir = %q, want %q", ag3.WorkDir, globalWorkDir)
+	}
+}
+
+
 // ─── buildL2SystemPrompt project agents tests ──────────────────────────────
 
 func TestBuildL2SystemPrompt_ProjectAgentsListed(t *testing.T) {
