@@ -8,8 +8,9 @@ import {
   createAgent,
   updateAgent,
   deleteAgent,
+  listProjects,
 } from '@/lib/api'
-import type { TeamResponse, AgentResponse, CreateTeamRequest } from '@/types'
+import type { TeamResponse, AgentResponse, CreateTeamRequest, Project } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -41,6 +42,8 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [workspacesJson, setWorkspacesJson] = useState('')
+  const [allProjects, setAllProjects] = useState<Project[]>([])
+  const [associatedProjects, setAssociatedProjects] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,16 +54,19 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   useEffect(() => {
     if (open) {
       setTeamTab('preview')
+      listProjects().then(setAllProjects).catch(console.error)
       if (editTeam) {
         setName(editTeam.name)
         setDescription(editTeam.description || '')
         setWorkspacesJson(
           editTeam.workspaces?.length ? JSON.stringify(editTeam.workspaces, null, 2) : ''
         )
+        setAssociatedProjects(editTeam.projects || [])
       } else {
         setName('')
         setDescription('')
         setWorkspacesJson('')
+        setAssociatedProjects([])
       }
       setError(null)
     }
@@ -94,12 +100,14 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
         await updateTeam(editTeam!.name, {
           description: description || undefined,
           workspaces,
+          projects: associatedProjects,
         })
       } else {
         await createTeam({
           name: name.trim(),
           description: description || undefined,
           workspaces,
+          projects: associatedProjects,
         })
       }
       onSave()
@@ -172,6 +180,48 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
                 className="flex w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/30 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
                 placeholder="Brief description of this team"
               />
+            </div>
+
+            <div className="flex flex-col gap-1.5 pt-2">
+              <Label className="font-semibold">Associated Projects</Label>
+              <div className="border border-border rounded-md p-3 max-h-[180px] overflow-y-auto space-y-2 bg-muted/10">
+                {allProjects.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">
+                    No projects created yet. Create projects in the Projects tab.
+                  </p>
+                ) : (
+                  allProjects.map((p) => {
+                    const checked = associatedProjects.includes(p.id)
+                    return (
+                      <label
+                        key={p.id}
+                        className="flex items-start gap-2.5 text-xs text-foreground cursor-pointer select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setAssociatedProjects((prev) => [...prev, p.id])
+                            } else {
+                              setAssociatedProjects((prev) => prev.filter((id) => id !== p.id))
+                            }
+                          }}
+                          className="mt-0.5 rounded border-border text-primary focus:ring-primary h-3.5 w-3.5"
+                        />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{p.name}</span>
+                          {p.description && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {p.description}
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })
+                )}
+              </div>
             </div>
           </div>
 
@@ -717,6 +767,19 @@ export default function TeamsTab() {
                       <p className="text-xs text-muted-foreground truncate mt-0.5">
                         {team.description}
                       </p>
+                    )}
+                    {team.projects && team.projects.length > 0 && (
+                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                        {team.projects.map((projId) => (
+                          <Badge
+                            key={projId}
+                            variant="secondary"
+                            className="text-[9px] px-1 py-0 h-4"
+                          >
+                            Project: {projId}
+                          </Badge>
+                        ))}
+                      </div>
                     )}
                   </div>
                   <div

@@ -14,6 +14,7 @@ import { ProfileTab } from '@/components/settings/ProfileTab'
 import { SkillsTab } from '@/components/settings/SkillsTab'
 import { MCPTab } from '@/components/settings/MCPTab'
 import TeamsTab from '@/components/settings/TeamsTab'
+import { ProjectsTab } from '@/components/settings/ProjectsTab'
 import { ProxiesTab } from '@/components/settings/ProxiesTab'
 import { IframePageView } from '@/components/IframePageView'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -71,6 +72,7 @@ function App() {
                 <Route path="skills" element={<SkillsTab />} />
                 <Route path="mcp" element={<MCPTab />} />
                 <Route path="teams" element={<TeamsTab />} />
+                <Route path="projects" element={<ProjectsTab />} />
                 <Route path="proxies" element={<ProxiesTab />} />
               </Route>
               <Route path="/iframe/:id" element={<IframePageView />} />

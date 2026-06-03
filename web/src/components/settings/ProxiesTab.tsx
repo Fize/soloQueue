@@ -166,12 +166,7 @@ export function ProxiesTab() {
                   variant="outline"
                   size="sm"
                   className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() =>
-                    window.open(
-                      `/?soloqueue_proxy=${proxy.id}`,
-                      '_blank'
-                    )
-                  }
+                  onClick={() => window.open(`/?soloqueue_proxy=${proxy.id}`, '_blank')}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Open</span>

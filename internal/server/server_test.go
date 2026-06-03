@@ -148,7 +148,7 @@ func TestHTTP_TeamAgents(t *testing.T) {
 	_ = os.MkdirAll(groupsDir, 0755)
 	_ = os.MkdirAll(agentsDir, 0755)
 
-	store := teamstore.NewStore(groupsDir, agentsDir)
+	store := teamstore.NewStore(groupsDir, agentsDir, nil)
 	ctx := context.Background()
 
 	// Create a team

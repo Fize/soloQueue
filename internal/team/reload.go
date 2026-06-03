@@ -291,6 +291,7 @@ func (w *reloadWrapper) reloadGroup(ctx context.Context, path string) string {
 			Name:        gf.Frontmatter.Name,
 			Description: gf.Body,
 			Workspaces:  convertWorkspaces(gf.Frontmatter.Workspaces),
+			Projects:    gf.Frontmatter.Projects,
 		}
 		existing, err := w.cfg.TeamStore.GetTeamByName(ctx, gf.Frontmatter.Name)
 		if err == nil && existing != nil {
