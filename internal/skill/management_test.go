@@ -204,3 +204,102 @@ func TestInstallGithubSkill_InvalidUrl(t *testing.T) {
 		t.Error("expected invalid github url to fail")
 	}
 }
+
+func TestParseGithubUrl(t *testing.T) {
+	cases := []struct {
+		url          string
+		wantRepo     string
+		wantSubPath  string
+		wantBranch   string
+		wantErr      bool
+	}{
+		{
+			url:          "https://github.com/anthropics/skills/tree/main/docx",
+			wantRepo:     "https://github.com/anthropics/skills",
+			wantSubPath:  "docx",
+			wantBranch:   "main",
+			wantErr:      false,
+		},
+		{
+			url:          "https://github.com/vercel-labs/agent-browser/blob/main/skills/agent-browser/SKILL.md",
+			wantRepo:     "https://github.com/vercel-labs/agent-browser",
+			wantSubPath:  "skills/agent-browser",
+			wantBranch:   "main",
+			wantErr:      false,
+		},
+		{
+			url:          "https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser",
+			wantRepo:     "https://github.com/vercel-labs/agent-browser",
+			wantSubPath:  "skills/agent-browser",
+			wantBranch:   "main",
+			wantErr:      false,
+		},
+		{
+			url:          "https://github.com/Fize/soloQueue/tree/main/skills/pua",
+			wantRepo:     "https://github.com/Fize/soloQueue",
+			wantSubPath:  "skills/pua",
+			wantBranch:   "main",
+			wantErr:      false,
+		},
+		{
+			url:          "https://github.com/remotion-dev/remotion",
+			wantRepo:     "https://github.com/remotion-dev/remotion",
+			wantSubPath:  "",
+			wantBranch:   "",
+			wantErr:      false,
+		},
+	}
+
+	for _, tc := range cases {
+		repo, sub, branch, err := parseGithubUrl(tc.url)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("url %q: expected error but got nil", tc.url)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("url %q: unexpected error: %v", tc.url, err)
+			continue
+		}
+		if repo != tc.wantRepo {
+			t.Errorf("url %q: got repo = %q, want %q", tc.url, repo, tc.wantRepo)
+		}
+		if sub != tc.wantSubPath {
+			t.Errorf("url %q: got sub = %q, want %q", tc.url, sub, tc.wantSubPath)
+		}
+		if branch != tc.wantBranch {
+			t.Errorf("url %q: got branch = %q, want %q", tc.url, branch, tc.wantBranch)
+		}
+	}
+}
+
+func TestInstallGithubSkill_RealIntegration(t *testing.T) {
+	if os.Getenv("SOLOQUEUE_RUN_GITHUB_INTEGRATION") == "" {
+		t.Skip("Set SOLOQUEUE_RUN_GITHUB_INTEGRATION=1 to run real github download tests")
+	}
+
+	userDir := t.TempDir()
+	
+	// 1. Test pulling docx
+	err := InstallGithubSkill(context.Background(), "https://github.com/anthropics/skills/tree/main/skills/docx", userDir)
+	if err != nil {
+		t.Fatalf("failed to install docx from monorepo: %v", err)
+	}
+	installedMD := filepath.Join(userDir, "docx", "SKILL.md")
+	if _, err := os.Stat(installedMD); err != nil {
+		t.Fatalf("SKILL.md not found in installed folder: %v", err)
+	}
+
+	// 2. Test pulling agent-browser
+	err = InstallGithubSkill(context.Background(), "https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser", userDir)
+	if err != nil {
+		t.Fatalf("failed to install agent-browser from monorepo: %v", err)
+	}
+	installedAgentBrowserMD := filepath.Join(userDir, "agent-browser", "SKILL.md")
+	if _, err := os.Stat(installedAgentBrowserMD); err != nil {
+		t.Fatalf("agent-browser SKILL.md not found in installed folder: %v", err)
+	}
+}
+
+

@@ -90,6 +90,9 @@ type Skill struct {
 
 	// Disabled 是否被禁用
 	Disabled bool
+
+	// Upstream 远程 Git 仓库地址
+	Upstream string
 }
 
 // ─── 构造函数 ──────────────────────────────────────────────────────────────

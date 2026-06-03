@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -146,7 +147,29 @@ func (m *Mux) getStoreSkills() ([]*skill.Skill, error) {
 }
 
 // installStoreSkill installs a skill from the store (local disk or embedded FS) into userSkillsDir.
-func (m *Mux) installStoreSkill(userSkillsDir, id string) error {
+func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) error {
+	// Parse the store skill to inspect its metadata (like Upstream)
+	var s *skill.Skill
+	var err error
+
+	if _, statErr := os.Stat(filepath.Join("skills", id, "SKILL.md")); statErr == nil {
+		s, err = skill.ParseSkillMD(filepath.Join("skills", id, "SKILL.md"))
+	} else if _, statErr := os.Stat(filepath.Join("../skills", id, "SKILL.md")); statErr == nil {
+		s, err = skill.ParseSkillMD(filepath.Join("../skills", id, "SKILL.md"))
+	} else {
+		fallbackStoreDir := filepath.Join(m.workDir, "store", "skills")
+		if _, statErr := os.Stat(filepath.Join(fallbackStoreDir, id, "SKILL.md")); statErr == nil {
+			s, err = skill.ParseSkillMD(filepath.Join(fallbackStoreDir, id, "SKILL.md"))
+		} else {
+			s, err = skill.ParseSkillMDFromFS(distFS(), filepath.ToSlash(filepath.Join("skills", id, "SKILL.md")))
+		}
+	}
+
+	// If we found the skill and it has an upstream configured, clone it remotely
+	if err == nil && s != nil && s.Upstream != "" {
+		return skill.InstallGithubSkill(ctx, s.Upstream, userSkillsDir)
+	}
+
 	if _, err := os.Stat(filepath.Join("skills", id)); err == nil {
 		return skill.InstallSkill("skills", userSkillsDir, id)
 	}
@@ -223,7 +246,7 @@ func (m *Mux) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch req.Source {
 	case "store":
-		err = m.installStoreSkill(userSkillsDir, req.ID)
+		err = m.installStoreSkill(r.Context(), userSkillsDir, req.ID)
 	case "local":
 		err = skill.InstallLocalSkill(req.Path, userSkillsDir)
 	case "github":
@@ -450,7 +473,7 @@ func (m *Mux) handleToggleSkill(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
 		// If it doesn't exist in user skills, it might be a built-in skill from store.
 		// To disable it, we must copy it to user skills first, then disable it (shadowing).
-		if err := m.installStoreSkill(userSkillsDir, id); err != nil {
+		if err := m.installStoreSkill(r.Context(), userSkillsDir, id); err != nil {
 			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to override built-in skill: " + err.Error()})
 			return
 		}
