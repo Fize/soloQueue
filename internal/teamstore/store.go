@@ -5,6 +5,8 @@ package teamstore
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,6 +27,7 @@ type Team struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
 	Workspaces  []Workspace `json:"workspaces"`
+	Projects    []string    `json:"projects"`
 	CreatedAt   string      `json:"created_at"`
 	UpdatedAt   string      `json:"updated_at"`
 }
@@ -80,16 +84,18 @@ type AgentTemplate struct {
 type Store struct {
 	groupsDir string
 	agentsDir string
+	db        *sqlitedb.DB
 	mu        sync.RWMutex
 }
 
 // NewStore creates a new teamstore backed by groups/ and agents/ directories.
-func NewStore(groupsDir, agentsDir string) *Store {
+func NewStore(groupsDir, agentsDir string, db *sqlitedb.DB) *Store {
 	_ = os.MkdirAll(groupsDir, 0755)
 	_ = os.MkdirAll(agentsDir, 0755)
 	return &Store{
 		groupsDir: groupsDir,
 		agentsDir: agentsDir,
+		db:        db,
 	}
 }
 
@@ -133,7 +139,13 @@ func (s *Store) GetTeamByName(ctx context.Context, name string) (*Team, error) {
 		info = foundInfo
 	}
 
-	return parseTeamFile(path, info)
+	t, err := parseTeamFile(path, info)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = s.resolveTeamWorkspaces(ctx, t)
+	return t, nil
 }
 
 // ListTeams returns all teams.
@@ -158,6 +170,7 @@ func (s *Store) ListTeams(ctx context.Context) ([]Team, error) {
 		}
 		t, err := parseTeamFile(path, info)
 		if err == nil {
+			_ = s.resolveTeamWorkspaces(ctx, t)
 			teams = append(teams, *t)
 		}
 	}
@@ -190,6 +203,7 @@ func (s *Store) UpdateTeam(ctx context.Context, name string, t *Team) error {
 
 	existing.Description = t.Description
 	existing.Workspaces = t.Workspaces
+	existing.Projects = t.Projects
 	existing.UpdatedAt = time.Now().Format(time.RFC3339)
 
 	return s.writeTeamFile(path, existing)
@@ -425,6 +439,7 @@ func (s *Store) writeTeamFile(path string, t *Team) error {
 	fm := prompt.GroupFrontmatter{
 		ID:        t.ID,
 		Name:      t.Name,
+		Projects:  t.Projects,
 		CreatedAt: t.CreatedAt,
 		UpdatedAt: t.UpdatedAt,
 	}
@@ -522,6 +537,7 @@ func parseTeamFile(path string, info os.FileInfo) (*Team, error) {
 		Name:        name,
 		Description: gf.Body,
 		Workspaces:  workspaces,
+		Projects:    gf.Frontmatter.Projects,
 		CreatedAt:   createdAt,
 		UpdatedAt:   updatedAt,
 	}, nil
@@ -563,4 +579,133 @@ func parseAgentFile(path string, info os.FileInfo) (*Agent, error) {
 		CreatedAt:    createdAt,
 		UpdatedAt:    updatedAt,
 	}, nil
+}
+
+func (s *Store) resolveTeamWorkspaces(ctx context.Context, t *Team) error {
+	if s.db == nil || len(t.Projects) == 0 {
+		return nil
+	}
+
+	for _, projID := range t.Projects {
+		p, err := s.GetProject(ctx, projID)
+		if err != nil {
+			continue
+		}
+		ws := Workspace{
+			Name: p.Name,
+			Path: p.Path,
+		}
+		exists := false
+		for _, existing := range t.Workspaces {
+			if existing.Path == ws.Path || existing.Name == ws.Name {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			t.Workspaces = append(t.Workspaces, ws)
+		}
+	}
+	return nil
+}
+
+// MigrateWorkspacesToProjects scans all group markdown files. If any team has workspaces
+// directly defined, it creates corresponding project records in the database, associates
+// them with the team, and updates the group markdown file (migrating them from workspaces to projects).
+func (s *Store) MigrateWorkspacesToProjects(ctx context.Context) error {
+	if s.db == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := os.ReadDir(s.groupsDir)
+	if err != nil {
+		return fmt.Errorf("migrate: read groups dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		path := filepath.Join(s.groupsDir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		t, err := parseTeamFile(path, info)
+		if err != nil {
+			continue
+		}
+
+		// If there are direct workspaces defined in the frontmatter, migrate them.
+		if len(t.Workspaces) > 0 {
+			modified := false
+			for _, ws := range t.Workspaces {
+				// Check if a project with this name or path already exists in database
+				var existingID string
+				err := s.db.QueryRowContext(ctx,
+					`SELECT id FROM projects WHERE path = ? OR name = ?`,
+					ws.Path, ws.Name,
+				).Scan(&existingID)
+
+				if err != nil {
+					if errors.Is(err, sql.ErrNoRows) {
+						// Create a new project
+						projID := strings.ToLower(t.Name + "-" + ws.Name)
+						// Ensure unique ID in database by appending timestamp if it already exists
+						var tempID string
+						if errID := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE id = ?`, projID).Scan(&tempID); errID == nil {
+							projID = fmt.Sprintf("%s-%d", projID, time.Now().UnixNano())
+						}
+
+						proj := &Project{
+							ID:          projID,
+							Name:        ws.Name,
+							Path:        ws.Path,
+							Description: fmt.Sprintf("Migrated from team %s", t.Name),
+						}
+
+						func() {
+							s.db.WMu.Lock()
+							defer s.db.WMu.Unlock()
+							now := time.Now().Format(time.RFC3339)
+							proj.CreatedAt = now
+							proj.UpdatedAt = now
+							_, _ = s.db.ExecContext(ctx,
+								`INSERT INTO projects (id, name, path, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+								proj.ID, proj.Name, proj.Path, proj.Description, proj.CreatedAt, proj.UpdatedAt,
+							)
+						}()
+						existingID = proj.ID
+					} else {
+						continue
+					}
+				}
+
+				// Associate project with the team
+				existsInTeam := false
+				for _, pID := range t.Projects {
+					if pID == existingID {
+						existsInTeam = true
+						break
+					}
+				}
+				if !existsInTeam {
+					t.Projects = append(t.Projects, existingID)
+					modified = true
+				}
+			}
+
+			if modified {
+				// Clear direct workspaces as they are now projects
+				t.Workspaces = nil
+				// Save team file back to group markdown
+				_ = s.writeTeamFile(path, t)
+			}
+		}
+	}
+
+	return nil
 }

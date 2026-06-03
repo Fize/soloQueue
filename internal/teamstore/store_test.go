@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
 func TestStoreCRUD(t *testing.T) {
@@ -12,7 +14,7 @@ func TestStoreCRUD(t *testing.T) {
 	groupsDir := filepath.Join(tempDir, "groups")
 	agentsDir := filepath.Join(tempDir, "agents")
 
-	store := NewStore(groupsDir, agentsDir)
+	store := NewStore(groupsDir, agentsDir, nil)
 	ctx := context.Background()
 
 	// ─── Team Tests ──────────────────────────────────────────────────────────
@@ -140,5 +142,65 @@ func TestStoreCRUD(t *testing.T) {
 	}
 	if _, err := os.Stat(teamPath); !os.IsNotExist(err) {
 		t.Error("team file still exists after deletion")
+	}
+}
+
+func TestStoreWorkspaceMigration(t *testing.T) {
+	tempDir := t.TempDir()
+	groupsDir := filepath.Join(tempDir, "groups")
+	agentsDir := filepath.Join(tempDir, "agents")
+	dbPath := filepath.Join(tempDir, "entries.db")
+
+	db, err := sqlitedb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewStore(groupsDir, agentsDir, db)
+	ctx := context.Background()
+
+	// 1. Create a raw team file with direct workspaces under groupsDir.
+	teamMD := `---
+name: QA
+workspaces:
+  - name: qacode
+    path: /workspace/qa
+---
+QA team description.
+`
+	_ = os.MkdirAll(groupsDir, 0755)
+	err = os.WriteFile(filepath.Join(groupsDir, "qa.md"), []byte(teamMD), 0644)
+	if err != nil {
+		t.Fatalf("failed to write raw team file: %v", err)
+	}
+
+	// 2. Run the migration.
+	err = store.MigrateWorkspacesToProjects(ctx)
+	if err != nil {
+		t.Fatalf("failed to run workspaces migration: %v", err)
+	}
+
+	// 3. Check if the project was inserted into the database.
+	proj, err := store.GetProject(ctx, "qa-qacode")
+	if err != nil {
+		t.Fatalf("project was not migrated to DB: %v", err)
+	}
+	if proj.Name != "qacode" || proj.Path != "/workspace/qa" {
+		t.Errorf("mismatch in migrated project: %+v", proj)
+	}
+
+	// 4. Check if the team file has been updated to remove Workspaces and add Projects.
+	retrievedTeam, err := store.GetTeamByName(ctx, "QA")
+	if err != nil {
+		t.Fatalf("failed to get migrated team: %v", err)
+	}
+	if len(retrievedTeam.Workspaces) != 1 || retrievedTeam.Workspaces[0].Path != "/workspace/qa" {
+		t.Errorf("mismatch in team workspaces: %+v", retrievedTeam.Workspaces)
+	}
+
+	// Verify project association is stored in team record.
+	if len(retrievedTeam.Projects) != 1 || retrievedTeam.Projects[0] != "qa-qacode" {
+		t.Errorf("mismatch in team projects association: %+v", retrievedTeam.Projects)
 	}
 }

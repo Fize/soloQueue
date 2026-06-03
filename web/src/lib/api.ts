@@ -37,6 +37,7 @@ import type {
   EmbeddingConfig,
   QQBotConfig,
   LSPMCPConfig,
+  Project,
 } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -513,4 +514,38 @@ export async function updateSessionConfig(data: SessionConfig): Promise<SessionC
     method: 'PUT',
     body: JSON.stringify(data),
   })
+}
+
+// ─── Project APIs ───────────────────────────────────────────────────────────
+
+export async function listProjects(): Promise<Project[]> {
+  const data = await request<{ projects: Project[] }>('/projects')
+  return data.projects ?? []
+}
+
+export async function getProject(id: string): Promise<Project> {
+  return request<Project>(`/projects/${encodeURIComponent(id)}`)
+}
+
+export async function createProject(
+  data: Omit<Project, 'created_at' | 'updated_at'>
+): Promise<Project> {
+  return request<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateProject(
+  id: string,
+  data: Partial<Omit<Project, 'created_at' | 'updated_at'>>
+): Promise<Project> {
+  return request<Project>(`/projects/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

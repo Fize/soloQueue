@@ -66,7 +66,11 @@ func Build(
 	if err := bc.initSharedDB(); err != nil {
 		return nil, err
 	}
-	bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"))
+	bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
+	// Migrate direct workspaces to projects table
+	if err := bc.teamstore.MigrateWorkspacesToProjects(context.Background()); err != nil {
+		bc.log.Warn(logger.CatApp, "failed to migrate team workspaces to projects", "err", err.Error())
+	}
 
 	// Wire DB to Config and load DB-backed settings
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {

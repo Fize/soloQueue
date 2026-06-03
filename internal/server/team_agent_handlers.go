@@ -18,6 +18,7 @@ type TeamResponse struct {
 	Name        string                `json:"name"`
 	Description string                `json:"description"`
 	Workspaces  []teamstore.Workspace `json:"workspaces"`
+	Projects    []string              `json:"projects"`
 	Agents      []AgentResponse       `json:"agents,omitempty"`
 	CreatedAt   string                `json:"created_at"`
 	UpdatedAt   string                `json:"updated_at"`
@@ -47,11 +48,16 @@ func teamToResponse(t *teamstore.Team, agents []AgentResponse) TeamResponse {
 	if ws == nil {
 		ws = []teamstore.Workspace{}
 	}
+	projects := t.Projects
+	if projects == nil {
+		projects = []string{}
+	}
 	return TeamResponse{
 		ID:          t.ID,
 		Name:        t.Name,
 		Description: t.Description,
 		Workspaces:  ws,
+		Projects:    projects,
 		Agents:      agents,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
@@ -187,6 +193,7 @@ type createTeamRequest struct {
 	Name        string                `json:"name"`
 	Description string                `json:"description"`
 	Workspaces  []teamstore.Workspace `json:"workspaces"`
+	Projects    []string              `json:"projects"`
 }
 
 // handleCreateTeam creates a new team.
@@ -211,6 +218,7 @@ func (m *Mux) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Description: req.Description,
 		Workspaces:  req.Workspaces,
+		Projects:    req.Projects,
 	}
 	if err := m.teamstore.CreateTeam(r.Context(), t); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -283,6 +291,7 @@ func (m *Mux) handleGetTeam(w http.ResponseWriter, r *http.Request) {
 type updateTeamRequest struct {
 	Description *string                `json:"description,omitempty"`
 	Workspaces  *[]teamstore.Workspace `json:"workspaces,omitempty"`
+	Projects    *[]string              `json:"projects,omitempty"`
 }
 
 // handleUpdateTeam updates an existing team.
@@ -313,6 +322,9 @@ func (m *Mux) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Workspaces != nil {
 		existing.Workspaces = *req.Workspaces
+	}
+	if req.Projects != nil {
+		existing.Projects = *req.Projects
 	}
 
 	if err := m.teamstore.UpdateTeam(r.Context(), name, existing); err != nil {

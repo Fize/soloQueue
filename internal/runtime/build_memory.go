@@ -36,7 +36,11 @@ func (bc *buildContext) buildMemory() error {
 		bc.log.Debug(logger.CatApp, "build: sqlite opened", "duration", time.Since(embStart).String())
 	}
 	if bc.teamstore == nil {
-		bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"))
+		bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
+		// Migrate direct workspaces to projects table
+		if err := bc.teamstore.MigrateWorkspacesToProjects(context.Background()); err != nil {
+			bc.log.Warn(logger.CatApp, "failed to migrate team workspaces to projects", "err", err.Error())
+		}
 	}
 
 	// ── Permanent Memory Manager ──────────────────────────────────────────
