@@ -269,6 +269,14 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 		t.Errorf("architect.md not created: %v", err)
 	}
 
+	// Verify sub-agent files exist.
+	for _, name := range []string{"explorer", "editor", "tester"} {
+		saPath := filepath.Join(agentsDir, name+".md")
+		if _, err := os.Stat(saPath); err != nil {
+			t.Errorf("%s.md not created: %v", name, err)
+		}
+	}
+
 	// 2. Verify we cannot modify architect's system prompt.
 	architect, err := store.GetAgentByName(ctx, "architect")
 	if err != nil {
@@ -290,7 +298,27 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 		t.Error("expected architect prompt to be reverted")
 	}
 
-	// 3. Verify we cannot delete architect or engineering.
+	// Verify we cannot modify explorer's system prompt.
+	explorer, err := store.GetAgentByName(ctx, "explorer")
+	if err != nil {
+		t.Fatalf("failed to retrieve explorer: %v", err)
+	}
+
+	explorer.SystemPrompt = "modified prompt"
+	err = store.UpdateAgent(ctx, "explorer", explorer)
+	if err == nil {
+		t.Error("expected UpdateAgent to fail when modifying explorer prompt")
+	}
+
+	explorer2, err := store.GetAgentByName(ctx, "explorer")
+	if err != nil {
+		t.Fatalf("failed to retrieve explorer after failed update: %v", err)
+	}
+	if explorer2.SystemPrompt == "modified prompt" {
+		t.Error("expected explorer prompt to be reverted")
+	}
+
+	// 3. Verify we cannot delete architect or engineering or sub-agents.
 	err = store.DeleteAgent(ctx, "architect")
 	if err == nil {
 		t.Error("expected DeleteAgent to fail for architect")
@@ -299,6 +327,13 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 	err = store.DeleteTeam(ctx, "engineering")
 	if err == nil {
 		t.Error("expected DeleteTeam to fail for engineering")
+	}
+
+	for _, name := range []string{"explorer", "editor", "tester"} {
+		err = store.DeleteAgent(ctx, name)
+		if err == nil {
+			t.Errorf("expected DeleteAgent to fail for %s", name)
+		}
 	}
 }
 
