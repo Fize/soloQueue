@@ -61,6 +61,31 @@ func InstallLocalSkill(localPath, userSkillsDir string) error {
 	return copyDir(absPath, dst)
 }
 
+func parseGithubUrl(rawUrl string) (repoUrl string, subPath string, branch string, err error) {
+	rawUrl = strings.TrimSuffix(rawUrl, "/")
+	if !strings.HasPrefix(rawUrl, "https://github.com/") {
+		return "", "", "", fmt.Errorf("not a github url")
+	}
+	parts := strings.Split(rawUrl, "/")
+	if len(parts) < 5 {
+		return "", "", "", fmt.Errorf("invalid github url structure")
+	}
+	owner := parts[3]
+	repo := strings.TrimSuffix(parts[4], ".git")
+	repoUrl = fmt.Sprintf("https://github.com/%s/%s", owner, repo)
+
+	if len(parts) >= 7 && (parts[5] == "tree" || parts[5] == "blob") {
+		branch = parts[6]
+		subPath = strings.Join(parts[7:], "/")
+		if strings.HasSuffix(subPath, "/SKILL.md") {
+			subPath = strings.TrimSuffix(subPath, "/SKILL.md")
+		} else if subPath == "SKILL.md" {
+			subPath = ""
+		}
+	}
+	return repoUrl, subPath, branch, nil
+}
+
 // InstallGithubSkill clones a git repository into userSkillsDir.
 func InstallGithubSkill(ctx context.Context, repoUrl, userSkillsDir string) error {
 	repoUrl = strings.TrimSuffix(repoUrl, "/")
@@ -70,6 +95,10 @@ func InstallGithubSkill(ctx context.Context, repoUrl, userSkillsDir string) erro
 	}
 	rawName := parts[len(parts)-1]
 	repoName := strings.TrimSuffix(rawName, ".git")
+	if rawName == "SKILL.md" && len(parts) >= 3 {
+		rawName = parts[len(parts)-2]
+		repoName = strings.TrimSuffix(rawName, ".git")
+	}
 	dest := filepath.Join(userSkillsDir, repoName)
 
 	if _, err := os.Stat(dest); err == nil {
@@ -80,12 +109,66 @@ func InstallGithubSkill(ctx context.Context, repoUrl, userSkillsDir string) erro
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", repoUrl, dest)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		_ = os.RemoveAll(dest)
-		return fmt.Errorf("git clone failed: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	baseRepoUrl, subPath, branch, err := parseGithubUrl(repoUrl)
+	if err != nil {
+		baseRepoUrl = repoUrl
+		subPath = ""
+		branch = ""
+	}
+
+	if subPath == "" {
+		args := []string{"clone", "--depth", "1"}
+		if branch != "" {
+			args = append(args, "-b", branch)
+		}
+		args = append(args, baseRepoUrl, dest)
+
+		cmd := exec.CommandContext(ctx, "git", args...)
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			_ = os.RemoveAll(dest)
+			return fmt.Errorf("git clone failed: %w (%s)", err, strings.TrimSpace(stderr.String()))
+		}
+	} else {
+		tempDir, err := os.MkdirTemp("", "soloqueue-skill-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp dir: %w", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		args := []string{"clone", "--depth", "1"}
+		if branch != "" {
+			args = append(args, "-b", branch)
+		}
+		args = append(args, baseRepoUrl, tempDir)
+
+		cmd := exec.CommandContext(ctx, "git", args...)
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			if branch != "" {
+				args = []string{"clone", "--depth", "1", baseRepoUrl, tempDir}
+				cmdRetry := exec.CommandContext(ctx, "git", args...)
+				var stderrRetry strings.Builder
+				cmdRetry.Stderr = &stderrRetry
+				if errRetry := cmdRetry.Run(); errRetry != nil {
+					return fmt.Errorf("git clone failed: %w (%s)", errRetry, strings.TrimSpace(stderrRetry.String()))
+				}
+			} else {
+				return fmt.Errorf("git clone failed: %w (%s)", err, strings.TrimSpace(stderr.String()))
+			}
+		}
+
+		srcPath := filepath.Join(tempDir, filepath.FromSlash(subPath))
+		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+			return fmt.Errorf("sub-directory %s not found in cloned repository", subPath)
+		}
+
+		if err := copyDir(srcPath, dest); err != nil {
+			_ = os.RemoveAll(dest)
+			return fmt.Errorf("failed to copy skill files: %w", err)
+		}
 	}
 
 	if _, err := os.Stat(filepath.Join(dest, "SKILL.md")); os.IsNotExist(err) {
@@ -95,6 +178,7 @@ func InstallGithubSkill(ctx context.Context, repoUrl, userSkillsDir string) erro
 
 	return nil
 }
+
 
 // UninstallSkill deletes a user skill directory.
 func UninstallSkill(userSkillsDir, id string) error {
