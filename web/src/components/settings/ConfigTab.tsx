@@ -78,7 +78,9 @@ export function ConfigTab() {
   })
 
   // DB sub-tab selection
-  const [subTab, setSubTab] = useState<'llm' | 'tools' | 'qqbot' | 'lspmcp' | 'embedding' | 'session'>('llm')
+  const [subTab, setSubTab] = useState<
+    'llm' | 'tools' | 'qqbot' | 'lspmcp' | 'embedding' | 'session'
+  >('llm')
 
   // DB sub-tabs config state
   const [toolsConfig, setToolsConfig] = useState<ToolsConfig | null>(null)
@@ -243,7 +245,7 @@ export function ConfigTab() {
     }
     setLspmcpConfig({
       ...lspmcpConfig,
-      servers: [...(lspmcpConfig.servers || []), newServer]
+      servers: [...(lspmcpConfig.servers || []), newServer],
     })
   }
 
@@ -253,7 +255,7 @@ export function ConfigTab() {
     updated.splice(index, 1)
     setLspmcpConfig({
       ...lspmcpConfig,
-      servers: updated
+      servers: updated,
     })
   }
 
@@ -262,11 +264,11 @@ export function ConfigTab() {
     const updated = [...lspmcpConfig.servers]
     updated[index] = {
       ...updated[index],
-      [field]: val
+      [field]: val,
     }
     setLspmcpConfig({
       ...lspmcpConfig,
-      servers: updated
+      servers: updated,
     })
   }
 
@@ -282,7 +284,7 @@ export function ConfigTab() {
     }
     setEmbeddingConfig({
       ...embeddingConfig,
-      providers: [...(embeddingConfig.providers || []), newProvider]
+      providers: [...(embeddingConfig.providers || []), newProvider],
     })
   }
 
@@ -292,7 +294,7 @@ export function ConfigTab() {
     updated.splice(index, 1)
     setEmbeddingConfig({
       ...embeddingConfig,
-      providers: updated
+      providers: updated,
     })
   }
 
@@ -301,11 +303,11 @@ export function ConfigTab() {
     const updated = [...(embeddingConfig.providers || [])]
     updated[index] = {
       ...updated[index],
-      [field]: val
+      [field]: val,
     }
     setEmbeddingConfig({
       ...embeddingConfig,
-      providers: updated
+      providers: updated,
     })
   }
 
@@ -323,7 +325,7 @@ export function ConfigTab() {
     }
     setEmbeddingConfig({
       ...embeddingConfig,
-      models: [...(embeddingConfig.models || []), newModel]
+      models: [...(embeddingConfig.models || []), newModel],
     })
   }
 
@@ -333,7 +335,7 @@ export function ConfigTab() {
     updated.splice(index, 1)
     setEmbeddingConfig({
       ...embeddingConfig,
-      models: updated
+      models: updated,
     })
   }
 
@@ -342,7 +344,7 @@ export function ConfigTab() {
     const updated = [...(embeddingConfig.models || [])]
     updated[index] = {
       ...updated[index],
-      [field]: val
+      [field]: val,
     }
     if (field === 'isDefault' && val === true) {
       updated.forEach((m, idx) => {
@@ -353,7 +355,7 @@ export function ConfigTab() {
     }
     setEmbeddingConfig({
       ...embeddingConfig,
-      models: updated
+      models: updated,
     })
   }
 
@@ -807,7 +809,9 @@ export function ConfigTab() {
                         <Input
                           value={providerForm.name || ''}
                           placeholder="e.g. DeepSeek Official"
-                          onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
+                          onChange={(e) =>
+                            setProviderForm({ ...providerForm, name: e.target.value })
+                          }
                         />
                       </div>
                       <div className="flex flex-col gap-1 sm:col-span-2">
@@ -830,7 +834,9 @@ export function ConfigTab() {
                           type="password"
                           value={providerForm.apiKey || ''}
                           placeholder="sk-..."
-                          onChange={(e) => setProviderForm({ ...providerForm, apiKey: e.target.value })}
+                          onChange={(e) =>
+                            setProviderForm({ ...providerForm, apiKey: e.target.value })
+                          }
                         />
                       </div>
                       <div className="flex flex-col gap-1">
@@ -1069,7 +1075,11 @@ export function ConfigTab() {
                           title="Toggle Status"
                         />
                         {!p.isDefault && p.enabled && (
-                          <Button size="xs" variant="outline" onClick={() => setProviderAsDefault(p)}>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() => setProviderAsDefault(p)}
+                          >
                             Set Default
                           </Button>
                         )}
@@ -1109,7 +1119,12 @@ export function ConfigTab() {
                     <h3 className="font-semibold text-foreground">LLM Models</h3>
                   </div>
                   {!isAddingModel && !editingModel && (
-                    <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddModel}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1"
+                      onClick={startAddModel}
+                    >
                       <Plus className="h-3.5 w-3.5" />
                       Add Model
                     </Button>
@@ -1151,7 +1166,9 @@ export function ConfigTab() {
                         </label>
                         <select
                           value={modelForm.providerId || ''}
-                          onChange={(e) => setModelForm({ ...modelForm, providerId: e.target.value })}
+                          onChange={(e) =>
+                            setModelForm({ ...modelForm, providerId: e.target.value })
+                          }
                           className="flex h-9 w-full rounded-md border bg-card px-3 py-1.5 text-sm text-foreground outline-none focus-visible:ring-1 focus-visible:ring-primary"
                         >
                           {providers.map((p) => (
@@ -1318,7 +1335,9 @@ export function ConfigTab() {
                           <span className="text-xs font-mono text-muted-foreground">({m.id})</span>
                           <Badge variant="outline">{m.providerId}</Badge>
                           {m.thinking?.enabled && (
-                            <Badge variant="secondary">Thinking ({m.thinking.reasoningEffort})</Badge>
+                            <Badge variant="secondary">
+                              Thinking ({m.thinking.reasoningEffort})
+                            </Badge>
                           )}
                           {m.enabled ? (
                             <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
@@ -1386,165 +1405,258 @@ export function ConfigTab() {
 
               <div className="space-y-6">
                 <div>
-                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">File System Read Limits</h4>
+                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
+                    File System Read Limits
+                  </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max File Size (Bytes)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max File Size (Bytes)
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxFileSize}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxFileSize: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, maxFileSize: Number(e.target.value) })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max Search Matches</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Search Matches
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxMatches}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxMatches: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, maxMatches: Number(e.target.value) })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max Line Length</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Line Length
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxLineLen}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxLineLen: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, maxLineLen: Number(e.target.value) })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max Glob List Items</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Glob List Items
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxGlobItems}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxGlobItems: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, maxGlobItems: Number(e.target.value) })
+                        }
                       />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">File Write Limits</h4>
+                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
+                    File Write Limits
+                  </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max Write Size (Bytes)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Write Size (Bytes)
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxWriteSize}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxWriteSize: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, maxWriteSize: Number(e.target.value) })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max Multi-Write (Bytes)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Multi-Write (Bytes)
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxMultiWriteBytes}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxMultiWriteBytes: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({
+                            ...toolsConfig,
+                            maxMultiWriteBytes: Number(e.target.value),
+                          })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max Multi-Write Files</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Multi-Write Files
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxMultiWriteFiles}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxMultiWriteFiles: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({
+                            ...toolsConfig,
+                            maxMultiWriteFiles: Number(e.target.value),
+                          })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Max Replace Edits</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Replace Edits
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.maxReplaceEdits}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, maxReplaceEdits: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({
+                            ...toolsConfig,
+                            maxReplaceEdits: Number(e.target.value),
+                          })
+                        }
                       />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">Web Search & Fetch</h4>
+                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
+                    Web Search & Fetch
+                  </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">HTTP Max Body (Bytes)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        HTTP Max Body (Bytes)
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.httpMaxBody}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, httpMaxBody: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, httpMaxBody: Number(e.target.value) })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">HTTP Timeout (ms)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        HTTP Timeout (ms)
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.httpTimeoutMs}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, httpTimeoutMs: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, httpTimeoutMs: Number(e.target.value) })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Web Search Timeout (ms)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Web Search Timeout (ms)
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.webSearchTimeoutMs}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, webSearchTimeoutMs: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({
+                            ...toolsConfig,
+                            webSearchTimeoutMs: Number(e.target.value),
+                          })
+                        }
                       />
                     </div>
                     <div className="flex items-center gap-2 pt-4">
                       <Switch
                         checked={toolsConfig.httpBlockPrivate}
-                        onCheckedChange={(val) => setToolsConfig({ ...toolsConfig, httpBlockPrivate: val })}
+                        onCheckedChange={(val) =>
+                          setToolsConfig({ ...toolsConfig, httpBlockPrivate: val })
+                        }
                       />
-                      <span className="text-xs font-semibold text-foreground">Block Private Networks</span>
+                      <span className="text-xs font-semibold text-foreground">
+                        Block Private Networks
+                      </span>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold text-muted-foreground">Allowed HTTP Hosts (comma separated)</label>
+                    <label className="text-xs font-semibold text-muted-foreground">
+                      Allowed HTTP Hosts (comma separated)
+                    </label>
                     <Input
                       type="text"
                       placeholder="e.g. api.github.com, google.com"
                       value={toolsConfig.httpAllowedHosts?.join(', ') || ''}
-                      onChange={(e) => setToolsConfig({
-                        ...toolsConfig,
-                        httpAllowedHosts: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                      })}
+                      onChange={(e) =>
+                        setToolsConfig({
+                          ...toolsConfig,
+                          httpAllowedHosts: e.target.value
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        })
+                      }
                     />
                   </div>
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">Shell Execute / Bash</h4>
+                  <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
+                    Shell Execute / Bash
+                  </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Shell Max Output Captured (Bytes)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Shell Max Output Captured (Bytes)
+                      </label>
                       <Input
                         type="number"
                         value={toolsConfig.shellMaxOutput}
-                        onChange={(e) => setToolsConfig({ ...toolsConfig, shellMaxOutput: Number(e.target.value) })}
+                        onChange={(e) =>
+                          setToolsConfig({ ...toolsConfig, shellMaxOutput: Number(e.target.value) })
+                        }
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-4 mt-4">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Block Command Regexes (comma separated)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Block Command Regexes (comma separated)
+                      </label>
                       <Input
                         type="text"
                         placeholder="e.g. ^\s*sudo\b, ^\s*poweroff\b"
                         value={toolsConfig.shellBlockRegexes?.join(', ') || ''}
-                        onChange={(e) => setToolsConfig({
-                          ...toolsConfig,
-                          shellBlockRegexes: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                        })}
+                        onChange={(e) =>
+                          setToolsConfig({
+                            ...toolsConfig,
+                            shellBlockRegexes: e.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          })
+                        }
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">Confirm Command Regexes (comma separated)</label>
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Confirm Command Regexes (comma separated)
+                      </label>
                       <Input
                         type="text"
                         placeholder="e.g. ^\s*rm\b, ^\s*dd\b"
                         value={toolsConfig.shellConfirmRegexes?.join(', ') || ''}
-                        onChange={(e) => setToolsConfig({
-                          ...toolsConfig,
-                          shellConfirmRegexes: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                        })}
+                        onChange={(e) =>
+                          setToolsConfig({
+                            ...toolsConfig,
+                            shellConfirmRegexes: e.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          })
+                        }
                       />
                     </div>
                   </div>
@@ -1585,11 +1697,15 @@ export function ConfigTab() {
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Intents Mask</label>
+                  <label className="text-xs font-semibold text-muted-foreground">
+                    Intents Mask
+                  </label>
                   <Input
                     type="number"
                     value={qqbotConfig.intents || 0}
-                    onChange={(e) => setQqbotConfig({ ...qqbotConfig, intents: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setQqbotConfig({ ...qqbotConfig, intents: Number(e.target.value) })
+                    }
                   />
                 </div>
                 <div className="flex items-center gap-6 pt-4 flex-wrap">
@@ -1598,7 +1714,9 @@ export function ConfigTab() {
                       checked={qqbotConfig.enabled}
                       onCheckedChange={(val) => setQqbotConfig({ ...qqbotConfig, enabled: val })}
                     />
-                    <span className="text-xs font-semibold text-foreground">Enable Bot WebSocket Gateway</span>
+                    <span className="text-xs font-semibold text-foreground">
+                      Enable Bot WebSocket Gateway
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Switch
@@ -1617,7 +1735,9 @@ export function ConfigTab() {
               <div className="flex items-center justify-between border-b pb-3">
                 <div className="flex items-center gap-2">
                   <Settings className="h-4 w-4 text-primary" />
-                  <h3 className="font-semibold text-foreground">Built-in LSP MCP Server Overrides</h3>
+                  <h3 className="font-semibold text-foreground">
+                    Built-in LSP MCP Server Overrides
+                  </h3>
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={handleAddLSPServer}>
@@ -1631,7 +1751,10 @@ export function ConfigTab() {
 
               <div className="space-y-4">
                 {(lspmcpConfig.servers || []).map((srv, idx) => (
-                  <div key={srv.id || idx} className="p-4 border rounded-lg space-y-4 relative bg-card/40">
+                  <div
+                    key={srv.id || idx}
+                    className="p-4 border rounded-lg space-y-4 relative bg-card/40"
+                  >
                     <button
                       type="button"
                       onClick={() => handleRemoveLSPServer(idx)}
@@ -1642,7 +1765,9 @@ export function ConfigTab() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground font-mono">Server ID / Identifier</label>
+                        <label className="text-xs font-semibold text-muted-foreground font-mono">
+                          Server ID / Identifier
+                        </label>
                         <Input
                           type="text"
                           placeholder="e.g. gopls"
@@ -1651,7 +1776,9 @@ export function ConfigTab() {
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground">Command</label>
+                        <label className="text-xs font-semibold text-muted-foreground">
+                          Command
+                        </label>
                         <Input
                           type="text"
                           placeholder="e.g. gopls"
@@ -1660,30 +1787,63 @@ export function ConfigTab() {
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground">Arguments (comma separated)</label>
+                        <label className="text-xs font-semibold text-muted-foreground">
+                          Arguments (comma separated)
+                        </label>
                         <Input
                           type="text"
                           placeholder="-mode=mcp, -v"
                           value={srv.args?.join(', ') || ''}
-                          onChange={(e) => handleUpdateLSPServer(idx, 'args', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                          onChange={(e) =>
+                            handleUpdateLSPServer(
+                              idx,
+                              'args',
+                              e.target.value
+                                .split(',')
+                                .map((s) => s.trim())
+                                .filter(Boolean)
+                            )
+                          }
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground">Languages (comma separated)</label>
+                        <label className="text-xs font-semibold text-muted-foreground">
+                          Languages (comma separated)
+                        </label>
                         <Input
                           type="text"
                           placeholder="go, golang"
                           value={srv.languages?.join(', ') || ''}
-                          onChange={(e) => handleUpdateLSPServer(idx, 'languages', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                          onChange={(e) =>
+                            handleUpdateLSPServer(
+                              idx,
+                              'languages',
+                              e.target.value
+                                .split(',')
+                                .map((s) => s.trim())
+                                .filter(Boolean)
+                            )
+                          }
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground">Extensions (comma separated)</label>
+                        <label className="text-xs font-semibold text-muted-foreground">
+                          Extensions (comma separated)
+                        </label>
                         <Input
                           type="text"
                           placeholder=".go"
                           value={srv.extensions?.join(', ') || ''}
-                          onChange={(e) => handleUpdateLSPServer(idx, 'extensions', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                          onChange={(e) =>
+                            handleUpdateLSPServer(
+                              idx,
+                              'extensions',
+                              e.target.value
+                                .split(',')
+                                .map((s) => s.trim())
+                                .filter(Boolean)
+                            )
+                          }
                         />
                       </div>
                       <div className="flex items-center gap-2 pt-6">
@@ -1711,7 +1871,9 @@ export function ConfigTab() {
               <div className="flex items-center justify-between border-b pb-3">
                 <div className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-primary" />
-                  <h3 className="font-semibold text-foreground">Embedding (Vector Store) Settings</h3>
+                  <h3 className="font-semibold text-foreground">
+                    Embedding (Vector Store) Settings
+                  </h3>
                 </div>
                 <Button size="sm" onClick={handleSaveEmbedding}>
                   Save Embedding Settings
@@ -1722,9 +1884,13 @@ export function ConfigTab() {
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={embeddingConfig.enabled}
-                    onCheckedChange={(val) => setEmbeddingConfig({ ...embeddingConfig, enabled: val })}
+                    onCheckedChange={(val) =>
+                      setEmbeddingConfig({ ...embeddingConfig, enabled: val })
+                    }
                   />
-                  <span className="text-xs font-semibold text-foreground">Enable Permanent Memory / Vector Store</span>
+                  <span className="text-xs font-semibold text-foreground">
+                    Enable Permanent Memory / Vector Store
+                  </span>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">
@@ -1736,11 +1902,15 @@ export function ConfigTab() {
                     min="0"
                     max="1"
                     value={embeddingConfig.minSimilarity ?? 0.65}
-                    onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, minSimilarity: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setEmbeddingConfig({
+                        ...embeddingConfig,
+                        minSimilarity: Number(e.target.value),
+                      })
+                    }
                   />
                 </div>
               </div>
-
 
               {/* Embedding Providers Section */}
               <div className="space-y-4 pt-4 border-t">
@@ -1750,10 +1920,13 @@ export function ConfigTab() {
                     <Plus className="h-3 w-3 mr-1" /> Add Provider
                   </Button>
                 </div>
-                
+
                 <div className="space-y-3">
                   {(embeddingConfig.providers || []).map((prov, idx) => (
-                    <div key={prov.id || idx} className="p-4 border rounded-lg relative space-y-4 bg-muted/20">
+                    <div
+                      key={prov.id || idx}
+                      className="p-4 border rounded-lg relative space-y-4 bg-muted/20"
+                    >
                       <button
                         type="button"
                         onClick={() => handleRemoveEmbeddingProvider(idx)}
@@ -1763,54 +1936,76 @@ export function ConfigTab() {
                       </button>
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground font-mono">Provider ID</label>
+                          <label className="text-xs font-semibold text-muted-foreground font-mono">
+                            Provider ID
+                          </label>
                           <Input
                             type="text"
                             placeholder="e.g. local"
                             value={prov.id || ''}
-                            onChange={(e) => handleUpdateEmbeddingProvider(idx, 'id', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingProvider(idx, 'id', e.target.value)
+                            }
                           />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground">Provider Name</label>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Provider Name
+                          </label>
                           <Input
                             type="text"
                             placeholder="e.g. Ollama"
                             value={prov.name || ''}
-                            onChange={(e) => handleUpdateEmbeddingProvider(idx, 'name', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingProvider(idx, 'name', e.target.value)
+                            }
                           />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground">Base URL</label>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Base URL
+                          </label>
                           <Input
                             type="text"
                             placeholder="http://localhost:11434"
                             value={prov.baseUrl || ''}
-                            onChange={(e) => handleUpdateEmbeddingProvider(idx, 'baseUrl', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingProvider(idx, 'baseUrl', e.target.value)
+                            }
                           />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground">API Key (Direct)</label>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            API Key (Direct)
+                          </label>
                           <Input
                             type="password"
                             placeholder="sk-..."
                             value={prov.apiKey || ''}
-                            onChange={(e) => handleUpdateEmbeddingProvider(idx, 'apiKey', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingProvider(idx, 'apiKey', e.target.value)
+                            }
                           />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground font-mono">API Key Env Variable</label>
+                          <label className="text-xs font-semibold text-muted-foreground font-mono">
+                            API Key Env Variable
+                          </label>
                           <Input
                             type="text"
                             placeholder="e.g. OLLAMA_API_KEY"
                             value={prov.apiKeyEnv || ''}
-                            onChange={(e) => handleUpdateEmbeddingProvider(idx, 'apiKeyEnv', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingProvider(idx, 'apiKeyEnv', e.target.value)
+                            }
                           />
                         </div>
                         <div className="flex items-center gap-2 pt-6">
                           <Switch
                             checked={prov.enabled}
-                            onCheckedChange={(val) => handleUpdateEmbeddingProvider(idx, 'enabled', val)}
+                            onCheckedChange={(val) =>
+                              handleUpdateEmbeddingProvider(idx, 'enabled', val)
+                            }
                           />
                           <span className="text-xs font-semibold text-foreground">Enabled</span>
                         </div>
@@ -1836,7 +2031,10 @@ export function ConfigTab() {
 
                 <div className="space-y-3">
                   {(embeddingConfig.models || []).map((mdl, idx) => (
-                    <div key={mdl.id || idx} className="p-4 border rounded-lg relative space-y-4 bg-muted/20">
+                    <div
+                      key={mdl.id || idx}
+                      className="p-4 border rounded-lg relative space-y-4 bg-muted/20"
+                    >
                       <button
                         type="button"
                         onClick={() => handleRemoveEmbeddingModel(idx)}
@@ -1846,7 +2044,9 @@ export function ConfigTab() {
                       </button>
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground font-mono">Model ID</label>
+                          <label className="text-xs font-semibold text-muted-foreground font-mono">
+                            Model ID
+                          </label>
                           <Input
                             type="text"
                             placeholder="e.g. nomic-embed-text"
@@ -1855,62 +2055,88 @@ export function ConfigTab() {
                           />
                         </div>
                         <div className="flex flex-col gap-1 font-mono">
-                          <label className="text-xs font-semibold text-muted-foreground">Provider ID</label>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Provider ID
+                          </label>
                           <select
                             value={mdl.providerId || ''}
-                            onChange={(e) => handleUpdateEmbeddingModel(idx, 'providerId', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingModel(idx, 'providerId', e.target.value)
+                            }
                             className="flex h-9 w-full rounded-md border bg-card px-3 py-1.5 text-sm text-foreground outline-none"
                           >
                             <option value="">Select Provider</option>
-                            {(embeddingConfig.providers || []).map(p => (
-                              <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
+                            {(embeddingConfig.providers || []).map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.id})
+                              </option>
                             ))}
                           </select>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground">Model Name</label>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Model Name
+                          </label>
                           <Input
                             type="text"
                             placeholder="e.g. Nomic Text Embeddings"
                             value={mdl.name || ''}
-                            onChange={(e) => handleUpdateEmbeddingModel(idx, 'name', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingModel(idx, 'name', e.target.value)
+                            }
                           />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground">Dimension Size</label>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Dimension Size
+                          </label>
                           <Input
                             type="number"
                             value={mdl.dimension || 1024}
-                            onChange={(e) => handleUpdateEmbeddingModel(idx, 'dimension', Number(e.target.value))}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingModel(idx, 'dimension', Number(e.target.value))
+                            }
                           />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs font-semibold text-muted-foreground">Batch Size</label>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Batch Size
+                          </label>
                           <Input
                             type="number"
                             value={mdl.batchSize || 32}
-                            onChange={(e) => handleUpdateEmbeddingModel(idx, 'batchSize', Number(e.target.value))}
+                            onChange={(e) =>
+                              handleUpdateEmbeddingModel(idx, 'batchSize', Number(e.target.value))
+                            }
                           />
                         </div>
                         <div className="flex items-center gap-6 pt-6 flex-wrap">
                           <div className="flex items-center gap-2">
                             <Switch
                               checked={mdl.normalize}
-                              onCheckedChange={(val) => handleUpdateEmbeddingModel(idx, 'normalize', val)}
+                              onCheckedChange={(val) =>
+                                handleUpdateEmbeddingModel(idx, 'normalize', val)
+                              }
                             />
                             <span className="text-xs font-semibold text-foreground">Normalize</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Switch
                               checked={mdl.isDefault}
-                              onCheckedChange={(val) => handleUpdateEmbeddingModel(idx, 'isDefault', val)}
+                              onCheckedChange={(val) =>
+                                handleUpdateEmbeddingModel(idx, 'isDefault', val)
+                              }
                             />
-                            <span className="text-xs font-semibold text-foreground">Is Default Model</span>
+                            <span className="text-xs font-semibold text-foreground">
+                              Is Default Model
+                            </span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Switch
                               checked={mdl.enabled}
-                              onCheckedChange={(val) => handleUpdateEmbeddingModel(idx, 'enabled', val)}
+                              onCheckedChange={(val) =>
+                                handleUpdateEmbeddingModel(idx, 'enabled', val)
+                              }
                             />
                             <span className="text-xs font-semibold text-foreground">Enabled</span>
                           </div>
@@ -1942,11 +2168,18 @@ export function ConfigTab() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Timeline Max File Size (MB)</label>
+                  <label className="text-xs font-semibold text-muted-foreground">
+                    Timeline Max File Size (MB)
+                  </label>
                   <Input
                     type="number"
                     value={sessionConfig.timelineMaxFileMB || 50}
-                    onChange={(e) => setSessionConfig({ ...sessionConfig, timelineMaxFileMB: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setSessionConfig({
+                        ...sessionConfig,
+                        timelineMaxFileMB: Number(e.target.value),
+                      })
+                    }
                   />
                 </div>
               </div>
@@ -1954,7 +2187,6 @@ export function ConfigTab() {
           )}
         </div>
       )}
-
     </div>
   )
 }

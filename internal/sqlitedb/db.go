@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 9
+const currentSchemaVersion = 11
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -277,6 +277,30 @@ func (d *DB) migrate() error {
 		CREATE TABLE IF NOT EXISTS system_settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		`,
+
+		// v9 -> v10: projects table.
+		`
+		CREATE TABLE IF NOT EXISTS projects (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			path TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		`,
+
+		// v10 -> v11: projects table (re-run/ensure in case user_version got out of sync)
+		`
+		CREATE TABLE IF NOT EXISTS projects (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			path TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
 		`,

@@ -460,6 +460,7 @@ export interface TeamResponse {
   name: string
   description: string
   workspaces: TeamWorkspace[]
+  projects?: string[]
   agents?: AgentResponse[]
   created_at: string
   updated_at: string
@@ -484,11 +485,22 @@ export interface CreateTeamRequest {
   name: string
   description?: string
   workspaces?: TeamWorkspace[]
+  projects?: string[]
 }
 
 export interface UpdateTeamRequest {
   description?: string
   workspaces?: TeamWorkspace[]
+  projects?: string[]
+}
+
+export interface Project {
+  id: string
+  name: string
+  path: string
+  description: string
+  created_at: string
+  updated_at: string
 }
 
 export interface CreateAgentRequest {

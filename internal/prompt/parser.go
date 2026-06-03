@@ -32,6 +32,7 @@ type GroupFrontmatter struct {
 	ID         string      `yaml:"id,omitempty"`
 	Name       string      `yaml:"name"`
 	Workspaces []Workspace `yaml:"workspaces,omitempty"`
+	Projects   []string    `yaml:"projects,omitempty"`
 	CreatedAt  string      `yaml:"created_at,omitempty"`
 	UpdatedAt  string      `yaml:"updated_at,omitempty"`
 }

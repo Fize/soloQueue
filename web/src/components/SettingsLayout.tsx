@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { LogOut, FileText, User, Sparkles, Server, Users, Monitor } from 'lucide-react'
+import { LogOut, FileText, User, Sparkles, Server, Users, Monitor, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -9,6 +9,7 @@ const settingsTabs = [
   { to: '/settings/skills', icon: Sparkles, label: 'Skills' },
   { to: '/settings/mcp', icon: Server, label: 'MCP' },
   { to: '/settings/teams', icon: Users, label: 'Agents & Teams' },
+  { to: '/settings/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/settings/proxies', icon: Monitor, label: 'Proxies' },
 ]
 

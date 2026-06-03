@@ -36,6 +36,7 @@ const settingsChildren = [
   { to: '/settings/skills', icon: Sparkles, label: 'Skills' },
   { to: '/settings/mcp', icon: Server, label: 'MCP' },
   { to: '/settings/teams', icon: Users, label: 'Agents & Teams' },
+  { to: '/settings/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/settings/proxies', icon: Monitor, label: 'Proxies' },
 ]
 
