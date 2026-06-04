@@ -37,11 +37,16 @@ type SkillMDConfig struct {
 	WhenToUse              string   `yaml:"when_to_use"`
 	AllowedTools           string   `yaml:"allowed-tools"`
 	DisableModelInvocation bool     `yaml:"disable-model-invocation"`
-	UserInvocable          *bool    `yaml:"user-invocable"` // 指针区分"未设置"和"false"
-	Context                string   `yaml:"context"`
-	Agent                  string   `yaml:"agent"`
-	Triggers               []string `yaml:"triggers"`
-	Upstream               string   `yaml:"upstream"`
+	UserInvocable          *bool          `yaml:"user-invocable"` // 指针区分"未设置"和"false"
+	Context                string         `yaml:"context"`
+	Agent                  string         `yaml:"agent"`
+	Triggers               []string       `yaml:"triggers"`
+	Upstream               string         `yaml:"upstream"`
+	Branch                 string         `yaml:"branch"`
+	SubPath                string         `yaml:"subpath"`
+	Metadata               map[string]any `yaml:"metadata"`
+	RequiredEnv            []string       `yaml:"required_env"`
+	RequiredEnvDash        []string       `yaml:"required-env"`
 }
 
 // ParseSkillMD 解析单个 SKILL.md 文件
@@ -119,6 +124,9 @@ func ParseSkillMD(path string) (*Skill, error) {
 		Triggers:               cfg.Triggers,
 		Disabled:               disabled,
 		Upstream:               cfg.Upstream,
+		Branch:                 cfg.Branch,
+		SubPath:                cfg.SubPath,
+		RequiredEnv:            getRequiredEnv(cfg),
 	}, nil
 }
 
@@ -326,6 +334,9 @@ func ParseSkillMDFromFS(fsys fs.FS, path string) (*Skill, error) {
 		Triggers:               cfg.Triggers,
 		Disabled:               false,
 		Upstream:               cfg.Upstream,
+		Branch:                 cfg.Branch,
+		SubPath:                cfg.SubPath,
+		RequiredEnv:            getRequiredEnv(cfg),
 	}, nil
 }
 
@@ -350,4 +361,41 @@ func LoadSkillsFromFS(fsys fs.FS, dir string) ([]*Skill, error) {
 	}
 	return skills, nil
 }
+
+func getRequiredEnv(cfg SkillMDConfig) []string {
+	var envs []string
+	if len(cfg.RequiredEnv) > 0 {
+		envs = cfg.RequiredEnv
+	} else if len(cfg.RequiredEnvDash) > 0 {
+		envs = cfg.RequiredEnvDash
+	}
+
+	// Try extracting from metadata.clawdbot.requires.env
+	if cfg.Metadata != nil {
+		if clawdbot, ok := cfg.Metadata["clawdbot"].(map[string]any); ok {
+			if requires, ok := clawdbot["requires"].(map[string]any); ok {
+				if envList, ok := requires["env"].([]any); ok {
+					for _, item := range envList {
+						if str, ok := item.(string); ok {
+							envs = append(envs, str)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Remove duplicates and empty strings
+	seen := make(map[string]bool)
+	var uniqueEnvs []string
+	for _, env := range envs {
+		env = strings.TrimSpace(env)
+		if env != "" && !seen[env] {
+			seen[env] = true
+			uniqueEnvs = append(uniqueEnvs, env)
+		}
+	}
+	return uniqueEnvs
+}
+
 

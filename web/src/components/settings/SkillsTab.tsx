@@ -650,6 +650,30 @@ export function SkillsTab() {
                           </div>
                         )}
 
+                        {/* Environment Variables Info */}
+                        {skill.required_env && skill.required_env.length > 0 && (
+                          <div className="mt-4 p-2.5 rounded-md border border-amber-500/20 bg-amber-500/5 space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs">
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              Required Env Variables
+                            </div>
+                            <div className="space-y-1">
+                              {skill.required_env.map((envVar: string) => (
+                                <div
+                                  key={envVar}
+                                  className="font-mono text-[10px] bg-card px-1.5 py-0.5 rounded border border-border flex items-center justify-between text-foreground"
+                                >
+                                  <span>{envVar}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-[9px] text-muted-foreground leading-normal">
+                              Please ensure these variables are configured in your local
+                              environment.
+                            </p>
+                          </div>
+                        )}
+
                         {/* File path help */}
                         {skill.file_path && (
                           <p
@@ -886,6 +910,21 @@ export function SkillsTab() {
                             >
                               {trigger}
                             </Badge>
+                          ))}
+                        </div>
+                      )}
+
+                      {s.required_env && s.required_env.length > 0 && (
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px] text-amber-500 font-medium">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          <span>Requires Env:</span>
+                          {s.required_env.map((envVar: string) => (
+                            <span
+                              key={envVar}
+                              className="font-mono bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20"
+                            >
+                              {envVar}
+                            </span>
                           ))}
                         </div>
                       )}

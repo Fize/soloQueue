@@ -93,6 +93,15 @@ type Skill struct {
 
 	// Upstream 远程 Git 仓库地址
 	Upstream string
+
+	// Branch 远程 Git 分支名称
+	Branch string
+
+	// SubPath 远程 Git 仓库中的子目录路径
+	SubPath string
+
+	// RequiredEnv required environment variables for the skill
+	RequiredEnv []string
 }
 
 // ─── 构造函数 ──────────────────────────────────────────────────────────────
