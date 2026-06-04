@@ -14,7 +14,7 @@
 //	## 2026-05-03 16:45
 //	- Discussed memory system design
 //
-// Files older than 3 days are removed on each write.
+// Files older than 7 days are removed on each write.
 package memory
 
 import (
@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	maxAgeDays = 3
+	maxAgeDays = 7
 )
 
 // Manager writes short-term memory summaries to daily markdown files.
