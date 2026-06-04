@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 )
 
 func ExploreDir(workDir string) string {
@@ -18,7 +17,7 @@ func ShellDesc() string {
 	return "/bin/sh -c"
 }
 
-func EnvSection(workDir, exploreDir string, xml bool) string {
+func EnvSection(workDir, exploreDir string, xml bool, includeTimeInstruction bool) string {
 	sep := string(filepath.Separator)
 
 	var b strings.Builder
@@ -38,8 +37,9 @@ func EnvSection(workDir, exploreDir string, xml bool) string {
 	b.WriteString(workDir)
 	b.WriteString("\n- Exploration Artifacts: ")
 	b.WriteString(exploreDir)
-	b.WriteString("\n- Current Local Time: ")
-	b.WriteString(time.Now().Format("2006-01-02 15:04:05 Monday (MST)"))
+	if includeTimeInstruction {
+		b.WriteString("\n- Current Local Time: To obtain the current local time/date, run a shell command (e.g., `date` on Unix/macOS or `Get-Date` on Windows) using the execution tools, or check the timestamp in the latest user message.")
+	}
 	b.WriteString("\n- Path Separator: \"")
 	b.WriteString(sep)
 	b.WriteString("\"\n")

@@ -26,7 +26,7 @@ func (scheduleTaskTool) Description() string {
 	return "Schedules a task to run automatically in the future. " +
 		"Supports recurring tasks (using standard 5-field cron expression) " +
 		"and one-time tasks (using absolute local datetime string like 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD ...'). " +
-		"CRITICAL: You MUST derive the absolute datetime from the 'Current Local Time' in the environment section of the prompt."
+		"CRITICAL: You MUST derive the absolute datetime from the timestamp in the latest user message or retrieve the current time/date by executing a shell command (e.g., 'date' or 'Get-Date')."
 }
 
 func (scheduleTaskTool) Parameters() json.RawMessage {
@@ -35,7 +35,7 @@ func (scheduleTaskTool) Parameters() json.RawMessage {
   "properties": {
     "expression": {
       "type": "string",
-      "description": "CRITICAL: Standard 5-field cron expression (e.g. '0 8 * * *' for 8am daily, '0 12 * * 1' for Monday noon) OR a specific absolute local datetime string ('YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM') derived from the Current Local Time. Do NOT pass relative terms."
+      "description": "CRITICAL: Standard 5-field cron expression (e.g. '0 8 * * *' for 8am daily, '0 12 * * 1' for Monday noon) OR a specific absolute local datetime string ('YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM') derived from the user message timestamp or via shell command execution. Do NOT pass relative terms."
     },
     "instruction": {
       "type": "string",
