@@ -10,12 +10,19 @@ Detailed system design documents, organized by subsystem:
 |----------|-------------|
 | [Architecture](architecture.md) | Agent, LLM, Tool, Skill system architecture overview |
 | [Configuration](config.md) | Config system, layered loading, hot-reload, type-safe access |
+| [Context Window](ctxwin.md) | Token count calibration, middle-out JSON truncation, Turn-based FIFO sliding window |
+| [Memory & Vector Store](memory.md) | Short-term daily summaries, SQLite vector store with Cosine Similarity, long-term migration scheduler |
+| [Timeline](timeline.md) | Event-sourced append-only JSONL log, session replay, orphaned tool call repair |
+| [Todo Store](todo.md) | Plan/Issue database tracking, sub-tasks, BFS dependency cycle check |
+| [Skill Store & Management](skill_store.md) | Centralized catalog, Git/Github clones, local symlinking, shadowing override pattern |
 
 ## 🎯 Feature Docs
 
 | Document | Description |
 |----------|-------------|
 | [Routing](routing.md) | L0-L3 task classification system, fast track, hybrid sticky logic, explicit level locking |
+| [QQ Bot Client](qqbot.md) | WebSocket gateway loop, bridge active/passive reply queue, rate limiter, media uploads |
+| [MCP & LSP](mcp.md) | Model Context Protocol servers loading, LSP JSON-RPC tool binding |
 
 ## 🎭 Role Definitions
 
