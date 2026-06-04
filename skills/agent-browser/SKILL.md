@@ -1,5 +1,5 @@
 ---
-name: Agent Browser
+name: agent-browser
 description: A fast Rust-based headless browser automation CLI with Node.js fallback
   that enables AI agents to navigate, click, type, and snapshot pages via structured
   commands.
@@ -16,7 +16,9 @@ metadata:
       - node
       - npm
 allowed-tools: Bash(agent-browser:*)
-upstream: https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser
+upstream: https://github.com/vercel-labs/agent-browser
+branch: main
+subpath: skills/agent-browser
 ---
 
 # Agent Browser
@@ -24,4 +26,6 @@ upstream: https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-br
 This is a remote skill catalog entry.
 
 ## Upstream
-- URL: https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser
+- Repo: https://github.com/vercel-labs/agent-browser
+- Branch: main
+- SubPath: skills/agent-browser

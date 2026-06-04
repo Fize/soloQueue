@@ -5,10 +5,9 @@ description: 'Forces exhaustive problem-solving with corporate PUA rhetoric. Tri
   environment unverified, stuck in loops, passive behavior, or user frustration (''try
   harder'', ''figure it out'', ''换个方法'', ''为什么还不行''). ALL task types. Not for first
   failures.'
-version: 1.0.0
-homepage: https://openpua.ai
-license: MIT
-upstream: https://github.com/Fize/soloQueue/tree/main/skills/pua
+upstream: https://github.com/tanweai/pua
+branch: main
+subpath: skills/pua
 ---
 
 # pua
@@ -16,4 +15,6 @@ upstream: https://github.com/Fize/soloQueue/tree/main/skills/pua
 This is a remote skill catalog entry.
 
 ## Upstream
-- URL: https://github.com/Fize/soloQueue/tree/main/skills/pua
+- Repo: https://github.com/tanweai/pua
+- Branch: main
+- SubPath: skills/pua

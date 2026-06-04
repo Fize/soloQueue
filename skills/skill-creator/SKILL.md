@@ -1,10 +1,15 @@
 ---
 name: skill-creator
-description: Guide for creating effective skills. This skill should be used when users
-  want to create a new skill (or update an existing skill) that extends Claude's capabilities
-  with specialized knowledge, workflows, or tool integrations.
-license: Complete terms in LICENSE.txt
-upstream: https://github.com/Fize/soloQueue/tree/main/skills/skill-creator
+description: |
+  Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.
+triggers:
+  - "create new skill"
+  - "modify skill"
+  - "measure skill performance"
+  - "benchmark skill"
+upstream: https://github.com/anthropics/skills
+branch: main
+subpath: skills/skill-creator
 ---
 
 # skill-creator
@@ -12,4 +17,6 @@ upstream: https://github.com/Fize/soloQueue/tree/main/skills/skill-creator
 This is a remote skill catalog entry.
 
 ## Upstream
-- URL: https://github.com/Fize/soloQueue/tree/main/skills/skill-creator
+- Repo: https://github.com/anthropics/skills
+- Branch: main
+- SubPath: skills/skill-creator

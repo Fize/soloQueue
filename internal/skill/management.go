@@ -61,74 +61,52 @@ func InstallLocalSkill(localPath, userSkillsDir string) error {
 	return copyDir(absPath, dst)
 }
 
-func parseGithubUrl(rawUrl string) (repoUrl string, subPath string, branch string, err error) {
-	rawUrl = strings.TrimSuffix(rawUrl, "/")
-	if !strings.HasPrefix(rawUrl, "https://github.com/") {
-		return "", "", "", fmt.Errorf("not a github url")
-	}
-	parts := strings.Split(rawUrl, "/")
-	if len(parts) < 5 {
-		return "", "", "", fmt.Errorf("invalid github url structure")
-	}
-	owner := parts[3]
-	repo := strings.TrimSuffix(parts[4], ".git")
-	repoUrl = fmt.Sprintf("https://github.com/%s/%s", owner, repo)
-
-	if len(parts) >= 7 && (parts[5] == "tree" || parts[5] == "blob") {
-		branch = parts[6]
-		subPath = strings.Join(parts[7:], "/")
-		if strings.HasSuffix(subPath, "/SKILL.md") {
-			subPath = strings.TrimSuffix(subPath, "/SKILL.md")
-		} else if subPath == "SKILL.md" {
-			subPath = ""
-		}
-	}
-	return repoUrl, subPath, branch, nil
-}
-
 // InstallGithubSkill clones a git repository into userSkillsDir.
-func InstallGithubSkill(ctx context.Context, repoUrl, userSkillsDir string) error {
+func InstallGithubSkill(ctx context.Context, repoUrl, branch, subPath, userSkillsDir string) error {
 	repoUrl = strings.TrimSuffix(repoUrl, "/")
+	if strings.Contains(repoUrl, "/tree/") || strings.Contains(repoUrl, "/blob/") {
+		return fmt.Errorf("invalid repository URL: nested paths not allowed, url must be a repository address")
+	}
+
 	parts := strings.Split(repoUrl, "/")
 	if len(parts) < 2 {
 		return fmt.Errorf("invalid repository URL")
 	}
 	rawName := parts[len(parts)-1]
 	repoName := strings.TrimSuffix(rawName, ".git")
-	if rawName == "SKILL.md" && len(parts) >= 3 {
-		rawName = parts[len(parts)-2]
-		repoName = strings.TrimSuffix(rawName, ".git")
+
+	destName := repoName
+	if subPath != "" {
+		destName = filepath.Base(filepath.Clean(subPath))
 	}
-	dest := filepath.Join(userSkillsDir, repoName)
+	dest := filepath.Join(userSkillsDir, destName)
 
 	if _, err := os.Stat(dest); err == nil {
-		return fmt.Errorf("skill %s is already installed", repoName)
+		return fmt.Errorf("skill %s is already installed", destName)
 	}
 
 	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
 		return err
 	}
 
-	baseRepoUrl, subPath, branch, err := parseGithubUrl(repoUrl)
-	if err != nil {
-		baseRepoUrl = repoUrl
-		subPath = ""
-		branch = ""
+	if branch == "" {
+		branch = "main"
 	}
 
 	if subPath == "" {
-		args := []string{"clone", "--depth", "1"}
-		if branch != "" {
-			args = append(args, "-b", branch)
-		}
-		args = append(args, baseRepoUrl, dest)
-
+		args := []string{"clone", "--depth", "1", "-b", branch, repoUrl, dest}
 		cmd := exec.CommandContext(ctx, "git", args...)
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			_ = os.RemoveAll(dest)
-			return fmt.Errorf("git clone failed: %w (%s)", err, strings.TrimSpace(stderr.String()))
+			argsRetry := []string{"clone", "--depth", "1", repoUrl, dest}
+			cmdRetry := exec.CommandContext(ctx, "git", argsRetry...)
+			var stderrRetry strings.Builder
+			cmdRetry.Stderr = &stderrRetry
+			if errRetry := cmdRetry.Run(); errRetry != nil {
+				_ = os.RemoveAll(dest)
+				return fmt.Errorf("git clone failed: %w (%s)", errRetry, strings.TrimSpace(stderrRetry.String()))
+			}
 		}
 	} else {
 		tempDir, err := os.MkdirTemp("", "soloqueue-skill-*")
@@ -137,26 +115,17 @@ func InstallGithubSkill(ctx context.Context, repoUrl, userSkillsDir string) erro
 		}
 		defer os.RemoveAll(tempDir)
 
-		args := []string{"clone", "--depth", "1"}
-		if branch != "" {
-			args = append(args, "-b", branch)
-		}
-		args = append(args, baseRepoUrl, tempDir)
-
+		args := []string{"clone", "--depth", "1", "-b", branch, repoUrl, tempDir}
 		cmd := exec.CommandContext(ctx, "git", args...)
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			if branch != "" {
-				args = []string{"clone", "--depth", "1", baseRepoUrl, tempDir}
-				cmdRetry := exec.CommandContext(ctx, "git", args...)
-				var stderrRetry strings.Builder
-				cmdRetry.Stderr = &stderrRetry
-				if errRetry := cmdRetry.Run(); errRetry != nil {
-					return fmt.Errorf("git clone failed: %w (%s)", errRetry, strings.TrimSpace(stderrRetry.String()))
-				}
-			} else {
-				return fmt.Errorf("git clone failed: %w (%s)", err, strings.TrimSpace(stderr.String()))
+			argsRetry := []string{"clone", "--depth", "1", repoUrl, tempDir}
+			cmdRetry := exec.CommandContext(ctx, "git", argsRetry...)
+			var stderrRetry strings.Builder
+			cmdRetry.Stderr = &stderrRetry
+			if errRetry := cmdRetry.Run(); errRetry != nil {
+				return fmt.Errorf("git clone failed: %w (%s)", errRetry, strings.TrimSpace(stderrRetry.String()))
 			}
 		}
 

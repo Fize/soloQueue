@@ -49,6 +49,7 @@ type SkillInfoResponse struct {
 	Triggers               []string      `json:"triggers"`
 	Enabled                bool          `json:"enabled"`
 	Body                   string        `json:"body,omitempty"`
+	RequiredEnv            []string      `json:"required_env,omitempty"`
 }
 
 // SkillListResponse is the response for GET /api/skills.
@@ -122,6 +123,7 @@ func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 			AllowedTools:           s.AllowedTools,
 			Triggers:               s.Triggers,
 			Enabled:                !s.Disabled,
+			RequiredEnv:            s.RequiredEnv,
 		})
 	}
 
@@ -167,7 +169,7 @@ func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) e
 
 	// If we found the skill and it has an upstream configured, clone it remotely
 	if err == nil && s != nil && s.Upstream != "" {
-		return skill.InstallGithubSkill(ctx, s.Upstream, userSkillsDir)
+		return skill.InstallGithubSkill(ctx, s.Upstream, s.Branch, s.SubPath, userSkillsDir)
 	}
 
 	if _, err := os.Stat(filepath.Join("skills", id)); err == nil {
@@ -214,6 +216,7 @@ func (m *Mux) handleListStoreSkills(w http.ResponseWriter, _ *http.Request) {
 			Agent:         s.Agent,
 			Triggers:      s.Triggers,
 			Enabled:       installed, // We reuse 'Enabled' to denote 'Installed' status for store skills
+			RequiredEnv:   s.RequiredEnv,
 		})
 	}
 
@@ -233,10 +236,12 @@ func (m *Mux) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Source string `json:"source"`
-		ID     string `json:"id,omitempty"`
-		Path   string `json:"path,omitempty"`
-		URL    string `json:"url,omitempty"`
+		Source  string `json:"source"`
+		ID      string `json:"id,omitempty"`
+		Path    string `json:"path,omitempty"`
+		URL     string `json:"url,omitempty"`
+		Branch  string `json:"branch,omitempty"`
+		SubPath string `json:"subpath,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -250,7 +255,7 @@ func (m *Mux) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	case "local":
 		err = skill.InstallLocalSkill(req.Path, userSkillsDir)
 	case "github":
-		err = skill.InstallGithubSkill(r.Context(), req.URL, userSkillsDir)
+		err = skill.InstallGithubSkill(r.Context(), req.URL, req.Branch, req.SubPath, userSkillsDir)
 	default:
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid source type"})
 		return
@@ -338,6 +343,7 @@ func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
 		Triggers:               s.Triggers,
 		Enabled:                !s.Disabled,
 		Body:                   s.Instructions,
+		RequiredEnv:            s.RequiredEnv,
 	})
 }
 
