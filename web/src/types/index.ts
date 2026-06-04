@@ -395,6 +395,7 @@ export interface SkillInfo {
   triggers?: string[]
   enabled?: boolean
   body?: string
+  required_env?: string[]
 }
 
 export interface SkillListResponse {

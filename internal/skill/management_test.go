@@ -199,78 +199,9 @@ func TestImportAndUpdateUserSkill(t *testing.T) {
 
 func TestInstallGithubSkill_InvalidUrl(t *testing.T) {
 	userDir := t.TempDir()
-	err := InstallGithubSkill(context.Background(), "invalid-url", userDir)
+	err := InstallGithubSkill(context.Background(), "https://github.com/owner/repo/tree/main/sub", "main", "sub", userDir)
 	if err == nil {
 		t.Error("expected invalid github url to fail")
-	}
-}
-
-func TestParseGithubUrl(t *testing.T) {
-	cases := []struct {
-		url          string
-		wantRepo     string
-		wantSubPath  string
-		wantBranch   string
-		wantErr      bool
-	}{
-		{
-			url:          "https://github.com/anthropics/skills/tree/main/docx",
-			wantRepo:     "https://github.com/anthropics/skills",
-			wantSubPath:  "docx",
-			wantBranch:   "main",
-			wantErr:      false,
-		},
-		{
-			url:          "https://github.com/vercel-labs/agent-browser/blob/main/skills/agent-browser/SKILL.md",
-			wantRepo:     "https://github.com/vercel-labs/agent-browser",
-			wantSubPath:  "skills/agent-browser",
-			wantBranch:   "main",
-			wantErr:      false,
-		},
-		{
-			url:          "https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser",
-			wantRepo:     "https://github.com/vercel-labs/agent-browser",
-			wantSubPath:  "skills/agent-browser",
-			wantBranch:   "main",
-			wantErr:      false,
-		},
-		{
-			url:          "https://github.com/Fize/soloQueue/tree/main/skills/pua",
-			wantRepo:     "https://github.com/Fize/soloQueue",
-			wantSubPath:  "skills/pua",
-			wantBranch:   "main",
-			wantErr:      false,
-		},
-		{
-			url:          "https://github.com/remotion-dev/remotion",
-			wantRepo:     "https://github.com/remotion-dev/remotion",
-			wantSubPath:  "",
-			wantBranch:   "",
-			wantErr:      false,
-		},
-	}
-
-	for _, tc := range cases {
-		repo, sub, branch, err := parseGithubUrl(tc.url)
-		if tc.wantErr {
-			if err == nil {
-				t.Errorf("url %q: expected error but got nil", tc.url)
-			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("url %q: unexpected error: %v", tc.url, err)
-			continue
-		}
-		if repo != tc.wantRepo {
-			t.Errorf("url %q: got repo = %q, want %q", tc.url, repo, tc.wantRepo)
-		}
-		if sub != tc.wantSubPath {
-			t.Errorf("url %q: got sub = %q, want %q", tc.url, sub, tc.wantSubPath)
-		}
-		if branch != tc.wantBranch {
-			t.Errorf("url %q: got branch = %q, want %q", tc.url, branch, tc.wantBranch)
-		}
 	}
 }
 
@@ -282,7 +213,7 @@ func TestInstallGithubSkill_RealIntegration(t *testing.T) {
 	userDir := t.TempDir()
 	
 	// 1. Test pulling docx
-	err := InstallGithubSkill(context.Background(), "https://github.com/anthropics/skills/tree/main/skills/docx", userDir)
+	err := InstallGithubSkill(context.Background(), "https://github.com/anthropics/skills", "main", "skills/docx", userDir)
 	if err != nil {
 		t.Fatalf("failed to install docx from monorepo: %v", err)
 	}
@@ -292,7 +223,7 @@ func TestInstallGithubSkill_RealIntegration(t *testing.T) {
 	}
 
 	// 2. Test pulling agent-browser
-	err = InstallGithubSkill(context.Background(), "https://github.com/vercel-labs/agent-browser/tree/main/skills/agent-browser", userDir)
+	err = InstallGithubSkill(context.Background(), "https://github.com/vercel-labs/agent-browser", "main", "skills/agent-browser", userDir)
 	if err != nil {
 		t.Fatalf("failed to install agent-browser from monorepo: %v", err)
 	}
@@ -300,6 +231,54 @@ func TestInstallGithubSkill_RealIntegration(t *testing.T) {
 	if _, err := os.Stat(installedAgentBrowserMD); err != nil {
 		t.Fatalf("agent-browser SKILL.md not found in installed folder: %v", err)
 	}
+
+	// 3. Test pulling algorithmic-art
+	err = InstallGithubSkill(context.Background(), "https://github.com/anthropics/skills", "main", "skills/algorithmic-art", userDir)
+	if err != nil {
+		t.Fatalf("failed to install algorithmic-art from monorepo: %v", err)
+	}
+	installedAlgorithmicArtMD := filepath.Join(userDir, "algorithmic-art", "SKILL.md")
+	if _, err := os.Stat(installedAlgorithmicArtMD); err != nil {
+		t.Fatalf("algorithmic-art SKILL.md not found in installed folder: %v", err)
+	}
 }
+
+func TestParseRequiredEnv(t *testing.T) {
+	content := `---
+name: env-test
+required_env:
+  - API_KEY_ONE
+  - API_KEY_TWO
+metadata:
+  clawdbot:
+    requires:
+      env:
+        - API_KEY_THREE
+---
+Body content`
+
+	tempFile := filepath.Join(t.TempDir(), "SKILL.md")
+	if err := os.WriteFile(tempFile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sk, err := ParseSkillMD(tempFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"API_KEY_ONE", "API_KEY_TWO", "API_KEY_THREE"}
+	if len(sk.RequiredEnv) != len(expected) {
+		t.Errorf("expected %d env vars, got %d: %v", len(expected), len(sk.RequiredEnv), sk.RequiredEnv)
+	}
+	for i, v := range expected {
+		if i < len(sk.RequiredEnv) && sk.RequiredEnv[i] != v {
+			t.Errorf("at index %d: expected %q, got %q", i, v, sk.RequiredEnv[i])
+		}
+	}
+}
+
+
+
 
 

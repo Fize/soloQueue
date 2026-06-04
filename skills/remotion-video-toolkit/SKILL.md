@@ -4,7 +4,8 @@ description: Complete toolkit for programmatic video creation with Remotion + Re
   Covers animations, timing, rendering (CLI/Node.js/Lambda/Cloud Run), captions, 3D,
   charts, text effects, transitions, and media handling. Use when writing Remotion
   code, building video generation pipelines, or creating data-driven video templates.
-upstream: https://github.com/Fize/soloQueue/tree/main/skills/remotion-video-toolkit
+upstream: https://github.com/shreefentsar/remotion-video-toolkit
+branch: main
 ---
 
 # remotion-video-toolkit
@@ -12,4 +13,5 @@ upstream: https://github.com/Fize/soloQueue/tree/main/skills/remotion-video-tool
 This is a remote skill catalog entry.
 
 ## Upstream
-- URL: https://github.com/Fize/soloQueue/tree/main/skills/remotion-video-toolkit
+- Repo: https://github.com/shreefentsar/remotion-video-toolkit
+- Branch: main
