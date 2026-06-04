@@ -4,36 +4,66 @@
 
 SoloQueue uses a hierarchical architecture design. The core systems include Agent, LLM, Tool, Skill, and Config subsystems.
 
-### System Architecture
+### System Architecture & Subsystem Relationships
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Web UI (React)                          │
-├─────────────────────────────────────────────────────────────┤
-│                  Server (REST + WebSocket)                  │
-├─────────────────────────────────────────────────────────────┤
-│                  Session (Session Management)               │
-├──────────────────────────┬──────────────────────────────────┤
-│     Agent System          │       Tool / Skill System        │
-│  (L0/L1/L2/L3)        │    (Extensible Capability Layer)   │
-├──────────────────────────┴──────────────────────────────────┤
-│                   LLM (DeepSeek Provider)                   │
-├─────────────────────────────────────────────────────────────┤
-│              Config (Hot-reload Config System)              │
-└─────────────────────────────────────────────────────────────┘
+                        ┌─────────────────────────────────────────────────────────────┐
+                        │                        Web UI (React)                       │
+                        └──────────────────────────────┬──────────────────────────────┘
+                                                       │ REST / WebSockets
+                                                       ▼
+                        ┌─────────────────────────────────────────────────────────────┐
+                        │                   Server (internal/server)                  │
+                        └──────────────────────────────┬──────────────────────────────┘
+                                                       │
+                                                       ▼
+                        ┌─────────────────────────────────────────────────────────────┐
+                        │                  Session (internal/session)                 │
+                        └──────┬───────────────────────┬───────────────────────┬──────┘
+                               │                       │                       │
+                               ▼                       ▼                       ▼
+      ┌────────────────────────┴──┐        ┌───────────┴───────────┐      ┌────┴──────────────────────┐
+      │  Router (internal/router) │        │ Agent (internal/agent)│      │  Todo (internal/todo)     │
+      └───────────────────────────┘        └───────────┬───────────┘      └────────────┬──────────────┘
+                                                       │                               │
+                                                       ├───────────────────────────────┤ SQLite WAL
+                                                       │                               ▼
+                                                       │                  ┌───────────────────────────┐
+                                                       │                  │ SQLite DB (sqlitedb)      │
+                                                       │                  └───────────────────────────┘
+                                                       ▼
+                                   ┌───────────────────┴───────────────────┐
+                                   │       Tool / Skill Capability Layer   │
+                                   │  (internal/tools, internal/skill)     │
+                                   └───────────────────┬───────────────────┘
+                                                       │
+                                                       ▼
+                                   ┌───────────────────┴───────────────────┐
+                                   │         LLM (internal/llm)            │
+                                   └───────────────────┬───────────────────┘
+                                                       │
+                                                       ▼
+                                   ┌───────────────────┴───────────────────┐
+                                   │     Config (internal/config)          │
+                                   └───────────────────────────────────────┘
 ```
 
-### Core Subsystems
+### Subsystems Index
 
-| System | Path | Description |
-|--------|------|-------------|
-| **Agent System** | `internal/agent/` | Actor-model agent runtime, manages LLM tool loops, async delegation, lifecycle |
-| **LLM System** | `internal/llm/` | Provider-agnostic protocol layer + DeepSeek HTTP/SSE transport |
-| **Tool System** | `internal/tools/` | Executable primitive layer (file, shell, HTTP, search) |
-| **Skill System** | `internal/skill/` | Markdown-defined reusable task recipes, fork execution mode |
-| **Config System** | `internal/config/` | Layered TOML config, hot-reload, type-safe access |
-| **Session** | `internal/session/` | Session management, context window, conversation ordering |
-| **Router** | `internal/router/` | Intelligent task classification and model routing (L0-L3) |
+| Subsystem | Path | Description | Documentation |
+|--------|------|-------------|---|
+| **Agent System** | `internal/agent/` | Actor-model agent runtime, tool loops, async delegation, supervisor | Below |
+| **LLM System** | `internal/llm/` | Provider-agnostic protocol layer + DeepSeek HTTP/SSE transport | Below |
+| **Tool System** | `internal/tools/` | Executable primitive layer (file, shell, HTTP, search, LSP) | Below |
+| **Skill System** | `internal/skill/` | Reusable task recipes (inline/fork) & remote store manager | [skill_store.md](skill_store.md) |
+| **Config System** | `internal/config/` | Layered TOML config, hot-reload, type-safe access | [config.md](config.md) |
+| **Task Routing** | `internal/router/` | Intelligent task classification and model routing (L0-L3) | [routing.md](routing.md) |
+| **Context Window** | `internal/ctxwin/` | Token count calibration, middle-out JSON truncation, FIFO sliding | [ctxwin.md](ctxwin.md) |
+| **Memory System** | `internal/memory/` | Short-term daily summaries & long-term vector store integration | [memory.md](memory.md) |
+| **Timeline System** | `internal/timeline/` | Event-sourced append-only JSONL log, session replay & clear | [timeline.md](timeline.md) |
+| **Todo Store** | `internal/todo/` | Plan/Issue database tracking, BFS dependency cycle check | [todo.md](todo.md) |
+| **QQ Bot Client** | `internal/qqbot/` | WebSocket connection loop, active/passive reply queue, media upload | [qqbot.md](qqbot.md) |
+| **MCP & LSP** | `internal/mcp/` | Model Context Protocol servers loading, LSP JSON-RPC tool binding | [mcp.md](mcp.md) |
 
 ---
 
@@ -41,21 +71,58 @@ SoloQueue uses a hierarchical architecture design. The core systems include Agen
 
 **Location**: `internal/agent/`
 
-The agent package is the execution core of SoloQueue. It implements a long-lived actor model that accepts jobs through a mailbox and emits typed stream events.
+The agent package is the execution core of SoloQueue. It implements a long-lived actor model that processes tasks sequentially via mailboxes and emits typed event streams.
 
 ### Core Concepts
 
-- **Definition** (`types.go`): Immutable agent attributes (ID, Name, ModelID, ThinkingEnabled, etc.)
-- **Agent** (`agent.go`): Mixes immutable config with runtime state (mailbox, async turns, priority mailbox)
-- **Lifecycle**: `NewAgent -> Start -> Ask/Submit -> Stop` (restart allowed after stop)
+- **Definition** (`types.go`): Immutable agent specifications (ID, Name, ModelID, thinking rules, etc.).
+- **Agent** (`agent.go`): Mixes immutable config with runtime execution state (mailbox, active turns, priority mailbox).
+- **Lifecycle**: `NewAgent -> Start -> Ask/Submit -> Stop` (restart allowed after stop).
 
 ### Key Features
 
-1. **Actor Model**: One job executes at a time per agent (serialized through mailbox)
-2. **Streaming-First**: Streaming is the canonical execution path, not a side path
-3. **Event Architecture**: Sealed event stream (`ContentDeltaEvent`, `ToolCallDeltaEvent`, `DelegationStartedEvent`, etc.)
-4. **Async Delegation**: L1 agents can delegate to L2 without blocking (continuation-passing over mailbox)
-5. **Confirmation Pipeline**: `ToolNeedsConfirmEvent` -> UI/Serv er -> `Agent.Confirm(callID, choice)`
+1. **Actor Model**: Tasks are serialized. One job executes at a time per agent, eliminating concurrent state mutation races.
+2. **Streaming-First**: The agent stream emits fine-grained events (`ContentDeltaEvent`, `ToolCallDeltaEvent`, etc.) natively, which are consumed by client WebSockets.
+3. **Confirmation Pipeline**: Prompts requiring authorization block and emit `ToolNeedsConfirmEvent` to the UI, resuming execution when `Agent.Confirm` is called.
+
+### Multi-Agent Async Delegation & Supervision
+
+SoloQueue orchestrates complex workloads by letting higher-level agents delegate sub-tasks to child agents.
+
+```
+       [ L1 Core Agent ]
+               │
+      Delegate Tool (Async)
+               │
+               ▼
+┌──────────────────────────────┐
+│  Supervisor (internal/agent) │
+├──────────────────────────────┤
+│  Manages L2 Child Lifecycles │
+└──────────────┬───────────────┘
+               │
+               ├─ Spawns L2 Agent A ──➔ Synchronous Execution
+               │
+               └─ Spawns L2 Agent B ──➔ Asynchronous (Mailbox Continuation)
+```
+
+#### 1. Synchronous vs Asynchronous Delegation
+The system supports two delegation modes via the `DelegateTool` (`internal/tools/delegate.go`):
+- **Synchronous (L2 ➔ L3)**: The parent agent blocks waiting for the child agent to complete. This is used for deeply nested, linear sub-tasks.
+- **Asynchronous (L1 ➔ L2)**: The L1 agent yields execution immediately after spawning the L2 agent. The parent is freed to process other mailbox messages or user interactions.
+
+#### 2. Continuation-Passing over Mailbox
+To support async delegation without blocking OS threads, SoloQueue uses a **Continuation-Passing** pattern:
+- When L1 calls `DelegateTool` asynchronously, it records the delegation status in `internal/agent/async_turn.go` and returns an `AsyncAction` payload to the tool loop.
+- The L1 agent's tool loop yields execution and returns to `Idle`.
+- The child L2 agent executes its job in a separate actor thread.
+- When the L2 child completes or yields, it submits a completion job back to the L1 parent's mailbox.
+- The L1 parent wakes up, correlates the result with the saved async state, restores the tool execution context, and continues the conversation.
+
+#### 3. Supervisor Lifecycle Management (`supervisor.go`)
+Child agents are managed by a `Supervisor` instance:
+- **Registry**: Tracks active child agent IDs spawned during the current session.
+- **Orphan Prevention**: If a session is cancelled or the parent L1 agent stops, the supervisor captures the event and cascades termination commands to all running L2/L3 child agents, ensuring no orphan processes or dangling LLM API connections remain.
 
 ### File Layout
 
