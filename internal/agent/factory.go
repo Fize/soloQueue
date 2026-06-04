@@ -913,7 +913,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 3: 框架强制区 ──────────────────────────────
-	b.WriteString(prompt.EnvSection(workDir, exploreDir, false))
+	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
 	b.WriteString("\n\n")
 	if hasPermanentMemory {
 		b.WriteString(permanentMemorySection)
@@ -1063,7 +1063,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	b.WriteString("\n")
 
 	// ── Segment 2: 框架强制区 ──────────────────────────────
-	b.WriteString(prompt.EnvSection(workDir, exploreDir, false))
+	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
 	b.WriteString("\n\n")
 	if hasPermanentMemory {
 		b.WriteString(permanentMemorySection)
