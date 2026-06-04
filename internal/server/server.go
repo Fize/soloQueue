@@ -491,31 +491,13 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 			}
 		}
 
-		var targetProxyID string
-
-		// Attempt Referer-based proxy routing
-		referer := r.Header.Get("Referer")
-		if referer != "" {
-			if refURL, err := url.Parse(referer); err == nil {
-				if id := refURL.Query().Get("soloqueue_proxy"); id != "" {
-					targetProxyID = id
-				} else if m.proxyManager != nil {
-					targetProxyID = m.proxyManager.GetCachedProxy(refURL.Path)
-				}
-			}
+		// If it's a request from SoloQueue's own UI, don't proxy it.
+		if r.Header.Get("X-SoloQueue-Request") == "true" {
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
 		}
 
-		// Fallback for WebSockets or subsequent API calls from iframe
-		if targetProxyID == "" {
-			isWebsocket := strings.ToLower(r.Header.Get("Upgrade")) == "websocket" || r.Header.Get("Sec-WebSocket-Key") != ""
-			isHTML := strings.Contains(r.Header.Get("Accept"), "text/html")
-			if isWebsocket || (!isHTML && r.URL.Path != "/") {
-				if cookie, err := r.Cookie("soloqueue_active_proxy"); err == nil && cookie.Value != "" {
-					targetProxyID = cookie.Value
-				}
-			}
-		}
-
+		targetProxyID := m.detectProxyID(r)
 		if targetProxyID != "" && m.proxyManager != nil && m.proxyManager.HasProxy(targetProxyID) {
 			m.proxyManager.CachePath(r.URL.Path, targetProxyID)
 			m.serveReverseProxy(w, r, targetProxyID)
@@ -531,10 +513,60 @@ func NewMux(workDir string, log *logger.Logger, todoStore *todo.Store, opts ...M
 	return m
 }
 
+func (m *Mux) detectProxyID(r *http.Request) string {
+	// 1. Direct query parameter
+	if id := r.URL.Query().Get("soloqueue_proxy"); id != "" {
+		return id
+	}
+
+	// 2. Referer-based detection
+	referer := r.Header.Get("Referer")
+	if referer != "" {
+		if refURL, err := url.Parse(referer); err == nil {
+			if id := refURL.Query().Get("soloqueue_proxy"); id != "" {
+				return id
+			} else if m.proxyManager != nil {
+				if id := m.proxyManager.GetCachedProxy(refURL.Path); id != "" {
+					return id
+				}
+			}
+		}
+	}
+
+	// 3. Fallback cookie for WebSockets and relative sub-resource requests
+	isWebsocket := strings.ToLower(r.Header.Get("Upgrade")) == "websocket" || r.Header.Get("Sec-WebSocket-Key") != ""
+	isHTML := strings.Contains(r.Header.Get("Accept"), "text/html")
+	if isWebsocket || (!isHTML && r.URL.Path != "/") {
+		if cookie, err := r.Cookie("soloqueue_active_proxy"); err == nil && cookie.Value != "" {
+			return cookie.Value
+		}
+	}
+
+	return ""
+}
+
 func (m *Mux) proxyEntryPointMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		proxyID := r.URL.Query().Get("soloqueue_proxy")
+		// If it's a request from SoloQueue's own UI, bypass proxying.
+		if r.Header.Get("X-SoloQueue-Request") == "true" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if request matches an existing static asset in the embedded filesystem.
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path != "" {
+			fsys := distFS()
+			if info, err := fs.Stat(fsys, path); err == nil && !info.IsDir() {
+				// Serve static file normally, bypass proxy.
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		proxyID := m.detectProxyID(r)
 		if proxyID != "" && m.proxyManager != nil && m.proxyManager.HasProxy(proxyID) {
+			m.proxyManager.CachePath(r.URL.Path, proxyID)
 			m.serveReverseProxy(w, r, proxyID)
 			return
 		}
