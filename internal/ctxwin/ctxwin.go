@@ -867,8 +867,8 @@ func (cw *ContextWindow) asyncCompact() {
 // compactSegments is the shared compaction engine.
 //
 // It filters oversized tool messages, groups by date, splits by tokens,
-// compacts each batch, and merges recent (≤3 days) segments into a single
-// final summary. Segments older than 3 days are kept in the returned slice
+// compacts each batch, and merges recent (≤7 days) segments into a single
+// final summary. Segments older than 7 days are kept in the returned slice
 // but do NOT participate in the final CW summary.
 //
 // Returns:
@@ -929,8 +929,8 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 		return nil, "", nil
 	}
 
-	// 4. Extract recent segments (≤3 days)
-	cutoff := time.Now().AddDate(0, 0, -3)
+	// 4. Extract recent segments (≤7 days)
+	cutoff := time.Now().AddDate(0, 0, -7)
 	var recent []SummarySegment
 	for _, seg := range segments {
 		if !seg.Date.Before(cutoff) { // seg.Date >= cutoff

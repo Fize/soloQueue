@@ -321,7 +321,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
 	summaryHook := func(segments []ctxwin.SummarySegment) {
-		cutoff := time.Now().AddDate(0, 0, -3)
+		cutoff := time.Now().AddDate(0, 0, -7)
 		cursor := time.Time{}
 		if b.RT.MemoryManager != nil {
 			cursor = b.RT.MemoryManager.LastRecordedAt()
@@ -336,12 +336,12 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			}
 
 			if seg.Date.Before(cutoff) {
-				// >3 days old: write directly to permanent (long-term) memory
+				// >7 days old: write directly to permanent (long-term) memory
 				if b.RT.PermanentMemory != nil {
 					_ = b.RT.PermanentMemory.Remember(context.Background(), seg.Summary, seg.Date)
 				}
 			} else {
-				// ≤3 days: timeline control event + short-term memory
+				// ≤7 days: timeline control event + short-term memory
 				if err := tl.AppendControl(&timeline.ControlPayload{
 					Action:  "summary",
 					Reason:  "auto_compact",
