@@ -170,7 +170,7 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
 	var a multiReplaceArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return true, fmt.Sprintf("Apply edits to file (unable to parse args). Allow?")
+		return true, "Apply edits to file (unable to parse args). Allow?"
 	}
 	return true, fmt.Sprintf("Apply %d edit(s) to %q. Allow?", len(a.Edits), a.Path)
 }
