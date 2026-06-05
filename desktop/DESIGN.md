@@ -2,7 +2,7 @@
 
 ## 一、项目概述
 
-将 soloQueue 的 Web UI 重构为 Electron 桌面应用，外壳采用 **8-bit 像素风模拟经营游戏** 风格。视觉参考 **“中式原木禅意办公风” (Chinese Wood Zen Office Style)**，融合中式古典水墨与现代办公室经营的玩法。用户启动后看到云雾中的办公楼外观 → 点击开始 → 进入暖调原木与碧玉绿点缀的办公层内部，以游戏化方式管理和监控多 Agent 系统。
+将 soloQueue 的 Web UI 重构为 Electron 桌面应用，将 soloQueue 的 Web UI 重构为 Electron 桌面应用，外壳采用 **8-bit 像素风模拟经营游戏** 风格。视觉参考 **“星露谷暖原木像素办公风” (Stardew Cozy Wood Office Style)**，融合原木色调与现代办公室经营的玩法。用户启动后看到朝阳照耀下的温馨现代办公楼外观 → 点击开始 → 进入温暖橡木与春绿地毯点缀的办公层内部，以游戏化方式管理和监控多 Agent 系统。
 
 ---
 
@@ -24,14 +24,14 @@
 
 ## 三、视觉风格
 
-### 3.1 参考风格：中式原木禅意办公风（Chinese Wood Zen Office Style）
+### 3.1 参考风格：星露谷暖原木像素办公风（Stardew Cozy Wood Office Style）
 
-融合了国风水墨、中式古典色彩与现代办公室经营的玩法。整体色调以暖原木、碧玉绿、朱砂红为主，抛弃冷酷暗黑的赛博朋克基调，营造温暖、沉静且富有掌控感的禅意办公室氛围：
+融合了《星露谷物语》的温暖原木与舒适配色，同时保持现代办公楼和办公室的主题场景。整体色调以温暖橡木黄、作物翠绿（运行）、浆果深红（错误）为主，抛弃冷酷暗黑的赛博朋克基调，营造温暖、舒适且富有掌控感的现代像素办公室氛围：
 
-- **温暖舒缓**：底色以温暖的淡宣纸色为主，大大降低长久监控的眼部疲劳，带来中式纸卷的素雅感。
-- **禅意办公**：办公室隔断使用竹青或红木色，办公家具采用沉稳的檀木褐色，保留完整的办公室格局，让玩家如同运筹帷幄的决策者管理现代团队。
-- **色彩高亮**：交互和状态反馈融入中式古典色彩（翡翠绿表示运行，朱砂红表示报错，蜜蜡黄表示阻塞）。
-- **像素质感**：颗粒感强，粗木纹/石纹边框，UI 面板采用仿纸质卷轴或木质面板设计。
+- **温暖舒缓**：底色以温馨的仿复古木纹/羊皮纸色为主，大大降低长久监控的眼部疲劳，带来温馨舒适的办公体验。
+- **舒适办公**：办公室隔断使用松针绿或暖木色，办公家具采用沉稳的橡木/枫木黄褐色，保留完整的现代办公室格局与工位，让玩家在温馨舒适的氛围中管理团队。
+- **色彩高亮**：交互和状态反馈融入大自然作物与经典模拟经营色彩（作物绿表示运行，浆果红表示报错，南瓜黄表示阻塞）。
+- **像素质感**：颗粒感强，粗木纹边框，UI 面板采用木质公告栏或经典羊皮纸面板设计。
 
 ### 3.2 配色方案
 
@@ -39,18 +39,18 @@
 ┌──────────┬──────────┬──────────────────────────┐
 │ 角色     │ 色值     │ 用途                     │
 ├──────────┼──────────┼──────────────────────────┤
-│ 宣纸背景 │ #faf7f0  │ 全局大背景、窗外远山背景 │
-│ 雾山暗区 │ #e8e3d5  │ 未激活区域、墙体暗面     │
-│ 竹青地板 │ #cfd7c7  │ 办公室地板、走廊主体     │
-│ 檀木中调 │ #7a5c43  │ 办公桌、家具、面板背景   │
-│ 暖阳金   │ #e5a93b  │ 吊灯、台灯、交互高亮     │
-│ 翡翠绿   │ #319f6a  │ Agent 运行中、成功状态   │
-│ 蜜蜡黄   │ #d48227  │ 警告、超时、阻塞         │
-│ 朱砂红   │ #bf360c  │ 错误、异常、宕机         │
-│ 松烟墨   │ #2c2c2c  │ 主文字（仿毛笔墨色）     │
-│ 烟雨灰   │ #7f7f7f  │ 次要文字、不可用项       │
-│ 木纹边框 │ #5c4033  │ 像素面板边框、隔断墙边   │
-│ 半透遮罩 │ rgba(40,30,20,0.4) │ 暖色弹窗遮罩     │
+│ 羊皮纸黄 │ #f6ebd3  │ 全局大背景、文本面板底色 │
+│ 浅驼色   │ #e3d3b4  │ 未激活区域、标签页暗面   │
+│ 春绿地毯 │ #7ca84c  │ 办公室走道地毯、公共区   │
+│ 橡木中调 │ #b86a34  │ 办公桌、家具、面板背景   │
+│ 太阳金黄 │ #f3b72b  │ 吊灯、台灯、金星交互高亮 │
+│ 作物翠绿 │ #4eb036  │ Agent 运行中、成功状态   │
+│ 南瓜橘黄 │ #e28a2b  │ 警告、超时、阻塞         │
+│ 浆果深红 │ #d83838  │ 错误、异常、宕机         │
+│ 木炭深褐 │ #381a04  │ 主文字（仿黑巧克力色）   │
+│ 迷雾灰褐 │ #8c7662  │ 次要文字、不可用项       │
+│ 红松木框 │ #5a2800  │ 像素面板边框、隔断墙边   │
+│ 暖秋遮罩 │ rgba(90,40,0,0.45) │ 暖棕色弹窗遮罩  │
 └──────────┴──────────┴──────────────────────────┘
 ```
 
@@ -64,7 +64,50 @@
 
 ## 四、场景设计
 
+本系统完全采用 **HTML5 Canvas (通过 react-konva 库)** 实现像素模拟经营场景渲染，所有场景交互、寻路及动画均在 Canvas 树中按帧更新。以下是首页（Title Scene）与主场景（Main Office Scene）的核心渲染架构与组件树设计：
+
 ### 4.1 标题画面（Title Scene）
+
+#### 4.1.1 渲染结构与 Konva 节点树
+标题画面负责展现现代办公楼的外观（采用星露谷暖木色调）、动态天气粒子效果以及复古木质 UI 选项：
+```
+<Stage width={960} height={640}>
+  {/* Layer 0: 天空与天气环境层 */}
+  <Layer id="sky-and-weather">
+    <Rect width={960} height={640} fillLinearGradientStartPoint={{ x: 0, y: 0 }} fillLinearGradientEndPoint={{ x: 0, y: 640 }} fillLinearGradientColorStops={[0, '#b0d0f0', 1, '#f6ebd3']} />
+    <Group id="clouds" />  {/* 程序化绘制的浮动像素白云 */}
+    <Group id="rain-particles" /> {/* Canvas 粒子：下落的像素雨丝线 + 水花溅射圆圈 */}
+  </Layer>
+
+  {/* Layer 1: 办公楼实体层 */}
+  <Layer id="scenic-building">
+    <Image image={buildingImage} x={160} y={80} width={640} height={420} /> {/* 暖木色调现代办公楼 PNG */}
+    <Group id="window-lights" /> {/* 窗口暖黄色发光：基于 Canvas 脉冲动画，部分窗口明暗交替 */}
+  </Layer>
+
+  {/* Layer 2: UI 标题与选项覆盖层 */}
+  <Layer id="ui-overlay">
+    {/* 太阳金黄发光标题 */}
+    <Text text="SOLOQUEUE INC." fontSize={48} fontFamily="PixelFont" fill="#f3b72b" stroke="#5a2800" strokeWidth={4} align="center" x={0} y={150} width={960} />
+    <Text text="Est. 2026" fontSize={16} fontFamily="PixelFont" fill="#8c7662" align="center" x={0} y={210} width={960} />
+
+    {/* 选项菜单：仿羊皮纸材质木条框按钮 */}
+    <Group id="menu-buttons" x={380} y={350}>
+      <PixelButton text="START" y={0} onClick={handleStart} />
+      <PixelButton text="Settings" y={50} onClick={handleSettings} />
+    </Group>
+    
+    <Text text="v0.1.0" fontSize={12} fontFamily="PixelFont" fill="#8c7662" x={20} y={600} />
+  </Layer>
+</Stage>
+```
+
+#### 4.1.2 动态效果实现
+- **雨水粒子**：粒子系统中每个雨滴是一个存储 `{x, y, vy, length}` 的对象，在每一帧中 `y += vy`，当 `y` 超过屏幕底部或大楼轮廓时，在该点触发一个短暂的像素水花溅射动画，随后重置雨滴。
+- **浮动白云**：云层由几组预设的像素多边形块构成，在 x 轴上以微慢速度（如 `5px/s`）移动，移出屏幕后重新在最左侧生成。
+- **窗口微光**：每个窗口节点绑定一个正弦淡入淡出（Sine opacity）插值器，使其发光强度随时间自然起伏。
+
+### 4.1-A 角色创建画面（Character Creation Scene）— 首次启动
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -76,7 +119,7 @@
 │          │   办公楼外观      │                │
 │          │   像素绘制        │                │
 │          │   窗户明暗交替    │                │
-│          │   霓虹招牌闪烁    │                │
+│          │   木雕招牌背光    │                │
 │          │                  │                │
 │          └──────────────────┘                │
 │                                              │
@@ -93,7 +136,7 @@
 
 **素材需求**：
 - 办公楼外观图 → **需要像素素材**（可先用 CSS 搭建占位，后续替换）
-- 霓虹招牌字 "SOLOQUEUE" → **CSS 文字 + glow 滤镜**
+- 木雕招牌 "SOLOQUEUE" → **CSS 文字 + text-shadow 柔和背光**
 - 雨/粒子背景 → **Canvas 程序化绘制**
 - 开始按钮 → **CSS 像素按钮**
 
@@ -162,14 +205,83 @@
 
 ### 4.2 办公层主场景（Office Scene）— 核心
 
+#### 4.2.1 渲染结构与 Konva 节点树
+主场景使用支持多图层叠加的 Canvas 渲染树，以保证地面的连续性、家具和 Agent 之间的遮挡关系（Y-Sorting）以及氛围环境光效：
+```
+<Stage width={viewportWidth} height={viewportHeight} draggable>
+  {/* Layer 0: 地面与铺设层 */}
+  <Layer id="floor-layer">
+    <Rect width={2000} height={1500} fillPatternImage={officeFloorPattern} /> {/* 办公室走廊铺设的绿织地毯 */}
+    <Rect x={100} y={100} width={1800} height={1300} fillPatternImage={woodFloorPattern} /> {/* 办公室内橡木地板拼贴 */}
+  </Layer>
+
+  {/* Layer 1: 墙体与固定障碍结构层 */}
+  <Layer id="walls-and-partitions">
+    <Group id="outer-walls" />     {/* 办公室外围木框墙 */}
+    <Group id="office-dividers" /> {/* 团队间的隔断屏风和玻璃墙 */}
+  </Layer>
+
+  {/* Layer 2: 动态排序深度层 (Y-Sorting Layer) */}
+  {/* 关键：本层所有子节点（家具、工位、Agent、看板）在每帧运行后按其 Y 轴坐标重新排序 Z-Index */}
+  <Layer id="depth-sorted-layer">
+    {/* 场景家具：办公桌、办公椅、电脑显示器 */}
+    <Group id="workstations">
+      {/* 每个工位包含：桌子 Image、椅子 Sprite、显示器 Sprite (亮屏/熄屏状态) */}
+      <Workstation x={200} y={300} deskId="desk-A1" />
+      <Workstation x={350} y={300} deskId="desk-A2" />
+    </Group>
+
+    {/* 墙面挂载物：木质看板 */}
+    <KanbanBoard x={250} y={120} teamId="team-A" />
+
+    {/* 角色 Sprites: 首席秘书、Team Leader、Agent */}
+    <AgentSprite id="agent-L1" type="L1" x={1500} y={1100} />
+    {/* walking、working 状态 of the Agent 会根据当前坐标 Y 值与桌椅动态排序遮挡 */}
+    {activeAgents.map(agent => (
+      <AgentSprite key={agent.id} id={agent.id} type={agent.type} x={agent.x} y={agent.y} state={agent.state} />
+    ))}
+  </Layer>
+
+  {/* Layer 3: 氛围环境与特效层 */}
+  <Layer id="atmosphere-and-lights">
+    {/* 吊灯、台灯的 Canvas 径向渐变，实现星露谷般的温暖光照效果 */}
+    <Circle x={200} y={280} radius={120} fillRadialGradientStartRadius={0} fillRadialGradientEndRadius={120} fillRadialGradientColorStops={[0, 'rgba(243,183,43,0.3)', 1, 'rgba(243,183,43,0)']} globalCompositeOperation="screen" />
+    <Group id="status-particles" /> {/* Agent 打字时漂浮的绿色像素方块，异常时的暗红冒烟粒子 */}
+  </Layer>
+
+  {/* Layer 4: HUD 悬浮层 (不随镜头平移/缩放) */}
+  <Layer id="hud-overlay">
+    <HudParchmentPanel x={20} y={20} /> {/* 羊皮纸信息牌：显示 Token、卡片数、在线 Agent 数 */}
+    <QueuePanel x={viewportWidth - 240} y={20} /> {/* 入口调度队列 */}
+  </Layer>
+</Stage>
+```
+
+#### 4.2.2 遮挡关系处理 (Y-Sorting / Depth Sorting)
+在 2D 俯视角模拟经营游戏中，当 Agent 走到办公桌后方时，身体应当被办公桌遮挡；而走到办公桌前方时，应当遮挡桌椅。
+- **具体做法**：将所有的“办公桌”、“办公椅”、“小人”、“饮水机”等实体全部放到同一个 Konva Layer (`depth-sorted-layer`) 下作为直属子节点。
+- **动态更新**：在 Game Loop 的每一帧或每当 Agent 坐标更新时，对该 Layer 的子节点执行一次基于 Y 轴坐标的排序：
+  ```javascript
+  const children = depthSortedLayer.getChildren();
+  children.sort((a, b) => {
+    // 取得实体的基准 Y 坐标（脚底接触地面的位置）
+    const yA = a.getAttr('anchorY') || a.y();
+    const yB = b.getAttr('anchorY') || b.y();
+    return yA - yB;
+  });
+  // 按照排序后的顺序重新安排渲染层级
+  children.forEach((child, index) => child.setZIndex(index));
+  ```
+
+#### 4.2.3 场景布局逻辑图
 ```
 ┌──────────────────────────────────────────────┐
 │  ┌──────────────────────────────────────┐    │
-│  │  SOLOQUEUE INC.    09:41 PM    ⚙   │    │  ← 顶部 HUD
+│  │  SOLOQUEUE INC.    09:41 PM    ⚙   │    │  ← 顶部 HUD (HUD Layer)
 │  └──────────────────────────────────────┘    │
 │                                              │
 │  ┌───────────────┐ ┌──────────┐ ┌────────┐  │
-│  │   Team A      │ │ Team B   │ │ Team C │  │  ← 团队隔间
+│  │   Team A      │ │ Team B   │ │ Team C │  │  ← 团队隔间 (Depth Layer)
 │  │ ┌──┐┌──┐┌──┐ │ │┌──┐┌──┐│ │┌──┐   │  │
 │  │ │🪑││🪑││🪑│ │ ││🪑││🪑││ ││🪑│   │  │  ← 空工位(无人)
 │  │ │  ││  ││  │ │ ││  ││  ││ ││  │   │  │
@@ -184,7 +296,7 @@
 │     └────────────────────────────────┘   │
 │                                          │
 │  ┌────────────┐          ┌────────────┐  │
-│  │ L1 秘书工位│          │   🚪 入口  │  │  ← L1 常驻 + 入口
+│  │ L1 秘书工位│          │   🚪 入口  │  │  ← L1 常驻 + 入口 (Depth Layer)
 │  │  ┌──────┐  │          │  ELEVATOR  │  │
 │  │  │ 👩‍💼  │  │          │  员工进出   │  │
 │  │  │ L1   │  │          │  ──→ ←── │  │
@@ -192,7 +304,7 @@
 │  └────────────┘                          │
 │                                          │
 │  ┌──────────────────────────────────────┐│
-│  │ 💰 24,520  📋 18 tasks  👥 3 active ││  ← 底部 HUD
+│  │ 💰 24,520  📋 18 tasks  👥 3 active ││  ← 底部 HUD (HUD Layer)
 │  └──────────────────────────────────────┘│
 └──────────────────────────────────────────────┘
 ```
@@ -235,7 +347,7 @@
 - 每个 Team 区域包含：
   - 若干空工位（桌+椅+熄屏显示器，Agent 到达后点亮）
   - 墙壁上的看板（可交互）
-  - Team 名称霓虹招牌
+  - Team 名称木雕招牌
 - **中间贯穿**：主走廊 → 支线走廊 → 连接每个 Team 入口
 - 顶部/底部状态栏 HUD
 
@@ -258,350 +370,203 @@
 
 ## 五、素材清单与绘制方式
 
-### 5.1 分类标准
+在开发 8-bit 星露谷风格的模拟经营系统时，虽然使用 HTML5 Canvas 技术，但对于**无法用纯前端代码实现、必须使用图片文件 (PNG/SVG)** 的素材，和**完全可以用前端代码动态生成/绘制**的素材，有清晰的划分标准。
 
-| 标记 | 含义 |
-|------|------|
-| 🎨 | 需要像素画师绘制（或 AI 生成后人工修） |
-| 🖥️ | CSS 代码绘制（div + border + box-shadow） |
-| 🎮 | Canvas 程序化绘制（Konva.Shape / Rect / Line） |
-| 📝 | 纯文字/字体渲染 |
+### 5.1 必须使用图片文件 (PNG) 的外部素材
+这些素材细节丰富、有精致的手绘像素纹理与分帧序列，**无法使用 Canvas 矢量路径高效绘制**，必须由美术绘制或 AI 生成为 PNG 图片加载：
 
----
+1. **角色动作精灵图 (Agent Spritesheets - A2/A3/A4/A14)**:
+   - 包括小人的走路、打字、异常、思索等分帧动作。必须加载为带透明通道的 PNG 精灵图，前端使用 `Konva.Sprite` 截取并播放对应帧。
+2. **家具与工位拼图集 (Furniture Tileset - A5/A5.5)**:
+   - 包含橡木办公桌、CRT 复古电脑显示器（亮屏/暗屏两帧）、木质办公椅、红瓦盆栽等。手绘像素质感的斜 45 度家具无法用代码精确勾勒，必须作为 PNG 图片加载并切割渲染。
+3. **主场景和大楼外观 (Title/Scene backgrounds - A1/A13)**:
+   - 标题画面中由 Cedar 木纹、石头地基、暖光窗户构成的 6 层大楼主体外观，以及办公室电梯门，这些属于大面积、高精度的背景，必须使用整张 PNG 导入。
+4. **系统小图标 (Icons - 📋/💰/👥/⚙)**:
+   - 悬浮 HUD 上显示的任务小夹板、金币、人数、设置齿轮等像素图标，需要 PNG/SVG 格式以保证精细度。
 
-### 5.2 场景素材
+### 5.2 可完全使用前端技术 (Canvas/CSS/SVG) 动态生成的素材
+这些素材非常适合利用前端算法、Canvas 2D API 或 SVG 动态渲染，不仅大幅**减小打包体积**，还能通过代码**动态调整参数**（如天气、光照强度）：
 
-| 素材 | 方式 | 说明 |
-|------|------|------|
-| 办公楼外观（标题画面） | 🎨 或 🖥️ | 先用 CSS 矩形搭建占位，后续替换为像素美术 |
-| 办公楼入口/电梯 | 🎨 | Agent spawn 点，见 prompt A13 |
-| 地板 tileset | 🎮 | Canvas 程序化生成，重复填充矩形 + 像素纹理 |
-| 隔断墙 | 🎮 | Konva.Rect，纯色填充 + 像素边框 |
-| 门 | 🎮 | Konva.Rect + 门把手（小圆点） |
-| 窗户（带灯光） | 🎮 | Konva.Rect + 黄色发光矩形模拟窗口灯光 |
-| 天花板吊灯 | 🎮 | Konva.Line（灯绳）+ Konva.Circle（灯泡）+ 暖光 radius 渐变 |
-| 霓虹招牌 | 📝 + 🖥️ | 像素字体文字 + CSS `text-shadow` glow 效果 |
-| 雨水/粒子效果 | 🎮 | Canvas 粒子系统，程序化生成 |
-| 桌面/办公桌 | 🎮 | Konva.Rect，像素棕色/灰色 |
-| 办公椅 | 🎮 | 简化几何形状（矩形 + 小圆角矩形靠背） |
-| 电脑显示器（熄屏/亮屏） | 🎮 | Konva.Rect（屏幕边框 + 内发光屏幕，状态切换） |
-| 看板墙 | 🎮 | 墙壁矩形 + 小卡片缩略图 + 软木板纹理 |
-| 首席秘书大工位 | 🎨 | 见 prompt A5.5 |
-| 饮水机/绿植 | 🎨 | 可选装饰，后期添加 |
+1. **地板与地砖 (Floors & Grass - 🎮)**:
+   - *实现*：使用代码动态生成 16×16 的像素地毯或木地板单元（Pattern），然后利用 Canvas 的 `createPattern` 自动平铺整个地表，免去了加载大面积地板图片的开销。
+2. **墙体与隔断屏风 (Walls & Windows - 🎮)**:
+   - *实现*：办公室木墙、矮玻璃屏风可以直接通过 `ctx.fillRect` 绘制，加上深褐色的像素边框 (`strokeRect`)，用几条细线模拟玻璃反光和木头纹路即可，完全无需外部图片。
+3. **软光影与遮罩效果 (Ambient Glows & Lighting - 🎮)**:
+   - *实现*：台灯暖金色的散射光、显示器淡绿色的屏幕反光。使用 Canvas 的径向渐变 (`createRadialGradient`)，以 `screen` 混合模式叠加在角色 and 家具上，呈现逼真的像素微光和日夜阴影。
+4. **天气与状态粒子特效 (Rain & Particle Systems - 🎮)**:
+   - *实现*：标题画面的下落像素雨、小人打字时漂浮上升的绿色像素颗粒、宕机时从头顶冒出的红色粒子烟雾。这些纯用 Canvas 的定时坐标更新、随机颜色梯度绘制，即可实现 60 帧丝滑粒子动画。
+5. **羊皮纸 UI 框架与对话面板 (UI Panels & Boards - 🖥️ 或 🎮)**:
+   - *实现*：星露谷风格的木纹公告框、羊皮纸弹窗背景。在 React DOM 中直接使用 CSS 的 `border-image`（拉伸木质边框）配以背景色完成，或是在 Canvas 中绘制圆角矩形，在代码层面非常易于定制。
 
 ### 5.3 角色 Sprite
 
+为了让 Agent 在现代办公场景中自然行走（横向走廊、纵向走廊）并在不同朝向的工位坐下，L2 Leader 与 L3 Agent 角色使用**多方向动作精灵图（Multi-directional Sprite Sheet）**，包含：正面/朝下（Front/Down）、背面/朝上（Back/Up）、左侧面（Left Profile）、右侧面（Right Profile）等朝向。
+
 | 素材 | 方式 | 帧数 | 尺寸 | 说明 |
 |------|------|------|------|------|
-| L1 首席秘书（常驻） | 🎨 | 4帧 idle + 4帧 working | 32×32 | 始终在线，秘书造型，idle + 打字 |
-| L2 Team Leader | 🎨 | 8帧 | 24×24 | walk ×2 + idle ×2 + working ×2 + error ×2 |
-| L3 Agent 员工 | 🎨 | 8帧 | 24×24 | walk ×2 + idle ×2 + working ×2 + error ×2 |
-| 女性/男性变体 | 🎨 | 各一套完整 | 同上 | L1/L2/L3 均需男女两版 |
-| L1 秘书大工位 | 🎨 | 静态 + 屏幕亮起帧 | 96×64 | 比普通工位更大、更精致的秘书桌 |
+| L1 首席秘书（常驻） | 🎨 | 8帧 | 32×32 | 常驻主工位，仅需正面朝向：4帧 idle + 4帧 working |
+| L2 Team Leader | 🎨 | 16帧 (4方向) | 24×24 | 4方向：正面(idle×2, walk×2), 左侧面(walk×2, sit×2), 右侧面(walk×2, sit×2), 背面(walk×2, sit×2) |
+| L3 Agent 员工 | 🎨 | 16帧 (4方向) | 24×24 | 4方向：正面(idle×2, walk×2), 左侧面(walk×2, sit×2), 右侧面(walk×2, sit×2), 背面(walk×2, sit×2) |
+| 女性/男性变体 | 🎨 | 各一套完整 | 同上 | L1/L2/L3 均需男女独立版本，确保生成质量 |
+| L1 秘书大工位 | 🎨 | 静态 + 屏幕亮起帧 | 96×64 | 比普通工位更大、更精致的木纹大理石秘书桌 |
 
-**占位方案**：先用纯色矩形 + emoji 替代，后续替换 spritesheet。
+**占位方案**：开发阶段先用纯色矩形 + emoji 替代，后续替换 spritesheet。
 
-**动画帧统一要求**：
-- walk 帧：2帧走路循环（左右脚交替）
-- idle 帧：2帧呼吸浮动
-- working 帧：2帧打字（手指交替 + 屏幕闪烁）
-- error 帧：2帧冒烟/着火
+**动画帧统一要求 (每方向 4 帧，共 16 帧/角色)**：
+- **正面层 (Row 1)**: 2帧正面呼吸浮动 (idle) + 2帧正面走路循环 (walk)
+- **左侧层 (Row 2)**: 2帧左侧走路循环 (walk) + 2帧左侧坐姿打字 (sit/work)
+- **右侧层 (Row 3)**: 2帧右侧走路循环 (walk) + 2帧右侧坐姿打字 (sit/work)
+- **背面层 (Row 4)**: 2帧背面走路循环 (walk) + 2帧背面坐姿打字 (sit/work) - *用于背对玩家的操作*
+
+*注：虽然 Midjourney 生成的精灵图中包含左/右两个方向的侧面以方便挑选，但前端代码为节省资源或处理帧对称性，也可以统一截取其中一侧（如右侧），在向另一侧移动时通过 Canvas 镜像（scaleX: -1）实现翻转。*
 
 ---
 
-## 五-A、LLM 图片生成 Prompt 库
+## 五-A、Google Gemini (Nano Banana) 图片生成 Prompt 库
 
-> 所有 prompt 均针对 AI 图片生成模型（Midjourney / DALL·E 3 / Stable Diffusion）优化。
-> 统一风格要求：**8-bit pixel art, Chinese ink-wash wood-and-jade office interior style, cozy zen vibe**
-> 所有 Sprite 要求透明背景，严格像素对齐，禁止抗锯齿。
-> 生成后建议用 Aseprite / Photoshop 清理杂色并确认尺寸。
+> 所有 prompt 均针对 Google Gemini 3.1 Flash Image (Nano Banana 2) 及 Imagen 3 系列图像生成模型优化。
+> 统一风格要求：**8-bit pixel art, Stardew Valley style warm palette, cozy modern office interior, wood-and-carpet aesthetic**。
+> 为了方便 Nano Banana 模型正确理解并生成高质量的像素素材，我们遵循以下提词规范：
+> 1. **详尽的自然语言描述（Detailed Natural Language）**：与 Midjourney 偏好扁平 Tag 不同，Nano Banana 对长句、段落和详尽的细节描述有极强的语义理解能力。直接使用流畅的英文长句进行场景与角色的刻画能获得最佳效果。
+> 2. **明确的构图与网格说明（Grid & Aspect Ratio Instructions）**：在描述中直接写入宽高比要求（如 `16:9 landscape aspect ratio`）以及网格布局结构（如 `arranged in a neat grid layout`），引导模型生成结构工整的 Sprite Sheet 精灵图。
+> 3. **全向控制（Four Directions Poses）**：在 Prompt 中明确要求展示 `facing forward (front view)`, `facing away (back view)`, `profile facing left`, 和 `profile facing right` 四个方向，确保模型生成的精灵图中包含向左和向右的双向行走及工作状态。
+> 4. **强制白色底色**：统一使用 `solid white background`，使导出的像素图背景极为纯净，极大地方便了后续导入开发工具中进行抠图和切片（Slice）处理。
 
 ### A1. 办公楼外观（Title Scene 背景）
 
-**用途**：标题画面主视觉，晨雾或夕阳云雾中的现代办公楼，带有竹林或假山点缀
+* **用途**：标题画面主视觉，朝阳照耀下的温馨现代办公楼外观，带有一些绿植点缀
+* **建议保存路径**：`desktop/src/renderer/assets/backgrounds/building_exterior.png`
 
 ```
-A pixel art building exterior in soft morning mist, 8-bit retro game style.
-A modern 6-story office building made of light grey concrete and warm wood paneling, viewed from the front.
-Surrounded by subtle bamboo trees and a small zen stone garden at the base.
-Background features light wash ink-style clouds and soft sun rays.
-A sign on the building facade reading "SOLOQUEUE" in elegant dark charcoal pixel font.
-Warm golden light glowing from the large windows.
-Cozy, calm, and professional Zen office atmosphere.
-Strict pixel art, no anti-aliasing, clean pixel grid.
-Resolution: 960×640 pixels. Palette: warm beige, pine green, soft grey, sandalwood brown.
---ar 3:2
+A 16:9 landscape aspect ratio pixel art scene of a modern office building exterior in bright sunny daylight. The style is 8-bit retro game art reminiscent of Stardew Valley, utilizing a warm color palette of oak wood brown, pine green, sky blue, and parchment cream. The building is a cozy 6-story modern office building made of warm oak wood panels with large glass windows, viewed from the front. The windows have a warm glowing yellow light coming from inside. The base of the building is surrounded by manicured office landscaping, including small green shrub beds. The background features a bright blue sky with soft white clouds and sun rays. Clean pixel art, no anti-aliasing.
 ```
 
-### A2. L1 首席秘书角色 Sprite Sheet
+### A2-M. L1 首席秘书角色 Sprite Sheet (男性)
 
-**用途**：始终在线的主角色，专属大工位，用户的对话入口
-
-```
-A pixel art character sprite sheet for a chief secretary / personal assistant, 8-bit retro game style.
-Front-facing view (top-down RPG perspective, looking slightly down at player).
-Professional office attire — smart blazer or cardigan, neat appearance, approachable and competent.
-Larger and more detailed than regular workers (32×32 pixels per frame).
-Sprite sheet layout: 8 frames in a single row (256×32 total).
-- Frame 1-2: idle (standing at attention, subtle breathing, slight sway)
-- Frame 3-4: working (typing efficiently, head occasionally glancing at papers/screen)
-- Frame 5-6: attentive (looking up toward the player/user, slight nod, as if acknowledging a request)
-- Frame 7-8: thinking (hand on chin, pensive pose, then slight nod)
-No walking frames needed (always at desk).
-No background (transparent), strict pixel grid, no anti-aliasing.
-Color palette: blazer in #7a5c43, shirt/blouse in #faf7f0, subtle jade accessory (#319f6a hair clip or tie), skin in warm beige.
-Style reference: Cozy retro wood office style NPC sprites, clean pixel art with strong silhouettes.
-Generate BOTH a male and female version as separate outputs.
-```
-
-### A3. L2 Team Leader 角色 Sprite Sheet
-
-**用途**：各团队 Leader，从入口走入→坐到工位→工作→离开
+* **用途**：始终在线的主角色，专属大工位，用户的对话入口（选择男性秘书时的动作序列）
+* **建议保存路径**：`desktop/src/renderer/assets/sprites/secretary_male.png`
 
 ```
-A pixel art character sprite sheet for a team leader/manager, 8-bit retro game style.
-Front-facing view (top-down RPG perspective).
-Wears business casual — dark shirt with rolled sleeves, glasses.
-Slightly more authoritative stance than regular workers, carries a clipboard or tablet.
-Sprite sheet layout: 8 frames in a single row (192×24 total).
-- Frame 1-2: walk cycle (walking toward desk, legs alternating, slight arm swing)
-- Frame 3-4: idle (standing still at desk, subtle breathing, glancing at clipboard)
-- Frame 5-6: working (typing on keyboard, head bobbing, screen glow on face)
-- Frame 7-8: error/frustrated (rubbing temples, slight smoke puff)
-Each frame is exactly 24×24 pixels, total image 192×24 pixels.
-No background (transparent), strict pixel grid, no anti-aliasing.
-Color palette: shirt in #7a5c43, pants in #5c4033, glasses rim in #d48227, clipboard in #5c4033, skin in warm beige.
-Style reference: Cozy retro wood office style NPC sprites.
-Generate BOTH a male and female version as separate outputs.
+A 16:9 landscape aspect ratio pixel art character sprite sheet for a male chief secretary, 8-bit retro game style with cozy Stardew Valley warm wood colors. The character is a professional male secretary in smart office attire: an oak brown blazer, a creamy parchment shirt, a vibrant green tie, and warm beige skin tone. The sprite sheet displays a sequence of poses arranged in a clean row grid on a solid white background: standing idle, typing efficiently at a desk, looking up attentively, and pensive thinking with a hand on his chin. Clean pixel art with no anti-aliasing.
 ```
 
-### A4. L3 Agent 角色 Sprite Sheet
+### A2-F. L1 首席秘书角色 Sprite Sheet (女性)
 
-**用途**：普通员工，从入口走入→坐到工位→执行任务→离开
-
-```
-A pixel art character sprite sheet for an office worker, 8-bit retro game style.
-Front-facing view (top-down RPG perspective).
-Casual office attire — dark hoodie or simple shirt, jeans.
-Generic employee look, multiple variations possible (same base with different hair/colors).
-Sprite sheet layout: 8 frames in a single row (192×24 pixels total).
-- Frame 1-2: walk cycle (brisk walking, legs alternating, slight arm swing, heading toward desk)
-- Frame 3-4: idle (standing at desk, subtle breathing, slight sway)
-- Frame 5-6: working (typing rapidly on keyboard, head bobbing, screen glow in jade green #319f6a reflecting on face)
-- Frame 7-8: error/panic (small cinnabar red puffs above head, arms raised slightly, frantic expression)
-Each frame is exactly 24×24 pixels, total image 192×24 pixels.
-No background (transparent), strict pixel grid, no anti-aliasing.
-Color palette: clothing in #7a5c43 or #5c4033, skin in warm beige, shoes in #2c2c2c, screen glow in #319f6a.
-Style reference: Cozy retro wood office style background characters, simple but expressive pixel art.
-Generate BOTH a male and female version as separate outputs.
-```
-
-### A5. 电脑显示器 + 办公桌（工位 Tileset）
-
-**用途**：每个工位的核心家具，程序化搭建工位的基础素材
+* **用途**：始终在线的主角色，专属大工位，用户的对话入口（选择女性秘书时的动作序列）
+* **建议保存路径**：`desktop/src/renderer/assets/sprites/secretary_female.png`
 
 ```
-A pixel art tileset for an office cubicle desk setup, 8-bit retro game style.
-Top-down or slightly isometric RPG perspective (looking down at ~45 degree angle).
-Individual elements that can be composed into a full desk:
-1. Office desk — dark wood/metal rectangular desk, warm brown-gray, 48×32 pixels
-2. CRT computer monitor — bulky retro monitor with a glowing screen (jade green #319f6a when active, dark #2c2c2c when off), 32×24 pixels
-3. Keyboard — small rectangular keyboard on desk surface, 16×8 pixels
-4. Office chair — simple rolling chair from side/top angle, dark sandalwood brown, 16×24 pixels
-All elements on transparent background, neatly arranged in a single sprite sheet image.
-Strict pixel grid, no anti-aliasing, clean pixel art.
-Total tileset size: 160×128 pixels (arranged with spacing).
-Color palette: desk in #7a5c43, monitor body in #5c4033, screen in #319f6a, chair in #2c2c2c/#7a5c43.
-Style reference: Cozy modern zen game interior props.
+A 16:9 landscape aspect ratio pixel art character sprite sheet for a female chief secretary, 8-bit retro game style with cozy Stardew Valley warm wood colors. The character is a professional female secretary in smart office attire: an oak brown blazer or cardigan, a creamy parchment blouse, a green hair accessory, and warm beige skin tone. The sprite sheet displays a sequence of poses arranged in a clean row grid on a solid white background: standing idle, typing efficiently at a desk, looking up attentively, and pensive thinking with a hand on her chin. Clean pixel art with no anti-aliasing.
 ```
 
-### A5.5. L1 首席秘书专属工位
+### A3-M. L2 Team Leader 角色 Sprite Sheet (男性)
 
-**用途**：L1 秘书的大型专属工位，比普通工位更精致显眼
+* **用途**：各团队 Leader，从入口走入→坐到工位→工作→离开（支持多方向行走与坐姿）
+* **建议保存路径**：`desktop/src/renderer/assets/sprites/leader_male.png`
 
 ```
-A pixel art executive secretary desk setup, 8-bit retro game style.
-Top-down RPG perspective (looking down at ~45 degrees).
-A larger, more premium L-shaped wooden desk with dual monitors.
-Items on the desk:
-- Two CRT monitors side by side, both with cyan glow (#50e0c0) indicating active status
-- A small nameplate reading "SECRETARY" or a golden star emblem
-- A coffee mug with subtle steam wisps
-- A neat stack of documents/papers in a tray
-- A small desk lamp casting warm amber light (#e8b450) in a small radius
-- A potted tiny plant in the corner for decoration
-The chair is slightly larger and more ergonomic than regular office chairs.
-Resolution: 96×64 pixels. No background (transparent).
-Strict pixel grid, no anti-aliasing.
-Color palette: desk in #7a5c43 with #5c4033 edges, monitors in #5c4033, screens in #319f6a,
-lamp glow in #e5a93b (warm), nameplate in #faf7f0, plant in jade green.
-Style reference: Modern elegant zen office interiors, warm and approachable.
+A 16:9 landscape aspect ratio pixel art character sprite sheet for a male team leader, 8-bit retro game style with a cozy Stardew Valley color palette. The male manager wears business casual attire: a warm oak brown shirt, dark walnut pants, glasses with golden rims, and carries a clipboard. The sprite sheet must be a multi-directional sprite grid showing the character from 4 distinct directions to support full movement: facing forward (front view), facing away (back view), profile facing left, and profile facing right. It should display walk cycles and sitting/typing animations for all 4 directions. Arranged neatly in rows and columns on a solid white background, clean pixel art, no anti-aliasing.
+```
+
+### A3-F. L2 Team Leader 角色 Sprite Sheet (女性)
+
+* **用途**：各团队 Leader，从入口走入→坐到工位→工作→离开（支持多方向行走与坐姿）
+* **建议保存路径**：`desktop/src/renderer/assets/sprites/leader_female.png`
+
+```
+A 16:9 landscape aspect ratio pixel art character sprite sheet for a female team leader, 8-bit retro game style with a cozy Stardew Valley color palette. The female manager wears business casual attire: a warm oak brown blouse, dark walnut pants, glasses with golden rims, and carries a clipboard. The sprite sheet must be a multi-directional sprite grid showing the character from 4 distinct directions to support full movement: facing forward (front view), facing away (back view), profile facing left, and profile facing right. It should display walk cycles and sitting/typing animations for all 4 directions. Arranged neatly in rows and columns on a solid white background, clean pixel art, no anti-aliasing.
+```
+
+### A4-M. L3 Agent 角色 Sprite Sheet (男性)
+
+* **用途**：普通员工，从入口走入→坐到工位→执行任务→离开（支持多方向行走与坐姿）
+* **建议保存路径**：`desktop/src/renderer/assets/sprites/agent_male.png`
+
+```
+A 16:9 landscape aspect ratio pixel art character sprite sheet for a male office worker, 8-bit retro game style with a cozy Stardew Valley color palette. The male worker wears casual office clothing: a warm oak brown hoodie or simple shirt, jeans, and dark chocolate shoes, with warm beige skin tone. The sprite sheet must be a multi-directional sprite grid showing the character from 4 distinct directions to support full movement: facing forward (front view), facing away (back view), profile facing left, and profile facing right. It should show brisk walk cycles and sitting/typing animations at a desk with green computer screen glow reflecting on his face for all 4 directions. Arranged in a neat grid on a solid white background, clean pixel art, no anti-aliasing.
+```
+
+### A4-F. L3 Agent 角色 Sprite Sheet (女性)
+
+* **用途**：普通员工，从入口走入→坐到工位→执行任务→离开（支持多方向行走与坐姿）
+* **建议保存路径**：`desktop/src/renderer/assets/sprites/agent_female.png`
+
+```
+A 16:9 landscape aspect ratio pixel art character sprite sheet for a female office worker, 8-bit retro game style with a cozy Stardew Valley color palette. The female worker wears casual office clothing: a warm oak brown hoodie or simple shirt, jeans, and dark chocolate shoes, with warm beige skin tone. The sprite sheet must be a multi-directional sprite grid showing the character from 4 distinct directions to support full movement: facing forward (front view), facing away (back view), profile facing left, and profile facing right. It should show brisk walk cycles and sitting/typing animations at a desk with green computer screen glow reflecting on her face for all 4 directions. Arranged in a neat grid on a solid white background, clean pixel art, no anti-aliasing.
+```
+
+### A5. 电脑显示器 + 办公桌（工位 Tileset - 多方向组件）
+
+* **用途**：每个工位的核心家具，程序化搭建工位的基础素材（支持上、下、左、右四种工位朝向的摆放）
+* **建议保存路径**：`desktop/src/renderer/assets/furniture/cubicle_tileset.png`
+
+```
+A 16:9 landscape aspect ratio pixel art tileset sheet for a modern office cubicle desk setup, 8-bit retro game style with cozy Stardew Valley colors. The perspective is a top-down RPG view looking down at a 45-degree angle. The sheet includes individual oak brown desks, dark chocolate brown CRT monitors, office keyboards, and rolling ergonomic chairs. All furniture must be shown in multiple orientations to compose workstations facing in 4 directions: facing forward (front view), facing away (back view), profile facing left, and profile facing right. Neatly arranged in a tileset grid on a solid white background, clean pixel art, no anti-aliasing.
+```
+
+### A5.5. L1 首席秘书专属工位 (迎客视角/前向摆放)
+
+* **用途**：L1 秘书的大型专属工位，比普通工位更精致显眼。设计为**迎客前向视角**：桌子在前方，椅子在后方，L1 坐在椅子上面向玩家（Front-facing），双显示器呈 45 度角斜放在 L 型桌面两侧，避免遮挡 L1 的正面立绘。
+* **建议保存路径**：`desktop/src/renderer/assets/furniture/secretary_desk.png`
+
+```
+A 4:3 landscape aspect ratio pixel art of a welcoming, front-facing premium executive secretary desk setup, 8-bit retro game style. Top-down RPG perspective looking down at a 45-degree angle. It features a large, premium L-shaped warm oak wood desk designed as a reception desk where the secretary sits behind the desk facing forward (towards the player). The dual dark chocolate CRT monitors are placed on the side wings of the L-shaped desk, angled 45 degrees inward, so the center of the desk is clear and does not block the secretary's face. Includes a large, comfortable executive rolling chair positioned behind the desk facing the player. On the desk are a coffee mug with steam, documents, a small desk lamp casting warm amber light, and a potted plant. Cozy Stardew Valley-like warm color palette, solid white background, clean pixel art, no anti-aliasing.
 ```
 
 ### A13. 办公楼入口 / 电梯 Spawn 点
 
-**用途**：Agent spwan/despawn 的视觉锚点
+* **用途**：Agent spawn/despawn 的视觉锚点
+* **建议保存路径**：`desktop/src/renderer/assets/backgrounds/office_entrance.png`
 
 ```
-A pixel art office building entrance / elevator lobby, 8-bit retro game style.
-Front-facing view for a 2D side-scrolling office layout.
-A pair of elevator doors or a main office entrance door:
-- Two metal sliding doors (elevator style) or one grand entrance double door
-- A small overhead sign reading "ENTRANCE" in pixel font
-- A floor indicator above the door showing an arrow or level number
-- Subtle light glow from the door gap when opening (jade green #319f6a or warm gold #e5a93b)
-- A small welcome mat or lobby floor tile pattern in front
-Resolution: 64×96 pixels. No background (transparent).
-Strict pixel grid, no anti-aliasing.
-Color palette: door frame in #5c4033, door panels in #7a5c43, sign in #319f6a glow, floor mat in #cfd7c7.
-Include an "open" variant frame (doors slightly apart with glow inside) as second row.
-Total image: 64×192 (two rows: closed + open).
-Style reference: Cozy modern office lobby entrance with zen elements.
-```
-
-### A6. 办公室门与隔断墙
-
-**用途**：划分各团队区域的门和墙体
-
-```
-A pixel art tileset for office interior walls and doors, 8-bit retro game style.
-Side-view perspective for a 2D top-down office layout. Elements include:
-1. Cubicle partition wall — half-height office divider, gray-tan fabric texture, 64×48 pixels vertical
-2. Door (closed) — wooden office door with a small window and handle, warm brown, 24×48 pixels
-3. Door (open) — same door but open showing dark interior, 48×48 pixels
-4. Wall section — solid interior wall with wooden textures, warm dark sandalwood brown (#5c4033), 32×48 pixels
-5. Glass wall section — same wall but with transparent window panel showing light jade green-tinted glass, 32×48 pixels
-All elements on transparent background, sprite sheet layout.
-Strict pixel grid, no anti-aliasing, clean pixel art.
-Color palette: walls in #5c4033/#7a5c43, door in #7a5c43 with #e5a93b handle, glass in semi-transparent jade green #319f6a.
-Total image size: 256×128 pixels.
-Style reference: Cozy modern office architecture with wood-and-jade design.
-```
-
-### A7. 看板墙（Kanban Board）
-
-**用途**：挂在每个团队区域墙壁上的看板
-
-```
-A pixel art wall-mounted kanban/task board, 8-bit retro game style.
-A large cork board or whiteboard mounted on an office wall, viewed from the front.
-Contains:
-- Board frame: dark wood border (#5c4033)
-- Board surface: cork texture in warm brown (#7a5c43) or parchment off-white (#faf7f0)
-- Several small colorful sticky notes/kanban cards pinned to it:
-  - Some jade green (#319f6a) — in progress/running
-  - Some amber yellow (#d48227) — blocked/waiting
-  - Some soft green (#319f6a) — done
-  - Some cinnabar red (#bf360c) — urgent/error
-- Column headers in pixel font: "TODO", "DOING", "DONE"
-- Small pushpins in metallic gray
-Resolution: 128×96 pixels. No background (transparent).
-Strict pixel grid, no anti-aliasing.
-Style reference: Papers Please board aesthetic merged with cozy zen office interior props.
-```
-
-### A8. 木雕团队招牌 "TEAM" 装饰
-
-**用途**：每个团队区域上方的指示招牌，带有些许雅致背光
-
-```
-A pixel art wall-mounted wooden sign reading "TEAM A", 8-bit retro game style.
-An elegant rectangular wooden plaque with gold carved pixel letters.
-The text "TEAM" is carved into the dark wood with gold pigment inlay.
-A subtle glowing backlighting effect (warm gold #e5a93b) behind the wooden plaque.
-Mounted on a dark wood bracket against a #5c4033 wall background.
-Resolution: 128×32 pixels. No background (transparent wall area).
-Strict pixel grid for the letters, glow can have slight transparency.
-Color: plaque in #5c4033, letters in gold #e5a93b, backlight glow in #e5a93b with decreasing opacity.
-Style reference: Elegant oriental wooden shop plaques, retro game style.
-Note: generate one version, the "A" will be programmatically swapped per team.
-```
-
-### A9. 首席秘书办公桌（豪华工位）
-
-**用途**：L1 秘书使用的大型办公桌，带双屏
-
-```
-NOTE: This prompt has been superseded by A5.5. Use A5.5 instead.
+A 4:3 landscape aspect ratio pixel art of an office building entrance or elevator lobby, 8-bit retro game style. Front-facing view for a 2D side-scrolling office layout. It features a cozy wooden elevator door frame with oak wood panels, an entrance sign reading "ENTRANCE" in pixel font, a floor indicator showing an arrow, and a textured floor mat. The image must show two states side-by-side: closed elevator doors, and open elevator doors with glowing warm gold light from inside. Cozy Stardew Valley-like warm paneling, solid white background, clean pixel art, no anti-aliasing.
 ```
 
 ### A10. 饮水机（可选装饰）
 
-**用途**：茶水间/走廊装饰物
+* **用途**：茶水间/走廊装饰物
+* **建议保存路径**：`desktop/src/renderer/assets/furniture/water_cooler.png`
 
 ```
-A pixel art office water cooler/dispenser, 8-bit retro game style.
-Side-view. A tall standing water dispenser unit — white/cream body with a blue water jug on top.
-Simple design: rectangular base, cylindrical water jug with visible water level line.
-Two small spigots (red for hot, blue for cold) at the front.
-Paper cup dispenser mounted on the side.
-Resolution: 16×32 pixels. No background (transparent).
-Strict pixel grid, no anti-aliasing.
-Color palette: body in off-white #faf7f0, water jug in semi-transparent light green, spigots in cinnabar red #bf360c and jade green #319f6a.
+A 1:1 square aspect ratio pixel art of a standing office water cooler dispenser, 8-bit retro game style, front view. It features a warm cream body, a semi-transparent blue water jug on top, small red and blue spigots for hot/cold water, and a paper cup dispenser mounted on the side. Cozy Stardew Valley colors, solid white background, clean pixel art, no anti-aliasing.
 ```
 
 ### A11. 绿植盆栽（可选装饰）
 
-**用途**：办公室装饰，增加场景生动感
+* **用途**：办公室装饰，增加场景生动感
+* **建议保存路径**：`desktop/src/renderer/assets/furniture/potted_plant.png`
 
 ```
-A pixel art potted office plant, 8-bit retro game style.
-Side-view. A medium-sized indoor plant in a simple dark pot.
-Several broad green leaves extending upward and outward from a cylindrical dark gray pot.
-Simple silhouette, 2-3 shades of green for leaves.
-Resolution: 16×24 pixels. No background (transparent).
-Strict pixel grid, no anti-aliasing.
-Color palette: pot in warm white #faf7f0, leaves in 3 shades of jade green #319f6a, soil in dark brown #5c4033.
+A 1:1 square aspect ratio pixel art of a potted office indoor plant, 8-bit retro game style, side view. A medium-sized indoor plant with broad spring green leaves inside a warm oak brown clay terra-cotta pot. Cozy Stardew Valley colors, solid white background, clean pixel art, no anti-aliasing.
 ```
 
-### A12. 状态特效叠加（Sprite 叠加层）
+### A14-M. 首席秘书预览立绘（男性）
 
-**用途**：覆盖在 Agent Sprite 上表现特殊状态
-
-```
-A pixel art status effect overlay spritesheet, 8-bit retro game style.
-Individual animated effects that render ON TOP of character sprites:
-1. Working particles — tiny jade green squares (#319f6a) or bamboo leaves floating upward from keyboard area, 4 frames, each 6×6
-2. Error smoke — dark cinnabar-red clouds (#bf360c) or confusion swirls rising from character head, 4 frames, each 16×16
-3. Idle "..." bubble — a small thought bubble with three dots cycling, 4 frames, each 20×16
-4. Glow/aura ring — a subtle pulsing ring around the character feet (indicating active processing), jade green #319f6a, 4 frames, each 32×8
-All frames in a single sprite sheet image, each effect in its own row.
-Transparent background, strict pixel grid, no anti-aliasing.
-Total image size: 128×64 pixels.
-```
-
-### A14. 角色创建预览 Sprite（男/女，正面立绘）
-
-**用途**：Character Creation Scene 中预览 L1 秘书角色
+* **用途**：首次入职注册时，预览男性 L1 秘书角色的半身像/立绘
+* **建议保存路径**：`desktop/src/renderer/assets/portraits/portrait_secretary_male.png`
 
 ```
-A pixel art character portrait / full-body preview, 8-bit retro game style.
-Front-facing full-body view (standing pose), for character creation screen preview.
-Two separate images:
-1. MALE version: smart business casual — dark blazer, neat shirt, professional appearance
-2. FEMALE version: smart business casual — fitted blazer or cardigan, professional appearance
-Both should be:
-- Standing upright, hands at sides or one hand slightly raised in greeting
-- Friendly but professional expression
-- 48×48 pixels per character (larger than in-game for detail viewing)
-- Neutral background (transparent)
-- Strict pixel grid, no anti-aliasing, clean pixel art
-Color palette: blazer in #7a5c43, shirt in #faf7f0, hair in dark brown or black, skin in warm beige.
-Style reference: Cozy retro wood office style NPC dialogue portraits, RPG character status screen art.
-Generate BOTH the male and female version, clearly labeled.
+A 1:1 square aspect ratio pixel art character portrait of a male chief secretary, standing in a friendly full-body pose, looking forward. The style is reminiscent of Stardew Valley NPC dialogue portraits and RPG status screen art. The male character wears smart business casual attire: a warm oak brown blazer, a creamy parchment shirt, a green tie, and neat dark hair, with a warm beige skin tone. Solid white background, clean pixel art, no anti-aliasing.
+```
+
+### A14-F. 首席秘书预览立绘（女性）
+
+* **用途**：首次入职注册时，预览女性 L1 秘书角色的半身像/立绘
+* **建议保存路径**：`desktop/src/renderer/assets/portraits/portrait_secretary_female.png`
+
+```
+A 1:1 square aspect ratio pixel art character portrait of a female chief secretary, standing in a friendly full-body pose, looking forward. The style is reminiscent of Stardew Valley NPC dialogue portraits and RPG status screen art. The female character wears smart business casual attire: a warm oak brown blazer or cardigan, a creamy parchment blouse, a green hair clip, and neat dark hair, with a warm beige skin tone. Solid white background, clean pixel art, no anti-aliasing.
 ```
 
 ---
 
 ### Prompt 使用说明
 
-1. **生成顺序**：A4（L3 Agent）→ A3（L2 Leader）→ A2（L1 秘书）→ A14（预览立绘）→ A5（工位）→ A5.5（L1 秘书桌）→ A13（入口）→ A1（办公楼）→ A6-A8 → A9 → A12 → A10-A11
-2. **性别变体**：A2/A3/A4/A14 均需生成男性版和女性版，共 8 套角色素材
-3. **尺寸验证**：生成后用图片工具确认像素尺寸是否精确，超出的裁剪，不足的补像素
-4. **调色板统一**：所有素材拖入 Aseprite 等像素编辑工具，统一应用项目色板（见 3.2）
-5. **后期处理**：AI 生成的像素图通常会有杂色/半透明像素，需要手动清理成纯色像素
-6. **背景透明**：生成后需用工具去除背景（remove.bg 或手动抠图），确保素材叠放无白边
-7. **多版本**：每个 prompt 建议生成 3-4 个变体，挑选最佳的一个进行清理使用
+1. **生成顺序**：A4-M/F（L3 Agent）→ A3-M/F（L2 Leader）→ A2-M/F（L1 秘书）→ A14-M/F（预览立绘）→ A5（工位）→ A5.5（L1 秘书桌）→ A13（入口）→ A1（办公楼）→ A10-A11
+2. **生成模型与适配**：此 Prompt 库专门面向 Google Gemini Image (Nano Banana) 模型优化。请在 Google AI Studio 或相关 API 通道中使用 Gemini 3.1 Flash / Imagen 3 等模型执行图像生成，无需添加任何特定于 Midjourney 的命令行参数（如 `--niji` 或 `--style`）。
+3. **性别与方向变体**：角色资产已完全分立男性（-M）与女性（-F）的独立提词。同时，精灵图 Prompt 均以纯句描述方式显式包含了 Front/Down (正面/朝下), Back/Up (背面/朝上), Left Profile (向左侧面), Right Profile (向右侧面) 四个方位的绘制命令，以确保生成的精灵图网格中包含完整的双向对称行走和坐姿形态。
+4. **尺寸验证与后期处理**：由于 AI 像素图生成可能存在微小形变，获取图片后建议在 Aseprite 或 Photoshop 中裁剪，并统一项目专属 HSL 调色板（详见 3.2 节）。因为使用了强制白色背景，抠图边缘处理会非常高效。
+5. **多版本尝试**：建议单次生成设置 3-4 个变体，挑出切片排列最规整、造型最生动的版本进行精细化修像素。
 
 ### 5.4 UI 组件（全部 CSS/Canvas 实现）
 
@@ -658,7 +623,7 @@ Generate BOTH the male and female version, clearly labeled.
 | unsummoned | 无任务，不在场景中 | 不存在于画布 | — |
 | walking_in | 被调度，spawn 后走向工位 | walking 动画，沿走廊移动 | 入口 → 工位路径 |
 | sitting_down | 到达工位，准备开始 | 坐下过渡动画（0.5s） | 工位旁 |
-| working | 正在执行 LLM 调用 | 快速敲键盘，屏幕霓虹青闪烁，粒子飞出 | 坐在工位 |
+| working | 正在执行 LLM 调用 | 快速敲键盘，屏幕绿光闪烁，粒子飞出 | 坐在工位 |
 | tool_calling | 执行工具 | 手上工具图标切换，屏幕快速闪 | 坐在工位 |
 | waiting | 等待用户输入/确认 | 转头看门口，手指轻敲桌面 | 坐在工位 |
 | error | LLM 返回错误 | 冒烟/着火 | 坐在工位 |
@@ -666,9 +631,9 @@ Generate BOTH the male and female version, clearly labeled.
 | despawned | 到达入口消失 | 消失粒子效果 | — |
 
 **状态颜色对应**：
-- working：翡翠绿呼吸光（#319f6a）
-- waiting：蜜蜡黄闪烁（#d48227）
-- error：朱砂红脉冲（#bf360c）
+- working：作物绿呼吸光（#4eb036）
+- waiting：南瓜黄闪烁（#e28a2b）
+- error：浆果红脉冲（#d83838）
 - walking：无特殊光色，正常行走
 - L1（常驻）：idle 时微小浮动，始终在工位
 
@@ -818,7 +783,7 @@ desktop/
 - [ ] Go 后端子进程 spawn/管理
 - [ ] 像素 UI 组件库（PixelButton, PixelPanel, PixelDialog 等）
 - [ ] 像素字体加载
-- [ ] 宣纸暖色主题 Tailwind 配置
+- [ ] 仿星露谷原木暖色主题 Tailwind 配置
 - [ ] WebSocket + REST 通信层复用
 
 ### Phase 2：标题画面 + 角色创建（Week 2）
@@ -855,34 +820,63 @@ desktop/
 ## 十、Game Loop 设计
 
 ```
-┌─────────────────────────────────────────────────────┐
-│              requestAnimationFrame                   │
-│                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────┐  │
-│  │ WS Pull  │  │Pathfinder│  │ Animate  │  │Rend│  │
-│  │ (缓存)   │  │  A* Tick │  │ Tweens   │  │er  │  │
-│  └──────────┘  └──────────┘  └──────────┘  └────┘  │
-│                                                     │
-│  每帧执行：                                          │
-│  1. 检查 WS 消息缓存，更新 Agent 状态到 store        │
-│  2. 对每个 walking 的 Agent 执行 A* 路径步进         │
-│  3. 插值所有动画 tween（位置、颜色、透明度）          │
-│  4. Konva layer.batchDraw() 渲染                  │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     requestAnimationFrame Loop                   │
+│                                                                  │
+│  ┌──────────┐  ┌────────────┐  ┌────────────┐  ┌────────┐  ┌───┐ │
+│  │ WS Cache │  │ Pathfinder │  │   Sprite   │  │ Depth  │  │Rnd│ │
+│  │  Message │  │  A* Tick   │  │ Frame Tick │  │Sorting │  │er │ │
+│  └──────────┘  └────────────┘  └────────────┘  └────────┘  └───┘ │
+│                                                                  │
+│  每帧(60 FPS)执行：                                               │
+│  1. WS 消息解包更新：读取后台推送，变更 Agent 状态及目标网格    │
+│  2. 寻路步进：更新 walking 状态 Agent 的网格坐标与平滑插值      │
+│  3. 精灵帧轮转：检查计时器，累加工作/行走/错误中的 Sprite 帧索引 │
+│  4. 深度重排：计算深度排序层 (Y-Sorting) 的子节点渲染 z-index     │
+│  5. 批量绘制：Konva layer.batchDraw() 更新 Canvas 画面           │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Pathfinding 细节**：
-- 场景划分 16×16 逻辑网格（基于工位和走廊宽度）
-- 每个 walkable 格子存储 x,y 坐标（Konva 世界坐标）
-- A\* 算法每帧步进 1 格（Agent 速度 ≈ 64px/s = 4 格/s ≈ 每 4 帧移动 1 格）
-- L2/L3 Agent spawn 后从入口网格出发，计算到目标工位的最短路径
-- 离开时计算从工位到入口的反向路径
-- 路径预计算并缓存（障碍物布局不变，只需计算一次到各工位的路径）
-- 多 Agent 同时移动时，简单处理：不碰撞，可以重叠通过（像素风不必太真实）
+**Game Loop 核心细节实现**：
 
-- WebSocket 消息频率低（按秒级），不放在 frame loop 里等待
-- Frame loop 只负责动画插值 + 寻路步进 + Konva 渲染
-- 使用 `requestAnimationFrame` 驱动，非活跃窗口自动降帧
+#### 1. 寻路步进与平滑移动 (Pathfinding & Movement)
+- **网格系统**：场景划分为 16×16 逻辑网格。
+- **A\* 调度**：Agent 的行走路径是用 A\* 算法计算的一组网格点序列 `[{gx1, gy1}, {gx2, gy2}, ...]`。
+- **平滑插值**：为了避免小人一格一格跳动，在 Game Loop 中不直接突变坐标，而是设定行走速度，在两点之间进行平滑过渡：
+  ```javascript
+  // 每一帧根据 delta time 更新 Agent 坐标朝下一个网格点靠近
+  const dx = targetX - agent.x;
+  const dy = targetY - agent.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  if (distance > 1) {
+    agent.x += (dx / distance) * speed * dt;
+    agent.y += (dy / distance) * speed * dt;
+    agent.playAnimation('walk');
+  } else {
+    agent.x = targetX;
+    agent.y = targetY;
+    agent.nextPathNode(); // 到达网格点，指向序列中的下一个点
+  }
+  ```
+
+#### 2. 动态精灵帧更新 (Sprite Animation Frame Indexing)
+- **非每帧递增**：因为游戏以 60 FPS 渲染，如果每帧更换一张 Sprite 贴图，动作会快到肉眼无法看清。
+- **帧计时器**：每个 Sprite 有一个独立的帧时长计时器（如每帧展示 `120ms`）：
+  ```javascript
+  agent.frameTimer += dt;
+  if (agent.frameTimer >= 0.12) { // 超过 120ms，轮转至下一帧
+    agent.frameIndex = (agent.frameIndex + 1) % animationFrames[agent.state].length;
+    agent.frameTimer = 0;
+  }
+  ```
+
+#### 3. 深度重排更新 (Depth Sort Throttling)
+- 虽然 Y-Sorting 很重要，但在 Canvas 包含数百个元素时，每帧执行快速排序（O(N log N)）会带来不必要的 CPU 消耗。
+- **限频运行**：深度重排在小人实际发生纵向移动时触发，或者在 Game Loop 中每隔 `3帧` (50ms) 执行一次，从而极大优化渲染管线性能。
+
+#### 4. 离屏渲染与脏矩形技术 (Offscreen & Batch Drawing)
+- 地面层（Layer 0）为纯静态拼贴，只需在初始化时绘制一次并生成缓存 (`layer0.cache()`)。
+- 只有动态深度层（Layer 2）和粒子灯光层（Layer 3）需要在 Game Loop 中高频清除并重绘，这通过 react-konva 的 `batchDraw()` 批量收集脏区域并一次性提交给显卡。
 
 ---
 
