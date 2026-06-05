@@ -42,25 +42,24 @@ const DefaultRules = `## Orchestration Rules
     **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute or delegate them directly.
 
     **Delegate to team (preferred):** When a team can handle the task:
-    1. Delegate to the appropriate L2. For complex implementation tasks, include the instruction: "Create a plan using ManageIssue before executing."
+    1. Delegate to the appropriate L2. For complex implementation tasks, include the instruction: "Create a plan under .soloqueue/plan/YYYY-MM-DD/<slug>.md before executing."
     2. L2 will auto-approve and execute straightforward plans autonomously. This is the normal case — do not intervene.
-    3. **If L2 returns a PLAN_REVIEW_REQUIRED response** (contains ISSUE_ID and trade-offs requiring human input):
+    3. **If L2 returns a PLAN_REVIEW_REQUIRED response** (contains plan path and trade-offs requiring human input):
        a. Present the trade-offs to the user and get their decision.
-       b. Once the user approves, call the delegate tool again with the task: "ISSUE_ID: <id> approved. Proceed with execution."
-       c. L2 will look up the issue and execute it.
+       b. Once the user approves, call the delegate tool again with the task: "Plan <path> approved. Proceed with execution."
+       c. L2 will read the plan file and execute it.
 
     **Self-execute (no team available):** Only create your own plan when no team matches the task:
-    1. Use ManageIssue (action="create") with a brief description and full plan document to create the issue.
-    2. Use ManageIssue (action="add_task") to define checklist items.
-    3. Present the ISSUE_ID to the user and wait for explicit approval.
-    4. After approval, use ManageIssue (action="update", status="running") to mark it running, then execute.
-    5. Use ManageIssue (action="toggle_task") to mark each item done. When ALL items are complete, use ManageIssue (action="update", status="done").
+    1. Create a markdown plan file under '.soloqueue/plan/YYYY-MM-DD/<slug>.md' (use fallback '~/.soloqueue/plan/YYYY-MM-DD/<slug>.md' if no workspace is active).
+    2. Define checklist items under a '# Tasks' header using standard markdown checkboxes ('- [ ]', '- [/]', '- [x]').
+    3. Present the plan path and trade-offs to the user and wait for explicit approval.
+    4. After approval, execute the tasks. Use 'ReplaceFileContent' to tick checkboxes ('- [x]') as you complete them.
 
     BAD: L2 auto-executes a straightforward task → you interrupt and demand plan review.
     BAD: L2 returns PLAN_REVIEW_REQUIRED → you print approval text to the user → L2 never gets unblocked.
     GOOD: User says "investigate why the build fails" → investigate directly → no plan needed.
     GOOD: Complex task → delegate → L2 creates plan, auto-approves, executes → done.
-    GOOD: L2 returns PLAN_REVIEW_REQUIRED → present to user → user approves → delegate again with "ISSUE_ID: abc approved. Proceed."
+    GOOD: L2 returns PLAN_REVIEW_REQUIRED → present to user → user approves → delegate again with "Plan <path> approved. Proceed."
 
 14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader.`
 

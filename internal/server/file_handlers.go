@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -67,13 +69,14 @@ func (m *Mux) allowedRoots() []string {
 	planDir := filepath.Join(m.workDir, "plan")
 	roots = append(roots, planDir)
 
-	groups := m.reloadGroups()
-	for _, gf := range groups {
-		for _, ws := range gf.Frontmatter.Workspaces {
-			p := expandTilde(ws.Path)
-			p = filepath.Clean(p)
-			if p != "" && p != "@default" {
-				roots = append(roots, p)
+	if m.teamstore != nil {
+		projects, err := m.teamstore.ListProjects(context.Background())
+		if err == nil {
+			for _, p := range projects {
+				cleanPath := filepath.Clean(expandTilde(p.Path))
+				if cleanPath != "" {
+					roots = append(roots, cleanPath)
+				}
 			}
 		}
 	}
@@ -97,7 +100,11 @@ func (m *Mux) validatePath(raw string) (string, error) {
 	}
 
 	for _, root := range m.allowedRoots() {
-		if resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator)) {
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			resolvedRoot = root
+		}
+		if resolved == resolvedRoot || strings.HasPrefix(resolved, resolvedRoot+string(filepath.Separator)) {
 			return resolved, nil
 		}
 	}
@@ -202,27 +209,30 @@ type FileRoot struct {
 }
 
 // handleGetFileRoots returns all configured browse roots:
-// global Plan directory + each group's workspace directories.
+// global Plan directory + registered projects.
 func (m *Mux) handleGetFileRoots(w http.ResponseWriter, r *http.Request) {
 	roots := []FileRoot{}
 
-	groups := m.reloadGroups()
-	for key, gf := range groups {
-		name := gf.Frontmatter.Name
-		if name == "" {
-			name = key
-		}
-		for _, ws := range gf.Frontmatter.Workspaces {
-			p := expandTilde(ws.Path)
-			p = filepath.Clean(p)
-			if p == "" || p == "@default" {
-				continue
+	planDir := filepath.Join(m.workDir, "plan")
+	roots = append(roots, FileRoot{
+		Label: "Global Plans",
+		Path:  planDir,
+		Group: "Global Plans",
+	})
+
+	if m.teamstore != nil {
+		projects, err := m.teamstore.ListProjects(r.Context())
+		if err == nil {
+			for _, p := range projects {
+				cleanPath := filepath.Clean(expandTilde(p.Path))
+				if cleanPath != "" {
+					roots = append(roots, FileRoot{
+						Label: p.Name,
+						Path:  cleanPath,
+						Group: "Projects",
+					})
+				}
 			}
-			wsName := ws.Name
-			if wsName == "" {
-				wsName = filepath.Base(p)
-			}
-			roots = append(roots, FileRoot{Label: wsName, Path: p, Group: name})
 		}
 	}
 
@@ -255,4 +265,60 @@ func (m *Mux) handleGetFileInfo(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(info)
+}
+
+var checkboxRegex = regexp.MustCompile(`(?m)(^|[\r\n])(\s*(?:[*+-]|\d+\.)\s+)\[([ x/])\]`)
+
+// handleToggleCheckbox toggles the sequential N-th checkbox in a markdown file.
+func (m *Mux) handleToggleCheckbox(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path  string `json:"path"`
+		Index int    `json:"index"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	absPath, err := m.validatePath(req.Path)
+	if err != nil {
+		m.writeJSON(w, http.StatusForbidden, map[string]string{"error": "access denied"})
+		return
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read file"})
+		return
+	}
+
+	content := string(data)
+	matches := checkboxRegex.FindAllStringSubmatchIndex(content, -1)
+	if req.Index < 0 || req.Index >= len(matches) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "checkbox index out of range"})
+		return
+	}
+
+	match := matches[req.Index]
+	if len(match) < 8 {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal parsing error"})
+		return
+	}
+
+	charIdx := match[6]
+	oldChar := content[charIdx]
+	var newChar rune
+	if oldChar == ' ' || oldChar == '/' {
+		newChar = 'x'
+	} else {
+		newChar = ' '
+	}
+
+	newContent := content[:charIdx] + string(newChar) + content[charIdx+1:]
+	if err := os.WriteFile(absPath, []byte(newContent), 0644); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write file"})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

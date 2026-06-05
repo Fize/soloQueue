@@ -295,6 +295,13 @@ export async function getFileRoots(): Promise<FileRoot[]> {
   return res.json()
 }
 
+export async function toggleFileCheckbox(path: string, index: number): Promise<{ status: string }> {
+  return request<{ status: string }>('/files/toggle-checkbox', {
+    method: 'POST',
+    body: JSON.stringify({ path, index }),
+  })
+}
+
 // ─── Dependency APIs ───────────────────────────────────────────────────────────
 
 export async function getDependencies(todoId: string): Promise<DependenciesResponse> {

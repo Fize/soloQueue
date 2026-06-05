@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { getFileRoots, listFiles } from '@/lib/api'
 import type { FileRoot, FileInfo } from '@/types'
 import { FileContentView } from './FileContentView'
@@ -118,15 +119,86 @@ interface TreeNode {
 }
 
 export function FilesPage() {
+  const [searchParams] = useSearchParams()
+  const pathParam = searchParams.get('path')
+
   const [roots, setRoots] = useState<FileRoot[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    'section:Global Plans': true,
+    'section:Projects': true,
+  })
   const [children, setChildren] = useState<Record<string, TreeNode[]>>({})
   const [loadingNodes, setLoadingNodes] = useState<Record<string, boolean>>({})
   const [showTree, setShowTree] = useState(false)
   const [contentVersion, setContentVersion] = useState(0)
+
+  const lastProcessedPathRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!pathParam || roots.length === 0 || lastProcessedPathRef.current === pathParam) return
+    lastProcessedPathRef.current = pathParam
+
+    // Find matching root
+    const matchingRoot = roots.find((r) => {
+      const cleanPath = pathParam.replace(/\/$/, '')
+      const cleanRoot = r.path.replace(/\/$/, '')
+      return cleanPath === cleanRoot || cleanPath.startsWith(cleanRoot + '/')
+    })
+
+    if (!matchingRoot) return
+
+    const sectionKey = `section:${matchingRoot.group || 'Global Plans'}`
+    const dirsToExpand: string[] = []
+
+    const getParent = (p: string) => {
+      const parts = p.replace(/\/$/, '').split('/')
+      parts.pop()
+      return parts.join('/')
+    }
+
+    let current = getParent(pathParam)
+    const rootPathClean = matchingRoot.path.replace(/\/$/, '')
+
+    while (current && current.length >= rootPathClean.length) {
+      dirsToExpand.unshift(current)
+      if (current === rootPathClean) break
+      current = getParent(current)
+    }
+    if (!dirsToExpand.includes(rootPathClean)) {
+      dirsToExpand.unshift(rootPathClean)
+    }
+
+    const loadSequentially = async () => {
+      setExpanded((prev) => ({ ...prev, [sectionKey]: true }))
+
+      for (const dir of dirsToExpand) {
+        setExpanded((prev) => ({ ...prev, [dir]: true }))
+        if (!children[dir]) {
+          try {
+            const files = await listFiles(dir)
+            const nodes: TreeNode[] = files.map((f: FileInfo) => ({
+              path: f.path,
+              name: f.name,
+              isDir: f.isDir,
+              ext: f.ext,
+              size: f.size,
+              children: null,
+              loading: false,
+            }))
+            setChildren((prev) => ({ ...prev, [dir]: nodes }))
+          } catch {
+            // ignore
+          }
+        }
+      }
+      setSelectedPath(pathParam)
+    }
+
+    loadSequentially()
+  }, [pathParam, roots, children])
 
   const fetchRoots = useCallback(() => {
     setLoading(true)
@@ -261,12 +333,11 @@ export function FilesPage() {
 
   // Group roots and filter .soloqueue
   const filtered = roots.filter((r) => !isDotSoloqueue(r.path))
-  const globalRoots = filtered.filter((r) => !r.group)
   const groupMap: Record<string, FileRoot[]> = {}
   for (const r of filtered) {
-    if (!r.group) continue
-    if (!groupMap[r.group]) groupMap[r.group] = []
-    groupMap[r.group].push(r)
+    const g = r.group || 'Global Plans'
+    if (!groupMap[g]) groupMap[g] = []
+    groupMap[g].push(r)
   }
   const groupNames = Object.keys(groupMap).sort()
 
@@ -301,14 +372,6 @@ export function FilesPage() {
       </div>
       <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
-          {/* Global */}
-          {globalRoots.length > 0 && (
-            <div>
-              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground">Global</div>
-              {renderFileNodes(globalRoots.map(rootToNode), 0)}
-            </div>
-          )}
-
           {/* Groups */}
           {groupNames.map((name) => {
             const groupRoots = groupMap[name]

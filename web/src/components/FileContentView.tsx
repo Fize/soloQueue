@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
-import { getFileUrl } from '@/lib/api'
+import { getFileUrl, toggleFileCheckbox } from '@/lib/api'
 import { Loader2, FileIcon, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -109,6 +109,7 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     if (!path) {
@@ -144,7 +145,7 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
         setLoading(false)
         onError?.(path)
       })
-  }, [path, onError])
+  }, [path, onError, refreshKey])
 
   if (!path) {
     return (
@@ -237,7 +238,20 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
 
           {!isImage && !isAudio && !isVideo && content !== null && (
             <>
-              {isMarkdown && <MarkdownPreview content={content} />}
+              {isMarkdown && (
+                <MarkdownPreview
+                  content={content}
+                  onToggleCheckbox={async (index) => {
+                    if (!path) return
+                    try {
+                      await toggleFileCheckbox(path, index)
+                      setRefreshKey((k) => k + 1)
+                    } catch (err) {
+                      console.error('Failed to toggle checkbox:', err)
+                    }
+                  }}
+                />
+              )}
               {language && (
                 <SyntaxHighlighter
                   language={language}

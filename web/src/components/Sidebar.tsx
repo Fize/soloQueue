@@ -5,7 +5,6 @@ import { useRuntime } from '@/hooks/useRuntime'
 import { Button } from '@/components/ui/button'
 import {
   Bot,
-  Kanban,
   FolderOpen,
   Settings,
   ChevronDown,
@@ -25,7 +24,6 @@ import {
 
 const mainNav = [
   { to: '/', icon: Bot, label: 'Agents' },
-  { to: '/kanban', icon: Kanban, label: 'Kanban' },
   { to: '/files', icon: FolderOpen, label: 'Files' },
   { to: '/cron', icon: Clock, label: 'Cron Tasks' },
 ]

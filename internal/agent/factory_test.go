@@ -831,17 +831,8 @@ func TestL2EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
 
 func TestL2EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan
-	if !strings.Contains(combined, "Goal") {
-		t.Error("L2 enforced directives should contain 'Goal' in design document structure")
-	}
-	if !strings.Contains(combined, "Approach") {
-		t.Error("L2 enforced directives should contain 'Approach' in design document structure")
-	}
-	if !strings.Contains(combined, "Impact") {
-		t.Error("L2 enforced directives should contain 'Impact' in design document structure")
-	}
-	if !strings.Contains(combined, "Steps") {
-		t.Error("L2 enforced directives should contain 'Steps' in design document structure")
+	if !strings.Contains(combined, "Tasks") {
+		t.Error("L2 enforced directives should contain 'Tasks' in checklist structure")
 	}
 }
 
@@ -861,17 +852,8 @@ func TestL3EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
 
 func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 	combined := l3EnforcedDirectives + l3EnforcedPostPlan
-	if !strings.Contains(combined, "Goal") {
-		t.Error("L3 enforced directives should contain 'Goal' in design document structure")
-	}
-	if !strings.Contains(combined, "Approach") {
-		t.Error("L3 enforced directives should contain 'Approach' in design document structure")
-	}
-	if !strings.Contains(combined, "Impact") {
-		t.Error("L3 enforced directives should contain 'Impact' in design document structure")
-	}
-	if !strings.Contains(combined, "Steps") {
-		t.Error("L3 enforced directives should contain 'Steps' in design document structure")
+	if !strings.Contains(combined, "Tasks") {
+		t.Error("L3 enforced directives should contain 'Tasks' in checklist structure")
 	}
 }
 
@@ -956,18 +938,9 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	planDir := "/home/user/.soloqueue/plan"
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
-	// 验证 Goal/Approach/Impact/Steps 结构约定在 L2 prompt 中体现
-	if !strings.Contains(prompt, "Goal") {
-		t.Error("L2 prompt should contain 'Goal' in design document structure")
-	}
-	if !strings.Contains(prompt, "Approach") {
-		t.Error("L2 prompt should contain 'Approach' in design document structure")
-	}
-	if !strings.Contains(prompt, "Impact") {
-		t.Error("L2 prompt should contain 'Impact' in design document structure")
-	}
-	if !strings.Contains(prompt, "Steps") {
-		t.Error("L2 prompt should contain 'Steps' in design document structure")
+	// 验证 Tasks 结构约定在 L2 prompt 中体现
+	if !strings.Contains(prompt, "Tasks") {
+		t.Error("L2 prompt should contain 'Tasks' in checklist structure")
 	}
 }
 
@@ -985,9 +958,6 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	// 验证 L3 prompt 中包含 "Follow the Plan" 规则
 	if !strings.Contains(prompt, "Follow the Plan") {
 		t.Error("L3 prompt should contain 'Follow the Plan' rule")
-	}
-	if !strings.Contains(prompt, "ISSUE_ID") {
-		t.Error("L3 prompt should contain ISSUE_ID requirement")
 	}
 
 	// 验证 L3 prompt 中包含 Exploration Artifacts 规则
@@ -1054,18 +1024,9 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	planDir := "/home/user/.soloqueue/plan"
 	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
-	// 验证 Goal/Approach/Impact/Steps 结构约定在 L3 prompt 中体现
-	if !strings.Contains(prompt, "Goal") {
-		t.Error("L3 prompt should contain 'Goal' in design document structure")
-	}
-	if !strings.Contains(prompt, "Approach") {
-		t.Error("L3 prompt should contain 'Approach' in design document structure")
-	}
-	if !strings.Contains(prompt, "Impact") {
-		t.Error("L3 prompt should contain 'Impact' in design document structure")
-	}
-	if !strings.Contains(prompt, "Steps") {
-		t.Error("L3 prompt should contain 'Steps' in design document structure")
+	// 验证 Tasks 结构约定在 L3 prompt 中体现
+	if !strings.Contains(prompt, "Tasks") {
+		t.Error("L3 prompt should contain 'Tasks' in checklist structure")
 	}
 }
 
