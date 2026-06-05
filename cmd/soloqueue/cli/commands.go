@@ -191,7 +191,7 @@ func ServeCmd(version string) *cobra.Command {
 		actualAddr := listener.Addr().String()
 		runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: actualAddr}
 		fmt.Println(actualAddr)
-		mux := server.NewMux(workDir, log, rt.TodoStore,
+		mux := server.NewMux(workDir, log,
 			server.WithRegistry(rt.AgentRegistry),
 			server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
 			server.WithConfigService(cfg),

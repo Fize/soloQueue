@@ -661,57 +661,52 @@ Tasks MUST be deterministic and executable.
 BAD: "Fix the bug in the backend."
 GOOD: "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
 `
-
 const l2EnforcedPlanSection = `
-# 3. MANDATORY Plan Before Execution (Plan & Issue Tracking in Kanban)
+# 3. MANDATORY Plan Before Execution (Plan & Todo File Tracking)
 This rule establishes a **MANDATORY Plan Before Execution** policy for all non-trivial implementation tasks.
 **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute or delegate them without a plan.
 
 **For implementation tasks:**
 1. Assess complexity:
    - **Simple task** (single file, narrow change) → delegate directly to L3. L3 will self-plan if needed.
-   - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan (steps 2-12).
-2. Use ManageIssue with action="create" to create a new issue:
-   - Provide a brief summary in the "description" parameter (this is a short description, not the full plan).
-   - Record the detailed technical design / steps (Goal, Approach, Impact, Steps) in the "plan" parameter (this is the markdown document for your implementation plan).
-   - Set the "author" parameter to your agent name (e.g. "Dev", "QA", etc.).
-3. Use ManageIssue with action="add_task" to define checklist items for the issue. You MUST specify dependencies where applicable to drive the correct execution order.
+   - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan.
+2. Create a markdown plan file under the project-specific path: ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (where YYYY-MM-DD is today's date). If not inside a project workspace, use the home directory fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + `.
+3. Structuring the file:
+   - Must start with an H1 header ('# Title') containing the name of the plan.
+   - Must contain a '# Tasks' header. Under this header, list all checklist tasks using standard checkboxes ('- [ ]', '- [/]', '- [x]').
+   - Use indentations to denote sub-tasks. You can add notes or dependency labels in task descriptions.
 4. **Approval decision — choose ONE:**
-   - **Auto-approve (default for most tasks):** If the plan is straightforward and low-risk → proceed directly to execution without waiting for L1. Update status to "running" using ManageIssue (action="update", status="running", id="<id>").
-   - **Escalate to L1 (only for significant trade-offs):** If the plan involves irreversible changes, significant architectural decisions, or conflicts with unclear requirements → return a structured response to L1:
+   - **Auto-approve (default for most tasks):** If the plan is straightforward and low-risk → proceed directly to execution without waiting for L1.
+   - **Escalate to L1 (only for significant trade-offs):** If the plan involves irreversible changes or trade-offs → return a structured response to L1:
      ` + "`" + `PLAN_REVIEW_REQUIRED
-ISSUE_ID: <id>
+Path: <path_to_plan_file>
 Summary: <one-line summary of the plan>
 Trade-offs: <what requires human decision>` + "`" + `
-     Wait for L1 to re-delegate with "ISSUE_ID: <id> approved" before executing.
-5. After approval (auto or from L1's re-delegation), update the issue status to "running".
+     Wait for L1 to re-delegate with "Plan <path> approved" before executing.
 
 **Execution loop — you MUST follow these steps EXACTLY in order, no skipping:**
 
-6. Read the issue's tasks and their dependencies using ManageIssue with action="get" and id="<id>".
-   You MUST check dependencies — they determine what can run in parallel.
-7. Identify ALL tasks whose dependencies are satisfied (no uncompleted blockers).
-8. CRITICAL — Delegate ALL identified tasks IN PARALLEL in a SINGLE turn.
-   Call multiple delegate_* tools in one response. NEVER delegate them one by one.
+5. Read the tasks and their statuses directly from the plan file.
+6. Identify all tasks whose blockers/parent tasks are completed.
+7. CRITICAL — Delegate ALL identified tasks IN PARALLEL in a SINGLE turn.
+   Call multiple delegate_* tools in one response. Set the ` + "`" + `work_dir` + "`" + ` parameter in each tool call so the worker runs in the same workspace. Pass the plan file path to the workers in the task prompt.
    Parallel execution of independent items is MANDATORY, not optional.
-10. Wait for ALL parallel delegations in this batch to return results.
-11. For EACH completed delegation →:
-    a. Call ManageIssue with action="toggle_task" and task_id="<task_id>" to mark it complete.
-    b. Call ManageIssue with action="add_comment" and set "author" to your agent name to record the results/findings/diffs of that task.
-12. Repeat from step 7. Find the next batch of checklist tasks whose dependencies are now satisfied. Continue the loop until no remaining tasks.
-13. When ALL checklist tasks are marked completed → call ManageIssue with action="update", id="<id>", and status="done".
+8. Wait for all parallel delegations in this batch to return results.
+9. For each completed task, update the checkbox in the plan file to ` + "`" + `- [x]` + "`" + ` using standard file editing tools.
+10. Repeat from step 5. Find the next batch of checklist tasks whose dependencies are now satisfied. Continue the loop until no remaining tasks.
+11. When ALL tasks in the checklist are marked completed, your job is complete.
 
 **When L3 submits a plan for review:**
-- Approve autonomously if straightforward → reply "ISSUE_ID: <id> approved" and proceed.
+- Approve autonomously if straightforward → reply 'Plan <path> approved' and proceed.
 - Escalate to L1 only for significant trade-offs using the PLAN_REVIEW_REQUIRED format above.
 
-**When L1 re-delegates with "ISSUE_ID: <id> approved":**
-- Look up the issue using ManageIssue (action="get", id="<id>") to retrieve the plan and tasks.
+**When L1 re-delegates with "Plan <path> approved":**
+- Read the plan file at '<path>' to retrieve the tasks.
 - Proceed directly to the execution loop (step 5 onwards).
 
-BAD: delegate task1 → wait → Toggle task1 → delegate task2 → wait ...
-BAD: delegate task1+task2+task3 in parallel → wait → mark ZERO tasks complete
-GOOD: delegate task1+task2+task3 (all independent) → wait all → toggle_task(1)+toggle_task(2)+toggle_task(3) → delegate next batch.
+BAD: delegate task1 → wait → mark done → delegate task2 → wait ...
+BAD: delegate task1+task2+task3 in parallel → wait → update zero tasks in the file.
+GOOD: delegate task1+task2+task3 (all independent) → wait all → update plan file marking task1, task2, task3 as done → delegate next batch.
 `
 
 
@@ -947,27 +942,23 @@ GOOD: Task is "fix the null pointer on line 42" → you fix ONLY the null pointe
 Your output (results, summaries, error reports) MUST be in English. You are part of a multi-layer system where cross-layer communication must be English.
 BAD: "修复完成，已经把第42行的空指针问题解决了"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
-
 # 3. Follow the Plan — you MUST execute tasks one at a time and mark each:
-1. Read the issue's checklist tasks. If readable → proceed to step 3.
-2. If NO tasks exist → create your own plan:
-   a. Use ManageIssue with action="create" to create a new issue:
-      - Record a brief summary in the "description" parameter (this is a short description, not the full plan).
-      - Record the detailed plan/design (Goal, Approach, Impact, Steps) in the "plan" parameter (this is the markdown document for your implementation plan).
-      - Set the "author" parameter to your agent name (e.g. "Refactorer-Worker", "Go-Worker").
-   b. Use ManageIssue with action="add_task" to define checklist items.
-   c. Present ISSUE_ID → wait for approval → update status to "running" using ManageIssue with action="update" and status="running" and id="<id>".
-3. Pick the FIRST uncompleted task from the list.
+1. Locate the plan file path. If L2 provided a plan path, read that file. If no plan file path was provided, check the workspace for an existing plan or create your own:
+   - Create a markdown plan file under ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (use fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + ` if no workspace is active).
+    - Write an H1 header ('# Title') and a '# Tasks' section containing checklist items ('- [ ]', '- [/]', '- [x]').
+    - If creating your own plan, present the path to L2, wait for approval, and then proceed.
+2. Pick the FIRST uncompleted task from the checklist in the plan file.
+3. Mark it in-progress by replacing '- [ ]' with '- [/' + ']' in the file.
 4. Execute it using the appropriate tool.
 5. IMMEDIATELY after completion:
-   a. Toggle the task completion status using ManageIssue with action="toggle_task" and task_id="<task_id>". This step is MANDATORY — you MUST NOT skip it.
-   b. Call ManageIssue with action="add_comment" and set "author" to your agent name to summarize the changes made and tests run for this task.
-6. Repeat from step 3 for the next uncompleted task.
-7. When ALL tasks are done → update issue status to "done" using ManageIssue with action="update" and status="done" and id="<id>".
+   - Replace the task's checkbox with '- [x]' in the file. This step is MANDATORY — you MUST NOT skip it.
+6. Repeat from step 2 for the next uncompleted task.
+7. When ALL tasks in the checklist are marked completed, report the completion to L2.
 
-BAD: execute all work → update status to "done" at the end without per-task tracking.
-GOOD: execute task1 → ManageIssue(action="toggle_task", task_id="1") → execute task2 → ManageIssue(action="toggle_task", task_id="2") ... → ManageIssue(action="update", status="done", id="<id>").
+BAD: execute all work → report done at the end without updating the plan file per task.
+GOOD: execute task1 → mark done in file → execute task2 → mark done in file ... → report completion.
 `
+
 
 const l3EnforcedExplorationSection = `
 # 4. Exploration Artifacts

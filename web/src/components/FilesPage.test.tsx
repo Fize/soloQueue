@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { FilesPage } from './FilesPage'
 import * as api from '@/lib/api'
 
@@ -27,16 +28,20 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
+
 describe('FilesPage', () => {
   it('shows loading state initially', () => {
     vi.spyOn(api, 'getFileRoots').mockReturnValue(new Promise(() => {}))
-    const { container } = render(<FilesPage />)
+    const { container } = renderWithRouter(<FilesPage />)
     expect(container.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
   it('renders file roots after loading', async () => {
     vi.spyOn(api, 'getFileRoots').mockResolvedValue(mockRoots)
-    render(<FilesPage />)
+    renderWithRouter(<FilesPage />)
     await waitFor(() => {
       expect(screen.getByText('Files')).toBeInTheDocument()
     })
@@ -46,7 +51,7 @@ describe('FilesPage', () => {
 
   it('shows error state', async () => {
     vi.spyOn(api, 'getFileRoots').mockRejectedValue(new Error('Network error'))
-    render(<FilesPage />)
+    renderWithRouter(<FilesPage />)
     await waitFor(() => {
       expect(screen.getByText('Network error')).toBeInTheDocument()
     })
@@ -55,7 +60,7 @@ describe('FilesPage', () => {
   it('filters out .soloqueue roots', async () => {
     const rootsWithSolo = [...mockRoots, { label: 'sq', path: '/home/user/.soloqueue', group: '' }]
     vi.spyOn(api, 'getFileRoots').mockResolvedValue(rootsWithSolo)
-    render(<FilesPage />)
+    renderWithRouter(<FilesPage />)
     await waitFor(() => {
       expect(screen.getByText('work')).toBeInTheDocument()
     })
@@ -66,7 +71,7 @@ describe('FilesPage', () => {
     vi.spyOn(api, 'getFileRoots').mockResolvedValue(mockRoots)
     vi.spyOn(api, 'listFiles').mockResolvedValue(mockFiles)
     const user = userEvent.setup()
-    render(<FilesPage />)
+    renderWithRouter(<FilesPage />)
 
     await waitFor(() => {
       expect(screen.getByText('work')).toBeInTheDocument()
@@ -83,7 +88,7 @@ describe('FilesPage', () => {
     vi.spyOn(api, 'getFileRoots').mockResolvedValue(mockRoots)
     vi.spyOn(api, 'listFiles').mockResolvedValue(mockFiles)
     const user = userEvent.setup()
-    render(<FilesPage />)
+    renderWithRouter(<FilesPage />)
 
     await waitFor(() => expect(screen.getByText('work')).toBeInTheDocument())
     await user.click(screen.getByText('work'))
@@ -95,7 +100,7 @@ describe('FilesPage', () => {
 
   it('shows groups', async () => {
     vi.spyOn(api, 'getFileRoots').mockResolvedValue(mockRoots)
-    render(<FilesPage />)
+    renderWithRouter(<FilesPage />)
     await waitFor(() => {
       expect(screen.getByText('team-a')).toBeInTheDocument()
     })

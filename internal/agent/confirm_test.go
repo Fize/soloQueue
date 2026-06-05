@@ -531,7 +531,6 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 	writeTool := newFakeTool("Write")
 	delegateTool := newFakeTool("delegate_task")
 	skillTool := newFakeTool("Skill")
-	planTool := newFakeTool("ManageIssue")
 
 	fake := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
@@ -540,7 +539,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 		Responses: []string{"final answer"},
 	}
 
-	a := startedAgentWithTools(t, fake, readTool, writeTool, delegateTool, skillTool, planTool)
+	a := startedAgentWithTools(t, fake, readTool, writeTool, delegateTool, skillTool)
 
 	// 1. 验证 L0-Conversation 下的过滤
 	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
@@ -564,7 +563,6 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 	specsL1 := a.ToolSpecs()
 	hasDelegate := false
 	hasSkill := false
-	hasPlan := false
 	hasRead = false
 	hasWrite = false
 	for _, spec := range specsL1 {
@@ -577,27 +575,25 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 			hasDelegate = true
 		case "Skill":
 			hasSkill = true
-		case "ManageIssue":
-			hasPlan = true
 		}
 	}
-	if !hasRead || !hasWrite || hasDelegate || hasSkill || hasPlan || len(specsL1) != 2 {
-		t.Errorf("L1 filter failed: specs count = %d, hasRead = %v, hasWrite = %v, hasDelegate = %v, hasSkill = %v, hasPlan = %v",
-			len(specsL1), hasRead, hasWrite, hasDelegate, hasSkill, hasPlan)
+	if !hasRead || !hasWrite || hasDelegate || hasSkill || len(specsL1) != 2 {
+		t.Errorf("L1 filter failed: specs count = %d, hasRead = %v, hasWrite = %v, hasDelegate = %v, hasSkill = %v",
+			len(specsL1), hasRead, hasWrite, hasDelegate, hasSkill)
 	}
 
 	// 3. 验证 L2 下的过滤 (应该全部保留)
 	a.modelOverride.Store(&ModelParams{Level: "L2"})
 	specsL2 := a.ToolSpecs()
-	if len(specsL2) != 5 {
-		t.Errorf("L2 filter failed: specs count = %d, want 5", len(specsL2))
+	if len(specsL2) != 4 {
+		t.Errorf("L2 filter failed: specs count = %d, want 4", len(specsL2))
 	}
 
 	// 4. 验证空级别下的过滤 (应该全部保留)
 	a.modelOverride.Store(&ModelParams{Level: ""})
 	specsEmpty := a.ToolSpecs()
-	if len(specsEmpty) != 5 {
-		t.Errorf("empty level filter failed: specs count = %d, want 5", len(specsEmpty))
+	if len(specsEmpty) != 4 {
+		t.Errorf("empty level filter failed: specs count = %d, want 4", len(specsEmpty))
 	}
 
 	// 5. 验证 execToolStream 中拦截剪裁的工具调用并返回错误

@@ -41,7 +41,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 		CronScheduler: sched,
 	}
 
-	mux := NewMux(tempDir, nil, nil, WithToolsConfig(&toolsCfg))
+	mux := NewMux(tempDir, nil, WithToolsConfig(&toolsCfg))
 	defer mux.Close()
 
 	// 1. POST /api/cron - Create a task
@@ -148,7 +148,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 
 func TestHTTP_CronHandlers_Invalid(t *testing.T) {
 	tempDir := t.TempDir()
-	mux := NewMux(tempDir, nil, nil)
+	mux := NewMux(tempDir, nil)
 	defer mux.Close()
 
 	// Request when cron system is not configured

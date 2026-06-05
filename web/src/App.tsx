@@ -4,8 +4,6 @@ import { Sidebar } from '@/components/Sidebar'
 import { MobileNav } from '@/components/MobileNav'
 import { AgentListPage } from '@/components/AgentListPage'
 import { AgentDetailPage } from '@/components/AgentDetailPage'
-import { PlansPage } from '@/components/PlansPage'
-import { PlanDetail } from '@/components/PlanDetail'
 import { FilesPage } from '@/components/FilesPage'
 import { CronPage } from '@/components/CronPage'
 import { SettingsLayout } from '@/components/SettingsLayout'
@@ -61,8 +59,6 @@ function App() {
               <Route path="/" element={<AgentListPage />} />
               <Route path="/agents" element={<AgentListPage />} />
               <Route path="/agents/:id" element={<AgentDetailPage />} />
-              <Route path="/kanban" element={<PlansPage />} />
-              <Route path="/kanban/:id" element={<PlanDetail />} />
               <Route path="/files" element={<FilesPage />} />
               <Route path="/cron" element={<CronPage />} />
               <Route path="/settings" element={<SettingsLayout />}>

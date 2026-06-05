@@ -14,7 +14,6 @@ func (bc *buildContext) buildAgentInfra() {
 	toolsCfg := bc.settings.Tools.ToToolsConfig()
 	toolsCfg.PermanentManager = bc.permanentMgr
 	toolsCfg.PlanDir = bc.planDir
-	toolsCfg.TodoStore = bc.todoStore
 	bc.toolsCfg = toolsCfg
 
 	// ── Agent Registry + Factory ──────────────────────────────────────────────

@@ -30,7 +30,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
-	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -297,7 +296,6 @@ type buildContext struct {
 	permScheduler     *permanent.Scheduler
 	permCancel        context.CancelFunc
 	planDir           string
-	todoStore         *todo.Store
 	mcpServers        []string
 	systemPrompt      string
 	agentRegistry     *agent.Registry
@@ -408,7 +406,6 @@ func (bc *buildContext) assembleStack() *Stack {
 		PermanentMemory:   bc.permanentMgr,
 		PermScheduler:     bc.permScheduler,
 		PermCancel:        bc.permCancel,
-		TodoStore:         bc.todoStore,
 		SharedDB:          bc.sharedDB,
 		BypassConfirm:     bc.bypassConfirm,
 		MCPManager:        bc.mcpMgr,

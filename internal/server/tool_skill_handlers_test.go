@@ -53,7 +53,7 @@ Instructions for test catalog skill
 	}
 
 	// Create Server Mux
-	mux := NewMux(tempDir, nil, nil, WithSkillRegistry(reg), WithSkillDirs(dirs))
+	mux := NewMux(tempDir, nil, WithSkillRegistry(reg), WithSkillDirs(dirs))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		srv.Close()
