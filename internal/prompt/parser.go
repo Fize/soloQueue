@@ -20,9 +20,6 @@ type AgentFrontmatter struct {
 	Permission   bool              `yaml:"permission"`
 	MCPServers   []string          `yaml:"mcp_servers,omitempty"`
 	Skills       []string          `yaml:"skills,omitempty"`
-	ExternalType string            `yaml:"external_type,omitempty"`
-	CustomArgs   []string          `yaml:"custom_args,omitempty"`
-	CustomEnv    map[string]string `yaml:"custom_env,omitempty"`
 	CreatedAt    string            `yaml:"created_at,omitempty"`
 	UpdatedAt    string            `yaml:"updated_at,omitempty"`
 }
