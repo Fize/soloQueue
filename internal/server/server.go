@@ -44,6 +44,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/proxy"
+	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -68,6 +69,7 @@ type Mux struct {
 	rebuildPrompt func() error     // rebuilds L1 system prompt after soul/rules edit
 	agentsDir     string           // path to ~/.soloqueue/agents directory
 	mcpLoader     *mcp.Loader      // MCP config loader for /api/mcp endpoints
+	sessionMgr    *session.SessionManager
 	authConfig    config.AuthConfig
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
@@ -240,6 +242,11 @@ func WithProxyManager(pm *proxy.ProxyManager) MuxOption {
 	return func(m *Mux) { m.proxyManager = pm }
 }
 
+// WithSessionManager sets the session manager for /api/session endpoints.
+func WithSessionManager(mgr *session.SessionManager) MuxOption {
+	return func(m *Mux) { m.sessionMgr = mgr }
+}
+
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
@@ -298,6 +305,14 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 
 	// WebSocket
 	r.Get("/ws", m.handleWebSocket)
+
+	// Session routes
+	r.Route("/api/session", func(r chi.Router) {
+		r.Get("/", m.handleGetSessionStatus)
+		r.Post("/ask", m.handleAskSession)
+		r.Post("/cancel", m.handleCancelSession)
+		r.Post("/clear", m.handleClearSession)
+	})
 
 	// Auth check
 	r.Get("/api/auth/check", m.handleAuthCheck)

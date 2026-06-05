@@ -193,6 +193,7 @@ func ServeCmd(version string) *cobra.Command {
 		fmt.Println(actualAddr)
 		mux := server.NewMux(workDir, log,
 			server.WithRegistry(rt.AgentRegistry),
+			server.WithSessionManager(mgr),
 			server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
 			server.WithConfigService(cfg),
 			server.WithRuntimeMetrics(runtimeMetrics),

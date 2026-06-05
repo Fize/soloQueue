@@ -113,7 +113,7 @@ func (bc *buildContext) buildPrompt() error {
 	}
 	bc.mcpServers = mcpServers
 
-	systemPrompt, err := promptCfg.BuildPrompt(leaders, groups, bc.memoryDir, bc.memoryDir, bc.planDir, mcpServers)
+	systemPrompt, err := promptCfg.BuildPrompt(bc.leaders, bc.groups, bc.memoryDir, bc.memoryDir, bc.planDir, mcpServers)
 	if err != nil {
 		return fmt.Errorf("build system prompt: %w", err)
 	}
