@@ -22,7 +22,7 @@ import (
 
 func startTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	mux := NewMux(t.TempDir(), nil, nil)
+	mux := NewMux(t.TempDir(), nil)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		srv.Close()
@@ -48,7 +48,7 @@ func TestHTTP_Health(t *testing.T) {
 }
 
 func TestHTTP_Auth(t *testing.T) {
-	mux := NewMux(t.TempDir(), nil, nil, WithAuthConfig(config.AuthConfig{
+	mux := NewMux(t.TempDir(), nil, WithAuthConfig(config.AuthConfig{
 		User:     "admin",
 		Password: "password123",
 	}))
@@ -170,7 +170,7 @@ func TestHTTP_TeamAgents(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	mux := NewMux(tempDir, nil, nil, WithTeamStore(store))
+	mux := NewMux(tempDir, nil, WithTeamStore(store))
 	defer mux.Close()
 
 	// 1. Test GET /api/teams
@@ -254,7 +254,7 @@ func TestHTTP_ProxyCookieHijackDefense(t *testing.T) {
 		t.Fatalf("failed to add proxy: %v", err)
 	}
 
-	mux := NewMux(tempDir, nil, nil, WithProxyManager(pm))
+	mux := NewMux(tempDir, nil, WithProxyManager(pm))
 	defer mux.Close()
 
 	// 1. Request GET / with Cookie set and Accept: text/html -> Should NOT be proxied (should fall through to FileServer/dashboard)
@@ -321,7 +321,7 @@ func TestHTTP_ProxyErrorHandling(t *testing.T) {
 	}
 	defer sysLog.Close()
 
-	mux := NewMux(tempDir, sysLog, nil, WithProxyManager(pm))
+	mux := NewMux(tempDir, sysLog, WithProxyManager(pm))
 	defer mux.Close()
 
 	// 1. Initially it is healthy (by default). Request it and expect 502 Bad Gateway.

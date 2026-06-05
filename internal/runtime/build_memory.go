@@ -14,7 +14,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/permanent"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
-	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
 )
 
@@ -45,10 +44,6 @@ func (bc *buildContext) buildMemory() error {
 
 	// ── Permanent Memory Manager ──────────────────────────────────────────
 	bc.buildPermanentMemory()
-
-	// ── Todo Store ──────────────────────────────────────────────────────
-	todoStore := todo.NewStoreFromDB(bc.sharedDB.DB, &bc.sharedDB.WMu)
-	bc.todoStore = todoStore
 
 	return nil
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
-	"github.com/xiaobaitu/soloqueue/internal/todo"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -52,7 +51,6 @@ type Stack struct {
 	PermanentMemory *permanent.Manager // Permanent memory manager
 	PermScheduler *permanent.Scheduler
 	PermCancel    context.CancelFunc // Cancel function for permanent scheduler context
-	TodoStore     *todo.Store        // Todo plan/task store
 	SharedDB      *sqlitedb.DB       // Shared SQLite connection reused by vectorstore + todo stores
 	MCPManager    *mcp.Manager       // MCP server manager
 	LSPManager    *lsp.Manager       // Built-in LSP MCP server manager
@@ -310,7 +308,6 @@ func (s *Stack) OnConfigChange() error {
 	newToolsCfg := settings.Tools.ToToolsConfig()
 	newToolsCfg.PermanentManager = s.ToolsCfg.PermanentManager
 	newToolsCfg.PlanDir = s.ToolsCfg.PlanDir
-	newToolsCfg.TodoStore = s.ToolsCfg.TodoStore
 	newToolsCfg.CronStore = s.ToolsCfg.CronStore
 	newToolsCfg.CronScheduler = s.ToolsCfg.CronScheduler
 	newToolsCfg.Logger = s.ToolsCfg.Logger

@@ -122,10 +122,6 @@ func isToolPruned(level string, name string) bool {
 		if name == "Skill" {
 			return true
 		}
-		switch name {
-		case "ManageIssue":
-			return true
-		}
 		return false
 	}
 	return false
