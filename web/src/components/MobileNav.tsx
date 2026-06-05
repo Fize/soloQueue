@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
+import { Bot, Clock, FolderOpen, Menu } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
