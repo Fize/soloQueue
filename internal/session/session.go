@@ -503,9 +503,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	}
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
-	if s.Agent.Def.Kind != agent.KindExternal {
-		s.cw.Push(ctxwin.RoleUser, prompt)
-	}
+	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "ask: prompt pushed to context window",
@@ -517,11 +515,9 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	duration := time.Since(start).Milliseconds()
 
 	if err != nil {
-		if s.Agent.Def.Kind != agent.KindExternal {
-			s.mu.Lock()
-			s.cw.PopLast()
-			s.mu.Unlock()
-		}
+		s.mu.Lock()
+		s.cw.PopLast()
+		s.mu.Unlock()
 
 		s.logger.WarnContext(ctx, logger.CatApp, "ask failed, user prompt removed",
 			"session_id", s.ID,
@@ -542,12 +538,10 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		return "", fmt.Errorf("session: assistant returned empty reply")
 	}
 
-	if s.Agent.Def.Kind != agent.KindExternal {
-		s.mu.Lock()
-		opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(reasoningContent)}
-		s.cw.Push(ctxwin.RoleAssistant, reply, opts...)
-		s.mu.Unlock()
-	}
+	s.mu.Lock()
+	opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(reasoningContent)}
+	s.cw.Push(ctxwin.RoleAssistant, reply, opts...)
+	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "ask complete",
 		"session_id", s.ID,
@@ -694,9 +688,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
-	if s.Agent.Def.Kind != agent.KindExternal {
-		s.cw.Push(ctxwin.RoleUser, prompt)
-	}
+	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "askstream: prompt pushed to context window",
@@ -737,11 +729,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		s.cancelMu.Unlock()
 		askCancel()
 
-		if s.Agent.Def.Kind != agent.KindExternal {
-			s.mu.Lock()
-			s.cw.PopLast()
-			s.mu.Unlock()
-		}
+		s.mu.Lock()
+		s.cw.PopLast()
+		s.mu.Unlock()
 		s.inFlight.Store(0)
 
 		s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent stream setup failed",
@@ -810,11 +800,9 @@ enqueued:
 			case <-askCtx.Done():
 				// askCtx 取消：移除 user prompt，标记 cancelled
 				s.cancelled.Store(true)
-				if s.Agent.Def.Kind != agent.KindExternal {
-					s.mu.Lock()
-					s.cw.PopLast()
-					s.mu.Unlock()
-				}
+				s.mu.Lock()
+				s.cw.PopLast()
+				s.mu.Unlock()
 
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
 					"session_id", s.ID,
@@ -849,11 +837,9 @@ enqueued:
 				)
 			case agent.ErrorEvent:
 				// 错误：移除 user prompt
-				if s.Agent.Def.Kind != agent.KindExternal {
-					s.mu.Lock()
-					s.cw.PopLast()
-					s.mu.Unlock()
-				}
+				s.mu.Lock()
+				s.cw.PopLast()
+				s.mu.Unlock()
 
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event, user prompt removed",
 					"session_id", s.ID,
@@ -865,13 +851,11 @@ enqueued:
 		// 检查是否在 goto done 和此标签之间发生了取消（极窄竞态窗口）
 		if askCtx.Err() != nil {
 			s.cancelled.Store(true)
-			if s.Agent.Def.Kind != agent.KindExternal {
-				s.mu.Lock()
-				s.cw.PopLast()
-				s.mu.Unlock()
-			}
+			s.mu.Lock()
+			s.cw.PopLast()
+			s.mu.Unlock()
 		} else if gotDone {
-			if finalContent != "" && s.Agent.Def.Kind != agent.KindExternal {
+			if finalContent != "" {
 				s.mu.Lock()
 				opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
 				s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
