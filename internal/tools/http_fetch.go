@@ -197,7 +197,7 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 func (t *httpFetchTool) CheckConfirmation(raw string) (bool, string) {
 	var a httpFetchArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return true, fmt.Sprintf("HTTP request (unable to parse args). Allow?")
+		return true, "HTTP request (unable to parse args). Allow?"
 	}
 	return true, fmt.Sprintf("HTTP GET %q. Allow?", a.URL)
 }
