@@ -2,7 +2,7 @@
 
 ## 一、项目概述
 
-将 soloQueue 的 Web UI 重构为 Electron 桌面应用，外壳采用 **8-bit 像素风模拟经营游戏** 风格，视觉参考《Katana Zero》。用户启动后看到办公楼外观 → 点击开始 → 进入办公层内部，以游戏化方式管理和监控多 Agent 系统。
+将 soloQueue 的 Web UI 重构为 Electron 桌面应用，外壳采用 **8-bit 像素风模拟经营游戏** 风格。视觉参考 **“中式原木禅意办公风” (Chinese Wood Zen Office Style)**，融合中式古典水墨与现代办公室经营的玩法。用户启动后看到云雾中的办公楼外观 → 点击开始 → 进入暖调原木与碧玉绿点缀的办公层内部，以游戏化方式管理和监控多 Agent 系统。
 
 ---
 
@@ -24,13 +24,14 @@
 
 ## 三、视觉风格
 
-### 3.1 参考：《Katana Zero》
+### 3.1 参考风格：中式原木禅意办公风（Chinese Wood Zen Office Style）
 
-- 暗色 noir 基调，深紫黑背景
-- 暖黄色灯光作点缀照明
-- 霓虹青/品红作为交互高亮色
-- 像素颗粒感强，粗边框，锯齿边缘
-- 室内场景以房间/隔间划分空间
+融合了国风水墨、中式古典色彩与现代办公室经营的玩法。整体色调以暖原木、碧玉绿、朱砂红为主，抛弃冷酷暗黑的赛博朋克基调，营造温暖、沉静且富有掌控感的禅意办公室氛围：
+
+- **温暖舒缓**：底色以温暖的淡宣纸色为主，大大降低长久监控的眼部疲劳，带来中式纸卷的素雅感。
+- **禅意办公**：办公室隔断使用竹青或红木色，办公家具采用沉稳的檀木褐色，保留完整的办公室格局，让玩家如同运筹帷幄的决策者管理现代团队。
+- **色彩高亮**：交互和状态反馈融入中式古典色彩（翡翠绿表示运行，朱砂红表示报错，蜜蜡黄表示阻塞）。
+- **像素质感**：颗粒感强，粗木纹/石纹边框，UI 面板采用仿纸质卷轴或木质面板设计。
 
 ### 3.2 配色方案
 
@@ -38,18 +39,18 @@
 ┌──────────┬──────────┬──────────────────────────┐
 │ 角色     │ 色值     │ 用途                     │
 ├──────────┼──────────┼──────────────────────────┤
-│ 背景深色 │ #0f0f1a  │ 全局背景、窗外夜景       │
-│ 暗区     │ #1a1a30  │ 未激活区域、墙体暗面     │
-│ 建筑中调 │ #2a2845  │ 地板、隔断墙             │
-│ 亮表面   │ #3d3a58  │ 桌面、面板背景           │
-│ 暖灯光   │ #e8b450  │ 吊灯、台灯、交互高亮     │
-│ 霓虹青   │ #50e0c0  │ Agent 运行中、成功状态   │
-│ 霓虹橙   │ #f08040  │ 警告、超时、阻塞         │
-│ 霓虹品红 │ #e05060  │ 错误、异常、宕机         │
-│ 文字暖白 │ #e0d8c8  │ 主文字                   │
-│ 文字暗色 │ #8a8a9a  │ 次要文字、不可用项       │
-│ 像素边框 │ #4a4a68  │ 像素面板边框             │
-│ 半透遮罩 │ rgba(0,0,0,0.6) │ 弹窗遮罩        │
+│ 宣纸背景 │ #faf7f0  │ 全局大背景、窗外远山背景 │
+│ 雾山暗区 │ #e8e3d5  │ 未激活区域、墙体暗面     │
+│ 竹青地板 │ #cfd7c7  │ 办公室地板、走廊主体     │
+│ 檀木中调 │ #7a5c43  │ 办公桌、家具、面板背景   │
+│ 暖阳金   │ #e5a93b  │ 吊灯、台灯、交互高亮     │
+│ 翡翠绿   │ #319f6a  │ Agent 运行中、成功状态   │
+│ 蜜蜡黄   │ #d48227  │ 警告、超时、阻塞         │
+│ 朱砂红   │ #bf360c  │ 错误、异常、宕机         │
+│ 松烟墨   │ #2c2c2c  │ 主文字（仿毛笔墨色）     │
+│ 烟雨灰   │ #7f7f7f  │ 次要文字、不可用项       │
+│ 木纹边框 │ #5c4033  │ 像素面板边框、隔断墙边   │
+│ 半透遮罩 │ rgba(40,30,20,0.4) │ 暖色弹窗遮罩     │
 └──────────┴──────────┴──────────────────────────┘
 ```
 
@@ -311,23 +312,24 @@
 ## 五-A、LLM 图片生成 Prompt 库
 
 > 所有 prompt 均针对 AI 图片生成模型（Midjourney / DALL·E 3 / Stable Diffusion）优化。
-> 统一风格要求：**8-bit pixel art, Katana Zero aesthetic, dark cyberpunk office interior**
+> 统一风格要求：**8-bit pixel art, Chinese ink-wash wood-and-jade office interior style, cozy zen vibe**
 > 所有 Sprite 要求透明背景，严格像素对齐，禁止抗锯齿。
 > 生成后建议用 Aseprite / Photoshop 清理杂色并确认尺寸。
 
 ### A1. 办公楼外观（Title Scene 背景）
 
-**用途**：标题画面主视觉，暗夜中的办公楼
+**用途**：标题画面主视觉，晨雾或夕阳云雾中的现代办公楼，带有竹林或假山点缀
 
 ```
-A pixel art building exterior at night, 8-bit retro game style. 
-A 6-story modern office building viewed from the front, dark purple-black sky background. 
-Windows with warm amber/yellow light (#e8b450) glowing from inside, some windows dark. 
-A neon sign on the building facade reading "SOLOQUEUE" in cyan (#50e0c0) pixel font with glow effect.
-Sidewalk at the base, a single streetlamp casting warm light. 
-Dark cyberpunk noir atmosphere like Katana Zero.
-Strict pixel art, no anti-aliasing, clean pixel grid, 16-bit era style.
-Resolution: 960×640 pixels. Dark moody palette: #0f0f1a background, #1a1a30 shadows, #e8b450 warm lights, #50e0c0 neon cyan.
+A pixel art building exterior in soft morning mist, 8-bit retro game style.
+A modern 6-story office building made of light grey concrete and warm wood paneling, viewed from the front.
+Surrounded by subtle bamboo trees and a small zen stone garden at the base.
+Background features light wash ink-style clouds and soft sun rays.
+A sign on the building facade reading "SOLOQUEUE" in elegant dark charcoal pixel font.
+Warm golden light glowing from the large windows.
+Cozy, calm, and professional Zen office atmosphere.
+Strict pixel art, no anti-aliasing, clean pixel grid.
+Resolution: 960×640 pixels. Palette: warm beige, pine green, soft grey, sandalwood brown.
 --ar 3:2
 ```
 
@@ -347,8 +349,8 @@ Sprite sheet layout: 8 frames in a single row (256×32 total).
 - Frame 7-8: thinking (hand on chin, pensive pose, then slight nod)
 No walking frames needed (always at desk).
 No background (transparent), strict pixel grid, no anti-aliasing.
-Color palette: blazer in #3d3a58, shirt/blouse in #e0d8c8, subtle cyan accessory (#50e0c0 hair clip or tie), skin in warm beige.
-Style reference: Katana Zero NPC sprites, clean pixel art with strong silhouettes.
+Color palette: blazer in #7a5c43, shirt/blouse in #faf7f0, subtle jade accessory (#319f6a hair clip or tie), skin in warm beige.
+Style reference: Cozy retro wood office style NPC sprites, clean pixel art with strong silhouettes.
 Generate BOTH a male and female version as separate outputs.
 ```
 
@@ -368,8 +370,8 @@ Sprite sheet layout: 8 frames in a single row (192×24 total).
 - Frame 7-8: error/frustrated (rubbing temples, slight smoke puff)
 Each frame is exactly 24×24 pixels, total image 192×24 pixels.
 No background (transparent), strict pixel grid, no anti-aliasing.
-Color palette: shirt in #3d3a58, pants in #1a1a30, glasses rim in #50e0c0, clipboard in #4a4a68, skin in warm beige.
-Style reference: Katana Zero NPC sprites.
+Color palette: shirt in #7a5c43, pants in #5c4033, glasses rim in #d48227, clipboard in #5c4033, skin in warm beige.
+Style reference: Cozy retro wood office style NPC sprites.
 Generate BOTH a male and female version as separate outputs.
 ```
 
@@ -385,12 +387,12 @@ Generic employee look, multiple variations possible (same base with different ha
 Sprite sheet layout: 8 frames in a single row (192×24 pixels total).
 - Frame 1-2: walk cycle (brisk walking, legs alternating, slight arm swing, heading toward desk)
 - Frame 3-4: idle (standing at desk, subtle breathing, slight sway)
-- Frame 5-6: working (typing rapidly on keyboard, head bobbing, screen glow in cyan #50e0c0 reflecting on face)
-- Frame 7-8: error/panic (small smoke puffs above head, arms raised slightly, frantic expression)
+- Frame 5-6: working (typing rapidly on keyboard, head bobbing, screen glow in jade green #319f6a reflecting on face)
+- Frame 7-8: error/panic (small cinnabar red puffs above head, arms raised slightly, frantic expression)
 Each frame is exactly 24×24 pixels, total image 192×24 pixels.
 No background (transparent), strict pixel grid, no anti-aliasing.
-Color palette: clothing in #2a2845 or #3d3a58, skin in warm beige, shoes in #1a1a30, screen glow in #50e0c0.
-Style reference: Katana Zero background characters, simple but expressive pixel art.
+Color palette: clothing in #7a5c43 or #5c4033, skin in warm beige, shoes in #2c2c2c, screen glow in #319f6a.
+Style reference: Cozy retro wood office style background characters, simple but expressive pixel art.
 Generate BOTH a male and female version as separate outputs.
 ```
 
@@ -403,14 +405,14 @@ A pixel art tileset for an office cubicle desk setup, 8-bit retro game style.
 Top-down or slightly isometric RPG perspective (looking down at ~45 degree angle).
 Individual elements that can be composed into a full desk:
 1. Office desk — dark wood/metal rectangular desk, warm brown-gray, 48×32 pixels
-2. CRT computer monitor — bulky retro monitor with a glowing screen (cyan #50e0c0 when active, dark #1a1a30 when off), 32×24 pixels
+2. CRT computer monitor — bulky retro monitor with a glowing screen (jade green #319f6a when active, dark #2c2c2c when off), 32×24 pixels
 3. Keyboard — small rectangular keyboard on desk surface, 16×8 pixels
-4. Office chair — simple rolling chair from side/top angle, dark gray, 16×24 pixels
+4. Office chair — simple rolling chair from side/top angle, dark sandalwood brown, 16×24 pixels
 All elements on transparent background, neatly arranged in a single sprite sheet image.
 Strict pixel grid, no anti-aliasing, clean pixel art.
 Total tileset size: 160×128 pixels (arranged with spacing).
-Color palette: desk in #3d3a58/#4a4a68, monitor body in #2a2845, screen in #50e0c0, chair in #1a1a30/#4a4a68.
-Style reference: Katana Zero interior props.
+Color palette: desk in #7a5c43, monitor body in #5c4033, screen in #319f6a, chair in #2c2c2c/#7a5c43.
+Style reference: Cozy modern zen game interior props.
 ```
 
 ### A5.5. L1 首席秘书专属工位
@@ -431,9 +433,9 @@ Items on the desk:
 The chair is slightly larger and more ergonomic than regular office chairs.
 Resolution: 96×64 pixels. No background (transparent).
 Strict pixel grid, no anti-aliasing.
-Color palette: desk in #3d3a58 with #4a4a68 edges, monitors in #2a2845, screens in #50e0c0,
-lamp glow in #e8b450 (warm), nameplate in #e0d8c8, plant in muted green.
-Style reference: Katana Zero boss room interiors, but warmer and more approachable.
+Color palette: desk in #7a5c43 with #5c4033 edges, monitors in #5c4033, screens in #319f6a,
+lamp glow in #e5a93b (warm), nameplate in #faf7f0, plant in jade green.
+Style reference: Modern elegant zen office interiors, warm and approachable.
 ```
 
 ### A13. 办公楼入口 / 电梯 Spawn 点
@@ -447,14 +449,14 @@ A pair of elevator doors or a main office entrance door:
 - Two metal sliding doors (elevator style) or one grand entrance double door
 - A small overhead sign reading "ENTRANCE" in pixel font
 - A floor indicator above the door showing an arrow or level number
-- Subtle light glow from the door gap when opening (cyan #50e0c0 or warm #e8b450)
+- Subtle light glow from the door gap when opening (jade green #319f6a or warm gold #e5a93b)
 - A small welcome mat or lobby floor tile pattern in front
 Resolution: 64×96 pixels. No background (transparent).
 Strict pixel grid, no anti-aliasing.
-Color palette: door frame in #2a2845, door panels in #3d3a58, sign in #50e0c0 glow, floor mat in #4a4a68.
+Color palette: door frame in #5c4033, door panels in #7a5c43, sign in #319f6a glow, floor mat in #cfd7c7.
 Include an "open" variant frame (doors slightly apart with glow inside) as second row.
 Total image: 64×192 (two rows: closed + open).
-Style reference: Katana Zero level entrance doors with neon signage.
+Style reference: Cozy modern office lobby entrance with zen elements.
 ```
 
 ### A6. 办公室门与隔断墙
@@ -467,13 +469,13 @@ Side-view perspective for a 2D top-down office layout. Elements include:
 1. Cubicle partition wall — half-height office divider, gray-tan fabric texture, 64×48 pixels vertical
 2. Door (closed) — wooden office door with a small window and handle, warm brown, 24×48 pixels
 3. Door (open) — same door but open showing dark interior, 48×48 pixels
-4. Wall section — solid interior wall with subtle texture, dark purple-gray (#2a2845), 32×48 pixels
-5. Glass wall section — same wall but with transparent window panel showing cyan-tinted glass, 32×48 pixels
+4. Wall section — solid interior wall with wooden textures, warm dark sandalwood brown (#5c4033), 32×48 pixels
+5. Glass wall section — same wall but with transparent window panel showing light jade green-tinted glass, 32×48 pixels
 All elements on transparent background, sprite sheet layout.
 Strict pixel grid, no anti-aliasing, clean pixel art.
-Color palette: walls in #2a2845/#1a1a30, door in #3d3a58 with #e8b450 handle, glass in semi-transparent #50e0c0.
+Color palette: walls in #5c4033/#7a5c43, door in #7a5c43 with #e5a93b handle, glass in semi-transparent jade green #319f6a.
 Total image size: 256×128 pixels.
-Style reference: Katana Zero level architecture.
+Style reference: Cozy modern office architecture with wood-and-jade design.
 ```
 
 ### A7. 看板墙（Kanban Board）
@@ -484,34 +486,34 @@ Style reference: Katana Zero level architecture.
 A pixel art wall-mounted kanban/task board, 8-bit retro game style.
 A large cork board or whiteboard mounted on an office wall, viewed from the front.
 Contains:
-- Board frame: dark wood or metal border (#3d3a58)
-- Board surface: cork texture in warm brown or whiteboard in off-white
+- Board frame: dark wood border (#5c4033)
+- Board surface: cork texture in warm brown (#7a5c43) or parchment off-white (#faf7f0)
 - Several small colorful sticky notes/kanban cards pinned to it:
-  - Some cyan (#50e0c0) — in progress
-  - Some orange (#f08040) — blocked/waiting
-  - Some green (#50e0c0) — done
-  - Some pink (#e05060) — urgent/error
+  - Some jade green (#319f6a) — in progress/running
+  - Some amber yellow (#d48227) — blocked/waiting
+  - Some soft green (#319f6a) — done
+  - Some cinnabar red (#bf360c) — urgent/error
 - Column headers in pixel font: "TODO", "DOING", "DONE"
 - Small pushpins in metallic gray
 Resolution: 128×96 pixels. No background (transparent).
 Strict pixel grid, no anti-aliasing.
-Style reference: Papers Please board aesthetic merged with Katana Zero interior props.
+Style reference: Papers Please board aesthetic merged with cozy zen office interior props.
 ```
 
-### A8. 霓虹招牌 "TEAM" 装饰
+### A8. 木雕团队招牌 "TEAM" 装饰
 
-**用途**：每个团队区域上方的霓虹标识
+**用途**：每个团队区域上方的指示招牌，带有些许雅致背光
 
 ```
-A pixel art neon sign reading "TEAM A", 8-bit retro cyberpunk style.
-Wall-mounted neon tube sign with glowing effect.
-The text "TEAM" in large pixel letters with cyan neon glow (#50e0c0).
-A small blinking effect suggestion — subtle glow radius around the tubes.
-Mounted on a dark metal bracket against a #1a1a30 wall background.
-Resolution: 128×32 pixels. No background (transparent wall area — will be placed over wall sprite).
+A pixel art wall-mounted wooden sign reading "TEAM A", 8-bit retro game style.
+An elegant rectangular wooden plaque with gold carved pixel letters.
+The text "TEAM" is carved into the dark wood with gold pigment inlay.
+A subtle glowing backlighting effect (warm gold #e5a93b) behind the wooden plaque.
+Mounted on a dark wood bracket against a #5c4033 wall background.
+Resolution: 128×32 pixels. No background (transparent wall area).
 Strict pixel grid for the letters, glow can have slight transparency.
-Color: tube in pure white #ffffff center, glow in #50e0c0 with decreasing opacity.
-Style reference: Katana Zero neon signs, cyberpunk bar aesthetic.
+Color: plaque in #5c4033, letters in gold #e5a93b, backlight glow in #e5a93b with decreasing opacity.
+Style reference: Elegant oriental wooden shop plaques, retro game style.
 Note: generate one version, the "A" will be programmatically swapped per team.
 ```
 
@@ -535,7 +537,7 @@ Two small spigots (red for hot, blue for cold) at the front.
 Paper cup dispenser mounted on the side.
 Resolution: 16×32 pixels. No background (transparent).
 Strict pixel grid, no anti-aliasing.
-Color palette: body in off-white #e0d8c8, water jug in semi-transparent light blue, spigots in #e05060 and #50e0c0.
+Color palette: body in off-white #faf7f0, water jug in semi-transparent light green, spigots in cinnabar red #bf360c and jade green #319f6a.
 ```
 
 ### A11. 绿植盆栽（可选装饰）
@@ -549,7 +551,7 @@ Several broad green leaves extending upward and outward from a cylindrical dark 
 Simple silhouette, 2-3 shades of green for leaves.
 Resolution: 16×24 pixels. No background (transparent).
 Strict pixel grid, no anti-aliasing.
-Color palette: pot in #1a1a30, leaves in 3 shades of muted green, soil in #3d3a58.
+Color palette: pot in warm white #faf7f0, leaves in 3 shades of jade green #319f6a, soil in dark brown #5c4033.
 ```
 
 ### A12. 状态特效叠加（Sprite 叠加层）
@@ -559,10 +561,10 @@ Color palette: pot in #1a1a30, leaves in 3 shades of muted green, soil in #3d3a5
 ```
 A pixel art status effect overlay spritesheet, 8-bit retro game style.
 Individual animated effects that render ON TOP of character sprites:
-1. Working particles — tiny cyan squares (#50e0c0) floating upward from keyboard area, 4 frames, each 6×6
-2. Error smoke — gray/black smoke puffs rising from character head, 4 frames, each 16×16
+1. Working particles — tiny jade green squares (#319f6a) or bamboo leaves floating upward from keyboard area, 4 frames, each 6×6
+2. Error smoke — dark cinnabar-red clouds (#bf360c) or confusion swirls rising from character head, 4 frames, each 16×16
 3. Idle "..." bubble — a small thought bubble with three dots cycling, 4 frames, each 20×16
-4. Glow/aura ring — a subtle pulsing ring around the character feet (indicating active processing), cyan #50e0c0, 4 frames, each 32×8
+4. Glow/aura ring — a subtle pulsing ring around the character feet (indicating active processing), jade green #319f6a, 4 frames, each 32×8
 All frames in a single sprite sheet image, each effect in its own row.
 Transparent background, strict pixel grid, no anti-aliasing.
 Total image size: 128×64 pixels.
@@ -584,8 +586,8 @@ Both should be:
 - 48×48 pixels per character (larger than in-game for detail viewing)
 - Neutral background (transparent)
 - Strict pixel grid, no anti-aliasing, clean pixel art
-Color palette: blazer in #3d3a58, shirt in #e0d8c8, hair in dark brown or black, skin in warm beige.
-Style reference: Katana Zero NPC dialogue portraits, RPG character status screen art.
+Color palette: blazer in #7a5c43, shirt in #faf7f0, hair in dark brown or black, skin in warm beige.
+Style reference: Cozy retro wood office style NPC dialogue portraits, RPG character status screen art.
 Generate BOTH the male and female version, clearly labeled.
 ```
 
@@ -642,7 +644,7 @@ Generate BOTH the male and female version, clearly labeled.
 |--------|---------------|---------|
 | 公司 | 整个多 Agent 系统 | 办公楼 |
 | 首席秘书 | L1 Agent（常驻） | 右下角专属大工位，始终在线 |
-| 部门 | Team（含 L2 Leader） | 隔间办公区 + 霓虹招牌 |
+| 部门 | Team（含 L2 Leader） | 隔间办公区 + 木雕招牌 |
 | 临时员工 | L3 Agent（按需调度） | 从入口走入 → 坐到工位 → 完成离场 |
 | 临时主管 | L2 Agent（按需调度） | 同上，体型/服饰区别于 L3 |
 | 部门看板 | Kanban（按 team 分列） | 墙壁上的看板 |
@@ -664,9 +666,9 @@ Generate BOTH the male and female version, clearly labeled.
 | despawned | 到达入口消失 | 消失粒子效果 | — |
 
 **状态颜色对应**：
-- working：霓虹青呼吸光（#50e0c0）
-- waiting：霓虹橙闪烁（#f08040）
-- error：霓虹品红脉冲（#e05060）
+- working：翡翠绿呼吸光（#319f6a）
+- waiting：蜜蜡黄闪烁（#d48227）
+- error：朱砂红脉冲（#bf360c）
 - walking：无特殊光色，正常行走
 - L1（常驻）：idle 时微小浮动，始终在工位
 
@@ -816,7 +818,7 @@ desktop/
 - [ ] Go 后端子进程 spawn/管理
 - [ ] 像素 UI 组件库（PixelButton, PixelPanel, PixelDialog 等）
 - [ ] 像素字体加载
-- [ ] 暗色主题 Tailwind 配置
+- [ ] 宣纸暖色主题 Tailwind 配置
 - [ ] WebSocket + REST 通信层复用
 
 ### Phase 2：标题画面 + 角色创建（Week 2）

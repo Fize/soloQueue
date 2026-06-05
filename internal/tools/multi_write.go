@@ -175,7 +175,7 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 	var a multiWriteArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return true, fmt.Sprintf("Write files (unable to parse args). Allow?")
+		return true, "Write files (unable to parse args). Allow?"
 	}
 	n := len(a.Files)
 	if n <= 3 {

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"testing"
 )
 
@@ -38,7 +39,7 @@ func bytes1k() []byte {
 // ─── ctxErrOrNil ───────────────────────────────────────────────────────
 
 func TestCtxErrOrNil(t *testing.T) {
-	if err := ctxErrOrNil(nil); err != nil {
+	if err := ctxErrOrNil(context.Background()); err != nil {
 		t.Errorf("ctxErrOrNil(nil) = %v, want nil", err)
 	}
 }
