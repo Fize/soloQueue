@@ -36,9 +36,6 @@ type AgentTemplate struct {
 	Permission   bool              // 特权模式，跳过工具确认
 	MCPServers   []string          // MCP Server 名称列表
 	SkillIDs     []string          // 该 agent 需要的 skill ID 列表
-	ExternalType string            // 外部 Agent 类型 ("claude", "codex", "opencode", "gemini")
-	CustomArgs   []string          // 用户自定义 CLI 参数
-	CustomEnv    map[string]string // 用户自定义环境变量
 }
 
 // ─── ModelInfo ────────────────────────────────────────────────────────────
@@ -331,18 +328,8 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		BypassConfirm:   f.bypassConfirm || tmpl.Permission,
 	}
 
-	if tmpl.ExternalType != "" {
-		if !tmpl.IsLeader && tmpl.Group == "" {
-			return nil, nil, fmt.Errorf("agent %q: external agent type %q is only allowed for L2 leaders or L3 workers", tmpl.ID, tmpl.ExternalType)
-		}
-		def.Kind = KindExternal
-		def.ExternalType = tmpl.ExternalType
-		def.CustomArgs = tmpl.CustomArgs
-		def.CustomEnv = tmpl.CustomEnv
-	}
-
 	// 1b. Validate and resolve model configuration
-	if f.resolveModel != nil && tmpl.ExternalType == "" {
+	if f.resolveModel != nil {
 		modelID := tmpl.ModelID
 		if modelID == "" {
 			modelID = defaultModelID
@@ -428,6 +415,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 				child := NewAgent(forkDef, llm, f.log,
 					WithTools(forkTools...),
 					WithParallelTools(true),
+					WithAgentWorkDir(effectiveWorkDir),
 				)
 				if err := child.Start(ctx); err != nil {
 					return nil, nil, fmt.Errorf("start fork agent: %w", err)
@@ -600,9 +588,6 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 			Permission:   fm.Permission,
 			MCPServers:   fm.MCPServers,
 			SkillIDs:     fm.Skills,
-			ExternalType: fm.ExternalType,
-			CustomArgs:   fm.CustomArgs,
-			CustomEnv:    fm.CustomEnv,
 		}
 		templates = append(templates, tmpl)
 	}

@@ -14,7 +14,6 @@ type Kind string
 
 const (
 	KindCustom   Kind = "custom"
-	KindExternal Kind = "external"
 )
 
 // Definition 是 agent 的静态配置
@@ -58,15 +57,6 @@ type Definition struct {
 	// BypassConfirm skips all tool confirmations for this agent.
 	// Set from agent template `permission: true` or global --bypass flag.
 	BypassConfirm bool
-
-	// ExternalType indicates if this agent runs via an external CLI (e.g. "claude", "codex", "opencode", "gemini")
-	ExternalType string
-
-	// CustomArgs contains user-defined CLI arguments for external agents
-	CustomArgs []string
-
-	// CustomEnv contains user-defined environment variables for external agents
-	CustomEnv map[string]string
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
