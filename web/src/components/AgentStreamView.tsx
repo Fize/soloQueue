@@ -108,16 +108,7 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [state.segments.length])
-
-  if (hasError) {
-    return (
-      <div className="rounded-md border border-destructive/50 bg-destructive/5 p-4">
-        <p className="text-sm font-medium text-destructive">Error</p>
-        <p className="mt-1 text-sm text-destructive/80">{state.error}</p>
-      </div>
-    )
-  }
+  }, [state.segments.length, state.processing, state.error])
 
   return (
     <div className="space-y-3">
@@ -141,8 +132,16 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
         }
       })}
 
+      {/* Error block */}
+      {hasError && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/5 p-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <p className="text-sm font-medium text-destructive">Error</p>
+          <p className="mt-1 text-sm text-destructive/80">{state.error}</p>
+        </div>
+      )}
+
       {/* Empty state */}
-      {state.segments.length === 0 && !state.processing && (
+      {state.segments.length === 0 && !state.processing && !hasError && (
         <p className="py-8 text-center text-sm text-muted-foreground">Agent idle, no output</p>
       )}
 

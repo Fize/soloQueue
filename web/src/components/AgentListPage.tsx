@@ -37,6 +37,7 @@ export function AgentListPage() {
   const data = useAgentStore((state) => state.agents)
   const teamsData = useAgentStore((state) => state.teams)
   const fetchTeams = useAgentStore((state) => state.fetchTeams)
+  const fetchLiveAgents = useAgentStore((state) => state.fetchLiveAgents)
   const teamsLoading = useAgentStore((state) => state.teamsLoading)
 
   // UI state
@@ -46,10 +47,11 @@ export function AgentListPage() {
   const [collapsedTeams, setCollapsedTeams] = useState<Set<string>>(new Set())
   const teamsInitializedRef = useRef(false)
 
-  // Load teams
+  // Load teams and live agents
   useEffect(() => {
     fetchTeams()
-  }, [fetchTeams])
+    fetchLiveAgents()
+  }, [fetchTeams, fetchLiveAgents])
 
   // L1 Agent and Team Grouping
   const { l1Agent, teamNodes } = useMemo(() => {

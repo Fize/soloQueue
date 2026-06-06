@@ -27,15 +27,6 @@ func (m *Mux) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auth check
-	if m.authConfig.User != "" && !isLocalhostAccess(r) {
-		user, password, ok := r.BasicAuth()
-		if !ok || user != m.authConfig.User || password != m.authConfig.Password {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
-
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -73,9 +64,14 @@ func (c *Client) readPump() {
 	})
 
 	for {
-		_, _, err := c.conn.ReadMessage()
+		messageType, p, err := c.conn.ReadMessage()
 		if err != nil {
 			break
+		}
+		// Intercept application-level text ping-pong
+		if messageType == websocket.TextMessage && string(p) == "ping" {
+			c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			_ = c.conn.WriteMessage(websocket.TextMessage, []byte("pong"))
 		}
 	}
 }

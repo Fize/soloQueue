@@ -156,6 +156,13 @@ export function AgentDetailPage() {
   // Find agent in websocket stream or team list
   const data = useAgentStore((state) => state.agents)
   const teamsData = useAgentStore((state) => state.teams)
+  const fetchLiveAgents = useAgentStore((state) => state.fetchLiveAgents)
+  const fetchTeams = useAgentStore((state) => state.fetchTeams)
+
+  useEffect(() => {
+    fetchLiveAgents()
+    fetchTeams()
+  }, [fetchLiveAgents, fetchTeams])
 
   // Resolve the agent
   const agent = useMemo(() => {

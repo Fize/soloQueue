@@ -168,31 +168,33 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 		rm.agentStreams[instanceID] = s
 	}
 
+	if !s.Processing {
+		switch ev.(type) {
+		case agent.DoneEvent, agent.ErrorEvent, agent.IterationDoneEvent:
+			// No-op
+		default:
+			s.Segments = []Segment{}
+			s.Error = ""
+			s.Processing = true
+		}
+	}
+
 	switch e := ev.(type) {
 	case agent.ContentDeltaEvent:
-		if !s.Processing {
-			s.Segments = nil
-			s.Error = ""
-		}
 		n := len(s.Segments)
 		if n > 0 && s.Segments[n-1].Type == SegContent {
 			s.Segments[n-1].Text += e.Delta
 		} else {
 			s.Segments = append(s.Segments, Segment{Type: SegContent, Text: e.Delta})
 		}
-		s.Processing = true
 
 	case agent.ReasoningDeltaEvent:
-		if !s.Processing {
-			s.Segments = nil
-		}
 		n := len(s.Segments)
 		if n > 0 && s.Segments[n-1].Type == SegThinking {
 			s.Segments[n-1].Text += e.Delta
 		} else {
 			s.Segments = append(s.Segments, Segment{Type: SegThinking, Text: e.Delta})
 		}
-		s.Processing = true
 
 	case agent.ToolExecStartEvent:
 		s.Segments = append(s.Segments, Segment{
@@ -801,4 +803,16 @@ func (m *Mux) collectAllAgents() []*agent.Agent {
 	}
 
 	return out
+}
+
+func (m *Mux) handleGetLiveAgents(w http.ResponseWriter, r *http.Request) {
+	liveAgents := m.buildAgentList()
+	if liveAgents == nil {
+		m.writeJSON(w, http.StatusOK, AgentListResponse{
+			Agents:      []AgentInfoResponse{},
+			Supervisors: []SupervisorInfoResponse{},
+		})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, liveAgents)
 }

@@ -13,6 +13,7 @@ import type {
   TeamListResponse,
   TeamResponse,
   AgentResponse,
+  AgentListResponse,
   CreateTeamRequest,
   UpdateTeamRequest,
   CreateAgentRequest,
@@ -161,6 +162,10 @@ export async function updateAgentConfig(
 
 export async function getTeams(): Promise<TeamListResponse> {
   return request<TeamListResponse>('/teams')
+}
+
+export async function getLiveAgents(): Promise<AgentListResponse> {
+  return request<AgentListResponse>('/agents/live')
 }
 
 // ─── Config APIs ──────────────────────────────────────────────────────────────
