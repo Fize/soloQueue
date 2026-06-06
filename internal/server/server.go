@@ -34,6 +34,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -63,6 +64,7 @@ type Mux struct {
 	templates      []agent.AgentTemplate
 	groupsDir      string // if set, groups are reloaded from disk on each request
 	hub            *Hub
+	wsTokens       sync.Map
 	toolsCfg       *tools.Config
 	skillReg       *skill.SkillRegistry
 	skillDirs      map[string]string // skill categories → paths, for on-demand reload
@@ -316,9 +318,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 
 	// Auth check
 	r.Get("/api/auth/check", m.handleAuthCheck)
+	r.Get("/api/auth/token", m.handleGetWSToken)
 
 	// Health check
 	r.Get("/healthz", m.handleHealth)
+
+	// Live agents status endpoint
+	r.Get("/api/agents/live", m.handleGetLiveAgents)
 
 
 

@@ -5,6 +5,7 @@ import {
   getAgentConfig,
   updateAgentConfig,
   getTeams,
+  getLiveAgents,
 } from '@/lib/api'
 import type {
   AgentProfile,
@@ -36,6 +37,7 @@ interface AgentState {
   teams: TeamListResponse | null
   teamsLoading: boolean
   fetchTeams: () => Promise<void>
+  fetchLiveAgents: () => Promise<void>
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -89,6 +91,14 @@ export const useAgentStore = create<AgentState>((set) => ({
       set({ teams: data as TeamListResponse, teamsLoading: false })
     } catch {
       set({ teams: null, teamsLoading: false })
+    }
+  },
+  fetchLiveAgents: async () => {
+    try {
+      const data = await getLiveAgents()
+      set({ agents: data })
+    } catch (err) {
+      console.error('Failed to fetch live agents:', err)
     }
   },
 }))
