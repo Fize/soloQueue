@@ -27,8 +27,9 @@ class WebSocketManager {
   private reconnectDelay = 1000
   private maxReconnectDelay = 30000
   private intentionalClose = false
+  private pingTimer: ReturnType<typeof setInterval> | null = null
 
-  connect() {
+  async connect() {
     if (
       this.ws &&
       (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
@@ -37,11 +38,30 @@ class WebSocketManager {
     }
 
     this.intentionalClose = false
-    this.ws = new WebSocket(wsBase())
+
+    // Fetch temporary handshake token via standard HTTP request (browser automatically attaches basic auth)
+    let token = ''
+    try {
+      const res = await fetch('/api/auth/token')
+      if (res.ok) {
+        const data = await res.json()
+        token = data.token
+      }
+    } catch (err) {
+      console.warn('Failed to fetch WS auth token, attempting direct connection:', err)
+    }
+
+    let url = wsBase()
+    if (token) {
+      url += `?token=${encodeURIComponent(token)}`
+    }
+
+    this.ws = new WebSocket(url)
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000
       this.setStatus('connected')
+      this.startPingInterval()
     }
 
     this.ws.onmessage = (event) => {
@@ -54,6 +74,7 @@ class WebSocketManager {
     }
 
     this.ws.onclose = () => {
+      this.stopPingInterval()
       if (!this.intentionalClose) {
         this.setStatus('reconnecting')
         this.scheduleReconnect()
@@ -69,6 +90,7 @@ class WebSocketManager {
 
   disconnect() {
     this.intentionalClose = true
+    this.stopPingInterval()
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -78,6 +100,22 @@ class WebSocketManager {
       this.ws = null
     }
     this.setStatus('disconnected')
+  }
+
+  private startPingInterval() {
+    this.stopPingInterval()
+    this.pingTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send('ping')
+      }
+    }, 25000)
+  }
+
+  private stopPingInterval() {
+    if (this.pingTimer !== null) {
+      clearInterval(this.pingTimer)
+      this.pingTimer = null
+    }
   }
 
   subscribe<T extends keyof MessageHandler>(
