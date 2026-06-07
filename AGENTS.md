@@ -5,13 +5,13 @@ Short tactical guidance for OpenCode sessions.
 ## Build
 
 ```bash
-make build        # pnpm build + cp → internal/server/dist → go build
-make build-go     # go build only (needs web/dist already in place)
-make build-web    # pnpm build + cp dist to internal/server/dist
+make build        # pnpm build + cp dist + cp skills → internal/server/dist → go build
+make build-go     # go build only (needs internal/server/dist already in place)
+make build-web    # pnpm build + cp dist + cp skills to internal/server/dist
 make clean        # rm soloqueue web/dist internal/server/dist
 ```
 
-The Go binary embeds `internal/server/dist/` via `//go:embed`. Run `make build-web` before `go build` if dist is missing.
+The Go binary embeds `internal/server/dist/` via `//go:embed`. Run `make build-web` before `go build` if dist is missing. `make build-web` also copies `skills/` into the dist so embedded skills are available at runtime.
 
 ## Go tests
 
@@ -23,6 +23,8 @@ go test -run TestReplayInto ./internal/timeline/...  # single test
 
 Use `rtk go test ./...` for compact output (hides pass lines, shows only failures).
 
+RTK is also used at startup to compress Bash tool outputs (60-90% token reduction). Automatically detected if `rtk` is on PATH.
+
 ## Web UI (React 19 + TypeScript + Vite + TailwindCSS v4)
 
 ```bash
@@ -31,6 +33,7 @@ cd web && pnpm build                     # tsc + vite build
 cd web && pnpm check                     # tsc --noEmit + eslint + prettier
 cd web && pnpm lint                      # eslint only
 cd web && pnpm test                      # vitest
+cd web && pnpm test:e2e                  # playwright e2e tests
 ```
 
 **Important**: uses `pnpm`, NOT npm. Lockfile: `pnpm-lock.yaml`.
@@ -66,6 +69,7 @@ cmd/soloqueue/      cobra entrypoint (main.go + cli/)
 internal/agent/     actor-model agent (LLM + tool loop + mailbox)
 internal/compactor/ LLM-based context compression engine
 internal/config/    hot-reload config
+internal/cron/      scheduled cron & timer tasks (SQLite-backed)
 internal/ctxwin/    context window (tiktoken, dual-waterline compaction)
 internal/iface/     shared interfaces (breaks agent↔tools cycle)
 internal/llm/       provider-agnostic LLM protocol + DeepSeek transport
