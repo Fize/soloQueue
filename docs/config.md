@@ -130,6 +130,23 @@ Maps generic model roles used by agents to concrete provider model IDs (format: 
 - `fast`: Used for quick chat classification and summarizations.
 - `fallback`: Fallback model if the selected model fails.
 
+### `[embedding]` — Memory Engine Embedding Provider
+
+Controls the vector search pipeline in the memory engine:
+
+- `provider` (string): Embedding provider. `"none"` (default, dual-hybrid BM25+KG), `"onnx"` (local ONNX model, fully offline), `"openai"` (remote API).
+
+Sub-table `[embedding.onnx]`:
+- `model_path` (string): Path to ONNX model directory. Empty = auto-download `intfloat/multilingual-e5-large` to `~/.soloqueue/models/`.
+
+Sub-table `[embedding.openai]`:
+- `base_url` (string): OpenAI-compatible API endpoint.
+- `api_key` (string): API key.
+- `model` (string): Model name (e.g., `text-embedding-3-small`).
+- `dimension` (int): Embedding dimension.
+
+When `provider = "none"`, the memory engine uses only BM25 and KG — no embedding model or API key needed.
+
 ### `[qqbot]` — Tencent QQ Bot Integration
 - `enabled` (bool): Activate the gateway connection.
 - `app_id` / `app_secret` (string): Tencent Developer App ID and Secret.

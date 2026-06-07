@@ -23,7 +23,6 @@ SoloQueue uses a hierarchical architecture design. The core systems include Agen
                                │                       │                       │
                                ▼                       ▼                       ▼
       ┌────────────────────────┴──┐        ┌───────────┴───────────┐      ┌────┴──────────────────────┐
-      │  Router (internal/router) │        │ Agent (internal/agent)│      │  Todo (internal/todo)     │
       └───────────────────────────┘        └───────────┬───────────┘      └────────────┬──────────────┘
                                                        │                               │
                                                        ├───────────────────────────────┤ SQLite WAL
@@ -59,9 +58,7 @@ SoloQueue uses a hierarchical architecture design. The core systems include Agen
 | **Config System** | `internal/config/` | Layered TOML config, hot-reload, type-safe access | [config.md](config.md) |
 | **Task Routing** | `internal/router/` | Intelligent task classification and model routing (L0-L3) | [routing.md](routing.md) |
 | **Context Window** | `internal/ctxwin/` | Token count calibration, middle-out JSON truncation, FIFO sliding | [ctxwin.md](ctxwin.md) |
-| **Memory System** | `internal/memory/` | Short-term daily summaries & long-term vector store integration | [memory.md](memory.md) |
-| **Timeline System** | `internal/timeline/` | Event-sourced append-only JSONL log, session replay & clear | [timeline.md](timeline.md) |
-| **Todo Store** | `internal/todo/` | Plan/Issue database tracking, BFS dependency cycle check | [todo.md](todo.md) |
+| **Memory System** | `internal/memory/` `internal/memoryengine/` | Short-term daily summaries & long-term BM25 + KG + optional vector engine | [memory.md](memory.md) |
 | **QQ Bot Client** | `internal/qqbot/` | WebSocket connection loop, active/passive reply queue, media upload | [qqbot.md](qqbot.md) |
 | **MCP & LSP** | `internal/mcp/` | Model Context Protocol servers loading, LSP JSON-RPC tool binding | [mcp.md](mcp.md) |
 

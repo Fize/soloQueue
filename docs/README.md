@@ -11,9 +11,8 @@ Detailed system design documents, organized by subsystem:
 | [Architecture](architecture.md) | Agent, LLM, Tool, Skill system architecture overview |
 | [Configuration](config.md) | Config system, layered loading, hot-reload, type-safe access |
 | [Context Window](ctxwin.md) | Token count calibration, middle-out JSON truncation, Turn-based FIFO sliding window |
-| [Memory & Vector Store](memory.md) | Short-term daily summaries, SQLite vector store with Cosine Similarity, long-term migration scheduler |
+| [Memory Engine](memory.md) | Short-term daily summaries, long-term BM25 + KG + optional vector engine, temporal tracking |
 | [Timeline](timeline.md) | Event-sourced append-only JSONL log, session replay, orphaned tool call repair |
-| [Todo Store](todo.md) | Plan/Issue database tracking, sub-tasks, BFS dependency cycle check |
 | [Skill Store & Management](skill_store.md) | Centralized catalog, Git/Github clones, local symlinking, shadowing override pattern |
 
 ## 🎯 Feature Docs
