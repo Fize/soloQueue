@@ -6,30 +6,29 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/permanent"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
 // DailyMemoryFlusher runs a daily task at midnight that:
 //  1. Flushes all unpersisted context window messages to short-term memory files.
-//  2. Immediately migrates expired short-term memory files (>3 days) to the
-//     permanent vector store.
+//  2. Runs memory engine consolidation (decay, stale cleanup, communities).
 type DailyMemoryFlusher struct {
-	sessionMgr *SessionManager
-	permMgr    *permanent.Manager
-	logger     *logger.Logger
+	sessionMgr   *SessionManager
+	memoryEngine *memoryengine.Engine // nil = skip consolidation
+	logger       *logger.Logger
 }
 
-// NewDailyMemoryFlusher creates a flusher. permMgr may be nil if permanent
-// memory is disabled (migration step will be skipped).
-func NewDailyMemoryFlusher(sm *SessionManager, pm *permanent.Manager, l *logger.Logger) *DailyMemoryFlusher {
+// NewDailyMemoryFlusher creates a flusher. engine may be nil if memory engine
+// is disabled (consolidation step will be skipped).
+func NewDailyMemoryFlusher(sm *SessionManager, engine *memoryengine.Engine, l *logger.Logger) *DailyMemoryFlusher {
 	return &DailyMemoryFlusher{
-		sessionMgr: sm,
-		permMgr:    pm,
-		logger:     l,
+		sessionMgr:   sm,
+		memoryEngine: engine,
+		logger:       l,
 	}
 }
 
-// Run sleeps until the next midnight, executes the flush+migrate cycle, and
+// Run sleeps until the next midnight, executes the flush cycle, and
 // repeats forever. Returns when ctx is cancelled.
 func (f *DailyMemoryFlusher) Run(ctx context.Context) {
 	for {
@@ -70,16 +69,19 @@ func (f *DailyMemoryFlusher) doFlush(ctx context.Context) {
 		}
 	}
 
-	// Step 2: Migrate expired short-term files to permanent vector store.
-	if f.permMgr != nil {
-		count, err := f.permMgr.Migrate(ctx)
+	// Step 2: Run memory engine consolidation.
+	if f.memoryEngine != nil {
+		report, err := f.memoryEngine.Consolidate(ctx)
 		if err != nil {
 			if f.logger != nil {
-				f.logger.LogError(ctx, logger.CatApp, "daily memory flusher: migration failed", err)
+				f.logger.LogError(ctx, logger.CatApp, "daily memory flusher: consolidation failed", err)
 			}
-		} else if count > 0 && f.logger != nil {
-			f.logger.InfoContext(ctx, logger.CatApp, "daily memory flusher: migration completed",
-				"migrated", count)
+		} else if f.logger != nil {
+			f.logger.InfoContext(ctx, logger.CatApp, "daily memory flusher: consolidation completed",
+				"edges_decayed", report.EdgesDecayed,
+				"stale_removed", report.StaleMemoriesRemoved,
+				"communities", report.CommunitiesFound,
+			)
 		}
 	}
 }

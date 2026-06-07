@@ -664,8 +664,8 @@ func TestNewDailyMemoryFlusher(t *testing.T) {
 	if flusher.sessionMgr != mgr {
 		t.Error("sessionMgr mismatch")
 	}
-	if flusher.permMgr != nil {
-		t.Error("permMgr should be nil")
+	if flusher.memoryEngine != nil {
+		t.Error("memoryEngine should be nil")
 	}
 }
 

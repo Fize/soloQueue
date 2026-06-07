@@ -337,8 +337,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 			if seg.Date.Before(cutoff) {
 				// >7 days old: write directly to permanent (long-term) memory
-				if b.RT.PermanentMemory != nil {
-					_ = b.RT.PermanentMemory.Remember(context.Background(), seg.Summary, seg.Date)
+				if b.RT.MemoryEngine != nil {
+					_, _, _ = b.RT.MemoryEngine.Save(context.Background(), seg.Summary, seg.Date.Format("2006-01-02"), "auto-compact", seg.Date.Format("2006-01-02")+"T00:00:00Z")
 				}
 			} else {
 				// ≤7 days: timeline control event + short-term memory
