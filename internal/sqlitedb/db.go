@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 11
+const currentSchemaVersion = 13
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -41,8 +41,8 @@ func Open(path string) (*DB, error) {
 	}
 
 	// WAL for concurrent readers + busy_timeout so competing writers wait
-	// rather than returning SQLITE_BUSY immediately. foreign_keys=ON is
-	// required for ON DELETE CASCADE on todo_dependencies / todo_items.
+	// rather than returning SQLITE_BUSY immediately. foreign_keys=ON for
+	// referential integrity on kg_edges (REFERENCES kg_nodes).
 	dsn := path + "?_journal_mode=WAL&_foreign_keys=ON&_busy_timeout=5000&_pragma=synchronous(normal)&_txlock=immediate"
 	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -303,6 +303,107 @@ func (d *DB) migrate() error {
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
+		`,
+
+		// v11 -> v12: memory engine tables (BM25 + Knowledge Graph).
+		// mem_entries replaces the old v1 "memories" table (avoids collision).
+		// FTS5 triggers auto-sync content/date from mem_entries to mem_fts.
+		// kg_edges has temporal validity windows (valid_from, valid_until).
+		`
+		CREATE TABLE IF NOT EXISTS mem_entries (
+			id TEXT PRIMARY KEY,
+			content TEXT NOT NULL,
+			content_hash TEXT NOT NULL UNIQUE,
+			date TEXT NOT NULL,
+			tags TEXT NOT NULL DEFAULT '',
+			event_time TEXT NOT NULL,
+			salience REAL NOT NULL DEFAULT 1.0,
+			last_recalled_at TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_mem_entries_date ON mem_entries(date);
+		CREATE INDEX IF NOT EXISTS idx_mem_entries_event_time ON mem_entries(event_time);
+
+		CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(
+			content, date,
+			content='mem_entries', content_rowid='rowid',
+			tokenize='unicode61'
+		);
+
+		CREATE TRIGGER IF NOT EXISTS mem_fts_ai AFTER INSERT ON mem_entries BEGIN
+			INSERT INTO mem_fts(rowid, content, date) VALUES (new.rowid, new.content, new.date);
+		END;
+		CREATE TRIGGER IF NOT EXISTS mem_fts_ad AFTER DELETE ON mem_entries BEGIN
+			INSERT INTO mem_fts(mem_fts, rowid, content, date) VALUES('delete', old.rowid, old.content, old.date);
+		END;
+		CREATE TRIGGER IF NOT EXISTS mem_fts_au AFTER UPDATE ON mem_entries BEGIN
+			INSERT INTO mem_fts(mem_fts, rowid, content, date) VALUES('delete', old.rowid, old.content, old.date);
+			INSERT INTO mem_fts(rowid, content, date) VALUES (new.rowid, new.content, new.date);
+		END;
+
+		CREATE TABLE IF NOT EXISTS kg_nodes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			type TEXT NOT NULL DEFAULT 'entity',
+			mention_count INTEGER NOT NULL DEFAULT 1,
+			first_seen TEXT NOT NULL,
+			last_seen TEXT NOT NULL,
+			confidence REAL NOT NULL DEFAULT 1.0
+		);
+		CREATE INDEX IF NOT EXISTS idx_kg_nodes_type ON kg_nodes(type);
+		CREATE INDEX IF NOT EXISTS idx_kg_nodes_mention_count ON kg_nodes(mention_count DESC);
+
+		CREATE TABLE IF NOT EXISTS kg_edges (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			source INTEGER NOT NULL REFERENCES kg_nodes(id),
+			target INTEGER NOT NULL REFERENCES kg_nodes(id),
+			rel_type TEXT NOT NULL,
+			weight REAL NOT NULL DEFAULT 1.0,
+			evidence TEXT NOT NULL DEFAULT '',
+			source_hash TEXT NOT NULL DEFAULT '',
+			event_time TEXT NOT NULL,
+			valid_from TEXT NOT NULL DEFAULT '',
+			valid_until TEXT,
+			last_reinforced TEXT NOT NULL DEFAULT '',
+			UNIQUE(source, target, rel_type)
+		);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_source ON kg_edges(source);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_target ON kg_edges(target);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_valid_until ON kg_edges(valid_until);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_source_hash ON kg_edges(source_hash);
+
+		CREATE TABLE IF NOT EXISTS kg_aliases (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			alias TEXT NOT NULL,
+			canonical TEXT NOT NULL REFERENCES kg_nodes(name),
+			UNIQUE(alias, canonical)
+		);
+		`,
+
+		// v12 -> v13: migrate old memories table to mem_entries, then drop dead tables.
+		// Old memories schema: id, content, embedding (BLOB), timestamp, source.
+		// New mem_entries schema: id, content, content_hash, date, tags, event_time, salience, created_at.
+		// content_hash uses old id as a stable identifier (SHA-256 is used for new entries).
+		// Embeddings are discarded — if an embedding provider is configured, re-embedding happens lazily.
+		`
+		INSERT OR IGNORE INTO mem_entries (id, content, content_hash, date, tags, event_time, salience, created_at)
+		SELECT
+			id,
+			content,
+			'legacy:' || id,
+			COALESCE(substr(timestamp, 1, 10), date('now')),
+			COALESCE(NULLIF(source, ''), 'legacy'),
+			COALESCE(NULLIF(timestamp, ''), datetime('now')),
+			0.5,
+			COALESCE(NULLIF(timestamp, ''), datetime('now'))
+		FROM memories
+		WHERE content IS NOT NULL AND content != '';
+
+		DROP TABLE IF EXISTS memories;
+		DROP TABLE IF EXISTS issue_comments;
+		DROP TABLE IF EXISTS todo_dependencies;
+		DROP TABLE IF EXISTS todo_items;
+		DROP TABLE IF EXISTS issue;
 		`,
 	}
 

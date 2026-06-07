@@ -151,7 +151,7 @@ func ServeCmd(version string) *cobra.Command {
 
 			// ── Daily memory flush (midnight) ──
 			if rt.MemoryManager != nil {
-				flusher := session.NewDailyMemoryFlusher(mgr, rt.PermanentMemory, log)
+				flusher := session.NewDailyMemoryFlusher(mgr, rt.MemoryEngine, log)
 				go flusher.Run(context.Background())
 			}
 

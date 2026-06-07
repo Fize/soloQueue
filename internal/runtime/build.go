@@ -24,7 +24,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	lspmcp "github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
-	"github.com/xiaobaitu/soloqueue/internal/permanent"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
@@ -292,9 +292,7 @@ type buildContext struct {
 	memoryDir         string
 	memoryMgr         *memory.Manager
 	sharedDB          *sqlitedb.DB
-	permanentMgr      *permanent.Manager
-	permScheduler     *permanent.Scheduler
-	permCancel        context.CancelFunc
+		memoryEngine      *memoryengine.Engine
 	planDir           string
 	mcpServers        []string
 	systemPrompt      string
@@ -403,9 +401,7 @@ func (bc *buildContext) assembleStack() *Stack {
 		TaskRouter:        bc.taskRouter,
 		SkillRegistry:     bc.skillReg,
 		MemoryManager:     bc.memoryMgr,
-		PermanentMemory:   bc.permanentMgr,
-		PermScheduler:     bc.permScheduler,
-		PermCancel:        bc.permCancel,
+		MemoryEngine:      bc.memoryEngine,
 		SharedDB:          bc.sharedDB,
 		BypassConfirm:     bc.bypassConfirm,
 		MCPManager:        bc.mcpMgr,

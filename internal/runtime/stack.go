@@ -2,7 +2,6 @@
 package runtime
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -16,7 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
-	"github.com/xiaobaitu/soloqueue/internal/permanent"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
@@ -47,11 +46,9 @@ type Stack struct {
 	RulesCreated  bool
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
-	MemoryManager *memory.Manager    // Short-term memory manager
-	PermanentMemory *permanent.Manager // Permanent memory manager
-	PermScheduler *permanent.Scheduler
-	PermCancel    context.CancelFunc // Cancel function for permanent scheduler context
-	SharedDB      *sqlitedb.DB       // Shared SQLite connection reused by vectorstore + todo stores
+	MemoryManager *memory.Manager          // Short-term memory manager
+	MemoryEngine  *memoryengine.Engine     // Memory engine (BM25 + KG + optional vector)
+	SharedDB      *sqlitedb.DB             // Shared SQLite connection
 	MCPManager    *mcp.Manager       // MCP server manager
 	LSPManager    *lsp.Manager       // Built-in LSP MCP server manager
 
@@ -306,7 +303,7 @@ func (s *Stack) OnConfigChange() error {
 
 	// Update tools config dynamically, preserving runtime dependencies and fields
 	newToolsCfg := settings.Tools.ToToolsConfig()
-	newToolsCfg.PermanentManager = s.ToolsCfg.PermanentManager
+	newToolsCfg.MemoryEngine = s.ToolsCfg.MemoryEngine
 	newToolsCfg.PlanDir = s.ToolsCfg.PlanDir
 	newToolsCfg.CronStore = s.ToolsCfg.CronStore
 	newToolsCfg.CronScheduler = s.ToolsCfg.CronScheduler
