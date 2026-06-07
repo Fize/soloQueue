@@ -7,23 +7,21 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/embedding"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
-	"github.com/xiaobaitu/soloqueue/internal/permanent"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
-	"github.com/xiaobaitu/soloqueue/internal/vectorstore"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
 )
 
 // buildMemory initializes the storage layer: shared SQLite, short-term memory,
-// and permanent memory (embedding + vectorstore + scheduler).
+// and the memory engine (BM25 + KG + optional vector embedding).
 func (bc *buildContext) buildMemory() error {
-	// ── Short-term Memory Manager ─────────────────────────────────
+	// Short-term Memory Manager
 	bc.memoryMgr = memory.NewManager(bc.memoryDir, bc.llmClient, bc.fastModelProviderID, bc.fastModelID, bc.log)
 
-	// ── Shared SQLite DB ──────────────────────────────────────────────────
+	// Shared SQLite DB (already opened in buildMemory() or opened now)
 	embStart := time.Now()
 	if bc.sharedDB == nil {
 		sharedDBPath := filepath.Join(bc.workDir, "permanent_memory", "entries.db")
@@ -34,35 +32,74 @@ func (bc *buildContext) buildMemory() error {
 		bc.sharedDB = sharedDB
 		bc.log.Debug(logger.CatApp, "build: sqlite opened", "duration", time.Since(embStart).String())
 	}
-	if bc.teamstore == nil {
-		bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
-		// Migrate direct workspaces to projects table
-		if err := bc.teamstore.MigrateWorkspacesToProjects(context.Background()); err != nil {
-			bc.log.Warn(logger.CatApp, "failed to migrate team workspaces to projects", "err", err.Error())
-		}
-	}
 
-	// ── Permanent Memory Manager ──────────────────────────────────────────
-	bc.buildPermanentMemory()
+	// Memory Engine
+	bc.buildMemoryEngine()
 
 	return nil
 }
 
-// buildPermanentMemory initializes permanent memory components.
-// Uses early return to avoid deep nesting levels.
-func (bc *buildContext) buildPermanentMemory() {
-	if !bc.settings.Embedding.Enabled {
-		return
+// buildMemoryEngine creates the memory engine with the configured embedding provider.
+func (bc *buildContext) buildMemoryEngine() {
+	cfg := bc.settings.Embedding
+
+	var emb embedding.Embedder
+	var vecStore vectorstore.VectorStore
+
+	provider := cfg.Provider
+
+	switch provider {
+	case "openai":
+		emb = bc.createOpenAIEmbedder()
+	case "onnx":
+		embModel := ""
+		if cfg.ModelPath != "" {
+			embModel = cfg.ModelPath
+		}
+		embCfg := embedding.Config{
+			Provider:  "onnx",
+			ModelPath: embModel,
+			ModelName: cfg.ModelName,
+		}
+		var err error
+		emb, err = embedding.NewFromConfig(embCfg)
+		if err != nil {
+			bc.log.Warn(logger.CatApp, "build: failed to create ONNX embedder, engine runs without vectors",
+				"err", err,
+				"hint", "install onnxruntime and build with -tags onnx",
+			)
+		}
+	case "none", "":
+		// No embedding — pure BM25 + KG
+	default:
+		bc.log.Warn(logger.CatApp, "build: unknown embedding provider, falling back to none",
+			"provider", provider)
 	}
 
+	if emb != nil {
+		vecStore = vectorstore.NewSQLiteStoreFromDB(bc.sharedDB.DB, &bc.sharedDB.WMu,
+			vectorstore.WithTableName("mem_vec"),
+			vectorstore.WithLogger(bc.log),
+		)
+	}
+
+	start := time.Now()
+	bc.memoryEngine = memoryengine.New(bc.sharedDB.DB, &bc.sharedDB.WMu, emb, vecStore, bc.log)
+	bc.log.Debug(logger.CatApp, "build: memory engine ready",
+		"duration", time.Since(start).String(),
+		"has_vector", emb != nil,
+	)
+}
+
+func (bc *buildContext) createOpenAIEmbedder() embedding.Embedder {
 	embModel := bc.cfg.DefaultEmbeddingModel()
 	if embModel == nil || !embModel.Enabled {
-		return
+		bc.log.Debug(logger.CatApp, "build: no enabled embedding model, engine runs without vectors")
+		return nil
 	}
-
 	embProvider := bc.cfg.EmbeddingProviderByID(embModel.ProviderID)
 	if embProvider == nil || !embProvider.Enabled {
-		return
+		return nil
 	}
 
 	apiKey := embProvider.APIKey
@@ -70,71 +107,18 @@ func (bc *buildContext) buildPermanentMemory() {
 		apiKey = os.Getenv(embProvider.APIKeyEnv)
 	}
 
-	embClient, embErr := embedding.NewOpenAI(embedding.OpenAIConfig{
+	client, err := embedding.NewOpenAI(embedding.OpenAIConfig{
 		BaseURL:   embProvider.BaseURL,
 		APIKey:    apiKey,
 		ModelID:   embModel.ID,
 		Dimension: embModel.Dimension,
 	})
-	if embErr != nil {
-		bc.log.Warn(logger.CatApp, "permanent memory: failed to create embedder", "err", embErr)
-		return
+	if err != nil {
+		bc.log.Warn(logger.CatApp, "build: failed to create OpenAI embedder, engine runs without vectors", "err", err)
+		return nil
 	}
-
-	normFlag := embModel.Normalize
-	store := vectorstore.NewSQLiteStoreFromDB(bc.sharedDB.DB, &bc.sharedDB.WMu,
-		vectorstore.WithLogger(bc.log),
-	)
-
-	minSim := bc.settings.Embedding.MinSimilarity
-	if minSim == 0 {
-		minSim = 0.65
-	}
-	permBuildStart := time.Now()
-	var summarizer permanent.Summarizer
-	if bc.llmClient != nil {
-		summarizer = permanent.SummarizeFunc(func(ctx context.Context, req permanent.SummarizeRequest) (permanent.SummarizeResponse, error) {
-			var msgs []agent.LLMMessage
-			for _, m := range req.Messages {
-				msgs = append(msgs, agent.LLMMessage{
-					Role:    m.Role,
-					Content: m.Content,
-				})
-			}
-			resp, err := bc.llmClient.Chat(ctx, agent.LLMRequest{
-				ProviderID:  req.ProviderID,
-				Model:       req.Model,
-				Messages:    msgs,
-				MaxTokens:   req.MaxTokens,
-				Temperature: req.Temperature,
-			})
-			if err != nil {
-				return permanent.SummarizeResponse{}, err
-			}
-			return permanent.SummarizeResponse{
-				Content: resp.Content,
-			}, nil
-		})
-	}
-	permanentMgr := permanent.NewManager(store, embClient, summarizer, bc.fastModelProviderID, bc.fastModelID, bc.memoryDir, bc.log, minSim, normFlag)
-	permScheduler := permanent.NewScheduler(permanentMgr, bc.log, func(msg string) {
-		bc.log.Error(logger.CatApp, msg)
-	})
-	permCtx, cancel := context.WithCancel(context.Background())
-
-	bc.permanentMgr = permanentMgr
-	bc.permScheduler = permScheduler
-	bc.permCancel = cancel
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				bc.log.Error(logger.CatApp, "permScheduler goroutine panic recovered",
-					"panic", fmt.Sprintf("%v", r))
-			}
-		}()
-		permScheduler.Run(permCtx)
-	}()
-
-	bc.log.Debug(logger.CatApp, "build: permanent memory ready", "duration", time.Since(permBuildStart).String())
+	return client
 }
+
+// Ensure unused imports are used
+var _ = context.Background

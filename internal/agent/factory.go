@@ -303,7 +303,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	}
 
 	var finalPrompt string
-	hasPermanentMemory := toolsCfg.PermanentManager != nil
+	hasPermanentMemory := toolsCfg.MemoryEngine != nil
 	if tmpl.IsLeader {
 		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
 	} else {
@@ -896,7 +896,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
 	b.WriteString("\n\n")
 	if hasPermanentMemory {
-		b.WriteString(permanentMemorySection)
+		b.WriteString(memoryEngineSection)
 		b.WriteString("\n\n")
 	}
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart1, "{{PLAN_DIR}}", planDir))
@@ -914,17 +914,20 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 
 // ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
 
-// permanentMemorySection is injected into L2/L3 prompts when permanent memory is enabled.
-const permanentMemorySection = `
-# Long-Term Memory
-You have access to long-term memory through the RecallMemory and Remember tools. Long-term memory stores condensed summaries from past conversations.
+// memoryEngineSection is injected into L2/L3 prompts when the memory engine is enabled.
+const memoryEngineSection = `
+# Long-Term Memory (Memory Engine)
+You have access to a memory engine with hybrid search (BM25 keyword + Knowledge Graph) through these tools:
 
-Use RecallMemory when:
-- The user refers to past conversations or previous sessions
-- You need historical context about past decisions, preferences, or project history
-- The user asks about something discussed before but you can't recall
+- **Remember**: Save information to long-term memory. When saving, you should also extract entities and their relationships (people, concepts, projects, tools) and include them in the "entities" field to build the knowledge graph.
+- **RecallMemory**: Search memories by text query. Supports keyword and semantic-style queries. Use this when the user refers to past conversations or asks about previously discussed topics.
+- **KGIndex**: Index extracted entities and their relationships into the knowledge graph. Entity types and relationship types are open — you define them.
+- **RecallEntity**: Traverse the knowledge graph from an entity to find all related memories. Use this to explore what the system knows about a specific person, project, or concept.
+- **ConnectEntities**: Find the shortest path between two entities. Use this to discover how concepts, people, or projects are connected.
+- **MemoryTimeline**: List memories chronologically within a date range. Use this to review what happened during a specific time period.
+- **ConsolidateMemories**: Run maintenance on the memory engine (edge decay, stale memory cleanup, community detection).
 
-Use Remember to save important information that may be useful in future conversations.
+Use RecallMemory for general searches. Use RecallEntity when you want to explore connections from a specific entity. Use ConnectEntities to find indirect relationships.
 `
 
 const l3EnforcedDirectives = `
@@ -1042,7 +1045,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
 	b.WriteString("\n\n")
 	if hasPermanentMemory {
-		b.WriteString(permanentMemorySection)
+		b.WriteString(memoryEngineSection)
 		b.WriteString("\n\n")
 	}
 	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))

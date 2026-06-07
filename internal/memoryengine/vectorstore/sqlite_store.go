@@ -17,8 +17,9 @@ import (
 // Embeddings are serialized as little-endian float32 BLOBs.
 // Writes are serialized via mutex; reads are concurrent.
 type SQLiteStore struct {
-	db *sql.DB
-	mu *sync.Mutex // serializes writes (SQLite single-writer); may be shared with other stores
+	db        *sql.DB
+	mu        *sync.Mutex // serializes writes (SQLite single-writer); may be shared with other stores
+	tableName string      // SQL table name (default "memories")
 	// ownsDB indicates whether Close should close the underlying *sql.DB.
 	// When a caller injects a shared DB via NewSQLiteStoreFromDB, ownership
 	// stays with the caller and ownsDB is false.
@@ -33,6 +34,12 @@ func WithLogger(l *logger.Logger) func(*SQLiteStore) {
 	return func(s *SQLiteStore) { s.log = l }
 }
 
+// WithTableName sets the table name for the SQLiteStore. Default is "memories".
+// Use this to avoid collisions when multiple vector stores share the same database.
+func WithTableName(name string) func(*SQLiteStore) {
+	return func(s *SQLiteStore) { s.tableName = name }
+}
+
 // NewSQLiteStore opens or creates a SQLite-backed vector store that owns
 // its own connection. Prefer NewSQLiteStoreFromDB when the same database
 // file is shared with other stores (e.g. the todo store).
@@ -42,10 +49,11 @@ func NewSQLiteStore(path string, opts ...func(*SQLiteStore)) (*SQLiteStore, erro
 		return nil, err
 	}
 	s := &SQLiteStore{
-		db:       shared.DB,
-		mu:       &shared.WMu,
-		ownsDB:   true,
-		sharedDB: shared,
+		db:        shared.DB,
+		mu:        &shared.WMu,
+		tableName: "memories",
+		ownsDB:    true,
+		sharedDB:  shared,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -58,7 +66,7 @@ func NewSQLiteStore(path string, opts ...func(*SQLiteStore)) (*SQLiteStore, erro
 // mu must be the write mutex shared by all stores on the same file so that
 // writes are serialized across stores (SQLite allows only one writer).
 func NewSQLiteStoreFromDB(db *sql.DB, mu *sync.Mutex, opts ...func(*SQLiteStore)) *SQLiteStore {
-	s := &SQLiteStore{db: db, mu: mu, ownsDB: false}
+	s := &SQLiteStore{db: db, mu: mu, tableName: "memories", ownsDB: false}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -86,8 +94,8 @@ func (s *SQLiteStore) Upsert(ctx context.Context, entry MemoryEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO memories (id, content, embedding, timestamp, source) VALUES (?, ?, ?, ?, ?)`,
+	query := `INSERT OR REPLACE INTO ` + s.tableName + ` (id, content, embedding, timestamp, source) VALUES (?, ?, ?, ?, ?)`
+	_, err := s.db.ExecContext(ctx, query,
 		entry.ID, entry.Content, embedBlob, entry.Timestamp.Format(time.RFC3339), entry.Source,
 	)
 	return err
@@ -108,7 +116,7 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 	// up to float32 rounding.
 	queryNorm, queryHasNorm := NormalizeVector(embedding)
 
-	rows, err := s.db.QueryContext(ctx, `SELECT id, content, embedding, timestamp, source FROM memories`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, content, embedding, timestamp, source FROM `+s.tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +234,7 @@ func (s *SQLiteStore) Count(ctx context.Context) (int, error) {
 	}
 
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories`).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+s.tableName).Scan(&n)
 	return n, err
 }
 
