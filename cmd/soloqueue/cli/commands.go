@@ -209,6 +209,7 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithAuthConfig(cfg.Get().Auth),
 			server.WithOnConfigChange(rt.OnConfigChange),
 			server.WithProxyManager(proxyManager),
+			server.WithSimulationEngine(rt.SimulationEngine),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.

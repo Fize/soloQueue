@@ -24,6 +24,17 @@ type AgentConfig struct {
 	ExternalMCPServers []string `json:"externalMcpServers" toml:"external_mcp_servers,omitempty"`
 }
 
+// ─── Simulation ──────────────────────────────────────────────────────────
+
+// SimulationConfig holds default simulation settings.
+type SimulationConfig struct {
+	DefaultModelID         string `json:"defaultModelId" toml:"default_model_id,omitempty"`
+	DefaultProviderID      string `json:"defaultProviderId" toml:"default_provider_id,omitempty"`
+	DBPath                 string `json:"dbPath" toml:"db_path,omitempty"`
+	DefaultMaxActions      int    `json:"defaultMaxActions" toml:"default_max_actions,omitempty"`
+	DefaultMaxWallClockMs  int    `json:"defaultMaxWallClockMs" toml:"default_max_wall_clock_ms,omitempty"`
+}
+
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
 // Settings is the complete structure for global configuration
@@ -44,6 +55,7 @@ type Settings struct {
 	QQBot         QQBotConfig         `json:"qqbot" toml:"qqbot,omitempty"`
 	Agent         AgentConfig         `json:"agent" toml:"agent,omitempty"`
 	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"lspmcp,omitempty"`
+	Simulation    SimulationConfig    `json:"simulation" toml:"simulation,omitempty"`
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────

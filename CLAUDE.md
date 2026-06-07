@@ -84,10 +84,26 @@ Key types: `Registry` (agent lookup), `DefaultFactory` (agent creation), `Superv
 
 `~/.soloqueue/` is the work directory (`config.DefaultWorkDir()`). Config loading order (low→high priority): compiled defaults → `settings.toml` → `settings.local.toml`. Agent templates (`~/.soloqueue/agents/*.md`), MCP servers (`~/.soloqueue/mcp.json`), and skills (`~/.soloqueue/skills/*.md`) all hot-reload via fsnotify.
 
-### Permanent & short-term memory
+Data paths under `~/.soloqueue/`: timeline JSONL in `logs/timelines/`, shared SQLite in `permanent_memory/entries.db`, ONNX models cache in `models/`. Git-ignored locally: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`.
+
+### Memory engine
 
 - **Short-term**: `internal/memory/` — conversation-scoped memory manager
-- **Permanent**: `internal/permanent/` — embedding-based memory with SQLite-backed vector store (`internal/vectorstore/`) and a background scheduler
+- **Long-term**: `internal/memoryengine/` — config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process entity-relationship graph with PPR/BFS traversal) + optional vector search. Replaces the old `internal/permanent/` system. Configured via `[embedding] provider = "none" | "onnx" | "openai"` in settings.toml. Default "none" uses dual-hybrid BM25+KG with zero dependencies.
+- **Embeddings** (`internal/memoryengine/embedding/`): Embedder interface with ONNX (local, requires CGo + onnxruntime) and OpenAI (remote API) implementations. ONNX mode auto-downloads `intfloat/multilingual-e5-large` from HuggingFace.
+- **Vector store** (`internal/memoryengine/vectorstore/`): SQLite-backed cosine similarity over BLOBs. Only active when embedding provider != "none".
+
+### Shared interfaces
+
+`internal/iface/` defines shared interfaces to break import cycles between `internal/agent/` and `internal/tools/`. All cross-package contracts live here.
+
+### Skill system
+
+`internal/skill/` implements a Claude Code-compatible skill system. Skills are Markdown files with YAML frontmatter, hot-reloaded from `~/.soloqueue/skills/*.md`. The skill registry is injected via `runtime.Stack`.
+
+### Session management
+
+`internal/session/` manages agent sessions with an `inFlight atomic.Int32` CAS lock — only one concurrent Ask per session. Returns `ErrSessionBusy` on conflict.
 
 ### Event sourcing
 

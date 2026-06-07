@@ -1,0 +1,376 @@
+package simulation
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
+)
+
+// SimulationEngine orchestrates the full simulation lifecycle.
+type SimulationEngine struct {
+	store    Store
+	factory  agent.AgentFactory
+	registry *agent.Registry
+	llm      agent.LLMClient
+	toolsCfg tools.Config
+	log      *logger.Logger
+	config   SimulationConfigFile
+
+	subscribers   map[chan SimulationEvent]struct{}
+	subscribersMu sync.RWMutex
+}
+
+// SimulationConfigFile mirrors the TOML config section.
+type SimulationConfigFile struct {
+	DefaultModelID         string `toml:"default_model_id"`
+	DefaultProviderID      string `toml:"default_provider_id"`
+	DBPath                 string `toml:"db_path,omitempty"`
+	DefaultMaxActions      int    `toml:"default_max_actions"`
+	DefaultMaxWallClockMs  int    `toml:"default_max_wall_clock_ms"`
+}
+
+// NewSimulationEngine creates a new engine.
+func NewSimulationEngine(
+	factory agent.AgentFactory,
+	registry *agent.Registry,
+	llm agent.LLMClient,
+	toolsCfg tools.Config,
+	cfg SimulationConfigFile,
+	log *logger.Logger,
+) *SimulationEngine {
+	var store Store = NewSimulationStore()
+	if cfg.DBPath != "" {
+		sqlStore, err := NewSQLiteStore(cfg.DBPath)
+		if err != nil && log != nil {
+			log.Warn(logger.CatSimulation, "failed to open SQLite store, using memory", "err", err.Error())
+		} else if err == nil {
+			store = sqlStore
+		}
+	}
+
+	return &SimulationEngine{
+		store:       store,
+		factory:     factory,
+		registry:    registry,
+		llm:         llm,
+		toolsCfg:    toolsCfg,
+		log:         log,
+		config:      cfg,
+		subscribers: make(map[chan SimulationEvent]struct{}),
+	}
+}
+
+// Create validates and stores a new simulation, returning its ID.
+func (e *SimulationEngine) Create(config SimulationConfig) (string, error) {
+	if err := config.Validate(); err != nil {
+		return "", err
+	}
+	return e.store.Create(config)
+}
+
+// Start begins simulation execution in a background goroutine and returns an event channel.
+func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan SimulationEvent, error) {
+	state, err := e.store.Get(simID)
+	if err != nil {
+		return nil, err
+	}
+
+	state.Lock()
+	if state.Status == StatusRunning {
+		state.Unlock()
+		return nil, ErrSimAlreadyRunning
+	}
+	state.Status = StatusRunning
+	now := time.Now()
+	state.StartedAt = &now
+	state.Unlock()
+
+	events := make(chan SimulationEvent, 64)
+
+	go func() {
+		defer close(events)
+		defer func() {
+			if r := recover(); r != nil {
+				e.emit(events, SimulationEvent{
+					Type:         "error",
+					SimulationID: simID,
+					Error:        fmt.Sprintf("panic: %v", r),
+					Timestamp:    time.Now(),
+				})
+				state.Lock()
+				state.Status = StatusFailed
+				state.Error = fmt.Sprintf("panic: %v", r)
+				state.Unlock()
+			}
+		}()
+
+		e.runSimulation(ctx, state, events)
+	}()
+
+	return events, nil
+}
+
+func (e *SimulationEngine) Stop(simID string) error {
+	state, err := e.store.Get(simID)
+	if err != nil {
+		return err
+	}
+	state.Lock()
+	if state.Status != StatusRunning {
+		state.Unlock()
+		return ErrSimNotRunning
+	}
+	state.Status = StatusCancelled
+	state.Unlock()
+	return nil
+}
+
+func (e *SimulationEngine) Get(simID string) (*SimulationState, error) {
+	return e.store.Get(simID)
+}
+
+func (e *SimulationEngine) List() []*SimulationState {
+	return e.store.List()
+}
+
+// SetDBPath replaces the store with a SQLite-backed one at the given path.
+// Must be called before Create/Start. Existing in-memory data is not migrated.
+func (e *SimulationEngine) SetDBPath(path string) error {
+	sqlStore, err := NewSQLiteStore(path)
+	if err != nil {
+		return fmt.Errorf("set db path: %w", err)
+	}
+	e.store = sqlStore
+	return nil
+}
+
+func (e *SimulationEngine) Delete(simID string) error {
+	state, err := e.store.Get(simID)
+	if err != nil {
+		return err
+	}
+	state.Lock()
+	if state.Status == StatusRunning {
+		state.Unlock()
+		return ErrSimAlreadyRunning
+	}
+	state.Unlock()
+	return e.store.Delete(simID)
+}
+
+func (e *SimulationEngine) Subscribe(ch chan SimulationEvent) {
+	e.subscribersMu.Lock()
+	e.subscribers[ch] = struct{}{}
+	e.subscribersMu.Unlock()
+}
+
+func (e *SimulationEngine) Unsubscribe(ch chan SimulationEvent) {
+	e.subscribersMu.Lock()
+	delete(e.subscribers, ch)
+	e.subscribersMu.Unlock()
+}
+
+func (e *SimulationEngine) emit(events chan SimulationEvent, ev SimulationEvent) {
+	ev.Timestamp = time.Now()
+	select {
+	case events <- ev:
+	default:
+	}
+	e.subscribersMu.RLock()
+	for ch := range e.subscribers {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+	e.subscribersMu.RUnlock()
+}
+
+// runSimulation executes the event-driven simulation.
+func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationState, events chan SimulationEvent) {
+	simID := state.RunID
+	config := state.Config
+
+	e.emit(events, SimulationEvent{
+		Type:         "simulation_start",
+		SimulationID: simID,
+		Data: map[string]any{
+			"topic": config.Topic, "personas": len(config.Personas),
+			"max_actions": config.MaxActions, "trigger_policy": config.TriggerPolicy,
+		},
+	})
+
+	graph := NewRelationGraph()
+	bus := NewMessageBus(64)
+	simAgents, err := e.createSimAgents(ctx, config, bus)
+	if err != nil {
+		state.Lock()
+		state.Status = StatusFailed
+		state.Error = err.Error()
+		state.Unlock()
+		e.emit(events, SimulationEvent{Type: "error", SimulationID: simID, Error: err.Error()})
+		return
+	}
+	defer func() {
+		for _, sa := range simAgents {
+			sa.Stop(10 * time.Second)
+		}
+	}()
+
+	e.runEventDriven(ctx, state, simAgents, bus, graph, events)
+}
+
+// runEventDriven executes the event-driven loop.
+func (e *SimulationEngine) runEventDriven(ctx context.Context, state *SimulationState, simAgents []*SimAgent, bus *MessageBus, graph *RelationGraph, events chan SimulationEvent) {
+	config := state.Config
+
+	minInterval := time.Duration(config.MinSpeakIntervalMs) * time.Millisecond
+	trigger := NewTriggerPolicy(config.TriggerPolicy, minInterval)
+	timeout := time.Duration(config.MaxWallClockMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+
+	poolSize := 20
+	if len(simAgents) < poolSize {
+		poolSize = len(simAgents)
+	}
+	loop := NewEventLoop(simAgents, bus, state.WorldState, graph, config.Topic, trigger, timeout, config.MaxActions, poolSize, e.log)
+
+	evCh := loop.Run(ctx)
+	for ev := range evCh {
+		ev.SimulationID = state.RunID
+		events <- ev
+
+		if ev.Type == "agent_message" {
+			if rm, ok := ev.Data.(*RoundMessage); ok {
+				state.Lock()
+				state.Rounds = append(state.Rounds, RoundResult{
+					RoundNumber: ev.Round,
+					Messages:    []RoundMessage{*rm},
+					CompletedAt: time.Now(),
+				})
+				if as, ok2 := state.AgentStates[rm.AgentID]; ok2 {
+					as.TotalMessages++
+				}
+				state.Unlock()
+			}
+		}
+	}
+
+	// Persist state if using SQLite store
+	e.maybePersist(state)
+
+	// Generate report with graph data
+	report, err := e.generateReport(ctx, config, simAgents, graph, state.WorldState)
+	if err == nil && report != "" {
+		state.Lock()
+		state.Report = report
+		state.Unlock()
+	}
+
+	state.Lock()
+	if state.Status == StatusRunning {
+		state.Status = StatusCompleted
+	}
+	now := time.Now()
+	state.CompletedAt = &now
+	state.Unlock()
+}
+
+func (e *SimulationEngine) maybePersist(state *SimulationState) {
+	if sqlStore, ok := e.store.(*SQLiteStore); ok {
+		if err := sqlStore.SaveResults(state.RunID, state.Rounds, state.Report); err != nil && e.log != nil {
+			e.log.Warn(logger.CatSimulation, "failed to persist simulation results", "err", err.Error())
+		}
+	}
+}
+
+// createSimAgents creates Agent instances for each persona.
+func (e *SimulationEngine) createSimAgents(ctx context.Context, config SimulationConfig, bus *MessageBus) ([]*SimAgent, error) {
+	var simAgents []*SimAgent
+
+	for _, persona := range config.Personas {
+		systemPrompt := BuildSimulationSystemPrompt(persona, config.Topic, config.Personas)
+
+		modelID := persona.ModelID
+		if modelID == "" {
+			modelID = e.config.DefaultModelID
+		}
+		providerID := persona.ProviderID
+		if providerID == "" {
+			providerID = e.config.DefaultProviderID
+		}
+
+		tmpl := agent.AgentTemplate{
+			ID:           "sim-" + persona.ID,
+			Name:         persona.Name,
+			Description:  persona.Role,
+			SystemPrompt: systemPrompt,
+			ModelID:      modelID,
+			Permission:   true,
+		}
+
+		agt, cw, err := e.factory.Create(ctx, tmpl, "")
+		if err != nil {
+			for _, sa := range simAgents {
+				sa.Stop(5 * time.Second)
+			}
+			return nil, fmt.Errorf("create agent for persona %s: %w", persona.ID, err)
+		}
+
+		cw.Push(ctxwin.RoleSystem, systemPrompt)
+
+		if providerID != "" {
+			agt.Def.ProviderID = providerID
+		}
+
+		bus.Register(persona.ID)
+
+		perAgentTimeout := time.Duration(config.MaxWallClockMs) * time.Millisecond
+		if perAgentTimeout <= 0 {
+			perAgentTimeout = 5 * time.Minute
+		}
+		simAgent := NewSimAgent(agt, &persona, cw, bus, e.log, perAgentTimeout)
+		simAgents = append(simAgents, simAgent)
+
+		if e.log != nil {
+			e.log.InfoContext(ctx, logger.CatApp, "simulation: created agent",
+				"persona_id", persona.ID,
+				"instance_id", agt.InstanceID,
+			)
+		}
+	}
+
+	return simAgents, nil
+}
+
+// generateReport produces a final analysis using the LLM.
+func (e *SimulationEngine) generateReport(ctx context.Context, config SimulationConfig, simAgents []*SimAgent, graph *RelationGraph, ws *WorldState) (string, error) {
+	if e.llm == nil {
+		return "", nil
+	}
+
+	memories := make(map[string]*AgentMemory, len(simAgents))
+	for _, sa := range simAgents {
+		memories[sa.PersonaID()] = sa.Memory()
+	}
+
+	prompt := BuildReportPrompt(config.Topic, memories, graph, ws)
+
+	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
+		Model:     e.config.DefaultModelID,
+		Messages:  []agent.LLMMessage{{Role: "user", Content: prompt}},
+		MaxTokens: 2048,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}

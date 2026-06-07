@@ -31,6 +31,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 
 	root.AddCommand(cli.VersionCmd(version))
 	root.AddCommand(cli.ServeCmd(version))
+	root.AddCommand(cli.SimulateCmd(version))
 
 	return root
 }
