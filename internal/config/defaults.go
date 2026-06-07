@@ -167,5 +167,9 @@ func DefaultSettings() Settings {
 			Fallback:  "",
 		},
 		Agent: AgentConfig{},
+		Simulation: SimulationConfig{
+			DefaultMaxActions:     15,
+			DefaultMaxWallClockMs: 300000,
+		},
 	}
 }

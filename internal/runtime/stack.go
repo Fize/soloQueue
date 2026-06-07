@@ -18,6 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
@@ -55,6 +56,8 @@ type Stack struct {
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
 	TeamStore *teamstore.Store // DB-backed team/agent store (nil = disabled)
+
+	SimulationEngine *simulation.SimulationEngine // multi-agent simulation engine (nil = disabled)
 
 	// compactorInstance stores the concrete type for internal use.
 	compactorInstance *compactor.LLMCompactor
