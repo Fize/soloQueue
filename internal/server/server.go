@@ -46,6 +46,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/proxy"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -76,6 +77,7 @@ type Mux struct {
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
 	proxyManager   *proxy.ProxyManager
+	simEngine      *simulation.SimulationEngine
 }
 
 // reloadGroups loads groups. If teamstore is available, loads from DB;
@@ -247,6 +249,11 @@ func WithProxyManager(pm *proxy.ProxyManager) MuxOption {
 // WithSessionManager sets the session manager for /api/session endpoints.
 func WithSessionManager(mgr *session.SessionManager) MuxOption {
 	return func(m *Mux) { m.sessionMgr = mgr }
+}
+
+// WithSimulationEngine sets the simulation engine for /api/simulations endpoints.
+func WithSimulationEngine(engine *simulation.SimulationEngine) MuxOption {
+	return func(m *Mux) { m.simEngine = engine }
 }
 
 // SetHub sets the WebSocket Hub after construction. This is useful when the
@@ -448,6 +455,20 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Delete("/", m.handleDeleteCronTask)
 		})
 	})
+
+	// Simulation routes (only if engine is configured)
+	if m.simEngine != nil {
+		r.Route("/api/simulations", func(r chi.Router) {
+			r.Get("/", m.handleListSimulations)
+			r.Post("/", m.handleCreateSimulation)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", m.handleGetSimulation)
+				r.Post("/start", m.handleStartSimulation)
+				r.Post("/stop", m.handleStopSimulation)
+				r.Delete("/", m.handleDeleteSimulation)
+			})
+		})
+	}
 
 	// MCP config routes
 	r.Get("/api/mcp", m.handleGetMCPConfig)

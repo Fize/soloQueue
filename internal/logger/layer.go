@@ -15,13 +15,14 @@ const (
 	CatTool     Category = "tool"
 	CatMessages Category = "messages"
 	CatMCP      Category = "mcp"
+	CatSimulation Category = "simulation"
 )
 
 // systemCategories 定义所有合法的日志分类（统一写入 system 目录）
 var systemCategories = []Category{
 	CatApp, CatConfig, CatHTTP, CatWS, CatLLM,
 	CatTeam, CatAgent,
-	CatActor, CatTool, CatMessages, CatMCP,
+	CatActor, CatTool, CatMessages, CatMCP, CatSimulation,
 }
 
 // ValidCategory 检查 category 是否合法

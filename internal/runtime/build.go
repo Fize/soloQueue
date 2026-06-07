@@ -27,6 +27,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
@@ -101,6 +102,11 @@ func Build(
 
 	// Phase 4: Build agent infra (depends on Phase 2+3)
 	bc.buildAgentInfra()
+
+	// Phase 4.5: Simulation engine
+	if err := bc.buildSimulationEngine(); err != nil {
+		return nil, fmt.Errorf("build simulation engine: %w", err)
+	}
 
 	// Phase 5: Assemble Stack
 	rt := bc.assembleStack()
@@ -307,6 +313,7 @@ type buildContext struct {
 	tokenizer         *ctxwin.Tokenizer
 	compactorInstance *compactor.LLMCompactor
 	taskRouter        *router.Router
+	simEngine         *simulation.SimulationEngine
 }
 
 func (bc *buildContext) resolveConfig() error {
@@ -407,6 +414,7 @@ func (bc *buildContext) assembleStack() *Stack {
 		MCPManager:        bc.mcpMgr,
 		LSPManager:        bc.lspMgr,
 		TeamStore:         bc.teamstore,
+		SimulationEngine:  bc.simEngine,
 		compactorInstance: bc.compactorInstance,
 	}
 }
