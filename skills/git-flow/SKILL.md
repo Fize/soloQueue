@@ -1,6 +1,6 @@
 ---
 name: git-flow
-description: Git workflow 工作流 covering 分支管理 branch management, 规范化提交 normalized commits, 远程同步 remote sync, with 分阶段操作流 staged operation flows. Supports git commit 提交, git push 推送, git pull 拉取, git branch 分支, smart commit splitting 智能提交拆分, AI author tagging AI作者标记, safe branch operations 安全分支操作. Use for /git-flow, git 工作流, commit 提交, push 推送, pull 拉取, branch 分支, 暂存 staged, 拆分 split
+description: Git workflow 工作流 covering 分支管理 branch management, 规范化提交 normalized commits, 远程同步 remote sync, with 分阶段操作流 staged operation flows. Supports git commit 提交, git push 推送, git pull 拉取, git branch 分支, smart commit splitting 智能提交拆分, AI author tagging AI作者标记, safe branch operations 安全分支操作. Use for /git-flow, git 工作流, commit, 提交, push, 推送, pull, 拉取, branch, 分支, 暂存, staged, 拆分, split
 ---
 
 # Git Flow Skill
