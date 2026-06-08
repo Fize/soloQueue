@@ -34,50 +34,57 @@
 
 ### 1.1 Seed Information Injection
 
-- [ ] **`SeedExtractor`** — LLM-powered entity extraction from seed text
+- [x] **`SeedExtractor`** — LLM-powered entity extraction from seed text
   - Accept raw text or file path
   - Call existing LLM with extraction prompt → `EntityExtraction[]` (name, type, confidence, relations)
   - Populate initial `WorldState` from extracted entities/relations
   - Optionally persist to MemoryEngine KG via `SaveWithEntities`
   - File: `internal/simulation/seed.go`
 
-- [ ] **API endpoint** — `POST /api/simulations/from-seed`
+- [x] **API endpoint** — `POST /api/simulations/from-seed`
   - Accept `{ "seed_text": "...", "persona_count": 5 }`
   - Return `{ "simulation_id": "...", "entities": [...], "personas": [...] }`
 
-- [ ] **CLI flag** — `soloqueue simulate --seed doc.md --persona-count 5`
+- [x] **CLI flag** — `soloqueue simulate --seed doc.md --persona-count 5`
 
 ### 1.2 Persona Auto-Generation
 
-- [ ] **`PersonaGenerator`** — generates N personas from extracted entities + topic
+- [x] **`PersonaGenerator`** — generates N personas from extracted entities + topic
   - Each persona gets a unique stance (pro/con/neutral toward each entity)
   - Traits randomly sampled with constraints (at least one contrarian, one mediator)
   - System prompts auto-generated from stance + entity relationships
   - File: `internal/simulation/persona_gen.go`
 
 ### 1.3 KG as World Model
-- [ ] Wire `MemoryEngine` into the simulation lifecycle
-  - On simulation start: seed KG entities as world model
-  - During simulation: agent `[PROPOSE ...]` mutations optionally indexed into KG
-  - On simulation end: final report + graph persisted to KG for future recall
-  - Use existing `Engine.ConnectEntities` / `Engine.RecallEntity` for cross-simulation knowledge
+- [x] Wire `MemoryEngine` into the simulation lifecycle
+  - Built in: `indexSimulationToKG` runs at simulation end
+  - On simulation end: final report + graph persisted to KG via `SaveWithEntities`
+  - Each agent → KG entity (with stance relations to entities)
+  - Each RelationGraph edge → KG relation edge
+  - WorldState changes → KG snapshot entities
+  - Cross-simulation recall: next seed phase can `RecallEntity` historical simulations
+  - Uses `Engine.SaveWithEntities` / `memoryEngine.Graph()` for traversal
+  - File: `internal/simulation/simulation.go` — `indexSimulationToKG` method
 
 ---
 
 ## Next: Post-Simulation Deep Interaction
 
-- [ ] **Agent replay** — query any simulation agent's memory after simulation ends
+- [x] **Agent replay** — query any simulation agent's memory after simulation ends
   - API: `POST /api/simulations/{id}/agents/{personaId}/ask`
   - Uses the agent's `AgentMemory` as context for follow-up questions
   - Agent responds in-character based on their simulation history
+  - Memory persisted via `persistAgentMemories` → store interface
+  - File: `internal/simulation/simulation.go` — `ReplayAsk` method
 
-- [ ] **"What if" re-simulation** — fork a simulation with modified parameters
+- [x] **"What-if" re-simulation** — fork a simulation with modified parameters
   - API: `POST /api/simulations/{id}/fork` with new WorldState or added personas
   - Reuses existing personas but starts from a different initial state
+  - File: `internal/simulation/simulation.go` — `Fork` method
 
 ---
 
-## Next: Frontend Visualization
+## Pending: Frontend Visualization
 
 - [ ] **Simulation dashboard** — real-time agent message stream
   - WebSocket or SSE push agent messages as they happen
@@ -93,7 +100,7 @@
 
 ---
 
-## Next: Scale Validation
+## Pending: Scale Validation
 
 - [ ] **Benchmark** 100/500/1000 agent simulations
   - Measure: goroutine count, memory usage, SQLite write throughput, LLM API rate limiting

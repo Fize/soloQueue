@@ -197,6 +197,7 @@ func (sa *SimAgent) Stop(timeout time.Duration) error {
 
 func (sa *SimAgent) InstanceID() string { return sa.instanceID }
 func (sa *SimAgent) PersonaID() string  { return sa.personaID }
+func (sa *SimAgent) Persona() *Persona  { return sa.persona }
 func (sa *SimAgent) Memory() *AgentMemory { return sa.memory }
 
 type proposal struct {

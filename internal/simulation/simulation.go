@@ -9,6 +9,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -21,6 +22,8 @@ type SimulationEngine struct {
 	toolsCfg tools.Config
 	log      *logger.Logger
 	config   SimulationConfigFile
+
+	memoryEngine *memoryengine.Engine // optional, for KG-based seed processing
 
 	subscribers   map[chan SimulationEvent]struct{}
 	subscribersMu sync.RWMutex
@@ -150,6 +153,209 @@ func (e *SimulationEngine) SetDBPath(path string) error {
 	return nil
 }
 
+// SetMemoryEngine wires an optional MemoryEngine for KG-based seed processing.
+func (e *SimulationEngine) SetMemoryEngine(mem *memoryengine.Engine) {
+	e.memoryEngine = mem
+}
+
+// CreateFromSeed extracts entities and generates personas from seed text,
+// then creates a simulation. Returns the simulation ID, extraction, and personas.
+func (e *SimulationEngine) CreateFromSeed(
+	ctx context.Context,
+	seedText string,
+	topic string,
+	personaCount int,
+) (simID string, extraction *SeedExtraction, personas []Persona, err error) {
+	// Clamp persona count
+	if personaCount < 2 {
+		personaCount = 2
+	}
+	if personaCount > 5 {
+		personaCount = 5
+	}
+
+	// Truncate excessive seed text
+	if len(seedText) > 50000 {
+		seedText = seedText[:50000]
+	}
+
+	// Step 1: Extract entities, world state, topics
+	extractor := NewSeedExtractor(e.llm, e.config.DefaultModelID, e.memoryEngine)
+	extraction, err = extractor.Extract(ctx, seedText)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("seed extract: %w", err)
+	}
+
+	// Use first key topic as topic if not provided
+	if topic == "" {
+		if len(extraction.KeyTopics) > 0 {
+			topic = extraction.KeyTopics[0]
+		} else {
+			topic = "General discussion"
+		}
+	}
+
+	// Step 2: Generate personas
+	gen := NewPersonaGenerator(e.llm, e.config.DefaultModelID, e.memoryEngine)
+	personas, err = gen.Generate(ctx, extraction, topic, personaCount)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("persona generation: %w", err)
+	}
+
+	// Step 3: Create the simulation
+	config := SimulationConfig{
+		Topic:              topic,
+		Personas:           personas,
+		WorldState:         extraction.WorldState,
+		MaxActions:         e.config.DefaultMaxActions,
+		MaxWallClockMs:     e.config.DefaultMaxWallClockMs,
+		TriggerPolicy:      "selective",
+		MinSpeakIntervalMs: 2000,
+	}
+
+	simID, err = e.Create(config)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("create simulation: %w", err)
+	}
+
+	return simID, extraction, personas, nil
+}
+
+// ReplayAsk queries an agent in-character using their simulation memories as context.
+func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, question string) (string, error) {
+	state, err := e.store.Get(simID)
+	if err != nil {
+		return "", err
+	}
+
+	state.RLock()
+	status := state.Status
+	state.RUnlock()
+
+	if status != StatusCompleted {
+		return "", fmt.Errorf("simulation %s is not completed (status: %s)", simID, status)
+	}
+
+	// Find the persona
+	var persona *Persona
+	for i, p := range state.Config.Personas {
+		if p.ID == personaID {
+			persona = &state.Config.Personas[i]
+			break
+		}
+	}
+	if persona == nil {
+		return "", fmt.Errorf("persona %s not found in simulation %s", personaID, simID)
+	}
+
+	// Get agent memories
+	records, err := e.store.GetAgentMemories(simID, personaID)
+	if err != nil {
+		return "", fmt.Errorf("get agent memories: %w", err)
+	}
+	if len(records) == 0 {
+		return "", fmt.Errorf("no memories found for agent %s in simulation %s", personaID, simID)
+	}
+
+	// Build follow-up prompt
+	prompt := BuildReplayPrompt(persona, state.Config.Topic, records, question)
+
+	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
+		Model:    e.config.DefaultModelID,
+		Messages: []agent.LLMMessage{{Role: "user", Content: prompt}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("replay ask: %w", err)
+	}
+
+	return resp.Content, nil
+}
+
+// ForkRequest defines what-if parameters when forking a simulation.
+type ForkRequest struct {
+	NewWorldState   map[string]any `json:"new_world_state,omitempty"`
+	ExtraPersonas   []Persona      `json:"extra_personas,omitempty"`
+	NewTopic        string         `json:"new_topic,omitempty"`
+	NewMaxActions   int            `json:"new_max_actions,omitempty"`
+}
+
+// Fork clones a completed simulation with modified parameters for "what-if" replay.
+// Returns the new simulation ID. The original simulation is unchanged.
+func (e *SimulationEngine) Fork(ctx context.Context, sourceSimID string, req ForkRequest) (string, error) {
+	srcState, err := e.store.Get(sourceSimID)
+	if err != nil {
+		return "", err
+	}
+
+	srcState.RLock()
+	status := srcState.Status
+	srcConfig := srcState.Config
+	srcState.RUnlock()
+
+	if status != StatusCompleted && status != StatusCancelled && status != StatusFailed {
+		return "", fmt.Errorf("source simulation %s is not finished (status: %s)", sourceSimID, status)
+	}
+
+	// Build new config from source
+	newConfig := SimulationConfig{
+		Topic: srcConfig.Topic,
+	}
+
+	// Clone all original personas
+	newConfig.Personas = make([]Persona, len(srcConfig.Personas))
+	copy(newConfig.Personas, srcConfig.Personas)
+
+	// Apply overrides
+	if req.NewTopic != "" {
+		newConfig.Topic = req.NewTopic
+	}
+
+	if req.NewMaxActions > 0 {
+		newConfig.MaxActions = req.NewMaxActions
+	} else {
+		newConfig.MaxActions = srcConfig.MaxActions
+	}
+
+	// Merge world state: start with original, overlay with fork overrides
+	if srcConfig.WorldState != nil {
+		newConfig.WorldState = make(map[string]any, len(srcConfig.WorldState))
+		for k, v := range srcConfig.WorldState {
+			newConfig.WorldState[k] = v
+		}
+	}
+	if newConfig.WorldState == nil {
+		newConfig.WorldState = make(map[string]any)
+	}
+	for k, v := range req.NewWorldState {
+		newConfig.WorldState[k] = v
+	}
+
+	// Add extra personas if provided
+	if len(req.ExtraPersonas) > 0 {
+		// Check for ID conflicts
+		existing := make(map[string]bool)
+		for _, p := range newConfig.Personas {
+			existing[p.ID] = true
+		}
+		for _, p := range req.ExtraPersonas {
+			if existing[p.ID] {
+				return "", fmt.Errorf("extra persona ID %q conflicts with existing persona", p.ID)
+			}
+			newConfig.Personas = append(newConfig.Personas, p)
+		}
+	}
+
+	// Preserve other config from source
+	if newConfig.MaxActions <= 0 {
+		newConfig.MaxActions = srcConfig.MaxActions
+	}
+	newConfig.MaxWallClockMs = srcConfig.MaxWallClockMs
+	newConfig.TriggerPolicy = srcConfig.TriggerPolicy
+	newConfig.MinSpeakIntervalMs = srcConfig.MinSpeakIntervalMs
+
+	return e.Create(newConfig)
+}
+
 func (e *SimulationEngine) Delete(simID string) error {
 	state, err := e.store.Get(simID)
 	if err != nil {
@@ -267,6 +473,9 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 	// Persist state if using SQLite store
 	e.maybePersist(state)
 
+	// Persist agent memories
+	e.persistAgentMemories(state.RunID, simAgents)
+
 	// Generate report with graph data
 	report, err := e.generateReport(ctx, config, simAgents, graph, state.WorldState)
 	if err == nil && report != "" {
@@ -274,6 +483,9 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 		state.Report = report
 		state.Unlock()
 	}
+
+	// Index simulation results into MemoryEngine KG (if configured)
+	e.indexSimulationToKG(ctx, state.RunID, config.Topic, simAgents, graph, state.WorldState, report)
 
 	state.Lock()
 	if state.Status == StatusRunning {
@@ -289,6 +501,102 @@ func (e *SimulationEngine) maybePersist(state *SimulationState) {
 		if err := sqlStore.SaveResults(state.RunID, state.Rounds, state.Report); err != nil && e.log != nil {
 			e.log.Warn(logger.CatSimulation, "failed to persist simulation results", "err", err.Error())
 		}
+	}
+}
+
+// persistAgentMemories saves all agent memories to the store for replay.
+func (e *SimulationEngine) persistAgentMemories(simID string, simAgents []*SimAgent) {
+	for _, sa := range simAgents {
+		records := sa.Memory().Records()
+		if len(records) == 0 {
+			continue
+		}
+		if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
+			e.log.Warn(logger.CatSimulation, "failed to persist agent memories",
+				"persona_id", sa.PersonaID(), "err", err.Error())
+		}
+	}
+}
+
+// indexSimulationToKG indexes simulation results into the MemoryEngine KG.
+// Converts the RelationGraph into entity extractions and persists the report.
+func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic string, simAgents []*SimAgent, graph *RelationGraph, ws *WorldState, report string) {
+	if e.memoryEngine == nil {
+		return
+	}
+
+	var entities []memoryengine.EntityExtraction
+
+	// 1. Each agent becomes an entity with their persona traits
+	for _, sa := range simAgents {
+		entity := memoryengine.EntityExtraction{
+			Name:       sa.PersonaID(),
+			Type:       "agent",
+			Confidence: 1.0,
+		}
+		// Add stance information from their traits
+		p := sa.Persona()
+		for k, v := range p.Traits {
+			if len(k) > 7 && k[:7] == "stance:" {
+				entity.Relations = append(entity.Relations, memoryengine.RelationExtraction{
+					TargetName: k[7:],
+					RelType:    "stance_" + v,
+					Weight:     0.8,
+				})
+			}
+		}
+		entities = append(entities, entity)
+	}
+
+	// 2. Convert RelationGraph edges to KG relations
+	for _, edge := range graph.Edges() {
+		entities = append(entities, memoryengine.EntityExtraction{
+			Name:       edge.Source,
+			Type:       "agent",
+			Confidence: 0.9,
+			Relations: []memoryengine.RelationExtraction{
+				{
+					TargetName: edge.Target,
+					RelType:    string(edge.Type),
+					Weight:     float64(edge.Weight) / 5.0, // normalize to ~0-1
+				},
+			},
+		})
+	}
+
+	// 3. Index key world state changes
+	changes := ws.History()
+	if len(changes) > 0 {
+		// Take snapshot of final state for the context
+		finalState := ws.Snapshot()
+		for k := range finalState {
+			_ = k // use entity name; value not stored in KG
+			entities = append(entities, memoryengine.EntityExtraction{
+				Name:       "world_" + k,
+				Type:       "world_state",
+				Confidence: 0.7,
+			})
+		}
+	}
+
+	// 4. Build content from report (or fallback to topic)
+	content := topic
+	if report != "" {
+		content = "Simulation Report: " + topic + "\n\n" + report
+	}
+
+	// 5. Save to KG
+	now := time.Now().Format(time.RFC3339)
+	hash, _, err := e.memoryEngine.SaveWithEntities(ctx, content, now, "simulation_result", now, entities)
+	if err != nil {
+		if e.log != nil {
+			e.log.Warn(logger.CatSimulation, "failed to index simulation to KG", "sim_id", simID, "err", err.Error())
+		}
+		return
+	}
+
+	if e.log != nil {
+		e.log.Info(logger.CatSimulation, "indexed simulation to KG", "sim_id", simID, "hash", hash, "entities", len(entities))
 	}
 }
 

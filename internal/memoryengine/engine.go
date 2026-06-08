@@ -158,6 +158,11 @@ func (e *Engine) RecallEntity(ctx context.Context, entityName string, maxHops in
 	return result.Results, nil
 }
 
+// Graph returns the underlying graph store for direct traversal.
+func (e *Engine) Graph() *GraphStore {
+	return e.graph
+}
+
 // ShortestPath finds the shortest path between two entities in the KG.
 func (e *Engine) ShortestPath(ctx context.Context, source, target string, maxDepth int) ([]GraphNode, []GraphEdge, error) {
 	return e.graph.ShortestPath(ctx, source, target, maxDepth)

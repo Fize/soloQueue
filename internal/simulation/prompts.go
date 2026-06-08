@@ -137,6 +137,40 @@ func BuildReportPrompt(topic string, agentMemories map[string]*AgentMemory, grap
 	return b.String()
 }
 
+// BuildReplayPrompt creates the prompt for post-simulation agent questioning.
+func BuildReplayPrompt(persona *Persona, topic string, records []MemoryRecord, question string) string {
+	var b strings.Builder
+
+	// 1. Persona identity
+	b.WriteString(fmt.Sprintf("You are %s, a %s.\n\n", persona.Name, persona.Role))
+	b.WriteString(fmt.Sprintf("You recently participated in a simulation on the topic: %s\n\n", topic))
+
+	if len(records) > 0 {
+		b.WriteString("## Your Memory of the Simulation\n\n")
+
+		// Include last N records for brevity (cap at 10 to avoid token blowup)
+		start := 0
+		if len(records) > 10 {
+			start = len(records) - 10
+		}
+		recent := records[start:]
+
+		for _, rec := range recent {
+			if rec.Role == "user" {
+				b.WriteString(fmt.Sprintf("You saw:\n%s\n\n", truncateContent(rec.Content, 300)))
+			} else {
+				b.WriteString(fmt.Sprintf("You responded:\n%s\n\n", truncateContent(rec.Content, 300)))
+			}
+		}
+	}
+
+	b.WriteString("## Current Question\n")
+	b.WriteString(fmt.Sprintf("Someone is asking you now: %s\n\n", question))
+	b.WriteString("Answer in-character, based on your personality and what happened in the simulation. Be concise (under 300 words).")
+
+	return b.String()
+}
+
 func truncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
