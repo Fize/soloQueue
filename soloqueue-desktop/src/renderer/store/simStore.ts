@@ -64,6 +64,8 @@ interface SimState {
   activeTaskId: string | null
   
   // Connection states
+  backendStatus: 'idle' | 'starting' | 'running' | 'error'
+  backendError: string
   isConnected: boolean
   isConnecting: boolean
   backendUrl: string
@@ -76,6 +78,7 @@ interface SimState {
   // Actions
   registerL1: (name: string, gender: 'male' | 'female', style: string) => void
   loadProfile: () => void
+  setBackendStatus: (status: 'idle' | 'starting' | 'running' | 'error', error?: string) => void
   addTask: (title: string, team: 'infra' | 'logic' | 'frontend', reward: number) => void
   assignTask: (taskId: string, agentId: string) => void
   resolveError: (agentId: string) => void
@@ -214,8 +217,10 @@ function generateLogsForTask(taskTitle: string, agentName: string): string[] {
   ]
 }
 
+export type BackendConnectionStatus = 'idle' | 'starting' | 'running' | 'error'
+
 export const useSimStore = create<SimState>((set, get) => ({
-  tokens: 1500, // Pre-seed currency so player has capital
+  tokens: 1500,
   profile: {
     name: '',
     gender: 'male',
@@ -239,6 +244,8 @@ export const useSimStore = create<SimState>((set, get) => ({
     'Hire agents, delegate tasks, and accumulate Token profits.'
   ],
   activeTaskId: null,
+  backendStatus: 'idle' as BackendConnectionStatus,
+  backendError: '',
   isConnected: false,
   isConnecting: false,
   backendUrl: 'http://localhost:8765',
@@ -490,6 +497,8 @@ export const useSimStore = create<SimState>((set, get) => ({
     })
   },
 
+  setBackendStatus: (status, error) => set({ backendStatus: status, backendError: error || '' }),
+
   setActiveTaskId: (taskId) => set({ activeTaskId: taskId }),
 
   addLog: (text) => set({ logs: [...get().logs, text] }),
@@ -498,17 +507,17 @@ export const useSimStore = create<SimState>((set, get) => ({
 
   connectToBackend: (customUrl?: string) => {
     const base = customUrl || 'http://localhost:8765'
-    set({ backendUrl: base, wsUrl: base.replace('http', 'ws') + '/ws', isConnecting: true })
+    set({ backendUrl: base, wsUrl: base.replace('http', 'ws') + '/ws', isConnecting: true, backendStatus: 'starting' })
     try {
       const ws = new WebSocket(base.replace('http', 'ws') + '/ws')
-      ws.onopen = () => set({ isConnected: true, isConnecting: false })
+      ws.onopen = () => set({ isConnected: true, isConnecting: false, backendStatus: 'running', backendError: '' })
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data)
           if (msg.type === 'state') get().syncBackendState(msg)
         } catch {}
       }
-      ws.onclose = () => set({ isConnected: false, isConnecting: false })
+      ws.onclose = () => set({ isConnected: false, isConnecting: false, backendStatus: 'idle' })
       ws.onerror = () => set({ isConnected: false, isConnecting: false })
     } catch {
       set({ isConnecting: false })

@@ -3,6 +3,9 @@ import buildingBg from '../assets/backgrounds/building_exterior.png'
 
 interface TitleSceneProps {
   onStart: () => void
+  backendStatus?: 'ready' | 'loading' | 'error'
+  backendError?: string
+  onRetryBackend?: () => void
 }
 
 /* ── Rain splash ────────────────────────────────────── */
@@ -89,7 +92,7 @@ const GLOW_WINDOWS: GlowRect[] = [
   { rx: 0.75, ry: 0.42, rw: 0.10, rh: 0.08, phase: 5.6 },
 ]
 
-export default function TitleScene({ onStart }: TitleSceneProps) {
+export default function TitleScene({ onStart, backendStatus = 'ready', backendError, onRetryBackend }: TitleSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [imageLoaded, setImageLoaded] = useState(false)
   const imgRef = useRef<HTMLImageElement | null>(null)
@@ -301,6 +304,37 @@ export default function TitleScene({ onStart }: TitleSceneProps) {
             START WORK
           </button>
         </div>
+
+        {/* Backend status */}
+        {backendStatus !== undefined && (
+          <div className="mt-4 flex items-center gap-2 pointer-events-auto">
+            {backendStatus === 'loading' && (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-[#e28a2b] animate-pulse" />
+                <span className="font-pixel text-[9px] text-[#8c7662]">Starting backend...</span>
+              </>
+            )}
+            {backendStatus === 'error' && (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-[#d83838]" />
+                <span className="font-pixel text-[8px] text-[#d83838] max-w-[200px]">
+                  {backendError || 'Backend error'}
+                </span>
+                {onRetryBackend && (
+                  <button onClick={onRetryBackend} className="font-pixel text-[9px] text-[#c0942c] underline ml-1">
+                    RETRY
+                  </button>
+                )}
+              </>
+            )}
+            {backendStatus === 'ready' && (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-[#4eb036]" />
+                <span className="font-pixel text-[9px] text-[#4eb036]">Backend ready</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Version tag — bottom-left */}
