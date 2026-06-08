@@ -1,5 +1,5 @@
 {
-  "name": "soloqueue-cozy-office",
+  "name": "soloqueue-desktop",
   "version": "0.1.0",
   "private": true,
   "main": "src/main/main.js",
@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "electron": "electron .",
-    "start": "electron ."
+    "start": "electron .",
+    "debug": "concurrently -k \"vite\" \"wait-on http://localhost:7890 && electron .\""
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -22,10 +23,12 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
     "electron": "^31.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "~5.8.3",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "wait-on": "^8.0.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
