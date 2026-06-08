@@ -26,6 +26,13 @@
   }
 }
 
+/* Registration card: horizontal layout on desktop */
+@media (min-width: 768px) {
+  .registration-card {
+    flex-direction: row !important;
+  }
+}
+
 /* Custom retro styling rules */
 body {
   background-color: var(--color-wood-pine);
