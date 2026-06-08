@@ -23,6 +23,8 @@ func SimulateCmd(version string) *cobra.Command {
 	var (
 		topic            string
 		personas         string
+		seedPath         string
+		personaCount     int
 		maxActions       int
 		maxWallClockMs   int
 		triggerPolicy    string
@@ -37,35 +39,20 @@ func SimulateCmd(version string) *cobra.Command {
 		Long: `Run a multi-agent evolutionary simulation where AI agents with distinct
 personas interact asynchronously in event-driven mode.
 
-Example:
-  soloqueue simulate --topic "Should we use Rust or Go?" --personas personas.toml --db ./sim.db`,
+Examples:
+  soloqueue simulate --topic "Should we use Rust or Go?" --seed doc.md --persona-count 3
+  soloqueue simulate --topic "Rust vs Go" --personas personas.toml --db ./sim.db`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if topic == "" {
 				return fmt.Errorf("--topic is required")
 			}
-			if personas == "" {
-				return fmt.Errorf("--personas is required")
-			}
 
-			var pf personasFile
-			data, err := os.ReadFile(personas)
-			if err != nil {
-				return fmt.Errorf("read personas file: %w", err)
+			// Mutually exclusive: --seed or --personas
+			if seedPath != "" && personas != "" {
+				return fmt.Errorf("--seed and --personas are mutually exclusive")
 			}
-			if err := toml.Unmarshal(data, &pf); err != nil {
-				return fmt.Errorf("parse personas file: %w", err)
-			}
-			if len(pf.Personas) == 0 {
-				return fmt.Errorf("no personas defined in %s", personas)
-			}
-
-			simConfig := simulation.SimulationConfig{
-				Topic:              topic,
-				Personas:           pf.Personas,
-				MaxActions:         maxActions,
-				MaxWallClockMs:     maxWallClockMs,
-				TriggerPolicy:      triggerPolicy,
-				MinSpeakIntervalMs: minSpeakInterval,
+			if seedPath == "" && personas == "" {
+				return fmt.Errorf("either --seed or --personas is required")
 			}
 
 			workDir, err := config.DefaultWorkDir()
@@ -99,6 +86,60 @@ Example:
 				engine.SetDBPath(dbPath)
 			}
 
+			// Seed path: auto-generate personas
+			if seedPath != "" {
+				data, err := os.ReadFile(seedPath)
+				if err != nil {
+					return fmt.Errorf("read seed file: %w", err)
+				}
+				if len(data) > 50000 {
+					data = data[:50000]
+				}
+
+				simID, _, _, err := engine.CreateFromSeed(context.Background(), string(data), topic, personaCount)
+				if err != nil {
+					return fmt.Errorf("create from seed: %w", err)
+				}
+
+				state, err := engine.Get(simID)
+				if err != nil {
+					return fmt.Errorf("get sim: %w", err)
+				}
+
+				fmt.Printf("Simulation: %s\n", simID)
+				fmt.Printf("Topic: %s  |  Auto-generated personas: %d  |  Max actions: %d\n\n",
+					topic, len(state.Config.Personas), state.Config.MaxActions)
+				for _, p := range state.Config.Personas {
+					fmt.Printf("  - %s (%s)\n", p.Name, p.Role)
+				}
+				fmt.Println()
+
+				consumeEventsLogged(context.Background(), engine, simID, reportOut)
+				return nil
+			}
+
+			// Personas file path: existing flow
+			var pf personasFile
+			data, err := os.ReadFile(personas)
+			if err != nil {
+				return fmt.Errorf("read personas file: %w", err)
+			}
+			if err := toml.Unmarshal(data, &pf); err != nil {
+				return fmt.Errorf("parse personas file: %w", err)
+			}
+			if len(pf.Personas) == 0 {
+				return fmt.Errorf("no personas defined in %s", personas)
+			}
+
+			simConfig := simulation.SimulationConfig{
+				Topic:              topic,
+				Personas:           pf.Personas,
+				MaxActions:         maxActions,
+				MaxWallClockMs:     maxWallClockMs,
+				TriggerPolicy:      triggerPolicy,
+				MinSpeakIntervalMs: minSpeakInterval,
+			}
+
 			id, err := engine.Create(simConfig)
 			if err != nil {
 				return fmt.Errorf("create simulation: %w", err)
@@ -108,49 +149,15 @@ Example:
 			fmt.Printf("Topic: %s  |  Personas: %d  |  Max actions: %d  |  Trigger: %s\n\n",
 				topic, len(pf.Personas), simConfig.MaxActions, simConfig.TriggerPolicy)
 
-			ctx := context.Background()
-			events, err := engine.Start(ctx, id)
-			if err != nil {
-				return fmt.Errorf("start: %w", err)
-			}
-
-			started := time.Now()
-			for ev := range events {
-				switch ev.Type {
-				case "agent_message":
-					if msg, ok := ev.Data.(simulation.RoundMessage); ok {
-						fmt.Printf("[%s] (%s): %s\n", msg.AgentName, msg.Type, truncForCLI(msg.Content, 150))
-					}
-				case "simulation_end":
-					elapsed := time.Since(started).Round(time.Second)
-					fmt.Printf("\nSimulation complete in %s\n", elapsed)
-					if data, ok := ev.Data.(map[string]any); ok {
-						fmt.Printf("Total actions: %v\n", data["total_actions"])
-					}
-				case "error":
-					fmt.Printf("ERROR: %s\n", ev.Error)
-				}
-			}
-
-			state, err := engine.Get(id)
-			if err != nil {
-				return fmt.Errorf("get final state: %w", err)
-			}
-
-			if state.Report != "" {
-				fmt.Printf("\n═══ FINAL REPORT ═══\n%s\n", state.Report)
-				if reportOut != "" {
-					os.WriteFile(reportOut, []byte(state.Report), 0o644)
-					fmt.Printf("Report saved to: %s\n", reportOut)
-				}
-			}
-
+			consumeEventsLogged(context.Background(), engine, id, reportOut)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVarP(&topic, "topic", "t", "", "Discussion topic (required)")
-	cmd.Flags().StringVarP(&personas, "personas", "p", "", "Path to personas TOML file (required)")
+	cmd.Flags().StringVarP(&personas, "personas", "p", "", "Path to personas TOML file")
+	cmd.Flags().StringVar(&seedPath, "seed", "", "Path to seed document (mutually exclusive with --personas)")
+	cmd.Flags().IntVar(&personaCount, "persona-count", 3, "Number of personas to generate (used with --seed, 2-5)")
 	cmd.Flags().IntVar(&maxActions, "max-actions", 15, "Maximum total agent actions")
 	cmd.Flags().IntVar(&maxWallClockMs, "max-wall-clock", 300000, "Max wall clock time in ms")
 	cmd.Flags().StringVar(&triggerPolicy, "trigger", "selective", "Trigger policy: reactive|selective")
@@ -159,6 +166,48 @@ Example:
 	cmd.Flags().StringVar(&dbPath, "db", "", "SQLite database path for persistence")
 
 	return cmd
+}
+
+// consumeEventsLogged starts a simulation, prints messages as they arrive,
+// then prints the final report after completion.
+func consumeEventsLogged(ctx context.Context, engine *simulation.SimulationEngine, id, reportOut string) {
+	events, err := engine.Start(ctx, id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: start: %v\n", err)
+		return
+	}
+
+	started := time.Now()
+	for ev := range events {
+		switch ev.Type {
+		case "agent_message":
+			if rm, ok := ev.Data.(*simulation.RoundMessage); ok && rm != nil {
+				fmt.Printf("[%s] (%s): %s\n", rm.AgentName, rm.Type, truncForCLI(rm.Content, 150))
+			}
+		case "simulation_end":
+			elapsed := time.Since(started).Round(time.Second)
+			fmt.Printf("\nSimulation complete in %s\n", elapsed)
+			if data, ok := ev.Data.(map[string]any); ok {
+				fmt.Printf("Total actions: %v\n", data["total_actions"])
+			}
+		case "error":
+			fmt.Fprintf(os.Stderr, "ERROR: %s\n", ev.Error)
+		}
+	}
+
+	state, err := engine.Get(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: get final state: %v\n", err)
+		return
+	}
+
+	if state.Report != "" {
+		fmt.Printf("\n═══ FINAL REPORT ═══\n%s\n", state.Report)
+		if reportOut != "" {
+			os.WriteFile(reportOut, []byte(state.Report), 0o644)
+			fmt.Printf("Report saved to: %s\n", reportOut)
+		}
+	}
 }
 
 func truncForCLI(s string, maxLen int) string {

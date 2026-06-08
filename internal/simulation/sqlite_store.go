@@ -287,6 +287,75 @@ func (s *SQLiteStore) SaveResults(simID string, rounds []RoundResult, report str
 	return tx.Commit()
 }
 
+// SaveAgentMemories persists agent memory records to the SQLite database.
+func (s *SQLiteStore) SaveAgentMemories(simID string, personaID string, records []MemoryRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT INTO agent_memories (simulation_id, persona_id, round, role, content, world_state_json, received_msgs_json, timestamp)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, rec := range records {
+		wsj, _ := json.Marshal(rec.WorldState)
+		rmj, _ := json.Marshal(rec.ReceivedMsgs)
+		_, err := stmt.Exec(simID, personaID, rec.Round, rec.Role, rec.Content, string(wsj), string(rmj), rec.Timestamp.Format(timeFormat))
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetAgentMemories retrieves agent memory records from the SQLite database.
+func (s *SQLiteStore) GetAgentMemories(simID string, personaID string) ([]MemoryRecord, error) {
+	rows, err := s.db.Query(`SELECT round, role, content, world_state_json, received_msgs_json, timestamp
+		FROM agent_memories WHERE simulation_id = ? AND persona_id = ? ORDER BY round, timestamp`, simID, personaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []MemoryRecord
+	for rows.Next() {
+		var (
+			round    int
+			role     string
+			content  string
+			wsj, rmj string
+			ts       string
+		)
+		if err := rows.Scan(&round, &role, &content, &wsj, &rmj, &ts); err != nil {
+			continue
+		}
+		rec := MemoryRecord{
+			Round:   round,
+			Role:    role,
+			Content: content,
+		}
+		json.Unmarshal([]byte(wsj), &rec.WorldState)
+		json.Unmarshal([]byte(rmj), &rec.ReceivedMsgs)
+		rec.Timestamp, _ = parseTime(ts)
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 func newUUID() string {

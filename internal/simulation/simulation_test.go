@@ -564,6 +564,70 @@ func TestEventDrivenSimulationIntegration(t *testing.T) {
 	}
 }
 
+func TestCreateFromSeed(t *testing.T) {
+	fakeLLM := &agent.FakeLLM{
+		Responses: []string{
+			// First call: seed extraction
+			`{
+				"entities": [{"name": "Rust", "type": "technology", "confidence": 0.9, "relations": [{"target_name": "Go", "rel_type": "rebuttal", "weight": 0.8}]}, {"name": "Go", "type": "technology", "confidence": 0.9}],
+				"world_state": {"era": "2025", "context": "systems programming"},
+				"key_topics": ["Rust vs Go for systems programming"],
+				"conflict_areas": ["memory safety vs simplicity"]
+			}`,
+			// Second call: persona generation
+			`{
+				"personas": [
+					{"id": "rust-advocate", "name": "Alice", "role": "Rust advocate", "goals": ["Promote Rust"], "traits": {"technical": "expert"}, "stance_per_entity": {"Rust": "pro", "Go": "con"}},
+					{"id": "go-advocate", "name": "Bob", "role": "Go advocate", "goals": ["Defend simplicity"], "traits": {"practical": "high"}, "stance_per_entity": {"Go": "pro", "Rust": "con"}}
+				]
+			}`,
+		},
+	}
+
+	registry := agent.NewRegistry(nil)
+	factory := createTestFactory(registry, fakeLLM)
+	engine := NewSimulationEngine(
+		factory, registry, fakeLLM,
+		tools.Config{WorkDir: "/tmp"},
+		SimulationConfigFile{DefaultMaxActions: 5, DefaultMaxWallClockMs: 15000},
+		nil,
+	)
+
+	ctx := context.Background()
+	simID, extraction, personas, err := engine.CreateFromSeed(ctx, "Rust is memory safe, Go is simple.", "", 2)
+	if err != nil {
+		t.Fatalf("CreateFromSeed: %v", err)
+	}
+	if simID == "" {
+		t.Error("expected non-empty simulation ID")
+	}
+	if extraction == nil {
+		t.Fatal("expected non-nil extraction")
+	}
+	if len(personas) != 2 {
+		t.Errorf("expected 2 personas, got %d", len(personas))
+	}
+	if len(extraction.Entities) != 2 {
+		t.Errorf("expected 2 entities, got %d", len(extraction.Entities))
+	}
+	if extraction.WorldState["era"] != "2025" {
+		t.Errorf("expected world_state era=2025, got %v", extraction.WorldState["era"])
+	}
+
+	// Verify simulation is created and can be started
+	events, err := engine.Start(ctx, simID)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	msgCount := 0
+	for ev := range events {
+		if ev.Type == "agent_message" {
+			msgCount++
+		}
+	}
+	t.Logf("seed simulation messages: %d", msgCount)
+}
+
 func TestSQLiteStore(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir() + "/test_sim.db")
 	if err != nil {
@@ -618,6 +682,149 @@ func TestSQLiteStore(t *testing.T) {
 	_, err = store.Get(id)
 	if err != ErrSimNotFound {
 		t.Errorf("expected ErrSimNotFound, got %v", err)
+	}
+}
+
+func TestAgentMemoryPersistence(t *testing.T) {
+	store := NewSimulationStore()
+	records := []MemoryRecord{
+		{Round: 1, Role: "user", Content: "round 1 prompt"},
+		{Round: 1, Role: "assistant", Content: "round 1 response"},
+	}
+
+	if err := store.SaveAgentMemories("sim1", "alice", records); err != nil {
+		t.Fatalf("SaveAgentMemories: %v", err)
+	}
+
+	got, err := store.GetAgentMemories("sim1", "alice")
+	if err != nil {
+		t.Fatalf("GetAgentMemories: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(got))
+	}
+	if got[0].Content != "round 1 prompt" {
+		t.Errorf("expected 'round 1 prompt', got '%s'", got[0].Content)
+	}
+}
+
+func TestAgentMemoryPersistence_Empty(t *testing.T) {
+	store := NewSimulationStore()
+	got, err := store.GetAgentMemories("nonexistent", "alice")
+	if err != ErrSimNotFound {
+		t.Errorf("expected ErrSimNotFound, got %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestReplayAsk(t *testing.T) {
+	fakeLLM := &agent.FakeLLM{
+		Responses: []string{
+			// Phase 1: simulation responses
+			"I advocate for Rust due to memory safety.",
+			"I prefer Go for its simplicity.",
+			"Yeah, good point Bob. But Rust's ecosystem is mature enough.",
+			// Phase 2: replay ask response
+			"As Alice, the Rust advocate, I still believe Rust is superior for systems programming. The simulation reinforced my conviction because safety guarantees prevent entire classes of bugs.",
+		},
+	}
+
+	registry := agent.NewRegistry(nil)
+	factory := createTestFactory(registry, fakeLLM)
+	engine := NewSimulationEngine(
+		factory, registry, fakeLLM,
+		tools.Config{WorkDir: "/tmp"},
+		SimulationConfigFile{DefaultMaxActions: 4, DefaultMaxWallClockMs: 15000},
+		nil,
+	)
+
+	config := SimulationConfig{
+		Topic:             "Rust vs Go",
+		Personas:          []Persona{{ID: "alice", Name: "Alice", Role: "Rust advocate"}, {ID: "bob", Name: "Bob", Role: "Go advocate"}},
+		MaxActions:        3,
+		MaxWallClockMs:    15000,
+		TriggerPolicy:     "reactive",
+		MinSpeakIntervalMs: 100,
+	}
+
+	id, err := engine.Create(config)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	ctx := context.Background()
+	events, err := engine.Start(ctx, id)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	for range events {
+	}
+
+	// Now ask the agent a question
+	answer, err := engine.ReplayAsk(ctx, id, "alice", "Did you change your mind about Rust vs Go?")
+	if err != nil {
+		t.Fatalf("ReplayAsk: %v", err)
+	}
+	if answer == "" {
+		t.Error("expected non-empty answer")
+	}
+	if !strings.Contains(answer, "Rust") {
+		t.Errorf("expected answer to mention Rust, got: %s", answer)
+	}
+}
+
+func TestReplayAsk_InvalidPersona(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+
+	id, err := engine.Create(SimulationConfig{
+		Topic:    "test",
+		Personas: []Persona{{ID: "alice", Name: "Alice"}, {ID: "bob", Name: "Bob"}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	_, err = engine.ReplayAsk(context.Background(), id, "nonexistent", "question")
+	if err == nil {
+		t.Fatal("expected error for invalid persona")
+	}
+}
+
+func TestReplayAsk_NotCompleted(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+
+	_, err := engine.ReplayAsk(context.Background(), "nonexistent", "alice", "question")
+	if err == nil {
+		t.Fatal("expected error for nonexistent sim")
+	}
+}
+
+func TestBuildReplayPrompt(t *testing.T) {
+	persona := &Persona{Name: "Alice", Role: "Rust advocate"}
+	records := []MemoryRecord{
+		{Round: 1, Role: "user", Content: "Round 1: discuss Rust vs Go"},
+		{Round: 1, Role: "assistant", Content: "Rust is memory safe."},
+		{Round: 2, Role: "user", Content: "Round 2: Go is simpler"},
+		{Round: 2, Role: "assistant", Content: "But safety matters more."},
+	}
+
+	prompt := BuildReplayPrompt(persona, "Rust vs Go", records, "What do you think now?")
+	if !strings.Contains(prompt, "Alice") {
+		t.Error("expected prompt to contain persona name")
+	}
+	if !strings.Contains(prompt, "Rust advocate") {
+		t.Error("expected prompt to contain role")
+	}
+	if !strings.Contains(prompt, "Rust vs Go") {
+		t.Error("expected prompt to contain topic")
+	}
+	if !strings.Contains(prompt, "What do you think now?") {
+		t.Error("expected prompt to contain question")
+	}
+	if !strings.Contains(prompt, "Rust is memory safe") {
+		t.Error("expected prompt to contain memory")
 	}
 }
 
@@ -802,4 +1009,174 @@ func TestClassifyRelation(t *testing.T) {
 
 func createTestFactory(registry *agent.Registry, llm agent.LLMClient) *agent.DefaultFactory {
 	return agent.NewDefaultFactory(registry, llm, tools.Config{WorkDir: "/tmp"}, nil)
+}
+
+func TestFork_Basic(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+
+	srcID, err := engine.Create(SimulationConfig{
+		Topic:    "Rust vs Go",
+		Personas: []Persona{{ID: "alice", Name: "Alice"}, {ID: "bob", Name: "Bob"}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Mark source as completed (since we don't actually run it)
+	state, err := engine.Get(srcID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	state.Lock()
+	state.Status = StatusCompleted
+	state.Unlock()
+
+	newID, err := engine.Fork(context.Background(), srcID, ForkRequest{
+		NewTopic:      "Rust vs Go v2",
+		NewMaxActions: 20,
+		NewWorldState: map[string]any{"era": "2026"},
+	})
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	if newID == "" || newID == srcID {
+		t.Errorf("expected new ID different from source, got %q", newID)
+	}
+
+	newState, err := engine.Get(newID)
+	if err != nil {
+		t.Fatalf("get forked: %v", err)
+	}
+	if newState.Config.Topic != "Rust vs Go v2" {
+		t.Errorf("expected topic 'Rust vs Go v2', got %q", newState.Config.Topic)
+	}
+	if newState.Config.MaxActions != 20 {
+		t.Errorf("expected max_actions 20, got %d", newState.Config.MaxActions)
+	}
+	if newState.Config.WorldState["era"] != "2026" {
+		t.Errorf("expected world_state.era='2026', got %v", newState.Config.WorldState["era"])
+	}
+	if len(newState.Config.Personas) != 2 {
+		t.Errorf("expected 2 personas, got %d", len(newState.Config.Personas))
+	}
+}
+
+func TestFork_WithExtraPersonas(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+
+	srcID, err := engine.Create(SimulationConfig{
+		Topic:    "Rust vs Go",
+		Personas: []Persona{{ID: "alice", Name: "Alice"}, {ID: "bob", Name: "Bob"}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	state, err := engine.Get(srcID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	state.Lock()
+	state.Status = StatusCompleted
+	state.Unlock()
+
+	newID, err := engine.Fork(context.Background(), srcID, ForkRequest{
+		ExtraPersonas: []Persona{{ID: "charlie", Name: "Charlie", Role: "mediator"}},
+	})
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+
+	newState, err := engine.Get(newID)
+	if err != nil {
+		t.Fatalf("get forked: %v", err)
+	}
+	if len(newState.Config.Personas) != 3 {
+		t.Errorf("expected 3 personas (2 original + 1 extra), got %d", len(newState.Config.Personas))
+	}
+}
+
+func TestFork_DuplicatePersonaID(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+
+	srcID, err := engine.Create(SimulationConfig{
+		Topic:    "test",
+		Personas: []Persona{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	state, _ := engine.Get(srcID)
+	state.Lock()
+	state.Status = StatusCompleted
+	state.Unlock()
+
+	_, err = engine.Fork(context.Background(), srcID, ForkRequest{
+		ExtraPersonas: []Persona{{ID: "a", Name: "Duplicate"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate persona ID")
+	}
+}
+
+func TestFork_NotFinished(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+
+	srcID, err := engine.Create(SimulationConfig{
+		Topic:    "test",
+		Personas: []Persona{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	_, err = engine.Fork(context.Background(), srcID, ForkRequest{})
+	if err == nil {
+		t.Fatal("expected error for unfinished simulation (status=pending)")
+	}
+}
+
+func TestFork_Nonexistent(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+	_, err := engine.Fork(context.Background(), "nonexistent", ForkRequest{})
+	if err == nil {
+		t.Fatal("expected error for nonexistent sim")
+	}
+}
+
+func TestFork_NotFound(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+	_, err := engine.Fork(context.Background(), "nonexistent", ForkRequest{})
+	if err == nil {
+		t.Fatal("expected error for nonexistent sim")
+	}
+}
+
+func TestFork_InheritsOriginalTopic(t *testing.T) {
+	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
+
+	srcID, err := engine.Create(SimulationConfig{
+		Topic:    "original topic",
+		Personas: []Persona{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	state, _ := engine.Get(srcID)
+	state.Lock()
+	state.Status = StatusCompleted
+	state.Unlock()
+
+	// Fork with no topic override
+	newID, err := engine.Fork(context.Background(), srcID, ForkRequest{})
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	newState, err := engine.Get(newID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if newState.Config.Topic != "original topic" {
+		t.Errorf("expected topic 'original topic', got %q", newState.Config.Topic)
+	}
 }

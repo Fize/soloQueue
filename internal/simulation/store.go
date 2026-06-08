@@ -15,17 +15,21 @@ type Store interface {
 	List() []*SimulationState
 	Update(id string, state *SimulationState) error
 	Delete(id string) error
+	SaveAgentMemories(simID string, personaID string, records []MemoryRecord) error
+	GetAgentMemories(simID string, personaID string) ([]MemoryRecord, error)
 }
 
 // SimulationStore provides in-memory CRUD for simulations.
 type SimulationStore struct {
 	simulations map[string]*SimulationState
+	agentMem    map[string]map[string][]MemoryRecord // simID → personaID → records
 	mu          sync.RWMutex
 }
 
 func NewSimulationStore() *SimulationStore {
 	return &SimulationStore{
 		simulations: make(map[string]*SimulationState),
+		agentMem:    make(map[string]map[string][]MemoryRecord),
 	}
 }
 
@@ -106,5 +110,36 @@ func (s *SimulationStore) Delete(id string) error {
 		return ErrSimNotFound
 	}
 	delete(s.simulations, id)
+	delete(s.agentMem, id)
 	return nil
+}
+
+// SaveAgentMemories stores or appends agent memories for a simulation.
+func (s *SimulationStore) SaveAgentMemories(simID string, personaID string, records []MemoryRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	memMap, ok := s.agentMem[simID]
+	if !ok {
+		memMap = make(map[string][]MemoryRecord)
+		s.agentMem[simID] = memMap
+	}
+	memMap[personaID] = append(memMap[personaID], records...)
+	return nil
+}
+
+// GetAgentMemories retrieves agent memories for a simulation agent.
+func (s *SimulationStore) GetAgentMemories(simID string, personaID string) ([]MemoryRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	memMap, ok := s.agentMem[simID]
+	if !ok {
+		return nil, ErrSimNotFound
+	}
+	records, ok := memMap[personaID]
+	if !ok || len(records) == 0 {
+		return nil, nil
+	}
+	out := make([]MemoryRecord, len(records))
+	copy(out, records)
+	return out, nil
 }
