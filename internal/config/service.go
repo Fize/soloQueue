@@ -399,9 +399,23 @@ func roleDefault(role string) string {
 
 // ─── Init & DefaultWorkDir ────────────────────────────────────────────────────
 
-// DefaultWorkDir returns ~/.soloqueue, creating it if it doesn't exist.
-// It also creates the ~/.soloqueue/plan/ subdirectory for design documents.
+// DefaultWorkDir returns the working directory for soloqueue.
+// It checks the SOLOQUEUE_WORK_DIR env var first, then falls back to ~/.soloqueue.
+// It also creates the plan/ subdirectory for design documents.
 func DefaultWorkDir() (string, error) {
+	// 1. Check env var first (for dev/test isolation)
+	if envDir := os.Getenv("SOLOQUEUE_WORK_DIR"); envDir != "" {
+		if err := os.MkdirAll(envDir, 0o755); err != nil {
+			return "", fmt.Errorf("create work dir from env %s: %w", envDir, err)
+		}
+		planDir := filepath.Join(envDir, "plan")
+		if err := os.MkdirAll(planDir, 0o755); err != nil {
+			return "", fmt.Errorf("create plan dir from env %s: %w", envDir, err)
+		}
+		return envDir, nil
+	}
+
+	// 2. Fall back to ~/.soloqueue
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
@@ -410,7 +424,6 @@ func DefaultWorkDir() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create work dir %s: %w", dir, err)
 	}
-	// Create plan subdirectory for design documents
 	planDir := filepath.Join(dir, "plan")
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		return "", fmt.Errorf("create plan dir %s: %w", planDir, err)

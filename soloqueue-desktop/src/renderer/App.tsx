@@ -97,41 +97,36 @@ export default function App() {
 
   // Click handler: enter office (first launch, after registration)
   const handleStart = () => {
-    sounds.playSelect()
     setScene('office')
+    try { sounds.playSelect() } catch {}
   }
 
-  // Registration complete: save L1 config, spawn backend, enter office
-  const handleRegistrationComplete = async (modelRef?: string) => {
-    sounds.playSelect()
+  // Registration complete: enter office immediately, spawn backend in background
+  const handleRegistrationComplete = () => {
+    setScene('office')
+    try { sounds.playSelect() } catch {}
 
-    if (typeof window.electronAPI?.saveL1Config === 'function' && modelRef) {
-      try {
-        await window.electronAPI.saveL1Config(modelRef)
-      } catch { /* ignore */ }
-    }
-
+    // Fire-and-forget: spawn backend in background
     if (typeof window.electronAPI?.startBackend === 'function') {
       setBackendLoading(true)
       setBackendError('')
       setBackendStatus('starting')
-      try {
-        const result = await window.electronAPI.startBackend()
-        if (result.success) {
-          setBackendStatus('running')
-          connectToBackend()
-        } else {
-          setBackendError(result.error || 'Backend failed to start')
-          setBackendStatus('error', result.error)
-        }
-      } catch (err) {
-        setBackendError((err as Error).message)
-        setBackendStatus('error', (err as Error).message)
-      }
-      setBackendLoading(false)
+      window.electronAPI.startBackend()
+        .then((result) => {
+          if (result.success) {
+            setBackendStatus('running')
+            connectToBackend()
+          } else {
+            setBackendError(result.error || 'Backend failed to start')
+            setBackendStatus('error', result.error)
+          }
+        })
+        .catch((err) => {
+          setBackendError((err as Error).message)
+          setBackendStatus('error', (err as Error).message)
+        })
+        .finally(() => setBackendLoading(false))
     }
-
-    setScene('office')
   }
 
   return (
@@ -153,8 +148,8 @@ export default function App() {
         ) : (
           <>
             <OfficeScene
-              onOpenKanban={() => { sounds.playSelect(); setShowKanban(true); }}
-              onOpenShop={() => { sounds.playSelect(); setShowShop(true); }}
+              onOpenKanban={() => { setShowKanban(true); try { sounds.playSelect() } catch {} }}
+              onOpenShop={() => { setShowShop(true); try { sounds.playSelect() } catch {} }}
             />
             {!backendReady && (
               <div className="absolute bottom-14 left-0 right-0 z-40 flex justify-center pointer-events-none">
@@ -188,12 +183,12 @@ export default function App() {
 
       {/* Kanban Overlay Modals */}
       {showKanban && (
-        <KanbanBoard onClose={() => { sounds.playSelect(); setShowKanban(false); }} />
+        <KanbanBoard onClose={() => { setShowKanban(false); try { sounds.playSelect() } catch {} }} />
       )}
 
       {/* Shop Overlay Modals */}
       {showShop && (
-        <ShopMenu onClose={() => { sounds.playSelect(); setShowShop(false); }} />
+        <ShopMenu onClose={() => { setShowShop(false); try { sounds.playSelect() } catch {} }} />
       )}
     </div>
   )

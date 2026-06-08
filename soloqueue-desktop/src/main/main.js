@@ -25,7 +25,12 @@ function getGoBinaryPath() {
 }
 
 function getWorkDir() {
-  return process.env.SOLOQUEUE_WORK_DIR || path.join(app.getPath('home'), '.soloqueue')
+  if (process.env.SOLOQUEUE_WORK_DIR) return process.env.SOLOQUEUE_WORK_DIR
+  if (!app.isPackaged) {
+    // Dev: use project-relative directory, no pollution of production data
+    return path.resolve(__dirname, '../../../../.soloqueue-dev')
+  }
+  return path.join(app.getPath('home'), '.soloqueue')
 }
 
 // ── Health check ───────────────────────────────────────────
@@ -66,7 +71,7 @@ async function spawnGoBackend() {
     goProcess = spawn(binary, ['serve', '--port', String(BACKEND_PORT), '--verbose'], {
       cwd: workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, SOLOQUEUE_WORK_DIR: workDir },
     })
 
     if (goProcess.stdout) {

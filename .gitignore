@@ -28,6 +28,7 @@ frontend/dist-ssr
 __pycache__
 .codebuddy/*
 .soloqueue/*
+.soloqueue-dev/*
 .specify/*
 .envsoloqueue
 
