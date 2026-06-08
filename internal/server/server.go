@@ -461,10 +461,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/api/simulations", func(r chi.Router) {
 			r.Get("/", m.handleListSimulations)
 			r.Post("/", m.handleCreateSimulation)
+			r.Post("/from-seed", m.handleCreateFromSeed)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", m.handleGetSimulation)
 				r.Post("/start", m.handleStartSimulation)
 				r.Post("/stop", m.handleStopSimulation)
+				r.Post("/agents/{personaId}/ask", m.handleAgentAsk)
+				r.Post("/fork", m.handleForkSimulation)
 				r.Delete("/", m.handleDeleteSimulation)
 			})
 		})
