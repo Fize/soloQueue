@@ -310,7 +310,7 @@ function parseSpriteSheet(img: HTMLImageElement): SpriteFrame[][] {
 
 export default function OfficeScene({ onOpenKanban, onOpenShop }: OfficeSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const { agents, tasks, tokens, resolveError, addLog } = useSimStore()
+  const { agents, tasks, tokens, resolveError, addLog, isConnected } = useSimStore()
 
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1.0)
@@ -1401,20 +1401,29 @@ export default function OfficeScene({ onOpenKanban, onOpenShop }: OfficeScenePro
       {/* Bottom HUD Bar */}
       <div className="flex justify-between items-center bg-[#5f3e26] border-2 border-[#e6b053] px-4 py-1.5 text-[#f6ebd3] text-[18px] mt-1.5">
         <div className="font-bold">💰 {tokens.toLocaleString()}</div>
-        
+
         <button
           onClick={onOpenKanban}
           className="flex items-center gap-2 cursor-pointer hover:text-white border border-transparent hover:border-[#e6b053] px-3 py-1 rounded transition-all font-bold"
         >
           📋 {tasks.length} tasks
         </button>
-        
-        <button
-          onClick={onOpenShop}
-          className="flex items-center gap-2 cursor-pointer hover:text-white border border-transparent hover:border-[#e6b053] px-3 py-1 rounded transition-all font-bold"
-        >
-          👥 {agents.length} active
-        </button>
+
+        <div className="flex items-center gap-3">
+          {/* Backend status indicator */}
+          <div className="flex items-center gap-1.5 text-[12px]">
+            <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-[#4eb036]' : 'bg-[#8c7662]'}`} />
+            <span className="font-pixel text-[9px] text-[#f6ebd3]">
+              {isConnected ? 'API' : 'OFFLINE'}
+            </span>
+          </div>
+          <button
+            onClick={onOpenShop}
+            className="flex items-center gap-2 cursor-pointer hover:text-white border border-transparent hover:border-[#e6b053] px-3 py-1 rounded transition-all font-bold"
+          >
+            👥 {agents.length} active
+          </button>
+        </div>
       </div>
     </div>
   )
