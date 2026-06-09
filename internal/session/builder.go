@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -606,6 +607,11 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		childAgent.Stop(5 * time.Second)
 		return nil, fmt.Errorf("build L2 timeline writer: %w", err)
 	}
+
+	// Persist session metadata alongside timeline so past sessions can be
+	// discovered after restart. Minimal JSON: group + work_dir.
+	meta := fmt.Sprintf(`{"group":"%s","work_dir":"%s"}`, group, workDir)
+	_ = os.WriteFile(filepath.Join(tlDir, "meta"), []byte(meta), 0644)
 
 	// Context window model config — use the L2 leader's resolved model.
 	effectiveCW := childAgent.Def.ContextWindow

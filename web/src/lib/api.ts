@@ -41,6 +41,7 @@ import type {
   Project,
   SessionListResponse,
   CreateL2SessionResponse,
+  SessionHistoryResponse,
 } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -584,4 +585,10 @@ export async function deleteL2Session(id: string): Promise<void> {
 export async function listL2Groups(): Promise<string[]> {
   const data = await request<{ groups: string[] }>('/session/groups')
   return data.groups ?? []
+}
+
+export async function fetchSessionHistory(sessionId: string, before?: string): Promise<SessionHistoryResponse> {
+  const params = new URLSearchParams({ session_id: sessionId })
+  if (before) params.set('before', before)
+  return request<SessionHistoryResponse>(`/session/history?${params.toString()}`)
 }

@@ -655,5 +655,3 @@ func (m *Mux) corsMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
-

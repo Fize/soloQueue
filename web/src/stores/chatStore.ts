@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ChatSession, ChatMessage, ChatSegment } from '@/types'
-import { listSessions, createL2Session, deleteL2Session } from '@/lib/api'
+import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory } from '@/lib/api'
+import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 
 interface ChatState {
   sessions: ChatSession[]
@@ -8,11 +9,13 @@ interface ChatState {
   messages: Record<string, ChatMessage[]>  // keyed by session id
   streaming: boolean
   titleGenerated: Record<string, boolean>  // track which sessions already had title generated
+  historyLoading: Record<string, boolean>  // track which sessions are loading history
 
   loadSessions: () => Promise<void>
   createL2Session: (group: string, workDir?: string) => Promise<string | null>
   deleteL2Session: (id: string) => Promise<void>
   setActiveSession: (id: string) => void
+  loadHistory: (sessionId: string) => Promise<void>
   renameSession: (id: string, name: string) => void
   markTitleGenerated: (id: string) => void
 
@@ -30,6 +33,7 @@ export const useChatStore = create<ChatState>((set) => ({
   messages: {},
   streaming: false,
   titleGenerated: {},
+  historyLoading: {},
 
   loadSessions: async () => {
     try {
@@ -72,6 +76,39 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setActiveSession: (id: string) => {
     set({ activeSessionId: id })
+    // If no messages cached for this session, load history.
+    const state = useChatStore.getState()
+    const existing = state.messages[id]
+    if (!existing || existing.length === 0) {
+      state.loadHistory(id)
+    }
+  },
+
+  loadHistory: async (sessionId: string) => {
+    set((s) => ({
+      historyLoading: { ...s.historyLoading, [sessionId]: true },
+    }))
+    try {
+      const data = await fetchSessionHistory(sessionId)
+      const msgs: ChatMessage[] = data.messages.map((hm: SessionHistoryMessage) => ({
+        id: hm.id,
+        role: hm.role as 'user' | 'assistant',
+        segments: hm.segments.map(convertHistorySegment),
+        timestamp: hm.timestamp,
+      }))
+      set((s) => ({
+        messages: { ...s.messages, [sessionId]: msgs },
+      }))
+    } catch {
+      // Timeline may not exist yet for new sessions; that's fine.
+      set((s) => ({
+        messages: { ...s.messages, [sessionId]: [] },
+      }))
+    } finally {
+      set((s) => ({
+        historyLoading: { ...s.historyLoading, [sessionId]: false },
+      }))
+    }
   },
 
   renameSession: (id: string, name: string) => {
@@ -163,3 +200,28 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setStreaming: (v: boolean) => set({ streaming: v }),
 }))
+
+// convertHistorySegment maps backend history segment format to frontend ChatSegment.
+function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
+  switch (seg.type) {
+    case 'content':
+      return { type: 'content', text: seg.text || '' }
+    case 'thinking':
+      return { type: 'thinking', text: seg.text || '' }
+    case 'tool_call':
+      return {
+        type: 'tool_call',
+        callId: seg.call_id || '',
+        name: seg.name || '',
+        args: seg.args || '',
+        result: seg.result,
+        error: seg.error,
+        durationMs: seg.duration_ms,
+        done: seg.done ?? true,
+      }
+    case 'error':
+      return { type: 'error', text: seg.text || '' }
+    default:
+      return { type: 'error', text: 'Unknown segment type' }
+  }
+}
