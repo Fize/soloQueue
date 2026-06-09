@@ -125,6 +125,7 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
       videoExtensions.includes(ext)
     ) {
       setContent(null)
+      setError(null)
       setLoading(false)
       return
     }
@@ -204,7 +205,7 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
             title={copied ? 'Copied!' : 'Copy content'}
           >
             {copied ? (
-              <Check className="h-3.5 w-3.5 text-green-500" />
+              <Check className="h-3.5 w-3.5 text-[var(--success)]" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}

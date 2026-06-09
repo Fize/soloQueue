@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { FolderOpen, Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
 
 interface ProjectDialogProps {
@@ -165,6 +166,7 @@ export function ProjectsTab() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -197,14 +199,19 @@ export function ProjectsTab() {
     setDialogOpen(true)
   }
 
-  const handleDeleteProject = async (p: Project) => {
-    if (!window.confirm(`Delete project "${p.name}"? This will not delete the files on disk.`))
-      return
+  const handleDeleteProject = (p: Project) => {
+    setDeleteTarget(p)
+  }
+
+  const confirmDeleteProject = async () => {
+    if (!deleteTarget) return
     try {
-      await deleteProject(p.id)
+      await deleteProject(deleteTarget.id)
+      setDeleteTarget(null)
       await fetchProjectsList()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete project')
+      setDeleteTarget(null)
     }
   }
 
@@ -295,6 +302,17 @@ export function ProjectsTab() {
         onOpenChange={setDialogOpen}
         onSave={fetchProjectsList}
         editProject={editingProject}
+      />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        title="Delete Project"
+        message={`Delete project "${deleteTarget?.name}"? This will not delete the files on disk.`}
+        destructive
+        onConfirm={confirmDeleteProject}
+        confirmLabel="Delete Project"
       />
     </div>
   )

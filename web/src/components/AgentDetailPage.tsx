@@ -1,113 +1,35 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAgentStore } from '@/stores/agentStore'
 import { useAgentProfile } from '@/hooks/useAgentProfile'
 import { useAgentConfig } from '@/hooks/useAgentConfig'
 import { useAgentStream } from '@/hooks/useAgentStream'
 import { AgentStreamView } from '@/components/AgentStreamView'
-import { updateAgentConfig, updateAgentProfile } from '@/lib/api'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { GlassCard } from '@/components/ui/glass-card'
 import { StatusBadge } from '@/components/ui/status-badge'
-import {
-  ArrowLeft,
-  Terminal,
-  Eye,
-  Pencil,
-  Save,
-  Loader2,
-  AlertTriangle,
-  Mail,
-  Info,
-} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ArrowLeft, Terminal, Loader2, AlertTriangle, Mail, Info } from 'lucide-react'
 
-// ─── InlineEditor Component ───────────────────────────────────────────────────
-interface InlineEditorProps {
+// ─── InlineContent Component ──────────────────────────────────────────────
+interface InlineContentProps {
   content: string
-  onSave: (draft: string) => Promise<void>
-  saving: boolean
   height?: string
   type?: 'yaml' | 'markdown'
 }
 
-function InlineEditor({
-  content,
-  onSave,
-  saving,
-  height = 'min-h-[45vh]',
-  type = 'yaml',
-}: InlineEditorProps) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(content)
-  const [error, setError] = useState<string | null>(null)
-
-  // Sync draft when external content changes
-  useEffect(() => {
-    setDraft(content)
-  }, [content])
-
-  const handleSave = async () => {
-    setError(null)
-    try {
-      await onSave(draft)
-      setEditing(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed')
-    }
-  }
-
-  const handleCancel = () => {
-    setDraft(content)
-    setEditing(false)
-    setError(null)
-  }
-
+function InlineContent({ content, height = 'min-h-[45vh]', type = 'yaml' }: InlineContentProps) {
   return (
-    <GlassCard variant="flat" size="sm" className="space-y-3 bg-card/40 border border-border/80">
-      <div className="flex items-center justify-between border-b border-border/40 pb-2">
+    <div className="space-y-3 bg-card/40 rounded-xl border border-border/80 p-0">
+      <div className="flex items-center border-b border-border/40 px-4 py-2.5">
         <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
           {type === 'yaml' ? 'YAML Frontmatter Config' : 'Markdown Prompt Body'}
         </span>
-        <div className="flex items-center gap-1.5">
-          <Button
-            size="xs"
-            variant={editing ? 'outline' : 'default'}
-            onClick={() => {
-              setDraft(content)
-              setEditing(false)
-            }}
-            disabled={!editing}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            Preview
-          </Button>
-          <Button
-            size="xs"
-            variant={editing ? 'default' : 'outline'}
-            onClick={() => {
-              setDraft(content)
-              setEditing(true)
-            }}
-            disabled={editing}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </Button>
-        </div>
       </div>
-
-      {editing ? (
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          className={`w-full ${height} resize-y rounded-lg border border-border bg-muted/30 p-4 font-mono text-[11px] leading-relaxed focus:outline-none focus:border-primary/55 transition-all`}
-          spellCheck={false}
-        />
-      ) : (
+      <div className="px-4 pb-4">
         <ScrollArea className={`${height} rounded-lg border border-border/40 bg-card p-4`}>
           {content ? (
             type === 'markdown' ? (
@@ -123,28 +45,8 @@ function InlineEditor({
             </p>
           )}
         </ScrollArea>
-      )}
-
-      {editing && (
-        <div className="flex items-center gap-2 pt-1">
-          <Button size="xs" onClick={handleSave} disabled={saving || draft === content}>
-            {saving ? (
-              <>
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> Saving...
-              </>
-            ) : (
-              <>
-                <Save className="mr-1 h-3.5 w-3.5" /> Save
-              </>
-            )}
-          </Button>
-          <Button size="xs" variant="outline" onClick={handleCancel} disabled={saving}>
-            Cancel
-          </Button>
-          {error && <span className="text-xs text-destructive font-semibold">{error}</span>}
-        </div>
-      )}
-    </GlassCard>
+      </div>
+    </div>
   )
 }
 
@@ -152,6 +54,7 @@ function InlineEditor({
 export function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   // Find agent in websocket stream or team list
   const data = useAgentStore((state) => state.agents)
@@ -200,11 +103,9 @@ export function AgentDetailPage() {
 
   // Fetch configs/profile hooks
   const { profile, loading: profileLoading } = useAgentProfile(isL1 ? agent?.id || 'main' : null)
-  const {
-    config,
-    loading: configLoading,
-    refetch,
-  } = useAgentConfig(!isL1 && effectiveId ? effectiveId : null)
+  const { config, loading: configLoading } = useAgentConfig(
+    !isL1 && effectiveId ? effectiveId : null
+  )
 
   // Stream output hook
   const stream = useAgentStream(agent?.instance_id ?? null)
@@ -212,10 +113,6 @@ export function AgentDetailPage() {
     agent?.state === 'processing' || (stream && (stream.segments.length > 0 || stream.error))
 
   // Editing state
-  const [savingYaml, setSavingYaml] = useState(false)
-  const [savingPrompt, setSavingPrompt] = useState(false)
-  const [savingSoul, setSavingSoul] = useState(false)
-  const [savingRules, setSavingRules] = useState(false)
   const [localSoul, setLocalSoul] = useState('')
   const [localRules, setLocalRules] = useState('')
   const [activeTab, setActiveTab] = useState(isL1 ? 'soul' : 'status')
@@ -230,6 +127,15 @@ export function AgentDetailPage() {
 
   // Auto-select best default tab
   useEffect(() => {
+    // URL ?tab= parameter takes priority
+    const tabParam = searchParams.get('tab')
+    if (
+      tabParam &&
+      ['output', 'status', 'details', 'config', 'prompt', 'soul', 'rules'].includes(tabParam)
+    ) {
+      setActiveTab(tabParam as typeof activeTab)
+      return
+    }
     if (hasAgent && agent.state === 'processing') {
       setActiveTab('output')
     } else if (isL1) {
@@ -237,52 +143,7 @@ export function AgentDetailPage() {
     } else {
       setActiveTab(hasAgent ? 'status' : 'config')
     }
-  }, [hasAgent, agent?.state, isL1])
-
-  // Save Handlers
-  const handleSaveSoul = async (soul: string) => {
-    setSavingSoul(true)
-    try {
-      const agentId = agent?.id || id || 'main'
-      const updated = await updateAgentProfile(agentId, { soul })
-      setLocalSoul(updated.soul || '')
-    } finally {
-      setSavingSoul(false)
-    }
-  }
-
-  const handleSaveRules = async (rules: string) => {
-    setSavingRules(true)
-    try {
-      const agentId = agent?.id || id || 'main'
-      const updated = await updateAgentProfile(agentId, { rules })
-      setLocalRules(updated.rules || '')
-    } finally {
-      setSavingRules(false)
-    }
-  }
-
-  const handleSaveYaml = async (draft: string) => {
-    if (!effectiveId) return
-    setSavingYaml(true)
-    try {
-      await updateAgentConfig(effectiveId, { raw_config: draft })
-      refetch()
-    } finally {
-      setSavingYaml(false)
-    }
-  }
-
-  const handleSavePrompt = async (draft: string) => {
-    if (!effectiveId) return
-    setSavingPrompt(true)
-    try {
-      await updateAgentConfig(effectiveId, { system_prompt: draft })
-      refetch()
-    } finally {
-      setSavingPrompt(false)
-    }
-  }
+  }, [searchParams, hasAgent, agent?.state, isL1])
 
   return (
     <div className="flex h-full flex-col min-w-0 bg-background overflow-hidden pb-16 md:pb-0">
@@ -434,12 +295,7 @@ export function AgentDetailPage() {
                         <Loader2 className="h-5 w-5 animate-spin text-primary" />
                       </div>
                     ) : (
-                      <InlineEditor
-                        content={localSoul}
-                        onSave={handleSaveSoul}
-                        saving={savingSoul}
-                        type="markdown"
-                      />
+                      <InlineContent content={localSoul} type="markdown" />
                     )}
                   </div>
                 </ScrollArea>
@@ -453,12 +309,7 @@ export function AgentDetailPage() {
                         <Loader2 className="h-5 w-5 animate-spin text-primary" />
                       </div>
                     ) : (
-                      <InlineEditor
-                        content={localRules}
-                        onSave={handleSaveRules}
-                        saving={savingRules}
-                        type="markdown"
-                      />
+                      <InlineContent content={localRules} type="markdown" />
                     )}
                   </div>
                 </ScrollArea>
@@ -525,7 +376,7 @@ export function AgentDetailPage() {
                             </h2>
                           </div>
                           <ScrollArea className="max-h-[20vh] bg-destructive/5 rounded-md border border-destructive/25 p-3">
-                            <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-destructive-foreground dark:text-red-400">
+                            <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-destructive">
                               {agent.last_error || 'No error details recorded'}
                             </pre>
                           </ScrollArea>
@@ -608,12 +459,7 @@ export function AgentDetailPage() {
                         <Loader2 className="h-5 w-5 animate-spin text-primary" />
                       </div>
                     ) : config ? (
-                      <InlineEditor
-                        content={config.raw_config || ''}
-                        onSave={handleSaveYaml}
-                        saving={savingYaml}
-                        type="yaml"
-                      />
+                      <InlineContent content={config.raw_config || ''} type="yaml" />
                     ) : (
                       <p className="text-xs text-muted-foreground py-8 text-center italic">
                         No config details loaded
@@ -631,12 +477,7 @@ export function AgentDetailPage() {
                         <Loader2 className="h-5 w-5 animate-spin text-primary" />
                       </div>
                     ) : config ? (
-                      <InlineEditor
-                        content={config.system_prompt || ''}
-                        onSave={handleSavePrompt}
-                        saving={savingPrompt}
-                        type="markdown"
-                      />
+                      <InlineContent content={config.system_prompt || ''} type="markdown" />
                     ) : (
                       <p className="text-xs text-muted-foreground py-8 text-center italic">
                         No system prompt details loaded

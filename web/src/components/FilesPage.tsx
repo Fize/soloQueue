@@ -79,16 +79,16 @@ const videoExts: Record<string, boolean> = {
 function entryIcon(info: { isDir: boolean; ext: string }, open: boolean) {
   if (info.isDir)
     return open ? (
-      <FolderOpen className="h-4 w-4 text-sky-500 shrink-0" />
+      <FolderOpen className="h-4 w-4 text-primary shrink-0" />
     ) : (
-      <Folder className="h-4 w-4 text-sky-500 shrink-0" />
+      <Folder className="h-4 w-4 text-primary shrink-0" />
     )
   if (info.ext === '.md' || info.ext === '.markdown')
-    return <FileText className="h-4 w-4 text-blue-500 shrink-0" />
-  if (codeExts[info.ext]) return <FileCode className="h-4 w-4 text-emerald-500 shrink-0" />
-  if (imgExts[info.ext]) return <FileImage className="h-4 w-4 text-purple-500 shrink-0" />
-  if (audioExts[info.ext]) return <FileAudio className="h-4 w-4 text-orange-500 shrink-0" />
-  if (videoExts[info.ext]) return <FileVideo className="h-4 w-4 text-red-500 shrink-0" />
+    return <FileText className="h-4 w-4 text-primary/70 shrink-0" />
+  if (codeExts[info.ext]) return <FileCode className="h-4 w-4 text-[var(--success)] shrink-0" />
+  if (imgExts[info.ext]) return <FileImage className="h-4 w-4 text-[var(--info)] shrink-0" />
+  if (audioExts[info.ext]) return <FileAudio className="h-4 w-4 text-[var(--warning)] shrink-0" />
+  if (videoExts[info.ext]) return <FileVideo className="h-4 w-4 text-destructive shrink-0" />
   return <File className="h-4 w-4 text-muted-foreground shrink-0" />
 }
 

@@ -20,7 +20,10 @@ import {
   PanelLeftOpen,
   Clock,
   Monitor,
+  Sun,
+  Moon,
 } from 'lucide-react'
+import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 
 const mainNav = [
   { to: '/', icon: Bot, label: 'Agents' },
@@ -74,6 +77,7 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
   const location = useLocation()
   const navigate = useNavigate()
   const runtime = useRuntime()
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
 
   const isSettingsActive = location.pathname.startsWith('/settings')
   const [settingsOpen, setSettingsOpen] = useState(isSettingsActive)
@@ -338,23 +342,52 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
         </div>
       )}
 
-      {/* Collapse toggle (desktop) */}
+      {/* Theme toggle + Collapse toggle (desktop) */}
       <div className="border-t border-border shrink-0">
         {!mobile && (
-          <button
-            onClick={toggleCollapse}
-            className={cn(
-              'flex w-full items-center justify-center py-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors',
-              collapsed && 'py-2.5'
-            )}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </button>
+          <>
+            {/* Theme toggle */}
+            <button
+              onClick={() => {
+                const next = cycleTheme()
+                setThemeMode(next)
+              }}
+              className={cn(
+                'flex w-full items-center justify-center py-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors',
+                collapsed && 'py-2.5'
+              )}
+              title={
+                themeMode === 'light'
+                  ? 'Switch to dark mode'
+                  : themeMode === 'dark'
+                    ? 'Switch to system'
+                    : 'Switch to light mode'
+              }
+            >
+              {themeMode === 'light' ? (
+                <Sun className={collapsed ? 'h-5 w-5' : 'h-4 w-4'} />
+              ) : themeMode === 'dark' ? (
+                <Moon className={collapsed ? 'h-5 w-5' : 'h-4 w-4'} />
+              ) : (
+                <Sun className={cn(collapsed ? 'h-5 w-5' : 'h-4 w-4', 'opacity-60')} />
+              )}
+            </button>
+            {/* Collapse toggle */}
+            <button
+              onClick={toggleCollapse}
+              className={cn(
+                'flex w-full items-center justify-center py-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors',
+                collapsed && 'py-2.5'
+              )}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {collapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          </>
         )}
       </div>
     </aside>

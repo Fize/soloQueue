@@ -4,12 +4,12 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-clip-padding text-sm font-medium whitespace-nowrap transition-all duration-200 ease-out outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-full border border-border bg-clip-padding text-sm font-medium whitespace-nowrap transition-all duration-200 ease-out outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          'bg-primary text-primary-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5',
+          'bg-primary text-primary-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5 active:scale-[0.97]',
         secondary:
           'bg-secondary text-secondary-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5',
         success:
@@ -22,14 +22,14 @@ const buttonVariants = cva(
         link: 'border-transparent text-foreground underline-offset-4 hover:underline shadow-none',
       },
       size: {
-        default: 'h-9 gap-1.5 px-5 py-2.5',
-        xs: 'h-6 gap-1 px-2.5 py-1 text-xs rounded-sm',
-        sm: 'h-7 gap-1 px-3.5 py-1.5 text-xs',
-        lg: 'h-10 gap-2 px-7 py-3.5 text-base',
-        icon: 'size-9',
-        'icon-xs': 'size-6 rounded-sm',
-        'icon-sm': 'size-7',
-        'icon-lg': 'size-10',
+        default: 'h-10 min-h-10 gap-1.5 px-6 py-2.5',
+        xs: 'h-7 gap-1 px-3 py-1 text-xs rounded-full',
+        sm: 'h-8 gap-1 px-4 py-1.5 text-xs rounded-full',
+        lg: 'h-11 gap-2 px-8 py-3.5 text-base rounded-full',
+        icon: 'size-10 min-h-10 min-w-10',
+        'icon-xs': 'size-7 rounded-full',
+        'icon-sm': 'size-8 rounded-full',
+        'icon-lg': 'size-11 rounded-full',
       },
     },
     defaultVariants: {

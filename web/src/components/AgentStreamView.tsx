@@ -17,7 +17,7 @@ function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
           seg.error ? (
             <XCircle className="h-4 w-4 shrink-0 text-destructive" />
           ) : (
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--success)]" />
           )
         ) : (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />

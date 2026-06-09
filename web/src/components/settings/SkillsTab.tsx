@@ -14,6 +14,7 @@ import type { SkillInfo } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
@@ -75,6 +76,10 @@ export function SkillsTab() {
 
   // Sub-tabs state
   const [activeSubTab, setActiveSubTab] = useState<'installed' | 'store'>('installed')
+  const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null)
+  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' } | null>(
+    null
+  )
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -91,6 +96,11 @@ export function SkillsTab() {
   // Interactive operation states
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [installingStoreId, setInstallingStoreId] = useState<string | null>(null)
+
+  const showSnackbar = (message: string, type: 'success' | 'error') => {
+    setSnackbar({ message, type })
+    setTimeout(() => setSnackbar(null), 4500)
+  }
 
   // Custom install fields
   const [customGitUrl, setCustomGitUrl] = useState('')
@@ -174,21 +184,23 @@ export function SkillsTab() {
   }
 
   // Delete / Uninstall
-  const handleDelete = async (id: string) => {
-    if (
-      !window.confirm(
-        `Uninstall skill "${id}"? This will delete its folder from user skills directory.`
-      )
-    ) {
-      return
-    }
+  const handleDelete = (id: string) => {
+    const skill = skills?.skills?.find((s) => s.id === id)
+    if (skill) setDeleteTarget(skill)
+  }
+
+  const confirmDeleteSkill = async () => {
+    if (!deleteTarget) return
     try {
-      await deleteSkill(id)
-      if (expandedId === id) setExpandedId(null)
-      if (editId === id) setEditId(null)
+      await deleteSkill(deleteTarget.id)
+      if (expandedId === deleteTarget.id) setExpandedId(null)
+      if (editId === deleteTarget.id) setEditId(null)
+      setDeleteTarget(null)
       await fetchSkills()
+      showSnackbar(`Skill "${deleteTarget.id}" uninstalled`, 'success')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to uninstall skill')
+      setDeleteTarget(null)
+      showSnackbar(err instanceof Error ? err.message : 'Failed to uninstall skill', 'error')
     }
   }
 
@@ -289,8 +301,9 @@ export function SkillsTab() {
     try {
       await installSkill({ source: 'store', id })
       await Promise.all([fetchSkills(), fetchStoreSkills()])
+      showSnackbar('Skill installed from store', 'success')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to install skill')
+      showSnackbar(err instanceof Error ? err.message : 'Failed to install skill', 'error')
     } finally {
       setInstallingStoreId(null)
     }
@@ -305,7 +318,7 @@ export function SkillsTab() {
       await installSkill({ source: 'github', url: customGitUrl.trim() })
       setCustomGitUrl('')
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      alert('Skill installed successfully via Git cloning!')
+      showSnackbar('Skill installed successfully via Git cloning!', 'success')
     } catch (err) {
       setCustomInstallError(err instanceof Error ? err.message : 'Failed to clone git repository')
     } finally {
@@ -322,7 +335,7 @@ export function SkillsTab() {
       await installSkill({ source: 'local', path: customLocalPath.trim() })
       setCustomLocalPath('')
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      alert('Skill symlinked successfully from local path!')
+      showSnackbar('Skill symlinked successfully from local path!', 'success')
     } catch (err) {
       setCustomInstallError(err instanceof Error ? err.message : 'Failed to link local directory')
     } finally {
@@ -524,7 +537,7 @@ export function SkillsTab() {
                           {skill.context === 'fork' && (
                             <Badge
                               variant="outline"
-                              className="text-[9px] px-1 py-0 h-4 font-normal text-amber-500 border-amber-500 bg-amber-500/5"
+                              className="text-[9px] px-1 py-0 h-4 font-normal text-warning border-warning bg-warning/5"
                             >
                               fork
                             </Badge>
@@ -634,9 +647,9 @@ export function SkillsTab() {
                               >
                                 <div className="flex items-center gap-1.5 min-w-0">
                                   {entry.kind === 'directory' ? (
-                                    <Folder className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                                    <Folder className="h-3.5 w-3.5 text-primary shrink-0" />
                                   ) : (
-                                    <FileText className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+                                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                   )}
                                   <span className="truncate">{leafName(entry.path)}</span>
                                 </div>
@@ -652,8 +665,8 @@ export function SkillsTab() {
 
                         {/* Environment Variables Info */}
                         {skill.required_env && skill.required_env.length > 0 && (
-                          <div className="mt-4 p-2.5 rounded-md border border-amber-500/20 bg-amber-500/5 space-y-1.5">
-                            <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs">
+                          <div className="mt-4 p-2.5 rounded-md border border-warning/20 bg-warning/5 space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-warning font-bold text-xs">
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                               Required Env Variables
                             </div>
@@ -785,7 +798,7 @@ export function SkillsTab() {
                                   value={editBody}
                                   onChange={(e) => setEditBody(e.target.value)}
                                   rows={10}
-                                  className="w-full rounded-md border border-border bg-[#1E1E2E] px-3 py-2 font-mono text-xs text-[#E5E7EB] transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y flex-1"
+                                  className="w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y flex-1"
                                   placeholder="# Instructions title"
                                   spellCheck={false}
                                 />
@@ -799,7 +812,7 @@ export function SkillsTab() {
                               )}
 
                               {isBuiltin && !isOverridden && (
-                                <div className="rounded border border-amber-500/20 bg-amber-500/5 p-2 text-[10px] text-amber-500/80 leading-normal flex items-start gap-1.5">
+                                <div className="rounded border border-warning/20 bg-warning/5 p-2 text-[10px] text-warning/80 leading-normal flex items-start gap-1.5">
                                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                                   <span>
                                     <strong>Note:</strong> Editing this built-in skill will create a
@@ -915,13 +928,13 @@ export function SkillsTab() {
                       )}
 
                       {s.required_env && s.required_env.length > 0 && (
-                        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px] text-amber-500 font-medium">
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px] text-warning font-medium">
                           <AlertTriangle className="h-3 w-3 shrink-0" />
                           <span>Requires Env:</span>
                           {s.required_env.map((envVar: string) => (
                             <span
                               key={envVar}
-                              className="font-mono bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20"
+                              className="font-mono bg-warning/10 px-1 py-0.5 rounded border border-warning/20"
                             >
                               {envVar}
                             </span>
@@ -1118,7 +1131,7 @@ export function SkillsTab() {
               <textarea
                 value={importBody}
                 onChange={(e) => setImportBody(e.target.value)}
-                className="flex-1 w-full rounded-md border border-border bg-[#1E1E2E] px-3 py-2 font-mono text-xs text-[#E5E7EB] transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
+                className="flex-1 w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
                 placeholder="# Instructions for using this skill\n\n1. First do X\n2. Next do Y"
                 spellCheck={false}
               />
@@ -1153,6 +1166,30 @@ export function SkillsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        title="Uninstall Skill"
+        message={`Uninstall skill "${deleteTarget?.id}"? This will delete its folder from the user skills directory.`}
+        destructive
+        onConfirm={confirmDeleteSkill}
+        confirmLabel="Uninstall"
+      />
+      {/* M3 Snackbar */}
+      {snackbar && (
+        <div
+          role="alert"
+          className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-full text-sm font-medium shadow-lg animate-reveal ${
+            snackbar.type === 'success'
+              ? 'bg-[var(--success)] text-[var(--success-foreground)]'
+              : 'bg-destructive text-destructive-foreground'
+          }`}
+        >
+          {snackbar.message}
+        </div>
+      )}
     </div>
   )
 }
