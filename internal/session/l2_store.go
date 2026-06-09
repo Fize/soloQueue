@@ -28,6 +28,7 @@ type L2SessionInfo struct {
 	Name      string    `json:"name"`
 	Group     string    `json:"group"`
 	ProjectID string    `json:"project_id,omitempty"`
+	WorkDir   string    `json:"work_dir,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -215,6 +216,7 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 			Name:      entry.Name,
 			Group:     entry.Group,
 			ProjectID: entry.ProjectID,
+			WorkDir:   entry.WorkDir,
 			CreatedAt: entry.CreatedAt,
 		})
 	}

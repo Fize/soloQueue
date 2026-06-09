@@ -34,7 +34,7 @@ func (kgIndexTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type":"object",
   "properties":{
-    "entities":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","description":"Entity name"},"type":{"type":"string","description":"Entity type, e.g. PERSON, PROJECT, TOOL, CONCEPT"},"confidence":{"type":"number","description":"Confidence 0-1, default 1.0"},"relations":{"type":"array","items":{"type":"object","properties":{"target_name":{"type":"string","description":"Related entity name"},"rel_type":{"type":"string","description":"Relationship type"},"weight":{"type":"number","description":"Relationship weight, default 1.0"}}}}}},"description":"Entities to index in the knowledge graph"}},
+    "entities":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","description":"Entity name"},"type":{"type":"string","description":"Entity type, e.g. PERSON, PROJECT, TOOL, CONCEPT"},"confidence":{"type":"number","description":"Confidence 0-1, default 1.0"},"relations":{"type":"array","items":{"type":"object","properties":{"target_name":{"type":"string","description":"Related entity name"},"rel_type":{"type":"string","description":"Relationship type"},"weight":{"type":"number","description":"Relationship weight, default 1.0"}}}}}},"description":"Entities to index in the knowledge graph"},
     "source_hash":{"type":"string","description":"Optional. Content hash of the source memory this knowledge was extracted from."}
   },
   "required":["entities"]
