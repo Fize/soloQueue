@@ -533,3 +533,206 @@ func FormatCtxwinMessages(msgs []ctxwin.Message) string {
 	}
 	return buf.String()
 }
+
+// BuildL2 creates a standalone L2 session with its own agent, context window,
+// and timeline writer. It uses the leader template matching the given group.
+//
+// The returned Session has full infrastructure: timeline persistence at
+// logs/timelines/l2-<id>/, context window compaction, memory hooks, idle reaper,
+// and timeline replay on restart.
+//
+// L1→L2 delegation is NOT affected — this creates an independent session
+// for direct user conversation.
+func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Session, error) {
+	agentID := "l2-" + id + "-agent"
+	sessionID := "l2-" + id + "-session"
+
+	// Find the leader template matching the group.
+	var leaderTmpl *agent.AgentTemplate
+	for i := range b.RT.AllTemplates {
+		t := &b.RT.AllTemplates[i]
+		if t.IsLeader && strings.EqualFold(t.Group, group) {
+			leaderTmpl = t
+			break
+		}
+	}
+	if leaderTmpl == nil {
+		return nil, fmt.Errorf("no leader template found for group %q", group)
+	}
+
+	settings := b.Cfg.Get()
+	sessLog, err := logger.System(b.WorkDir,
+		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
+		logger.WithConsole(b.ConsoleLog),
+		logger.WithFile(settings.Log.File),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build L2 session logger: %w", err)
+	}
+
+	// Create the L2 agent via the factory — this gets the correct L2 system
+	// prompt, delegate tools for workers in this group, MCP tools, and skills.
+	// Pass the project workDir so tools operate in the project directory.
+	agentWorkDir := workDir
+	if agentWorkDir == "" {
+		agentWorkDir = b.WorkDir
+	}
+	childAgent, _, err := b.RT.AgentFactory.Create(ctx, *leaderTmpl, agentWorkDir)
+	if err != nil {
+		return nil, fmt.Errorf("create L2 agent for group %q: %w", group, err)
+	}
+
+	// Create a Supervisor to track L3 children spawned by this L2 session.
+	sv := agent.NewSupervisor(childAgent, b.RT.AgentFactory, sessLog)
+	sv.WireSpawnFns(b.RT.AllTemplates)
+	sv.SetGroup(group)
+
+	// Register supervisor-scoped inspect_agent for this L2.
+	if err := childAgent.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
+		sessLog.Warn(logger.CatActor, "register inspect_agent for L2 failed",
+			"name", leaderTmpl.ID, "err", err.Error())
+	}
+
+	// Timeline writer.
+	tlDir := filepath.Join(b.WorkDir, "logs", "timelines", "l2-"+id)
+	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
+	if tlMaxFileMB > 50 {
+		tlMaxFileMB = 50
+	}
+	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
+	tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, 15,
+		timeline.WithWriterLogger(sessLog))
+	if err != nil {
+		childAgent.Stop(5 * time.Second)
+		return nil, fmt.Errorf("build L2 timeline writer: %w", err)
+	}
+
+	// Context window model config — use the L2 leader's resolved model.
+	effectiveCW := childAgent.Def.ContextWindow
+	if effectiveCW <= 0 {
+		effectiveCW = agent.DefaultContextWindow
+	}
+
+	// Summary hook (same pattern as L1).
+	summaryHook := func(segments []ctxwin.SummarySegment) {
+		cutoff := time.Now().AddDate(0, 0, -7)
+		cursor := time.Time{}
+		if b.RT.MemoryManager != nil {
+			cursor = b.RT.MemoryManager.LastRecordedAt()
+		}
+		var latest time.Time
+		for _, seg := range segments {
+			filtered := filterMessagesSince(seg.Msgs, cursor)
+			if len(filtered) == 0 {
+				continue
+			}
+			if seg.Date.Before(cutoff) {
+				if b.RT.MemoryEngine != nil {
+					_, _, _ = b.RT.MemoryEngine.Save(context.Background(), seg.Summary, seg.Date.Format("2006-01-02"), "auto-compact", seg.Date.Format("2006-01-02")+"T00:00:00Z")
+				}
+			} else {
+				if err := tl.AppendControl(&timeline.ControlPayload{
+					Action:  "summary",
+					Reason:  "auto_compact",
+					Content: seg.Summary,
+				}); err != nil {
+					sessLog.Error(logger.CatActor, "timeline summary append failed",
+						"err", err.Error(), "agent_id", agentID)
+				}
+				if b.RT.MemoryManager != nil {
+					go func(date time.Time, msgs []ctxwin.Message) {
+						defer func() {
+							if r := recover(); r != nil {
+								sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
+									"panic", fmt.Sprintf("%v", r))
+							}
+						}()
+						text := FormatCtxwinMessages(msgs)
+						_ = b.RT.MemoryManager.RecordAt(context.Background(), text, date)
+					}(seg.Date, filtered)
+				}
+			}
+			for _, m := range filtered {
+				if m.Timestamp.After(latest) {
+					latest = m.Timestamp
+				}
+			}
+		}
+		if b.RT.MemoryManager != nil && !latest.IsZero() {
+			b.RT.MemoryManager.AdvanceLastRecordedAt(latest)
+		}
+	}
+
+	// Push hook: writes every message to timeline.
+	pushHook := func(msg ctxwin.Message) {
+		var toolCalls []timeline.ToolCallRec
+		for _, tc := range msg.ToolCalls {
+			toolCalls = append(toolCalls, timeline.ToolCallRec{
+				ID:        tc.ID,
+				Type:      tc.Type,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+		if err := tl.AppendMessage(&timeline.MessagePayload{
+			Role:             string(msg.Role),
+			Content:          msg.Content,
+			ReasoningContent: msg.ReasoningContent,
+			Name:             msg.Name,
+			ToolCallID:       msg.ToolCallID,
+			ToolCalls:        toolCalls,
+			IsEphemeral:      msg.IsEphemeral,
+			AgentID:          agentID,
+		}); err != nil {
+			sessLog.Error(logger.CatActor, "timeline append failed",
+				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
+		}
+	}
+
+	cw := ctxwin.NewContextWindow(
+		effectiveCW,
+		effectiveCW/10,
+		0,
+		b.RT.Tokenizer,
+		ctxwin.WithPushHook(pushHook),
+		ctxwin.WithSummaryHook(summaryHook),
+		ctxwin.WithCompactor(b.RT.Compactor),
+	)
+
+	// Push L2 system prompt without writing to timeline.
+	cw.SetReplayMode(true)
+	if childAgent.Def.SystemPrompt != "" {
+		cw.Push(ctxwin.RoleSystem, childAgent.Def.SystemPrompt)
+	}
+
+	// Replay last 10 conversation turns from timeline.
+	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10, agentID)
+	if err != nil {
+		sessLog.Warn(logger.CatActor, "BuildL2: ReadTail failed", "err", err.Error(), "dir", tlDir)
+	} else if len(segments) > 0 {
+		sessLog.Info(logger.CatActor, "BuildL2: replaying timeline segments",
+			"segments", len(segments), "msgs", len(segments[0].Messages))
+		timeline.ReplayInto(cw, segments)
+	}
+	cw.SetReplayMode(false)
+
+	// Register the supervisor in the runtime (agent already registered by factory).
+	b.RT.AddSupervisor(sv)
+
+	// Build the Session.
+	sessLogger := sessLog.Child()
+	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
+
+	// Wire router (same as L1).
+	if b.RT.TaskRouter != nil {
+		s.Router = BuildRouterFunc(b.RT)
+	}
+
+	sessLog.Info(logger.CatActor, "BuildL2: session created",
+		"session_id", sessionID,
+		"group", group,
+		"agent_id", agentID,
+	)
+
+	return s, nil
+}
