@@ -73,6 +73,7 @@ type Mux struct {
 	agentsDir     string           // path to ~/.soloqueue/agents directory
 	mcpLoader     *mcp.Loader      // MCP config loader for /api/mcp endpoints
 	sessionMgr    *session.SessionManager
+	l2Store       *session.L2SessionStore // L2 multi-session store (nil if not configured)
 	authConfig    config.AuthConfig
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
@@ -251,6 +252,11 @@ func WithSessionManager(mgr *session.SessionManager) MuxOption {
 	return func(m *Mux) { m.sessionMgr = mgr }
 }
 
+// WithL2SessionStore sets the L2 session store for /api/session/l2 endpoints.
+func WithL2SessionStore(store *session.L2SessionStore) MuxOption {
+	return func(m *Mux) { m.l2Store = store }
+}
+
 // WithSimulationEngine sets the simulation engine for /api/simulations endpoints.
 func WithSimulationEngine(engine *simulation.SimulationEngine) MuxOption {
 	return func(m *Mux) { m.simEngine = engine }
@@ -319,8 +325,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Route("/api/session", func(r chi.Router) {
 		r.Get("/", m.handleGetSessionStatus)
 		r.Post("/ask", m.handleAskSession)
+		r.Post("/ask/stream", m.handleAskStream)
 		r.Post("/cancel", m.handleCancelSession)
 		r.Post("/clear", m.handleClearSession)
+		r.Get("/list", m.handleListSessions)
+		r.Get("/groups", m.handleListL2Groups)
+		r.Post("/l2", m.handleCreateL2Session)
+		r.Delete("/l2/{id}", m.handleDeleteL2Session)
 	})
 
 	// Auth check

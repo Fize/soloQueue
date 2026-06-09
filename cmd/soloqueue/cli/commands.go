@@ -149,6 +149,12 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("init session: %w", err)
 			}
 
+			// ── L2 Session Store ──
+			// Manages multiple L2 sessions for direct conversation (web chat + QQ bots).
+			// Each L2 session has its own agent, timeline, and context window.
+			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
+			l2Store := session.NewL2SessionStore(builder, workDir, log)
+
 			// ── Daily memory flush (midnight) ──
 			if rt.MemoryManager != nil {
 				flusher := session.NewDailyMemoryFlusher(mgr, rt.MemoryEngine, log)
@@ -194,6 +200,7 @@ func ServeCmd(version string) *cobra.Command {
 		mux := server.NewMux(workDir, log,
 			server.WithRegistry(rt.AgentRegistry),
 			server.WithSessionManager(mgr),
+			server.WithL2SessionStore(l2Store),
 			server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
 			server.WithConfigService(cfg),
 			server.WithRuntimeMetrics(runtimeMetrics),

@@ -566,3 +566,37 @@ export interface LSPMCPEntry {
 export interface LSPMCPConfig {
   servers: LSPMCPEntry[]
 }
+
+// ─── Chat Types ────────────────────────────────────────────────────────────
+
+export interface ChatSession {
+  id: string           // "l1" or "l2:<uuid>"
+  type: 'l1' | 'l2'
+  name: string
+  group?: string
+  createdAt: string
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  segments: ChatSegment[]
+  timestamp: string
+}
+
+export type ChatSegment =
+  | { type: 'thinking'; text: string }
+  | { type: 'content'; text: string }
+  | { type: 'tool_call'; callId: string; name: string; args: string; result?: string; error?: string; durationMs?: number; done: boolean }
+  | { type: 'error'; text: string }
+
+export interface SessionListResponse {
+  sessions: ChatSession[]
+}
+
+export interface CreateL2SessionResponse {
+  id: string
+  name: string
+  group: string
+  created_at: string
+}

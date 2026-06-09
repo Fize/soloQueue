@@ -15,6 +15,7 @@ import TeamsTab from '@/components/settings/TeamsTab'
 import { ProjectsTab } from '@/components/settings/ProjectsTab'
 import { ProxiesTab } from '@/components/settings/ProxiesTab'
 import { IframePageView } from '@/components/IframePageView'
+import { ChatPage } from '@/components/ChatPage'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { wsManager } from '@/lib/websocket'
 import { useAuthStore } from '@/stores/authStore'
@@ -72,6 +73,7 @@ function App() {
                 <Route path="proxies" element={<ProxiesTab />} />
               </Route>
               <Route path="/iframe/:id" element={<IframePageView />} />
+              <Route path="/chat" element={<ChatPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

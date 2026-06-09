@@ -39,6 +39,8 @@ import type {
   QQBotConfig,
   LSPMCPConfig,
   Project,
+  SessionListResponse,
+  CreateL2SessionResponse,
 } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -560,4 +562,26 @@ export async function updateProject(
 
 export async function deleteProject(id: string): Promise<void> {
   await request(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+// ─── Session / Chat APIs ────────────────────────────────────────────────────
+
+export async function listSessions(): Promise<SessionListResponse> {
+  return request<SessionListResponse>('/session/list')
+}
+
+export async function createL2Session(group: string, workDir?: string): Promise<CreateL2SessionResponse> {
+  return request<CreateL2SessionResponse>('/session/l2', {
+    method: 'POST',
+    body: JSON.stringify({ group, work_dir: workDir || '' }),
+  })
+}
+
+export async function deleteL2Session(id: string): Promise<void> {
+  await request(`/session/l2/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function listL2Groups(): Promise<string[]> {
+  const data = await request<{ groups: string[] }>('/session/groups')
+  return data.groups ?? []
 }
