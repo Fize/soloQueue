@@ -22,11 +22,13 @@ import {
   Monitor,
   Sun,
   Moon,
+  MessageSquare,
 } from 'lucide-react'
 import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 
 const mainNav = [
   { to: '/', icon: Bot, label: 'Agents' },
+  { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/files', icon: FolderOpen, label: 'Files' },
   { to: '/cron', icon: Clock, label: 'Cron Tasks' },
 ]

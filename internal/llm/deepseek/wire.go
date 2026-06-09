@@ -7,6 +7,8 @@ package deepseek
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -191,7 +193,7 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 				Function: wireFunctionDecl{
 					Name:        td.Function.Name,
 					Description: td.Function.Description,
-					Parameters:  td.Function.Parameters,
+					Parameters:  safeParams(td.Function.Name, td.Function.Parameters),
 				},
 			})
 		}
@@ -334,3 +336,27 @@ func wireUsageToLLM(u *wireUsage) llm.Usage {
 	}
 	return out
 }
+
+// ─── Parameter validation guard ──────────────────────────────────────────────
+
+// safeParams validates and returns a json.RawMessage. If the input is invalid
+// JSON, it returns a minimal valid schema so DeepSeek's API doesn't reject
+// the entire request. This is a defense-in-depth guard against malformed tool
+// parameters from MCP servers or other dynamic sources.
+func safeParams(name string, raw json.RawMessage) json.RawMessage {
+	if raw == nil || len(raw) == 0 {
+		return nil
+	}
+	if !json.Valid(raw) {
+		// Log which tool has the invalid parameters so the root cause
+		// (e.g., a specific MCP server with a malformed inputSchema)
+		// can be identified and fixed at the source.
+		fmt.Fprintf(os.Stderr, "soloqueue: tool %q has invalid Parameters JSON (len=%d), using default schema instead\n", name, len(raw))
+		return defaultSchema
+	}
+	return raw
+}
+
+// defaultSchema is a minimal valid JSON Schema object used when a tool's
+// Parameters is invalid JSON.
+var defaultSchema = json.RawMessage(`{"type": "object"}`)
