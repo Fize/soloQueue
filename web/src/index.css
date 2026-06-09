@@ -1,14 +1,11 @@
-/* ─── Obsidian Console Design System ─────────────────────────────────────
+/* ─── Cursor Code Design System ──────────────────────────────────────────
  *
- * A dark-first design system with warm amber/gold accents,
- * glassmorphism cards, and luminous UI surfaces.
+ * A warm-shifted design system with orange (#f54e00) accent,
+ * opacity-driven borders, and Material Design M3 elevation tokens.
  *
- * System theme auto-detect: add to index.html or main.tsx:
+ * System theme auto-detect in main.tsx:
  *   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
  *   document.documentElement.classList.toggle('dark', prefersDark)
- *   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
- *     document.documentElement.classList.toggle('dark', e.matches)
- *   })
  *
  * ──────────────────────────────────────────────────────────────────────── */
 
@@ -18,61 +15,61 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ─── Obsidian Console Theme Tokens ──────────────────────────────────── */
+/* ─── Cursor Code Theme Tokens ────────────────────────────────────────── */
 @theme {
-  /* Brand Colors - Warm Amber/Gold Primary */
-  --color-primary: #f0b429;
-  --color-primary-foreground: #1c1917;
-  --color-secondary: #292524;
-  --color-secondary-foreground: #fafaf9;
+  /* Brand Colors — Orange accent */
+  --color-primary: #f54e00;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #62584e;
+  --color-secondary-foreground: #ffffff;
 
-  /* Backgrounds (light defaults in @theme, overridden by :root / .dark) */
-  --color-background: #fafaf9;
-  --color-foreground: #1c1917;
+  /* Backgrounds */
+  --color-background: #f2f1ed;
+  --color-foreground: #26251e;
   --color-card: #ffffff;
-  --color-card-foreground: #1c1917;
+  --color-card-foreground: #26251e;
   --color-popover: #ffffff;
-  --color-popover-foreground: #1c1917;
+  --color-popover-foreground: #26251e;
 
   /* Muted */
-  --color-muted: #f5f5f4;
-  --color-muted-foreground: #78716c;
+  --color-muted: #e8e7e2;
+  --color-muted-foreground: #75756d;
 
-  /* Accent - Teal */
-  --color-accent: #2dd4bf;
-  --color-accent-foreground: #1c1917;
+  /* Accent — same as primary for single-accent identity */
+  --color-accent: #f54e00;
+  --color-accent-foreground: #ffffff;
 
-  /* Destructive - Coral */
-  --color-destructive: #f87171;
+  /* Destructive */
+  --color-destructive: #dc2626;
   --color-destructive-foreground: #ffffff;
 
   /* Border / Input / Ring */
-  --color-border: #e7e5e4;
-  --color-border-light: #f5f5f4;
-  --color-input: #e7e5e4;
-  --color-ring: rgba(240, 180, 41, 0.25);
+  --color-border: #c5c5be;
+  --color-border-light: #e0e0da;
+  --color-input: #c5c5be;
+  --color-ring: rgba(245, 78, 0, 0.25);
 
   /* Status Colors */
-  --color-status-plan: #e7e5e4;
-  --color-status-running: #fef3c7;
-  --color-status-done: #d1fae5;
+  --color-status-plan: #e8e7e2;
+  --color-status-running: #fff0db;
+  --color-status-done: #dcfce7;
 
-  /* Semantic Colors */
-  --color-success: #2dd4bf;
-  --color-success-foreground: #115e59;
-  --color-warning: #f0b429;
-  --color-warning-foreground: #92400e;
-  --color-info: #38bdf8;
-  --color-info-foreground: #0c4a6e;
-  --color-error: #f87171;
-  --color-error-foreground: #991b1b;
+  /* Semantic Colors — distinct, NOT shared with accent/primary */
+  --color-success: #16a34a;
+  --color-success-foreground: #ffffff;
+  --color-warning: #d97706;
+  --color-warning-foreground: #ffffff;
+  --color-info: #2563eb;
+  --color-info-foreground: #ffffff;
+  --color-error: #dc2626;
+  --color-error-foreground: #ffffff;
 
   /* Chart */
-  --color-chart-1: #f0b429;
-  --color-chart-2: #2dd4bf;
-  --color-chart-3: #38bdf8;
+  --color-chart-1: #f54e00;
+  --color-chart-2: #16a34a;
+  --color-chart-3: #2563eb;
   --color-chart-4: #a78bfa;
-  --color-chart-5: #f87171;
+  --color-chart-5: #dc2626;
 }
 
 @theme inline {
@@ -126,91 +123,127 @@
 
 /* ─── CSS Variables: Light Theme (default) ───────────────────────────── */
 :root {
-  --background: #fafaf9;
-  --foreground: #1c1917;
+  /* Surfaces */
+  --background: #f2f1ed;
+  --foreground: #26251e;
   --card: #ffffff;
-  --card-foreground: #1c1917;
+  --card-foreground: #26251e;
   --popover: #ffffff;
-  --popover-foreground: #1c1917;
-  --primary: #f0b429;
-  --primary-foreground: #1c1917;
-  --secondary: #292524;
-  --secondary-foreground: #fafaf9;
-  --muted: #f5f5f4;
-  --muted-foreground: #78716c;
-  --accent: #2dd4bf;
-  --accent-foreground: #1c1917;
-  --destructive: #f87171;
+  --popover-foreground: #26251e;
+
+  /* Brand */
+  --primary: #f54e00;
+  --primary-foreground: #ffffff;
+  --secondary: #62584e;
+  --secondary-foreground: #ffffff;
+
+  /* Muted */
+  --muted: #e8e7e2;
+  --muted-foreground: #75756d;
+
+  /* Accent (single-accent: = primary) */
+  --accent: #f54e00;
+  --accent-foreground: #ffffff;
+
+  /* Destructive */
+  --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #e7e5e4;
-  --border-light: #f5f5f4;
-  --input: #e7e5e4;
-  --ring: rgba(240, 180, 41, 0.25);
+
+  /* Border / Input / Ring */
+  --border: #c5c5be;
+  --border-light: #e0e0da;
+  --input: #c5c5be;
+  --ring: rgba(245, 78, 0, 0.25);
   --radius: 8px;
 
-  /* Shadows - Soft warm shadows for light */
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.07);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.08);
+  /* M3 Elevation tokens */
+  --md-elevation-level1: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --md-elevation-level2: 0 1px 3px 0 rgb(0 0 0 / 0.08);
+  --md-elevation-level3: 0 2px 4px 0 rgb(0 0 0 / 0.09);
+  --md-elevation-level4: 0 4px 8px 0 rgb(0 0 0 / 0.12);
+  --md-elevation-level5: 0 8px 16px 0 rgb(0 0 0 / 0.15);
+
+  /* Shadows */
+  --shadow-sm: var(--md-elevation-level1);
+  --shadow-md: var(--md-elevation-level2);
+  --shadow-lg: var(--md-elevation-level4);
 
   /* Status */
-  --status-plan: #e7e5e4;
-  --status-running: #fef3c7;
-  --status-done: #d1fae5;
+  --status-plan: #e8e7e2;
+  --status-running: #fff0db;
+  --status-done: #dcfce7;
 
-  /* Semantic */
-  --success: #2dd4bf;
-  --success-foreground: #115e59;
-  --warning: #f0b429;
-  --warning-foreground: #92400e;
-  --info: #38bdf8;
-  --info-foreground: #0c4a6e;
-  --error: #f87171;
-  --error-foreground: #991b1b;
+  /* Semantic — distinct, NOT shared with accent/primary */
+  --success: #16a34a;
+  --success-foreground: #ffffff;
+  --warning: #d97706;
+  --warning-foreground: #ffffff;
+  --info: #2563eb;
+  --info-foreground: #ffffff;
+  --error: #dc2626;
+  --error-foreground: #ffffff;
 }
 
 /* ─── CSS Variables: Dark Theme ──────────────────────────────────────── */
 .dark {
-  --background: #0d1117;
-  --foreground: #e6edf3;
-  --card: #161b22;
-  --card-foreground: #e6edf3;
-  --popover: #1c2128;
-  --popover-foreground: #e6edf3;
-  --primary: #f0b429;
-  --primary-foreground: #1c1917;
-  --secondary: #1c2128;
-  --secondary-foreground: #e6edf3;
-  --muted: #1c2128;
-  --muted-foreground: #7d8590;
-  --accent: #2dd4bf;
-  --accent-foreground: #0d1117;
-  --destructive: #5c2020;
-  --destructive-foreground: #f87171;
-  --border: rgba(240, 246, 252, 0.1);
-  --border-light: rgba(240, 246, 252, 0.05);
-  --input: rgba(240, 246, 252, 0.1);
-  --ring: rgba(240, 180, 41, 0.3);
+  /* Surfaces */
+  --background: #1a1914;
+  --foreground: #f2f1ed;
+  --card: #26251e;
+  --card-foreground: #f2f1ed;
+  --popover: #26251e;
+  --popover-foreground: #f2f1ed;
 
-  /* Shadows - Subtle glow on dark */
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+  /* Brand — accent stays same orange for identity consistency */
+  --primary: #f54e00;
+  --primary-foreground: #ffffff;
+  --secondary: #c7c1b6;
+  --secondary-foreground: #1a1914;
+
+  /* Muted */
+  --muted: #333228;
+  --muted-foreground: #8b8c84;
+
+  /* Accent */
+  --accent: #f54e00;
+  --accent-foreground: #ffffff;
+
+  /* Destructive */
+  --destructive: #7f1d1d;
+  --destructive-foreground: #fca5a5;
+
+  /* Border / Input / Ring */
+  --border: #444339;
+  --border-light: #333228;
+  --input: #444339;
+  --ring: rgba(245, 78, 0, 0.4);
+
+  /* M3 Elevation tokens (dark: heavier shadows) */
+  --md-elevation-level1: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --md-elevation-level2: 0 1px 3px 0 rgb(0 0 0 / 0.35);
+  --md-elevation-level3: 0 2px 4px 0 rgb(0 0 0 / 0.4);
+  --md-elevation-level4: 0 4px 8px 0 rgb(0 0 0 / 0.45);
+  --md-elevation-level5: 0 8px 16px 0 rgb(0 0 0 / 0.5);
+
+  /* Shadows */
+  --shadow-sm: var(--md-elevation-level1);
+  --shadow-md: var(--md-elevation-level2);
+  --shadow-lg: var(--md-elevation-level4);
 
   /* Status */
   --status-plan: rgba(240, 246, 252, 0.08);
-  --status-running: rgba(240, 180, 41, 0.15);
-  --status-done: rgba(45, 212, 191, 0.15);
+  --status-running: rgba(245, 78, 0, 0.15);
+  --status-done: rgba(22, 163, 74, 0.15);
 
   /* Semantic */
-  --success: rgba(45, 212, 191, 0.15);
-  --success-foreground: #2dd4bf;
-  --warning: rgba(240, 180, 41, 0.15);
-  --warning-foreground: #f0b429;
-  --info: rgba(56, 189, 248, 0.15);
-  --info-foreground: #38bdf8;
-  --error: #5c2020;
-  --error-foreground: #f87171;
+  --success: #4ade80;
+  --success-foreground: #052e16;
+  --warning: #fbbf24;
+  --warning-foreground: #431407;
+  --info: #60a5fa;
+  --info-foreground: #172554;
+  --error: #fca5a5;
+  --error-foreground: #450a0a;
 }
 
 /* ─── Base Layer ─────────────────────────────────────────────────────── */
@@ -223,14 +256,14 @@
     font-weight: 400;
     min-height: 100vh;
   }
-  /* Light theme: warm cream gradient */
+  /* Light theme: warm cream → canvas gradient */
   body {
-    background-image: linear-gradient(180deg, #ffffff 0%, #fafaf9 100%);
+    background-image: linear-gradient(180deg, #ffffff 0%, #f2f1ed 100%);
     background-repeat: no-repeat;
   }
   .dark body {
     background-image: none;
-    background-color: #0d1117;
+    background-color: #1a1914;
   }
   html {
     @apply font-sans;
@@ -265,25 +298,25 @@
   }
 
   .dark .glass-card {
-    background: rgba(22, 27, 34, 0.8);
-    border-color: rgba(240, 246, 252, 0.1);
+    background: rgba(38, 37, 30, 0.8);
+    border-color: rgba(68, 67, 57, 0.6);
   }
   .dark .glass-card:hover {
-    border-color: rgba(240, 246, 252, 0.18);
+    border-color: rgba(68, 67, 57, 0.85);
     box-shadow:
       var(--shadow-md),
-      0 0 0 1px rgba(240, 180, 41, 0.05);
+      0 0 0 1px rgba(245, 78, 0, 0.05);
   }
 
-  /* Active variant with amber/gold left accent */
+  /* Active variant with orange left accent */
   .glass-card-active {
-    border-left: 3px solid #f0b429;
+    border-left: 3px solid var(--primary);
   }
   .dark .glass-card-active {
-    border-left-color: #f0b429;
+    border-left-color: var(--primary);
     box-shadow:
       var(--shadow-sm),
-      inset 3px 0 8px -3px rgba(240, 180, 41, 0.1);
+      inset 3px 0 8px -3px rgba(245, 78, 0, 0.1);
   }
 
   /* Ghost / placeholder variant */
@@ -320,8 +353,8 @@
     box-shadow: var(--shadow-md);
   }
   .dark .saas-card {
-    background: rgba(22, 27, 34, 0.8);
-    border-color: rgba(240, 246, 252, 0.1);
+    background: rgba(38, 37, 30, 0.8);
+    border-color: rgba(68, 67, 57, 0.6);
   }
 }
 
@@ -433,20 +466,25 @@
   /* Inline code */
   .markdown-preview code {
     @apply rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs;
-    color: var(--accent-foreground);
+    color: var(--accent);
+    background: color-mix(in oklab, var(--muted) 60%, var(--foreground) 8%);
   }
 
   /* Code blocks */
   .markdown-preview pre {
-    @apply mb-3 overflow-x-auto rounded-lg border border-border bg-muted/50 p-3 last:mb-0;
+    @apply mb-3 overflow-x-auto rounded-lg border border-border p-3 last:mb-0;
+    background: color-mix(in oklab, var(--muted) 85%, var(--foreground) 5%);
   }
   .markdown-preview pre code {
     @apply bg-transparent p-0 text-xs leading-relaxed;
+    color: var(--foreground);
+    background: transparent;
   }
 
   /* Blockquotes */
   .markdown-preview blockquote {
     @apply mb-3 border-l-[3px] border-primary/60 pl-3 italic text-muted-foreground last:mb-0;
+    background: color-mix(in oklab, var(--primary) 8%, transparent);
   }
 
   /* Tables (GFM) */
@@ -454,7 +492,8 @@
     @apply mb-3 w-full border-collapse text-xs last:mb-0;
   }
   .markdown-preview th {
-    @apply border border-border bg-muted/50 px-3 py-2 text-left font-semibold;
+    @apply border border-border px-3 py-2 text-left font-semibold;
+    background: color-mix(in oklab, var(--muted) 60%, transparent);
   }
   .markdown-preview td {
     @apply border border-border px-3 py-2;
