@@ -1,9 +1,11 @@
 package server
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
 // SessionStatusResponse represents the current session status and context window history.
@@ -280,13 +283,15 @@ func generateSessionTitle(prompt, response string) string {
 // ─── L2 Session Management ─────────────────────────────────────────────────
 
 // handleListSessions returns L1 + all L2 sessions with metadata.
+// Also scans disk for past L2 sessions not currently in memory.
 func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	type sessionInfo struct {
-		ID        string    `json:"id"`
-		Type      string    `json:"type"`
-		Name      string    `json:"name"`
-		Group     string    `json:"group,omitempty"`
-		CreatedAt time.Time `json:"created_at"`
+		ID          string    `json:"id"`
+		Type        string    `json:"type"`
+		Name        string    `json:"name"`
+		Group       string    `json:"group,omitempty"`
+		ProjectPath string    `json:"project_path,omitempty"`
+		CreatedAt   time.Time `json:"created_at"`
 	}
 
 	sessions := []sessionInfo{}
@@ -301,7 +306,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// L2 sessions.
+	// L2 sessions in memory.
 	if m.l2Store != nil {
 		for _, info := range m.l2Store.List() {
 			name := info.Name
@@ -309,11 +314,92 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				name = fmt.Sprintf("New session (%s)", info.Group)
 			}
 			sessions = append(sessions, sessionInfo{
-				ID:        "l2:" + info.ID,
-				Type:      "l2",
-				Name:      name,
-				Group:     info.Group,
-				CreatedAt: info.CreatedAt,
+				ID:          "l2:" + info.ID,
+				Type:        "l2",
+				Name:        name,
+				Group:       info.Group,
+				ProjectPath: info.WorkDir,
+				CreatedAt:   info.CreatedAt,
+			})
+		}
+	}
+
+	// Scan disk for past L2 sessions not currently in memory.
+	seenInMemory := map[string]bool{}
+	for _, s := range sessions {
+		if strings.HasPrefix(s.ID, "l2:") {
+			seenInMemory[strings.TrimPrefix(s.ID, "l2:")] = true
+		}
+	}
+	timelinesDir := filepath.Join(m.workDir, "logs", "timelines")
+	entries, err := os.ReadDir(timelinesDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "l2-") {
+				continue
+			}
+			id := strings.TrimPrefix(entry.Name(), "l2-")
+			if seenInMemory[id] {
+				continue
+			}
+
+			// Read meta JSON (preferred) or legacy "group" file.
+			group := ""
+			projectPath := ""
+			metaFile := filepath.Join(timelinesDir, entry.Name(), "meta")
+			if data, rerr := os.ReadFile(metaFile); rerr == nil {
+				var meta struct {
+					Group   string `json:"group"`
+					WorkDir string `json:"work_dir"`
+				}
+				if json.Unmarshal(data, &meta) == nil {
+					group = meta.Group
+					projectPath = meta.WorkDir
+				}
+			}
+			if group == "" {
+				groupFile := filepath.Join(timelinesDir, entry.Name(), "group")
+				if data, rerr := os.ReadFile(groupFile); rerr == nil {
+					group = strings.TrimSpace(string(data))
+				}
+			}
+			if group == "" {
+				group = "unknown"
+			}
+
+			createdAt := time.Now()
+			if info, rerr := entry.Info(); rerr == nil {
+				createdAt = info.ModTime()
+			}
+
+			name := ""
+			segments, _, _ := timeline.ReadTail(
+				filepath.Join(timelinesDir, entry.Name()), "timeline", 1, "")
+			for _, seg := range segments {
+				for _, msg := range seg.Messages {
+					if msg.Role == "user" && msg.Content != "" {
+						name = msg.Content
+						if len(name) > 80 {
+							name = name[:77] + "..."
+						}
+						break
+					}
+				}
+				if name != "" {
+					break
+				}
+			}
+			if name == "" {
+				name = fmt.Sprintf("Past session (%s)", group)
+			}
+
+			sessions = append(sessions, sessionInfo{
+				ID:          "l2:" + id,
+				Type:        "l2",
+				Name:        name,
+				Group:       group,
+				ProjectPath: projectPath,
+				CreatedAt:   createdAt,
 			})
 		}
 	}

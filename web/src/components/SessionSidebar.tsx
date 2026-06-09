@@ -159,7 +159,7 @@ export function SessionSidebar() {
                         {group.projects.map((proj) => {
                           const projKey = `${group.name}:${proj.id}`
                           const projSessions = groupSessions.filter(
-                            (s) => (s as any).projectId === proj.id,
+                            (s) => s.project_path === proj.path,
                           )
                           const pExpanded = isProjExp(projKey)
 

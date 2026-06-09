@@ -574,6 +574,7 @@ export interface ChatSession {
   type: 'l1' | 'l2'
   name: string
   group?: string
+  project_path?: string
   createdAt: string
 }
 
@@ -599,4 +600,29 @@ export interface CreateL2SessionResponse {
   name: string
   group: string
   created_at: string
+}
+
+export interface SessionHistorySegment {
+  type: 'content' | 'thinking' | 'tool_call' | 'error'
+  text?: string
+  call_id?: string
+  name?: string
+  args?: string
+  result?: string
+  error?: string
+  duration_ms?: number
+  done?: boolean
+}
+
+export interface SessionHistoryMessage {
+  id: string
+  role: 'user' | 'assistant'
+  segments: SessionHistorySegment[]
+  timestamp: string
+}
+
+export interface SessionHistoryResponse {
+  messages: SessionHistoryMessage[]
+  has_more: boolean
+  cursor?: string
 }
