@@ -33,7 +33,7 @@ export function MarkdownPreview({ content, className, onToggleCheckbox }: Markdo
                       onToggleCheckbox(currentIndex)
                     }
                   }}
-                  className="mr-2 cursor-pointer h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  className="mr-2 cursor-pointer h-4 w-4 rounded border-border text-primary focus:ring-primary"
                 />
               )
             }

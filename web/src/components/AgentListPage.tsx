@@ -262,7 +262,10 @@ export function AgentListPage() {
                 <div className="max-w-md">
                   <AgentCard
                     agent={l1Agent}
-                    onClick={() => navigate(`/agents/${l1Agent.instance_id}`)}
+                    onClick={() => {
+                      const tab = l1Agent.state === 'processing' ? undefined : 'output'
+                      navigate(`/agents/${l1Agent.instance_id}${tab ? `?tab=${tab}` : ''}`)
+                    }}
                   />
                 </div>
               ) : (
@@ -330,7 +333,10 @@ export function AgentListPage() {
                                 <AgentCard
                                   key={a.instance_id}
                                   agent={a}
-                                  onClick={() => navigate(`/agents/${a.instance_id}`)}
+                                  onClick={() => {
+                                    const tab = a.state === 'processing' ? undefined : 'output'
+                                    navigate(`/agents/${a.instance_id}${tab ? `?tab=${tab}` : ''}`)
+                                  }}
                                 />
                               ))
                             }
@@ -371,7 +377,13 @@ export function AgentListPage() {
                                     return (
                                       <tr
                                         key={a.instance_id}
-                                        onClick={() => navigate(`/agents/${a.instance_id}`)}
+                                        onClick={() => {
+                                          const tab =
+                                            a.state === 'processing' ? undefined : 'output'
+                                          navigate(
+                                            `/agents/${a.instance_id}${tab ? `?tab=${tab}` : ''}`
+                                          )
+                                        }}
                                         className="border-b border-border/20 last:border-0 hover:bg-muted/10 cursor-pointer transition-colors group"
                                       >
                                         <td className="py-3 px-3">

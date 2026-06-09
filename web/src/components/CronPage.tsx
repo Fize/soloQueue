@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   Clock,
   Plus,
@@ -42,6 +43,9 @@ export function CronPage() {
   const [targetAgent, setTargetAgent] = useState('L1')
   const [dialogSaving, setDialogSaving] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
+
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<CronTask | null>(null)
 
   // Clipboard copy state
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -126,14 +130,19 @@ export function CronPage() {
   }
 
   async function handleDeleteTask(id: string) {
-    if (!confirm('Are you sure you want to delete this scheduled task?')) {
-      return
-    }
+    const task = tasks.find((t) => t.id === id)
+    if (task) setDeleteTarget(task)
+  }
+
+  async function confirmDeleteTask() {
+    if (!deleteTarget) return
     try {
-      await deleteCronTask(id)
+      await deleteCronTask(deleteTarget.id)
+      setDeleteTarget(null)
       fetchTasks()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete task')
+      setDeleteTarget(null)
     }
   }
 
@@ -249,7 +258,7 @@ export function CronPage() {
                             title="Copy ID"
                           >
                             {copiedId === task.id ? (
-                              <Check className="h-3 w-3 text-emerald-500" />
+                              <Check className="h-3 w-3 text-[var(--success)]" />
                             ) : (
                               <Copy className="h-3 w-3" />
                             )}
@@ -281,19 +290,19 @@ export function CronPage() {
                           onClick={() => handleToggleStatus(task)}
                           className={`inline-flex items-center gap-1.5 cursor-pointer rounded-full px-2.5 py-0.5 text-xs font-medium transition-all hover:opacity-85 ${
                             task.status === 'active'
-                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                              ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
                               : task.status === 'completed'
-                                ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
-                                : 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20'
+                                ? 'bg-[var(--info)]/10 text-[var(--info)] border border-[var(--info)]/20'
+                                : 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20'
                           }`}
                         >
                           <span
                             className={`h-1.5 w-1.5 rounded-full ${
                               task.status === 'active'
-                                ? 'bg-emerald-500 animate-pulse'
+                                ? 'bg-[var(--success)] animate-pulse'
                                 : task.status === 'completed'
-                                  ? 'bg-blue-500'
-                                  : 'bg-zinc-500'
+                                  ? 'bg-[var(--info)]'
+                                  : 'bg-muted-foreground'
                             }`}
                           />
                           {task.status}
@@ -377,19 +386,19 @@ export function CronPage() {
                       onClick={() => handleToggleStatus(task)}
                       className={`inline-flex items-center gap-1.5 cursor-pointer rounded-full px-2 py-0.5 text-[10px] font-medium transition-all ${
                         task.status === 'active'
-                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                          ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
                           : task.status === 'completed'
-                            ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
-                            : 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20'
+                            ? 'bg-[var(--info)]/10 text-[var(--info)] border border-[var(--info)]/20'
+                            : 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20'
                       }`}
                     >
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${
                           task.status === 'active'
-                            ? 'bg-emerald-500 animate-pulse'
+                            ? 'bg-[var(--success)] animate-pulse'
                             : task.status === 'completed'
-                              ? 'bg-blue-500'
-                              : 'bg-zinc-500'
+                              ? 'bg-[var(--info)]'
+                              : 'bg-muted-foreground'
                         }`}
                       />
                       {task.status}
@@ -411,7 +420,7 @@ export function CronPage() {
                       </div>
                       {task.last_run_at && (
                         <div className="flex items-center gap-1 opacity-70">
-                          <Check className="h-3 w-3 text-emerald-500" />
+                          <Check className="h-3 w-3 text-[var(--success)]" />
                           <span>Last: {formatTime(task.last_run_at)}</span>
                         </div>
                       )}
@@ -515,6 +524,18 @@ export function CronPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        title="Delete Scheduled Task"
+        message={`Are you sure you want to delete this scheduled task? This action cannot be undone.`}
+        destructive
+        onConfirm={confirmDeleteTask}
+        confirmLabel="Delete Task"
+      />
     </div>
   )
 }

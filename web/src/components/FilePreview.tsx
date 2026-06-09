@@ -141,6 +141,7 @@ export function FilePreview({ path, open, onClose }: FilePreviewProps) {
     }
 
     if (isImage || isAudio || isVideo) {
+      setError(null)
       setLoading(false)
       return
     }
@@ -258,7 +259,7 @@ export function FilePreview({ path, open, onClose }: FilePreviewProps) {
               className="absolute right-6 top-6"
             >
               {copied ? (
-                <Check className="h-3.5 w-3.5 text-green-500" />
+                <Check className="h-3.5 w-3.5 text-[var(--success)]" />
               ) : (
                 <Copy className="h-3.5 w-3.5" />
               )}

@@ -88,7 +88,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          className="w-full min-h-[400px] resize-y rounded-md border border-border bg-[#1E1E2E] p-4 font-mono text-xs leading-relaxed text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="w-full min-h-[400px] resize-y rounded-md border border-border bg-muted p-4 font-mono text-xs leading-relaxed text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
           spellCheck={false}
         />
       ) : (
