@@ -12,10 +12,18 @@ export function ProxiesTab() {
   const [proxies, setProxies] = useState<ProxyInfo[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
+  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' } | null>(
+    null
+  )
 
   // Form state
   const [id, setId] = useState('')
   const [targetUrl, setTargetUrl] = useState('')
+
+  const showSnackbar = (message: string, type: 'success' | 'error') => {
+    setSnackbar({ message, type })
+    setTimeout(() => setSnackbar(null), 4500)
+  }
 
   const fetchProxies = async () => {
     try {
@@ -24,7 +32,7 @@ export function ProxiesTab() {
       const data = await res.json()
       setProxies(data || [])
     } catch (err: any) {
-      window.alert('Error: ' + err.message)
+      showSnackbar('Error: ' + err.message, 'error')
     } finally {
       setIsLoading(false)
     }
@@ -48,14 +56,14 @@ export function ProxiesTab() {
         const data = await res.json()
         throw new Error(data.error || 'Failed to add proxy')
       }
-      window.alert(`Successfully added proxy ${id}.`)
+      showSnackbar(`Successfully added proxy ${id}.`, 'success')
       setId('')
       setTargetUrl('')
       fetchProxies()
       // trigger a sidebar update by firing an event
       window.dispatchEvent(new CustomEvent('proxy-updated'))
     } catch (err: any) {
-      window.alert('Error: ' + err.message)
+      showSnackbar('Error: ' + err.message, 'error')
     } finally {
       setIsAdding(false)
     }
@@ -184,6 +192,19 @@ export function ProxiesTab() {
           ))
         )}
       </div>
+      {/* M3 Snackbar */}
+      {snackbar && (
+        <div
+          role="alert"
+          className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-full text-sm font-medium shadow-lg animate-reveal ${
+            snackbar.type === 'success'
+              ? 'bg-[var(--success)] text-[var(--success-foreground)]'
+              : 'bg-destructive text-destructive-foreground'
+          }`}
+        >
+          {snackbar.message}
+        </div>
+      )}
     </div>
   )
 }

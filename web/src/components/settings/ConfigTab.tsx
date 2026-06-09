@@ -54,6 +54,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 SyntaxHighlighter.registerLanguage('toml', toml)
 
@@ -68,6 +69,8 @@ export function ConfigTab() {
 
   // DB settings state
   const [providers, setProviders] = useState<LLMProvider[]>([])
+  const [deleteProviderTarget, setDeleteProviderTarget] = useState<LLMProvider | null>(null)
+  const [deleteModelTarget, setDeleteModelTarget] = useState<LLMModel | null>(null)
   const [models, setModels] = useState<LLMModel[]>([])
   const [defaultModels, setDefaultModels] = useState<DefaultModelsConfig>({
     expert: '',
@@ -457,18 +460,20 @@ export function ConfigTab() {
   }
 
   const handleDeleteProvider = async (id: string) => {
-    if (
-      !confirm(
-        'Are you sure you want to delete this provider? All associated models will be deleted.'
-      )
-    )
-      return
+    const p = providers.find((p) => p.id === id)
+    if (p) setDeleteProviderTarget(p)
+  }
+
+  const confirmDeleteProvider = async () => {
+    if (!deleteProviderTarget) return
     setError(null)
     try {
-      await deleteProvider(id)
+      await deleteProvider(deleteProviderTarget.id)
+      setDeleteProviderTarget(null)
       loadAll()
     } catch (err) {
       setError((err as Error).message)
+      setDeleteProviderTarget(null)
     }
   }
 
@@ -545,13 +550,20 @@ export function ConfigTab() {
   }
 
   const handleDeleteModel = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this model?')) return
+    const m = models.find((m) => m.id === id)
+    if (m) setDeleteModelTarget(m)
+  }
+
+  const confirmDeleteModel = async () => {
+    if (!deleteModelTarget) return
     setError(null)
     try {
-      await deleteModel(id)
+      await deleteModel(deleteModelTarget.id)
+      setDeleteModelTarget(null)
       loadAll()
     } catch (err) {
       setError((err as Error).message)
+      setDeleteModelTarget(null)
     }
   }
 
@@ -603,7 +615,7 @@ export function ConfigTab() {
         </div>
       )}
       {successMsg && (
-        <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm text-emerald-600">
+        <div className="flex items-start gap-2 rounded-md border border-[var(--success)]/30 bg-[var(--success)]/5 p-4 text-sm text-[var(--success)]">
           <Check className="mt-0.5 h-4 w-4 shrink-0" />
           <div>{successMsg}</div>
         </div>
@@ -1034,7 +1046,7 @@ export function ConfigTab() {
                           <span className="text-xs font-mono text-muted-foreground">({p.id})</span>
                           {p.isDefault && <Badge variant="secondary">Default</Badge>}
                           {p.enabled ? (
-                            <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+                            <span className="flex h-2 w-2 rounded-full bg-[var(--success)]" />
                           ) : (
                             <span className="flex h-2 w-2 rounded-full bg-muted" />
                           )}
@@ -1340,7 +1352,7 @@ export function ConfigTab() {
                             </Badge>
                           )}
                           {m.enabled ? (
-                            <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+                            <span className="flex h-2 w-2 rounded-full bg-[var(--success)]" />
                           ) : (
                             <span className="flex h-2 w-2 rounded-full bg-muted" />
                           )}
@@ -2187,6 +2199,28 @@ export function ConfigTab() {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={!!deleteProviderTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteProviderTarget(null)
+        }}
+        title="Delete Provider"
+        message={`Deleting provider "${deleteProviderTarget?.id}" will also remove all associated models. This action cannot be undone.`}
+        destructive
+        onConfirm={confirmDeleteProvider}
+        confirmLabel="Delete Provider"
+      />
+      <ConfirmDialog
+        open={!!deleteModelTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteModelTarget(null)
+        }}
+        title="Delete Model"
+        message={`Delete model "${deleteModelTarget?.id}"? This action cannot be undone.`}
+        destructive
+        onConfirm={confirmDeleteModel}
+        confirmLabel="Delete Model"
+      />
     </div>
   )
 }

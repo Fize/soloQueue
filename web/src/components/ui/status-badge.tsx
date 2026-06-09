@@ -7,27 +7,27 @@ const stateConfig: Record<
 > = {
   processing: {
     label: 'Running',
-    dotColor: 'bg-teal-400',
-    bgColor: 'bg-teal-400/10 dark:bg-teal-400/15',
-    textColor: 'text-teal-700 dark:text-teal-300',
+    dotColor: 'bg-[var(--primary)]',
+    bgColor: 'bg-[var(--primary)]/10 dark:bg-[var(--primary)]/15',
+    textColor: 'text-[var(--primary)]',
   },
   idle: {
     label: 'Idle',
-    dotColor: 'bg-emerald-400',
-    bgColor: 'bg-emerald-400/10 dark:bg-emerald-400/15',
-    textColor: 'text-emerald-700 dark:text-emerald-300',
+    dotColor: 'bg-[var(--success)]',
+    bgColor: 'bg-[var(--success)]/10 dark:bg-[var(--success)]/15',
+    textColor: 'text-[var(--success)]',
   },
   stopping: {
     label: 'Stopping',
-    dotColor: 'bg-amber-400',
-    bgColor: 'bg-amber-400/10 dark:bg-amber-400/15',
-    textColor: 'text-amber-700 dark:text-amber-300',
+    dotColor: 'bg-[var(--warning)]',
+    bgColor: 'bg-[var(--warning)]/10 dark:bg-[var(--warning)]/15',
+    textColor: 'text-[var(--warning)]',
   },
   stopped: {
     label: 'Stopped',
-    dotColor: 'bg-zinc-400',
-    bgColor: 'bg-zinc-400/10 dark:bg-zinc-400/15',
-    textColor: 'text-zinc-600 dark:text-zinc-400',
+    dotColor: 'bg-muted-foreground',
+    bgColor: 'bg-muted-foreground/10 dark:bg-muted-foreground/15',
+    textColor: 'text-muted-foreground',
   },
 }
 

@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
@@ -267,7 +268,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
                   <textarea
                     value={workspacesJson}
                     onChange={(e) => setWorkspacesJson(e.target.value)}
-                    className="flex-1 w-full min-h-[220px] rounded-md border border-border bg-[#1E1E2E] px-3 py-2 font-mono text-xs text-[#E5E7EB] transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
+                    className="flex-1 w-full min-h-[220px] rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
                     placeholder='[{"name":"my-project","path":"~/code/my-project"}]'
                     spellCheck={false}
                   />
@@ -563,7 +564,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                 <textarea
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
-                  className="flex-1 w-full min-h-[300px] rounded-md border border-border bg-[#1E1E2E] px-3 py-2 font-mono text-xs text-[#E5E7EB] transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
+                  className="flex-1 w-full min-h-[300px] rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
                   placeholder="Paste or write the system instructions here..."
                   spellCheck={false}
                 />
@@ -617,6 +618,8 @@ export default function TeamsTab() {
 
   // Filter agents by selected team
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
+  const [deleteTeamTarget, setDeleteTeamTarget] = useState<TeamResponse | null>(null)
+  const [deleteAgentTarget, setDeleteAgentTarget] = useState<AgentResponse | null>(null)
 
   // Team dialog state
   const [teamDialogOpen, setTeamDialogOpen] = useState(false)
@@ -662,16 +665,21 @@ export default function TeamsTab() {
   }
 
   const handleDeleteTeam = async (team: TeamResponse) => {
-    if (!window.confirm(`Delete team "${team.name}"? This action cannot be undone.`)) return
+    setDeleteTeamTarget(team)
+  }
+
+  const confirmDeleteTeam = async () => {
+    if (!deleteTeamTarget) return
     try {
-      await deleteTeam(team.name)
-      // If the deleted team was selected, clear selection
-      if (selectedTeam === team.name) {
+      await deleteTeam(deleteTeamTarget.name)
+      if (selectedTeam === deleteTeamTarget.name) {
         setSelectedTeam(null)
       }
+      setDeleteTeamTarget(null)
       await fetchData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete team')
+      setDeleteTeamTarget(null)
     }
   }
 
@@ -692,12 +700,18 @@ export default function TeamsTab() {
   }
 
   const handleDeleteAgent = async (agent: AgentResponse) => {
-    if (!window.confirm(`Delete agent "${agent.name}"? This action cannot be undone.`)) return
+    setDeleteAgentTarget(agent)
+  }
+
+  const confirmDeleteAgent = async () => {
+    if (!deleteAgentTarget) return
     try {
-      await deleteAgent(agent.name)
+      await deleteAgent(deleteAgentTarget.name)
+      setDeleteAgentTarget(null)
       await fetchData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete agent')
+      setDeleteAgentTarget(null)
     }
   }
 
@@ -925,6 +939,28 @@ export default function TeamsTab() {
         onSave={handleAgentSaved}
         editAgent={editingAgent}
         teams={teams}
+      />
+      <ConfirmDialog
+        open={!!deleteTeamTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTeamTarget(null)
+        }}
+        title="Delete Team"
+        message={`Delete team "${deleteTeamTarget?.name}"? This action cannot be undone.`}
+        destructive
+        onConfirm={confirmDeleteTeam}
+        confirmLabel="Delete Team"
+      />
+      <ConfirmDialog
+        open={!!deleteAgentTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAgentTarget(null)
+        }}
+        title="Delete Agent"
+        message={`Delete agent "${deleteAgentTarget?.name}"? This action cannot be undone.`}
+        destructive
+        onConfirm={confirmDeleteAgent}
+        confirmLabel="Delete Agent"
       />
     </div>
   )
