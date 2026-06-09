@@ -51,12 +51,14 @@ window.fetch = function (input: RequestInfo | URL, init?: RequestInit): Promise<
   return originalFetch.call(this, input, init)
 }
 
-// System theme auto-detect — runs before React render to prevent flash
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-document.documentElement.classList.toggle('dark', prefersDark)
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-  document.documentElement.classList.toggle('dark', e.matches)
-})
+// Theme initialization — runs before React render to prevent flash
+import { getStoredTheme, applyTheme, listenSystemTheme } from '@/lib/theme'
+
+const initial = getStoredTheme()
+applyTheme(initial)
+
+// Keep listening even after initial load (handles system-toggle while app is open)
+listenSystemTheme()
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
