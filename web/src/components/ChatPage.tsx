@@ -91,7 +91,7 @@ export function ChatPage() {
                 <ChatMessageView
                   key={msg.id}
                   message={msg}
-                  agentName={activeSession?.agentName}
+                  agentName={activeSession?.agent_name}
                 />
               ))}
             </div>

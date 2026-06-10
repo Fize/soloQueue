@@ -55,7 +55,7 @@ export const useChatStore = create<ChatState>((set) => ({
         type: 'l2',
         name: '',
         group: info.group,
-        agentName: info.agent_name,
+        agent_name: info.agent_name,
         createdAt: info.created_at,
       }
       set((s) => ({ sessions: [...s.sessions, session], activeSessionId: session.id }))
