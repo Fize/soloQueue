@@ -58,6 +58,11 @@ export function useChatStream() {
             appendToLastAssistantContent(ev.delta)
             if (shouldGenTitle) finalContent += ev.delta
             break
+          case 'session_name':
+            if (ev.name) {
+              renameSession(sid, ev.name)
+            }
+            break
           case 'reasoning_delta':
             appendToLastAssistantThinking(ev.delta)
             break

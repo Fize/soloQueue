@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -189,7 +190,7 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var firstPrompt string
+	var firstPrompt = trimmed
 	var finalContent string
 
 	// Consume events synchronously in the handler goroutine.
@@ -254,6 +255,10 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 		title := generateSessionTitle(firstPrompt, finalContent)
 		if title != "" && m.l2Store != nil {
 			m.l2Store.SetName(l2ID, title)
+			// Notify frontend of title change via SSE.
+			writeSSEEvent(w, flusher, "session_name", map[string]string{
+				"name": title,
+			})
 		}
 	}
 }
@@ -452,8 +457,19 @@ func (m *Mux) handleDeleteL2Session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Try in-memory removal first.
 	if err := m.l2Store.Remove(r.Context(), id); err != nil {
-		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		// Session not in memory — try removing from disk directly.
+		tlDir := filepath.Join(m.workDir, "logs", "timelines", "l2-"+id)
+		if info, statErr := os.Stat(tlDir); statErr == nil && info.IsDir() {
+			if err := os.RemoveAll(tlDir); err != nil {
+				m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			m.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+			return
+		}
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
 
@@ -531,6 +547,206 @@ func (m *Mux) handleClearSession(w http.ResponseWriter, r *http.Request) {
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
 }
+
+// ─── Session History ───────────────────────────────────────────────────────
+
+// handleSessionHistory returns conversation history for a session.
+// GET /api/session/history?session_id=l1|"l2:<uuid>"[&before=<cursor>]
+func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is required"})
+		return
+	}
+
+	var dir string
+	if sessionID == "l1" {
+		dir = filepath.Join(m.workDir, "logs", "timelines", "session")
+	} else {
+		id := strings.TrimPrefix(sessionID, "l2:")
+		dir = filepath.Join(m.workDir, "logs", "timelines", "l2-"+id)
+	}
+
+	allEvents, err := readAllTimelineEvents(dir)
+	if err != nil {
+		m.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"messages": []interface{}{},
+			"has_more": false,
+		})
+		return
+	}
+
+	var lastClearIdx int = -1
+	for i, evt := range allEvents {
+		if evt.EventType == timeline.EventControl && evt.Control != nil && evt.Control.Action == "clear" {
+			lastClearIdx = i
+		}
+	}
+	events := allEvents
+	if lastClearIdx >= 0 {
+		events = allEvents[lastClearIdx+1:]
+	}
+
+	type historyMsg struct {
+		ID        string                   `json:"id"`
+		Role      string                   `json:"role"`
+		Segments  []map[string]interface{} `json:"segments"`
+		Timestamp string                   `json:"timestamp"`
+	}
+
+	type pendingToolCall struct {
+		callID string
+		name   string
+		args   string
+		segIdx int
+	}
+
+	var msgs []historyMsg
+	var pendingToolCalls []pendingToolCall
+
+	for _, evt := range events {
+		if evt.EventType != timeline.EventMessage || evt.Message == nil {
+			continue
+		}
+		msg := evt.Message
+		if msg.Role == "system" {
+			continue
+		}
+
+		msgID := fmt.Sprintf("hist-%d", len(msgs))
+
+		switch msg.Role {
+		case "user":
+			segments := []map[string]interface{}{}
+			if msg.Content != "" {
+				segments = append(segments, map[string]interface{}{
+					"type": "content",
+					"text": msg.Content,
+				})
+			}
+			msgs = append(msgs, historyMsg{
+				ID:        msgID,
+				Role:      "user",
+				Segments:  segments,
+				Timestamp: msg.Timestamp,
+			})
+		case "assistant":
+			segments := []map[string]interface{}{}
+			pendingToolCalls = pendingToolCalls[:0]
+			if msg.ReasoningContent != "" {
+				segments = append(segments, map[string]interface{}{
+					"type": "thinking",
+					"text": msg.ReasoningContent,
+				})
+			}
+			for _, tc := range msg.ToolCalls {
+				segIdx := len(segments)
+				segments = append(segments, map[string]interface{}{
+					"type":    "tool_call",
+					"call_id": tc.ID,
+					"name":    tc.Name,
+					"args":    tc.Arguments,
+					"done":    true,
+				})
+				pendingToolCalls = append(pendingToolCalls, pendingToolCall{
+					callID: tc.ID,
+					name:   tc.Name,
+					args:   tc.Arguments,
+					segIdx: segIdx,
+				})
+			}
+			if msg.Content != "" {
+				segments = append(segments, map[string]interface{}{
+					"type": "content",
+					"text": msg.Content,
+				})
+			}
+			msgs = append(msgs, historyMsg{
+				ID:        msgID,
+				Role:      "assistant",
+				Segments:  segments,
+				Timestamp: msg.Timestamp,
+			})
+		case "tool":
+			for _, ptc := range pendingToolCalls {
+				if ptc.callID == msg.ToolCallID {
+					msgs[len(msgs)-1].Segments[ptc.segIdx]["result"] = msg.Content
+					msgs[len(msgs)-1].Segments[ptc.segIdx]["done"] = true
+					break
+				}
+			}
+		}
+	}
+
+	if msgs == nil {
+		msgs = []historyMsg{}
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"messages": msgs,
+		"has_more": false,
+	})
+}
+
+// readAllTimelineEvents reads all events from all timeline files in a directory.
+func readAllTimelineEvents(dir string) ([]timeline.Event, error) {
+	files, err := listTimelineFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no timeline files")
+	}
+	var allEvents []timeline.Event
+	for _, file := range files {
+		events, err := readTimelineFile(file)
+		if err != nil {
+			continue
+		}
+		allEvents = append(allEvents, events...)
+	}
+	return allEvents, nil
+}
+
+// readTimelineFile reads all events from a single timeline JSONL file.
+func readTimelineFile(path string) ([]timeline.Event, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var events []timeline.Event
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1<<20), 64<<20)
+	for scanner.Scan() {
+		var evt timeline.Event
+		if err := json.Unmarshal(scanner.Bytes(), &evt); err != nil {
+			continue
+		}
+		events = append(events, evt)
+	}
+	return events, scanner.Err()
+}
+
+// listTimelineFiles finds timeline JSONL files in a directory.
+// Matches: timeline.jsonl, timeline-*.jsonl (legacy), timeline-*-*.jsonl (date-size).
+func listTimelineFiles(dir string) ([]string, error) {
+	patterns := []string{
+		filepath.Join(dir, "timeline.jsonl"),
+		filepath.Join(dir, "timeline-*.jsonl"),
+	}
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("timeline: glob %s: %w", pattern, err)
+		}
+		if len(matches) > 0 {
+			return matches, nil
+		}
+	}
+	return nil, fmt.Errorf("no timeline files in %s", dir)
+}
+
 
 // resolveSessionForModify resolves a session from an optional session_id field.
 func (m *Mux) resolveSessionForModify(r *http.Request) *session.Session {

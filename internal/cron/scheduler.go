@@ -61,16 +61,32 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 		dbStore:    db,
 		sessionMgr: sm,
 		logger:     l,
-		cron: robfig.New(robfig.WithParser(robfig.NewParser(
-			robfig.Minute | robfig.Hour | robfig.Dom | robfig.Month | robfig.Dow,
-		))),
+		cron: robfig.New(
+			robfig.WithParser(robfig.NewParser(
+				robfig.Minute | robfig.Hour | robfig.Dom | robfig.Month | robfig.Dow,
+			)),
+			robfig.WithChain(robfig.SkipIfStillRunning(robfig.DiscardLogger)),
+		),
 		entries: make(map[string]robfig.EntryID),
 		timers:  make(map[string]*time.Timer),
 	}
 }
 
-// Start loads all active tasks from DB, schedules them, and starts the cron runner.
+// Start loads all active tasks from DB, resets any stale 'running' tasks
+// (crash recovery), schedules them, and starts the cron runner.
 func (s *Scheduler) Start(ctx context.Context) error {
+	// Reset any tasks stuck in 'running' from a previous crash. Use a 1-minute
+	// buffer so tasks that were very recently claimed (milliseconds ago) are not
+	// spuriously reset during rolling restarts.
+	resetCount, err := s.dbStore.ResetStaleRunning(ctx, time.Now().Add(-1*time.Minute))
+	if err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to reset stale running tasks", "err", err)
+		// Non-fatal: continue even if reset fails
+	}
+	if resetCount > 0 {
+		s.logger.Info(logger.CatApp, "cron: reset stale running tasks", "count", resetCount)
+	}
+
 	tasks, err := s.dbStore.GetActiveTasks(ctx)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: failed to load active tasks on startup", "err", err)
@@ -161,15 +177,45 @@ func (s *Scheduler) unscheduleLocked(taskID string) {
 func (s *Scheduler) executeTask(t Task) {
 	s.logger.Info(logger.CatApp, "cron: task execution triggered", "task_id", t.ID, "instruction", t.Instruction)
 
+	// Two-phase commit: atomically claim the task. If claim fails, another
+	// instance is already executing it — skip silently.
+	ctx := context.Background()
+	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
+	if err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to claim task", "task_id", t.ID, "err", err)
+		return
+	}
+	if !claimed {
+		s.logger.Debug(logger.CatApp, "cron: task already claimed by another instance, skipping", "task_id", t.ID)
+		return
+	}
+
+	// Panic recovery: if executeTask panics, catch it, log, and mark the task
+	// as failed so it doesn't remain stuck in 'running' state.
+	var panicValue interface{}
+	defer func() {
+		if panicValue != nil {
+			s.logger.Error(logger.CatApp, "cron: task execution panicked", "task_id", t.ID, "panic", panicValue)
+			// Mark as 'active' so it can be retried on next schedule tick
+			if err := s.dbStore.UpdateTaskStatus(ctx, t.ID, "active"); err != nil {
+				s.logger.Error(logger.CatApp, "cron: failed to reset panicked task", "task_id", t.ID, "err", err)
+			}
+		}
+	}()
+
 	session := s.sessionMgr.Session()
 	if session == nil {
 		s.logger.Warn(logger.CatApp, "cron: task execution skipped, no active session", "task_id", t.ID)
+		// Release the claim so task can be retried
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		return
 	}
 
 	if !session.Idle() {
 		s.logger.Warn(logger.CatApp, "cron: session busy, queueing task into pending queue", "task_id", t.ID)
 		session.QueueMessage(t.Instruction)
+		// Task is queued rather than executed; release the claim.
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		return
 	}
 
@@ -178,6 +224,7 @@ func (s *Scheduler) executeTask(t Task) {
 	ch, err := session.AskStream(context.Background(), t.Instruction)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: task execution failed to start", "task_id", t.ID, "err", err)
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		return
 	}
 
@@ -203,8 +250,7 @@ func (s *Scheduler) executeTask(t Task) {
 		hook(context.Background(), t, replyText)
 	}
 
-	// Update DB timestamps
-	ctx := context.Background()
+	// Update DB timestamps: one-time → completed, periodic → update next_run
 	if t.IsOneTime() {
 		_ = s.dbStore.MarkCompleted(ctx, t.ID)
 	} else {

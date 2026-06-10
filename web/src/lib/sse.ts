@@ -42,6 +42,11 @@ export interface SSEDelegationStart {
   type: 'delegation_start'
   num_tasks: number
 }
+export interface SSESessionName {
+  type: 'session_name'
+  name: string
+}
+
 export interface SSEDelegationDone {
   type: 'delegation_done'
   target_agent_id: string
@@ -56,6 +61,7 @@ export type SSEEvent =
   | SSEDone
   | SSEError
   | SSEDelegationStart
+  | SSESessionName
   | SSEDelegationDone
 
 export async function streamAsk(
