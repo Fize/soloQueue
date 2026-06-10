@@ -25,6 +25,9 @@ interface ChatState {
   appendToLastAssistantThinking: (text: string) => void
   updateToolCallResult: (callId: string, result: string, error?: string, durationMs?: number) => void
   setStreaming: (v: boolean) => void
+  removeLastEmptyAssistantMessage: () => void
+  addDelegationSegment: (delegation: { agentName: string; task: string }) => void
+  completeLastDelegation: (agentName: string, durationMs?: number, resultContent?: string) => void
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -52,6 +55,7 @@ export const useChatStore = create<ChatState>((set) => ({
         type: 'l2',
         name: '',
         group: info.group,
+        agentName: info.agent_name,
         createdAt: info.created_at,
       }
       set((s) => ({ sessions: [...s.sessions, session], activeSessionId: session.id }))
@@ -199,6 +203,59 @@ export const useChatStore = create<ChatState>((set) => ({
   },
 
   setStreaming: (v: boolean) => set({ streaming: v }),
+
+  removeLastEmptyAssistantMessage: () => {
+    set((s) => {
+      const sid = s.activeSessionId || ''
+      const msgs = s.messages[sid] || []
+      if (msgs.length === 0) return s
+      const last = msgs[msgs.length - 1]
+      if (last.role !== 'assistant' || last.segments.length > 0) return s
+      return {
+        messages: { ...s.messages, [sid]: msgs.slice(0, -1) },
+      }
+    })
+  },
+
+  addDelegationSegment: (delegation: { agentName: string; task: string }) => {
+    set((s) => {
+      const sid = s.activeSessionId || ''
+      const msgs = [...(s.messages[sid] || [])]
+      const last = msgs[msgs.length - 1]
+      if (!last || last.role !== 'assistant') return s
+      const seg: ChatSegment = {
+        type: 'delegation',
+        agentName: delegation.agentName,
+        task: delegation.task,
+        status: 'running',
+      }
+      return {
+        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: [...last.segments, seg] }] },
+      }
+    })
+  },
+
+  completeLastDelegation: (agentName: string, durationMs?: number, resultContent?: string) => {
+    set((s) => {
+      const sid = s.activeSessionId || ''
+      const msgs = [...(s.messages[sid] || [])]
+      const last = msgs[msgs.length - 1]
+      if (!last || last.role !== 'assistant') return s
+      const segs = last.segments.map((seg) => {
+        if (seg.type === 'delegation' && seg.agentName === agentName && seg.status === 'running') {
+          return { ...seg, status: 'completed' as const, durationMs, resultContent }
+        }
+        // If no matching running delegation, mark the last running one
+        if (seg.type === 'delegation' && seg.status === 'running') {
+          return { ...seg, status: 'completed' as const, durationMs, resultContent }
+        }
+        return seg
+      })
+      return {
+        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+      }
+    })
+  },
 }))
 
 // convertHistorySegment maps backend history segment format to frontend ChatSegment.
@@ -218,6 +275,15 @@ function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
         error: seg.error,
         durationMs: seg.duration_ms,
         done: seg.done ?? true,
+      }
+    case 'delegation':
+      return {
+        type: 'delegation',
+        agentName: seg.agent_name || seg.name || '',
+        task: seg.task || '',
+        status: (seg.status as 'running' | 'completed' | 'failed') || 'completed',
+        durationMs: seg.duration_ms,
+        resultContent: seg.result,
       }
     case 'error':
       return { type: 'error', text: seg.text || '' }

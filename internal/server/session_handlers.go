@@ -245,7 +245,11 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 			writeSSEEvent(w, flusher, "delegation_start", map[string]int{"num_tasks": e.NumTasks})
 
 		case agent.DelegationCompletedEvent:
-			writeSSEEvent(w, flusher, "delegation_done", map[string]string{"target_agent_id": e.TargetAgentID})
+			writeSSEEvent(w, flusher, "delegation_done", map[string]string{
+				"target_agent_id": e.TargetAgentID,
+				"agent_name":      e.TargetAgentName,
+				"result_content":  e.ResultContent,
+			})
 		}
 		flusher.Flush()
 	}
@@ -287,6 +291,16 @@ func generateSessionTitle(prompt, response string) string {
 
 // ─── L2 Session Management ─────────────────────────────────────────────────
 
+// leaderAgentName returns the display name of the leader agent for the given group.
+func (m *Mux) leaderAgentName(group string) string {
+	for _, t := range m.templates {
+		if t.IsLeader && t.Group == group {
+			return t.Name
+		}
+	}
+	return ""
+}
+
 // handleListSessions returns L1 + all L2 sessions with metadata.
 // Also scans disk for past L2 sessions not currently in memory.
 func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +309,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		Type        string    `json:"type"`
 		Name        string    `json:"name"`
 		Group       string    `json:"group,omitempty"`
+		AgentName   string    `json:"agent_name,omitempty"`
 		ProjectPath string    `json:"project_path,omitempty"`
 		CreatedAt   time.Time `json:"created_at"`
 	}
@@ -307,6 +322,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			ID:        "l1",
 			Type:      "l1",
 			Name:      "L1 Orchestrator",
+			AgentName: "L1 Orchestrator",
 			CreatedAt: m.sessionMgr.Session().Created,
 		})
 	}
@@ -323,6 +339,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				Type:        "l2",
 				Name:        name,
 				Group:       info.Group,
+				AgentName:   m.leaderAgentName(info.Group),
 				ProjectPath: info.WorkDir,
 				CreatedAt:   info.CreatedAt,
 			})
@@ -403,6 +420,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				Type:        "l2",
 				Name:        name,
 				Group:       group,
+				AgentName:   m.leaderAgentName(group),
 				ProjectPath: projectPath,
 				CreatedAt:   createdAt,
 			})
@@ -441,7 +459,13 @@ func (m *Mux) handleCreateL2Session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m.writeJSON(w, http.StatusCreated, info)
+	m.writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"id":         info.ID,
+		"name":       info.Name,
+		"group":      info.Group,
+		"agent_name": m.leaderAgentName(info.Group),
+		"created_at": info.CreatedAt,
+	})
 }
 
 // handleDeleteL2Session destroys an L2 session by ID.
@@ -612,11 +636,34 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		if msg.Role == "system" {
 			continue
 		}
+		// Skip ephemeral non-tool messages (delegation result summaries) —
+		// only the final LLM reply should appear in visible conversation history.
+		// Tool results are kept so tool_call segments get their result content.
+		if msg.Role != "tool" && msg.IsEphemeral {
+			continue
+		}
 
 		msgID := fmt.Sprintf("hist-%d", len(msgs))
 
 		switch msg.Role {
 		case "user":
+			// If this is a delegation result user message, inject as delegation segment
+			// into the last assistant message instead of creating a separate user message.
+			// This handles both existing history (non-ephemeral) and edge cases.
+			if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
+				// Extract agent name from content
+				agentName := extractDelegationAgentName(msg.Content)
+				lastIdx := len(msgs) - 1
+				if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" {
+					msgs[lastIdx].Segments = append(msgs[lastIdx].Segments, map[string]interface{}{
+						"type":       "delegation",
+						"agent_name": agentName,
+						"status":     "completed",
+						"result":     msg.Content,
+					})
+					break // skip creating a separate user message
+				}
+			}
 			segments := []map[string]interface{}{}
 			if msg.Content != "" {
 				segments = append(segments, map[string]interface{}{
@@ -632,7 +679,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			})
 		case "assistant":
 			segments := []map[string]interface{}{}
-			pendingToolCalls = pendingToolCalls[:0]
+			newPendingStart := len(pendingToolCalls) // track new tool calls added in this batch
 			if msg.ReasoningContent != "" {
 				segments = append(segments, map[string]interface{}{
 					"type": "thinking",
@@ -661,12 +708,26 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					"text": msg.Content,
 				})
 			}
-			msgs = append(msgs, historyMsg{
-				ID:        msgID,
-				Role:      "assistant",
-				Segments:  segments,
-				Timestamp: msg.Timestamp,
-			})
+			// Merge consecutive assistant messages to match streaming behavior.
+			// The streaming frontend creates ONE assistant message per turn.
+			// But the timeline may split assistant events across tool results.
+			lastIdx := len(msgs) - 1
+			if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" {
+				offset := len(msgs[lastIdx].Segments)
+				msgs[lastIdx].Segments = append(msgs[lastIdx].Segments, segments...)
+				// Fix segIdx for newly added pending tool calls (they were computed
+				// against local 'segments' but now live inside a longer merged slice).
+				for i := newPendingStart; i < len(pendingToolCalls); i++ {
+					pendingToolCalls[i].segIdx += offset
+				}
+			} else {
+				msgs = append(msgs, historyMsg{
+					ID:        msgID,
+					Role:      "assistant",
+					Segments:  segments,
+					Timestamp: msg.Timestamp,
+				})
+			}
 		case "tool":
 			for _, ptc := range pendingToolCalls {
 				if ptc.callID == msg.ToolCallID {
@@ -689,6 +750,21 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 // readAllTimelineEvents reads all events from all timeline files in a directory.
+// extractDelegationAgentName parses the agent name from a delegation result message.
+// Format: "[Delegation Completed]
+//
+// Task: ...
+// Assigned to: agentName
+// ..."
+func extractDelegationAgentName(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "Assigned to:") {
+			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "Assigned to:"))
+		}
+	}
+	return "Subagent"
+}
+
 func readAllTimelineEvents(dir string) ([]timeline.Event, error) {
 	files, err := listTimelineFiles(dir)
 	if err != nil {
