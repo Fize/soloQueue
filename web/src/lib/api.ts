@@ -571,7 +571,10 @@ export async function listSessions(): Promise<SessionListResponse> {
   return request<SessionListResponse>('/session/list')
 }
 
-export async function createL2Session(group: string, workDir?: string): Promise<CreateL2SessionResponse> {
+export async function createL2Session(
+  group: string,
+  workDir?: string
+): Promise<CreateL2SessionResponse> {
   return request<CreateL2SessionResponse>('/session/l2', {
     method: 'POST',
     body: JSON.stringify({ group, work_dir: workDir || '' }),
@@ -587,9 +590,23 @@ export async function listL2Groups(): Promise<string[]> {
   return data.groups ?? []
 }
 
-export async function fetchSessionHistory(sessionId: string, before?: string): Promise<SessionHistoryResponse> {
+export async function fetchSessionHistory(
+  sessionId: string,
+  before?: string
+): Promise<SessionHistoryResponse> {
   const cleanId = sessionId.replace(/^l2:/, '')
   const params = new URLSearchParams({ session_id: cleanId })
   if (before) params.set('before', before)
   return request<SessionHistoryResponse>(`/session/history?${params.toString()}`)
+}
+
+export async function confirmSessionTool(
+  sessionId: string,
+  callId: string,
+  choice: string
+): Promise<void> {
+  await request('/session/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, call_id: callId, choice }),
+  })
 }

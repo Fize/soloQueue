@@ -224,12 +224,11 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 
 		case agent.ToolNeedsConfirmEvent:
 			writeSSEEvent(w, flusher, "tool_confirm", map[string]interface{}{
-				"call_id": e.CallID,
-				"name":    e.Name,
-				"prompt":  e.Prompt,
+				"call_id":          e.CallID,
+				"name":             e.Name,
+				"prompt":           e.Prompt,
+				"allow_in_session": e.AllowInSession,
 			})
-			// Auto-approve in web chat for now.
-			sess.Agent.Confirm(e.CallID, "yes")
 
 		case agent.DoneEvent:
 			finalContent = e.Content
@@ -570,6 +569,42 @@ func (m *Mux) handleClearSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
+func (m *Mux) handleConfirmSession(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID string `json:"session_id"`
+		CallID    string `json:"call_id"`
+		Choice    string `json:"choice"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if req.CallID == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "call_id is required"})
+		return
+	}
+
+	var sess *session.Session
+	if strings.HasPrefix(req.SessionID, "l2:") && m.l2Store != nil {
+		id := strings.TrimPrefix(req.SessionID, "l2:")
+		sess, _ = m.l2Store.Get(r.Context(), id)
+	} else if m.sessionMgr != nil {
+		sess = m.sessionMgr.Session()
+	}
+
+	if sess == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	if err := sess.Agent.Confirm(req.CallID, req.Choice); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ─── Session History ───────────────────────────────────────────────────────

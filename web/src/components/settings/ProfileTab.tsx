@@ -4,6 +4,7 @@ import type { AgentProfile } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Textarea } from '@/components/ui/textarea'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { Save, Heart, Scale, Eye, Pencil, Loader2 } from 'lucide-react'
 
@@ -85,10 +86,11 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
 
       {/* Content area */}
       {editing ? (
-        <textarea
+        <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          className="w-full min-h-[400px] resize-y rounded-md border border-border bg-muted p-4 font-mono text-xs leading-relaxed text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="min-h-[400px] font-mono text-xs leading-relaxed"
+          rows={16}
           spellCheck={false}
         />
       ) : (

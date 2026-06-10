@@ -458,13 +458,18 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	// 确保 LLM 能正确理解这是一次工具调用的返回结果。
 	resultMsg := formatDelegationCompleted(turn.toolCalls, turn.results)
 	if resultMsg != "" {
-		turn.cw.Push(ctxwin.RoleUser, resultMsg)
+		turn.cw.Push(ctxwin.RoleUser, resultMsg, ctxwin.WithEphemeral(true))
 	}
 
 	// 发射 DelegationCompletedEvent
+	resultContent := ""
+	if len(turn.results) > 0 {
+		resultContent = turn.results[0]
+	}
 	a.emit(turn.callerCtx, turn.out, DelegationCompletedEvent{
 		Iter:          turn.iter,
 		TargetAgentID: turn.agentID,
+		ResultContent: resultContent,
 	})
 
 	// Overflow check: async results may have pushed CW over capacity
