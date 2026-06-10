@@ -113,8 +113,10 @@ type DelegationStartedEvent struct {
 // DelegationCompletedEvent signals that all async delegations have completed
 // and results have been injected into the context window.
 type DelegationCompletedEvent struct {
-	Iter          int
-	TargetAgentID string
+	Iter            int
+	TargetAgentID   string
+	TargetAgentName string
+	ResultContent   string // L3's full output, for frontend modal display
 }
 
 // --- iface.AgentEvent marker (all types satisfy iface.AgentEvent) ---

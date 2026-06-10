@@ -6,16 +6,19 @@ import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 interface ChatState {
   sessions: ChatSession[]
   activeSessionId: string | null
-  messages: Record<string, ChatMessage[]>  // keyed by session id
+  messages: Record<string, ChatMessage[]> // keyed by session id
   streaming: boolean
-  titleGenerated: Record<string, boolean>  // track which sessions already had title generated
-  historyLoading: Record<string, boolean>  // track which sessions are loading history
+  titleGenerated: Record<string, boolean> // track which sessions already had title generated
+  historyLoading: Record<string, boolean> // track which sessions are loading history
+  historyHasMore: Record<string, boolean> // track which sessions have more history to load
+  pendingHistory: Record<string, ChatMessage[]> // older messages not yet shown
 
   loadSessions: () => Promise<void>
   createL2Session: (group: string, workDir?: string) => Promise<string | null>
   deleteL2Session: (id: string) => Promise<void>
   setActiveSession: (id: string) => void
   loadHistory: (sessionId: string) => Promise<void>
+  loadMoreHistory: (sessionId: string) => void
   renameSession: (id: string, name: string) => void
   markTitleGenerated: (id: string) => void
 
@@ -23,11 +26,17 @@ interface ChatState {
   updateLastAssistantSegment: (segment: ChatSegment) => void
   appendToLastAssistantContent: (text: string) => void
   appendToLastAssistantThinking: (text: string) => void
-  updateToolCallResult: (callId: string, result: string, error?: string, durationMs?: number) => void
+  updateToolCallResult: (
+    callId: string,
+    result: string,
+    error?: string,
+    durationMs?: number
+  ) => void
   setStreaming: (v: boolean) => void
   removeLastEmptyAssistantMessage: () => void
   addDelegationSegment: (delegation: { agentName: string; task: string }) => void
   completeLastDelegation: (agentName: string, durationMs?: number, resultContent?: string) => void
+  resolveToolConfirm: (callId: string, choice: string) => void
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -37,11 +46,17 @@ export const useChatStore = create<ChatState>((set) => ({
   streaming: false,
   titleGenerated: {},
   historyLoading: {},
+  historyHasMore: {},
+  pendingHistory: {},
 
   loadSessions: async () => {
     try {
       const data = await listSessions()
-      set({ sessions: data.sessions })
+      const mapped = (data.sessions || []).map((s: any) => ({
+        ...s,
+        createdAt: s.createdAt || s.created_at || new Date().toISOString(),
+      }))
+      set({ sessions: mapped })
     } catch {
       // Server may not be running; sessions remain empty.
     }
@@ -100,13 +115,29 @@ export const useChatStore = create<ChatState>((set) => ({
         segments: hm.segments.map(convertHistorySegment),
         timestamp: hm.timestamp,
       }))
-      set((s) => ({
-        messages: { ...s.messages, [sessionId]: msgs },
-      }))
+      // Only show last 10 initially; buffer the rest for load-more
+      const PAGE_SIZE = 10
+      if (msgs.length > PAGE_SIZE) {
+        const visible = msgs.slice(-PAGE_SIZE)
+        const pending = msgs.slice(0, -PAGE_SIZE)
+        set((s) => ({
+          messages: { ...s.messages, [sessionId]: visible },
+          pendingHistory: { ...s.pendingHistory, [sessionId]: pending },
+          historyHasMore: { ...s.historyHasMore, [sessionId]: pending.length > 0 },
+        }))
+      } else {
+        set((s) => ({
+          messages: { ...s.messages, [sessionId]: msgs },
+          pendingHistory: { ...s.pendingHistory, [sessionId]: [] },
+          historyHasMore: { ...s.historyHasMore, [sessionId]: false },
+        }))
+      }
     } catch {
       // Timeline may not exist yet for new sessions; that's fine.
       set((s) => ({
         messages: { ...s.messages, [sessionId]: [] },
+        pendingHistory: { ...s.pendingHistory, [sessionId]: [] },
+        historyHasMore: { ...s.historyHasMore, [sessionId]: false },
       }))
     } finally {
       set((s) => ({
@@ -115,11 +146,28 @@ export const useChatStore = create<ChatState>((set) => ({
     }
   },
 
+  loadMoreHistory: (sessionId: string) => {
+    set((s) => {
+      const pending = s.pendingHistory[sessionId] || []
+      if (pending.length === 0) return s
+
+      const PAGE_SIZE = 10
+      // Take the last PAGE_SIZE from pending (closest to what's already shown)
+      const toShow = pending.slice(-PAGE_SIZE)
+      const remaining = pending.slice(0, -PAGE_SIZE)
+      const current = s.messages[sessionId] || []
+
+      return {
+        messages: { ...s.messages, [sessionId]: [...toShow, ...current] },
+        pendingHistory: { ...s.pendingHistory, [sessionId]: remaining },
+        historyHasMore: { ...s.historyHasMore, [sessionId]: remaining.length > 0 },
+      }
+    })
+  },
+
   renameSession: (id: string, name: string) => {
     set((s) => ({
-      sessions: s.sessions.map((sess) =>
-        sess.id === id ? { ...sess, name } : sess
-      ),
+      sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, name } : sess)),
     }))
   },
 
@@ -165,7 +213,9 @@ export const useChatStore = create<ChatState>((set) => ({
       } else {
         segs.push({ type: 'content', text })
       }
-      return { messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] } }
+      return {
+        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+      }
     })
   },
 
@@ -182,7 +232,9 @@ export const useChatStore = create<ChatState>((set) => ({
       } else {
         segs.push({ type: 'thinking', text })
       }
-      return { messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] } }
+      return {
+        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+      }
     })
   },
 
@@ -198,7 +250,9 @@ export const useChatStore = create<ChatState>((set) => ({
         }
         return seg
       })
-      return { messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] } }
+      return {
+        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+      }
     })
   },
 
@@ -230,7 +284,10 @@ export const useChatStore = create<ChatState>((set) => ({
         status: 'running',
       }
       return {
-        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: [...last.segments, seg] }] },
+        messages: {
+          ...s.messages,
+          [sid]: [...msgs.slice(0, -1), { ...last, segments: [...last.segments, seg] }],
+        },
       }
     })
   },
@@ -248,6 +305,24 @@ export const useChatStore = create<ChatState>((set) => ({
         // If no matching running delegation, mark the last running one
         if (seg.type === 'delegation' && seg.status === 'running') {
           return { ...seg, status: 'completed' as const, durationMs, resultContent }
+        }
+        return seg
+      })
+      return {
+        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+      }
+    })
+  },
+
+  resolveToolConfirm: (callId: string, choice: string) => {
+    set((s) => {
+      const sid = s.activeSessionId || ''
+      const msgs = [...(s.messages[sid] || [])]
+      const last = msgs[msgs.length - 1]
+      if (!last || last.role !== 'assistant') return s
+      const segs = last.segments.map((seg) => {
+        if (seg.type === 'tool_confirm' && seg.callId === callId) {
+          return { ...seg, resolved: true, choice }
         }
         return seg
       })
@@ -284,6 +359,16 @@ function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
         status: (seg.status as 'running' | 'completed' | 'failed') || 'completed',
         durationMs: seg.duration_ms,
         resultContent: seg.result,
+      }
+    case 'tool_confirm':
+      return {
+        type: 'tool_confirm',
+        callId: seg.call_id || '',
+        name: seg.name || '',
+        prompt: seg.prompt || '',
+        allowInSession: seg.allow_in_session ?? false,
+        resolved: seg.resolved ?? true,
+        choice: seg.choice,
       }
     case 'error':
       return { type: 'error', text: seg.text || '' }

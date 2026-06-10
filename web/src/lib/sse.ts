@@ -28,6 +28,7 @@ export interface SSEToolConfirm {
   call_id: string
   name: string
   prompt: string
+  allow_in_session?: boolean
 }
 export interface SSEDone {
   type: 'done'
@@ -50,6 +51,9 @@ export interface SSESessionName {
 export interface SSEDelegationDone {
   type: 'delegation_done'
   target_agent_id: string
+  agent_name?: string
+  duration_ms?: number
+  result_content?: string
 }
 
 export type SSEEvent =
@@ -67,7 +71,7 @@ export type SSEEvent =
 export async function streamAsk(
   prompt: string,
   sessionId: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<AsyncGenerator<SSEEvent, void, unknown>> {
   const response = await fetch('/api/session/ask/stream', {
     method: 'POST',
@@ -87,7 +91,6 @@ export async function streamAsk(
   return (async function* () {
     let buffer = ''
     let eventType = ''
-    let dataStr = ''
 
     while (true) {
       const { done, value } = await reader.read()
@@ -101,7 +104,7 @@ export async function streamAsk(
         if (line.startsWith('event: ')) {
           eventType = line.slice(7).trim()
         } else if (line.startsWith('data: ')) {
-          dataStr = line.slice(6)
+          const dataStr = line.slice(6)
           try {
             const parsed = JSON.parse(dataStr)
             if (eventType) {
@@ -111,7 +114,6 @@ export async function streamAsk(
             // skip malformed data
           }
           eventType = ''
-          dataStr = ''
         }
         // empty line = end of event, reset
       }
@@ -122,7 +124,7 @@ export async function streamAsk(
 // Re-export as a function (not generator) that returns an AbortController + generator.
 export function createStream(
   prompt: string,
-  sessionId: string,
+  sessionId: string
 ): { abort: AbortController; events: Promise<AsyncGenerator<SSEEvent, void, unknown>> } {
   const abort = new AbortController()
   const events = streamAsk(prompt, sessionId, abort.signal)
