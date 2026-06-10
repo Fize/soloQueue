@@ -3,6 +3,7 @@ import { listProjects, createProject, updateProject, deleteProject } from '@/lib
 import type { Project } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import {
@@ -128,11 +129,10 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
 
           <div className="flex flex-col gap-1.5">
             <Label>Description</Label>
-            <textarea
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="flex w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/30 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
               placeholder="Brief description of this project"
             />
           </div>

@@ -166,3 +166,79 @@ func TestCleanupTimelineDir(t *testing.T) {
 		t.Errorf("timeline directory should be removed after session deletion")
 	}
 }
+
+
+func TestL2SessionStore_RestoreFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t, dir)
+
+	// Create timeline directory with meta file simulating a past session.
+	id := "test-restore-id"
+	tlDir := filepath.Join(dir, "logs", "timelines", "l2-"+id)
+	if err := os.MkdirAll(tlDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	meta := `{"group":"dev","work_dir":"/path/to/project"}`
+	if err := os.WriteFile(filepath.Join(tlDir, "meta"), []byte(meta), 0644); err != nil {
+		t.Fatalf("write meta: %v", err)
+	}
+
+	// Session should not be in memory yet.
+	for _, s := range store.List() {
+		if s.ID == id {
+			t.Fatal("session should not exist before restore")
+		}
+	}
+
+	// Call restoreFromDisk directly (private method, same package).
+	if err := store.restoreFromDisk(context.Background(), id); err != nil {
+		t.Fatalf("restoreFromDisk: %v", err)
+	}
+
+	// Verify the session was restored into the in-memory map.
+	found := false
+	for _, s := range store.List() {
+		if s.ID == id {
+			found = true
+			if s.Group != "dev" {
+				t.Errorf("Group = %q, want %q", s.Group, "dev")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("session should be in the store after disk restoration")
+	}
+}
+
+func TestL2SessionStore_RestoreFromDisk_MissingMeta(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t, dir)
+
+	id := "test-no-meta"
+	tlDir := filepath.Join(dir, "logs", "timelines", "l2-"+id)
+	if err := os.MkdirAll(tlDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// No meta or group file written.
+
+	if err := store.restoreFromDisk(context.Background(), id); err == nil {
+		t.Fatal("expected error for session with no metadata on disk")
+	}
+
+	// Session should not be in the store.
+	for _, s := range store.List() {
+		if s.ID == id {
+			t.Error("session should not appear in store when metadata is missing")
+		}
+	}
+}
+
+func TestL2SessionStore_RestoreFromDisk_NoDiskDir(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t, dir)
+
+	if err := store.restoreFromDisk(context.Background(), "nonexistent-session"); err == nil {
+		t.Fatal("expected error for session with no disk directory")
+	}
+}

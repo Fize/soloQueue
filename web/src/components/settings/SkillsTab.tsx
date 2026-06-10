@@ -13,10 +13,12 @@ import {
 import type { SkillInfo } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -431,15 +433,15 @@ export function SkillsTab() {
                 />
               </div>
               <div className="w-36">
-                <select
+                <Select
                   value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value as 'all' | 'builtin' | 'user')}
-                  className="w-full h-9 rounded-md border border-border bg-card px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="all">All Types</option>
-                  <option value="builtin">Built-in</option>
-                  <option value="user">User Created</option>
-                </select>
+                  onChange={(v) => setCategoryFilter(v as 'all' | 'builtin' | 'user')}
+                  options={[
+                    { value: 'all', label: 'All Types' },
+                    { value: 'builtin', label: 'Built-in' },
+                    { value: 'user', label: 'User Created' },
+                  ]}
+                />
               </div>
             </div>
 
@@ -793,8 +795,8 @@ export function SkillsTab() {
                               </div>
 
                               <div className="flex flex-col gap-1 flex-1">
-                                <Label className="text-xs">SKILL.md Markdown Content</Label>
-                                <textarea
+                                <Textarea
+                                  label="SKILL.md Markdown Content"
                                   value={editBody}
                                   onChange={(e) => setEditBody(e.target.value)}
                                   rows={10}
@@ -1106,8 +1108,8 @@ export function SkillsTab() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label>Description</Label>
-                <textarea
+                <Textarea
+                  label="Description"
                   value={importDesc}
                   onChange={(e) => setImportDesc(e.target.value)}
                   rows={2}
@@ -1127,8 +1129,8 @@ export function SkillsTab() {
             </div>
 
             <div className="flex flex-col gap-1.5 min-h-[220px]">
-              <Label>SKILL.md Markdown Body</Label>
-              <textarea
+              <Textarea
+                label="SKILL.md Markdown Body"
                 value={importBody}
                 onChange={(e) => setImportBody(e.target.value)}
                 className="flex-1 w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"

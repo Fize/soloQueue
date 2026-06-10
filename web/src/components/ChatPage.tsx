@@ -7,19 +7,63 @@ import { useChatStream } from '@/hooks/useChatStream'
 import { Sparkles } from 'lucide-react'
 
 export function ChatPage() {
-  const { activeSessionId, messages, streaming, sessions } = useChatStore()
+  const { activeSessionId, messages, streaming, sessions, historyHasMore, loadMoreHistory } =
+    useChatStore()
   const { send, cancel } = useChatStream()
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const userScrolledUp = useRef(false)
+  const loadingMore = useRef(false)
 
   const currentMessages = messages[activeSessionId || ''] || []
   const noSession = !activeSessionId
   const activeSession = sessions.find((s) => s.id === activeSessionId)
 
-  // Auto-scroll to bottom.
+  // Content checksum: changes on every text append within any segment (captures streaming content updates)
+  const contentSum = currentMessages.reduce((acc, msg) => {
+    let sum = 0
+    for (const seg of msg.segments) {
+      if ('text' in seg && typeof (seg as any).text === 'string') {
+        sum += (seg as any).text.length
+      }
+    }
+    return acc + sum + msg.segments.length
+  }, 0)
+
+  // Track scroll position: detect when user manually scrolls up.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [currentMessages.length, currentMessages[currentMessages.length - 1]?.segments.length])
+    const el = scrollRef.current
+    if (!el) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+      userScrolledUp.current = !isNearBottom
+
+      // Load more history when scrolling near top
+      if (scrollTop < 50 && !loadingMore.current) {
+        const sid = activeSessionId
+        if (sid && historyHasMore[sid]) {
+          loadingMore.current = true
+          loadMoreHistory(sid)
+          setTimeout(() => {
+            loadingMore.current = false
+          }, 500)
+        }
+      }
+    }
+
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Auto-scroll to bottom (only when user hasn't scrolled up).
+  // Dependencies include contentSum to capture streaming text appends within existing segments.
+  useEffect(() => {
+    if (!userScrolledUp.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+    }
+  }, [currentMessages.length, contentSum, streaming])
 
   return (
     <div className="flex h-full bg-background">
@@ -39,7 +83,8 @@ export function ChatPage() {
             <div>
               <h1 className="text-sm font-semibold text-foreground">
                 {activeSession
-                  ? activeSession.name || (activeSession.type === 'l1' ? 'L1 Orchestrator' : 'New session')
+                  ? activeSession.name ||
+                    (activeSession.type === 'l1' ? 'L1 Orchestrator' : 'New session')
                   : 'Chat'}
               </h1>
               {activeSession && activeSession.group && (
@@ -88,11 +133,7 @@ export function ChatPage() {
           ) : (
             <div>
               {currentMessages.map((msg) => (
-                <ChatMessageView
-                  key={msg.id}
-                  message={msg}
-                  agentName={activeSession?.agent_name}
-                />
+                <ChatMessageView key={msg.id} message={msg} agentName={activeSession?.agent_name} />
               ))}
             </div>
           )}

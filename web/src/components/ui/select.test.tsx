@@ -9,18 +9,36 @@ describe('Select', () => {
     { value: 'b', label: 'Option B' },
   ]
 
-  it('renders with label and options', () => {
+  it('renders with label and trigger', () => {
     render(<Select label="Choose" options={options} />)
-    expect(screen.getByLabelText('Choose')).toBeInTheDocument()
-    expect(screen.getByText('Option A')).toBeInTheDocument()
-    expect(screen.getByText('Option B')).toBeInTheDocument()
+    const label = screen.getByText('Choose')
+    expect(label).toBeInTheDocument()
+    expect(screen.getByText('Select...')).toBeInTheDocument()
   })
 
-  it('calls onChange with the selected value', async () => {
+  it('calls onChange when an option is selected via the popup', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     render(<Select label="Choose" options={options} onChange={onChange} />)
-    await user.selectOptions(screen.getByLabelText('Choose'), 'b')
+
+    // Click the trigger (role="combobox") to open the popup
+    const trigger = screen.getByRole('combobox')
+    await user.click(trigger)
+
+    // Click the option to select it
+    const optionB = screen.getByText('Option B')
+    await user.click(optionB)
+
     expect(onChange).toHaveBeenCalledWith('b')
+  })
+
+  it('shows selected value', () => {
+    render(<Select label="Choose" options={options} value="a" />)
+    expect(screen.getByText('Option A')).toBeInTheDocument()
+  })
+
+  it('disables the select', () => {
+    render(<Select label="Choose" options={options} disabled />)
+    expect(screen.getByRole('combobox')).toBeDisabled()
   })
 })

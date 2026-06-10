@@ -1,5 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Trash2, Bot, FolderOpen, ChevronRight, ChevronDown, MessageSquare } from 'lucide-react'
+import {
+  Plus,
+  Trash2,
+  Bot,
+  FolderOpen,
+  ChevronRight,
+  ChevronDown,
+  MessageSquare,
+} from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 import type { ChatSession, Project } from '@/types'
@@ -51,15 +59,19 @@ export function SessionSidebar() {
         }
       }
       setGroups(
-        groupNames.map((name) => ({
-          name,
-          projects: groupProjects[name] || [],
-        })).sort((a, b) => a.name.localeCompare(b.name)),
+        groupNames
+          .map((name) => ({
+            name,
+            projects: groupProjects[name] || [],
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name))
       )
     } catch {
       try {
         const names = await listL2Groups()
-        setGroups(names.map((name) => ({ name, projects: [] })).sort((a, b) => a.name.localeCompare(b.name)))
+        setGroups(
+          names.map((name) => ({ name, projects: [] })).sort((a, b) => a.name.localeCompare(b.name))
+        )
       } catch {
         setGroups([])
       }
@@ -77,25 +89,38 @@ export function SessionSidebar() {
       if (!grouped[bucket]) grouped[bucket] = []
       grouped[bucket].push(s)
     }
+    for (const bucket of Object.keys(grouped)) {
+      grouped[bucket].sort((a, b) => {
+        const timeA = a.createdAt || (a as any).created_at || ''
+        const timeB = b.createdAt || (b as any).created_at || ''
+        return timeB.localeCompare(timeA)
+      })
+    }
     return grouped
   }, [l2Sessions])
 
   const sessionTree = buildSessionTree()
 
-  const handleNewSession = useCallback(async (group: string, workDir?: string) => {
-    setCreating(group)
-    try {
-      await createL2Session(group, workDir || '')
-    } finally {
-      setCreating(null)
-    }
-  }, [createL2Session])
+  const handleNewSession = useCallback(
+    async (group: string, workDir?: string) => {
+      setCreating(group)
+      try {
+        await createL2Session(group, workDir || '')
+      } finally {
+        setCreating(null)
+      }
+    },
+    [createL2Session]
+  )
 
-  const handleDelete = useCallback(async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation()
-    if (streaming) return
-    await deleteL2Session(id)
-  }, [streaming, deleteL2Session])
+  const handleDelete = useCallback(
+    async (e: React.MouseEvent, id: string) => {
+      e.stopPropagation()
+      if (streaming) return
+      await deleteL2Session(id)
+    },
+    [streaming, deleteL2Session]
+  )
 
   const toggleGroup = (name: string) =>
     setExpandedGroups((prev) => ({ ...prev, [name]: prev[name] === false ? true : false }))
@@ -143,7 +168,11 @@ export function SessionSidebar() {
                   className="flex items-center gap-1.5 w-full px-3 py-1.5 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider hover:text-sidebar-foreground/80 transition-colors"
                 >
                   {hasProjects ? (
-                    gExpanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />
+                    gExpanded ? (
+                      <ChevronDown className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3 shrink-0" />
+                    )
                   ) : (
                     <span className="w-3 shrink-0" />
                   )}
@@ -158,9 +187,13 @@ export function SessionSidebar() {
                         {/* Projects & their sessions */}
                         {group.projects.map((proj) => {
                           const projKey = `${group.name}:${proj.id}`
-                          const projSessions = groupSessions.filter(
-                            (s) => s.project_path === proj.path,
-                          )
+                          const projSessions = groupSessions
+                            .filter((s) => s.project_path === proj.path)
+                            .sort((a, b) => {
+                              const timeA = a.createdAt || (a as any).created_at || ''
+                              const timeB = b.createdAt || (b as any).created_at || ''
+                              return timeB.localeCompare(timeA)
+                            })
                           const pExpanded = isProjExp(projKey)
 
                           return (
@@ -196,7 +229,8 @@ export function SessionSidebar() {
                                   <SidebarItem
                                     key={s.id}
                                     icon={MessageSquare}
-                                    label={s.name || "New session"} isPast={s.name ? s.name.startsWith("Past") : false}
+                                    label={s.name || 'New session'}
+                                    isPast={s.name ? s.name.startsWith('Past') : false}
                                     active={activeSessionId === s.id}
                                     onClick={() => setActiveSession(s.id)}
                                     onDelete={(e) => handleDelete(e, s.id)}
@@ -206,7 +240,8 @@ export function SessionSidebar() {
                                 ))}
                               {!pExpanded && projSessions.length > 0 && (
                                 <div className="pl-10 py-0.5 text-[10px] text-sidebar-foreground/30">
-                                  {projSessions.length} session{projSessions.length !== 1 ? 's' : ''}
+                                  {projSessions.length} session
+                                  {projSessions.length !== 1 ? 's' : ''}
                                 </div>
                               )}
                             </div>
@@ -220,7 +255,8 @@ export function SessionSidebar() {
                           <SidebarItem
                             key={s.id}
                             icon={MessageSquare}
-                            label={s.name || "New session"} isPast={s.name ? s.name.startsWith("Past") : false}
+                            label={s.name || 'New session'}
+                            isPast={s.name ? s.name.startsWith('Past') : false}
                             active={activeSessionId === s.id}
                             onClick={() => setActiveSession(s.id)}
                             onDelete={(e) => handleDelete(e, s.id)}
@@ -285,13 +321,13 @@ function SidebarItem({
       >
         <Icon className="h-3.5 w-3.5 shrink-0 opacity-60" />
         <span className="truncate text-left">
-            {label}
-            {isPast && (
-              <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-amber-500/10 text-amber-600/60">
-                Past
-              </span>
-            )}
-          </span>
+          {label}
+          {isPast && (
+            <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-amber-500/10 text-amber-600/60">
+              Past
+            </span>
+          )}
+        </span>
       </button>
       {showDelete && onDelete && (
         <button

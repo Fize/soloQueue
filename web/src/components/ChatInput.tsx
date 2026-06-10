@@ -27,6 +27,7 @@ export function ChatInput({ onSend, onCancel, streaming, disabled }: ChatInputPr
   }, [streaming, disabled, onSend])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -37,7 +38,7 @@ export function ChatInput({ onSend, onCancel, streaming, disabled }: ChatInputPr
     const el = inputRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+    el.style.height = el.scrollHeight + 'px'
   }
 
   const placeholderText = disabled
@@ -50,7 +51,7 @@ export function ChatInput({ onSend, onCancel, streaming, disabled }: ChatInputPr
         <div className="relative flex items-end rounded-2xl border border-border/60 bg-background shadow-sm transition-shadow focus-within:shadow-md focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/5">
           <textarea
             ref={inputRef}
-            className="flex-1 resize-none bg-transparent px-4 py-3 text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none min-h-[48px] max-h-[200px]"
+            className="flex-1 resize-none bg-transparent px-4 py-3 text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none min-h-[48px] rounded-2xl"
             placeholder={placeholderText}
             rows={1}
             disabled={streaming || disabled}

@@ -1,33 +1,39 @@
 'use client'
 
 import { Field } from '@base-ui/react/field'
-import { Input as InputPrimitive } from '@base-ui/react/input'
 
 import { cn } from '@/lib/utils'
+import { forwardRef } from 'react'
 import type { ComponentPropsWithoutRef } from 'react'
 
-export interface InputProps extends Omit<ComponentPropsWithoutRef<'input'>, 'size'> {
+export interface TextareaProps extends Omit<ComponentPropsWithoutRef<'textarea'>, 'size'> {
   label?: string
   error?: string
 }
 
-function Input({ className, label, error, id, ...props }: InputProps) {
+const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { className, label, error, id, ...props },
+  ref
+) {
   return (
-    <Field.Root className={cn('flex flex-col gap-1.5', className)}>
+    <Field.Root className="flex flex-col gap-1.5">
       {label && (
         <Field.Label className="text-xs font-medium text-muted-foreground leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
           {label}
         </Field.Label>
       )}
-      <InputPrimitive
+      <textarea
+        ref={ref}
         id={id}
-        data-slot="input"
+        data-slot="textarea"
         className={cn(
-          'flex h-8 w-full rounded-md border bg-transparent px-3 py-1 text-sm text-foreground transition-colors outline-none',
+          'flex w-full rounded-md border bg-transparent px-3 py-2 text-sm text-foreground transition-colors outline-none',
           'placeholder:text-muted-foreground/50',
           'focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50',
           'disabled:cursor-not-allowed disabled:opacity-50',
-          error && 'border-destructive'
+          'resize-y',
+          error && 'border-destructive',
+          className
         )}
         {...props}
       />
@@ -38,6 +44,6 @@ function Input({ className, label, error, id, ...props }: InputProps) {
       )}
     </Field.Root>
   )
-}
+})
 
-export { Input }
+export { Textarea }

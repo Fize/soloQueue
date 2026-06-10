@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,6 +95,63 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 	}, nil
 }
 
+// restoreFromDisk attempts to recover an L2 session from its persisted timeline
+// metadata on disk. This handles server restarts where in-memory sessions are lost.
+func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
+	tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
+	info, err := os.Stat(tlDir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("L2 session %q timeline directory not found", id)
+	}
+
+	// Read meta file (preferred) or legacy group file.
+	group := ""
+	workDir := ""
+	metaFile := filepath.Join(tlDir, "meta")
+	if data, rerr := os.ReadFile(metaFile); rerr == nil {
+		var meta struct {
+			Group   string `json:"group"`
+			WorkDir string `json:"work_dir"`
+		}
+		if json.Unmarshal(data, &meta) == nil {
+			group = meta.Group
+			workDir = meta.WorkDir
+		}
+	}
+	if group == "" {
+		groupFile := filepath.Join(tlDir, "group")
+		if data, rerr := os.ReadFile(groupFile); rerr == nil {
+			group = strings.TrimSpace(string(data))
+		}
+	}
+	if group == "" {
+		return fmt.Errorf("L2 session %q: cannot determine group from disk", id)
+	}
+
+	// Create in-memory entry under write lock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.sessions[id]; exists {
+		return nil // race: someone else created or restored it already
+	}
+	s.sessions[id] = &L2SessionEntry{
+		ID:        id,
+		Group:     group,
+		WorkDir:   workDir,
+		Session:   nil, // will be built lazily by Activate
+		CreatedAt: time.Now(),
+	}
+
+	if s.logger != nil {
+		s.logger.InfoContext(ctx, logger.CatApp, "L2 session restored from disk",
+			"id", id,
+			"group", group,
+		)
+	}
+
+	return nil
+}
+
 // Activate builds the backing Session for an L2 session entry.
 // Call when the user sends the first message to this session.
 func (s *L2SessionStore) Activate(ctx context.Context, id string) (*Session, error) {
@@ -144,7 +203,18 @@ func (s *L2SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 	s.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("L2 session %q not found", id)
+		// Session not in memory — try restoring from disk timeline metadata.
+		// This handles server restarts where in-memory sessions are lost.
+		if err := s.restoreFromDisk(ctx, id); err != nil {
+			return nil, fmt.Errorf("L2 session %q not found", id)
+		}
+		// Entry should now exist after restoration.
+		s.mu.RLock()
+		entry, ok = s.sessions[id]
+		s.mu.RUnlock()
+		if !ok {
+			return nil, fmt.Errorf("L2 session %q not found", id)
+		}
 	}
 
 	if entry.Session != nil {

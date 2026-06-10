@@ -570,7 +570,7 @@ export interface LSPMCPConfig {
 // ─── Chat Types ────────────────────────────────────────────────────────────
 
 export interface ChatSession {
-  id: string           // "l1" or "l2:<uuid>"
+  id: string // "l1" or "l2:<uuid>"
   type: 'l1' | 'l2'
   name: string
   group?: string
@@ -589,9 +589,34 @@ export interface ChatMessage {
 export type ChatSegment =
   | { type: 'thinking'; text: string }
   | { type: 'content'; text: string }
-  | { type: 'tool_call'; callId: string; name: string; args: string; result?: string; error?: string; durationMs?: number; done: boolean }
-  | { type: 'delegation'; agentName: string; task: string; status: 'running' | 'completed' | 'failed'; durationMs?: number; resultContent?: string }
+  | {
+      type: 'tool_call'
+      callId: string
+      name: string
+      args: string
+      result?: string
+      error?: string
+      durationMs?: number
+      done: boolean
+    }
+  | {
+      type: 'delegation'
+      agentName: string
+      task: string
+      status: 'running' | 'completed' | 'failed'
+      durationMs?: number
+      resultContent?: string
+    }
   | { type: 'error'; text: string }
+  | {
+      type: 'tool_confirm'
+      callId: string
+      name: string
+      prompt: string
+      allowInSession: boolean
+      resolved: boolean
+      choice?: string
+    }
 
 export interface SessionListResponse {
   sessions: ChatSession[]
@@ -606,7 +631,7 @@ export interface CreateL2SessionResponse {
 }
 
 export interface SessionHistorySegment {
-  type: 'content' | 'thinking' | 'tool_call' | 'delegation' | 'error'
+  type: 'content' | 'thinking' | 'tool_call' | 'delegation' | 'error' | 'tool_confirm'
   text?: string
   call_id?: string
   name?: string
@@ -618,6 +643,10 @@ export interface SessionHistorySegment {
   status?: string
   agent_name?: string
   task?: string
+  prompt?: string
+  allow_in_session?: boolean
+  resolved?: boolean
+  choice?: string
 }
 
 export interface SessionHistoryMessage {

@@ -71,7 +71,10 @@ func (c *Client) readPump() {
 		// Intercept application-level text ping-pong
 		if messageType == websocket.TextMessage && string(p) == "ping" {
 			c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-			_ = c.conn.WriteMessage(websocket.TextMessage, []byte("pong"))
+			select {
+				case c.send <- jsonMarshal(WSMessage{Type: "pong"}):
+				default:
+			}
 		}
 	}
 }
