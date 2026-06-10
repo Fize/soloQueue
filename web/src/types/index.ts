@@ -574,6 +574,7 @@ export interface ChatSession {
   type: 'l1' | 'l2'
   name: string
   group?: string
+  agentName?: string
   project_path?: string
   createdAt: string
 }
@@ -589,6 +590,7 @@ export type ChatSegment =
   | { type: 'thinking'; text: string }
   | { type: 'content'; text: string }
   | { type: 'tool_call'; callId: string; name: string; args: string; result?: string; error?: string; durationMs?: number; done: boolean }
+  | { type: 'delegation'; agentName: string; task: string; status: 'running' | 'completed' | 'failed'; durationMs?: number; resultContent?: string }
   | { type: 'error'; text: string }
 
 export interface SessionListResponse {
@@ -599,11 +601,12 @@ export interface CreateL2SessionResponse {
   id: string
   name: string
   group: string
+  agent_name: string
   created_at: string
 }
 
 export interface SessionHistorySegment {
-  type: 'content' | 'thinking' | 'tool_call' | 'error'
+  type: 'content' | 'thinking' | 'tool_call' | 'delegation' | 'error'
   text?: string
   call_id?: string
   name?: string
@@ -612,6 +615,9 @@ export interface SessionHistorySegment {
   error?: string
   duration_ms?: number
   done?: boolean
+  status?: string
+  agent_name?: string
+  task?: string
 }
 
 export interface SessionHistoryMessage {

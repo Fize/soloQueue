@@ -88,7 +88,11 @@ export function ChatPage() {
           ) : (
             <div>
               {currentMessages.map((msg) => (
-                <ChatMessageView key={msg.id} message={msg} />
+                <ChatMessageView
+                  key={msg.id}
+                  message={msg}
+                  agentName={activeSession?.agentName}
+                />
               ))}
             </div>
           )}
