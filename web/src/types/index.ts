@@ -574,7 +574,7 @@ export interface ChatSession {
   type: 'l1' | 'l2'
   name: string
   group?: string
-  agentName?: string
+  agent_name?: string
   project_path?: string
   createdAt: string
 }
