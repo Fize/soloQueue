@@ -324,6 +324,63 @@ func (s *DBStore) UpdateNextRun(ctx context.Context, id string, lastRun time.Tim
 	return nil
 }
 
+// ClaimTask atomically claims a task for execution by transitioning it from
+// 'active' to 'running'. Returns true if the claim succeeded, false if another
+// instance already claimed it (rows affected == 0).
+func (s *DBStore) ClaimTask(ctx context.Context, id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE scheduled_tasks SET status = 'running', updated_at = ? WHERE status = 'active' AND id = ?`,
+		now, id)
+	if err != nil {
+		return false, fmt.Errorf("cron store: claim task: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ResetStaleRunning resets any tasks stuck in 'running' status that were last
+// updated before the given time back to 'active'. This handles crash recovery:
+// if the process crashes while executing a task, the task remains in 'running'
+// state and gets reset on the next Start().
+func (s *DBStore) ResetStaleRunning(ctx context.Context, beforeTime time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().Format(time.RFC3339)
+	before := beforeTime.Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE scheduled_tasks SET status = 'active', updated_at = ? WHERE status = 'running' AND updated_at < ?`,
+		now, before)
+	if err != nil {
+		return 0, fmt.Errorf("cron store: reset stale running: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// MarkFailed sets status of a task to 'failed'.
+func (s *DBStore) MarkFailed(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE scheduled_tasks SET status = 'failed', last_run_at = ?, updated_at = ? WHERE id = ?`,
+		now, now, id)
+	if err != nil {
+		return fmt.Errorf("cron store: mark failed: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("cron store: task %q not found", id)
+	}
+	return nil
+}
+
 // MarkCompleted sets status of one-time tasks to completed.
 func (s *DBStore) MarkCompleted(ctx context.Context, id string) error {
 	s.mu.Lock()

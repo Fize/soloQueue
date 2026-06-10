@@ -54,12 +54,12 @@ export function SessionSidebar() {
         groupNames.map((name) => ({
           name,
           projects: groupProjects[name] || [],
-        })),
+        })).sort((a, b) => a.name.localeCompare(b.name)),
       )
     } catch {
       try {
         const names = await listL2Groups()
-        setGroups(names.map((name) => ({ name, projects: [] })))
+        setGroups(names.map((name) => ({ name, projects: [] })).sort((a, b) => a.name.localeCompare(b.name)))
       } catch {
         setGroups([])
       }
@@ -196,7 +196,7 @@ export function SessionSidebar() {
                                   <SidebarItem
                                     key={s.id}
                                     icon={MessageSquare}
-                                    label={s.name || 'New session'}
+                                    label={s.name || "New session"} isPast={s.name ? s.name.startsWith("Past") : false}
                                     active={activeSessionId === s.id}
                                     onClick={() => setActiveSession(s.id)}
                                     onDelete={(e) => handleDelete(e, s.id)}
@@ -220,7 +220,7 @@ export function SessionSidebar() {
                           <SidebarItem
                             key={s.id}
                             icon={MessageSquare}
-                            label={s.name || 'New session'}
+                            label={s.name || "New session"} isPast={s.name ? s.name.startsWith("Past") : false}
                             active={activeSessionId === s.id}
                             onClick={() => setActiveSession(s.id)}
                             onDelete={(e) => handleDelete(e, s.id)}
@@ -259,6 +259,7 @@ function SidebarItem({
   disabled,
   indent,
   showDelete = true,
+  isPast = false,
 }: {
   icon: typeof Bot
   label: string
@@ -268,6 +269,7 @@ function SidebarItem({
   disabled?: boolean
   indent: number
   showDelete?: boolean
+  isPast?: boolean
 }) {
   const pl = 12 + indent * 12
   return (
@@ -282,16 +284,23 @@ function SidebarItem({
         }`}
       >
         <Icon className="h-3.5 w-3.5 shrink-0 opacity-60" />
-        <span className="truncate text-left">{label}</span>
+        <span className="truncate text-left">
+            {label}
+            {isPast && (
+              <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-amber-500/10 text-amber-600/60">
+                Past
+              </span>
+            )}
+          </span>
       </button>
       {showDelete && onDelete && (
         <button
           onClick={onDelete}
           disabled={disabled}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive text-sidebar-foreground/30 transition-all disabled:opacity-0"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-destructive/10 hover:text-destructive text-sidebar-foreground/25 transition-colors opacity-60 hover:opacity-100"
           title="Delete session"
         >
-          <Trash2 className="h-3 w-3" />
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
       )}
     </div>

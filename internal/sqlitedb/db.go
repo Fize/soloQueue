@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 13
+const currentSchemaVersion = 14
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -404,6 +404,32 @@ func (d *DB) migrate() error {
 		DROP TABLE IF EXISTS todo_dependencies;
 		DROP TABLE IF EXISTS todo_items;
 		DROP TABLE IF EXISTS issue;
+		`,
+
+		// v13 → v14: add 'running' and 'failed' to scheduled_tasks CHECK constraint.
+		// Uses table swap because SQLite does not support ALTER TABLE for CHECK constraints.
+		`CREATE TABLE IF NOT EXISTS scheduled_tasks_new (
+			id TEXT PRIMARY KEY,
+			expression TEXT NOT NULL,
+			instruction TEXT NOT NULL,
+			target_agent TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','running','completed','failed')),
+			last_run_at TEXT,
+			next_run_at TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			qq_source INTEGER DEFAULT -1,
+			qq_openid TEXT,
+			qq_target_openid TEXT,
+			qq_chat_id TEXT
+		);
+
+		INSERT OR IGNORE INTO scheduled_tasks_new SELECT * FROM scheduled_tasks;
+
+		DROP TABLE IF EXISTS scheduled_tasks;
+		ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks;
+
+		CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
 		`,
 	}
 
