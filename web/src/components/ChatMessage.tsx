@@ -1,24 +1,25 @@
 import type { ChatMessage } from '@/types'
 import {
   User, Sparkles, ChevronDown, ChevronRight, Loader2,
-  AlertCircle, Copy, Check,
+  AlertCircle, Copy, Check, Bot,
 } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { useState, useRef, useEffect } from 'react'
 
 export interface ChatMessageProps {
   message: ChatMessage
+  agentName?: string
 }
 
-export function ChatMessageView({ message }: ChatMessageProps) {
+export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
 
   return (
     <div className={`group/message px-4 py-3 ${isUser ? 'flex justify-end' : ''}`}>
-      <div className={`flex gap-3 max-w-[85%] ${isUser ? 'flex-row-reverse' : ''}`}>
+      <div className={`flex gap-3 ${isUser ? 'max-w-[80%] sm:max-w-[70%] lg:max-w-[60%] flex-row-reverse' : 'max-w-[90%] sm:max-w-[80%] lg:max-w-[70%]'}`}>
         {/* Avatar */}
-        <div className="shrink-0 self-end">
+        <div className="shrink-0 self-start">
           {isUser ? (
             <div className="h-7 w-7 rounded-full bg-primary/15 flex items-center justify-center">
               <User className="h-3.5 w-3.5 text-primary/70" />
@@ -31,11 +32,11 @@ export function ChatMessageView({ message }: ChatMessageProps) {
         </div>
 
         {/* Bubble */}
-        <div className="min-w-0">
+        <div className="min-w-0 w-fit max-w-full">
           {/* Role label */}
           <div className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end' : ''}`}>
             <span className={`text-[11px] font-medium ${isUser ? 'text-primary/60' : 'text-violet-500/60'}`}>
-              {isUser ? 'You' : 'SoloQueue'}
+              {isUser ? 'You' : agentName}
             </span>
           </div>
 
@@ -92,20 +93,11 @@ function SegmentView({ segment, isUser }: { segment: ChatMessage['segments'][num
         />
       )
     case 'thinking':
-      return (
-        <details className="group/thinking">
-          <summary className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 ${isUser ? 'text-primary-foreground/60 hover:text-primary-foreground/80' : 'text-muted-foreground hover:text-foreground/70'}`}>
-            <ChevronRight className="h-3 w-3 group-open/thinking:hidden" />
-            <ChevronDown className="h-3 w-3 hidden group-open/thinking:block" />
-            <span className="font-medium">Reasoning</span>
-          </summary>
-          <div className={`mt-1 ml-5 pl-3 border-l-2 text-xs whitespace-pre-wrap leading-relaxed ${isUser ? 'border-primary-foreground/15 text-primary-foreground/65' : 'border-muted-foreground/20 text-muted-foreground/75'}`}>
-            {segment.text}
-          </div>
-        </details>
-      )
+      return <ThinkingSegment segment={segment} isUser={isUser} />
     case 'tool_call':
       return <ToolCallSegment segment={segment} isUser={isUser} />
+    case 'delegation':
+      return <SubagentCard segment={segment} isUser={isUser} />
     case 'error':
       return (
         <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${isUser ? 'bg-destructive/20 text-destructive-foreground' : 'bg-destructive/5 border border-destructive/20 text-destructive/90'}`}>
@@ -116,6 +108,112 @@ function SegmentView({ segment, isUser }: { segment: ChatMessage['segments'][num
     default:
       return null
   }
+}
+
+function SubagentCard({
+  segment,
+  isUser,
+}: {
+  segment: Extract<ChatMessage['segments'][number], { type: 'delegation' }>
+  isUser?: boolean
+}) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const running = segment.status === 'running'
+  const failed = segment.status === 'failed'
+  const hasDetail = !!segment.resultContent
+
+  return (
+    <>
+      <button
+        onClick={() => { if (!running && hasDetail) setModalOpen(true) }}
+        className={`w-full text-left text-xs border rounded-xl overflow-hidden transition-colors ${
+          !running && hasDetail
+            ? 'cursor-pointer hover:ring-1 hover:ring-violet-500/30'
+            : 'cursor-default'
+        } ${isUser ? 'border-primary-foreground/15 bg-primary-foreground/5' : 'border-violet-500/20 bg-violet-500/5'}`}
+      >
+        <div className={`flex items-center gap-2 w-full px-3 py-2 ${isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+          {running ? (
+            <Loader2 className={`h-3.5 w-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-violet-500'}`} />
+          ) : failed ? (
+            <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+          ) : (
+            <div className="h-3.5 w-3.5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </div>
+          )}
+          <Bot className={`h-3 w-3 ${isUser ? 'text-primary-foreground/50' : 'text-violet-500/60'}`} />
+          <span className="font-medium">{segment.agentName}</span>
+          {segment.durationMs != null && (
+            <span className={`tabular-nums ${isUser ? 'text-primary-foreground/50' : 'text-muted-foreground/50'}`}>
+              {(segment.durationMs / 1000).toFixed(1)}s
+            </span>
+          )}
+          <span className="flex-1" />
+          <span className={`text-[10px] uppercase tracking-wider ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/40'}`}>
+            {running ? 'Running...' : failed ? 'Failed' : 'Completed'}
+          </span>
+          {!running && hasDetail && (
+            <ChevronRight className="h-3 w-3 text-muted-foreground/40" />
+          )}
+        </div>
+      </button>
+
+      {/* Modal for subagent detail */}
+      {modalOpen && hasDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setModalOpen(false)}>
+          <div className="bg-background border border-border/60 rounded-2xl shadow-2xl max-w-2xl w-[90vw] max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
+              <div className="flex items-center gap-2">
+                <Bot className="h-4 w-4 text-violet-500" />
+                <span className="text-sm font-semibold text-foreground">{segment.agentName}</span>
+              </div>
+              <button onClick={() => setModalOpen(false)} className="text-muted-foreground/50 hover:text-muted-foreground transition-colors p-1">
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto max-h-[calc(80vh-60px)]">
+              <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/80 font-mono">{segment.resultContent}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function ThinkingSegment({
+  segment,
+  isUser,
+}: {
+  segment: Extract<ChatMessage['segments'][number], { type: 'thinking' }>
+  isUser?: boolean
+}) {
+  // Determine if this is still being streamed — no trailing newline means in-flight.
+  const isStreaming = !segment.text.endsWith('\n')
+
+  return (
+    <details className="group/thinking" open={isStreaming}>
+      <summary className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 ${isUser ? 'text-primary-foreground/60 hover:text-primary-foreground/80' : 'text-muted-foreground hover:text-foreground/70'}`}>
+        {isStreaming ? (
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${isUser ? 'bg-primary-foreground/40' : 'bg-violet-400'}`} />
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${isUser ? 'bg-primary-foreground/60' : 'bg-violet-500'}`} />
+          </span>
+        ) : (
+          <div className="h-2 w-2 rounded-full bg-emerald-500/30 shrink-0 flex items-center justify-center">
+            <div className="h-1 w-1 rounded-full bg-emerald-500" />
+          </div>
+        )}
+        <span className="font-medium">thinking</span>
+        <ChevronRight className="h-3 w-3 ml-auto group-open/thinking:hidden" />
+        <ChevronDown className="h-3 w-3 ml-auto hidden group-open/thinking:block" />
+      </summary>
+      <div className={`mt-1 ml-5 pl-3 border-l-2 text-xs whitespace-pre-wrap leading-relaxed ${isUser ? 'border-primary-foreground/15 text-primary-foreground/65' : 'border-muted-foreground/20 text-muted-foreground/75'}`}>
+        {segment.text}
+      </div>
+    </details>
+  )
 }
 
 function ToolCallSegment({
