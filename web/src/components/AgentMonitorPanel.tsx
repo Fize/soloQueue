@@ -30,6 +30,16 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null)
   const [activeTab, setActiveTab] = useState<'console' | 'status' | 'prompt' | 'config'>('console')
 
+  const isQBotChat = isL1 && selectedAgent?.is_qbot === true
+
+  useEffect(() => {
+    if (!isQBotChat && activeTab === 'console') {
+      setActiveTab('status')
+    } else if (isQBotChat && activeTab !== 'console') {
+      setActiveTab('console')
+    }
+  }, [isQBotChat])
+
   // Reset selected agent when switching groups/teams
   useEffect(() => {
     setSelectedAgent(null)
@@ -62,7 +72,9 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
   const effectiveId = selectedAgent?.id ?? null
   const { profile, loading: profileLoading } = useAgentProfile(isL1 ? 'main' : null)
   const { config, loading: configLoading } = useAgentConfig(
-    !isL1 && effectiveId ? effectiveId : null
+    !isL1 && effectiveId && effectiveId !== 'l1-agent' && effectiveId !== 'main'
+      ? effectiveId
+      : null
   )
 
   const handleBack = () => {
@@ -101,7 +113,7 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
                 const hasMail = agent.mailbox_high > 0 || agent.mailbox_normal > 0
                 return (
                   <button
-                    key={agent.instance_id}
+                    key={agent.instance_id || agent.id}
                     onClick={() => setSelectedAgent(agent)}
                     className="w-full text-left rounded-xl border border-border/80 bg-card/50 hover:bg-muted/40 p-3.5 transition-all duration-200 cursor-pointer group flex flex-col gap-2.5 relative overflow-hidden"
                   >
@@ -182,19 +194,21 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
 
         {/* Tab Controls */}
         <div className="flex border border-border/60 bg-muted/30 rounded-lg p-0.5 gap-0.5 text-[10px] font-semibold mt-1">
-          <button
-            onClick={() => setActiveTab('console')}
-            className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
-              activeTab === 'console'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <span className="flex items-center justify-center gap-1">
-              <Terminal className="h-3 w-3" />
-              Console
-            </span>
-          </button>
+          {isQBotChat && (
+            <button
+              onClick={() => setActiveTab('console')}
+              className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
+                activeTab === 'console'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <span className="flex items-center justify-center gap-1">
+                <Terminal className="h-3 w-3" />
+                Console
+              </span>
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('status')}
             className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
@@ -226,7 +240,7 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
 
       {/* Tab Contents */}
       <div className="flex-1 overflow-hidden relative">
-        {activeTab === 'console' && (
+        {activeTab === 'console' && isQBotChat && (
           <ScrollArea className="h-full p-3 bg-card/10">
             {stream ? (
               <AgentStreamView state={stream} />
