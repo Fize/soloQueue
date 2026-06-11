@@ -71,14 +71,7 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
               <div className="space-y-2">
                 {groupSegments(message.segments).map((item) => {
                   if (item.type === 'worked') {
-                    return (
-                      <WorkedSegment
-                        key={item.id}
-                        group={item}
-                        isUser={isUser}
-                        totalSegmentsCount={message.segments.length}
-                      />
-                    )
+                    return <WorkedSegment key={item.id} group={item} isUser={isUser} />
                   } else {
                     return (
                       <SegmentView
@@ -193,15 +186,7 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
   return grouped
 }
 
-function WorkedSegment({
-  group,
-  isUser,
-  totalSegmentsCount,
-}: {
-  group: GroupedWorked
-  isUser?: boolean
-  totalSegmentsCount: number
-}) {
+function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boolean }) {
   const streaming = useChatStore((s) => s.streaming)
   const [doneKey, setDoneKey] = useState(0)
   const prevStreaming = useRef(streaming)
@@ -215,7 +200,7 @@ function WorkedSegment({
     prevStreaming.current = streaming
   }, [streaming])
 
-  const label = group.hasToolCalls ? 'worked' : 'thinking'
+  const label = 'worked'
 
   const toolCalls = group.segments.filter((s) => s.segment.type === 'tool_call')
   const completedToolCalls = toolCalls.filter((s) => {
@@ -255,12 +240,14 @@ function WorkedSegment({
       <div
         className={`mt-1.5 ml-2.5 pl-3.5 border-l-2 space-y-3 ${isUser ? 'border-primary-foreground/15' : 'border-muted-foreground/20'}`}
       >
-        {group.segments.map(({ segment, originalIndex }, idx) => {
+        {group.segments.map(({ segment }, idx) => {
           if (segment.type === 'thinking') {
-            const isLastSegment = originalIndex === totalSegmentsCount - 1
             return (
-              <div key={idx} className="my-1.5">
-                <ThinkingSegment segment={segment} isUser={isUser} isLastSegment={isLastSegment} />
+              <div
+                key={idx}
+                className={`text-xs whitespace-pre-wrap leading-relaxed ${isUser ? 'text-primary-foreground/65' : 'text-muted-foreground/75'}`}
+              >
+                {segment.text}
               </div>
             )
           } else if (segment.type === 'tool_call') {

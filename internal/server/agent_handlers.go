@@ -304,6 +304,7 @@ type AgentInfoResponse struct {
 	PendingDelegations int    `json:"pending_delegations"`
 	MailboxHigh        int    `json:"mailbox_high"`
 	MailboxNormal      int    `json:"mailbox_normal"`
+	IsQBot             bool   `json:"is_qbot"`
 }
 
 // SupervisorInfoResponse groups agents into teams.
@@ -691,6 +692,10 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 	agents := make([]AgentInfoResponse, 0, len(registered))
 	for _, a := range registered {
 		high, normal := a.MailboxDepth()
+		isQBot := false
+		if a.Def.ID == "l1-agent" && m.sessionMgr != nil && m.sessionMgr.Session() != nil {
+			isQBot = m.sessionMgr.Session().IsQBot()
+		}
 		info := AgentInfoResponse{
 			ID:                 a.Def.ID,
 			InstanceID:         a.InstanceID,
@@ -705,6 +710,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			PendingDelegations: a.PendingDelegations(),
 			MailboxHigh:        high,
 			MailboxNormal:      normal,
+			IsQBot:             isQBot,
 		}
 		agents = append(agents, info)
 	}

@@ -87,6 +87,7 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sess.SetIsQBot(false)
 	// Trigger AskStream in a background context so it doesn't block HTTP response
 	ch, err := sess.AskStream(context.Background(), trimmed)
 	if err != nil {
@@ -175,6 +176,7 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sess.SetIsQBot(false)
 	// Use request context: client disconnect cancels the agent task.
 	ch, err := sess.AskStream(r.Context(), trimmed)
 	if err != nil {
@@ -311,6 +313,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		AgentName   string    `json:"agent_name,omitempty"`
 		ProjectPath string    `json:"project_path,omitempty"`
 		CreatedAt   time.Time `json:"created_at"`
+		IsQBot      bool      `json:"is_qbot"`
 	}
 
 	sessions := []sessionInfo{}
@@ -323,6 +326,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			Name:      "L1 Orchestrator",
 			AgentName: "L1 Orchestrator",
 			CreatedAt: m.sessionMgr.Session().Created,
+			IsQBot:    m.sessionMgr.Session().IsQBot(),
 		})
 	}
 

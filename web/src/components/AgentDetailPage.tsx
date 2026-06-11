@@ -75,7 +75,7 @@ export function AgentDetailPage() {
 
   // L1 Coordinator detection
   const isL1 = useMemo(() => {
-    if (id === 'main') return true
+    if (id === 'main' || id === 'l1-agent') return true
     if (!data) return false
     const { supervisors } = data
     const l2Ids = new Set(supervisors.map((sv) => sv.leader_id).filter(Boolean))
@@ -104,7 +104,9 @@ export function AgentDetailPage() {
   // Fetch configs/profile hooks
   const { profile, loading: profileLoading } = useAgentProfile(isL1 ? agent?.id || 'main' : null)
   const { config, loading: configLoading } = useAgentConfig(
-    !isL1 && effectiveId ? effectiveId : null
+    !isL1 && effectiveId && effectiveId !== 'l1-agent' && effectiveId !== 'main'
+      ? effectiveId
+      : null
   )
 
   // Stream output hook
