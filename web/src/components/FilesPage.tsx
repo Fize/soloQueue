@@ -119,7 +119,7 @@ interface TreeNode {
 }
 
 export function FilesPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const pathParam = searchParams.get('path')
 
   const [roots, setRoots] = useState<FileRoot[]>([])
@@ -138,7 +138,12 @@ export function FilesPage() {
   const lastProcessedPathRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!pathParam || roots.length === 0 || lastProcessedPathRef.current === pathParam) return
+    if (!pathParam) {
+      setSelectedPath(null)
+      lastProcessedPathRef.current = null
+      return
+    }
+    if (roots.length === 0 || lastProcessedPathRef.current === pathParam) return
     lastProcessedPathRef.current = pathParam
 
     // Find matching root
@@ -248,7 +253,7 @@ export function FilesPage() {
   const toggleNode = useCallback(
     async (path: string, isDir: boolean) => {
       if (!isDir) {
-        setSelectedPath(path)
+        setSearchParams({ path })
         return
       }
       if (expanded[path]) {
@@ -260,7 +265,7 @@ export function FilesPage() {
       }
       setExpanded((prev) => ({ ...prev, [path]: true }))
     },
-    [expanded, children, loadChildren]
+    [expanded, children, loadChildren, setSearchParams]
   )
 
   function renderFileNodes(nodes: TreeNode[], depth: number) {
@@ -426,7 +431,7 @@ export function FilesPage() {
             <FolderTree className="h-4 w-4" />
           </Button>
           {selectedPath && (
-            <Button variant="ghost" size="icon-sm" onClick={() => setSelectedPath(null)}>
+            <Button variant="ghost" size="icon-sm" onClick={() => setSearchParams({})}>
               <PanelRight className="h-4 w-4" />
             </Button>
           )}
@@ -438,7 +443,7 @@ export function FilesPage() {
           <FileContentView
             path={selectedPath}
             key={contentVersion}
-            onError={() => setSelectedPath(null)}
+            onError={() => setSearchParams({})}
           />
         </div>
       </div>

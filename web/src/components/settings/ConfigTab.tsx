@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml'
@@ -64,7 +65,24 @@ SyntaxHighlighter.registerLanguage('toml', toml)
 type TabType = 'db' | 'toml'
 
 export function ConfigTab() {
-  const [activeTab, setActiveTab] = useState<TabType>('db')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = (searchParams.get('tab') as TabType) || 'db'
+  const subTab = (searchParams.get('subTab') || 'llm') as
+    | 'llm'
+    | 'tools'
+    | 'qqbot'
+    | 'lspmcp'
+    | 'embedding'
+    | 'session'
+
+  const handleTabChange = (val: string) => {
+    setSearchParams({ tab: val, subTab })
+  }
+
+  const handleSubTabChange = (val: string) => {
+    setSearchParams({ tab: activeTab, subTab: val })
+  }
+
   const [tomlContent, setTomlContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -82,11 +100,6 @@ export function ConfigTab() {
     fast: '',
     fallback: '',
   })
-
-  // DB sub-tab selection
-  const [subTab, setSubTab] = useState<
-    'llm' | 'tools' | 'qqbot' | 'lspmcp' | 'embedding' | 'session'
-  >('llm')
 
   // DB sub-tabs config state
   const [toolsConfig, setToolsConfig] = useState<ToolsConfig | null>(null)
@@ -583,7 +596,7 @@ export function ConfigTab() {
   return (
     <div className="space-y-6">
       {/* Tab Switcher */}
-      <Tabs value={activeTab} onValueChange={(v: string) => setActiveTab(v as TabType)}>
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="border-b border-border w-full justify-start gap-0 bg-transparent p-0">
           <TabsTrigger
             value="db"
@@ -648,7 +661,7 @@ export function ConfigTab() {
           <div className="flex flex-wrap gap-2 p-1 bg-muted rounded-lg w-max mb-6">
             <button
               type="button"
-              onClick={() => setSubTab('llm')}
+              onClick={() => handleSubTabChange('llm')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 subTab === 'llm'
                   ? 'bg-background text-foreground shadow-sm'
@@ -659,7 +672,7 @@ export function ConfigTab() {
             </button>
             <button
               type="button"
-              onClick={() => setSubTab('tools')}
+              onClick={() => handleSubTabChange('tools')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 subTab === 'tools'
                   ? 'bg-background text-foreground shadow-sm'
@@ -670,7 +683,7 @@ export function ConfigTab() {
             </button>
             <button
               type="button"
-              onClick={() => setSubTab('qqbot')}
+              onClick={() => handleSubTabChange('qqbot')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 subTab === 'qqbot'
                   ? 'bg-background text-foreground shadow-sm'
@@ -681,7 +694,7 @@ export function ConfigTab() {
             </button>
             <button
               type="button"
-              onClick={() => setSubTab('lspmcp')}
+              onClick={() => handleSubTabChange('lspmcp')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 subTab === 'lspmcp'
                   ? 'bg-background text-foreground shadow-sm'
@@ -692,7 +705,7 @@ export function ConfigTab() {
             </button>
             <button
               type="button"
-              onClick={() => setSubTab('embedding')}
+              onClick={() => handleSubTabChange('embedding')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 subTab === 'embedding'
                   ? 'bg-background text-foreground shadow-sm'
@@ -703,7 +716,7 @@ export function ConfigTab() {
             </button>
             <button
               type="button"
-              onClick={() => setSubTab('session')}
+              onClick={() => handleSubTabChange('session')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 subTab === 'session'
                   ? 'bg-background text-foreground shadow-sm'
@@ -714,7 +727,7 @@ export function ConfigTab() {
             </button>
           </div>
 
-          <Tabs value={subTab} onValueChange={setSubTab}>
+          <Tabs value={subTab} onValueChange={handleSubTabChange}>
             <TabsContent value="llm">
               <div className="space-y-8">
                 {/* ─── Default Model Roles ─── */}

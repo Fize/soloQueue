@@ -54,7 +54,7 @@ function InlineContent({ content, height = 'min-h-[45vh]', type = 'yaml' }: Inli
 export function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   // Find agent in websocket stream or team list
   const data = useAgentStore((state) => state.agents)
@@ -197,7 +197,14 @@ export function AgentDetailPage() {
       </header>
 
       {/* Tabs and Tab Content (Self-scrolling) */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => {
+          setActiveTab(val as any)
+          setSearchParams({ tab: val })
+        }}
+        className="flex-1 flex flex-col min-h-0"
+      >
         {/* Horizontal Tab Bar (Sticky) */}
         <div className="shrink-0 border-b border-border/40 bg-card/45 px-4 md:px-6 py-1 overflow-x-auto no-scrollbar">
           <TabsList className="flex bg-transparent border-0 gap-1.5 min-w-max">

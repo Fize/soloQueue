@@ -25,10 +25,9 @@ import {
   MessageSquare,
 } from 'lucide-react'
 import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
+import { SessionTree } from './SessionTree'
 
 const mainNav = [
-  { to: '/', icon: Bot, label: 'Agents' },
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/files', icon: FolderOpen, label: 'Files' },
   { to: '/cron', icon: Clock, label: 'Cron Tasks' },
 ]
@@ -81,10 +80,18 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
   const runtime = useRuntime()
   const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
 
+  const isChatActive = location.pathname.startsWith('/chat')
+  const [chatOpen, setChatOpen] = useState(isChatActive)
   const isSettingsActive = location.pathname.startsWith('/settings')
   const [settingsOpen, setSettingsOpen] = useState(isSettingsActive)
   const [collapsed, setCollapsed] = useState(false)
   const [proxies, setProxies] = useState<{ id: string }[]>([])
+
+  useEffect(() => {
+    if (isChatActive && !chatOpen) {
+      setChatOpen(true)
+    }
+  }, [isChatActive])
 
   const fetchProxies = async () => {
     try {
@@ -159,6 +166,55 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
       <nav
         className={cn('flex-1 overflow-y-auto space-y-0.5', collapsed && !mobile ? 'p-1.5' : 'p-3')}
       >
+        {/* Chat/Workspace Dropdown Menu */}
+        <div className="py-0.5">
+          <button
+            onClick={() => {
+              if (collapsed && !mobile) {
+                navigate('/chat')
+              } else {
+                if (
+                  !location.pathname.startsWith('/chat') &&
+                  !location.pathname.startsWith('/agents')
+                ) {
+                  navigate('/chat')
+                  setChatOpen(true)
+                } else {
+                  setChatOpen(!chatOpen)
+                }
+              }
+            }}
+            title={collapsed && !mobile ? 'Workspace' : undefined}
+            className={cn(
+              'flex w-full items-center rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer',
+              collapsed && !mobile ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
+              location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+            )}
+          >
+            <MessageSquare
+              className={cn('shrink-0', collapsed && !mobile ? 'h-5 w-5' : 'h-4 w-4')}
+            />
+            {(!collapsed || mobile) && (
+              <>
+                <span className="flex-1 text-left truncate">Workspace</span>
+                {chatOpen ? (
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </>
+            )}
+          </button>
+
+          {chatOpen && (!collapsed || mobile) && (
+            <div className="mt-1 pl-1 pr-1">
+              <SessionTree />
+            </div>
+          )}
+        </div>
+
         {mainNav.map((item) => (
           <NavItem
             key={item.to}
@@ -166,11 +222,7 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
             icon={item.icon}
             label={item.label}
             collapsed={collapsed && !mobile}
-            active={
-              item.to === '/'
-                ? location.pathname === '/' || location.pathname.startsWith('/agents')
-                : location.pathname.startsWith(item.to)
-            }
+            active={location.pathname.startsWith(item.to)}
           />
         ))}
 
