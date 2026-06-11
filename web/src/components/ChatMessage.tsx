@@ -16,6 +16,7 @@ import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { useState, useRef, useEffect } from 'react'
 import { confirmSessionTool } from '@/lib/api'
 import { useChatStore } from '@/stores/chatStore'
+import { formatToolCallHeader } from '@/lib/utils'
 
 export interface ChatMessageProps {
   message: ChatMessage
@@ -45,7 +46,7 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
         </div>
 
         {/* Bubble */}
-        <div className="min-w-0 w-fit max-w-full">
+        <div className={`min-w-0 max-w-full ${isUser ? 'w-fit' : 'w-full'}`}>
           {/* Role label */}
           <div className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end' : ''}`}>
             <span
@@ -68,9 +69,28 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
               <LoadingIndicator isUser={isUser} />
             ) : (
               <div className="space-y-2">
-                {message.segments.map((seg, i) => (
-                  <SegmentView key={i} segment={seg} isUser={isUser} segmentIndex={i} segments={message.segments} />
-                ))}
+                {groupSegments(message.segments).map((item) => {
+                  if (item.type === 'worked') {
+                    return (
+                      <WorkedSegment
+                        key={item.id}
+                        group={item}
+                        isUser={isUser}
+                        totalSegmentsCount={message.segments.length}
+                      />
+                    )
+                  } else {
+                    return (
+                      <SegmentView
+                        key={item.index}
+                        segment={item.segment}
+                        isUser={isUser}
+                        segmentIndex={item.index}
+                        segments={message.segments}
+                      />
+                    )
+                  }
+                })}
               </div>
             )}
           </div>
@@ -109,6 +129,153 @@ function LoadingIndicator({ isUser }: { isUser?: boolean }) {
     </div>
   )
 }
+interface GroupedWorkedSegment {
+  segment: ChatMessage['segments'][number]
+  originalIndex: number
+}
+
+interface GroupedWorked {
+  type: 'worked'
+  id: string
+  segments: GroupedWorkedSegment[]
+  hasToolCalls: boolean
+  isLast: boolean
+}
+
+interface GroupedOther {
+  type: 'other'
+  segment: ChatMessage['segments'][number]
+  index: number
+}
+
+type GroupedItem = GroupedWorked | GroupedOther
+
+function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
+  const grouped: GroupedItem[] = []
+  let currentGroup: GroupedWorkedSegment[] = []
+
+  const flush = () => {
+    if (currentGroup.length > 0) {
+      const hasToolCalls = currentGroup.some((s) => s.segment.type === 'tool_call')
+      grouped.push({
+        type: 'worked',
+        id: `worked-${grouped.length}-${currentGroup.map((s) => s.segment.type).join('-')}`,
+        segments: [...currentGroup],
+        hasToolCalls,
+        isLast: false,
+      })
+      currentGroup = []
+    }
+  }
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+    if (seg.type === 'thinking' || seg.type === 'tool_call') {
+      currentGroup.push({ segment: seg, originalIndex: i })
+    } else {
+      flush()
+      grouped.push({
+        type: 'other',
+        segment: seg,
+        index: i,
+      })
+    }
+  }
+  flush()
+
+  for (let i = grouped.length - 1; i >= 0; i--) {
+    if (grouped[i].type === 'worked') {
+      ;(grouped[i] as GroupedWorked).isLast = i === grouped.length - 1
+      break
+    }
+  }
+
+  return grouped
+}
+
+function WorkedSegment({
+  group,
+  isUser,
+  totalSegmentsCount,
+}: {
+  group: GroupedWorked
+  isUser?: boolean
+  totalSegmentsCount: number
+}) {
+  const streaming = useChatStore((s) => s.streaming)
+  const [doneKey, setDoneKey] = useState(0)
+  const prevStreaming = useRef(streaming)
+
+  const isDone = !group.isLast || (group.isLast && !streaming)
+
+  useEffect(() => {
+    if (prevStreaming.current && !streaming) {
+      setDoneKey((k) => k + 1)
+    }
+    prevStreaming.current = streaming
+  }, [streaming])
+
+  const label = group.hasToolCalls ? 'worked' : 'thinking'
+
+  const toolCalls = group.segments.filter((s) => s.segment.type === 'tool_call')
+  const completedToolCalls = toolCalls.filter((s) => {
+    const seg = s.segment
+    return seg.type === 'tool_call' && seg.done
+  })
+  const statsText = group.hasToolCalls
+    ? `(${toolCalls.length} step${toolCalls.length > 1 ? 's' : ''}${!isDone ? `: ${completedToolCalls.length} done` : ''})`
+    : ''
+
+  return (
+    <details className="group/worked" open={!isDone} key={doneKey}>
+      <summary
+        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 ${isUser ? 'text-primary-foreground/60 hover:text-primary-foreground/80' : 'text-muted-foreground hover:text-foreground/70'}`}
+      >
+        {!isDone ? (
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span
+              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${isUser ? 'bg-primary-foreground/40' : 'bg-violet-400'}`}
+            />
+            <span
+              className={`relative inline-flex h-2 w-2 rounded-full ${isUser ? 'bg-primary-foreground/60' : 'bg-violet-500'}`}
+            />
+          </span>
+        ) : (
+          <div className="h-2 w-2 rounded-full bg-emerald-500/30 shrink-0 flex items-center justify-center">
+            <div className="h-1 w-1 rounded-full bg-emerald-500" />
+          </div>
+        )}
+        <span className="font-medium inline-flex items-center gap-1.5">
+          <span>{label}</span>
+          {statsText && <span className="opacity-60 font-normal">{statsText}</span>}
+        </span>
+        <ChevronRight className="h-3 w-3 ml-auto group-open/worked:hidden" />
+        <ChevronDown className="h-3 w-3 ml-auto hidden group-open/worked:block" />
+      </summary>
+      <div
+        className={`mt-1.5 ml-2.5 pl-3.5 border-l-2 space-y-3 ${isUser ? 'border-primary-foreground/15' : 'border-muted-foreground/20'}`}
+      >
+        {group.segments.map(({ segment, originalIndex }, idx) => {
+          if (segment.type === 'thinking') {
+            const isLastSegment = originalIndex === totalSegmentsCount - 1
+            return (
+              <div key={idx} className="my-1.5">
+                <ThinkingSegment segment={segment} isUser={isUser} isLastSegment={isLastSegment} />
+              </div>
+            )
+          } else if (segment.type === 'tool_call') {
+            return (
+              <div key={idx} className="my-1.5">
+                <ToolCallSegment segment={segment} isUser={isUser} />
+              </div>
+            )
+          }
+          return null
+        })}
+      </div>
+    </details>
+  )
+}
 
 function SegmentView({
   segment,
@@ -121,7 +288,8 @@ function SegmentView({
   segmentIndex?: number
   segments?: ChatMessage['segments']
 }) {
-  const isLastSegment = segmentIndex != null && segments != null && segmentIndex === segments.length - 1
+  const isLastSegment =
+    segmentIndex != null && segments != null && segmentIndex === segments.length - 1
   switch (segment.type) {
     case 'content':
       return (
@@ -327,7 +495,7 @@ function ToolCallSegment({
 
   return (
     <div
-      className={`text-xs border rounded-xl overflow-hidden ${isUser ? 'border-primary-foreground/15 bg-primary-foreground/5' : 'border-border/60 bg-muted/20'}`}
+      className={`text-xs border rounded-xl overflow-hidden w-full ${isUser ? 'border-primary-foreground/15 bg-primary-foreground/5' : 'border-border/60 bg-muted/20'}`}
     >
       <button
         onClick={() => setExpanded(!expanded)}
@@ -344,24 +512,27 @@ function ToolCallSegment({
             <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           </div>
         )}
-        <span className="font-medium">{segment.name}</span>
-        {segment.durationMs != null && (
-          <span
-            className={`tabular-nums ${isUser ? 'text-primary-foreground/50' : 'text-muted-foreground/50'}`}
-          >
-            {(segment.durationMs / 1000).toFixed(1)}s
-          </span>
-        )}
-        <span className="flex-1" />
-        <span
-          className={`text-[10px] uppercase tracking-wider ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/40'}`}
-        >
-          {running ? 'Running' : segment.error ? 'Failed' : 'Done'}
+        <span className="font-mono text-[11px] text-left truncate flex-1 min-w-0 whitespace-nowrap">
+          {formatToolCallHeader(segment.name, segment.args).replace(/\r?\n/g, ' ')}
         </span>
+        <div className="flex items-center gap-2 text-xs shrink-0 select-none">
+          {segment.durationMs != null && (
+            <span
+              className={`tabular-nums text-[10px] ${isUser ? 'text-primary-foreground/50' : 'text-muted-foreground/50'}`}
+            >
+              {(segment.durationMs / 1000).toFixed(1)}s
+            </span>
+          )}
+          <span
+            className={`text-[10px] uppercase tracking-wider ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/40'}`}
+          >
+            {running ? 'Running' : segment.error ? 'Failed' : 'Done'}
+          </span>
+        </div>
         {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5" />
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5" />
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         )}
       </button>
       {expanded && (

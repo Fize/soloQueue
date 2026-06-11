@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import type { AgentStreamState, Segment } from '@/types'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { Badge } from '@/components/ui/badge'
-import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+import { formatToolCallHeader } from '@/lib/utils'
 
 function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
   const [expanded, setExpanded] = useState(false)
@@ -22,15 +23,23 @@ function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
         ) : (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
         )}
-        <span className="font-medium text-foreground">{seg.name}</span>
-        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="font-mono text-[11px] text-foreground text-left truncate flex-1 min-w-0 whitespace-nowrap">
+          {formatToolCallHeader(seg.name, seg.args).replace(/\r?\n/g, ' ')}
+        </span>
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground shrink-0 select-none">
           {seg.done && seg.duration_ms > 0 && (
-            <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
+            <span className="flex items-center gap-1 tabular-nums text-[10px]">
               {(seg.duration_ms / 1000).toFixed(1)}s
             </span>
           )}
-          {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          <span className="text-[10px] uppercase tracking-wider">
+            {seg.done ? (seg.error ? 'Failed' : 'Done') : 'Running'}
+          </span>
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+          )}
         </span>
       </button>
       {expanded && (
