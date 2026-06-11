@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useToolsAndSkillsStore } from '@/stores/toolsAndSkillsStore'
 import {
   installSkill,
@@ -76,12 +77,16 @@ export function SkillsTab() {
   const storeSkillsLoading = useToolsAndSkillsStore((state) => state.storeSkillsLoading)
   const fetchStoreSkills = useToolsAndSkillsStore((state) => state.fetchStoreSkills)
 
-  // Sub-tabs state
-  const [activeSubTab, setActiveSubTab] = useState<'installed' | 'store'>('installed')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeSubTab = (searchParams.get('subTab') as 'installed' | 'store') || 'installed'
   const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null)
   const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' } | null>(
     null
   )
+
+  const handleSubTabChange = (val: string) => {
+    setSearchParams({ subTab: val })
+  }
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -89,7 +94,7 @@ export function SkillsTab() {
   const [storeSearchQuery, setStoreSearchQuery] = useState('')
 
   // Lazy loading details & file lists
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const expandedId = searchParams.get('expandedId') || null
   const [details, setDetails] = useState<Record<string, SkillInfo>>({})
   const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({})
   const [files, setFiles] = useState<Record<string, SkillFileEntry[]>>({})
@@ -137,40 +142,50 @@ export function SkillsTab() {
   // Lazy load handles
   const handleToggleExpand = async (id: string) => {
     if (expandedId === id) {
-      setExpandedId(null)
+      setSearchParams({ subTab: activeSubTab })
       return
     }
 
-    setExpandedId(id)
+    setSearchParams({ subTab: activeSubTab, expandedId: id })
     setActiveEditPaneTab('preview')
     setEditId(null) // Abort edit on other/same rows
+  }
 
-    // Fetch Details
+  // Fetch details and files on mount/URL change for the expanded skill
+  useEffect(() => {
+    if (!expandedId) return
+
+    const id = expandedId
     if (!details[id]) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoadingDetails((prev) => ({ ...prev, [id]: true }))
-      try {
-        const detail = await fetchSkillDetail(id)
-        setDetails((prev) => ({ ...prev, [id]: detail }))
-      } catch (err) {
-        console.error('Failed to fetch skill details:', err)
-      } finally {
-        setLoadingDetails((prev) => ({ ...prev, [id]: false }))
-      }
+      fetchSkillDetail(id)
+        .then((detail) => {
+          setDetails((prev) => ({ ...prev, [id]: detail }))
+        })
+        .catch((err) => {
+          console.error('Failed to fetch skill details:', err)
+        })
+        .finally(() => {
+          setLoadingDetails((prev) => ({ ...prev, [id]: false }))
+        })
     }
 
-    // Fetch Files list
     if (!files[id]) {
       setLoadingFiles((prev) => ({ ...prev, [id]: true }))
-      try {
-        const fileList = await fetchSkillFiles(id)
-        setFiles((prev) => ({ ...prev, [id]: fileList.files || [] }))
-      } catch (err) {
-        console.error('Failed to fetch skill files:', err)
-      } finally {
-        setLoadingFiles((prev) => ({ ...prev, [id]: false }))
-      }
+      fetchSkillFiles(id)
+        .then((fileList) => {
+          setFiles((prev) => ({ ...prev, [id]: fileList.files || [] }))
+        })
+        .catch((err) => {
+          console.error('Failed to fetch skill files:', err)
+        })
+        .finally(() => {
+          setLoadingFiles((prev) => ({ ...prev, [id]: false }))
+        })
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId])
 
   // Toggling Enabled/Disabled
   const handleToggleEnable = async (id: string) => {
@@ -195,7 +210,7 @@ export function SkillsTab() {
     if (!deleteTarget) return
     try {
       await deleteSkill(deleteTarget.id)
-      if (expandedId === deleteTarget.id) setExpandedId(null)
+      if (expandedId === deleteTarget.id) setSearchParams({ subTab: activeSubTab })
       if (editId === deleteTarget.id) setEditId(null)
       setDeleteTarget(null)
       await fetchSkills()
@@ -382,7 +397,7 @@ export function SkillsTab() {
       {/* ── Sub Tabs Navigation ── */}
       <div className="flex border-b border-border">
         <button
-          onClick={() => setActiveSubTab('installed')}
+          onClick={() => handleSubTabChange('installed')}
           className={cn(
             'flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all',
             activeSubTab === 'installed'
@@ -399,7 +414,7 @@ export function SkillsTab() {
           )}
         </button>
         <button
-          onClick={() => setActiveSubTab('store')}
+          onClick={() => handleSubTabChange('store')}
           className={cn(
             'flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all',
             activeSubTab === 'store'
@@ -468,7 +483,7 @@ export function SkillsTab() {
                   variant="outline"
                   size="sm"
                   className="mt-3"
-                  onClick={() => setActiveSubTab('store')}
+                  onClick={() => handleSubTabChange('store')}
                 >
                   Browse Store Catalog
                 </Button>

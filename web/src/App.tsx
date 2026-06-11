@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Sidebar } from '@/components/Sidebar'
 import { MobileNav } from '@/components/MobileNav'
-import { AgentListPage } from '@/components/AgentListPage'
 import { AgentDetailPage } from '@/components/AgentDetailPage'
 import { FilesPage } from '@/components/FilesPage'
 import { CronPage } from '@/components/CronPage'
@@ -57,8 +56,8 @@ function App() {
         <main className="flex flex-1 flex-col min-w-0 overflow-hidden h-full">
           <div className="flex-1 overflow-hidden">
             <Routes>
-              <Route path="/" element={<AgentListPage />} />
-              <Route path="/agents" element={<AgentListPage />} />
+              <Route path="/" element={<ChatPage />} />
+              <Route path="/agents" element={<Navigate to="/" replace />} />
               <Route path="/agents/:id" element={<AgentDetailPage />} />
               <Route path="/files" element={<FilesPage />} />
               <Route path="/cron" element={<CronPage />} />
@@ -74,6 +73,7 @@ function App() {
               </Route>
               <Route path="/iframe/:id" element={<IframePageView />} />
               <Route path="/chat" element={<ChatPage />} />
+              <Route path="/chat/:sessionId" element={<ChatPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
