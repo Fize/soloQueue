@@ -133,6 +133,7 @@ type Session struct {
 
 	idleTimeout     time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int          // 0 = disabled; minimum CW tokens to trigger compact
+	isQBot          atomic.Bool
 }
 
 // NewSession 构造并启动一个 session（agent 已应 Start）
@@ -215,6 +216,16 @@ func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 // Idle returns true if there is no Ask or AskStream currently in flight.
 func (s *Session) Idle() bool {
 	return s.inFlight.Load() == 0
+}
+
+// IsQBot returns true if the session is currently serving or was last triggered by QBot.
+func (s *Session) IsQBot() bool {
+	return s.isQBot.Load()
+}
+
+// SetIsQBot sets the QBot status for the session.
+func (s *Session) SetIsQBot(val bool) {
+	s.isQBot.Store(val)
 }
 
 // CW returns the underlying ContextWindow pointer without locking.

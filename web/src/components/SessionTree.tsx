@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   Plus,
   Trash2,
@@ -22,7 +22,6 @@ interface GroupInfo {
 
 export function SessionTree() {
   const navigate = useNavigate()
-  const location = useLocation()
   const sessions = useChatStore((s) => s.sessions)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const streaming = useChatStore((s) => s.streaming)
@@ -180,11 +179,6 @@ export function SessionTree() {
           const hasProjects = group.projects.length > 0
           const gExpanded = isGroupExp(group.name)
 
-          // Filter agents belonging to this group (case-insensitive)
-          const groupAgents = agentsData
-            ? agentsData.agents.filter((a) => a.group?.toLowerCase() === group.name?.toLowerCase())
-            : []
-
           return (
             <div key={group.name} className="space-y-0.5">
               {/* Group header */}
@@ -192,7 +186,7 @@ export function SessionTree() {
                 onClick={() => toggleGroup(group.name)}
                 className="flex items-center gap-1.5 w-full px-3 py-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider hover:text-foreground/80 hover:bg-muted/30 rounded-md transition-colors cursor-pointer"
               >
-                {hasProjects || groupAgents.length > 0 ? (
+                {hasProjects ? (
                   gExpanded ? (
                     <ChevronDown className="h-3 w-3 shrink-0" />
                   ) : (
@@ -207,43 +201,6 @@ export function SessionTree() {
               {/* Children */}
               {gExpanded && (
                 <div className="space-y-0.5">
-                  {/* Group Agents (Team Members) */}
-                  {groupAgents.length > 0 && (
-                    <div className="pb-1 px-1 border-b border-border/20 mb-1 space-y-0.5">
-                      {groupAgents.map((agent) => {
-                        const targetId = agent.instance_id || agent.id
-                        const isActive = location.pathname === `/agents/${targetId}`
-                        return (
-                          <button
-                            key={agent.id}
-                            onClick={() => navigate(`/agents/${targetId}`)}
-                            className={cn(
-                              'w-full flex items-center gap-2 pl-4 pr-3 py-1 rounded-md text-[11px] transition-colors cursor-pointer',
-                              isActive
-                                ? 'bg-primary/10 text-primary font-medium'
-                                : 'text-muted-foreground/80 hover:bg-muted/30 hover:text-foreground'
-                            )}
-                          >
-                            <div className="relative flex items-center justify-center shrink-0">
-                              <Bot className="h-3 w-3 opacity-60" />
-                              <span
-                                className={cn(
-                                  'absolute -bottom-0.5 -right-0.5 w-1 h-1 rounded-full border border-card',
-                                  agent.state === 'processing'
-                                    ? 'bg-[var(--success)]'
-                                    : agent.state === 'idle'
-                                      ? 'bg-amber-500'
-                                      : 'bg-muted-foreground/40'
-                                )}
-                              />
-                            </div>
-                            <span className="truncate text-left flex-1">{agent.name}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-
                   {hasProjects ? (
                     <>
                       {/* Projects & their sessions */}
@@ -261,7 +218,7 @@ export function SessionTree() {
                         return (
                           <div key={proj.id} className="space-y-0.5">
                             {/* Project row */}
-                            <button
+                            <div
                               onClick={() => toggleProject(projKey)}
                               className="flex items-center gap-1.5 w-full px-5 py-1 text-xs text-muted-foreground/80 hover:text-foreground hover:bg-muted/30 rounded-md transition-colors cursor-pointer"
                             >
@@ -283,7 +240,7 @@ export function SessionTree() {
                               >
                                 <Plus className="h-3 w-3" />
                               </button>
-                            </button>
+                            </div>
 
                             {/* Sessions under this project */}
                             {pExpanded &&

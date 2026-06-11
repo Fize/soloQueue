@@ -76,6 +76,7 @@ export interface AgentInfo {
   pending_delegations: number
   mailbox_high: number
   mailbox_normal: number
+  is_qbot?: boolean
 }
 
 export interface SupervisorInfo {

@@ -104,6 +104,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	if sess == nil {
 		return nil, errors.New("no active session")
 	}
+	sess.SetIsQBot(true)
 
 	// Re-register agent if it was unregistered by CancelCurrent.
 	// This ensures the web UI shows the agent when a new task begins.
