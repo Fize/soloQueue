@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -60,7 +61,7 @@ func (m *Mux) handleStartSimulation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	_, err := m.simEngine.Start(r.Context(), id)
+	_, err := m.simEngine.Start(context.Background(), id)
 	if err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

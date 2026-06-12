@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -32,6 +33,17 @@ type EventLoop struct {
 	stopOnce  sync.Once
 	agentWg   sync.WaitGroup
 	sem       chan struct{} // semaphore for LLM concurrency
+
+	startedAt                    time.Time
+	agentStatuses                map[string]string  // personaID -> "thinking"|"spoke"|"idle"
+	agentLastActionTimes         map[string]time.Time
+	agentLastActionTypes         map[string]string
+	statusMu                     sync.Mutex
+	logRing                      []string
+	logMu                        sync.Mutex
+	maxLogLines                  int
+	progressEmitInterval         time.Duration
+	personaNameByID              map[string]string // personaID -> personaName
 }
 
 // NewEventLoop creates an event-driven execution loop.
@@ -51,26 +63,43 @@ func NewEventLoop(
 		poolSize = 20 // default max concurrent LLM calls
 	}
 
+	statuses := make(map[string]string, len(agents))
+	lastTimes := make(map[string]time.Time, len(agents))
+	lastTypes := make(map[string]string, len(agents))
+	personaNameByID := make(map[string]string, len(agents))
+	for _, sa := range agents {
+		statuses[sa.PersonaID()] = "idle"
+		personaNameByID[sa.PersonaID()] = sa.Persona().Name
+	}
+
 	return &EventLoop{
-		agents:     agents,
-		bus:        bus,
-		worldState: ws,
-		graph:      graph,
-		topic:      topic,
-		trigger:    trigger,
-		timeout:    timeout,
-		maxActions: maxActions,
-		poolSize:   poolSize,
-		log:        log,
-		events:     make(chan SimulationEvent, 64),
-		stopCh:     make(chan struct{}),
-		sem:        make(chan struct{}, poolSize),
+		agents:               agents,
+		bus:                  bus,
+		worldState:           ws,
+		graph:                graph,
+		topic:                topic,
+		trigger:              trigger,
+		timeout:              timeout,
+		maxActions:           maxActions,
+		poolSize:             poolSize,
+		log:                  log,
+		events:               make(chan SimulationEvent, 64),
+		stopCh:               make(chan struct{}),
+		sem:                  make(chan struct{}, poolSize),
+		agentStatuses:        statuses,
+		agentLastActionTimes: lastTimes,
+		agentLastActionTypes: lastTypes,
+		logRing:              make([]string, 0, 200),
+		maxLogLines:          200,
+		progressEmitInterval: 1500 * time.Millisecond,
+		personaNameByID:      personaNameByID,
 	}
 }
 
 // Run starts the event loop and returns an event channel. Closes when simulation ends.
 func (el *EventLoop) Run(ctx context.Context) <-chan SimulationEvent {
 	ctx, cancel := context.WithTimeout(ctx, el.timeout)
+	el.startedAt = time.Now()
 
 	go func() {
 		defer close(el.events)
@@ -84,6 +113,22 @@ func (el *EventLoop) Run(ctx context.Context) <-chan SimulationEvent {
 			el.graph.AddNode(sa.PersonaID())
 		}
 
+		// Periodically emit progress events
+		progressTicker := time.NewTicker(el.progressEmitInterval)
+		defer progressTicker.Stop()
+		go func() {
+			for {
+				select {
+				case <-progressTicker.C:
+					el.emitProgress()
+				case <-ctx.Done():
+					return
+				case <-el.stopCh:
+					return
+				}
+			}
+		}()
+
 		// Launch agent goroutines (blocks on notifyCh, not polling)
 		for _, sa := range el.agents {
 			sa := sa
@@ -96,6 +141,9 @@ func (el *EventLoop) Run(ctx context.Context) <-chan SimulationEvent {
 
 		go el.monitor(ctx)
 		el.agentWg.Wait()
+
+		// Emit one final progress update before simulation_end
+		el.emitProgress()
 
 		el.emit(SimulationEvent{
 			Type: "simulation_end",
@@ -165,11 +213,14 @@ func (el *EventLoop) agentLoop(ctx context.Context, sa *SimAgent) {
 			}
 
 			// Acquire semaphore slot before LLM call
+			el.setAgentStatus(sa.PersonaID(), "thinking")
 			select {
 			case el.sem <- struct{}{}:
 			case <-ctx.Done():
+				el.setAgentStatus(sa.PersonaID(), "idle")
 				return
 			case <-el.stopCh:
+				el.setAgentStatus(sa.PersonaID(), "idle")
 				return
 			}
 
@@ -178,8 +229,9 @@ func (el *EventLoop) agentLoop(ctx context.Context, sa *SimAgent) {
 			<-el.sem // release
 
 			if err != nil {
+				el.setAgentStatus(sa.PersonaID(), "idle")
 				if el.log != nil {
-					el.log.WarnContext(ctx, logger.CatApp, "event_loop: agent ask failed",
+					el.log.WarnContext(ctx, logger.CatSimulation, "event_loop: agent ask failed",
 						"agent_id", sa.PersonaID(), "seq", seq, "err", err.Error())
 				}
 				el.emit(SimulationEvent{Type: "error", Round: seq, Error: fmt.Sprintf("%s: %s", sa.PersonaID(), err.Error())})
@@ -189,7 +241,15 @@ func (el *EventLoop) agentLoop(ctx context.Context, sa *SimAgent) {
 			lastSpokeAt = time.Now()
 
 			// Feed the relationship graph
-			el.feedGraph(sa.PersonaID(), inbox, rm, seq)
+			el.feedGraph(sa.PersonaID(), inbox, rm, seq, el.personaNameByID)
+
+			el.setAgentStatus(sa.PersonaID(), "spoke")
+			el.statusMu.Lock()
+			el.agentLastActionTimes[sa.PersonaID()] = lastSpokeAt
+			el.agentLastActionTypes[sa.PersonaID()] = rm.Type
+			el.statusMu.Unlock()
+
+			el.addLog("R%d %s %s (%s)", seq, sa.Persona().Name, rm.Type, truncateStr(rm.Content, 60))
 
 			el.emit(SimulationEvent{Type: "agent_message", Round: seq, Data: rm})
 
@@ -209,16 +269,14 @@ func (el *EventLoop) agentLoop(ctx context.Context, sa *SimAgent) {
 }
 
 // feedGraph extracts relationships from the agent's response and adds edges to the graph.
-func (el *EventLoop) feedGraph(agentID string, inbox []Message, rm *RoundMessage, seq int) {
-	// Extract mentions from the response content
+func (el *EventLoop) feedGraph(agentID string, inbox []Message, rm *RoundMessage, seq int, nameByID map[string]string) {
 	for _, msg := range inbox {
 		if msg.From == "system" {
 			continue
 		}
 
-		// Agent mentioned someone in their response
-		if containsMention(rm.Content, msg.From) {
-			relType := classifyRelation(msg, rm)
+		if containsMention(rm.Content, msg.From, nameByID[msg.From]) {
+			relType := classifyRelation(msg, rm, nameByID[msg.From])
 			el.graph.AddEdge(agentID, msg.From, relType, seq, rm.Content)
 		}
 	}
@@ -232,8 +290,9 @@ func (el *EventLoop) feedGraph(agentID string, inbox []Message, rm *RoundMessage
 	}
 }
 
-func containsMention(content, agentID string) bool {
-	return containsWord(content, "@"+agentID) || containsWord(content, agentID)
+func containsMention(content, agentID, personaName string) bool {
+	return containsWord(content, "@"+agentID) || containsWord(content, agentID) ||
+		(personaName != "" && (containsWord(content, "@"+personaName) || containsWord(content, personaName)))
 }
 
 func containsWord(s, word string) bool {
@@ -248,20 +307,22 @@ func containsWord(s, word string) bool {
 func extractMentions(content string) []string {
 	var mentions []string
 	seen := make(map[string]bool)
+	runes := []rune(content)
 
-	for i := 0; i < len(content); i++ {
-		if content[i] == '@' {
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '@' {
 			end := i + 1
-			for end < len(content) && isAlphaNum(rune(content[end])) {
+			for end < len(runes) && isAlphaNumUnicode(runes[end]) {
 				end++
 			}
 			if end > i+1 {
-				name := content[i+1 : end]
+				name := string(runes[i+1 : end])
 				if !seen[name] {
 					mentions = append(mentions, name)
 					seen[name] = true
 				}
 			}
+			i = end - 1
 		}
 	}
 	return mentions
@@ -271,22 +332,26 @@ func isAlphaNum(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-'
 }
 
-func classifyRelation(inMsg Message, response *RoundMessage) RelationType {
+func isAlphaNumUnicode(r rune) bool {
+	if isAlphaNum(r) {
+		return true
+	}
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+func classifyRelation(inMsg Message, response *RoundMessage, personaName string) RelationType {
 	content := strings.ToLower(response.Content)
 	fromName := strings.ToLower(inMsg.From)
 
-	// Check for rebuttal patterns first (before "agree" to avoid substring matches)
 	if containsAnyWord(content, "disagree", "i disagree", "however", "on the contrary", "i don't think", "that's not", "you're wrong", "incorrect", "but") {
 		return RelRebuttal
 	}
 
-	// Check for agreement patterns
 	if containsAnyWord(content, "i agree", "i concur", "good point", "you're right", "well said", "exactly", "i support") {
 		return RelAgree
 	}
 
-	// If the response addresses someone specifically
-	if containsMention(content, fromName) {
+	if containsMention(content, fromName, personaName) {
 		return RelReply
 	}
 
@@ -341,4 +406,89 @@ func (el *EventLoop) emit(ev SimulationEvent) {
 	case el.events <- ev:
 	default:
 	}
+}
+
+func (el *EventLoop) setAgentStatus(personaID, status string) {
+	el.statusMu.Lock()
+	el.agentStatuses[personaID] = status
+	el.statusMu.Unlock()
+}
+
+func (el *EventLoop) addLog(format string, args ...any) {
+	line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
+	el.logMu.Lock()
+	if len(el.logRing) >= el.maxLogLines {
+		el.logRing = append(el.logRing[1:], line)
+	} else {
+		el.logRing = append(el.logRing, line)
+	}
+	el.logMu.Unlock()
+}
+
+func (el *EventLoop) emitProgress() {
+	totalAct := int(el.actionSeq.Load())
+	elapsed := time.Since(el.startedAt).Seconds()
+
+	var pct float64
+	if el.maxActions > 0 {
+		pct = float64(totalAct) / float64(el.maxActions) * 100.0
+		if pct > 100 {
+			pct = 100
+		}
+	}
+
+	var estRemaining float64
+	if totalAct > 0 {
+		rate := elapsed / float64(totalAct)
+		remaining := float64(el.maxActions - totalAct)
+		estRemaining = rate * remaining
+	}
+
+	el.statusMu.Lock()
+	agentStates := make(map[string]*AgentProgressState, len(el.agents))
+	for _, sa := range el.agents {
+		pid := sa.PersonaID()
+		status := el.agentStatuses[pid]
+		lastActionTime := el.agentLastActionTimes[pid]
+		lastActionType := el.agentLastActionTypes[pid]
+		var lastTimeStr string
+		if !lastActionTime.IsZero() {
+			lastTimeStr = lastActionTime.Format(time.RFC3339)
+		}
+		agentStates[pid] = &AgentProgressState{
+			PersonaID:      pid,
+			Name:           sa.Persona().Name,
+			Role:           sa.Persona().Role,
+			MessageCount:   sa.Memory().TokenCount(),
+			LastActionType: lastActionType,
+			LastActionTime: lastTimeStr,
+			Status:         status,
+		}
+	}
+	el.statusMu.Unlock()
+
+	el.logMu.Lock()
+	logs := make([]string, len(el.logRing))
+	copy(logs, el.logRing)
+	el.logMu.Unlock()
+
+	edges := el.graph.ToEdgeDTOs()
+
+	progress := &SimulationProgress{
+		SimulationID:          "",
+		Phase:                 "running",
+		ProgressPercent:       pct,
+		CurrentActions:        totalAct,
+		MaxActions:            el.maxActions,
+		ElapsedSeconds:        elapsed,
+		EstimatedRemainingSec: estRemaining,
+		AgentStates:           agentStates,
+		GraphEdges:            edges,
+		RecentLogs:            logs,
+	}
+
+	el.emit(SimulationEvent{
+		Type: "progress",
+		Data: progress,
+	})
 }

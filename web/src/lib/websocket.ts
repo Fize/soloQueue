@@ -1,4 +1,11 @@
-import type { WSMessage, RuntimeStatus, AgentListResponse, AgentStreamState, SimulationEvent } from '@/types'
+import type {
+  WSMessage,
+  RuntimeStatus,
+  AgentListResponse,
+  AgentStreamState,
+  SimulationEvent,
+  SimulationProgress,
+} from '@/types'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 
@@ -9,6 +16,7 @@ type MessageHandler = {
   agents: Set<(data: AgentListResponse) => void>
   status: Set<(status: ConnectionStatus) => void>
   simulation_event: Set<(data: SimulationEvent) => void>
+  simulation_progress: Set<(data: SimulationProgress) => void>
 }
 
 function wsBase(): string {
@@ -24,6 +32,7 @@ class WebSocketManager {
     agents: new Set(),
     status: new Set(),
     simulation_event: new Set(),
+    simulation_progress: new Set(),
   }
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
@@ -157,6 +166,8 @@ class WebSocketManager {
       }
     } else if (msg.type === 'simulation_event') {
       this.handlers.simulation_event.forEach((h) => h(msg.event))
+    } else if (msg.type === 'simulation_progress' && msg.progress) {
+      this.handlers.simulation_progress.forEach((h) => h(msg.progress))
     }
   }
 

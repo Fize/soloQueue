@@ -84,7 +84,7 @@ func (sa *SimAgent) AskForRound(ctx context.Context, round int, topic string, wo
 	content, reasoning, err := sa.agent.AskWithHistory(askCtx, sa.cw, userMsg)
 	if err != nil {
 		if sa.log != nil {
-			sa.log.WarnContext(ctx, logger.CatApp, "simagent: ask with history failed",
+			sa.log.WarnContext(ctx, logger.CatSimulation, "simagent: ask with history failed",
 				"persona_id", sa.personaID,
 				"round", round,
 				"err", err.Error(),

@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { wsManager } from '@/lib/websocket'
-import { SimulationGraph } from './SimulationGraph'
+import { SimulationGraph, type GraphEdgeInput } from './SimulationGraph'
+import { SimulationProgressPanel } from './SimulationProgressPanel'
+import { SimulationMonitor } from './SimulationMonitor'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -20,7 +22,12 @@ import {
   Save,
   X,
 } from 'lucide-react'
-import type { SimulationState, SimulationMessage, SimulationEvent } from '@/types'
+import type {
+  SimulationState,
+  SimulationMessage,
+  SimulationEvent,
+  SimulationProgress,
+} from '@/types'
 
 export function SimulationDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -51,6 +58,11 @@ export function SimulationDetailPage() {
   const [chatHistory, setChatHistory] = useState<
     Record<string, { q: string; a: string; loading?: boolean }[]>
   >({})
+
+  // Progress display state
+  const [progress, setProgress] = useState<SimulationProgress | null>(null)
+  const [graphEdges, setGraphEdges] = useState<GraphEdgeInput[]>([])
+  const [progressSidebarTab, setProgressSidebarTab] = useState<'progress' | 'monitor'>('progress')
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
@@ -197,14 +209,13 @@ export function SimulationDetailPage() {
     fetchState()
 
     // Subscribe to real-time events
-    const unsubscribe = wsManager.subscribe('simulation_event', (ev: SimulationEvent) => {
+    const unsubEvent = wsManager.subscribe('simulation_event', (ev: SimulationEvent) => {
       if (ev.simulation_id !== id) return
 
       if (ev.type === 'agent_message' && ev.data) {
         const newMsg = ev.data as SimulationMessage
         setState((prev) => {
           if (!prev) return null
-          // Avoid duplicate messages
           if (prev.messages.some((m) => m.seq_num === newMsg.seq_num)) return prev
           return {
             ...prev,
@@ -214,14 +225,58 @@ export function SimulationDetailPage() {
         })
       } else if (ev.type === 'round_start') {
         setState((prev) => (prev ? { ...prev, round: ev.round } : null))
-      } else if (ev.type === 'finished' || ev.type === 'error') {
-        // Fetch full updated state (including report & final graph) from backend when done
+      } else if (ev.type === 'simulation_end') {
+        setProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                phase: 'completed',
+                progress_percent: 100,
+              }
+            : null
+        )
+      } else if (ev.type === 'error') {
+        setProgress((prev) =>
+          prev ? { ...prev, phase: 'failed', progress_percent: 100 } : null
+        )
+        fetchState()
+      } else if (ev.type === 'finished') {
         fetchState()
       }
     })
 
+    // Subscribe to real-time progress updates
+    const unsubProgress = wsManager.subscribe('simulation_progress', (p: SimulationProgress) => {
+      if (p.simulation_id !== id) return
+      setProgress(p)
+
+      // Accumulate graph edges for real-time graph updates
+      if (p.graph_edges && p.graph_edges.length > 0) {
+        setGraphEdges((prev) => {
+          const merged = [...prev]
+          let changed = false
+          for (const newEdge of p.graph_edges) {
+            const idx = merged.findIndex(
+              (e) => e.source === newEdge.source && e.target === newEdge.target
+            )
+            if (idx >= 0) {
+              if (merged[idx].weight !== newEdge.weight) {
+                merged[idx] = { ...merged[idx], weight: newEdge.weight, type: newEdge.type }
+                changed = true
+              }
+            } else {
+              merged.push(newEdge)
+              changed = true
+            }
+          }
+          return changed ? merged : prev
+        })
+      }
+    })
+
     return () => {
-      unsubscribe()
+      unsubEvent()
+      unsubProgress()
     }
   }, [id, fetchState])
 
@@ -341,9 +396,6 @@ export function SimulationDetailPage() {
     ? state.messages.filter((m) => m.agent_id === selectedAgentId)
     : state.messages
 
-  // Format edges from relation graph
-  const graphEdges = state.graph?.edges || []
-
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case 'running':
@@ -421,7 +473,16 @@ export function SimulationDetailPage() {
           <div className="flex-1 min-h-[350px]">
             <SimulationGraph
               personas={state.personas}
-              edges={graphEdges}
+              edges={
+                graphEdges.length > 0
+                  ? graphEdges
+                  : (state.graph?.edges || []).map((e) => ({
+                      source: e.source,
+                      target: e.target,
+                      type: e.type,
+                      weight: e.weight,
+                    }))
+              }
               onSelectAgent={(agentId) => {
                 setSelectedAgentId((prev) => (prev === agentId ? null : agentId))
               }}
@@ -469,12 +530,13 @@ export function SimulationDetailPage() {
                     </div>
                     {/* Traits */}
                     <div className="mt-2.5 flex flex-wrap gap-1">
-                      {persona.traits.map((t, idx) => (
+                      {Object.entries(persona.traits || {}).map(([k, v]) => (
                         <span
-                          key={idx}
+                          key={k}
                           className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground"
+                          title={`${k}: ${v}`}
                         >
-                          {t}
+                          {k}
                         </span>
                       ))}
                     </div>
@@ -510,15 +572,58 @@ export function SimulationDetailPage() {
 
         {/* Right Side: Message Stream / Report Markdown / Configuration */}
         <div className="flex-[2] flex flex-col min-w-[280px] bg-muted/10 border-l border-border/45">
-          {/* Tabs for Timeline and Report */}
+          {/* Tabs */}
           <div className="flex border-b border-border">
-            <button className="flex-1 py-3 text-center text-xs font-semibold border-b-2 border-primary text-primary bg-card/20 font-mono">
-              {state.status === 'pending' ? 'CONFIGURATION' : 'DISCUSSION LOG'}
-            </button>
+            {state.status === 'running' || state.status === 'failed' ? (
+              <>
+                <button
+                  onClick={() => setProgressSidebarTab('progress')}
+                  className={`flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors ${
+                    progressSidebarTab === 'progress'
+                      ? 'border-b-2 border-primary text-primary bg-card/20'
+                      : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground'
+                  }`}
+                >
+                  LIVE PROGRESS
+                </button>
+                <button
+                  onClick={() => setProgressSidebarTab('monitor')}
+                  className={`flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors ${
+                    progressSidebarTab === 'monitor'
+                      ? 'border-b-2 border-primary text-primary bg-card/20'
+                      : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground'
+                  }`}
+                >
+                  MONITOR
+                </button>
+              </>
+            ) : (
+              <button className="flex-1 py-3 text-center text-xs font-semibold border-b-2 border-primary text-primary bg-card/20 font-mono">
+                {state.status === 'pending' ? 'CONFIGURATION' : 'DISCUSSION LOG'}
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {state.status === 'pending' ? (
+            {state.status === 'running' || state.status === 'failed' ? (
+              progress ? (
+                progressSidebarTab === 'progress' ? (
+                  <SimulationProgressPanel
+                    progress={progress}
+                    messages={state.messages}
+                    selectedAgentId={selectedAgentId}
+                    onSelectAgent={setSelectedAgentId}
+                  />
+                ) : (
+                  <SimulationMonitor logs={progress.recent_logs || []} />
+                )
+              ) : (
+                <div className="flex h-32 items-center justify-center text-center text-muted-foreground font-mono text-xs">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Starting simulation...
+                </div>
+              )
+            ) : state.status === 'pending' ? (
               isEditing ? (
                 // Edit Configuration Form
                 <div className="space-y-5 rounded-xl border border-border bg-card/30 p-5 backdrop-blur-md">
