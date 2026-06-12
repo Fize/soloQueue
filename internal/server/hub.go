@@ -13,10 +13,11 @@ import (
 
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
-	Type    string                      `json:"type"`              // "connected" | "state" | "simulation_event"
-	Runtime *RuntimeStatusResponse      `json:"runtime,omitempty"`
-	Agents  *AgentListResponse          `json:"agents,omitempty"`
-	Event   *simulation.SimulationEvent `json:"event,omitempty"`
+	Type     string                          `json:"type"`              // "connected" | "state" | "simulation_event" | "simulation_progress"
+	Runtime  *RuntimeStatusResponse          `json:"runtime,omitempty"`
+	Agents   *AgentListResponse              `json:"agents,omitempty"`
+	Event    *simulation.SimulationEvent     `json:"event,omitempty"`
+	Progress *simulation.SimulationProgress  `json:"progress,omitempty"`
 }
 
 // wsNotify is an internal signal that state has changed and needs broadcasting.
@@ -104,16 +105,27 @@ func (h *Hub) Run() {
 				simEvents = nil
 				continue
 			}
-			msg := &WSMessage{
-				Type:  "simulation_event",
-				Event: &ev,
-			}
-			go func() {
+			if ev.Type == "progress" {
+				if p, ok := ev.Data.(*simulation.SimulationProgress); ok {
+					msg := &WSMessage{
+						Type:     "simulation_progress",
+						Progress: p,
+					}
+					select {
+					case h.broadcast <- msg:
+					case <-h.done:
+					}
+				}
+			} else {
+				msg := &WSMessage{
+					Type:  "simulation_event",
+					Event: &ev,
+				}
 				select {
 				case h.broadcast <- msg:
 				case <-h.done:
 				}
-			}()
+			}
 
 		case <-debounceC:
 			debounce = nil

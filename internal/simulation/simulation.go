@@ -23,7 +23,8 @@ type SimulationEngine struct {
 	log      *logger.Logger
 	config   SimulationConfigFile
 
-	memoryEngine *memoryengine.Engine // optional, for KG-based seed processing
+	memoryEngine  *memoryengine.Engine  // optional, for KG-based seed processing
+	resolveModel  agent.ModelResolver  // nil = skip model resolution (tests)
 
 	subscribers   map[chan SimulationEvent]struct{}
 	subscribersMu sync.RWMutex
@@ -163,6 +164,24 @@ func (e *SimulationEngine) SetMemoryEngine(mem *memoryengine.Engine) {
 	e.memoryEngine = mem
 }
 
+// WithModelResolver sets the model resolver used to translate model IDs to API model names.
+func (e *SimulationEngine) WithModelResolver(resolver agent.ModelResolver) {
+	e.resolveModel = resolver
+}
+
+// resolveModelID translates a model ID to the actual API model name.
+// Returns the original modelID if no resolver is configured or resolution fails.
+func (e *SimulationEngine) resolveModelID(modelID string) string {
+	if e.resolveModel == nil || modelID == "" {
+		return modelID
+	}
+	info, err := e.resolveModel(modelID)
+	if err != nil || info.APIModel == "" {
+		return modelID
+	}
+	return info.APIModel
+}
+
 // CreateFromSeedOptions defines configuration overrides during seed-based simulation generation.
 type CreateFromSeedOptions struct {
 	ModelID            string `json:"model_id,omitempty"`
@@ -188,9 +207,9 @@ func (e *SimulationEngine) CreateFromSeed(
 	}
 
 	// Step 1: Extract entities, world state, topics
-	extractorModel := e.config.DefaultModelID
+	extractorModel := e.resolveModelID(e.config.DefaultModelID)
 	if opts.ModelID != "" {
-		extractorModel = opts.ModelID
+		extractorModel = e.resolveModelID(opts.ModelID)
 	}
 	extractorProvider := e.config.DefaultProviderID
 	if opts.ProviderID != "" {
@@ -242,9 +261,9 @@ func (e *SimulationEngine) CreateFromSeed(
 	}
 
 	// Step 2: Generate personas
-	genModel := e.config.DefaultModelID
+	genModel := e.resolveModelID(e.config.DefaultModelID)
 	if opts.ModelID != "" {
-		genModel = opts.ModelID
+		genModel = e.resolveModelID(opts.ModelID)
 	}
 	genProvider := e.config.DefaultProviderID
 	if opts.ProviderID != "" {
@@ -328,10 +347,10 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 			return "", fmt.Errorf("no report found for simulation %s", simID)
 		}
 		prompt := BuildReportAnalystPrompt(state.Config.Topic, report, question)
-		resp, err := e.llm.Chat(ctx, agent.LLMRequest{
-			Model:      e.config.DefaultModelID,
-			ProviderID: e.config.DefaultProviderID,
-			Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
+	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
+		Model:      e.resolveModelID(e.config.DefaultModelID),
+		ProviderID: e.config.DefaultProviderID,
+		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
 		})
 		if err != nil {
 			return "", fmt.Errorf("report analyst ask: %w", err)
@@ -486,6 +505,24 @@ func (e *SimulationEngine) Unsubscribe(ch chan SimulationEvent) {
 	e.subscribersMu.Unlock()
 }
 
+// emitProgress sends a progress event with the given phase and action counts.
+func (e *SimulationEngine) emitProgress(events chan SimulationEvent, simID, phase string, currentActions, maxActions int) {
+	e.emit(events, SimulationEvent{
+		Type:         "progress",
+		SimulationID: simID,
+		Data: &SimulationProgress{
+			SimulationID:    simID,
+			Phase:           phase,
+			ProgressPercent: float64(currentActions) / float64(maxActions) * 100,
+			CurrentActions:  currentActions,
+			MaxActions:      maxActions,
+			RecentLogs:      []string{},
+			AgentStates:     map[string]*AgentProgressState{},
+			GraphEdges:      []EdgeDTO{},
+		},
+	})
+}
+
 func (e *SimulationEngine) emit(events chan SimulationEvent, ev SimulationEvent) {
 	ev.Timestamp = time.Now()
 	select {
@@ -506,6 +543,8 @@ func (e *SimulationEngine) emit(events chan SimulationEvent, ev SimulationEvent)
 func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationState, events chan SimulationEvent) {
 	simID := state.RunID
 	config := state.Config
+
+	e.emitProgress(events, simID, "initializing", 0, config.MaxActions)
 
 	e.emit(events, SimulationEvent{
 		Type:         "simulation_start",
@@ -556,7 +595,12 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 	evCh := loop.Run(ctx)
 	for ev := range evCh {
 		ev.SimulationID = state.RunID
-		events <- ev
+		if ev.Type == "progress" {
+			if p, ok := ev.Data.(*SimulationProgress); ok {
+				p.SimulationID = state.RunID
+			}
+		}
+		e.emit(events, ev)
 
 		if ev.Type == "agent_message" {
 			if rm, ok := ev.Data.(*RoundMessage); ok {
@@ -580,6 +624,8 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 	// Persist agent memories
 	e.persistAgentMemories(state.RunID, simAgents)
 
+	e.emitProgress(events, state.RunID, "generating_report", config.MaxActions, config.MaxActions)
+
 	// Generate report with graph data
 	report, err := e.generateReport(ctx, config, simAgents, graph, state.WorldState)
 	if err == nil && report != "" {
@@ -590,6 +636,14 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 
 	// Index simulation results into MemoryEngine KG (if configured)
 	e.indexSimulationToKG(ctx, state.RunID, config.Topic, simAgents, graph, state.WorldState, report)
+
+	e.emitProgress(events, state.RunID, "completed", config.MaxActions, config.MaxActions)
+
+	e.emit(events, SimulationEvent{
+		Type:         "finished",
+		SimulationID: state.RunID,
+		Data:         map[string]any{"report": report, "rounds": len(state.Rounds)},
+	})
 
 	state.Lock()
 	if state.Status == StatusRunning {
@@ -742,6 +796,14 @@ func (e *SimulationEngine) createSimAgents(ctx context.Context, config Simulatio
 			return nil, fmt.Errorf("create agent for persona %s: %w", persona.ID, err)
 		}
 
+		// Replace the factory's framework system prompt (L2/L3) with the
+		// simulation-specific persona prompt. Factory always pushes its own
+		// L2/L3 prompt; simulation agents only need their persona prompt.
+		maxTokens := agt.Def.ContextWindow
+		if maxTokens <= 0 {
+			maxTokens = agent.DefaultContextWindow
+		}
+		cw = ctxwin.NewContextWindow(maxTokens, 2000, 0, ctxwin.NewTokenizer())
 		cw.Push(ctxwin.RoleSystem, systemPrompt)
 
 		if providerID != "" {
@@ -758,7 +820,7 @@ func (e *SimulationEngine) createSimAgents(ctx context.Context, config Simulatio
 		simAgents = append(simAgents, simAgent)
 
 		if e.log != nil {
-			e.log.InfoContext(ctx, logger.CatApp, "simulation: created agent",
+			e.log.InfoContext(ctx, logger.CatSimulation, "simulation: created agent",
 				"persona_id", persona.ID,
 				"instance_id", agt.InstanceID,
 			)
@@ -782,7 +844,7 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 	prompt := BuildReportPrompt(config.Topic, memories, graph, ws)
 
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
-		Model:      e.config.DefaultModelID,
+		Model:      e.resolveModelID(e.config.DefaultModelID),
 		ProviderID: e.config.DefaultProviderID,
 		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
 		MaxTokens:  2048,

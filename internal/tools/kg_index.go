@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
@@ -105,8 +106,17 @@ func (t *kgIndexTool) Execute(ctx context.Context, raw string) (string, error) {
 				continue
 			}
 
-			_ = srcID   // used for logging
-			_ = tgtID   // used by engine internally
+			if err := t.cfg.MemoryEngine.ConnectEntities(ctx,
+				entity.Name, rel.TargetName, rel.RelType, weight,
+				"", a.SourceHash, time.Now(), nil, nil); err != nil {
+				if t.logger != nil {
+					t.logger.WarnContext(ctx, logger.CatTool, "kg_index: connect entities failed",
+						"source", entity.Name, "target", rel.TargetName, "rel_type", rel.RelType, "err", err)
+				}
+				continue
+			}
+			_ = srcID
+			_ = tgtID
 			relCount++
 		}
 	}

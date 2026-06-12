@@ -14,6 +14,13 @@ type Persona struct {
 	SystemPrompt string            `json:"system_prompt"`
 	Goals        []string          `json:"goals"`
 	Traits       map[string]string `json:"traits"`
+	MBTI         string            `json:"mbti,omitempty"`
+	Age          int               `json:"age,omitempty"`
+	Gender       string            `json:"gender,omitempty"`
+	Country      string            `json:"country,omitempty"`
+	Profession   string            `json:"profession,omitempty"`
+	Bio          string            `json:"bio,omitempty"`
+	Persona      string            `json:"persona,omitempty"`
 	ModelID      string            `json:"model_id,omitempty"`
 	ProviderID   string            `json:"provider_id,omitempty"`
 	Temperature  float64           `json:"temperature,omitempty"`
@@ -149,6 +156,39 @@ type SimulationEvent struct {
 	Data         any       `json:"data,omitempty"`
 	Error        string    `json:"error,omitempty"`
 	Timestamp    time.Time `json:"timestamp"`
+}
+
+// EdgeDTO is a serializable graph edge for real-time progress updates.
+type EdgeDTO struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Type   string `json:"type"`
+	Weight int    `json:"weight"`
+}
+
+// AgentProgressState tracks per-agent runtime progress for frontend display.
+type AgentProgressState struct {
+	PersonaID      string `json:"persona_id"`
+	Name           string `json:"name"`
+	Role           string `json:"role"`
+	MessageCount   int    `json:"message_count"`
+	LastActionType string `json:"last_action_type"`
+	LastActionTime string `json:"last_action_time"`
+	Status         string `json:"status"` // "thinking" | "spoke" | "idle"
+}
+
+// SimulationProgress is broadcast periodically via WebSocket during simulation.
+type SimulationProgress struct {
+	SimulationID          string                          `json:"simulation_id"`
+	Phase                 string                          `json:"phase"` // "initializing"|"running"|"generating_report"|"completed"|"failed"
+	ProgressPercent       float64                         `json:"progress_percent"`
+	CurrentActions        int                             `json:"current_actions"`
+	MaxActions            int                             `json:"max_actions"`
+	ElapsedSeconds        float64                         `json:"elapsed_seconds"`
+	EstimatedRemainingSec float64                         `json:"estimated_remaining_seconds"`
+	AgentStates           map[string]*AgentProgressState  `json:"agent_states,omitempty"`
+	GraphEdges            []EdgeDTO                       `json:"graph_edges,omitempty"`
+	RecentLogs            []string                        `json:"recent_logs,omitempty"`
 }
 
 // MemoryRecord is a single entry in an agent's memory.

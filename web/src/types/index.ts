@@ -212,8 +212,16 @@ export interface SimulationPersona {
   id: string
   name: string
   role: string
-  traits: string[]
+  traits: Record<string, string>
   system_prompt: string
+  goals?: string[]
+  mbti?: string
+  age?: number
+  gender?: string
+  country?: string
+  profession?: string
+  bio?: string
+  persona?: string
   model_id?: string
   provider_id?: string
 }
@@ -276,6 +284,36 @@ export interface SimulationEvent {
   timestamp: string
 }
 
+export interface AgentProgressState {
+  persona_id: string
+  name: string
+  role: string
+  message_count: number
+  last_action_type: string
+  last_action_time: string
+  status: 'thinking' | 'spoke' | 'idle'
+}
+
+export interface GraphEdgeDTO {
+  source: string
+  target: string
+  type: string
+  weight: number
+}
+
+export interface SimulationProgress {
+  simulation_id: string
+  phase: 'initializing' | 'running' | 'generating_report' | 'completed' | 'failed'
+  progress_percent: number
+  current_actions: number
+  max_actions: number
+  elapsed_seconds: number
+  estimated_remaining_seconds: number
+  agent_states: Record<string, AgentProgressState>
+  graph_edges: GraphEdgeDTO[]
+  recent_logs: string[]
+}
+
 // ─── WebSocket Message Types ────────────────────────────────────────────────
 
 export interface WSStateMessage {
@@ -289,7 +327,12 @@ export interface WSSimulationEventMessage {
   event: SimulationEvent
 }
 
-export type WSMessage = WSStateMessage | WSSimulationEventMessage
+export interface WSSimulationProgressMessage {
+  type: 'simulation_progress'
+  progress: SimulationProgress
+}
+
+export type WSMessage = WSStateMessage | WSSimulationEventMessage | WSSimulationProgressMessage
 
 // ─── Config Types ────────────────────────────────────────────────────────────
 
