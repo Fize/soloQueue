@@ -9,9 +9,25 @@ func (bc *buildContext) buildSimulationEngine() error {
 		return nil
 	}
 
+	defaultModelID := bc.settings.Simulation.DefaultModelID
+	if defaultModelID == "" {
+		defaultModelID = bc.fastModelID
+	}
+	if defaultModelID == "" && bc.defaultModel != nil {
+		defaultModelID = bc.defaultModel.ID
+	}
+
+	defaultProviderID := bc.settings.Simulation.DefaultProviderID
+	if defaultProviderID == "" {
+		defaultProviderID = bc.fastModelProviderID
+	}
+	if defaultProviderID == "" && bc.defaultModel != nil {
+		defaultProviderID = bc.defaultModel.ProviderID
+	}
+
 	simCfg := simulation.SimulationConfigFile{
-		DefaultModelID:        bc.settings.Simulation.DefaultModelID,
-		DefaultProviderID:     bc.settings.Simulation.DefaultProviderID,
+		DefaultModelID:        defaultModelID,
+		DefaultProviderID:     defaultProviderID,
 		DBPath:                bc.settings.Simulation.DBPath,
 		DefaultMaxActions:     bc.settings.Simulation.DefaultMaxActions,
 		DefaultMaxWallClockMs: bc.settings.Simulation.DefaultMaxWallClockMs,

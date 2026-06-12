@@ -477,6 +477,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Post("/from-seed", m.handleCreateFromSeed)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", m.handleGetSimulation)
+				r.Put("/", m.handleUpdateSimulation)
 				r.Post("/start", m.handleStartSimulation)
 				r.Post("/stop", m.handleStopSimulation)
 				r.Post("/agents/{personaId}/ask", m.handleAgentAsk)

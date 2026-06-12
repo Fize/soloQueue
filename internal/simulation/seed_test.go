@@ -23,7 +23,7 @@ func TestSeedExtractor_BasicExtraction(t *testing.T) {
 		}`},
 	}
 
-	extractor := NewSeedExtractor(fakeLLM, "", nil)
+	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
 	ext, err := extractor.Extract(context.Background(), "Rust focuses on memory safety while Go prioritizes simplicity and fast compilation.")
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)
@@ -47,7 +47,7 @@ func TestSeedExtractor_BasicExtraction(t *testing.T) {
 }
 
 func TestSeedExtractor_EmptyText(t *testing.T) {
-	extractor := NewSeedExtractor(&agent.FakeLLM{}, "", nil)
+	extractor := NewSeedExtractor(&agent.FakeLLM{}, "", "", nil)
 	_, err := extractor.Extract(context.Background(), "  ")
 	if err == nil {
 		t.Fatal("expected error for empty text")
@@ -59,7 +59,7 @@ func TestSeedExtractor_MalformedJSON(t *testing.T) {
 		Responses: []string{`{invalid json`},
 	}
 
-	extractor := NewSeedExtractor(fakeLLM, "", nil)
+	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
 	_, err := extractor.Extract(context.Background(), "some text")
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
@@ -71,7 +71,7 @@ func TestSeedExtractor_MarkdownCodeFence(t *testing.T) {
 		Responses: []string{"```json\n{\"entities\": [{\"name\": \"Test\", \"type\": \"concept\", \"confidence\": 1.0}], \"world_state\": {}, \"key_topics\": [\"test\"], \"conflict_areas\": []}\n```"},
 	}
 
-	extractor := NewSeedExtractor(fakeLLM, "", nil)
+	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
 	ext, err := extractor.Extract(context.Background(), "test text")
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)
@@ -99,7 +99,7 @@ func TestSeedExtractor_Chunking(t *testing.T) {
 		},
 	}
 
-	extractor := NewSeedExtractor(fakeLLM, "", nil)
+	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
 	ext, err := extractor.Extract(context.Background(), longText)
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)
@@ -124,7 +124,7 @@ func TestSeedExtractor_WithMemoryEngine(t *testing.T) {
 		}`},
 	}
 
-	extractor := NewSeedExtractor(fakeLLM, "", nil)
+	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
 	_, err := extractor.Extract(context.Background(), "Rust text")
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)

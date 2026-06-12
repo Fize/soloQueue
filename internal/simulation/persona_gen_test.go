@@ -42,7 +42,7 @@ func TestPersonaGenerator_Basic(t *testing.T) {
 		ConflictAreas: []string{"safety vs simplicity"},
 	}
 
-	gen := NewPersonaGenerator(fakeLLM, "", nil)
+	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
 	personas, err := gen.Generate(context.Background(), extraction, "Rust vs Go", 2)
 	if err != nil {
 		t.Fatalf("Generate() error: %v", err)
@@ -81,7 +81,7 @@ func TestPersonaGenerator_ContrarianConstraint(t *testing.T) {
 		Entities: []memoryengine.EntityExtraction{{Name: "X", Type: "concept", Confidence: 0.8}},
 	}
 
-	gen := NewPersonaGenerator(fakeLLM, "", nil)
+	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
 	personas, err := gen.Generate(context.Background(), extraction, "Topic X", 3)
 	if err != nil {
 		t.Fatalf("Generate() error: %v", err)
@@ -121,7 +121,7 @@ func TestPersonaGenerator_CountBounds(t *testing.T) {
 
 	extraction := &SeedExtraction{Entities: []memoryengine.EntityExtraction{{Name: "Test", Type: "concept"}}}
 
-	gen := NewPersonaGenerator(fakeLLM, "", nil)
+	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
 
 	// count = 1 should be clamped to 2
 	p1, err := gen.Generate(context.Background(), extraction, "test", 1)
@@ -143,7 +143,7 @@ func TestPersonaGenerator_CountBounds(t *testing.T) {
 }
 
 func TestPersonaGenerator_NilExtraction(t *testing.T) {
-	gen := NewPersonaGenerator(&agent.FakeLLM{}, "", nil)
+	gen := NewPersonaGenerator(&agent.FakeLLM{}, "", "", nil)
 	_, err := gen.Generate(context.Background(), nil, "test", 2)
 	if err == nil {
 		t.Fatal("expected error for nil extraction")
@@ -156,7 +156,7 @@ func TestPersonaGenerator_MalformedJSON(t *testing.T) {
 	}
 
 	extraction := &SeedExtraction{Entities: []memoryengine.EntityExtraction{{Name: "Test", Type: "concept"}}}
-	gen := NewPersonaGenerator(fakeLLM, "", nil)
+	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
 	_, err := gen.Generate(context.Background(), extraction, "test", 2)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")

@@ -88,7 +88,17 @@ func (s *SQLiteStore) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_memories_sim ON agent_memories(simulation_id);
 		CREATE INDEX IF NOT EXISTS idx_memories_persona ON agent_memories(simulation_id, persona_id);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Add missing configuration columns for custom/UI-driven simulation parameters
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN max_actions INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN max_wall_clock_ms INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN trigger_policy TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN min_speak_interval_ms INTEGER NOT NULL DEFAULT 0")
+
+	return nil
 }
 
 func (s *SQLiteStore) Close() error {
@@ -111,9 +121,9 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 	wsj, _ := json.Marshal(config.WorldState)
 
 	s.mu.Lock()
-	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json)
-		VALUES (?, ?, ?, 'event-driven', ?, ?)`,
-		id, config.Topic, config.Description, string(pj), string(wsj))
+	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms)
+		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?)`,
+		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxActions, config.MaxWallClockMs, config.TriggerPolicy, config.MinSpeakIntervalMs)
 	s.mu.Unlock()
 
 	if err != nil {
@@ -124,16 +134,17 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 
 func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 	var (
-		topic, desc, mode, pj, wsj, report, errMsg, status string
-		currentRound, totalActions                           int
+		topic, desc, mode, pj, wsj, report, errMsg, status, triggerPolicy string
+		currentRound, totalActions, maxActions, maxWallClockMs, minSpeakIntervalMs int
 		startedAt, completedAt, createdAt                    sql.NullString
 	)
 	err := s.db.QueryRow(`SELECT topic, description, mode, personas_json, world_state_json,
 		status, report, error_msg, current_round, total_actions,
-		started_at, completed_at, created_at
+		started_at, completed_at, created_at, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms
 		FROM simulations WHERE id = ?`, id).
 		Scan(&topic, &desc, &mode, &pj, &wsj, &status, &report, &errMsg,
-			&currentRound, &totalActions, &startedAt, &completedAt, &createdAt)
+			&currentRound, &totalActions, &startedAt, &completedAt, &createdAt,
+			&maxActions, &maxWallClockMs, &triggerPolicy, &minSpeakIntervalMs)
 	if err == sql.ErrNoRows {
 		return nil, ErrSimNotFound
 	}
@@ -148,11 +159,15 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 
 	state := &SimulationState{
 		Config: SimulationConfig{
-			ID:          id,
-			Topic:       topic,
-			Description: desc,
-			Personas:    personas,
-			WorldState:  ws,
+			ID:                 id,
+			Topic:              topic,
+			Description:        desc,
+			Personas:           personas,
+			WorldState:         ws,
+			MaxActions:         maxActions,
+			MaxWallClockMs:     maxWallClockMs,
+			TriggerPolicy:      triggerPolicy,
+			MinSpeakIntervalMs: minSpeakIntervalMs,
 		},
 		Status:       SimulationStatus(status),
 		CurrentRound: currentRound,
@@ -230,7 +245,8 @@ func (s *SQLiteStore) Update(id string, state *SimulationState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	wsj, _ := json.Marshal(state.WorldState.Snapshot())
+	pj, _ := json.Marshal(state.Config.Personas)
+	wsj, _ := json.Marshal(state.Config.WorldState)
 	var startedAt, completedAt any
 	if state.StartedAt != nil {
 		startedAt = state.StartedAt.Format(timeFormat)
@@ -240,9 +256,11 @@ func (s *SQLiteStore) Update(id string, state *SimulationState) error {
 	}
 
 	_, err := s.db.Exec(`UPDATE simulations SET status=?, world_state_json=?, report=?, error_msg=?,
-		current_round=?, started_at=?, completed_at=? WHERE id=?`,
+		current_round=?, started_at=?, completed_at=?, topic=?, description=?, personas_json=?,
+		max_actions=?, max_wall_clock_ms=?, trigger_policy=?, min_speak_interval_ms=? WHERE id=?`,
 		string(state.Status), string(wsj), state.Report, state.Error,
-		state.CurrentRound, startedAt, completedAt, id)
+		state.CurrentRound, startedAt, completedAt, state.Config.Topic, state.Config.Description, string(pj),
+		state.Config.MaxActions, state.Config.MaxWallClockMs, state.Config.TriggerPolicy, state.Config.MinSpeakIntervalMs, id)
 	return err
 }
 

@@ -113,7 +113,7 @@ provider = "none"     # pure BM25 + KG, zero dependencies (DEFAULT)
 
 **Mode "none" (default)** — dual-hybrid BM25 + KG. No model files, no API keys, no CGo. Suitable for most use cases because the KG compensates for the lack of semantic search via entity extraction.
 
-**Mode "onnx"** — tri-hybrid BM25 + KG + Vector. Uses `yalue/onnxruntime_go` (CGo) to load `intfloat/multilingual-e5-large` (1024-dim, 100+ languages, ~560MB) in-process. Requires `brew install onnxruntime` on macOS. Built with `-tags onnx`. The model is auto-downloaded from HuggingFace on first run to `~/.soloqueue/models/`.
+**Mode "onnx"** — tri-hybrid BM25 + KG + Vector. Uses `yalue/onnxruntime_go` (CGo) to load `intfloat/multilingual-e5-large` (1024-dim, 100+ languages, ~560MB) in-process. Requires `brew install onnxruntime` on macOS. Built in by default (no build tag needed). The model is auto-downloaded from HuggingFace on first run to `~/.soloqueue/models/`.
 
 **Mode "openai"** — tri-hybrid BM25 + KG + Vector. Uses the existing OpenAI-compatible embeddings API. Requires network + API key.
 

@@ -201,7 +201,7 @@ When `provider = "onnx"`, the engine uses `yalue/onnxruntime_go` (CGo wrapper fo
 ### Requirements
 - **macOS**: `brew install onnxruntime`
 - **Linux**: `apt install libonnxruntime-dev` or download `.so`
-- **Build**: `go build -tags onnx` (without the tag, a stub returns a helpful error)
+- **Build**: `go build` (ONNX is built in by default; requires `brew install onnxruntime`)
 
 ### ONNXEmbedder
 - Loads the ONNX model file via `ort.NewAdvancedSession`.

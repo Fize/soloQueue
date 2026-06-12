@@ -206,6 +206,76 @@ export interface SetDependenciesRequest {
   depends_on: string[]
 }
 
+// ─── Simulation Types ────────────────────────────────────────────────────────
+
+export interface SimulationPersona {
+  id: string
+  name: string
+  role: string
+  traits: string[]
+  system_prompt: string
+  model_id?: string
+  provider_id?: string
+}
+
+export interface SimulationConfig {
+  id?: string
+  topic: string
+  personas: SimulationPersona[]
+  max_rounds: number
+  max_actions?: number
+  max_wall_clock_ms?: number
+  trigger_policy?: string
+  min_speak_interval_ms?: number
+  eval_threshold?: number
+}
+
+export interface SimulationMessage {
+  agent_id: string
+  agent_name: string
+  content: string
+  reasoning?: string
+  to: string
+  type: string
+  round: number
+  seq_num: number
+}
+
+export interface SimulationRelationEdge {
+  source: string
+  target: string
+  type: string
+  weight: number
+}
+
+export interface SimulationRelationGraph {
+  nodes: string[]
+  edges: SimulationRelationEdge[]
+}
+
+export interface SimulationState {
+  id: string
+  status: 'pending' | 'idle' | 'running' | 'completed' | 'failed'
+  config: SimulationConfig
+  personas: SimulationPersona[]
+  round: number
+  messages: SimulationMessage[]
+  report?: string
+  graph?: SimulationRelationGraph
+  started_at?: string
+  completed_at?: string
+  error?: string
+}
+
+export interface SimulationEvent {
+  type: string
+  simulation_id: string
+  round: number
+  data?: any
+  error?: string
+  timestamp: string
+}
+
 // ─── WebSocket Message Types ────────────────────────────────────────────────
 
 export interface WSStateMessage {
@@ -214,7 +284,12 @@ export interface WSStateMessage {
   agents: AgentListResponse
 }
 
-export type WSMessage = WSStateMessage
+export interface WSSimulationEventMessage {
+  type: 'simulation_event'
+  event: SimulationEvent
+}
+
+export type WSMessage = WSStateMessage | WSSimulationEventMessage
 
 // ─── Config Types ────────────────────────────────────────────────────────────
 
@@ -328,6 +403,9 @@ export interface EmbeddingModel {
 export interface EmbeddingConfig {
   enabled: boolean
   minSimilarity: number
+  provider: string // "none", "onnx", "openai"
+  modelPath: string // ONNX model directory path
+  modelName: string // model name for download/API
   providers: EmbeddingProvider[]
   models: EmbeddingModel[]
 }

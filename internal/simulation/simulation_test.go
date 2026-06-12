@@ -597,7 +597,7 @@ func TestCreateFromSeed(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	simID, extraction, personas, err := engine.CreateFromSeed(ctx, "Rust is memory safe, Go is simple.", "", 2)
+	simID, extraction, personas, err := engine.CreateFromSeed(ctx, "Rust is memory safe, Go is simple.", "", 2, CreateFromSeedOptions{})
 	if err != nil {
 		t.Fatalf("CreateFromSeed: %v", err)
 	}
@@ -629,6 +629,99 @@ func TestCreateFromSeed(t *testing.T) {
 		}
 	}
 	t.Logf("seed simulation messages: %d", msgCount)
+}
+
+func TestCreateFromSeedWithSuggestedAgents(t *testing.T) {
+	fakeLLM := &agent.FakeLLM{
+		Responses: []string{
+			// First call: seed extraction with suggested agents
+			`{
+				"entities": [{"name": "Rust", "type": "technology", "confidence": 0.9}],
+				"world_state": {"context": "systems programming"},
+				"key_topics": ["Rust vs Go"],
+				"conflict_areas": ["simplicity"],
+				"suggested_agents": [
+					{
+						"name": "Alice",
+						"role": "Rust advocate",
+						"description": "Prefers borrow checker",
+						"traits": ["smart", "opinionated"]
+					},
+					{
+						"name": "Bob",
+						"role": "Go advocate",
+						"description": "Prefers simplicity",
+						"traits": ["practical"]
+					}
+				]
+			}`,
+			// Second call: persona generation
+			`{
+				"personas": [
+					{
+						"id": "alice",
+						"name": "Alice",
+						"role": "Rust advocate",
+						"goals": ["Advocate for borrow checker"],
+						"traits": {"personality": "opinionated"},
+						"stance_per_entity": {"Rust": "pro"}
+					},
+					{
+						"id": "bob",
+						"name": "Bob",
+						"role": "Go advocate",
+						"goals": ["Advocate for simplicity"],
+						"traits": {"personality": "practical"},
+						"stance_per_entity": {"Rust": "con"}
+					}
+				]
+			}`,
+		},
+	}
+
+	registry := agent.NewRegistry(nil)
+	factory := createTestFactory(registry, fakeLLM)
+	engine := NewSimulationEngine(
+		factory, registry, fakeLLM,
+		tools.Config{WorkDir: "/tmp"},
+		SimulationConfigFile{DefaultMaxActions: 5, DefaultMaxWallClockMs: 15000},
+		nil,
+	)
+
+	ctx := context.Background()
+	// Pass 0 (auto-detect) first to verify suggested agents are deduced
+	simID, extraction, personas, err := engine.CreateFromSeed(ctx, "Rust vs Go discussion with Alice and Bob.", "", 0, CreateFromSeedOptions{})
+	if err != nil {
+		t.Fatalf("CreateFromSeed: %v", err)
+	}
+	if simID == "" {
+		t.Error("expected non-empty simulation ID")
+	}
+	if extraction == nil {
+		t.Fatal("expected non-nil extraction")
+	}
+	if len(extraction.SuggestedAgents) != 2 {
+		t.Errorf("expected 2 suggested agents, got %d", len(extraction.SuggestedAgents))
+	}
+	if len(personas) != 2 {
+		t.Errorf("expected 2 personas, got %d", len(personas))
+	}
+	if personas[0].Name != "Alice" || personas[1].Name != "Bob" {
+		t.Errorf("expected Alice and Bob, got %s and %s", personas[0].Name, personas[1].Name)
+	}
+
+	// Verify simulation is created and can be started
+	events, err := engine.Start(ctx, simID)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	msgCount := 0
+	for ev := range events {
+		if ev.Type == "agent_message" {
+			msgCount++
+		}
+	}
+	t.Logf("suggested agents simulation messages: %d", msgCount)
 }
 
 func TestSQLiteStore(t *testing.T) {
