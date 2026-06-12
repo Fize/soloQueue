@@ -224,12 +224,7 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 // --- parsing ---
 
 func parseExtraction(content string) (*SeedExtraction, error) {
-	// Strip potential markdown code fences
-	cleaned := strings.TrimSpace(content)
-	cleaned = strings.TrimPrefix(cleaned, "```json")
-	cleaned = strings.TrimPrefix(cleaned, "```")
-	cleaned = strings.TrimSuffix(cleaned, "```")
-	cleaned = strings.TrimSpace(cleaned)
+	cleaned := cleanJSONResponse(content)
 
 	var ext SeedExtraction
 	if err := json.Unmarshal([]byte(cleaned), &ext); err != nil {

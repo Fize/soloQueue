@@ -12,12 +12,19 @@ import (
 
 // PersonaGenEntry is the LLM output for one persona.
 type PersonaGenEntry struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Role            string            `json:"role"`
-	Goals           []string          `json:"goals"`
-	Traits          map[string]string `json:"traits"`
-	StancePerEntity map[string]string `json:"stance_per_entity"`
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Role            string          `json:"role"`
+	Goals           []string        `json:"goals"`
+	Traits          json.RawMessage `json:"traits"`
+	MBTI            string          `json:"mbti,omitempty"`
+	Age             int             `json:"age"`
+	Gender          string          `json:"gender"`
+	Country         string          `json:"country,omitempty"`
+	Profession      string          `json:"profession,omitempty"`
+	Bio             string          `json:"bio"`
+	Persona         string          `json:"persona"`
+	StancePerEntity json.RawMessage `json:"stance_per_entity"`
 }
 
 // PersonaGenResult wraps the LLM response.
@@ -39,8 +46,114 @@ func NewPersonaGenerator(llm agent.LLMClient, model, providerID string, mem *mem
 	return &PersonaGenerator{llm: llm, model: model, providerID: providerID, memoryEngine: mem}
 }
 
-// Generate creates N persona definitions from the extraction data.
+// Generate creates persona definitions from KG entities when available,
+// falling back to extraction-based generation when memory engine is nil.
 func (g *PersonaGenerator) Generate(ctx context.Context, extraction *SeedExtraction, topic string, count int) ([]Persona, error) {
+	if g.memoryEngine != nil {
+		return g.generateFromKG(ctx, extraction, topic, count)
+	}
+	return g.generateLegacy(ctx, extraction, topic, count)
+}
+
+// generateFromKG creates personas directly from knowledge graph entity nodes.
+//
+// Each entity node becomes a persona candidate grounded in actual data rather
+// than LLM imagination. The LLM enriches each entity with a detailed character
+// profile (bio, persona, age, gender, MBTI, profession, country).
+func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedExtraction, topic string, count int) ([]Persona, error) {
+	if count < 2 {
+		count = 2
+	}
+	if count > 50 {
+		count = 50
+	}
+
+	entities, err := g.memoryEngine.Graph().ListEntities(ctx, 100)
+	if err != nil {
+		return nil, fmt.Errorf("list KG entities: %w", err)
+	}
+
+	selected := g.selectPersonaEntities(entities, extraction, count)
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("no suitable entities found in knowledge graph for persona generation")
+	}
+
+	var personas []Persona
+	for _, entity := range selected {
+		entityCtx := g.buildEntityContext(ctx, entity)
+		prompt := buildEntityPersonaPrompt(entity, entityCtx, topic, extraction)
+
+		resp, err := g.llm.Chat(ctx, agent.LLMRequest{
+			Model:        g.model,
+			ProviderID:   g.providerID,
+			Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
+			MaxTokens:    2048,
+			ResponseJSON: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("llm chat for entity %q: %w", entity.Name, err)
+		}
+
+		entry, err := parseSinglePersonaEntry(resp.Content)
+		if err != nil {
+			return nil, fmt.Errorf("parse persona for entity %q: %w", entity.Name, err)
+		}
+		if entry.ID == "" {
+			entry.ID = sanitizeID(entity.Name)
+		}
+		if entry.Name == "" {
+			entry.Name = entity.Name
+		}
+
+		p := Persona{
+			ID:         entry.ID,
+			Name:       entry.Name,
+			Role:       entry.Role,
+			MBTI:       entry.MBTI,
+			Age:        entry.Age,
+			Gender:     entry.Gender,
+			Country:    entry.Country,
+			Profession: entry.Profession,
+			Bio:        entry.Bio,
+			Persona:    entry.Persona,
+			Goals:      entry.Goals,
+		}
+		if len(p.Goals) == 0 {
+			p.Goals = []string{"Discuss the topic from your perspective"}
+		}
+		if p.Traits == nil {
+			p.Traits = make(map[string]string)
+		}
+		for k, v := range parseStringMap(entry.Traits) {
+			p.Traits[k] = v
+		}
+		for entity, stance := range parseStringMap(entry.StancePerEntity) {
+			p.Traits["stance:"+entity] = stance
+		}
+		if strings.Contains(strings.ToLower(entry.Role), "mediator") || strings.Contains(strings.ToLower(entry.Role), "moderator") {
+			p.Traits["role_type"] = "mediator"
+		}
+		if strings.Contains(strings.ToLower(entry.Role), "contrarian") || strings.Contains(strings.ToLower(entry.Role), "skeptic") {
+			p.Traits["role_type"] = "contrarian"
+		}
+
+		personas = append(personas, p)
+	}
+
+	for i := range personas {
+		personas[i].SystemPrompt = BuildSimulationSystemPrompt(personas[i], topic, personas)
+	}
+
+	if len(personas) < 2 {
+		return nil, fmt.Errorf("generated only %d personas, need at least 2", len(personas))
+	}
+
+	return personas, nil
+}
+
+// generateLegacy is the pre-KG persona generation path, kept for backward
+// compatibility when no memory engine is available.
+func (g *PersonaGenerator) generateLegacy(ctx context.Context, extraction *SeedExtraction, topic string, count int) ([]Persona, error) {
 	isDeduced := extraction != nil && len(extraction.SuggestedAgents) > 0
 	if count < 2 {
 		count = 2
@@ -59,9 +172,7 @@ func (g *PersonaGenerator) Generate(ctx context.Context, extraction *SeedExtract
 		return nil, fmt.Errorf("extraction is nil")
 	}
 
-	// Build enriched context from KG
 	kgContext := g.buildKGContext(ctx, extraction)
-
 	prompt := buildPersonaGenPrompt(extraction, topic, count, kgContext)
 
 	resp, err := g.llm.Chat(ctx, agent.LLMRequest{
@@ -88,7 +199,91 @@ func (g *PersonaGenerator) Generate(ctx context.Context, extraction *SeedExtract
 	return personas, nil
 }
 
-// buildKGContext enriches the generation prompt with KG data if available.
+// selectPersonaEntities filters KG entities to those suitable as personas.
+// Entity types like "person", "organization", "publicfigure" etc. are selected.
+// Entities are ordered by mention_count descending, capped at count.
+// If suggestedAgents are present, only entities matching those names are selected.
+func (g *PersonaGenerator) selectPersonaEntities(entities []memoryengine.GraphNode, extraction *SeedExtraction, count int) []memoryengine.GraphNode {
+	if extraction != nil && len(extraction.SuggestedAgents) > 0 {
+		// Suggested agent mode: filter entities by name match
+		agentNames := make(map[string]bool, len(extraction.SuggestedAgents))
+		for _, sa := range extraction.SuggestedAgents {
+			agentNames[strings.ToLower(sa.Name)] = true
+		}
+		var matched []memoryengine.GraphNode
+		for _, e := range entities {
+			if agentNames[strings.ToLower(e.Name)] {
+				matched = append(matched, e)
+			}
+		}
+		if len(matched) > count {
+			matched = matched[:count]
+		}
+		return matched
+	}
+
+	// Auto mode: select entities with personas-appropriate types
+	personaTypes := map[string]bool{
+		"person": true, "publicfigure": true, "expert": true,
+		"organization": true, "company": true, "institution": true,
+		"mediaoutlet": true, "governmentagency": true, "ngo": true,
+		"official": true, "journalist": true, "activist": true,
+		"student": true, "alumni": true, "professor": true, "faculty": true,
+		"group": true, "community": true,
+	}
+
+	var selected []memoryengine.GraphNode
+	for _, e := range entities {
+		if personaTypes[strings.ToLower(e.Type)] {
+			selected = append(selected, e)
+		}
+	}
+
+	if len(selected) > count {
+		selected = selected[:count]
+	}
+	return selected
+}
+
+// buildEntityContext builds rich context for an entity by fetching edges and connected nodes.
+func (g *PersonaGenerator) buildEntityContext(ctx context.Context, entity memoryengine.GraphNode) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Entity: %s (type: %s, mention_count: %d, confidence: %.2f)\n", entity.Name, entity.Type, entity.MentionCount, entity.Confidence))
+
+	if g.memoryEngine == nil {
+		return b.String()
+	}
+
+	outEdges, _ := g.memoryEngine.Graph().GetEdgesFrom(ctx, entity.ID, false)
+	if len(outEdges) > 0 {
+		b.WriteString("Relationships:\n")
+		for _, e := range outEdges {
+			b.WriteString(fmt.Sprintf("  → %s (%s) weight=%.1f evidence=%q\n", e.TargetName, e.RelType, e.Weight, truncateStr(e.Evidence, 200)))
+		}
+	}
+
+	inEdges, _ := g.memoryEngine.Graph().GetEdgesTo(ctx, entity.ID, false)
+	if len(inEdges) > 0 {
+		b.WriteString("Referenced by:\n")
+		for _, e := range inEdges {
+			b.WriteString(fmt.Sprintf("  %s → %s (%s) weight=%.1f\n", e.SourceName, e.TargetName, e.RelType, e.Weight))
+		}
+	}
+
+	nodes, _, err := g.memoryEngine.Graph().BFS(ctx, entity.Name, 1, 8)
+	if err == nil && len(nodes) > 1 {
+		b.WriteString("Connected entities:\n")
+		for _, n := range nodes {
+			if n.Name != entity.Name {
+				b.WriteString(fmt.Sprintf("  - %s (%s)\n", n.Name, n.Type))
+			}
+		}
+	}
+
+	return b.String()
+}
+
+// buildKGContext enriches the extraction-based prompt with KG data via BFS.
 func (g *PersonaGenerator) buildKGContext(ctx context.Context, extraction *SeedExtraction) string {
 	if g.memoryEngine == nil || len(extraction.Entities) == 0 {
 		return ""
@@ -97,7 +292,6 @@ func (g *PersonaGenerator) buildKGContext(ctx context.Context, extraction *SeedE
 	var b strings.Builder
 	b.WriteString("Knowledge Graph context:\n")
 
-	// For top entities, BFS traverse to find connections
 	maxTraverse := 5
 	if len(extraction.Entities) < maxTraverse {
 		maxTraverse = len(extraction.Entities)
@@ -105,7 +299,6 @@ func (g *PersonaGenerator) buildKGContext(ctx context.Context, extraction *SeedE
 
 	for i := 0; i < maxTraverse; i++ {
 		entity := extraction.Entities[i]
-		// RecallEntity wraps Search; use BFS from the graph for richer traversal
 		nodes, edges, err := g.memoryEngine.Graph().BFS(ctx, entity.Name, 2, 10)
 		if err != nil || len(nodes) == 0 {
 			continue
@@ -128,6 +321,124 @@ func (g *PersonaGenerator) buildKGContext(ctx context.Context, extraction *SeedE
 	return b.String()
 }
 
+// buildEntityPersonaPrompt creates a detailed persona generation prompt for a
+// single KG entity, modeled after MiroFish's OasisProfileGenerator approach.
+func buildEntityPersonaPrompt(entity memoryengine.GraphNode, entityCtx, topic string, extraction *SeedExtraction) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Generate a detailed persona profile for the following entity to serve as a social simulation agent.\n\n"))
+	b.WriteString(fmt.Sprintf("Entity name: %s\n", entity.Name))
+	b.WriteString(fmt.Sprintf("Entity type: %s\n", entity.Type))
+	b.WriteString(fmt.Sprintf("\nDiscussion topic: %s\n", topic))
+
+	if extraction != nil && len(extraction.KeyTopics) > 0 {
+		b.WriteString(fmt.Sprintf("Key topics: %s\n", strings.Join(extraction.KeyTopics, ", ")))
+	}
+	if extraction != nil && len(extraction.ConflictAreas) > 0 {
+		b.WriteString(fmt.Sprintf("Conflict areas: %s\n", strings.Join(extraction.ConflictAreas, ", ")))
+	}
+
+	b.WriteString("\nEntity context from knowledge graph:\n")
+	b.WriteString(entityCtx)
+	b.WriteString("\n")
+
+	b.WriteString("Please generate a JSON object with these fields:\n\n")
+	b.WriteString("1. id: unique identifier for this persona (lowercase, underscores)\n")
+	b.WriteString("2. name: display name for the agent\n")
+	b.WriteString("3. role: the agent's role in the discussion (e.g. advocate, skeptic, mediator, expert, official, journalist, concerned citizen)\n")
+	b.WriteString("4. bio: short public bio, 200 characters. Describe who this entity is in the real world based on the context\n")
+	b.WriteString("5. persona: detailed persona description, 1500+ characters. Must include:\n")
+	b.WriteString("   - Basic info (age, profession, background, location if relevant)\n")
+	b.WriteString("   - Personality and cognitive style (based on the MBTI type you assign)\n")
+	b.WriteString("   - Stance on the topic and key entities (what they believe, why)\n")
+	b.WriteString("   - Behavioral patterns (how they discuss, debate style, emotional triggers)\n")
+	b.WriteString("   - Unique traits (memorable characteristics, catchphrases, personal experiences)\n")
+	b.WriteString("6. age: integer age appropriate for the entity type\n")
+	b.WriteString("7. gender: \"male\", \"female\", or \"other\" (for organizational entities)\n")
+	b.WriteString("8. mbti: 4-letter MBTI type that matches the entity's personality (e.g. INTP, ENFJ, ISTJ)\n")
+	b.WriteString("9. country: country name\n")
+	b.WriteString("10. profession: professional role or occupation\n")
+	b.WriteString("11. goals: array of 2-4 goals for this discussion\n")
+	b.WriteString("12. traits: key-value map of personality/behavioral trait names to STRING values (e.g. {\"persuasiveness\": \"high\", \"technical_depth\": \"expert\"}). Values MUST be strings, not numbers.\n")
+	b.WriteString("13. stance_per_entity: map of entity name → \"pro\", \"con\", or \"neutral\"\n\n")
+
+	b.WriteString("IMPORTANT:\n")
+	b.WriteString("- Ground the persona in the entity context from the knowledge graph. Do not invent unrelated details.\n")
+	b.WriteString("- For individuals (person, expert, official etc.): create a realistic personal profile.\n")
+	b.WriteString("- For organizations/institutions (company, university, agency etc.): create a representative account profile. Use gender \"other\".\n")
+	b.WriteString("- The persona field must be a single coherent text, 1500+ characters.\n")
+	b.WriteString("- All fields must have values. age must be an integer. gender must be one of: male, female, other.\n\n")
+
+	b.WriteString("Output ONLY valid JSON, no markdown fences:\n")
+	b.WriteString(`{
+  "id": "...",
+  "name": "...",
+  "role": "...",
+  "bio": "...",
+  "persona": "...",
+  "age": 30,
+  "gender": "male",
+  "mbti": "INTJ",
+  "country": "...",
+  "profession": "...",
+  "goals": [...],
+  "traits": {"trait_name": "value"},
+  "stance_per_entity": {...}
+}`)
+
+	return b.String()
+}
+
+// parseSinglePersonaEntry parses a single PersonaGenEntry from LLM response.
+func parseSinglePersonaEntry(content string) (PersonaGenEntry, error) {
+	cleaned := cleanJSONResponse(content)
+
+	var entry PersonaGenEntry
+	if err := json.Unmarshal([]byte(cleaned), &entry); err != nil {
+		return entry, fmt.Errorf("json unmarshal: %w\nraw: %s", err, truncateStr(content, 200))
+	}
+	return entry, nil
+}
+
+// parseStringMap converts json.RawMessage to map[string]string, converting
+// numeric/bool/null values to their string representations gracefully.
+func parseStringMap(raw json.RawMessage) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		switch val := v.(type) {
+		case string:
+			out[k] = val
+		case float64:
+			out[k] = fmt.Sprintf("%v", val)
+		case bool:
+			out[k] = fmt.Sprintf("%v", val)
+		case nil:
+			out[k] = ""
+		default:
+			out[k] = fmt.Sprintf("%v", val)
+		}
+	}
+	return out
+}
+
+// sanitizeID converts a name into a valid ID.
+func sanitizeID(name string) string {
+	s := strings.ToLower(name)
+	s = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '_'
+	}, s)
+	return strings.Trim(s, "_")
+}
+
 // buildPersonas converts LLM output into simulation Persona structs.
 func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *SeedExtraction, topic string) ([]Persona, error) {
 	if len(result.Personas) == 0 {
@@ -141,20 +452,27 @@ func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *S
 		}
 
 		p := Persona{
-			ID:   entry.ID,
-			Name: entry.Name,
-			Role: entry.Role,
+			ID:         entry.ID,
+			Name:       entry.Name,
+			Role:       entry.Role,
+			MBTI:       entry.MBTI,
+			Age:        entry.Age,
+			Gender:     entry.Gender,
+			Country:    entry.Country,
+			Profession: entry.Profession,
+			Bio:        entry.Bio,
+			Persona:    entry.Persona,
 		}
 
 		// Build traits from stance info
 		if p.Traits == nil {
 			p.Traits = make(map[string]string)
 		}
-		for k, v := range entry.Traits {
+		for k, v := range parseStringMap(entry.Traits) {
 			p.Traits[k] = v
 		}
 		// Record stance per entity as traits
-		for entity, stance := range entry.StancePerEntity {
+		for entity, stance := range parseStringMap(entry.StancePerEntity) {
 			p.Traits["stance:"+entity] = stance
 		}
 		// Mark mediator/contrarian role
@@ -195,6 +513,13 @@ func buildPartialPersonaList(entries []PersonaGenEntry) []Persona {
 			ID:           e.ID,
 			Name:         e.Name,
 			Role:         e.Role,
+			MBTI:         e.MBTI,
+			Age:          e.Age,
+			Gender:       e.Gender,
+			Country:      e.Country,
+			Profession:   e.Profession,
+			Bio:          e.Bio,
+			Persona:      e.Persona,
 			SystemPrompt: fmt.Sprintf("Stance on %d topics", len(e.StancePerEntity)),
 		})
 	}
@@ -204,11 +529,7 @@ func buildPartialPersonaList(entries []PersonaGenEntry) []Persona {
 // --- parse ---
 
 func parsePersonaGenResult(content string) (*PersonaGenResult, error) {
-	cleaned := strings.TrimSpace(content)
-	cleaned = strings.TrimPrefix(cleaned, "```json")
-	cleaned = strings.TrimPrefix(cleaned, "```")
-	cleaned = strings.TrimSuffix(cleaned, "```")
-	cleaned = strings.TrimSpace(cleaned)
+	cleaned := cleanJSONResponse(content)
 
 	var result PersonaGenResult
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
@@ -272,7 +593,8 @@ func buildPersonaGenPrompt(extraction *SeedExtraction, topic string, count int, 
 		b.WriteString("- At least one persona must be a mediator/moderator\n")
 	}
 	b.WriteString("- Each persona gets a unique stance (pro/con/neutral) toward each entity\n")
-	b.WriteString("- Personas should cover diverse perspectives\n\n")
+	b.WriteString("- Personas should cover diverse perspectives\n")
+	b.WriteString("- Assign each persona a 4-letter MBTI type (e.g. INTP, ENFJ, ISTJ) that matches their role and traits\n\n")
 
 	b.WriteString("Output valid JSON with the following structure:\n")
 	b.WriteString(`{
@@ -283,6 +605,7 @@ func buildPersonaGenPrompt(extraction *SeedExtraction, topic string, count int, 
       "role": "contrarian | mediator | advocate | neutral",
       "goals": ["goal 1", "goal 2"],
       "traits": {"trait_key": "trait_value"},
+      "mbti": "INTP",
       "stance_per_entity": {"entity_name": "pro|con|neutral"}
     }
   ]

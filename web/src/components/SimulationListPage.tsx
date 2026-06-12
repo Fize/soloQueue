@@ -390,7 +390,8 @@ export function SimulationListPage() {
                           <option value="rate_limited">Rate Limited</option>
                         </select>
                         <p className="text-[9px] text-muted-foreground/80 mt-1 leading-normal">
-                          Selective：角色判断相关性并发言；Reactive：被提及时回复；Rate Limited：轮流发言。
+                          Selective：角色判断相关性并发言；Reactive：被提及时回复；Rate
+                          Limited：轮流发言。
                         </p>
                       </div>
 

@@ -132,6 +132,22 @@ func (g *RelationGraph) TopEdges(n int) []RelationEdge {
 	return all
 }
 
+// ToEdgeDTOs converts all edges to serializable DTOs for real-time progress updates.
+func (g *RelationGraph) ToEdgeDTOs() []EdgeDTO {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]EdgeDTO, 0, len(g.edges))
+	for _, e := range g.edges {
+		out = append(out, EdgeDTO{
+			Source: e.Source,
+			Target: e.Target,
+			Type:   string(e.Type),
+			Weight: e.Weight,
+		})
+	}
+	return out
+}
+
 // FormatForReport renders the graph as structured text for the report prompt.
 func (g *RelationGraph) FormatForReport() string {
 	g.mu.RLock()

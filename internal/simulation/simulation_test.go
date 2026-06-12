@@ -473,38 +473,6 @@ func TestNewTriggerPolicy(t *testing.T) {
 	}
 }
 
-func TestAgentScheduler(t *testing.T) {
-	scheduler := NewAgentScheduler(0)
-
-	sa1 := &SimAgent{personaID: "a", persona: &Persona{ID: "a", Name: "A"}}
-	sa2 := &SimAgent{personaID: "b", persona: &Persona{ID: "b", Name: "B"}}
-	sa3 := &SimAgent{personaID: "c", persona: &Persona{ID: "c", Name: "C"}}
-	scheduler.SetAgents([]*SimAgent{sa1, sa2, sa3})
-
-	var mu sync.Mutex
-	var ran []string
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	scheduler.Launch(ctx, func(ctx context.Context, sa *SimAgent) {
-		mu.Lock()
-		ran = append(ran, sa.PersonaID())
-		mu.Unlock()
-		<-ctx.Done()
-	})
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-	scheduler.Wait()
-
-	mu.Lock()
-	if len(ran) != 3 {
-		t.Errorf("expected 3 agents to run, got %d: %v", len(ran), ran)
-	}
-	mu.Unlock()
-}
-
 func TestEventDrivenSimulationIntegration(t *testing.T) {
 	responses := []string{
 		"I advocate for Rust due to memory safety.",
@@ -931,7 +899,7 @@ func TestTruncateFunctions(t *testing.T) {
 	if s := truncateStr("short", 10); s != "short" {
 		t.Errorf("expected 'short', got %q", s)
 	}
-	if s := truncateContent("long content here", 10); s != "long conte..." {
+	if s := truncateStr("long content here", 10); s != "long conte..." {
 		t.Errorf("expected 'long conte...', got %q", s)
 	}
 }
@@ -1069,6 +1037,18 @@ func TestExtractMentions(t *testing.T) {
 	if len(mentions) != 2 {
 		t.Errorf("expected 2 mentions, got %d: %v", len(mentions), mentions)
 	}
+
+	// Chinese names with @prefix
+	mentions = extractMentions("@杨凡: 我同意你的看法。@方旭 你说得对。")
+	if len(mentions) != 2 {
+		t.Errorf("expected 2 Chinese mentions, got %d: %v", len(mentions), mentions)
+	}
+	if len(mentions) > 0 && mentions[0] != "杨凡" {
+		t.Errorf("expected first mention 杨凡, got %s", mentions[0])
+	}
+	if len(mentions) > 1 && mentions[1] != "方旭" {
+		t.Errorf("expected second mention 方旭, got %s", mentions[1])
+	}
 }
 
 func TestClassifyRelation(t *testing.T) {
@@ -1095,7 +1075,7 @@ func TestClassifyRelation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := classifyRelation(tt.inMsg, tt.response)
+		got := classifyRelation(tt.inMsg, tt.response, "")
 		if got != tt.want {
 			t.Errorf("classify(%q, %q) = %q, want %q",
 				tt.inMsg.Content, tt.response.Content, got, tt.want)

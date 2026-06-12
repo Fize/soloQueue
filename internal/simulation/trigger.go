@@ -65,6 +65,9 @@ func (t *SelectiveTrigger) ShouldSpeak(agentID string, inbox []Message, worldSta
 
 	// Check each message for a trigger
 	for _, msg := range inbox {
+		if msg.Type == "system" {
+			return true
+		}
 		if t.RespondToMentions && strings.Contains(msg.Content, "@"+agentID) {
 			return true
 		}

@@ -10,7 +10,34 @@ func BuildSimulationSystemPrompt(persona Persona, topic string, allPersonas []Pe
 	var b strings.Builder
 
 	// Persona definition
-	b.WriteString(fmt.Sprintf("You are %s, a %s.\n\n", persona.Name, persona.Role))
+	b.WriteString(fmt.Sprintf("You are %s, a %s", persona.Name, persona.Role))
+	if persona.Age > 0 || persona.Gender != "" || persona.Country != "" || persona.Profession != "" {
+		parts := make([]string, 0, 4)
+		if persona.Age > 0 {
+			parts = append(parts, fmt.Sprintf("age %d", persona.Age))
+		}
+		if persona.Gender != "" {
+			parts = append(parts, persona.Gender)
+		}
+		if persona.Country != "" {
+			parts = append(parts, persona.Country)
+		}
+		if persona.Profession != "" {
+			parts = append(parts, persona.Profession)
+		}
+		b.WriteString(" (" + strings.Join(parts, ", ") + ")")
+	}
+	b.WriteString(".\n")
+	if persona.MBTI != "" {
+		b.WriteString(fmt.Sprintf("Your MBTI personality type is %s. Think and respond in a way consistent with this cognitive style.\n", persona.MBTI))
+	}
+	if persona.Bio != "" {
+		b.WriteString(fmt.Sprintf("Bio: %s\n", persona.Bio))
+	}
+	if persona.Persona != "" {
+		b.WriteString(fmt.Sprintf("\n%s\n", persona.Persona))
+	}
+	b.WriteString("\n")
 
 	if len(persona.Traits) > 0 {
 		b.WriteString("Your personality traits:\n")
@@ -153,8 +180,17 @@ func BuildReplayPrompt(persona *Persona, topic string, records []MemoryRecord, q
 	var b strings.Builder
 
 	// 1. Persona identity
-	b.WriteString(fmt.Sprintf("You are %s, a %s.\n\n", persona.Name, persona.Role))
-	b.WriteString(fmt.Sprintf("You recently participated in a simulation on the topic: %s\n\n", topic))
+	b.WriteString(fmt.Sprintf("You are %s, a %s.\n", persona.Name, persona.Role))
+	if persona.MBTI != "" {
+		b.WriteString(fmt.Sprintf("Your MBTI personality type is %s.\n", persona.MBTI))
+	}
+	if persona.Bio != "" {
+		b.WriteString(fmt.Sprintf("Bio: %s\n", persona.Bio))
+	}
+	if persona.Persona != "" {
+		b.WriteString(fmt.Sprintf("\n%s\n", persona.Persona))
+	}
+	b.WriteString(fmt.Sprintf("\nYou recently participated in a simulation on the topic: %s\n\n", topic))
 
 	if len(records) > 0 {
 		b.WriteString("## Your Memory of the Simulation\n\n")
@@ -168,9 +204,9 @@ func BuildReplayPrompt(persona *Persona, topic string, records []MemoryRecord, q
 
 		for _, rec := range recent {
 			if rec.Role == "user" {
-				b.WriteString(fmt.Sprintf("You saw:\n%s\n\n", truncateContent(rec.Content, 300)))
+				b.WriteString(fmt.Sprintf("You saw:\n%s\n\n", truncateStr(rec.Content, 300)))
 			} else {
-				b.WriteString(fmt.Sprintf("You responded:\n%s\n\n", truncateContent(rec.Content, 300)))
+				b.WriteString(fmt.Sprintf("You responded:\n%s\n\n", truncateStr(rec.Content, 300)))
 			}
 		}
 	}
@@ -183,13 +219,6 @@ func BuildReplayPrompt(persona *Persona, topic string, records []MemoryRecord, q
 }
 
 func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
-func truncateContent(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
