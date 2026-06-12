@@ -23,6 +23,7 @@ import {
   Sun,
   Moon,
   MessageSquare,
+  Play,
 } from 'lucide-react'
 import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
@@ -30,6 +31,7 @@ import { SessionTree } from './SessionTree'
 const mainNav = [
   { to: '/files', icon: FolderOpen, label: 'Files' },
   { to: '/cron', icon: Clock, label: 'Cron Tasks' },
+  { to: '/simulations', icon: Play, label: 'Simulations' },
 ]
 
 const settingsChildren = [

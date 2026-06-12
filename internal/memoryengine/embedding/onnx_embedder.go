@@ -1,12 +1,12 @@
-//go:build onnx
-
 package embedding
 
 import (
 	"context"
-	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -15,7 +15,7 @@ import (
 // ONNXEmbedder runs sentence-transformers models via ONNX Runtime in-process.
 // The session is not thread-safe, so all calls are serialized via mu.
 type ONNXEmbedder struct {
-	session  *ort.AdvancedSession
+	session  *ort.DynamicAdvancedSession
 	inputs   []string
 	outputs  []string
 	dim      int
@@ -40,6 +40,8 @@ func newONNXEmbedder(cfg Config) (Embedder, error) {
 		}
 	}
 
+	onnxFile := filepath.Join(modelPath, "model.onnx")
+
 	// Initialize ONNX Runtime (safe to call multiple times)
 	ort.SetSharedLibraryPath(getORTLibPath())
 	if err := ort.InitializeEnvironment(); err != nil {
@@ -49,7 +51,14 @@ func newONNXEmbedder(cfg Config) (Embedder, error) {
 	inputNames := []string{"input_ids", "attention_mask", "token_type_ids"}
 	outputNames := []string{"sentence_embedding"}
 
-	session, err := ort.NewAdvancedSession(modelPath, inputNames, outputNames, nil, 16)
+	options, err := ort.NewSessionOptions()
+	if err == nil {
+		options.AppendExecutionProviderCoreML(0)
+	}
+	session, err := ort.NewDynamicAdvancedSession(onnxFile, inputNames, outputNames, options)
+	if err != nil && options != nil {
+		session, err = ort.NewDynamicAdvancedSession(onnxFile, inputNames, outputNames, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("embedding: onnx session: %w", err)
 	}
@@ -116,14 +125,8 @@ func (e *ONNXEmbedder) Embed(ctx context.Context, texts []string) ([]Result, err
 		defer outputTensor.Destroy()
 
 		err = e.session.Run(
-			map[string]ort.ArbitraryTensor{
-				e.inputs[0]: inputTensor,
-				e.inputs[1]: maskTensor,
-				e.inputs[2]: typeIDsTensor,
-			},
-			map[string]ort.ArbitraryTensor{
-				e.outputs[0]: outputTensor,
-			},
+			[]ort.Value{inputTensor, maskTensor, typeIDsTensor},
+			[]ort.Value{outputTensor},
 		)
 		if err != nil {
 			return nil, fmt.Errorf("embedding: run: %w", err)
@@ -194,36 +197,56 @@ func (t *e5Tokenizer) encode(text string) ([]int64, []int64, []int64) {
 	return ids, attentionMask, tokenTypeIDs
 }
 
-// tokenize does basic whitespace+punct tokenization and vocabulary lookup.
+// tokenize performs SentencePiece-style longest-match tokenization.
+// Spaces are replaced with "▁" (U+2581) and the text is split into known subword tokens.
 func (t *e5Tokenizer) tokenize(text string) []int32 {
-	// Simple whitespace tokenization with lowercasing (E5-style)
-	var tokens []int32
-	var current []byte
+	processed := make([]byte, 0, len(text)+32)
+	processed = append(processed, 0xe2, 0x96, 0x81)
+	inSpace := false
 	for i := 0; i < len(text); i++ {
 		c := text[i]
 		if c >= 'A' && c <= 'Z' {
-			c += 32 // lowercase
+			c += 32
 		}
-		if c == ' ' || c == '\t' || c == '\n' {
-			if len(current) > 0 {
-				if id, ok := t.vocab[string(current)]; ok {
-					tokens = append(tokens, id)
-				} else if id, ok := t.vocab["[UNK]"]; ok {
-					tokens = append(tokens, id)
-				}
-				current = current[:0]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			if !inSpace {
+				processed = append(processed, 0xe2, 0x96, 0x81)
+				inSpace = true
 			}
 		} else {
-			current = append(current, c)
+			processed = append(processed, c)
+			inSpace = false
 		}
 	}
-	if len(current) > 0 {
-		if id, ok := t.vocab[string(current)]; ok {
-			tokens = append(tokens, id)
-		} else if id, ok := t.vocab["[UNK]"]; ok {
-			tokens = append(tokens, id)
+
+	var tokens []int32
+	runes := []rune(string(processed))
+	unkID := t.vocab["<unk>"]
+	if unkID == 0 {
+		unkID = 1
+	}
+
+	for i := 0; i < len(runes); {
+		longestLen := 0
+		longestID := int32(0)
+
+		for j := i + 1; j <= len(runes) && j-i <= 32; j++ {
+			candidate := string(runes[i:j])
+			if id, ok := t.vocab[candidate]; ok {
+				longestLen = j - i
+				longestID = id
+			}
+		}
+
+		if longestLen > 0 {
+			tokens = append(tokens, longestID)
+			i += longestLen
+		} else {
+			tokens = append(tokens, unkID)
+			i++
 		}
 	}
+
 	return tokens
 }
 
@@ -245,17 +268,111 @@ func l2Normalize(v []float32) []float32 {
 
 // getORTLibPath returns the ONNX Runtime shared library path for the current platform.
 func getORTLibPath() string {
-	// Default paths — can be overridden via env var or build tags
-	// macOS: /opt/homebrew/lib/libonnxruntime.dylib or /usr/local/lib/libonnxruntime.dylib
-	// Linux: /usr/lib/libonnxruntime.so or /usr/local/lib/libonnxruntime.so
+	paths := []string{
+		"/opt/homebrew/lib/libonnxruntime.dylib",
+		"/usr/local/lib/libonnxruntime.dylib",
+		"/usr/lib/libonnxruntime.so",
+		"/usr/local/lib/libonnxruntime.so",
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
 	return ""
 }
 
 // placeholder types for vocabulary loading
-func findVocabFile(modelPath string) string { return modelPath + "/vocab.txt" }
-func loadVocab(path string) (map[string]int32, error) { return nil, fmt.Errorf("TODO: load vocab from %s", path) }
-
-// Ensure binary encoding is used
-func init() {
-	binary.NativeEndian // force import
+func findVocabFile(modelPath string) string {
+	p := filepath.Join(modelPath, "tokenizer.json")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return filepath.Join(modelPath, "vocab.txt")
 }
+
+func loadVocab(path string) (map[string]int32, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read vocab: %w", err)
+	}
+
+	if filepath.Base(path) == "tokenizer.json" {
+		return parseTokenizerJSON(data)
+	}
+	return parseVocabTxt(data)
+}
+
+func parseTokenizerJSON(data []byte) (map[string]int32, error) {
+	var tok struct {
+		Model struct {
+			Vocab [][]interface{} `json:"vocab"`
+		} `json:"model"`
+	}
+	if err := json.Unmarshal(data, &tok); err != nil {
+		return nil, fmt.Errorf("parse tokenizer.json: %w", err)
+	}
+
+	vocab := make(map[string]int32, len(tok.Model.Vocab))
+	for i, entry := range tok.Model.Vocab {
+		if len(entry) > 0 {
+			if tokStr, ok := entry[0].(string); ok {
+				vocab[tokStr] = int32(i)
+			}
+		}
+	}
+	if len(vocab) == 0 {
+		return nil, fmt.Errorf("tokenizer.json has empty vocab")
+	}
+	return vocab, nil
+}
+
+func parseVocabTxt(data []byte) (map[string]int32, error) {
+	lines := splitLines(string(data))
+	vocab := make(map[string]int32, len(lines))
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		token := line
+		if idx := indexOfSpace(line); idx >= 0 {
+			token = line[:idx]
+		}
+		vocab[token] = int32(i)
+	}
+	return vocab, nil
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		} else if s[i] == '\r' {
+			if i+1 < len(s) && s[i+1] == '\n' {
+				lines = append(lines, s[start:i])
+				i++
+				start = i + 1
+			} else {
+				lines = append(lines, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}
+
+func indexOfSpace(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == ' ' || s[i] == '\t' {
+			return i
+		}
+	}
+	return -1
+}
+

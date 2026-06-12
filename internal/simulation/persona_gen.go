@@ -30,21 +30,30 @@ type PersonaGenResult struct {
 type PersonaGenerator struct {
 	llm          agent.LLMClient
 	model        string
+	providerID   string
 	memoryEngine *memoryengine.Engine // nil = skip KG enhancement
 }
 
 // NewPersonaGenerator creates a new PersonaGenerator.
-func NewPersonaGenerator(llm agent.LLMClient, model string, mem *memoryengine.Engine) *PersonaGenerator {
-	return &PersonaGenerator{llm: llm, model: model, memoryEngine: mem}
+func NewPersonaGenerator(llm agent.LLMClient, model, providerID string, mem *memoryengine.Engine) *PersonaGenerator {
+	return &PersonaGenerator{llm: llm, model: model, providerID: providerID, memoryEngine: mem}
 }
 
 // Generate creates N persona definitions from the extraction data.
 func (g *PersonaGenerator) Generate(ctx context.Context, extraction *SeedExtraction, topic string, count int) ([]Persona, error) {
+	isDeduced := extraction != nil && len(extraction.SuggestedAgents) > 0
 	if count < 2 {
 		count = 2
 	}
-	if count > 5 {
-		count = 5
+	if isDeduced {
+		count = len(extraction.SuggestedAgents)
+		if count > 50 {
+			count = 50
+		}
+	} else {
+		if count > 5 {
+			count = 5
+		}
 	}
 	if extraction == nil {
 		return nil, fmt.Errorf("extraction is nil")
@@ -57,6 +66,7 @@ func (g *PersonaGenerator) Generate(ctx context.Context, extraction *SeedExtract
 
 	resp, err := g.llm.Chat(ctx, agent.LLMRequest{
 		Model:        g.model,
+		ProviderID:   g.providerID,
 		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
 		MaxTokens:    3072,
 		ResponseJSON: true,
@@ -245,10 +255,22 @@ func buildPersonaGenPrompt(extraction *SeedExtraction, topic string, count int, 
 		b.WriteString(kgContext)
 	}
 
+	if len(extraction.SuggestedAgents) > 0 {
+		b.WriteString("\nSuggested Agents (Deduction Mode):\n")
+		b.WriteString("You MUST generate exactly the following personas based on these characters/participants:\n")
+		for _, sa := range extraction.SuggestedAgents {
+			b.WriteString(fmt.Sprintf("- Name: %s\n  Role: %s\n  Description: %s\n  Traits: %s\n\n", sa.Name, sa.Role, sa.Description, strings.Join(sa.Traits, ", ")))
+		}
+	}
+
 	b.WriteString("\nConstraints:\n")
-	b.WriteString(fmt.Sprintf("- Output exactly %d personas\n", count))
-	b.WriteString("- At least one persona must be a contrarian/skeptic\n")
-	b.WriteString("- At least one persona must be a mediator/moderator\n")
+	if len(extraction.SuggestedAgents) > 0 {
+		b.WriteString(fmt.Sprintf("- Output exactly the %d personas listed under 'Suggested Agents' above, matching their names, roles, descriptions, and traits as the base. You should map their list of traits into key-value pairs in the 'traits' map (e.g. including key-values for personality traits) and complete their goals.\n", count))
+	} else {
+		b.WriteString(fmt.Sprintf("- Output exactly %d personas\n", count))
+		b.WriteString("- At least one persona must be a contrarian/skeptic\n")
+		b.WriteString("- At least one persona must be a mediator/moderator\n")
+	}
 	b.WriteString("- Each persona gets a unique stance (pro/con/neutral) toward each entity\n")
 	b.WriteString("- Personas should cover diverse perspectives\n\n")
 

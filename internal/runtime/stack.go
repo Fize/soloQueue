@@ -16,6 +16,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
@@ -319,10 +321,91 @@ func (s *Stack) OnConfigChange() error {
 		s.AgentFactory.SetToolsConfig(newToolsCfg)
 	}
 
+	s.rebuildMemoryEngine(settings.Embedding)
+
 	if s.AgentFactory != nil {
 		s.AgentFactory.UpdateLLM(s.LLMClient)
 	}
 
 	s.Log.Info(logger.CatConfig, "LLM provider, default model, and tools configurations hot-reloaded successfully from DB")
 	return nil
+}
+
+func (s *Stack) rebuildMemoryEngine(cfg config.EmbeddingConfig) {
+	if s.SharedDB == nil {
+		return
+	}
+
+	for _, prov := range cfg.Providers {
+		_ = prov
+	}
+	for _, model := range cfg.Models {
+		_ = model
+	}
+
+	var emb embedding.Embedder
+	var vecStore vectorstore.VectorStore
+
+	switch cfg.Provider {
+	case "openai":
+		embModel := s.Settings.DefaultEmbeddingModel()
+		if embModel != nil && embModel.Enabled {
+			embProvider := s.Settings.EmbeddingProviderByID(embModel.ProviderID)
+			if embProvider != nil && embProvider.Enabled {
+				apiKey := embProvider.APIKey
+				if apiKey == "" {
+					apiKey = os.Getenv(embProvider.APIKeyEnv)
+				}
+				client, err := embedding.NewOpenAI(embedding.OpenAIConfig{
+					BaseURL:   embProvider.BaseURL,
+					APIKey:    apiKey,
+					ModelID:   embModel.ID,
+					Dimension: embModel.Dimension,
+				})
+				if err != nil {
+					s.Log.Warn(logger.CatConfig, "hot-reload: failed to create OpenAI embedder, engine runs without vectors",
+						"err", err)
+				} else {
+					emb = client
+				}
+			}
+		}
+	case "onnx":
+		embModel := cfg.ModelPath
+		embCfg := embedding.Config{
+			Provider:  "onnx",
+			ModelPath: embModel,
+			ModelName: cfg.ModelName,
+		}
+		var err error
+		emb, err = embedding.NewFromConfig(embCfg)
+		if err != nil {
+			s.Log.Warn(logger.CatConfig, "hot-reload: failed to create ONNX embedder, engine runs without vectors",
+				"err", err,
+				"hint", "install onnxruntime (brew install onnxruntime)")
+		}
+	case "none", "":
+	default:
+		s.Log.Warn(logger.CatConfig, "hot-reload: unknown embedding provider, falling back to none",
+			"provider", cfg.Provider)
+	}
+
+	if emb != nil {
+		vecStore = vectorstore.NewSQLiteStoreFromDB(s.SharedDB.DB, &s.SharedDB.WMu,
+			vectorstore.WithTableName("mem_vec"),
+			vectorstore.WithLogger(s.Log),
+		)
+	}
+
+	newEngine := memoryengine.New(s.SharedDB.DB, &s.SharedDB.WMu, emb, vecStore, s.Log)
+	s.MemoryEngine = newEngine
+	s.ToolsCfg.MemoryEngine = newEngine
+
+	if s.AgentFactory != nil {
+		s.AgentFactory.SetToolsConfig(s.ToolsCfg)
+	}
+
+	s.Log.Info(logger.CatConfig, "memory engine hot-reloaded",
+		"provider", cfg.Provider,
+		"has_vector", emb != nil)
 }

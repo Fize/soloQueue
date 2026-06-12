@@ -12,11 +12,20 @@ import (
 )
 
 // SeedExtraction holds the structured output from LLM seed analysis.
+type SuggestedAgent struct {
+	Name        string   `json:"name"`
+	Role        string   `json:"role"`
+	Description string   `json:"description"`
+	Traits      []string `json:"traits"`
+}
+
+// SeedExtraction holds the structured output from LLM seed analysis.
 type SeedExtraction struct {
-	Entities      []memoryengine.EntityExtraction `json:"entities"`
-	WorldState    map[string]any                  `json:"world_state"`
-	KeyTopics     []string                        `json:"key_topics"`
-	ConflictAreas []string                        `json:"conflict_areas"`
+	Entities        []memoryengine.EntityExtraction `json:"entities"`
+	WorldState      map[string]any                  `json:"world_state"`
+	KeyTopics       []string                        `json:"key_topics"`
+	ConflictAreas   []string                        `json:"conflict_areas"`
+	SuggestedAgents []SuggestedAgent                `json:"suggested_agents,omitempty"`
 }
 
 // SeedExtractor extracts entities, world state, and topics from seed text.
@@ -24,12 +33,13 @@ type SeedExtraction struct {
 type SeedExtractor struct {
 	llm          agent.LLMClient
 	model        string
+	providerID   string
 	memoryEngine *memoryengine.Engine // nil = skip KG writes
 }
 
 // NewSeedExtractor creates a new SeedExtractor.
-func NewSeedExtractor(llm agent.LLMClient, model string, mem *memoryengine.Engine) *SeedExtractor {
-	return &SeedExtractor{llm: llm, model: model, memoryEngine: mem}
+func NewSeedExtractor(llm agent.LLMClient, model, providerID string, mem *memoryengine.Engine) *SeedExtractor {
+	return &SeedExtractor{llm: llm, model: model, providerID: providerID, memoryEngine: mem}
 }
 
 // Extract parses seed text and returns structured extraction.
@@ -62,6 +72,7 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 
 	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
 		Model:        s.model,
+		ProviderID:   s.providerID,
 		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
 		MaxTokens:    2048,
 		ResponseJSON: true,
@@ -196,6 +207,17 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 		}
 	}
 
+	// Merge SuggestedAgents (dedup by name)
+	agentSeen := make(map[string]bool)
+	var mergedAgents []SuggestedAgent
+	for _, ag := range append(a.SuggestedAgents, b.SuggestedAgents...) {
+		if !agentSeen[ag.Name] {
+			agentSeen[ag.Name] = true
+			mergedAgents = append(mergedAgents, ag)
+		}
+	}
+	a.SuggestedAgents = mergedAgents
+
 	return a
 }
 
@@ -233,11 +255,13 @@ func buildExtractionPrompt(text string) string {
 	b.WriteString("  rel_type must be one of: mention, agree, rebuttal, propose\n")
 	b.WriteString("- `world_state`: object of flat key-value pairs representing the initial world state\n")
 	b.WriteString("- `key_topics`: array of main topic strings (max 3)\n")
-	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3)\n\n")
+	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3)\n")
+	b.WriteString("- `suggested_agents`: array of objects representing specific individuals, participants, or characters found in the text who should serve as agents in this simulation. Each object must contain: `name` (string), `role` (string, e.g. advocate, skeptic, mediator, or their specific title in the text), `description` (brief summary of their stance/background), and `traits` (array of string traits). If the text is a general document without specific characters/persons, return an empty list.\n\n")
 	b.WriteString("Rules:\n")
 	b.WriteString("- Only extract entities that are debatable: concepts, technologies, organizations, or people that agents could take different stances on.\n")
 	b.WriteString("- For world_state, include factual givens like time period, location, key facts.\n")
-	b.WriteString("- Keep key_topics specific enough to generate focused discussion.\n\n")
+	b.WriteString("- Keep key_topics specific enough to generate focused discussion.\n")
+	b.WriteString("- If the text features actual characters (e.g. characters in a novel, meeting attendees, or historical figures in a debate), you MUST extract them into `suggested_agents` so they can be simulated directly.\n\n")
 	b.WriteString("Text:\n")
 	b.WriteString(text)
 

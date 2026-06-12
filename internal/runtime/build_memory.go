@@ -66,7 +66,7 @@ func (bc *buildContext) buildMemoryEngine() {
 		if err != nil {
 			bc.log.Warn(logger.CatApp, "build: failed to create ONNX embedder, engine runs without vectors",
 				"err", err,
-				"hint", "install onnxruntime and build with -tags onnx",
+				"hint", "install onnxruntime (brew install onnxruntime)",
 			)
 		}
 	case "none", "":

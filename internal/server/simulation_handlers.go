@@ -97,9 +97,15 @@ func (m *Mux) handleDeleteSimulation(w http.ResponseWriter, r *http.Request) {
 }
 
 type fromSeedRequest struct {
-	SeedText     string `json:"seed_text"`
-	Topic        string `json:"topic,omitempty"`
-	PersonaCount int    `json:"persona_count"`
+	SeedText           string `json:"seed_text"`
+	Topic              string `json:"topic,omitempty"`
+	PersonaCount       int    `json:"persona_count"`
+	ModelID            string `json:"model_id,omitempty"`
+	ProviderID         string `json:"provider_id,omitempty"`
+	MaxActions         int    `json:"max_actions,omitempty"`
+	MaxWallClockMs     int    `json:"max_wall_clock_ms,omitempty"`
+	TriggerPolicy      string `json:"trigger_policy,omitempty"`
+	MinSpeakIntervalMs int    `json:"min_speak_interval_ms,omitempty"`
 }
 
 type fromSeedResponse struct {
@@ -124,15 +130,21 @@ func (m *Mux) handleCreateFromSeed(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "seed_text is required"})
 		return
 	}
-	if req.PersonaCount <= 0 {
-		req.PersonaCount = 3
-	}
-	if req.PersonaCount < 2 || req.PersonaCount > 5 {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "persona_count must be between 2 and 5"})
+	if req.PersonaCount != 0 && (req.PersonaCount < 2 || req.PersonaCount > 50) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "persona_count must be 0 (auto-detect) or between 2 and 50"})
 		return
 	}
 
-	simID, extraction, personas, err := m.simEngine.CreateFromSeed(r.Context(), req.SeedText, req.Topic, req.PersonaCount)
+	opts := simulation.CreateFromSeedOptions{
+		ModelID:            req.ModelID,
+		ProviderID:         req.ProviderID,
+		MaxActions:         req.MaxActions,
+		MaxWallClockMs:     req.MaxWallClockMs,
+		TriggerPolicy:      req.TriggerPolicy,
+		MinSpeakIntervalMs: req.MinSpeakIntervalMs,
+	}
+
+	simID, extraction, personas, err := m.simEngine.CreateFromSeed(r.Context(), req.SeedText, req.Topic, req.PersonaCount, opts)
 	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -214,4 +226,46 @@ func (m *Mux) handleForkSimulation(w http.ResponseWriter, r *http.Request) {
 		"new_simulation_id":    newID,
 		"status":               "forked",
 	})
+}
+
+// handleUpdateSimulation updates a pending/idle simulation's configuration.
+func (m *Mux) handleUpdateSimulation(w http.ResponseWriter, r *http.Request) {
+	if m.simEngine == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "simulation engine not configured"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	state, err := m.simEngine.Get(id)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	state.Lock()
+	defer state.Unlock()
+
+	if state.Status != simulation.StatusPending {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only pending simulations can be configured"})
+		return
+	}
+
+	var newConfig simulation.SimulationConfig
+	if err := json.NewDecoder(r.Body).Decode(&newConfig); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if err := newConfig.Validate(); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	state.Config = newConfig
+	// Update in store
+	if err := m.simEngine.Update(id, state); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, state)
 }

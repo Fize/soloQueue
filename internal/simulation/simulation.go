@@ -77,6 +77,11 @@ func (e *SimulationEngine) Create(config SimulationConfig) (string, error) {
 	return e.store.Create(config)
 }
 
+// Update persists updates to a simulation's state.
+func (e *SimulationEngine) Update(id string, state *SimulationState) error {
+	return e.store.Update(id, state)
+}
+
 // Start begins simulation execution in a background goroutine and returns an event channel.
 func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan SimulationEvent, error) {
 	state, err := e.store.Get(simID)
@@ -158,6 +163,16 @@ func (e *SimulationEngine) SetMemoryEngine(mem *memoryengine.Engine) {
 	e.memoryEngine = mem
 }
 
+// CreateFromSeedOptions defines configuration overrides during seed-based simulation generation.
+type CreateFromSeedOptions struct {
+	ModelID            string `json:"model_id,omitempty"`
+	ProviderID         string `json:"provider_id,omitempty"`
+	MaxActions         int    `json:"max_actions,omitempty"`
+	MaxWallClockMs     int    `json:"max_wall_clock_ms,omitempty"`
+	TriggerPolicy      string `json:"trigger_policy,omitempty"`
+	MinSpeakIntervalMs int    `json:"min_speak_interval_ms,omitempty"`
+}
+
 // CreateFromSeed extracts entities and generates personas from seed text,
 // then creates a simulation. Returns the simulation ID, extraction, and personas.
 func (e *SimulationEngine) CreateFromSeed(
@@ -165,25 +180,56 @@ func (e *SimulationEngine) CreateFromSeed(
 	seedText string,
 	topic string,
 	personaCount int,
+	opts CreateFromSeedOptions,
 ) (simID string, extraction *SeedExtraction, personas []Persona, err error) {
-	// Clamp persona count
-	if personaCount < 2 {
-		personaCount = 2
-	}
-	if personaCount > 5 {
-		personaCount = 5
-	}
-
 	// Truncate excessive seed text
 	if len(seedText) > 50000 {
 		seedText = seedText[:50000]
 	}
 
 	// Step 1: Extract entities, world state, topics
-	extractor := NewSeedExtractor(e.llm, e.config.DefaultModelID, e.memoryEngine)
+	extractorModel := e.config.DefaultModelID
+	if opts.ModelID != "" {
+		extractorModel = opts.ModelID
+	}
+	extractorProvider := e.config.DefaultProviderID
+	if opts.ProviderID != "" {
+		extractorProvider = opts.ProviderID
+	}
+
+	extractor := NewSeedExtractor(e.llm, extractorModel, extractorProvider, e.memoryEngine)
 	extraction, err = extractor.Extract(ctx, seedText)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("seed extract: %w", err)
+	}
+
+	// Determine persona count based on deduction capability first
+	isDeduced := false
+	if len(extraction.SuggestedAgents) > 0 {
+		personaCount = len(extraction.SuggestedAgents)
+		isDeduced = true
+	} else if personaCount <= 0 {
+		// Fallback to complexity-based auto-detect if no suggested agents and personaCount is 0
+		personaCount = 3 // default baseline
+		if len(extraction.ConflictAreas) >= 3 || len(extraction.Entities) >= 5 {
+			personaCount = 5
+		} else if len(extraction.ConflictAreas) >= 2 || len(extraction.Entities) >= 3 {
+			personaCount = 4
+		}
+	}
+
+	// Clamp persona count
+	if personaCount < 2 {
+		personaCount = 2
+	}
+	if isDeduced {
+		if personaCount > 50 {
+			personaCount = 50
+		}
+	} else {
+		if personaCount > 5 {
+			personaCount = 5
+		}
 	}
 
 	// Use first key topic as topic if not provided
@@ -196,10 +242,46 @@ func (e *SimulationEngine) CreateFromSeed(
 	}
 
 	// Step 2: Generate personas
-	gen := NewPersonaGenerator(e.llm, e.config.DefaultModelID, e.memoryEngine)
+	genModel := e.config.DefaultModelID
+	if opts.ModelID != "" {
+		genModel = opts.ModelID
+	}
+	genProvider := e.config.DefaultProviderID
+	if opts.ProviderID != "" {
+		genProvider = opts.ProviderID
+	}
+
+	gen := NewPersonaGenerator(e.llm, genModel, genProvider, e.memoryEngine)
 	personas, err = gen.Generate(ctx, extraction, topic, personaCount)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("persona generation: %w", err)
+	}
+
+	// Override individual persona models/providers with the requested custom ones
+	for i := range personas {
+		if opts.ModelID != "" {
+			personas[i].ModelID = opts.ModelID
+		}
+		if opts.ProviderID != "" {
+			personas[i].ProviderID = opts.ProviderID
+		}
+	}
+
+	maxActions := e.config.DefaultMaxActions
+	if opts.MaxActions > 0 {
+		maxActions = opts.MaxActions
+	}
+	maxWallClockMs := e.config.DefaultMaxWallClockMs
+	if opts.MaxWallClockMs > 0 {
+		maxWallClockMs = opts.MaxWallClockMs
+	}
+	triggerPolicy := "selective"
+	if opts.TriggerPolicy != "" {
+		triggerPolicy = opts.TriggerPolicy
+	}
+	minSpeakIntervalMs := 2000
+	if opts.MinSpeakIntervalMs > 0 {
+		minSpeakIntervalMs = opts.MinSpeakIntervalMs
 	}
 
 	// Step 3: Create the simulation
@@ -207,10 +289,10 @@ func (e *SimulationEngine) CreateFromSeed(
 		Topic:              topic,
 		Personas:           personas,
 		WorldState:         extraction.WorldState,
-		MaxActions:         e.config.DefaultMaxActions,
-		MaxWallClockMs:     e.config.DefaultMaxWallClockMs,
-		TriggerPolicy:      "selective",
-		MinSpeakIntervalMs: 2000,
+		MaxActions:         maxActions,
+		MaxWallClockMs:     maxWallClockMs,
+		TriggerPolicy:      triggerPolicy,
+		MinSpeakIntervalMs: minSpeakIntervalMs,
 	}
 
 	simID, err = e.Create(config)
@@ -247,8 +329,9 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 		}
 		prompt := BuildReportAnalystPrompt(state.Config.Topic, report, question)
 		resp, err := e.llm.Chat(ctx, agent.LLMRequest{
-			Model:    e.config.DefaultModelID,
-			Messages: []agent.LLMMessage{{Role: "user", Content: prompt}},
+			Model:      e.config.DefaultModelID,
+			ProviderID: e.config.DefaultProviderID,
+			Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
 		})
 		if err != nil {
 			return "", fmt.Errorf("report analyst ask: %w", err)
@@ -281,8 +364,9 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 	prompt := BuildReplayPrompt(persona, state.Config.Topic, records, question)
 
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
-		Model:    e.config.DefaultModelID,
-		Messages: []agent.LLMMessage{{Role: "user", Content: prompt}},
+		Model:      e.config.DefaultModelID,
+		ProviderID: e.config.DefaultProviderID,
+		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
 	})
 	if err != nil {
 		return "", fmt.Errorf("replay ask: %w", err)
@@ -698,9 +782,10 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 	prompt := BuildReportPrompt(config.Topic, memories, graph, ws)
 
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
-		Model:     e.config.DefaultModelID,
-		Messages:  []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens: 2048,
+		Model:      e.config.DefaultModelID,
+		ProviderID: e.config.DefaultProviderID,
+		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
+		MaxTokens:  2048,
 	})
 	if err != nil {
 		return "", err

@@ -49,7 +49,7 @@ func (c *SimulationConfig) Validate() error {
 	if len(c.Personas) < 2 {
 		return ErrTooFewPersonas
 	}
-	if len(c.Personas) > 5 {
+	if len(c.Personas) > 50 {
 		return ErrTooManyPersonas
 	}
 	seen := make(map[string]bool)

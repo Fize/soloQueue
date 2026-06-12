@@ -5,6 +5,8 @@ import { MobileNav } from '@/components/MobileNav'
 import { AgentDetailPage } from '@/components/AgentDetailPage'
 import { FilesPage } from '@/components/FilesPage'
 import { CronPage } from '@/components/CronPage'
+import { SimulationListPage } from '@/components/SimulationListPage'
+import { SimulationDetailPage } from '@/components/SimulationDetailPage'
 import { SettingsLayout } from '@/components/SettingsLayout'
 import { ConfigTab } from '@/components/settings/ConfigTab'
 import { ProfileTab } from '@/components/settings/ProfileTab'
@@ -61,6 +63,8 @@ function App() {
               <Route path="/agents/:id" element={<AgentDetailPage />} />
               <Route path="/files" element={<FilesPage />} />
               <Route path="/cron" element={<CronPage />} />
+              <Route path="/simulations" element={<SimulationListPage />} />
+              <Route path="/simulations/:id" element={<SimulationDetailPage />} />
               <Route path="/settings" element={<SettingsLayout />}>
                 <Route index element={<Navigate to="config" replace />} />
                 <Route path="config" element={<ConfigTab />} />
