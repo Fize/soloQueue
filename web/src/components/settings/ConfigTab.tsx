@@ -1956,6 +1956,23 @@ export function ConfigTab() {
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">
+                        Provider
+                      </label>
+                      <select
+                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        value={embeddingConfig?.provider || ''}
+                        onChange={(e) =>
+                          setEmbeddingConfig({ ...embeddingConfig, provider: e.target.value })
+                        }
+                      >
+                        <option value="">none (default)</option>
+                        <option value="none">none — BM25 + KG only</option>
+                        <option value="onnx">onnx — Local ONNX Model</option>
+                        <option value="openai">openai — Remote API</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
                         Min Similarity Threshold (0.0–1.0)
                       </label>
                       <Input
@@ -1974,257 +1991,314 @@ export function ConfigTab() {
                     </div>
                   </div>
 
+                  {embeddingConfig?.provider === 'onnx' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground">
+                          Model Path
+                          <span className="text-[10px] ml-1 text-muted-foreground/60">
+                            (leave empty to auto-download)
+                          </span>
+                        </label>
+                        <Input
+                          placeholder="~/.soloqueue/models/"
+                          value={embeddingConfig.modelPath || ''}
+                          onChange={(e) =>
+                            setEmbeddingConfig({
+                              ...embeddingConfig,
+                              modelPath: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground">
+                          Model Name
+                          <span className="text-[10px] ml-1 text-muted-foreground/60">
+                            (default: intfloat/multilingual-e5-large)
+                          </span>
+                        </label>
+                        <Input
+                          placeholder="intfloat/multilingual-e5-large"
+                          value={embeddingConfig.modelName || ''}
+                          onChange={(e) =>
+                            setEmbeddingConfig({
+                              ...embeddingConfig,
+                              modelName: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Embedding Providers Section */}
-                  <div className="space-y-4 pt-4 border-t">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-foreground">Embedding Providers</h4>
-                      <Button size="xs" variant="outline" onClick={handleAddEmbeddingProvider}>
-                        <Plus className="h-3 w-3 mr-1" /> Add Provider
-                      </Button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {(embeddingConfig.providers || []).map((prov, idx) => (
-                        <div
-                          key={prov.id || idx}
-                          className="p-4 border rounded-lg relative space-y-4 bg-muted/20"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveEmbeddingProvider(idx)}
-                            className="absolute top-4 right-4 text-muted-foreground hover:text-destructive transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground font-mono">
-                                Provider ID
-                              </label>
-                              <Input
-                                type="text"
-                                placeholder="e.g. local"
-                                value={prov.id || ''}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingProvider(idx, 'id', e.target.value)
-                                }
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground">
-                                Provider Name
-                              </label>
-                              <Input
-                                type="text"
-                                placeholder="e.g. Ollama"
-                                value={prov.name || ''}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingProvider(idx, 'name', e.target.value)
-                                }
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground">
-                                Base URL
-                              </label>
-                              <Input
-                                type="text"
-                                placeholder="http://localhost:11434"
-                                value={prov.baseUrl || ''}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingProvider(idx, 'baseUrl', e.target.value)
-                                }
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground">
-                                API Key (Direct)
-                              </label>
-                              <Input
-                                type="password"
-                                placeholder="sk-..."
-                                value={prov.apiKey || ''}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingProvider(idx, 'apiKey', e.target.value)
-                                }
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground font-mono">
-                                API Key Env Variable
-                              </label>
-                              <Input
-                                type="text"
-                                placeholder="e.g. OLLAMA_API_KEY"
-                                value={prov.apiKeyEnv || ''}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingProvider(idx, 'apiKeyEnv', e.target.value)
-                                }
-                              />
-                            </div>
-                            <div className="flex items-center gap-2 pt-6">
-                              <Switch
-                                checked={prov.enabled}
-                                onCheckedChange={(val) =>
-                                  handleUpdateEmbeddingProvider(idx, 'enabled', val)
-                                }
-                              />
-                              <span className="text-xs font-semibold text-foreground">Enabled</span>
-                            </div>
-                          </div>
+                  {embeddingConfig?.provider === 'openai' && (
+                    <>
+                      <div className="space-y-4 pt-4 border-t">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-foreground">
+                            Embedding Providers
+                          </h4>
+                          <Button size="xs" variant="outline" onClick={handleAddEmbeddingProvider}>
+                            <Plus className="h-3 w-3 mr-1" /> Add Provider
+                          </Button>
                         </div>
-                      ))}
-                      {(embeddingConfig.providers || []).length === 0 && (
-                        <div className="text-center p-6 border border-dashed rounded-xl text-muted-foreground text-xs">
-                          No embedding providers defined.
-                        </div>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* Embedding Models Section */}
-                  <div className="space-y-4 pt-4 border-t">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-foreground">Embedding Models</h4>
-                      <Button size="xs" variant="outline" onClick={handleAddEmbeddingModel}>
-                        <Plus className="h-3 w-3 mr-1" /> Add Model
-                      </Button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {(embeddingConfig.models || []).map((mdl, idx) => (
-                        <div
-                          key={mdl.id || idx}
-                          className="p-4 border rounded-lg relative space-y-4 bg-muted/20"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveEmbeddingModel(idx)}
-                            className="absolute top-4 right-4 text-muted-foreground hover:text-destructive transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground font-mono">
-                                Model ID
-                              </label>
-                              <Input
-                                type="text"
-                                placeholder="e.g. nomic-embed-text"
-                                value={mdl.id || ''}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingModel(idx, 'id', e.target.value)
-                                }
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1 font-mono">
-                              <label className="text-xs font-semibold text-muted-foreground">
-                                Provider ID
-                              </label>
-                              <Select
-                                value={mdl.providerId || ''}
-                                onChange={(v) => handleUpdateEmbeddingModel(idx, 'providerId', v)}
-                                placeholder="Select Provider"
-                                options={[
-                                  { value: '', label: 'Select Provider' },
-                                  ...(embeddingConfig.providers || []).map((p) => ({
-                                    value: p.id,
-                                    label: `${p.name} (${p.id})`,
-                                  })),
-                                ]}
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground">
-                                Model Name
-                              </label>
-                              <Input
-                                type="text"
-                                placeholder="e.g. Nomic Text Embeddings"
-                                value={mdl.name || ''}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingModel(idx, 'name', e.target.value)
-                                }
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground">
-                                Dimension Size
-                              </label>
-                              <Input
-                                type="number"
-                                value={mdl.dimension || 1024}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingModel(
-                                    idx,
-                                    'dimension',
-                                    Number(e.target.value)
-                                  )
-                                }
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-semibold text-muted-foreground">
-                                Batch Size
-                              </label>
-                              <Input
-                                type="number"
-                                value={mdl.batchSize || 32}
-                                onChange={(e) =>
-                                  handleUpdateEmbeddingModel(
-                                    idx,
-                                    'batchSize',
-                                    Number(e.target.value)
-                                  )
-                                }
-                              />
-                            </div>
-                            <div className="flex items-center gap-6 pt-6 flex-wrap">
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  checked={mdl.normalize}
-                                  onCheckedChange={(val) =>
-                                    handleUpdateEmbeddingModel(idx, 'normalize', val)
-                                  }
-                                />
-                                <span className="text-xs font-semibold text-foreground">
-                                  Normalize
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  checked={mdl.isDefault}
-                                  onCheckedChange={(val) =>
-                                    handleUpdateEmbeddingModel(idx, 'isDefault', val)
-                                  }
-                                />
-                                <span className="text-xs font-semibold text-foreground">
-                                  Is Default Model
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  checked={mdl.enabled}
-                                  onCheckedChange={(val) =>
-                                    handleUpdateEmbeddingModel(idx, 'enabled', val)
-                                  }
-                                />
-                                <span className="text-xs font-semibold text-foreground">
-                                  Enabled
-                                </span>
+                        <div className="space-y-3">
+                          {(embeddingConfig.providers || []).map((prov, idx) => (
+                            <div
+                              key={prov.id || idx}
+                              className="p-4 border rounded-lg relative space-y-4 bg-muted/20"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEmbeddingProvider(idx)}
+                                className="absolute top-4 right-4 text-muted-foreground hover:text-destructive transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground font-mono">
+                                    Provider ID
+                                  </label>
+                                  <Input
+                                    type="text"
+                                    placeholder="e.g. local"
+                                    value={prov.id || ''}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingProvider(idx, 'id', e.target.value)
+                                    }
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground">
+                                    Provider Name
+                                  </label>
+                                  <Input
+                                    type="text"
+                                    placeholder="e.g. Ollama"
+                                    value={prov.name || ''}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingProvider(idx, 'name', e.target.value)
+                                    }
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground">
+                                    Base URL
+                                  </label>
+                                  <Input
+                                    type="text"
+                                    placeholder="http://localhost:11434"
+                                    value={prov.baseUrl || ''}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingProvider(idx, 'baseUrl', e.target.value)
+                                    }
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground">
+                                    API Key (Direct)
+                                  </label>
+                                  <Input
+                                    type="password"
+                                    placeholder="sk-..."
+                                    value={prov.apiKey || ''}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingProvider(idx, 'apiKey', e.target.value)
+                                    }
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground font-mono">
+                                    API Key Env Variable
+                                  </label>
+                                  <Input
+                                    type="text"
+                                    placeholder="e.g. OLLAMA_API_KEY"
+                                    value={prov.apiKeyEnv || ''}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingProvider(
+                                        idx,
+                                        'apiKeyEnv',
+                                        e.target.value
+                                      )
+                                    }
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2 pt-6">
+                                  <Switch
+                                    checked={prov.enabled}
+                                    onCheckedChange={(val) =>
+                                      handleUpdateEmbeddingProvider(idx, 'enabled', val)
+                                    }
+                                  />
+                                  <span className="text-xs font-semibold text-foreground">
+                                    Enabled
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          </div>
+                          ))}
+                          {(embeddingConfig.providers || []).length === 0 && (
+                            <div className="text-center p-6 border border-dashed rounded-xl text-muted-foreground text-xs">
+                              No embedding providers defined.
+                            </div>
+                          )}
                         </div>
-                      ))}
-                      {(embeddingConfig.models || []).length === 0 && (
-                        <div className="text-center p-6 border border-dashed rounded-xl text-muted-foreground text-xs">
-                          No embedding models defined.
+                      </div>
+
+                      {/* Embedding Models Section */}
+                      <div className="space-y-4 pt-4 border-t">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-foreground">
+                            Embedding Models
+                          </h4>
+                          <Button size="xs" variant="outline" onClick={handleAddEmbeddingModel}>
+                            <Plus className="h-3 w-3 mr-1" /> Add Model
+                          </Button>
                         </div>
-                      )}
-                    </div>
-                  </div>
+
+                        <div className="space-y-3">
+                          {(embeddingConfig.models || []).map((mdl, idx) => (
+                            <div
+                              key={mdl.id || idx}
+                              className="p-4 border rounded-lg relative space-y-4 bg-muted/20"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEmbeddingModel(idx)}
+                                className="absolute top-4 right-4 text-muted-foreground hover:text-destructive transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground font-mono">
+                                    Model ID
+                                  </label>
+                                  <Input
+                                    type="text"
+                                    placeholder="e.g. nomic-embed-text"
+                                    value={mdl.id || ''}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingModel(idx, 'id', e.target.value)
+                                    }
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1 font-mono">
+                                  <label className="text-xs font-semibold text-muted-foreground">
+                                    Provider ID
+                                  </label>
+                                  <Select
+                                    value={mdl.providerId || ''}
+                                    onChange={(v) =>
+                                      handleUpdateEmbeddingModel(idx, 'providerId', v)
+                                    }
+                                    placeholder="Select Provider"
+                                    options={[
+                                      { value: '', label: 'Select Provider' },
+                                      ...(embeddingConfig.providers || []).map((p) => ({
+                                        value: p.id,
+                                        label: `${p.name} (${p.id})`,
+                                      })),
+                                    ]}
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground">
+                                    Model Name
+                                  </label>
+                                  <Input
+                                    type="text"
+                                    placeholder="e.g. Nomic Text Embeddings"
+                                    value={mdl.name || ''}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingModel(idx, 'name', e.target.value)
+                                    }
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground">
+                                    Dimension Size
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    value={mdl.dimension || 1024}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingModel(
+                                        idx,
+                                        'dimension',
+                                        Number(e.target.value)
+                                      )
+                                    }
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-semibold text-muted-foreground">
+                                    Batch Size
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    value={mdl.batchSize || 32}
+                                    onChange={(e) =>
+                                      handleUpdateEmbeddingModel(
+                                        idx,
+                                        'batchSize',
+                                        Number(e.target.value)
+                                      )
+                                    }
+                                  />
+                                </div>
+                                <div className="flex items-center gap-6 pt-6 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={mdl.normalize}
+                                      onCheckedChange={(val) =>
+                                        handleUpdateEmbeddingModel(idx, 'normalize', val)
+                                      }
+                                    />
+                                    <span className="text-xs font-semibold text-foreground">
+                                      Normalize
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={mdl.isDefault}
+                                      onCheckedChange={(val) =>
+                                        handleUpdateEmbeddingModel(idx, 'isDefault', val)
+                                      }
+                                    />
+                                    <span className="text-xs font-semibold text-foreground">
+                                      Is Default Model
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={mdl.enabled}
+                                      onCheckedChange={(val) =>
+                                        handleUpdateEmbeddingModel(idx, 'enabled', val)
+                                      }
+                                    />
+                                    <span className="text-xs font-semibold text-foreground">
+                                      Enabled
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {(embeddingConfig.models || []).length === 0 && (
+                            <div className="text-center p-6 border border-dashed rounded-xl text-muted-foreground text-xs">
+                              No embedding models defined.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </TabsContent>
