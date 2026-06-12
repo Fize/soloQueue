@@ -69,6 +69,9 @@ func (m *Mux) allowedRoots() []string {
 	planDir := filepath.Join(m.workDir, "plan")
 	roots = append(roots, planDir)
 
+	workspaceDir := filepath.Join(m.workDir, "workspace")
+	roots = append(roots, workspaceDir)
+
 	if m.teamstore != nil {
 		projects, err := m.teamstore.ListProjects(context.Background())
 		if err == nil {
@@ -220,6 +223,13 @@ func (m *Mux) handleGetFileRoots(w http.ResponseWriter, r *http.Request) {
 		Group: "Global Plans",
 	})
 
+	workspaceDir := filepath.Join(m.workDir, "workspace")
+	roots = append(roots, FileRoot{
+		Label: "Global Workspaces",
+		Path:  workspaceDir,
+		Group: "Global Plans",
+	})
+
 	if m.teamstore != nil {
 		projects, err := m.teamstore.ListProjects(r.Context())
 		if err == nil {
@@ -322,3 +332,5 @@ func (m *Mux) handleToggleCheckbox(w http.ResponseWriter, r *http.Request) {
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+

@@ -412,6 +412,10 @@ func DefaultWorkDir() (string, error) {
 		if err := os.MkdirAll(planDir, 0o755); err != nil {
 			return "", fmt.Errorf("create plan dir from env %s: %w", envDir, err)
 		}
+		workspaceDir := filepath.Join(envDir, "workspace")
+		if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+			return "", fmt.Errorf("create workspace dir from env %s: %w", envDir, err)
+		}
 		return envDir, nil
 	}
 
@@ -427,6 +431,10 @@ func DefaultWorkDir() (string, error) {
 	planDir := filepath.Join(dir, "plan")
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		return "", fmt.Errorf("create plan dir %s: %w", planDir, err)
+	}
+	workspaceDir := filepath.Join(dir, "workspace")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		return "", fmt.Errorf("create workspace dir %s: %w", workspaceDir, err)
 	}
 	return dir, nil
 }

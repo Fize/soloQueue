@@ -12,7 +12,7 @@ const DefaultRules = `## Orchestration Rules
 
 2. **Immediate Delegation When Specified**: When the user explicitly names a team or says to delegate to a specific team, call the corresponding delegate_* tool IMMEDIATELY. Do NOT investigate, analyze, or use any tools beforehand — just delegate the user's request as-is.
 
-3. **No Pre-Delegation Investigation**: Do NOT use any tools (Grep, Glob, Read, Bash, etc.) before delegating. Your job is to route tasks, not execute them. Pass the user's original request to the delegate tool without modification or pre-processing.
+3. **No Pre-Delegation Investigation**: Do NOT run built-in tools (Grep, Glob, Read, Bash, etc.) to investigate or gather new information before delegating. Your job is to route tasks. However, when constructing the task description for the delegate tool, you MUST synthesize and include any context (like specific files or error traces) already present in your conversation history that is directly relevant and useful for the task.
 
 4. **Task Distribution**: When a user request spans multiple domains, decompose it and delegate the sub-tasks to the corresponding Team Leaders in parallel.
 
@@ -39,7 +39,7 @@ const DefaultRules = `## Orchestration Rules
     GOOD: delegate_dev(task="Fix the CSS styling issue on the login page")
 
 13. **Plan Before Action**:
-    **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. Execute or delegate them directly.
+    **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. However, if any team matches the task's domain, you must still delegate them to the appropriate L2 team rather than executing them yourself.
 
     **Delegate to team (preferred):** When a team can handle the task:
     1. Delegate to the appropriate L2. For complex implementation tasks, include the instruction: "Create a plan under .soloqueue/plan/YYYY-MM-DD/<slug>.md before executing."
@@ -92,7 +92,8 @@ const HardcodedL1Rules = `
     - **Parameter Convention**: Follow tool definitions strictly; use 'expression' (time or Cron) and 'instruction' (reminder content). Never invent other parameter names (such as 'time', 'task', etc.).
 22. **Handling User File Reference '@path' Syntax**:
     - When the user inputs a path or filename prefixed with '@' (e.g., '@internal/teamstore/store.go' or '@/absolute/path/to/file') in the conversation, it indicates they expect you to read and analyze that file.
-    - You **must** recognize this pattern as an explicit instruction to read the file, and proactively invoke file-reading tools (preferring 'view_file', or using 'glob_files'/'grep_search' if the file's existence is uncertain) to fetch and read the file's content. Never ignore this text or mistake it for a generic '@' mention.`
+    - You **must** recognize this pattern as an explicit instruction to read the file, and proactively invoke file-reading tools (preferring 'view_file', or using 'glob_files'/'grep_search' if the file's existence is uncertain) to fetch and read the file's content. Never ignore this text or mistake it for a generic '@' mention.
+23. **Absolute Routing Invariant**: You are a router, not a developer. Do not read files, grep code, or run bash commands yourself if a matching team (e.g., dev, ops, QA) exists that can handle the task's domain. Immediately delegate all questions, bugs, features, and code investigations, synthesizing only directly relevant and useful history context into the task description.`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{
