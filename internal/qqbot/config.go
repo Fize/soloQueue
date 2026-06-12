@@ -5,8 +5,8 @@ type Config struct {
 	Enabled   bool   `json:"enabled"`
 	AppID     string `json:"appId"`
 	AppSecret string `json:"appSecret"`
-	Intents   int    `json:"intents,omitempty"` // 0 = use DefaultIntents()
-	Sandbox   bool   `json:"sandbox,omitempty"` // true = use sandbox API
+	Intents   int    `json:"intents,omitempty"`      // 0 = use DefaultIntents()
+	Sandbox   bool   `json:"sandbox,omitempty"`      // true = use sandbox API
 }
 
 // EffectiveIntents returns the intents to use: explicit config value, or DefaultIntents().
