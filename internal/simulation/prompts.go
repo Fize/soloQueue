@@ -40,11 +40,22 @@ func BuildSimulationSystemPrompt(persona Persona, topic string, allPersonas []Pe
 	}
 	b.WriteString("\n")
 
+	// Check if this agent acts as a moderator/mediator/host
+	isMediator := persona.Traits["role_type"] == "mediator" ||
+		strings.Contains(strings.ToLower(persona.Role), "mediator") ||
+		strings.Contains(strings.ToLower(persona.Role), "moderator") ||
+		strings.Contains(strings.ToLower(persona.Role), "host")
+
 	// Behavior rules
 	b.WriteString("## Rules\n")
 	b.WriteString("- Stay in character. Respond according to your personality and goals.\n")
 	b.WriteString("- Read messages from other participants carefully before responding.\n")
-	b.WriteString("- You may state your position, rebut others, ask questions, or propose changes.\n")
+	if isMediator {
+		b.WriteString("- You are the Moderator/Host. Stay neutral, guide the discussion, ask questions to silent participants, resolve conflicts, and summarize consensus.\n")
+		b.WriteString("- Do not take a strong personal stance; instead, facilitate the group's deliberation.\n")
+	} else {
+		b.WriteString("- You may state your position, rebut others, ask questions, or propose changes.\n")
+	}
 	b.WriteString("- To update the shared world state, use: [PROPOSE key: value]\n")
 	b.WriteString("- Keep responses focused and under 500 words.\n")
 	b.WriteString("- You'll see the current world state and recent messages in each round.\n")
@@ -183,4 +194,20 @@ func truncateContent(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// BuildReportAnalystPrompt creates the prompt for post-simulation report questioning.
+func BuildReportAnalystPrompt(topic string, report string, question string) string {
+	var b strings.Builder
+
+	b.WriteString("You are the Simulation Report Analyst. You compiled the final summary report for a multi-agent simulation.\n\n")
+	b.WriteString(fmt.Sprintf("Simulation Topic: %s\n\n", topic))
+	b.WriteString("## Simulation Summary Report\n")
+	b.WriteString(report)
+	b.WriteString("\n\n")
+	b.WriteString("## User Question\n")
+	b.WriteString(fmt.Sprintf("A user is asking you now: %s\n\n", question))
+	b.WriteString("Answer the question objectively, based strictly on the report and the simulation outcomes. Be concise (under 400 words).")
+
+	return b.String()
 }
