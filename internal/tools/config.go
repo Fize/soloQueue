@@ -172,7 +172,6 @@ func Build(cfg Config) []Tool {
 		newWebSearchTool(cfg),
 		newRememberTool(cfg),
 		newRecallMemoryTool(cfg),
-		newSendFileTool(cfg),
 	}
 	if cfg.MemoryEngine != nil {
 		tools = append(tools,

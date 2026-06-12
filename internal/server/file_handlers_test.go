@@ -62,20 +62,29 @@ func TestHTTP_FileHandlers_RootsAndToggle(t *testing.T) {
 			t.Fatalf("failed to parse roots: %v", err)
 		}
 
-		// Should contain Global Plans and Project One
-		hasGlobal := false
+		// Should contain Global Plans, Global Workspaces, and Project One
+		hasGlobalPlans := false
+		hasGlobalWorkspaces := false
 		hasProject := false
+		expectedWorkspacePath := filepath.Join(tempDir, "workspace")
+
 		for _, r := range roots {
 			if r.Label == "Global Plans" {
-				hasGlobal = true
+				hasGlobalPlans = true
+			}
+			if r.Label == "Global Workspaces" && r.Path == expectedWorkspacePath && r.Group == "Global Plans" {
+				hasGlobalWorkspaces = true
 			}
 			if r.Label == "Project One" && r.Path == projPath && r.Group == "Projects" {
 				hasProject = true
 			}
 		}
 
-		if !hasGlobal {
+		if !hasGlobalPlans {
 			t.Error("missing Global Plans root")
+		}
+		if !hasGlobalWorkspaces {
+			t.Error("missing Global Workspaces root")
 		}
 		if !hasProject {
 			t.Error("missing Project One root")
