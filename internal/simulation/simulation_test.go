@@ -2,12 +2,15 @@ package simulation
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -1178,5 +1181,160 @@ func TestFork_InheritsOriginalTopic(t *testing.T) {
 	}
 	if newState.Config.Topic != "original topic" {
 		t.Errorf("expected topic 'original topic', got %q", newState.Config.Topic)
+	}
+}
+
+func TestReplayAsk_ReportAgent(t *testing.T) {
+	var capturedPrompt string
+	fakeLLM := &agent.FakeLLM{
+		Responses: []string{
+			"The analyst response regarding the report.",
+		},
+		Hook: func(req agent.LLMRequest) {
+			if len(req.Messages) > 0 {
+				capturedPrompt = req.Messages[0].Content
+			}
+		},
+	}
+	engine := NewSimulationEngine(nil, nil, fakeLLM, tools.Config{}, SimulationConfigFile{DefaultModelID: "test-model"}, nil)
+
+	// Inject a completed simulation state with a report
+	simID := "test-sim-id"
+	_, err := engine.store.Create(SimulationConfig{
+		ID:       simID,
+		Topic:    "Topic A",
+		Personas: []Persona{{ID: "alice", Name: "Alice"}, {ID: "bob", Name: "Bob"}},
+	})
+	if err != nil {
+		t.Fatalf("failed to create sim state: %v", err)
+	}
+	state, _ := engine.store.Get(simID)
+	state.Status = StatusCompleted
+	state.Report = "This is the final summary report of Topic A."
+
+	// Query replay for report
+	answer, err := engine.ReplayAsk(context.Background(), simID, "report", "What is the summary?")
+	if err != nil {
+		t.Fatalf("ReplayAsk report: %v", err)
+	}
+	if answer != "The analyst response regarding the report." {
+		t.Errorf("expected analyst response, got: %s", answer)
+	}
+
+	// Also verify prompt structure
+	if capturedPrompt == "" {
+		t.Fatal("expected LLM chat to trigger Hook")
+	}
+	if !strings.Contains(capturedPrompt, "Simulation Topic: Topic A") {
+		t.Errorf("expected prompt to contain topic, got: %s", capturedPrompt)
+	}
+	if !strings.Contains(capturedPrompt, "This is the final summary report of Topic A.") {
+		t.Errorf("expected prompt to contain report, got: %s", capturedPrompt)
+	}
+}
+
+func TestBuildSimulationSystemPrompt_Moderator(t *testing.T) {
+	persona := Persona{
+		ID:     "host",
+		Name:   "Host",
+		Role:   "mediator/moderator",
+		Traits: map[string]string{"role_type": "mediator"},
+	}
+	prompt := BuildSimulationSystemPrompt(persona, "Rust vs Go", nil)
+	if !strings.Contains(prompt, "You are the Moderator/Host") {
+		t.Error("expected moderator rules in prompt")
+	}
+	if !strings.Contains(prompt, "Do not take a strong personal stance") {
+		t.Error("expected prompt to instruct moderator not to take a stance")
+	}
+
+	// Normal agent should not have it
+	normal := Persona{ID: "alice", Name: "Alice", Role: "Developer"}
+	normalPrompt := BuildSimulationSystemPrompt(normal, "Rust vs Go", nil)
+	if strings.Contains(normalPrompt, "You are the Moderator/Host") {
+		t.Error("unexpected moderator rules in normal prompt")
+	}
+}
+
+func TestIndexSimulationToKG_Namespacing(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test_entries.db")
+	db, err := sqlitedb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	defer db.Close()
+
+	// Build a memory engine with nil embedder and nil vecstore (provider "none")
+	memEngine := memoryengine.New(db.DB, &db.WMu, nil, nil, nil)
+
+	engine := NewSimulationEngine(nil, nil, nil, tools.Config{}, SimulationConfigFile{}, nil)
+	engine.SetMemoryEngine(memEngine)
+
+	simID := "sim-uuid-1234"
+	simAgents := []*SimAgent{
+		{
+			personaID: "alice",
+			persona: &Persona{
+				ID:   "alice",
+				Name: "Alice",
+				Role: "Developer",
+				Traits: map[string]string{
+					"stance:Go": "pro",
+				},
+			},
+		},
+		{
+			personaID: "bob",
+			persona: &Persona{
+				ID:   "bob",
+				Name: "Bob",
+				Role: "Manager",
+				Traits: map[string]string{
+					"stance:Go": "con",
+				},
+			},
+		},
+	}
+
+	graph := NewRelationGraph()
+	graph.AddEdge("alice", "bob", RelMention, 1, "Hey @bob")
+
+	ws := NewWorldState(nil)
+	ws.Set("Go", "good", "alice", 1)
+
+	ctx := context.Background()
+	engine.indexSimulationToKG(ctx, simID, "Go language debate", simAgents, graph, ws, "This is a summary report.")
+
+	// Query database directly to verify namespacing
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM kg_nodes WHERE name = ?`, "sim_sim-uuid-1234_alice").Scan(&count)
+	if err != nil || count != 1 {
+		t.Errorf("expected namespaced node for alice, got count: %d, err: %v", count, err)
+	}
+
+	err = db.QueryRow(`SELECT COUNT(*) FROM kg_nodes WHERE name = ?`, "sim_sim-uuid-1234_bob").Scan(&count)
+	if err != nil || count != 1 {
+		t.Errorf("expected namespaced node for bob, got count: %d, err: %v", count, err)
+	}
+
+	// Topic "Go" should not be prefixed
+	err = db.QueryRow(`SELECT COUNT(*) FROM kg_nodes WHERE name = ?`, "Go").Scan(&count)
+	if err != nil || count != 1 {
+		t.Errorf("expected global node for Go, got count: %d, err: %v", count, err)
+	}
+
+	// Relations should also use namespaced nodes
+	var source, target, relType string
+	err = db.QueryRow(`
+		SELECT s.name, t.name, e.rel_type
+		FROM kg_edges e
+		JOIN kg_nodes s ON e.source = s.id
+		JOIN kg_nodes t ON e.target = t.id
+		WHERE e.rel_type = ?`, "mention").Scan(&source, &target, &relType)
+	if err != nil {
+		t.Errorf("failed to query mention relation: %v", err)
+	}
+	if source != "sim_sim-uuid-1234_alice" || target != "sim_sim-uuid-1234_bob" {
+		t.Errorf("expected namespaced relation, got source=%q, target=%q", source, target)
 	}
 }

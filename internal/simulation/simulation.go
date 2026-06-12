@@ -236,6 +236,26 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 		return "", fmt.Errorf("simulation %s is not completed (status: %s)", simID, status)
 	}
 
+	// Handle Report Agent Replay
+	if personaID == "report" || personaID == "report_agent" {
+		state.RLock()
+		report := state.Report
+		state.RUnlock()
+
+		if report == "" {
+			return "", fmt.Errorf("no report found for simulation %s", simID)
+		}
+		prompt := BuildReportAnalystPrompt(state.Config.Topic, report, question)
+		resp, err := e.llm.Chat(ctx, agent.LLMRequest{
+			Model:    e.config.DefaultModelID,
+			Messages: []agent.LLMMessage{{Role: "user", Content: prompt}},
+		})
+		if err != nil {
+			return "", fmt.Errorf("report analyst ask: %w", err)
+		}
+		return resp.Content, nil
+	}
+
 	// Find the persona
 	var persona *Persona
 	for i, p := range state.Config.Personas {
@@ -527,10 +547,15 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 
 	var entities []memoryengine.EntityExtraction
 
+	// Helper to prefix agent IDs with SimulationID to prevent collision
+	prefixAgent := func(id string) string {
+		return "sim_" + simID + "_" + id
+	}
+
 	// 1. Each agent becomes an entity with their persona traits
 	for _, sa := range simAgents {
 		entity := memoryengine.EntityExtraction{
-			Name:       sa.PersonaID(),
+			Name:       prefixAgent(sa.PersonaID()),
 			Type:       "agent",
 			Confidence: 1.0,
 		}
@@ -539,7 +564,7 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 		for k, v := range p.Traits {
 			if len(k) > 7 && k[:7] == "stance:" {
 				entity.Relations = append(entity.Relations, memoryengine.RelationExtraction{
-					TargetName: k[7:],
+					TargetName: k[7:], // Topic/entity is global, not prefixed
 					RelType:    "stance_" + v,
 					Weight:     0.8,
 				})
@@ -551,12 +576,12 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 	// 2. Convert RelationGraph edges to KG relations
 	for _, edge := range graph.Edges() {
 		entities = append(entities, memoryengine.EntityExtraction{
-			Name:       edge.Source,
+			Name:       prefixAgent(edge.Source),
 			Type:       "agent",
 			Confidence: 0.9,
 			Relations: []memoryengine.RelationExtraction{
 				{
-					TargetName: edge.Target,
+					TargetName: prefixAgent(edge.Target),
 					RelType:    string(edge.Type),
 					Weight:     float64(edge.Weight) / 5.0, // normalize to ~0-1
 				},
