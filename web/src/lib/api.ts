@@ -610,3 +610,31 @@ export async function confirmSessionTool(
     body: JSON.stringify({ session_id: sessionId, call_id: callId, choice }),
   })
 }
+
+export async function uploadFile(
+  file: File,
+  sessionId?: string
+): Promise<{ name: string; path: string; size: number }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (sessionId) {
+    formData.append('session_id', sessionId)
+  }
+
+  const headers = {
+    ...getAuthHeaders(),
+  }
+
+  const res = await fetch(`${API_BASE}/session/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `Upload failed: ${res.statusText}`)
+  }
+
+  return res.json()
+}

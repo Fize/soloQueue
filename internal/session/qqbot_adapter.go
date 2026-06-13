@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -214,4 +216,29 @@ func parseImageGenResult(raw string) []string {
 		return nil
 	}
 	return r.ImageURLs
+}
+
+// SaveUploadedFile saves an uploaded file to the session's workspace downloads folder and returns the absolute path.
+func (a *SessionAskAdapter) SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error) {
+	sess := a.mgr.Session()
+	if sess == nil {
+		return "", errors.New("no active session")
+	}
+	workDir := sess.Agent.WorkDir
+	if workDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		workDir = filepath.Join(home, ".soloqueue")
+	}
+	downloadsDir := filepath.Join(workDir, "downloads")
+	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
+		return "", err
+	}
+	destPath := filepath.Join(downloadsDir, filename)
+	if err := os.WriteFile(destPath, content, 0o644); err != nil {
+		return "", err
+	}
+	return destPath, nil
 }

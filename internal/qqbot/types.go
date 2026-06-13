@@ -122,6 +122,26 @@ func ImageURLs(atts []QQAttachment) []string {
 	return urls
 }
 
+// QQFile represents a file attachment (document, text file, etc.).
+type QQFile struct {
+	URL         string
+	ContentType string
+}
+
+// ExtractFiles returns non-image file attachments from a slice of attachments.
+func ExtractFiles(atts []QQAttachment) []QQFile {
+	var files []QQFile
+	for _, a := range atts {
+		if !strings.Contains(a.ContentType, "image") && a.URL != "" {
+			files = append(files, QQFile{
+				URL:         a.URL,
+				ContentType: a.ContentType,
+			})
+		}
+	}
+	return files
+}
+
 // ─── Message Events ──────────────────────────────────────────────────────────
 
 // EventType constants for dispatch events.
@@ -206,11 +226,12 @@ const (
 // doesn't need to know about the underlying protocol.
 type QQMessage struct {
 	Source       MessageSource
-	Content      string // user message text
+	Content      string   // user message text
 	ImageURLs    []string // attachment image URLs
-	OpenID       string // user openid (C2C/group member)
-	TargetOpenID string // target openid for reply: user openid (C2C) or group openid (group)
-	ChatID       string // group_openid / channel_id / user_openid depending on source
-	EventID      string // event id, used for message reference in replies
-	Seq          int    // seq_in_chat, used for passive message reply
+	Files        []QQFile // attachment files
+	OpenID       string   // user openid (C2C/group member)
+	TargetOpenID string   // target openid for reply: user openid (C2C) or group openid (group)
+	ChatID       string   // group_openid / channel_id / user_openid depending on source
+	EventID      string   // event id, used for message reference in replies
+	Seq          int      // seq_in_chat, used for passive message reply
 }

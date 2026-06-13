@@ -21,7 +21,7 @@ export function useChatStream() {
   } = useChatStore()
 
   const send = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, files?: { name: string; path: string }[]) => {
       const sid = activeSessionId
       if (!sid || !prompt.trim()) return
 
@@ -33,6 +33,7 @@ export function useChatStream() {
         role: 'user',
         segments: [{ type: 'content', text: prompt }],
         timestamp: new Date().toISOString(),
+        files,
       })
 
       // Add empty assistant message placeholder.
@@ -55,7 +56,7 @@ export function useChatStream() {
       let finalContent = ''
 
       try {
-        const gen = await streamAsk(prompt, sid, abort.signal)
+        const gen = await streamAsk(prompt, sid, files, abort.signal)
         for await (const ev of gen) {
           switch (ev.type) {
             case 'content_delta':

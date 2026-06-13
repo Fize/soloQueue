@@ -706,6 +706,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   segments: ChatSegment[]
   timestamp: string
+  files?: { name: string; path: string }[]
 }
 
 export type ChatSegment =

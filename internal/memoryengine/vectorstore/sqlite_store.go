@@ -58,6 +58,10 @@ func NewSQLiteStore(path string, opts ...func(*SQLiteStore)) (*SQLiteStore, erro
 	for _, opt := range opts {
 		opt(s)
 	}
+	if err := s.initTable(context.Background()); err != nil {
+		shared.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -70,7 +74,23 @@ func NewSQLiteStoreFromDB(db *sql.DB, mu *sync.Mutex, opts ...func(*SQLiteStore)
 	for _, opt := range opts {
 		opt(s)
 	}
+	_ = s.initTable(context.Background())
 	return s
+}
+
+func (s *SQLiteStore) initTable(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	query := `CREATE TABLE IF NOT EXISTS ` + s.tableName + ` (
+		id TEXT PRIMARY KEY,
+		content TEXT NOT NULL,
+		embedding BLOB NOT NULL,
+		timestamp TEXT NOT NULL,
+		source TEXT NOT NULL DEFAULT ''
+	)`
+	_, err := s.db.ExecContext(ctx, query)
+	return err
 }
 
 // Close releases resources owned by this store. When the store was created
