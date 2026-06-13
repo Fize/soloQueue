@@ -286,10 +286,11 @@ export function ChatPage() {
 
         {/* Input */}
         <ChatInput
-          onSend={(text) => send(text)}
+          onSend={(text, files) => send(text, files)}
           onCancel={cancel}
           streaming={streaming}
           disabled={noSession}
+          activeSessionId={activeSessionId || undefined}
         />
       </div>
 

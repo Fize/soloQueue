@@ -71,12 +71,13 @@ export type SSEEvent =
 export async function streamAsk(
   prompt: string,
   sessionId: string,
+  files?: { name: string; path: string }[],
   signal?: AbortSignal
 ): Promise<AsyncGenerator<SSEEvent, void, unknown>> {
   const response = await fetch('/api/session/ask/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, session_id: sessionId }),
+    body: JSON.stringify({ prompt, session_id: sessionId, files }),
     signal,
   })
 
@@ -121,12 +122,12 @@ export async function streamAsk(
   })()
 }
 
-// Re-export as a function (not generator) that returns an AbortController + generator.
 export function createStream(
   prompt: string,
-  sessionId: string
+  sessionId: string,
+  files?: { name: string; path: string }[]
 ): { abort: AbortController; events: Promise<AsyncGenerator<SSEEvent, void, unknown>> } {
   const abort = new AbortController()
-  const events = streamAsk(prompt, sessionId, abort.signal)
+  const events = streamAsk(prompt, sessionId, files, abort.signal)
   return { abort, events }
 }

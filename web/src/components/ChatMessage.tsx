@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { useState, useRef, useEffect } from 'react'
-import { confirmSessionTool } from '@/lib/api'
+import { confirmSessionTool, getFileUrl } from '@/lib/api'
 import { useChatStore } from '@/stores/chatStore'
 import { formatToolCallHeader } from '@/lib/utils'
 
@@ -84,6 +84,57 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
                     )
                   }
                 })}
+                {/* Render uploaded files/images here */}
+                {message.files && message.files.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2 pt-1.5 border-t border-dashed border-border/10">
+                    {message.files.map((file, idx) => {
+                      const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name)
+                      if (isImage) {
+                        return (
+                          <div
+                            key={idx}
+                            className="relative group/img max-w-[240px] rounded-lg overflow-hidden border border-border/40"
+                          >
+                            <img
+                              src={getFileUrl(file.path)}
+                              alt={file.name}
+                              className="max-h-[160px] object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => window.open(getFileUrl(file.path), '_blank')}
+                            />
+                          </div>
+                        )
+                      }
+                      return (
+                        <a
+                          key={idx}
+                          href={getFileUrl(file.path)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`flex items-center gap-2 p-2 rounded-lg border text-xs max-w-xs transition-colors ${
+                            isUser
+                              ? 'bg-white/10 border-white/20 hover:bg-white/20 text-primary-foreground'
+                              : 'bg-card/50 border-border hover:bg-card text-foreground'
+                          }`}
+                        >
+                          <svg
+                            className="h-4 w-4 shrink-0 opacity-70"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            />
+                          </svg>
+                          <span className="truncate flex-1 font-medium">{file.name}</span>
+                        </a>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>

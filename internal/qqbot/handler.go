@@ -3,7 +3,13 @@ package qqbot
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -54,6 +60,9 @@ type SessionProvider interface {
 	// Also reaps orphaned supervisor children as a safety net.
 	// reason is a human-readable description (e.g., "user requested cancellation").
 	CancelCurrent(reason string) error
+
+	// SaveUploadedFile saves an uploaded file to the session's workspace and returns its local absolute path.
+	SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error)
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -131,6 +140,46 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		return
 	}
 
+	// Process file attachments first
+	var promptBuilder strings.Builder
+	promptBuilder.WriteString(msg.Content)
+
+	if len(msg.Files) > 0 {
+		var fileBlocks []string
+		for _, file := range msg.Files {
+			b.log.InfoContext(ctx, logger.CatApp, "qqbot downloading file attachment", "url", file.URL)
+			data, filename, err := downloadFile(ctx, file.URL)
+			if err != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to download attachment", "url", file.URL, "err", err.Error())
+				continue
+			}
+
+			localPath, err := b.sess.SaveUploadedFile(ctx, filename, data)
+			if err != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to save attachment locally", "filename", filename, "err", err.Error())
+				continue
+			}
+
+			b.log.InfoContext(ctx, logger.CatApp, "qqbot saved file attachment", "path", localPath, "size", len(data))
+
+			binary := isBinary(data)
+			var block string
+			if binary {
+				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", filename, localPath, len(data))
+			} else {
+				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", filename, localPath, len(data))
+			}
+			fileBlocks = append(fileBlocks, block)
+		}
+
+		if len(fileBlocks) > 0 {
+			promptBuilder.WriteString("\n\n[用户已上传文件，已保存至本地：\n")
+			promptBuilder.WriteString(strings.Join(fileBlocks, "\n"))
+			promptBuilder.WriteString("]\n")
+		}
+	}
+
+	msg.Content = promptBuilder.String()
 	prompt := buildPrompt(msg)
 
 	// Use AskStream to capture the full response including reasoning content.
@@ -424,4 +473,73 @@ func imageUploadTarget(msg QQMessage) (targetType, targetID string) {
 	default:
 		return "", ""
 	}
+}
+
+// downloadFile downloads a file from URL and extracts its filename.
+func downloadFile(ctx context.Context, url string) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("bad status code: %d", resp.StatusCode)
+	}
+
+	// Try to get filename from Content-Disposition
+	filename := ""
+	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+		_, params, err := mime.ParseMediaType(cd)
+		if err == nil {
+			if fn, ok := params["filename"]; ok && fn != "" {
+				filename = fn
+			}
+		}
+	}
+
+	// Fallback to URL path
+	if filename == "" {
+		filename = filepath.Base(resp.Request.URL.Path)
+	}
+
+	// Fallback to timestamp + extension from Content-Type
+	if filename == "" || filename == "." || filename == "/" {
+		ext := ".bin"
+		if ct := resp.Header.Get("Content-Type"); ct != "" {
+			mediatype, _, err := mime.ParseMediaType(ct)
+			if err == nil {
+				exts, err := mime.ExtensionsByType(mediatype)
+				if err == nil && len(exts) > 0 {
+					ext = exts[0]
+				}
+			}
+		}
+		filename = fmt.Sprintf("file_%d%s", time.Now().Unix(), ext)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return data, filename, nil
+}
+
+// isBinary checks if the file content contains NUL bytes in the first 512 bytes.
+func isBinary(data []byte) bool {
+	n := len(data)
+	if n > 512 {
+		n = 512
+	}
+	for i := 0; i < n; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
 }

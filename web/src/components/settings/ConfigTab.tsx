@@ -1318,6 +1318,7 @@ export function ConfigTab() {
                                     { value: 'low', label: 'Low' },
                                     { value: 'medium', label: 'Medium' },
                                     { value: 'high', label: 'High' },
+                                    { value: 'max', label: 'Max' },
                                   ]}
                                 />
                               </div>

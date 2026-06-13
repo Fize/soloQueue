@@ -120,7 +120,7 @@ Controls sandbox resource usage and safety rules:
   - `max_tokens` (int): Max generation length.
 - `[models.thinking]`:
   - `enabled` (bool): Enable reasoning/thinking mode (e.g. DeepSeek-R1).
-  - `reasoning_effort` (string): Effort setting (`low`, `medium`, `high`).
+  - `reasoning_effort` (string): Effort setting (`low`, `medium`, `high`, `max`).
 
 ### `[default_models]` — Role Mappings
 Maps generic model roles used by agents to concrete provider model IDs (format: `provider_id:model_id`):

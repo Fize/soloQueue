@@ -1,15 +1,16 @@
 package server
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -75,6 +76,10 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Prompt string `json:"prompt"`
+		Files  []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -87,9 +92,42 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Format prompt with uploaded files if present
+	finalPrompt := trimmed
+	if len(req.Files) > 0 {
+		var fileBlocks []string
+		for _, f := range req.Files {
+			absPath, err := filepath.Abs(f.Path)
+			if err != nil {
+				absPath = f.Path
+			}
+			size := int64(0)
+			isText := true
+			fi, err := os.Stat(absPath)
+			if err == nil {
+				size = fi.Size()
+				fileContent, readErr := os.ReadFile(absPath)
+				if readErr == nil {
+					isText = !isBinary(fileContent)
+				}
+			}
+
+			var block string
+			if isText {
+				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+			} else {
+				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+			}
+			fileBlocks = append(fileBlocks, block)
+		}
+		if len(fileBlocks) > 0 {
+			finalPrompt = fmt.Sprintf("%s\n\n[用户已上传文件，已保存至本地：\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
+		}
+	}
+
 	sess.SetIsQBot(false)
 	// Trigger AskStream in a background context so it doesn't block HTTP response
-	ch, err := sess.AskStream(context.Background(), trimmed)
+	ch, err := sess.AskStream(context.Background(), finalPrompt)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionBusy) {
 			m.writeJSON(w, http.StatusConflict, map[string]string{"error": "session is busy"})
@@ -127,6 +165,10 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Prompt    string `json:"prompt"`
 		SessionID string `json:"session_id"`
+		Files     []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -137,6 +179,39 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 	if trimmed == "" {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "prompt cannot be empty"})
 		return
+	}
+
+	// Format prompt with uploaded files if present
+	finalPrompt := trimmed
+	if len(req.Files) > 0 {
+		var fileBlocks []string
+		for _, f := range req.Files {
+			absPath, err := filepath.Abs(f.Path)
+			if err != nil {
+				absPath = f.Path
+			}
+			size := int64(0)
+			isText := true
+			fi, err := os.Stat(absPath)
+			if err == nil {
+				size = fi.Size()
+				fileContent, readErr := os.ReadFile(absPath)
+				if readErr == nil {
+					isText = !isBinary(fileContent)
+				}
+			}
+
+			var block string
+			if isText {
+				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+			} else {
+				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+			}
+			fileBlocks = append(fileBlocks, block)
+		}
+		if len(fileBlocks) > 0 {
+			finalPrompt = fmt.Sprintf("%s\n\n[用户已上传文件，已保存至本地：\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
+		}
 	}
 
 	// Resolve target session.
@@ -178,7 +253,7 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 
 	sess.SetIsQBot(false)
 	// Use request context: client disconnect cancels the agent task.
-	ch, err := sess.AskStream(r.Context(), trimmed)
+	ch, err := sess.AskStream(r.Context(), finalPrompt)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionBusy) {
 			writeSSEEvent(w, flusher, "error", map[string]string{"error": "session is busy"})
@@ -192,7 +267,7 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var firstPrompt = trimmed
+	var firstPrompt = finalPrompt
 	var finalContent string
 
 	// Consume events synchronously in the handler goroutine.
@@ -896,4 +971,100 @@ func writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, event string, da
 	_ = enc.Encode(data)
 	buf.WriteString("\n")
 	w.Write(buf.Bytes())
+}
+
+// handleUploadFile handles multipart file uploads.
+// Saves the file to `<session_work_dir>/downloads/<filename>`.
+// Accepts optional `session_id` to resolve L2 session workspace; defaults to L1.
+func (m *Mux) handleUploadFile(w http.ResponseWriter, r *http.Request) {
+	if m.sessionMgr == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session manager not configured"})
+		return
+	}
+
+	// Parse multipart form (max 10MB memory, larger files stored in temp)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to parse multipart form: " + err.Error()})
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file parameter: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	sessionID := r.FormValue("session_id")
+	var sess *session.Session
+	if strings.HasPrefix(sessionID, "l2:") {
+		if m.l2Store == nil {
+			m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "L2 sessions not available"})
+			return
+		}
+		l2ID := strings.TrimPrefix(sessionID, "l2:")
+		sess, err = m.l2Store.Get(r.Context(), l2ID)
+		if err != nil {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": fmt.Sprintf("L2 session not found: %s", l2ID)})
+			return
+		}
+	} else {
+		sess = m.sessionMgr.Session()
+		if sess == nil {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active L1 session"})
+			return
+		}
+	}
+
+	workDir := sess.Agent.WorkDir
+	if workDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		workDir = filepath.Join(home, ".soloqueue")
+	}
+
+	downloadsDir := filepath.Join(workDir, "downloads")
+	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create downloads directory: " + err.Error()})
+		return
+	}
+
+	filename := filepath.Base(header.Filename)
+	destPath := filepath.Join(downloadsDir, filename)
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create local file: " + err.Error()})
+		return
+	}
+	defer out.Close()
+
+	size, err := io.Copy(out, file)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save file: " + err.Error()})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]any{
+		"name": filename,
+		"path": destPath,
+		"size": size,
+	})
+}
+
+// isBinary checks if the file content contains NUL bytes in the first 512 bytes.
+func isBinary(data []byte) bool {
+	n := len(data)
+	if n > 512 {
+		n = 512
+	}
+	for i := 0; i < n; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
 }
