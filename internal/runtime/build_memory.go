@@ -67,7 +67,6 @@ func (bc *buildContext) buildMemoryEngine() {
 
 	start := time.Now()
 	bc.memoryEngine = memoryengine.New(bc.sharedDB.DB, &bc.sharedDB.WMu, emb, vecStore, bc.log)
-	fmt.Fprintf(os.Stderr, "[stderr] build: memory engine ready (has_vector=%v, provider=%s)\n", emb != nil, provider)
 	bc.log.Debug(logger.CatApp, "build: memory engine ready",
 		"duration", time.Since(start).String(),
 		"has_vector", emb != nil,

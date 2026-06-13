@@ -133,7 +133,7 @@ func BuildUserMessageEvent(seq int, topic string, worldState *WorldState, msgs [
 }
 
 // BuildReportPrompt creates the prompt for the final report generation.
-func BuildReportPrompt(topic string, agentMemories map[string]*AgentMemory, graph *RelationGraph, worldState *WorldState) string {
+func BuildReportPrompt(topic string, agentMemories map[string]*AgentMemory, graph *RelationGraph, worldState *WorldState, kgContext string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Generate a comprehensive analysis report for the simulation on topic: %s\n\n", topic))
 	b.WriteString("## Simulation Summary\n\n")
@@ -141,6 +141,11 @@ func BuildReportPrompt(topic string, agentMemories map[string]*AgentMemory, grap
 	b.WriteString("### World State at End\n")
 	b.WriteString(worldState.FormatForPrompt())
 	b.WriteString("\n")
+
+	if kgContext != "" {
+		b.WriteString(kgContext)
+		b.WriteString("\n")
+	}
 
 	// Include relationship graph
 	if graph != nil {

@@ -49,6 +49,11 @@ func (s *SimulationStore) Create(config SimulationConfig) (string, error) {
 		nodes[i] = p.ID
 	}
 
+	edges := config.InitialEdges
+	if edges == nil {
+		edges = []EdgeDTO{}
+	}
+
 	state := &SimulationState{
 		Config:       config,
 		Status:       StatusPending,
@@ -60,7 +65,7 @@ func (s *SimulationStore) Create(config SimulationConfig) (string, error) {
 		RunID:        id,
 		Graph: &SimulationRelationGraph{
 			Nodes: nodes,
-			Edges: []EdgeDTO{},
+			Edges: edges,
 		},
 	}
 

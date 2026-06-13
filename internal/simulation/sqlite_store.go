@@ -125,9 +125,13 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 	for i, p := range config.Personas {
 		nodes[i] = p.ID
 	}
+	edges := config.InitialEdges
+	if edges == nil {
+		edges = []EdgeDTO{}
+	}
 	initialGraph := &SimulationRelationGraph{
 		Nodes: nodes,
-		Edges: []EdgeDTO{},
+		Edges: edges,
 	}
 	gj, _ := json.Marshal(initialGraph)
 

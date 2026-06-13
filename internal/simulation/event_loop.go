@@ -208,7 +208,7 @@ func (el *EventLoop) agentLoop(ctx context.Context, sa *SimAgent) {
 
 			wsSnap := el.worldState.Snapshot()
 
-			if !el.trigger.ShouldSpeak(sa.PersonaID(), inbox, wsSnap, lastSpokeAt) {
+			if !el.trigger.ShouldSpeak(sa.PersonaID(), el.personaNameByID[sa.PersonaID()], inbox, wsSnap, lastSpokeAt) {
 				continue
 			}
 

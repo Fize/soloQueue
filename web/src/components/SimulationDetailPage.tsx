@@ -37,6 +37,14 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 
+const MAX_MESSAGES = 500
+const MAX_GRAPH_EDGES = 200
+
+function capMessages<T>(msgs: T[]): T[] {
+  if (msgs.length <= MAX_MESSAGES) return msgs
+  return msgs.slice(msgs.length - MAX_MESSAGES)
+}
+
 export function SimulationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -76,23 +84,27 @@ export function SimulationDetailPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
+    const abortController = new AbortController()
     const fetchConfigOptions = async () => {
       try {
-        const provRes = await fetch('/api/config/providers')
+        const provRes = await fetch('/api/config/providers', { signal: abortController.signal })
         if (provRes.ok) {
           const provData = await provRes.json()
           setProviders(provData || [])
         }
-        const modelRes = await fetch('/api/config/models')
+        const modelRes = await fetch('/api/config/models', { signal: abortController.signal })
         if (modelRes.ok) {
           const modelData = await modelRes.json()
           setModels(modelData || [])
         }
-      } catch (err) {
-        console.error('Failed to load LLM configs', err)
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Failed to load LLM configs', err)
+        }
       }
     }
     fetchConfigOptions()
+    return () => abortController.abort()
   }, [])
 
   useEffect(() => {
@@ -141,17 +153,19 @@ export function SimulationDetailPage() {
         id: data.config?.id || data.run_id || id,
         personas: data.config?.personas || [],
         round: data.current_round || 0,
-        messages: (data.rounds || []).flatMap((r: any) =>
-          (r.messages || []).map((m: any) => ({
-            agent_id: m.agent_id,
+        messages: capMessages(
+          (data.rounds || []).flatMap((r: any) =>
+            (r.messages || []).map((m: any) => ({
+              agent_id: m.agent_id,
             agent_name: m.agent_name,
             content: m.content,
             reasoning: m.reasoning,
             to: m.to,
             type: m.type,
             round: m.round,
-            seq_num: m.seq_num,
-          }))
+              seq_num: m.seq_num,
+            }))
+          )
         ),
       }
       setState(mappedState)
@@ -191,17 +205,19 @@ export function SimulationDetailPage() {
         id: data.config?.id || data.run_id || id,
         personas: data.config?.personas || [],
         round: data.current_round || 0,
-        messages: (data.rounds || []).flatMap((r: any) =>
-          (r.messages || []).map((m: any) => ({
-            agent_id: m.agent_id,
-            agent_name: m.agent_name,
-            content: m.content,
-            reasoning: m.reasoning,
-            to: m.to,
-            type: m.type,
-            round: m.round,
-            seq_num: m.seq_num,
-          }))
+        messages: capMessages(
+          (data.rounds || []).flatMap((r: any) =>
+            (r.messages || []).map((m: any) => ({
+              agent_id: m.agent_id,
+              agent_name: m.agent_name,
+              content: m.content,
+              reasoning: m.reasoning,
+              to: m.to,
+              type: m.type,
+              round: m.round,
+              seq_num: m.seq_num,
+            }))
+          )
         ),
       }
       setState(mappedState)
@@ -226,11 +242,11 @@ export function SimulationDetailPage() {
         setState((prev) => {
           if (!prev) return null
           if (prev.messages.some((m) => m.seq_num === newMsg.seq_num)) return prev
-          return {
-            ...prev,
-            round: ev.round,
-            messages: [...prev.messages, newMsg],
-          }
+            return {
+              ...prev,
+              round: ev.round,
+              messages: capMessages([...prev.messages, newMsg]),
+            }
         })
       } else if (ev.type === 'round_start') {
         setState((prev) => (prev ? { ...prev, round: ev.round } : null))
@@ -248,6 +264,7 @@ export function SimulationDetailPage() {
         setProgress((prev) => (prev ? { ...prev, phase: 'failed', progress_percent: 100 } : null))
         fetchState()
       } else if (ev.type === 'finished') {
+        setGraphEdges([])
         fetchState()
       }
     })
@@ -257,14 +274,16 @@ export function SimulationDetailPage() {
       if (p.simulation_id !== id) return
       setProgress(p)
 
-      // Accumulate graph edges for real-time graph updates
       if (p.graph_edges && p.graph_edges.length > 0) {
         setGraphEdges((prev) => {
           const merged = [...prev]
           let changed = false
           for (const newEdge of p.graph_edges) {
             const idx = merged.findIndex(
-              (e) => e.source === newEdge.source && e.target === newEdge.target
+              (e) =>
+                e.source === newEdge.source &&
+                e.target === newEdge.target &&
+                e.type === newEdge.type
             )
             if (idx >= 0) {
               if (merged[idx].weight !== newEdge.weight) {
@@ -276,7 +295,9 @@ export function SimulationDetailPage() {
               changed = true
             }
           }
-          return changed ? merged : prev
+          if (!changed) return prev
+          if (merged.length > MAX_GRAPH_EDGES) return merged.slice(merged.length - MAX_GRAPH_EDGES)
+          return merged
         })
       }
     })

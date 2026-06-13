@@ -46,6 +46,7 @@ type SimulationConfig struct {
 	MaxWallClockMs     int            `json:"max_wall_clock_ms,omitempty"`
 	TriggerPolicy      string         `json:"trigger_policy,omitempty"`
 	MinSpeakIntervalMs int            `json:"min_speak_interval_ms,omitempty"`
+	InitialEdges       []EdgeDTO      `json:"-"` // populated from seed extraction, not persisted
 }
 
 // Validate checks the config and applies defaults.
