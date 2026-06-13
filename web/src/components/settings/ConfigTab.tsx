@@ -1968,7 +1968,6 @@ export function ConfigTab() {
                       >
                         <option value="">none (default)</option>
                         <option value="none">none — BM25 + KG only</option>
-                        <option value="onnx">onnx — Local ONNX Model</option>
                         <option value="openai">openai — Remote API</option>
                       </select>
                     </div>
@@ -1991,47 +1990,6 @@ export function ConfigTab() {
                       />
                     </div>
                   </div>
-
-                  {embeddingConfig?.provider === 'onnx' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t">
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground">
-                          Model Path
-                          <span className="text-[10px] ml-1 text-muted-foreground/60">
-                            (leave empty to auto-download)
-                          </span>
-                        </label>
-                        <Input
-                          placeholder="~/.soloqueue/models/"
-                          value={embeddingConfig.modelPath || ''}
-                          onChange={(e) =>
-                            setEmbeddingConfig({
-                              ...embeddingConfig,
-                              modelPath: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground">
-                          Model Name
-                          <span className="text-[10px] ml-1 text-muted-foreground/60">
-                            (default: intfloat/multilingual-e5-large)
-                          </span>
-                        </label>
-                        <Input
-                          placeholder="intfloat/multilingual-e5-large"
-                          value={embeddingConfig.modelName || ''}
-                          onChange={(e) =>
-                            setEmbeddingConfig({
-                              ...embeddingConfig,
-                              modelName: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                  )}
 
                   {/* Embedding Providers Section */}
                   {embeddingConfig?.provider === 'openai' && (

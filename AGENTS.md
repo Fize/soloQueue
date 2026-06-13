@@ -54,7 +54,6 @@ Other subcommands: `version`.
 - Skills: `~/.soloqueue/skills/*.md` (hot-reload)
 - Timeline JSONL: `~/.soloqueue/logs/timelines/`
 - Shared SQLite: `~/.soloqueue/permanent_memory/entries.db`
-- ONNX models cache: `~/.soloqueue/models/`
 - Ignored by git: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`
 
 Config loading order (low→high priority): compiled defaults → `settings.toml` → `settings.local.toml`.
@@ -74,7 +73,7 @@ internal/logger/        structured logging (file + console)
 internal/mcp/           MCP server manager + config + LSP integration
 internal/memory/        short-term memory manager (daily .md files)
 internal/memoryengine/  long-term memory engine (BM25 + KG + optional vector)
-  embedding/            Embedder interface + ONNX / OpenAI implementations
+  embedding/            Embedder interface + OpenAI implementation
   vectorstore/          SQLite-backed vector store (cosine similarity)
 internal/prompt/        prompt assembly, templates, team management, parser
 internal/qqbot/         QQ official bot WebSocket integration
@@ -100,20 +99,17 @@ The memory engine replaces the old embedding-dependent `internal/permanent/` sys
 |---|---|---|
 | BM25 | SQLite FTS5 over `mem_entries` | Zero (built into SQLite) |
 | Knowledge Graph | Entity-relationship graph with PPR/BFS traversal | Zero (pure Go) |
-| Vector | Cosine similarity over `mem_vec` BLOBs | ONNX Runtime (local) or OpenAI API (remote) |
+| Vector | Cosine similarity over `mem_vec` BLOBs | OpenAI API (remote) |
 
-### Config: three modes
+### Config: two modes
 
 ```toml
 [embedding]
 provider = "none"     # pure BM25 + KG, zero dependencies (DEFAULT)
-# provider = "onnx"   # local ONNX model, fully offline
 # provider = "openai" # remote API (existing OpenAI-compatible)
 ```
 
-**Mode "none" (default)** — dual-hybrid BM25 + KG. No model files, no API keys, no CGo. Suitable for most use cases because the KG compensates for the lack of semantic search via entity extraction.
-
-**Mode "onnx"** — tri-hybrid BM25 + KG + Vector. Uses `yalue/onnxruntime_go` (CGo) to load `intfloat/multilingual-e5-large` (1024-dim, 100+ languages, ~560MB) in-process. Requires `brew install onnxruntime` on macOS. Built in by default (no build tag needed). The model is auto-downloaded from HuggingFace on first run to `~/.soloqueue/models/`.
+**Mode "none" (default)** — dual-hybrid BM25 + KG. No model files, no API keys. Suitable for most use cases because the KG compensates for the lack of semantic search via entity extraction.
 
 **Mode "openai"** — tri-hybrid BM25 + KG + Vector. Uses the existing OpenAI-compatible embeddings API. Requires network + API key.
 

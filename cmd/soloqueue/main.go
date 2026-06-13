@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	_ "net/http/pprof"
+
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/cmd/soloqueue/cli"

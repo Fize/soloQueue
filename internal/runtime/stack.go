@@ -370,20 +370,6 @@ func (s *Stack) rebuildMemoryEngine(cfg config.EmbeddingConfig) {
 				}
 			}
 		}
-	case "onnx":
-		embModel := cfg.ModelPath
-		embCfg := embedding.Config{
-			Provider:  "onnx",
-			ModelPath: embModel,
-			ModelName: cfg.ModelName,
-		}
-		var err error
-		emb, err = embedding.NewFromConfig(embCfg)
-		if err != nil {
-			s.Log.Warn(logger.CatConfig, "hot-reload: failed to create ONNX embedder, engine runs without vectors",
-				"err", err,
-				"hint", "install onnxruntime (brew install onnxruntime)")
-		}
 	case "none", "":
 	default:
 		s.Log.Warn(logger.CatConfig, "hot-reload: unknown embedding provider, falling back to none",

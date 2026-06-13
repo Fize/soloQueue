@@ -221,9 +221,8 @@ type EmbeddingModel struct {
 type EmbeddingConfig struct {
 	Enabled       bool                `json:"enabled"       toml:"enabled,omitempty"`
 	MinSimilarity float32             `json:"minSimilarity" toml:"min_similarity,omitempty"`
-		Provider      string              `json:"provider"      toml:"provider,omitempty"`   // "none", "onnx", "openai"
-		ModelPath     string              `json:"modelPath"     toml:"model_path,omitempty"` // ONNX model path
-		ModelName     string              `json:"modelName"     toml:"model_name,omitempty"` // model name for download/API
+	Provider      string              `json:"provider"      toml:"provider,omitempty"`   // "none", "openai"
+	ModelName     string              `json:"modelName"     toml:"model_name,omitempty"` // model name for API
 	Providers     []EmbeddingProvider `json:"providers"     toml:"providers,omitempty"`
 	Models        []EmbeddingModel    `json:"models"        toml:"models,omitempty"`
 }

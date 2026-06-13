@@ -134,10 +134,7 @@ Maps generic model roles used by agents to concrete provider model IDs (format: 
 
 Controls the vector search pipeline in the memory engine:
 
-- `provider` (string): Embedding provider. `"none"` (default, dual-hybrid BM25+KG), `"onnx"` (local ONNX model, fully offline), `"openai"` (remote API).
-
-Sub-table `[embedding.onnx]`:
-- `model_path` (string): Path to ONNX model directory. Empty = auto-download `intfloat/multilingual-e5-large` to `~/.soloqueue/models/`.
+- `provider` (string): Embedding provider. `"none"` (default, dual-hybrid BM25+KG), `"openai"` (remote API).
 
 Sub-table `[embedding.openai]`:
 - `base_url` (string): OpenAI-compatible API endpoint.

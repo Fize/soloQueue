@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
@@ -39,12 +40,15 @@ type PersonaGenerator struct {
 	model        string
 	providerID   string
 	memoryEngine *memoryengine.Engine // nil = skip KG enhancement
+	log          *logger.Logger
 }
 
 // NewPersonaGenerator creates a new PersonaGenerator.
 func NewPersonaGenerator(llm agent.LLMClient, model, providerID string, mem *memoryengine.Engine) *PersonaGenerator {
 	return &PersonaGenerator{llm: llm, model: model, providerID: providerID, memoryEngine: mem}
 }
+
+func (g *PersonaGenerator) SetLogger(log *logger.Logger) { g.log = log }
 
 // Generate creates persona definitions from KG entities when available,
 // falling back to extraction-based generation when memory engine is nil.
@@ -68,21 +72,50 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 		count = 50
 	}
 
+	if g.log != nil {
+		g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: listing KG entities")
+	}
+
 	entities, err := g.memoryEngine.Graph().ListEntities(ctx, 100)
 	if err != nil {
 		return nil, fmt.Errorf("list KG entities: %w", err)
+	}
+
+	if g.log != nil {
+		g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: entities listed", "total", len(entities))
 	}
 
 	selected := g.selectPersonaEntities(entities, extraction, count)
 	if len(selected) == 0 {
 		return nil, fmt.Errorf("no suitable entities found in knowledge graph for persona generation")
 	}
+	if len(selected) > 20 {
+		if g.log != nil {
+			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: truncating selected entities", "before", len(selected), "after", 20)
+		}
+		selected = selected[:20]
+	}
+
+	if g.log != nil {
+		g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: processing entities", "count", len(selected))
+	}
 
 	var personas []Persona
-	for _, entity := range selected {
+	for i, entity := range selected {
+		if g.log != nil {
+			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: processing entity",
+				"index", i+1, "total", len(selected), "name", entity.Name, "type", entity.Type)
+		}
 		entityCtx := g.buildEntityContext(ctx, entity)
+		if g.log != nil {
+			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: entity context built",
+				"name", entity.Name, "ctx_len", len(entityCtx))
+		}
 		prompt := buildEntityPersonaPrompt(entity, entityCtx, topic, extraction)
 
+		if g.log != nil {
+			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: calling LLM for entity", "name", entity.Name)
+		}
 		resp, err := g.llm.Chat(ctx, agent.LLMRequest{
 			Model:        g.model,
 			ProviderID:   g.providerID,
@@ -92,6 +125,9 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 		})
 		if err != nil {
 			return nil, fmt.Errorf("llm chat for entity %q: %w", entity.Name, err)
+		}
+		if g.log != nil {
+			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: LLM done for entity", "name", entity.Name, "resp_len", len(resp.Content))
 		}
 
 		entry, err := parseSinglePersonaEntry(resp.Content)
@@ -270,16 +306,30 @@ func (g *PersonaGenerator) buildEntityContext(ctx context.Context, entity memory
 		}
 	}
 
-	nodes, _, err := g.memoryEngine.Graph().BFS(ctx, entity.Name, 1, 8)
+	nodes, edges, err := g.memoryEngine.Graph().BFS(ctx, entity.Name, 1, 8)
 	if err == nil && len(nodes) > 1 {
+		if g.log != nil {
+			g.log.InfoContext(ctx, logger.CatSimulation, "buildEntityContext: BFS done",
+				"name", entity.Name, "nodes", len(nodes), "edges", len(edges))
+		}
 		b.WriteString("Connected entities:\n")
+		connected := 0
 		for _, n := range nodes {
 			if n.Name != entity.Name {
+				if connected >= 15 {
+					b.WriteString(fmt.Sprintf("  ... and %d more\n", len(nodes)-connected-1))
+					break
+				}
 				b.WriteString(fmt.Sprintf("  - %s (%s)\n", n.Name, n.Type))
+				connected++
 			}
 		}
 	}
 
+	if b.Len() > 5000 {
+		result := b.String()[:5000] + "...\n[context truncated at 5000 chars]"
+		return result
+	}
 	return b.String()
 }
 

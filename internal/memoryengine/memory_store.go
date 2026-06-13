@@ -32,6 +32,9 @@ func NewMemoryStore(db *sql.DB, mu *sync.Mutex, embedder embedding.Embedder, vec
 // Save stores a memory and returns its content hash. If the same content
 // already exists (by hash), isNew is false. If embedder/vecStore are set,
 // the content is also embedded and stored as a vector.
+//
+// The mutex is released before the embedding HTTP call to avoid self-deadlock
+// (vectorstore.Upsert uses the same mutex).
 func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime string) (contentHash string, isNew bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return "", false, err
@@ -40,18 +43,19 @@ func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime s
 	contentHash = hashContent(content)
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	// --- Step 1: INSERT into mem_entries under lock ---
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	// Check for duplicate by content_hash
 	var existing string
 	err = m.db.QueryRowContext(ctx,
 		`SELECT id FROM mem_entries WHERE content_hash = ?`, contentHash,
 	).Scan(&existing)
 	if err == nil {
+		m.mu.Unlock()
 		return contentHash, false, nil // already exists
 	}
 	if err != sql.ErrNoRows {
+		m.mu.Unlock()
 		return "", false, fmt.Errorf("memory save: %w", err)
 	}
 
@@ -63,23 +67,26 @@ func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime s
 		id, content, contentHash, date, tags, eventTime, now,
 	)
 	if err != nil {
+		m.mu.Unlock()
 		return "", false, fmt.Errorf("memory save: %w", err)
 	}
 
-	// Store vector embedding if enabled
+	m.mu.Unlock()
+
+	// --- Step 2: Embedding + vector upsert (no lock held — vecStore handles its own locking) ---
 	if m.embedder != nil && m.vecStore != nil {
 		results, embErr := m.embedder.Embed(ctx, []string{content})
 		if embErr != nil {
 			m.logWarn("memory save: embed failed", embErr)
 		} else if len(results) > 0 {
-			if err := m.vecStore.Upsert(ctx, vectorstore.MemoryEntry{
+			if upsertErr := m.vecStore.Upsert(ctx, vectorstore.MemoryEntry{
 				ID:        id,
 				Content:   content,
 				Embedding: results[0].Embedding,
 				Timestamp: time.Now().UTC(),
 				Source:    "memoryengine",
-			}); err != nil {
-				m.logWarn("memory save: vector upsert failed", err)
+			}); upsertErr != nil {
+				m.logWarn("memory save: vector upsert failed", upsertErr)
 			}
 		}
 	}

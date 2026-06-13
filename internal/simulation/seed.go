@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
@@ -35,6 +36,7 @@ type SeedExtractor struct {
 	model        string
 	providerID   string
 	memoryEngine *memoryengine.Engine // nil = skip KG writes
+	log          *logger.Logger
 }
 
 // NewSeedExtractor creates a new SeedExtractor.
@@ -42,16 +44,20 @@ func NewSeedExtractor(llm agent.LLMClient, model, providerID string, mem *memory
 	return &SeedExtractor{llm: llm, model: model, providerID: providerID, memoryEngine: mem}
 }
 
+func (s *SeedExtractor) SetLogger(log *logger.Logger) { s.log = log }
+
 // Extract parses seed text and returns structured extraction.
 func (s *SeedExtractor) Extract(ctx context.Context, seedText string) (*SeedExtraction, error) {
 	if strings.TrimSpace(seedText) == "" {
 		return nil, fmt.Errorf("seed text is empty")
 	}
 
-	// Chunk long texts to improve recall
 	chunks := chunkText(seedText, 1500, 1)
 	if len(chunks) == 0 {
 		chunks = []string{seedText}
+	}
+	if s.log != nil {
+		s.log.InfoContext(ctx, logger.CatSimulation, "extraction: text chunked", "chunks", len(chunks))
 	}
 
 	var merged *SeedExtraction
@@ -68,6 +74,10 @@ func (s *SeedExtractor) Extract(ctx context.Context, seedText string) (*SeedExtr
 
 // extractChunk calls LLM on a single chunk and optionally writes to KG.
 func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedExtraction, error) {
+	if s.log != nil {
+		s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: calling LLM", "chunk_len", len(chunk))
+	}
+
 	prompt := buildExtractionPrompt(chunk)
 
 	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
@@ -81,18 +91,29 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}
 
+	if s.log != nil {
+		s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: LLM response received", "content_len", len(resp.Content))
+	}
+
 	ext, err := parseExtraction(resp.Content)
 	if err != nil {
 		return nil, fmt.Errorf("parse extraction: %w", err)
 	}
 
+	if s.log != nil {
+		s.log.InfoContext(ctx, logger.CatSimulation, "extractChunk: parsed OK",
+			"entities", len(ext.Entities), "topics", len(ext.KeyTopics))
+	}
+
 	// Optionally write to MemoryEngine KG
 	if s.memoryEngine != nil && len(ext.Entities) > 0 {
-		hash, _, err := s.memoryEngine.SaveWithEntities(ctx, chunk, time.Now().Format(time.RFC3339), "simulation_seed", "", ext.Entities)
+		if s.log != nil {
+			s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: saving to KG", "entities", len(ext.Entities))
+		}
+		_, _, err := s.memoryEngine.SaveWithEntities(ctx, chunk, time.Now().Format(time.RFC3339), "simulation_seed", "", ext.Entities)
 		if err != nil {
 			return nil, fmt.Errorf("save to memory engine: %w", err)
 		}
-		_ = hash
 	}
 
 	return ext, nil

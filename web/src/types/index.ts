@@ -446,9 +446,8 @@ export interface EmbeddingModel {
 export interface EmbeddingConfig {
   enabled: boolean
   minSimilarity: number
-  provider: string // "none", "onnx", "openai"
-  modelPath: string // ONNX model directory path
-  modelName: string // model name for download/API
+  provider: string // "none", "openai"
+  modelName: string // model name for API
   providers: EmbeddingProvider[]
   models: EmbeddingModel[]
 }

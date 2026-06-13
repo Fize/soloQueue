@@ -100,6 +100,10 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 	state.StartedAt = &now
 	state.Unlock()
 
+	if err := e.store.Update(simID, state); err != nil && e.log != nil {
+		e.log.Warn(logger.CatSimulation, "failed to persist running status", "err", err.Error())
+	}
+
 	events := make(chan SimulationEvent, 64)
 
 	go func() {
@@ -116,6 +120,9 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 				state.Status = StatusFailed
 				state.Error = fmt.Sprintf("panic: %v", r)
 				state.Unlock()
+				if err := e.store.Update(simID, state); err != nil && e.log != nil {
+					e.log.Warn(logger.CatSimulation, "failed to persist failed status", "err", err.Error())
+				}
 			}
 		}()
 
@@ -137,6 +144,9 @@ func (e *SimulationEngine) Stop(simID string) error {
 	}
 	state.Status = StatusCancelled
 	state.Unlock()
+	if err := e.store.Update(simID, state); err != nil && e.log != nil {
+		e.log.Warn(logger.CatSimulation, "failed to persist cancelled status", "err", err.Error())
+	}
 	return nil
 }
 
@@ -201,6 +211,7 @@ func (e *SimulationEngine) CreateFromSeed(
 	personaCount int,
 	opts CreateFromSeedOptions,
 ) (simID string, extraction *SeedExtraction, personas []Persona, err error) {
+
 	// Truncate excessive seed text
 	if len(seedText) > 50000 {
 		seedText = seedText[:50000]
@@ -217,6 +228,10 @@ func (e *SimulationEngine) CreateFromSeed(
 	}
 
 	extractor := NewSeedExtractor(e.llm, extractorModel, extractorProvider, e.memoryEngine)
+	extractor.SetLogger(e.log)
+	if e.log != nil {
+		e.log.InfoContext(ctx, logger.CatSimulation, "create from seed: starting extraction")
+	}
 	extraction, err = extractor.Extract(ctx, seedText)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("seed extract: %w", err)
@@ -271,6 +286,10 @@ func (e *SimulationEngine) CreateFromSeed(
 	}
 
 	gen := NewPersonaGenerator(e.llm, genModel, genProvider, e.memoryEngine)
+	gen.SetLogger(e.log)
+	if e.log != nil {
+		e.log.InfoContext(ctx, logger.CatSimulation, "create from seed: generating personas", "count", personaCount, "extracted_entities", len(extraction.Entities))
+	}
 	personas, err = gen.Generate(ctx, extraction, topic, personaCount)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("persona generation: %w", err)
@@ -563,6 +582,9 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 		state.Status = StatusFailed
 		state.Error = err.Error()
 		state.Unlock()
+		if errUpdate := e.store.Update(simID, state); errUpdate != nil && e.log != nil {
+			e.log.Warn(logger.CatSimulation, "failed to persist failed status", "err", errUpdate.Error())
+		}
 		e.emit(events, SimulationEvent{Type: "error", SimulationID: simID, Error: err.Error()})
 		return
 	}
@@ -613,6 +635,15 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 				if as, ok2 := state.AgentStates[rm.AgentID]; ok2 {
 					as.TotalMessages++
 				}
+				// Update current graph state in memory
+				nodes := make([]string, 0, len(graph.nodes))
+				for n := range graph.nodes {
+					nodes = append(nodes, n)
+				}
+				state.Graph = &SimulationRelationGraph{
+					Nodes: nodes,
+					Edges: graph.ToEdgeDTOs(),
+				}
 				state.Unlock()
 			}
 		}
@@ -651,7 +682,19 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 	}
 	now := time.Now()
 	state.CompletedAt = &now
+	nodes := make([]string, 0, len(graph.nodes))
+	for n := range graph.nodes {
+		nodes = append(nodes, n)
+	}
+	state.Graph = &SimulationRelationGraph{
+		Nodes: nodes,
+		Edges: graph.ToEdgeDTOs(),
+	}
 	state.Unlock()
+
+	if err := e.store.Update(state.RunID, state); err != nil && e.log != nil {
+		e.log.Warn(logger.CatSimulation, "failed to persist final simulation state", "err", err.Error())
+	}
 }
 
 func (e *SimulationEngine) maybePersist(state *SimulationState) {

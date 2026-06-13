@@ -180,12 +180,13 @@ func (g *GraphStore) GetEdgesBySourceHash(ctx context.Context, sourceHash string
 
 // BFS performs breadth-first traversal from a seed entity.
 // maxHops controls depth (default 2). maxDegree caps expansion per node (0 = no cap).
+const bfsMaxTotalNodes = 200
+
 func (g *GraphStore) BFS(ctx context.Context, seedName string, maxHops, maxDegree int) (nodes []GraphNode, edges []GraphEdge, err error) {
 	if maxHops <= 0 {
 		maxHops = 2
 	}
 
-	// Resolve seed
 	seed, err := g.resolveName(ctx, seedName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bfs: resolve seed %q: %w", seedName, err)
@@ -193,18 +194,22 @@ func (g *GraphStore) BFS(ctx context.Context, seedName string, maxHops, maxDegre
 
 	visited := map[int64]bool{seed.ID: true}
 	queue := []int64{seed.ID}
-	allNodes := []GraphNode{*seed}
-	var allEdges []GraphEdge
+	allNodes := make([]GraphNode, 0, 16)
+	allNodes = append(allNodes, *seed)
+	allEdges := make([]GraphEdge, 0, 32)
 
 	for hop := 0; hop < maxHops && len(queue) > 0; hop++ {
 		var nextQueue []int64
 		for _, nodeID := range queue {
+			if len(allNodes)+len(nextQueue) >= bfsMaxTotalNodes {
+				return allNodes, allEdges, nil
+			}
+
 			neighbors, err := g.GetEdgesFrom(ctx, nodeID, false)
 			if err != nil {
 				return nil, nil, err
 			}
 
-			// Adaptive degree truncation for hub nodes
 			if maxDegree > 0 && len(neighbors) > maxDegree {
 				neighbors = neighbors[:maxDegree]
 			}
@@ -532,7 +537,7 @@ func (g *GraphStore) queryEdges(ctx context.Context, query string, args ...inter
 	}
 	defer rows.Close()
 
-	var edges []GraphEdge
+	edges := make([]GraphEdge, 0, 16)
 	for rows.Next() {
 		var e GraphEdge
 		var validFrom, validUntil sql.NullString
