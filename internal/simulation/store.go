@@ -44,15 +44,24 @@ func (s *SimulationStore) Create(config SimulationConfig) (string, error) {
 		id = config.ID
 	}
 
+	nodes := make([]string, len(config.Personas))
+	for i, p := range config.Personas {
+		nodes[i] = p.ID
+	}
+
 	state := &SimulationState{
-		Config:      config,
-		Status:      StatusPending,
+		Config:       config,
+		Status:       StatusPending,
 		CurrentRound: 0,
-		Rounds:      make([]RoundResult, 0),
-		WorldState:  NewWorldState(config.WorldState),
-		AgentStates: make(map[string]*AgentState),
-		CreatedAt:   time.Now(),
-		RunID:       id,
+		Rounds:       make([]RoundResult, 0),
+		WorldState:   NewWorldState(config.WorldState),
+		AgentStates:  make(map[string]*AgentState),
+		CreatedAt:    time.Now(),
+		RunID:        id,
+		Graph: &SimulationRelationGraph{
+			Nodes: nodes,
+			Edges: []EdgeDTO{},
+		},
 	}
 
 	for _, p := range config.Personas {

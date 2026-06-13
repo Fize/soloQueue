@@ -27,7 +27,15 @@ import type {
   SimulationMessage,
   SimulationEvent,
   SimulationProgress,
+  SimulationPersona,
 } from '@/types'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 
 export function SimulationDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -53,6 +61,7 @@ export function SimulationDetailPage() {
 
   // Filtering & Interaction
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [viewingPersona, setViewingPersona] = useState<SimulationPersona | null>(null)
   const [chatAgentId, setChatAgentId] = useState<string | null>(null)
   const [chatQuestion, setChatQuestion] = useState('')
   const [chatHistory, setChatHistory] = useState<
@@ -236,9 +245,7 @@ export function SimulationDetailPage() {
             : null
         )
       } else if (ev.type === 'error') {
-        setProgress((prev) =>
-          prev ? { ...prev, phase: 'failed', progress_percent: 100 } : null
-        )
+        setProgress((prev) => (prev ? { ...prev, phase: 'failed', progress_percent: 100 } : null))
         fetchState()
       } else if (ev.type === 'finished') {
         fetchState()
@@ -509,24 +516,38 @@ export function SimulationDetailPage() {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h4 className="font-semibold text-foreground text-sm">{persona.name}</h4>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-foreground text-sm truncate">
+                          {persona.name}
+                        </h4>
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
                           {persona.role}
                         </p>
                       </div>
-                      {state.status === 'completed' && (
+                      <div className="flex items-center gap-1">
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            setChatAgentId(persona.id)
+                            setViewingPersona(persona)
                           }}
                           className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
-                          title="Ask question post-simulation"
+                          title="View Agent Prompt"
                         >
-                          <MessageSquare className="h-4 w-4" />
+                          <FileText className="h-4 w-4" />
                         </button>
-                      )}
+                        {state.status === 'completed' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setChatAgentId(persona.id)
+                            }}
+                            className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+                            title="Ask question post-simulation"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {/* Traits */}
                     <div className="mt-2.5 flex flex-wrap gap-1">
@@ -902,11 +923,21 @@ export function SimulationDetailPage() {
                           key={persona.id}
                           className="flex flex-col gap-1 rounded bg-background/25 border border-border/40 p-2.5 text-xs"
                         >
-                          <div className="flex justify-between font-semibold">
+                          <div className="flex justify-between items-center font-semibold">
                             <span className="text-foreground">{persona.name}</span>
-                            <span className="text-[10px] text-muted-foreground font-mono font-normal">
-                              {persona.role}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] text-muted-foreground font-mono font-normal">
+                                {persona.role}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setViewingPersona(persona)}
+                                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+                                title="View Agent Prompt"
+                              >
+                                <FileText className="h-3 w-3" />
+                              </button>
+                            </div>
                           </div>
                           <div className="flex gap-2 text-[10px] text-muted-foreground/80 mt-1 font-mono">
                             <span>
@@ -1065,6 +1096,73 @@ export function SimulationDetailPage() {
           </form>
         </div>
       )}
+
+      {/* View Agent Prompt Dialog */}
+      <Dialog open={!!viewingPersona} onOpenChange={(v) => !v && setViewingPersona(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6 overflow-hidden">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-baseline gap-2">
+              <span className="text-lg font-bold text-foreground">{viewingPersona?.name}</span>
+              <span className="text-xs text-muted-foreground font-mono font-normal">
+                ({viewingPersona?.role})
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto mt-4 pr-1 space-y-4">
+            <div>
+              <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
+                System Prompt
+              </h5>
+              <div className="rounded-xl border border-border bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap leading-relaxed text-foreground select-text overflow-x-auto max-h-[40vh]">
+                {viewingPersona?.system_prompt || 'No system prompt configured.'}
+              </div>
+            </div>
+
+            {viewingPersona?.bio && (
+              <div>
+                <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
+                  Biography
+                </h5>
+                <p className="text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40">
+                  {viewingPersona.bio}
+                </p>
+              </div>
+            )}
+
+            {viewingPersona?.goals && viewingPersona.goals.length > 0 && (
+              <div>
+                <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
+                  Goals
+                </h5>
+                <ul className="list-disc list-inside space-y-1 text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40">
+                  {viewingPersona.goals.map((goal, idx) => (
+                    <li key={idx}>{goal}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {viewingPersona?.traits && Object.keys(viewingPersona.traits).length > 0 && (
+              <div>
+                <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
+                  Traits
+                </h5>
+                <div className="grid grid-cols-2 gap-2 bg-muted/10 p-3 rounded-lg border border-border/40">
+                  {Object.entries(viewingPersona.traits).map(([k, v]) => (
+                    <div key={k} className="text-xs">
+                      <span className="font-mono text-muted-foreground mr-1.5">{k}:</span>
+                      <span className="text-foreground">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="mt-4 shrink-0" showCloseButton />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

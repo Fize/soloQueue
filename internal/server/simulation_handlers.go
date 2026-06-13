@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 )
 
@@ -145,8 +146,10 @@ func (m *Mux) handleCreateFromSeed(w http.ResponseWriter, r *http.Request) {
 		MinSpeakIntervalMs: req.MinSpeakIntervalMs,
 	}
 
+	m.log.InfoContext(r.Context(), logger.CatSimulation, "create from seed: request received", "seed_text_len", len(req.SeedText))
 	simID, extraction, personas, err := m.simEngine.CreateFromSeed(r.Context(), req.SeedText, req.Topic, req.PersonaCount, opts)
 	if err != nil {
+		m.log.Error(logger.CatSimulation, "create from seed failed", "err", err.Error())
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}

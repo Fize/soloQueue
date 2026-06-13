@@ -97,6 +97,7 @@ func (s *SQLiteStore) migrate() error {
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN max_wall_clock_ms INTEGER NOT NULL DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN trigger_policy TEXT NOT NULL DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN min_speak_interval_ms INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN graph_json TEXT NOT NULL DEFAULT '{}'")
 
 	return nil
 }
@@ -120,10 +121,20 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 	pj, _ := json.Marshal(config.Personas)
 	wsj, _ := json.Marshal(config.WorldState)
 
+	nodes := make([]string, len(config.Personas))
+	for i, p := range config.Personas {
+		nodes[i] = p.ID
+	}
+	initialGraph := &SimulationRelationGraph{
+		Nodes: nodes,
+		Edges: []EdgeDTO{},
+	}
+	gj, _ := json.Marshal(initialGraph)
+
 	s.mu.Lock()
-	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms)
-		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?)`,
-		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxActions, config.MaxWallClockMs, config.TriggerPolicy, config.MinSpeakIntervalMs)
+	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms, graph_json)
+		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?, ?)`,
+		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxActions, config.MaxWallClockMs, config.TriggerPolicy, config.MinSpeakIntervalMs, string(gj))
 	s.mu.Unlock()
 
 	if err != nil {
@@ -134,17 +145,17 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 
 func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 	var (
-		topic, desc, mode, pj, wsj, report, errMsg, status, triggerPolicy string
+		topic, desc, mode, pj, wsj, report, errMsg, status, triggerPolicy, graphJSON string
 		currentRound, totalActions, maxActions, maxWallClockMs, minSpeakIntervalMs int
 		startedAt, completedAt, createdAt                    sql.NullString
 	)
 	err := s.db.QueryRow(`SELECT topic, description, mode, personas_json, world_state_json,
 		status, report, error_msg, current_round, total_actions,
-		started_at, completed_at, created_at, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms
+		started_at, completed_at, created_at, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms, graph_json
 		FROM simulations WHERE id = ?`, id).
 		Scan(&topic, &desc, &mode, &pj, &wsj, &status, &report, &errMsg,
 			&currentRound, &totalActions, &startedAt, &completedAt, &createdAt,
-			&maxActions, &maxWallClockMs, &triggerPolicy, &minSpeakIntervalMs)
+			&maxActions, &maxWallClockMs, &triggerPolicy, &minSpeakIntervalMs, &graphJSON)
 	if err == sql.ErrNoRows {
 		return nil, ErrSimNotFound
 	}
@@ -156,6 +167,11 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 	json.Unmarshal([]byte(pj), &personas)
 	var ws map[string]any
 	json.Unmarshal([]byte(wsj), &ws)
+
+	var graph *SimulationRelationGraph
+	if graphJSON != "" && graphJSON != "{}" {
+		json.Unmarshal([]byte(graphJSON), &graph)
+	}
 
 	state := &SimulationState{
 		Config: SimulationConfig{
@@ -177,6 +193,7 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 		Report:       report,
 		Error:        errMsg,
 		RunID:        id,
+		Graph:        graph,
 	}
 
 	for _, p := range personas {
@@ -255,12 +272,19 @@ func (s *SQLiteStore) Update(id string, state *SimulationState) error {
 		completedAt = state.CompletedAt.Format(timeFormat)
 	}
 
+	graphJSON := "{}"
+	if state.Graph != nil {
+		if gj, err := json.Marshal(state.Graph); err == nil {
+			graphJSON = string(gj)
+		}
+	}
+
 	_, err := s.db.Exec(`UPDATE simulations SET status=?, world_state_json=?, report=?, error_msg=?,
 		current_round=?, started_at=?, completed_at=?, topic=?, description=?, personas_json=?,
-		max_actions=?, max_wall_clock_ms=?, trigger_policy=?, min_speak_interval_ms=? WHERE id=?`,
+		max_actions=?, max_wall_clock_ms=?, trigger_policy=?, min_speak_interval_ms=?, graph_json=? WHERE id=?`,
 		string(state.Status), string(wsj), state.Report, state.Error,
 		state.CurrentRound, startedAt, completedAt, state.Config.Topic, state.Config.Description, string(pj),
-		state.Config.MaxActions, state.Config.MaxWallClockMs, state.Config.TriggerPolicy, state.Config.MinSpeakIntervalMs, id)
+		state.Config.MaxActions, state.Config.MaxWallClockMs, state.Config.TriggerPolicy, state.Config.MinSpeakIntervalMs, graphJSON, id)
 	return err
 }
 

@@ -36,6 +36,8 @@ import (
 	"strings"
 	"sync"
 
+	_ "net/http/pprof"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -320,6 +322,12 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 
 	// WebSocket
 	r.Get("/ws", m.handleWebSocket)
+
+	// pprof debugging
+	r.Get("/debug/*", func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/debug/" + chi.URLParam(r, "*")
+		http.DefaultServeMux.ServeHTTP(w, r)
+	})
 
 	// Session routes
 	r.Route("/api/session", func(r chi.Router) {

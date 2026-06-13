@@ -95,21 +95,28 @@ const (
 	StatusCancelled SimulationStatus = "cancelled"
 )
 
+// SimulationRelationGraph represents the interaction graph schema returned to the UI.
+type SimulationRelationGraph struct {
+	Nodes []string  `json:"nodes"`
+	Edges []EdgeDTO `json:"edges"`
+}
+
 // SimulationState holds the full mutable state of a simulation.
 type SimulationState struct {
-	Config      SimulationConfig        `json:"config"`
-	Status      SimulationStatus        `json:"status"`
-	CurrentRound int                     `json:"current_round"`
-	Rounds      []RoundResult           `json:"rounds"`
-	WorldState  *WorldState             `json:"-"`
-	AgentStates map[string]*AgentState  `json:"agent_states"`
-	CreatedAt   time.Time               `json:"created_at"`
-	StartedAt   *time.Time              `json:"started_at,omitempty"`
-	CompletedAt *time.Time              `json:"completed_at,omitempty"`
-	Error       string                  `json:"error,omitempty"`
-	RunID       string                  `json:"run_id"`
-	Report      string                  `json:"report,omitempty"`
-	mu          sync.RWMutex
+	Config       SimulationConfig         `json:"config"`
+	Status       SimulationStatus         `json:"status"`
+	CurrentRound int                      `json:"current_round"`
+	Rounds       []RoundResult            `json:"rounds"`
+	WorldState   *WorldState              `json:"-"`
+	AgentStates  map[string]*AgentState   `json:"agent_states"`
+	CreatedAt    time.Time                `json:"created_at"`
+	StartedAt    *time.Time               `json:"started_at,omitempty"`
+	CompletedAt  *time.Time               `json:"completed_at,omitempty"`
+	Error        string                   `json:"error,omitempty"`
+	RunID        string                   `json:"run_id"`
+	Report       string                   `json:"report,omitempty"`
+	Graph        *SimulationRelationGraph `json:"graph,omitempty"`
+	mu           sync.RWMutex
 }
 
 func (s *SimulationState) Lock()   { s.mu.Lock() }

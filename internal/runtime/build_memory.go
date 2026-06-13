@@ -51,24 +51,6 @@ func (bc *buildContext) buildMemoryEngine() {
 	switch provider {
 	case "openai":
 		emb = bc.createOpenAIEmbedder()
-	case "onnx":
-		embModel := ""
-		if cfg.ModelPath != "" {
-			embModel = cfg.ModelPath
-		}
-		embCfg := embedding.Config{
-			Provider:  "onnx",
-			ModelPath: embModel,
-			ModelName: cfg.ModelName,
-		}
-		var err error
-		emb, err = embedding.NewFromConfig(embCfg)
-		if err != nil {
-			bc.log.Warn(logger.CatApp, "build: failed to create ONNX embedder, engine runs without vectors",
-				"err", err,
-				"hint", "install onnxruntime (brew install onnxruntime)",
-			)
-		}
 	case "none", "":
 		// No embedding — pure BM25 + KG
 	default:
@@ -85,6 +67,7 @@ func (bc *buildContext) buildMemoryEngine() {
 
 	start := time.Now()
 	bc.memoryEngine = memoryengine.New(bc.sharedDB.DB, &bc.sharedDB.WMu, emb, vecStore, bc.log)
+	fmt.Fprintf(os.Stderr, "[stderr] build: memory engine ready (has_vector=%v, provider=%s)\n", emb != nil, provider)
 	bc.log.Debug(logger.CatApp, "build: memory engine ready",
 		"duration", time.Since(start).String(),
 		"has_vector", emb != nil,

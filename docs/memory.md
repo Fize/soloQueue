@@ -68,12 +68,11 @@ The system uses an LLM-driven merge pipeline to prevent duplicate records:
 
 ## Tier 2: Memory Engine (Long-Term)
 
-The memory engine is a **config-driven hybrid search system** that can operate in three modes:
+The memory engine is a **config-driven hybrid search system** that can operate in two modes:
 
 | Mode | Config | Pipelines | Dependencies |
 |---|---|---|---|
 | **None** (default) | `provider = "none"` | BM25 + KG (dual-hybrid) | Zero |
-| **Local ONNX** | `provider = "onnx"` | BM25 + KG + Vector (tri-hybrid) | ONNX Runtime + model file |
 | **Remote API** | `provider = "openai"` | BM25 + KG + Vector (tri-hybrid) | Network + API key |
 
 ### Config
@@ -81,9 +80,6 @@ The memory engine is a **config-driven hybrid search system** that can operate i
 ```toml
 [embedding]
 provider = "none"     # default: zero-dependency dual-hybrid
-
-[embedding.onnx]
-model_path = ""       # empty = auto-download intfloat/multilingual-e5-large (~560MB)
 
 [embedding.openai]
 base_url = "https://api.deepseek.com/v1"
@@ -192,35 +188,11 @@ The v13 database migration handles transitioning from the old `memories` table:
 - Old embeddings are discarded (they depended on the old embedding model).
 - If a new embedding provider is configured, entries are re-embedded lazily on subsequent writes.
 
----
 
-## ONNX Local Embedding
-
-When `provider = "onnx"`, the engine uses `yalue/onnxruntime_go` (CGo wrapper for ONNX Runtime) to run `intfloat/multilingual-e5-large` in-process.
-
-### Requirements
-- **macOS**: `brew install onnxruntime`
-- **Linux**: `apt install libonnxruntime-dev` or download `.so`
-- **Build**: `go build` (ONNX is built in by default; requires `brew install onnxruntime`)
-
-### ONNXEmbedder
-- Loads the ONNX model file via `ort.NewAdvancedSession`.
-- Implements mean pooling (sentence-transformers standard).
-- L2-normalizes output vectors.
-- Tokenizer loads vocabulary from HuggingFace `vocab.txt` (pure Go, no Python).
-- E5 convention: prefixes queries with `"query: "` and stored content with `"passage: "`.
-- Session is not thread-safe; all calls are serialized via mutex.
-
-### Model Download
-- Default model: `intfloat/multilingual-e5-large` (1024-dim, 100+ languages, ~560MB).
-- Auto-downloaded from HuggingFace CDN to `~/.soloqueue/models/` on first run.
-- Set `model_path` in config to use a custom model.
-
----
 
 ## Key Design Decisions
 
-1. **Default is zero-dependency** — `provider = "none"` works out of the box. Users opt into embeddings by installing ONNX Runtime or configuring an API key.
+1. **Default is zero-dependency** — `provider = "none"` works out of the box. Users opt into embeddings by configuring an API key.
 2. **Single SQLite file** — all memory data (text, FTS index, KG, vectors) in one file. Simple backup, no external services.
 3. **Engine never calls LLM** — entity extraction is agent-driven via tools. No hidden API costs.
 4. **RRF is pipeline-agnostic** — adding or removing pipelines doesn't change the fusion logic.
@@ -236,4 +208,3 @@ When `provider = "onnx"`, the engine uses `yalue/onnxruntime_go` (CGo wrapper fo
 | Agent-driven extraction | No hidden LLM costs, full control | Entity coverage depends on agent diligence |
 | Salience decay | Old/unused memories fade naturally | Can lose rarely-accessed but important facts |
 | Single SQLite file | Simple backup, no infra | Writer contention under high concurrency |
-| ONNX local inference | Fully offline, no API costs | ~800MB RAM, requires CGo build |

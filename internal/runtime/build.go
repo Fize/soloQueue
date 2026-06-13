@@ -79,6 +79,7 @@ func Build(
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
 		return nil, fmt.Errorf("failed to wire DB to config: %w", err)
 	}
+	bc.settings = bc.cfg.Get() // refresh with DB-backed overrides
 
 	// Phase 2: Validate & resolve config (now fully DB-backed)
 	if err := bc.resolveConfig(); err != nil {
