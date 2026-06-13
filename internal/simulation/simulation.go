@@ -3,6 +3,7 @@ package simulation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -333,12 +334,117 @@ func (e *SimulationEngine) CreateFromSeed(
 		MinSpeakIntervalMs: minSpeakIntervalMs,
 	}
 
+	// Step 3: Build initial graph edges from seed extraction entity relations
+	config.InitialEdges = buildInitialEdges(extraction, personas)
+
 	simID, err = e.Create(config)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("create simulation: %w", err)
 	}
 
 	return simID, extraction, personas, nil
+}
+
+// buildInitialEdges maps seed extraction entity relations to persona-to-persona
+// graph edges, following the MiroFish approach of pre-populating the interaction
+// graph before simulation begins.
+func buildInitialEdges(extraction *SeedExtraction, personas []Persona) []EdgeDTO {
+	if extraction == nil || len(extraction.Entities) == 0 || len(personas) < 2 {
+		return nil
+	}
+
+	// entityStance[entityName][personaID] = stance ("pro", "con", "neutral")
+	entityStance := make(map[string]map[string]string)
+	for _, p := range personas {
+		for traitKey, traitVal := range p.Traits {
+			if len(traitKey) > 7 && traitKey[:7] == "stance:" {
+				entityName := traitKey[7:]
+				if entityStance[entityName] == nil {
+					entityStance[entityName] = make(map[string]string)
+				}
+				entityStance[entityName][p.ID] = traitVal
+			}
+		}
+	}
+
+	dedup := make(map[string]bool)
+	var edges []EdgeDTO
+
+	addEdge := func(source, target, relType string) {
+		key := source + "->" + target + ":" + relType
+		if dedup[key] {
+			return
+		}
+		dedup[key] = true
+		edges = append(edges, EdgeDTO{
+			Source: source,
+			Target: target,
+			Type:   relType,
+			Weight: 1,
+		})
+	}
+
+	// Map entity relations from seed extraction to persona edges.
+	// For each relation (entity A → entity B with relType), create edges
+	// between all personas that have stances on entity A and entity B.
+	for _, entity := range extraction.Entities {
+		sourcePersonas := entityStance[entity.Name]
+		if len(sourcePersonas) == 0 {
+			continue
+		}
+		for _, rel := range entity.Relations {
+			targetPersonas := entityStance[rel.TargetName]
+			if len(targetPersonas) == 0 {
+				continue
+			}
+			relType := mapRelType(string(rel.RelType))
+			for srcPID := range sourcePersonas {
+				for tgtPID := range targetPersonas {
+					if srcPID == tgtPID {
+						continue
+					}
+					addEdge(srcPID, tgtPID, relType)
+				}
+			}
+		}
+	}
+
+	// For personas on the same entity, create stance-based edges.
+	for entityName, stances := range entityStance {
+		_ = entityName
+		pids := make([]string, 0, len(stances))
+		for pid := range stances {
+			pids = append(pids, pid)
+		}
+		for i := 0; i < len(pids); i++ {
+			for j := i + 1; j < len(pids); j++ {
+				a, b := pids[i], pids[j]
+				sa, sb := stances[a], stances[b]
+				if sa == "pro" && sb == "con" || sa == "con" && sb == "pro" {
+					addEdge(a, b, "rebuttal")
+					addEdge(b, a, "rebuttal")
+				} else if sa == sb {
+					addEdge(a, b, "agree")
+					addEdge(b, a, "agree")
+				} else {
+					addEdge(a, b, "mention")
+					addEdge(b, a, "mention")
+				}
+			}
+		}
+	}
+
+	return edges
+}
+
+// mapRelType normalizes a relation type string to the simulation edge type.
+func mapRelType(t string) string {
+	switch t {
+	case "rebuttal", "agree", "mention", "propose", "reply":
+		return t
+	default:
+		return "mention"
+	}
 }
 
 // ReplayAsk queries an agent in-character using their simulation memories as context.
@@ -374,10 +480,10 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 		if err != nil {
 			return "", fmt.Errorf("report analyst ask: %w", err)
 		}
-		return resp.Content, nil
-	}
+	return resp.Content, nil
+}
 
-	// Find the persona
+// Find the persona
 	var persona *Persona
 	for i, p := range state.Config.Personas {
 		if p.ID == personaID {
@@ -884,7 +990,9 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 		memories[sa.PersonaID()] = sa.Memory()
 	}
 
-	prompt := BuildReportPrompt(config.Topic, memories, graph, ws)
+	kgContext := e.buildKGReportContext(ctx)
+
+	prompt := BuildReportPrompt(config.Topic, memories, graph, ws, kgContext)
 
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
 		Model:      e.resolveModelID(e.config.DefaultModelID),
@@ -896,4 +1004,39 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 		return "", err
 	}
 	return resp.Content, nil
+}
+
+// buildKGReportContext queries the MemoryEngine KG for entity data to enrich the report.
+func (e *SimulationEngine) buildKGReportContext(ctx context.Context) string {
+	if e.memoryEngine == nil {
+		return ""
+	}
+
+	entities, err := e.memoryEngine.Graph().ListEntities(ctx, 50)
+	if err != nil || len(entities) == 0 {
+		return ""
+	}
+
+	edges, _ := e.memoryEngine.Graph().GetAllEdges(ctx, false)
+
+	var b strings.Builder
+	b.WriteString("## Knowledge Graph Context\n\n")
+	b.WriteString(fmt.Sprintf("- Total entities extracted: %d\n", len(entities)))
+	b.WriteString(fmt.Sprintf("- Total relationships: %d\n\n", len(edges)))
+
+	b.WriteString("### Entities\n")
+	for _, ent := range entities {
+		b.WriteString(fmt.Sprintf("- %s (type: %s, mentions: %d, confidence: %.2f)\n",
+			ent.Name, ent.Type, ent.MentionCount, ent.Confidence))
+	}
+
+	if len(edges) > 0 {
+		b.WriteString("\n### Entity Relationships\n")
+		for _, e := range edges {
+			b.WriteString(fmt.Sprintf("- %s → %s (%s) weight=%.1f\n",
+				e.SourceName, e.TargetName, e.RelType, e.Weight))
+		}
+	}
+
+	return b.String()
 }

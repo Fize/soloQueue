@@ -12,7 +12,7 @@ type TriggerPolicy interface {
 	// inbox: pending messages for this agent (already drained).
 	// worldState: current snapshot of world state.
 	// lastSpokeAt: when the agent last spoke (zero if never).
-	ShouldSpeak(agentID string, inbox []Message, worldState map[string]any, lastSpokeAt time.Time) bool
+	ShouldSpeak(agentID string, personaName string, inbox []Message, worldState map[string]any, lastSpokeAt time.Time) bool
 }
 
 // ─── ReactiveTrigger ───────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ type ReactiveTrigger struct {
 	MinInterval time.Duration
 }
 
-func (t *ReactiveTrigger) ShouldSpeak(agentID string, inbox []Message, _ map[string]any, lastSpokeAt time.Time) bool {
+func (t *ReactiveTrigger) ShouldSpeak(agentID string, personaName string, inbox []Message, _ map[string]any, lastSpokeAt time.Time) bool {
 	if len(inbox) == 0 {
 		return false
 	}
@@ -55,7 +55,7 @@ func NewSelectiveTrigger(mention, question, proposal bool, idle time.Duration) *
 	}
 }
 
-func (t *SelectiveTrigger) ShouldSpeak(agentID string, inbox []Message, worldState map[string]any, lastSpokeAt time.Time) bool {
+func (t *SelectiveTrigger) ShouldSpeak(agentID string, personaName string, inbox []Message, worldState map[string]any, lastSpokeAt time.Time) bool {
 	t.mu.Lock()
 	if len(inbox) > 0 {
 		t.lastActivity = time.Now()
@@ -68,7 +68,8 @@ func (t *SelectiveTrigger) ShouldSpeak(agentID string, inbox []Message, worldSta
 		if msg.Type == "system" {
 			return true
 		}
-		if t.RespondToMentions && strings.Contains(msg.Content, "@"+agentID) {
+		if t.RespondToMentions && (strings.Contains(msg.Content, "@"+agentID) ||
+			(personaName != "" && strings.Contains(msg.Content, "@"+personaName))) {
 			return true
 		}
 		if t.RespondToQuestions && strings.HasSuffix(strings.TrimSpace(msg.Content), "?") {
@@ -109,8 +110,8 @@ func NewRateLimitedTrigger(inner TriggerPolicy, maxPerMin, burst int) *RateLimit
 	}
 }
 
-func (t *RateLimitedTrigger) ShouldSpeak(agentID string, inbox []Message, worldState map[string]any, lastSpokeAt time.Time) bool {
-	if !t.Inner.ShouldSpeak(agentID, inbox, worldState, lastSpokeAt) {
+func (t *RateLimitedTrigger) ShouldSpeak(agentID string, personaName string, inbox []Message, worldState map[string]any, lastSpokeAt time.Time) bool {
+	if !t.Inner.ShouldSpeak(agentID, personaName, inbox, worldState, lastSpokeAt) {
 		return false
 	}
 

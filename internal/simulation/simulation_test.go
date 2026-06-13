@@ -383,7 +383,7 @@ func TestBuildReportPrompt(t *testing.T) {
 	memories := map[string]*AgentMemory{"alice": mem1, "bob": mem2}
 	graph := NewRelationGraph()
 	graph.AddEdge("alice", "bob", RelRebuttal, 1, "I disagree")
-	prompt := BuildReportPrompt("Test", memories, graph, ws)
+	prompt := BuildReportPrompt("Test", memories, graph, ws, "")
 
 	if !strings.Contains(prompt, "alice") {
 		t.Error("should contain agent id")
@@ -398,49 +398,68 @@ func TestBuildReportPrompt(t *testing.T) {
 func TestReactiveTrigger(t *testing.T) {
 	trigger := &ReactiveTrigger{MinInterval: 100 * time.Millisecond}
 
-	if !trigger.ShouldSpeak("alice", []Message{{From: "bob"}}, nil, time.Time{}) {
+	if !trigger.ShouldSpeak("alice", "", []Message{{From: "bob"}}, nil, time.Time{}) {
 		t.Error("should speak when inbox has messages")
 	}
-	if trigger.ShouldSpeak("alice", nil, nil, time.Time{}) {
+	if trigger.ShouldSpeak("alice", "", nil, nil, time.Time{}) {
 		t.Error("should not speak with empty inbox")
 	}
 
 	now := time.Now()
-	if trigger.ShouldSpeak("alice", []Message{{From: "bob"}}, nil, now) {
+	if trigger.ShouldSpeak("alice", "", []Message{{From: "bob"}}, nil, now) {
 		t.Error("should not speak within MinInterval")
 	}
 
 	time.Sleep(150 * time.Millisecond)
-	if !trigger.ShouldSpeak("alice", []Message{{From: "bob"}}, nil, now) {
+	if !trigger.ShouldSpeak("alice", "", []Message{{From: "bob"}}, nil, now) {
 		t.Error("should speak after MinInterval elapsed")
+	}
+}
+
+func TestSelectiveTrigger_NameMatch(t *testing.T) {
+	trigger := NewSelectiveTrigger(true, true, true, 0)
+
+	// Should match @personaName, not just @agentID
+	if !trigger.ShouldSpeak("uuid-1234", "张三", []Message{{Content: "hey @张三 what do you think?"}}, nil, time.Time{}) {
+		t.Error("should respond to mention by persona name")
+	}
+
+	// Should also still match @agentID
+	if !trigger.ShouldSpeak("agent_1", "Alice", []Message{{Content: "hey @agent_1 what do you think?"}}, nil, time.Time{}) {
+		t.Error("should respond to mention by agent ID")
+	}
+
+	// Should not match on plain name without @
+	if trigger.ShouldSpeak("agent_1", "Alice", []Message{{Content: "I think Alice is right."}}, nil, time.Time{}) {
+		t.Error("should not respond to plain name without @")
 	}
 }
 
 func TestSelectiveTrigger(t *testing.T) {
 	trigger := NewSelectiveTrigger(true, true, true, 0)
 
-	if !trigger.ShouldSpeak("alice", []Message{{Content: "hey @alice what do you think?"}}, nil, time.Time{}) {
+	if !trigger.ShouldSpeak("alice", "", []Message{{Content: "hey @alice what do you think?"}}, nil, time.Time{}) {
 		t.Error("should respond to mention")
 	}
-	if !trigger.ShouldSpeak("bob", []Message{{Content: "is Rust really safer?"}}, nil, time.Time{}) {
+	if !trigger.ShouldSpeak("bob", "", []Message{{Content: "is Rust really safer?"}}, nil, time.Time{}) {
 		t.Error("should respond to question")
 	}
-	if !trigger.ShouldSpeak("charlie", []Message{{Content: "I think [PROPOSE consensus: go]"}}, nil, time.Time{}) {
+	if !trigger.ShouldSpeak("charlie", "", []Message{{Content: "I think [PROPOSE consensus: go]"}}, nil, time.Time{}) {
 		t.Error("should respond to proposal")
 	}
-	if trigger.ShouldSpeak("alice", []Message{{Content: "I think Go is great."}}, nil, time.Time{}) {
+	if trigger.ShouldSpeak("alice", "", []Message{{Content: "I think Go is great."}}, nil, time.Time{}) {
 		t.Error("should not respond to plain statement")
 	}
-	if trigger.ShouldSpeak("alice", nil, nil, time.Time{}) {
+	if trigger.ShouldSpeak("alice", "", nil, nil, time.Time{}) {
 		t.Error("should not speak with empty inbox")
 	}
 }
 
 func TestSelectiveTriggerIdleTimeout(t *testing.T) {
 	trigger := NewSelectiveTrigger(false, false, false, 50*time.Millisecond)
-	trigger.ShouldSpeak("alice", []Message{{Content: "hello"}}, nil, time.Time{})
+	trigger.ShouldSpeak("alice", "", []Message{{Content: "hello"}}, nil, time.Time{})
 	time.Sleep(100 * time.Millisecond)
-	if !trigger.ShouldSpeak("alice", nil, nil, time.Time{}) {
+	if !trigger.ShouldSpeak("alice", "", nil, nil, time.Time{}) {
 		t.Error("should speak after idle timeout")
 	}
 }
@@ -452,11 +471,11 @@ func TestRateLimitedTrigger(t *testing.T) {
 	inbox := []Message{{From: "bob"}}
 
 	for i := 0; i < 3; i++ {
-		if !trigger.ShouldSpeak("alice", inbox, nil, time.Time{}) {
+		if !trigger.ShouldSpeak("alice", "", inbox, nil, time.Time{}) {
 			t.Errorf("rate-limited call %d should pass", i+1)
 		}
 	}
-	if trigger.ShouldSpeak("alice", inbox, nil, time.Time{}) {
+	if trigger.ShouldSpeak("alice", "", inbox, nil, time.Time{}) {
 		t.Error("should be rate limited after exceeding MaxPerMin")
 	}
 }

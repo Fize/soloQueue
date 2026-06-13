@@ -84,10 +84,22 @@ export const useChatStore = create<ChatState>((set) => ({
     const uuid = id.replace('l2:', '')
     try {
       await deleteL2Session(uuid)
-      set((s) => ({
-        sessions: s.sessions.filter((sess) => sess.id !== id),
-        activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
-      }))
+      set((s) => {
+        const { [id]: _msg, ...restMessages } = s.messages
+        const { [id]: _title, ...restTitle } = s.titleGenerated
+        const { [id]: _loading, ...restLoading } = s.historyLoading
+        const { [id]: _more, ...restHasMore } = s.historyHasMore
+        const { [id]: _pending, ...restPending } = s.pendingHistory
+        return {
+          sessions: s.sessions.filter((sess) => sess.id !== id),
+          activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
+          messages: restMessages,
+          titleGenerated: restTitle,
+          historyLoading: restLoading,
+          historyHasMore: restHasMore,
+          pendingHistory: restPending,
+        }
+      })
     } catch {
       // ignore
     }

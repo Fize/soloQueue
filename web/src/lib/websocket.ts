@@ -27,6 +27,7 @@ function wsBase(): string {
 class WebSocketManager {
   private ws: WebSocket | null = null
   private cachedStreams: Record<string, AgentStreamState> = {}
+  private streamTimestamps: Record<string, number> = {}
   private handlers: MessageHandler = {
     runtime: new Set(),
     agents: new Set(),
@@ -143,11 +144,10 @@ class WebSocketManager {
     if (msg.type === 'state') {
       if (msg.runtime) {
         if (msg.runtime.agent_streams) {
-          // 1. Update cache with incoming streams
           for (const [id, stream] of Object.entries(msg.runtime.agent_streams)) {
             this.cachedStreams[id] = stream
+            this.streamTimestamps[id] = Date.now()
           }
-          // 2. Merge back any cached streams that are no longer sent by backend
           for (const [id, cachedStream] of Object.entries(this.cachedStreams)) {
             if (!msg.runtime.agent_streams[id]) {
               msg.runtime.agent_streams[id] = {
@@ -156,6 +156,7 @@ class WebSocketManager {
               }
             }
           }
+          this.pruneCachedStreams()
         }
         useRuntimeStore.getState().setStatus(msg.runtime)
         this.handlers.runtime.forEach((h) => h(msg.runtime))
@@ -183,6 +184,17 @@ class WebSocketManager {
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay)
       this.connect()
     }, this.reconnectDelay)
+  }
+
+  private pruneCachedStreams() {
+    const MAX_CACHED = 200
+    const keys = Object.keys(this.streamTimestamps)
+    if (keys.length <= MAX_CACHED) return
+    keys.sort((a, b) => (this.streamTimestamps[a] ?? 0) - (this.streamTimestamps[b] ?? 0))
+    for (let i = 0; i < keys.length - MAX_CACHED; i++) {
+      delete this.cachedStreams[keys[i]]
+      delete this.streamTimestamps[keys[i]]
+    }
   }
 }
 
