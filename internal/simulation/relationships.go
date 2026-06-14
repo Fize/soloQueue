@@ -58,6 +58,18 @@ func (rm *RelationshipManager) Set(subjectID, targetID string, familiarity, affi
 	}
 }
 
+// RemoveSubject removes all relationships where the given agent is either subject or target.
+func (rm *RelationshipManager) RemoveSubject(agentID string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	for key, rel := range rm.relationships {
+		if rel.SubjectID == agentID || rel.TargetID == agentID {
+			delete(rm.relationships, key)
+		}
+	}
+}
+
 // BoostFamiliarity increases familiarity by a small delta on each interaction.
 func (rm *RelationshipManager) BoostFamiliarity(subjectID, targetID string) {
 	rm.mu.Lock()

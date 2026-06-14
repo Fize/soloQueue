@@ -127,6 +127,11 @@ func BuildGenerativeAgentSystemPrompt(
 	b.WriteString("- You may update the shared world state with [PROPOSE key]: value.\n")
 	b.WriteString("- Keep your spoken messages natural and under 300 words.\n")
 	b.WriteString("- Maintain a consistent memory of your experiences and relationships.\n")
+	b.WriteString("\n")
+	b.WriteString("## Life-Changing Actions\n")
+	b.WriteString("- You may [DIE] to permanently leave the simulation. Only do this when your character's story is truly complete — your role is finished, you've resolved conflicts, or you feel you have nothing more to contribute.\n")
+	b.WriteString("- You may [SPAWN name]: description to introduce a new character into the world. Only do this when a genuinely new perspective or expertise is needed that no existing character provides.\n")
+	b.WriteString("- [DIE] and [SPAWN] are permanent and cannot be undone. Use them thoughtfully, at most once per simulation.\n")
 
 	return b.String()
 }

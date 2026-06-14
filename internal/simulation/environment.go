@@ -145,6 +145,26 @@ func (env *Environment) MoveAgent(agentID, targetZone string) ([]Observation, er
 	return obs, nil
 }
 
+// RemoveAgent permanently removes an agent from the environment.
+// Unlike MoveAgent, the agent is not placed into a new zone — they simply leave.
+func (env *Environment) RemoveAgent(agentID string) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+
+	zoneName, exists := env.agentLoc[agentID]
+	if !exists {
+		return
+	}
+
+	// Remove from zone's present agents
+	if z, ok := env.zones[zoneName]; ok {
+		delete(z.PresentAgents, agentID)
+	}
+
+	// Remove location mapping
+	delete(env.agentLoc, agentID)
+}
+
 // GetAgentZone returns the zone an agent is currently in.
 func (env *Environment) GetAgentZone(agentID string) string {
 	env.mu.RLock()
