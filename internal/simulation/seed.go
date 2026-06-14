@@ -247,17 +247,51 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 func parseExtraction(content string) (*SeedExtraction, error) {
 	cleaned := cleanJSONResponse(content)
 
+	// Validate field types before full unmarshal — catch common LLM mistakes early
+	if typeErr := validateExtractionJSON(cleaned); typeErr != nil {
+		return nil, typeErr
+	}
+
 	var ext SeedExtraction
 	if err := json.Unmarshal([]byte(cleaned), &ext); err != nil {
 		return nil, fmt.Errorf("json unmarshal: %w\nraw: %s", err, truncateStr(content, 200))
 	}
 
-	// Defaults
 	if ext.WorldState == nil {
 		ext.WorldState = make(map[string]any)
 	}
 
 	return &ext, nil
+}
+
+// validateExtractionJSON checks for common LLM JSON mistakes like returning
+// a string where an object is required. Returns a descriptive error for the user.
+func validateExtractionJSON(raw string) error {
+	var partial struct {
+		WorldState json.RawMessage `json:"world_state"`
+	}
+	if err := json.Unmarshal([]byte(raw), &partial); err != nil {
+		// Can't even parse as JSON — let the full unmarshal handle the error
+		return nil
+	}
+
+	if len(partial.WorldState) == 0 || string(partial.WorldState) == "null" {
+		return nil
+	}
+
+	// Check if world_state is a string instead of an object
+	if partial.WorldState[0] == '"' {
+		var s string
+		json.Unmarshal(partial.WorldState, &s)
+		return fmt.Errorf("world_state must be a JSON object {}, got a string: %q. The LLM returned a malformed response. Please retry or simplify the seed text.", truncateStr(s, 100))
+	}
+
+	// Check if world_state is an array instead of an object
+	if partial.WorldState[0] == '[' {
+		return fmt.Errorf("world_state must be a JSON object {}, got an array. The LLM returned a malformed response. Please retry or simplify the seed text.")
+	}
+
+	return nil
 }
 
 // --- prompts ---
@@ -269,14 +303,15 @@ func buildExtractionPrompt(text string) string {
 	b.WriteString("- `entities`: array of {name, type, confidence, relations[{target_name, rel_type, weight}]}\n")
 	b.WriteString("  Type must be one of: technology, person, concept, organization, product\n")
 	b.WriteString("  rel_type must be one of: mention, agree, rebuttal, propose\n")
-	b.WriteString("- `world_state`: object of flat key-value pairs representing the initial world state\n")
-	b.WriteString("- `key_topics`: array of main topic strings (max 3)\n")
-	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3)\n")
-	b.WriteString("- `suggested_agents`: array of objects representing specific individuals, participants, or characters found in the text who should serve as agents in this simulation. Each object must contain: `name` (string), `role` (string, e.g. advocate, skeptic, mediator, or their specific title in the text), `description` (brief summary of their stance/background), and `traits` (array of string traits). If the text is a general document without specific characters/persons, return an empty list.\n")
-	b.WriteString("- `lifecycle_events`: array of scheduled birth/death/end events for agents. Each object has: `type` (one of: \"agent_spawn\", \"agent_death\", \"simulation_end\"), `agent_name` (for spawn/death), `agent_role` (for spawn, describing the new character), `trigger` (one of: \"sim_time\", \"wall_time\", \"condition\"), `trigger_value` (e.g. \"3h\", \"14:30\", \"300s\", \"consensus_reached\"), `reason` (human-readable explanation). Extract these ONLY if the text explicitly mentions timing or conditions for characters joining/leaving or the discussion ending. If there are no such temporal/conditional events, return an empty list.\n\n")
+	b.WriteString("- `world_state`: MUST be a JSON object (NOT a string). Flat key-value pairs, e.g. {\"era\": \"2025\", \"location\": \"Beijing\"}. If no world state to extract, return {}.\n")
+	b.WriteString("- `key_topics`: array of main topic strings (max 3), e.g. [\"AI regulation\", \"innovation vs safety\"]\n")
+	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3), e.g. [\"regulatory approach\", \"timeline\"]\n")
+	b.WriteString("- `suggested_agents`: array of objects representing specific individuals or characters in the text. Each object MUST have: `name` (string), `role` (string, e.g. advocate, skeptic, mediator), `description` (brief summary), `traits` (array of strings). If no specific characters exist, return [].\n")
+	b.WriteString("- `lifecycle_events`: array of scheduled events. Each object MUST have: `type` (\"agent_spawn\"|\"agent_death\"|\"simulation_end\"), `agent_name` (string), `agent_role` (string, for spawn), `trigger` (\"sim_time\"|\"wall_time\"|\"condition\"), `trigger_value` (string), `reason` (string). If no explicit timing/conditions in text, return [].\n\n")
 	b.WriteString("Rules:\n")
+	b.WriteString("- All fields MUST use the exact JSON types specified. Do NOT use strings where objects are required, or vice versa.\n")
 	b.WriteString("- Only extract entities that are debatable: concepts, technologies, organizations, or people that agents could take different stances on.\n")
-	b.WriteString("- For world_state, include factual givens like time period, location, key facts.\n")
+	b.WriteString("- `world_state` MUST be a JSON object {} with key-value pairs. Use {} if nothing to extract. NEVER use a string.\n")
 	b.WriteString("- Keep key_topics specific enough to generate focused discussion.\n")
 	b.WriteString("- If the text features actual characters (e.g. characters in a novel, meeting attendees, or historical figures in a debate), you MUST extract them into `suggested_agents` so they can be simulated directly.\n")
 	b.WriteString("- For lifecycle_events: only extract events explicitly stated in the text. Use sim_time triggers for relative durations (\"3h\"), absolute clock times (\"14:30\"), wall_time triggers for real-time constraints (\"300s\"), and condition triggers for world-state-dependent events (\"consensus_reached\").\n\n")

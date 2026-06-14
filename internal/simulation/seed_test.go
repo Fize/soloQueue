@@ -220,6 +220,42 @@ func TestParseExtraction_EmptyJSON(t *testing.T) {
 	}
 }
 
+func TestParseExtraction_WorldStateString(t *testing.T) {
+	// LLM returning world_state as a string should produce a clear error,
+	// not silently convert it to something meaningless.
+	raw := `{"entities":[],"world_state":"The year is 2025, location is Beijing.","key_topics":[],"conflict_areas":[]}`
+	_, err := parseExtraction(raw)
+	if err == nil {
+		t.Fatal("expected error for string world_state")
+	}
+	if !strings.Contains(err.Error(), "must be a JSON object") {
+		t.Errorf("error should explain the problem, got: %v", err)
+	}
+}
+
+func TestParseExtraction_WorldStateArray(t *testing.T) {
+	raw := `{"entities":[],"world_state":["item1","item2"],"key_topics":[],"conflict_areas":[]}`
+	_, err := parseExtraction(raw)
+	if err == nil {
+		t.Fatal("expected error for array world_state")
+	}
+	if !strings.Contains(err.Error(), "must be a JSON object") {
+		t.Errorf("error should explain the problem, got: %v", err)
+	}
+}
+
+func TestParseExtraction_WorldStateObject(t *testing.T) {
+	// Normal object form should still work
+	raw := `{"entities":[],"world_state":{"era":"2025","location":"Beijing"},"key_topics":[],"conflict_areas":[]}`
+	ext, err := parseExtraction(raw)
+	if err != nil {
+		t.Fatalf("parseExtraction should work on object world_state: %v", err)
+	}
+	if ext.WorldState["era"] != "2025" {
+		t.Errorf("expected era=2025, got: %v", ext.WorldState["era"])
+	}
+}
+
 func TestMergeExtractions(t *testing.T) {
 	a := &SeedExtraction{
 		Entities:      []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
