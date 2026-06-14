@@ -287,6 +287,14 @@ export function SimulationDetailPage() {
               }
             : null
         )
+      } else if (ev.type === 'agent_death' && ev.data) {
+        const deathData = ev.data as { agent_id: string; agent_name: string }
+        if (deathData.agent_id) pulseAgent(deathData.agent_id)
+        // Refetch state to pick up IsActive changes and updated graph
+        setTimeout(() => fetchState(), 1000)
+      } else if (ev.type === 'agent_spawn' && ev.data) {
+        // A new agent was spawned — refetch to update personas and graph
+        fetchState()
       } else if (ev.type === 'error') {
         setProgress((prev) => (prev ? { ...prev, phase: 'failed', progress_percent: 100 } : null))
         fetchState()

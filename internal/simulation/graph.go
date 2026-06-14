@@ -49,6 +49,19 @@ func (g *RelationGraph) AddNode(agentID string) {
 	g.mu.Unlock()
 }
 
+// RemoveNode removes an agent and all their associated edges from the graph.
+func (g *RelationGraph) RemoveNode(agentID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	delete(g.nodes, agentID)
+	for key, edge := range g.edges {
+		if edge.Source == agentID || edge.Target == agentID {
+			delete(g.edges, key)
+		}
+	}
+}
+
 // NodeCount returns the number of nodes.
 func (g *RelationGraph) NodeCount() int {
 	g.mu.RLock()

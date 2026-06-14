@@ -344,6 +344,7 @@ func (e *SimulationEngine) CreateFromSeed(
 		TickIntervalMs:  tickIntervalMs,
 		TimeScale:       timeScale,
 		EnableReflection: opts.EnableReflection,
+			LifecycleEvents: extraction.LifecycleEvents,
 	}
 
 	// Step 3: Build initial graph edges from seed extraction entity relations
@@ -703,6 +704,20 @@ func (e *SimulationEngine) emitProgress(events chan SimulationEvent, simID, phas
 	})
 }
 
+// emitViaSubscribers sends an event to all subscribers without requiring a specific events channel.
+// Used by lifecycle manager for events originating outside the main event loop.
+func (e *SimulationEngine) emitViaSubscribers(ev SimulationEvent) {
+	ev.Timestamp = time.Now()
+	e.subscribersMu.RLock()
+	for ch := range e.subscribers {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+	e.subscribersMu.RUnlock()
+}
+
 func (e *SimulationEngine) emit(events chan SimulationEvent, ev SimulationEvent) {
 	ev.Timestamp = time.Now()
 	select {
@@ -771,6 +786,8 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 		}
 	}
 
+	graph := NewRelationGraph()
+
 	simAgents, err := e.createSimAgents(ctx, config, bus)
 	if err != nil {
 		state.Lock()
@@ -822,10 +839,14 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 		sa.ClearCW(systemPrompt)
 	}
 
-	// ─── Create GA agent loops ────────────────────────────────────────
-	gaLoops := make([]*GAAgentLoop, 0, len(simAgents))
-	gaEventChannels := make([]<-chan SimulationEvent, 0, len(simAgents))
+	// ─── Create lifecycle manager ────────────────────────────────────
+	lifecycleMgr := newLifecycleManager(
+		e, config, clock, env, bus, dialogueMgr, relationshipMgr,
+		graph, planGen, reflectionEng,
+		nameByID, config.Personas, state.WorldState, e.log,
+	)
 
+	// ─── Create GA agent loops ────────────────────────────────────────
 	for _, sa := range simAgents {
 		persona := sa.Persona()
 		loop := NewGAAgentLoop(
@@ -834,46 +855,60 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 			state.WorldState, nameByID, config.Personas, e.log,
 		)
 		loop.plan = agentPlans[persona.ID]
-		gaLoops = append(gaLoops, loop)
-		gaEventChannels = append(gaEventChannels, loop.Events())
+		lifecycleMgr.registerLoop(persona.ID, loop)
 	}
 	logMemStats(e.log, "after_create_loops")
 	dumpHeapProfile("04_after_loops")
 
 	// ─── Fan-in all agent event channels ──────────────────────────────
-	go func() {
-		for _, ch := range gaEventChannels {
-			go func(c <-chan SimulationEvent) {
-				for ev := range c {
-					ev.SimulationID = simID
-					e.emit(events, ev)
-					if ev.Type == "agent_message" {
-						if rm, ok := ev.Data.(*RoundMessage); ok {
-							state.Lock()
-							state.Rounds = append(state.Rounds, RoundResult{
-								RoundNumber: ev.Round,
-								Messages:    []RoundMessage{*rm},
-								CompletedAt: time.Now(),
-							})
-							state.Unlock()
-						}
+	lifecycleEvts := lifecycleMgr.LifecycleEvents()
+	for _, sa := range simAgents {
+		go func(sa *SimAgent) {
+			ch := lifecycleMgr.gaLoops[sa.PersonaID()].Events()
+			for ev := range ch {
+				ev.SimulationID = simID
+				e.emit(events, ev)
+				if ev.Type == "agent_message" {
+					if rm, ok := ev.Data.(*RoundMessage); ok {
+						state.Lock()
+						state.Rounds = append(state.Rounds, RoundResult{
+							RoundNumber: ev.Round,
+							Messages:    []RoundMessage{*rm},
+							CompletedAt: time.Now(),
+						})
+						state.Unlock()
 					}
 				}
-			}(ch)
-		}
-	}()
+				// Forward lifecycle events to the manager
+				if ev.Type == "agent_death" || ev.Type == "agent_spawn" {
+					select {
+					case lifecycleEvts <- ev:
+					default:
+					}
+				}
+			}
+		}(sa)
+	}
 
 	// Start clock in background
 	go clock.Start()
 	defer clock.Stop()
 
-	// Start all agent loops
+	// Start lifecycle manager and scheduler
 	loopCtx, loopCancel := context.WithCancel(ctx)
 	defer loopCancel()
 
-	for _, loop := range gaLoops {
+	simStart := time.Now()
+	seedEndCh := lifecycleMgr.StartLifecycleScheduler(loopCtx, simStart)
+	go lifecycleMgr.Run(loopCtx)
+	defer lifecycleMgr.Stop()
+
+	// Start all agent loops
+	lifecycleMgr.gaLoopsMu.RLock()
+	for _, loop := range lifecycleMgr.gaLoops {
 		go loop.Run(loopCtx)
 	}
+	lifecycleMgr.gaLoopsMu.RUnlock()
 
 	// Periodic runtime stats monitor
 	statsDone := make(chan struct{})
@@ -948,16 +983,23 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	dumpHeapProfile("06_after_run")
 	dumpGoroutineProfile("after_run")
 
-	// Stop all loops
-	for _, loop := range gaLoops {
+	// Stop lifecycle manager and all loops
+	lifecycleMgr.gaLoopsMu.RLock()
+	for _, loop := range lifecycleMgr.gaLoops {
 		loop.Stop()
 	}
+	lifecycleMgr.gaLoopsMu.RUnlock()
+	lifecycleMgr.Stop()
 	loopCancel()
+	// Drain seed end channel
+	select {
+	case <-seedEndCh:
+	default:
+	}
 
 	// ─── Generate report ──────────────────────────────────────────────
 	e.emitProgress(events, simID, "generating_report", config.MaxWallClockMs, config.MaxWallClockMs)
 
-	graph := NewRelationGraph()
 	for _, sa := range simAgents {
 		graph.AddNode(sa.PersonaID())
 	}

@@ -45,10 +45,11 @@ type SimulationConfig struct {
 	InitialEdges    []EdgeDTO      `json:"-"` // populated from seed extraction, not persisted
 
 	// Generative Agents extensions
-	SimulatedHours    int  `json:"simulated_hours,omitempty"`
-	TickIntervalMs    int  `json:"tick_interval_ms,omitempty"`
-	TimeScale         int  `json:"time_scale,omitempty"`
-	EnableReflection  bool `json:"enable_reflection,omitempty"`
+	SimulatedHours    int                  `json:"simulated_hours,omitempty"`
+	TickIntervalMs    int                  `json:"tick_interval_ms,omitempty"`
+	TimeScale         int                  `json:"time_scale,omitempty"`
+	EnableReflection  bool                 `json:"enable_reflection,omitempty"`
+	LifecycleEvents   []SeedLifecycleEvent `json:"lifecycle_events,omitempty"`
 }
 
 // Validate checks the config and applies defaults.
@@ -146,6 +147,24 @@ type RoundMessage struct {
 	Type      string `json:"type"`
 	Round     int    `json:"round"`
 	SeqNum    int    `json:"seq_num"`
+}
+
+// SeedLifecycleEvent represents a scheduled spawn/death event extracted from seed text.
+type SeedLifecycleEvent struct {
+	Type         string `json:"type"`          // "agent_spawn" | "agent_death" | "simulation_end"
+	AgentName    string `json:"agent_name"`     // target agent name (death) or new agent name (spawn)
+	AgentRole    string `json:"agent_role"`     // role description for spawned agent
+	Trigger      string `json:"trigger"`        // "sim_time" | "wall_time" | "condition"
+	TriggerValue string `json:"trigger_value"`  // "3h" | "14:30" | "consensus_reached"
+	Reason       string `json:"reason"`         // human-readable reason
+	Triggered    bool   `json:"-"`              // internal: already fired
+}
+
+// SpawnInfo carries the data needed to create a new agent mid-simulation.
+type SpawnInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	RequestedBy string `json:"requested_by"` // agent ID that requested the spawn
 }
 
 // AgentState tracks per-agent runtime statistics.

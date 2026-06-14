@@ -426,6 +426,45 @@ func (gal *GAAgentLoop) executeAction(ctx context.Context, action Action, person
 
 	case ActionWait, ActionPass:
 		// Nothing to execute, agent chose to do nothing
+
+	case ActionSpawn:
+		// Request the simulation engine to spawn a new agent.
+		gal.emit(SimulationEvent{
+			Type:  "agent_spawn",
+			Round: seq,
+			Data: &SpawnInfo{
+				Name:        action.Target,
+				Description: action.Content,
+				RequestedBy: personaID,
+			},
+		})
+		gal.sa.Memory().Record(MemoryRecord{
+			Round:      seq,
+			Role:       "action",
+			Content:    fmt.Sprintf("Requested spawn of new agent: %s — %s", action.Target, action.Content),
+			RecordType: "spawn_request",
+			Timestamp:  time.Now(),
+		})
+
+	case ActionDie:
+		// Agent voluntarily exits the simulation.
+		gal.emit(SimulationEvent{
+			Type:  "agent_message",
+			Round: seq,
+			Data: &RoundMessage{
+				AgentID:   personaID,
+				AgentName: personaName,
+				Content:   fmt.Sprintf("%s has left the simulation.", personaName),
+				To:        "*",
+				Type:      "agent_exit",
+				SeqNum:    seq,
+			},
+		})
+		gal.emit(SimulationEvent{
+			Type:  "agent_death",
+			Round: seq,
+			Data:  map[string]string{"agent_id": personaID, "agent_name": personaName},
+		})
 	}
 }
 

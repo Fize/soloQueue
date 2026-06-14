@@ -14,6 +14,8 @@ const (
 	ActionInteract ActionType = "interact"
 	ActionWait     ActionType = "wait"
 	ActionPass     ActionType = "pass"
+	ActionSpawn    ActionType = "spawn"
+	ActionDie      ActionType = "die"
 )
 
 // proposal represents a [PROPOSE key: value] directive for WorldState updates.
@@ -46,6 +48,10 @@ func (a Action) String() string {
 		return fmt.Sprintf("[WAIT %s]", a.Duration)
 	case ActionPass:
 		return "[PASS]"
+	case ActionSpawn:
+		return fmt.Sprintf("[SPAWN %s]: %s", a.Target, a.Content)
+	case ActionDie:
+		return "[DIE]"
 	default:
 		return fmt.Sprintf("[UNKNOWN %s]", a.Type)
 	}
@@ -172,6 +178,35 @@ func ParseActions(content string) (actions []Action, proposals []proposal) {
 			continue
 		}
 
+		// [DIE] or [EXIT] — agent voluntarily leaves the simulation
+		if trimmed == "[DIE]" || trimmed == "[EXIT]" {
+			actions = append(actions, Action{Type: ActionDie})
+			continue
+		}
+
+		// [SPAWN name]: description — introduce a new agent
+		if strings.HasPrefix(trimmed, "[SPAWN ") {
+			rest := strings.TrimPrefix(trimmed, "[SPAWN ")
+			if idx := strings.Index(rest, "]: "); idx != -1 {
+				name := strings.TrimSpace(rest[:idx])
+				desc := strings.TrimSpace(rest[idx+3:])
+				actions = append(actions, Action{
+					Type:    ActionSpawn,
+					Target:  name,
+					Content: desc,
+				})
+			} else if strings.HasSuffix(rest, "]") {
+				// [SPAWN name] without description
+				name := strings.TrimSuffix(rest, "]")
+				name = strings.TrimSpace(name)
+				actions = append(actions, Action{
+					Type:   ActionSpawn,
+					Target: name,
+				})
+			}
+			continue
+		}
+
 		// Legacy [PROPOSE key: value]
 		if strings.HasPrefix(trimmed, "[PROPOSE ") && strings.HasSuffix(trimmed, "]") {
 			inner := strings.TrimPrefix(trimmed, "[PROPOSE ")
@@ -204,7 +239,8 @@ func isActionLine(line string) bool {
 	return strings.HasPrefix(trimmed, "[SAY]") || strings.HasPrefix(trimmed, "[SAY @") ||
 		strings.HasPrefix(trimmed, "[MOVE ") || strings.HasPrefix(trimmed, "[INTERACT ") ||
 		strings.HasPrefix(trimmed, "[WAIT ") || trimmed == "[PASS]" ||
-		strings.HasPrefix(trimmed, "[PROPOSE ")
+		strings.HasPrefix(trimmed, "[PROPOSE ") ||
+		strings.HasPrefix(trimmed, "[SPAWN ") || trimmed == "[DIE]" || trimmed == "[EXIT]"
 }
 
 // FormatActionsForPrompt generates the action syntax documentation for system prompts.
@@ -231,5 +267,14 @@ You may take ONE of the following actions per response:
    [PASS]
 
 You may also propose changes to the shared world state:
-   [PROPOSE key]: value`
+   [PROPOSE key]: value
+
+Special life-changing actions (use sparingly):
+7. Spawn a new character into the world:
+   [SPAWN character_name]: brief description of who they are and why they are needed
+
+8. Leave the simulation permanently (your role is complete):
+   [DIE]
+
+Important: [SPAWN] and [DIE] are permanent. Use [DIE] only when your character's story is truly complete. Use [SPAWN] only when a genuinely new perspective is needed.`
 }

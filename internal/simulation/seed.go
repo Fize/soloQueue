@@ -27,6 +27,7 @@ type SeedExtraction struct {
 	KeyTopics       []string                        `json:"key_topics"`
 	ConflictAreas   []string                        `json:"conflict_areas"`
 	SuggestedAgents []SuggestedAgent                `json:"suggested_agents,omitempty"`
+	LifecycleEvents []SeedLifecycleEvent            `json:"lifecycle_events,omitempty"`
 }
 
 // SeedExtractor extracts entities, world state, and topics from seed text.
@@ -271,12 +272,14 @@ func buildExtractionPrompt(text string) string {
 	b.WriteString("- `world_state`: object of flat key-value pairs representing the initial world state\n")
 	b.WriteString("- `key_topics`: array of main topic strings (max 3)\n")
 	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3)\n")
-	b.WriteString("- `suggested_agents`: array of objects representing specific individuals, participants, or characters found in the text who should serve as agents in this simulation. Each object must contain: `name` (string), `role` (string, e.g. advocate, skeptic, mediator, or their specific title in the text), `description` (brief summary of their stance/background), and `traits` (array of string traits). If the text is a general document without specific characters/persons, return an empty list.\n\n")
+	b.WriteString("- `suggested_agents`: array of objects representing specific individuals, participants, or characters found in the text who should serve as agents in this simulation. Each object must contain: `name` (string), `role` (string, e.g. advocate, skeptic, mediator, or their specific title in the text), `description` (brief summary of their stance/background), and `traits` (array of string traits). If the text is a general document without specific characters/persons, return an empty list.\n")
+	b.WriteString("- `lifecycle_events`: array of scheduled birth/death/end events for agents. Each object has: `type` (one of: \"agent_spawn\", \"agent_death\", \"simulation_end\"), `agent_name` (for spawn/death), `agent_role` (for spawn, describing the new character), `trigger` (one of: \"sim_time\", \"wall_time\", \"condition\"), `trigger_value` (e.g. \"3h\", \"14:30\", \"300s\", \"consensus_reached\"), `reason` (human-readable explanation). Extract these ONLY if the text explicitly mentions timing or conditions for characters joining/leaving or the discussion ending. If there are no such temporal/conditional events, return an empty list.\n\n")
 	b.WriteString("Rules:\n")
 	b.WriteString("- Only extract entities that are debatable: concepts, technologies, organizations, or people that agents could take different stances on.\n")
 	b.WriteString("- For world_state, include factual givens like time period, location, key facts.\n")
 	b.WriteString("- Keep key_topics specific enough to generate focused discussion.\n")
-	b.WriteString("- If the text features actual characters (e.g. characters in a novel, meeting attendees, or historical figures in a debate), you MUST extract them into `suggested_agents` so they can be simulated directly.\n\n")
+	b.WriteString("- If the text features actual characters (e.g. characters in a novel, meeting attendees, or historical figures in a debate), you MUST extract them into `suggested_agents` so they can be simulated directly.\n")
+	b.WriteString("- For lifecycle_events: only extract events explicitly stated in the text. Use sim_time triggers for relative durations (\"3h\"), absolute clock times (\"14:30\"), wall_time triggers for real-time constraints (\"300s\"), and condition triggers for world-state-dependent events (\"consensus_reached\").\n\n")
 	b.WriteString("Text:\n")
 	b.WriteString(text)
 
