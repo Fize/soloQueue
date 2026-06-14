@@ -223,11 +223,6 @@ func (e *SimulationEngine) CreateFromSeed(
 	opts CreateFromSeedOptions,
 ) (simID string, extraction *SeedExtraction, personas []Persona, err error) {
 
-	// Truncate excessive seed text
-	if len(seedText) > 50000 {
-		seedText = seedText[:50000]
-	}
-
 	// Step 1: Extract entities, world state, topics
 	extractorModel := e.resolveModelID(e.config.DefaultModelID)
 	if opts.ModelID != "" {

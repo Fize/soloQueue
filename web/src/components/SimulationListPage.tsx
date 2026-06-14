@@ -47,9 +47,19 @@ export function SimulationListPage() {
     }
   }
 
+  const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`File "${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB. Maximum allowed size is 50MB.`)
+      // Reset the input so the user can re-select
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    setError('')
 
     const reader = new FileReader()
     reader.onload = (event) => {
@@ -63,6 +73,9 @@ export function SimulationListPage() {
           setTopic(suggestedTopic)
         }
       }
+    }
+    reader.onerror = () => {
+      setError(`Failed to read file "${file.name}". Please try again.`)
     }
     reader.readAsText(file)
   }
