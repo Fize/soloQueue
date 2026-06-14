@@ -482,8 +482,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	if m.simEngine != nil {
 		r.Route("/api/simulations", func(r chi.Router) {
 			r.Get("/", m.handleListSimulations)
-			r.Post("/", m.handleCreateSimulation)
-			r.Post("/from-seed", m.handleCreateFromSeed)
+			// 50MB body size limit for create endpoints
+			r.With(maxBodyMiddleware(50 << 20)).Post("/", m.handleCreateSimulation)
+			r.With(maxBodyMiddleware(50 << 20)).Post("/from-seed", m.handleCreateFromSeed)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", m.handleGetSimulation)
 				r.Put("/", m.handleUpdateSimulation)
@@ -671,4 +672,15 @@ func (m *Mux) corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// maxBodyMiddleware limits the request body size to maxBytes.
+// Returns 413 Payload Too Large if the body exceeds the limit.
+func maxBodyMiddleware(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			next.ServeHTTP(w, r)
+		})
+	}
 }
