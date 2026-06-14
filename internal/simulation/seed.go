@@ -247,17 +247,51 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 func parseExtraction(content string) (*SeedExtraction, error) {
 	cleaned := cleanJSONResponse(content)
 
-	var ext SeedExtraction
-	if err := json.Unmarshal([]byte(cleaned), &ext); err != nil {
+	// Use a raw message to tolerate both object and string forms of world_state
+	var raw struct {
+		Entities        []memoryengine.EntityExtraction `json:"entities"`
+		WorldState      json.RawMessage                 `json:"world_state"`
+		KeyTopics       []string                        `json:"key_topics"`
+		ConflictAreas   []string                        `json:"conflict_areas"`
+		SuggestedAgents []SuggestedAgent                `json:"suggested_agents,omitempty"`
+		LifecycleEvents []SeedLifecycleEvent            `json:"lifecycle_events,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(cleaned), &raw); err != nil {
 		return nil, fmt.Errorf("json unmarshal: %w\nraw: %s", err, truncateStr(content, 200))
 	}
 
-	// Defaults
-	if ext.WorldState == nil {
-		ext.WorldState = make(map[string]any)
+	ext := &SeedExtraction{
+		Entities:        raw.Entities,
+		WorldState:      parseFlexibleWorldState(raw.WorldState),
+		KeyTopics:       raw.KeyTopics,
+		ConflictAreas:   raw.ConflictAreas,
+		SuggestedAgents: raw.SuggestedAgents,
+		LifecycleEvents: raw.LifecycleEvents,
 	}
 
-	return &ext, nil
+	return ext, nil
+}
+
+// parseFlexibleWorldState handles both object and string forms of world_state.
+// LLMs sometimes return a string instead of an object for this field.
+func parseFlexibleWorldState(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return make(map[string]any)
+	}
+
+	// Try as object first
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err == nil {
+		return m
+	}
+
+	// Try as string — treat the string value as the "description" key
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return map[string]any{"description": s}
+	}
+
+	return make(map[string]any)
 }
 
 // --- prompts ---
