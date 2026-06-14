@@ -230,12 +230,11 @@ export interface SimulationConfig {
   id?: string
   topic: string
   personas: SimulationPersona[]
-  max_rounds: number
-  max_actions?: number
   max_wall_clock_ms?: number
-  trigger_policy?: string
-  min_speak_interval_ms?: number
-  eval_threshold?: number
+  simulated_hours?: number
+  tick_interval_ms?: number
+  time_scale?: number
+  enable_reflection?: boolean
 }
 
 export interface SimulationMessage {
@@ -265,8 +264,7 @@ export interface SimulationState {
   id: string
   status: 'pending' | 'idle' | 'running' | 'completed' | 'failed'
   config: SimulationConfig
-  personas: SimulationPersona[]
-  round: number
+  current_round: number
   messages: SimulationMessage[]
   report?: string
   graph?: SimulationRelationGraph
@@ -306,7 +304,6 @@ export interface SimulationProgress {
   phase: 'initializing' | 'running' | 'generating_report' | 'completed' | 'failed'
   progress_percent: number
   current_actions: number
-  max_actions: number
   elapsed_seconds: number
   estimated_remaining_seconds: number
   agent_states: Record<string, AgentProgressState>

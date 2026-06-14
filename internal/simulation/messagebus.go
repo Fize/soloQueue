@@ -139,6 +139,26 @@ func (mb *MessageBus) DrainAll(personaID string) []Message {
 	}
 }
 
+// SendPrivate delivers a message only to a single target agent. Unlike Send and
+// Broadcast which are used for public messages, this is used for private dialogue.
+func (mb *MessageBus) SendPrivate(from, to string, msg Message) {
+	mb.mu.RLock()
+	ch, ok := mb.subscribers[to]
+	nch := mb.notifyChs[to]
+	mb.mu.RUnlock()
+	if !ok {
+		return
+	}
+	msg.From = from
+	msg.To = to
+	msg.Type = "private"
+	select {
+	case ch <- msg:
+		mb.notify(to, nch)
+	default:
+	}
+}
+
 // FormatMessages renders a slice of messages as structured text for prompt injection.
 func FormatMessages(msgs []Message) string {
 	if len(msgs) == 0 {

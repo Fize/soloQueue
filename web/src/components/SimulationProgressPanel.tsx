@@ -42,9 +42,7 @@ export function SimulationProgressPanel({ progress, messages, selectedAgentId, o
         <div className="flex items-center gap-4">
           <div className="flex-1 space-y-1">
             <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
-              <span>
-                {progress.current_actions} / {progress.max_actions} actions
-              </span>
+              <span>{progress.current_actions} actions</span>
               <span className="font-semibold text-foreground">
                 {progress.progress_percent.toFixed(1)}%
               </span>

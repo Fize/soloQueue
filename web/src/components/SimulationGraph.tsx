@@ -28,6 +28,8 @@ interface SimulationGraphProps {
   edges: GraphEdgeInput[]
   onSelectAgent?: (agentId: string) => void
   selectedAgentId?: string | null
+  pulseNodes?: Set<string>
+  pulseVersion?: number
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -39,11 +41,15 @@ const ROLE_COLORS: Record<string, string> = {
   neutral: '#2563eb',
 }
 
+const MAX_GRAPH_LINKS = 200
+
 export function SimulationGraph({
   personas,
   edges,
   onSelectAgent,
   selectedAgentId,
+  pulseNodes,
+  pulseVersion: _pulseVersion,
 }: SimulationGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -52,6 +58,7 @@ export function SimulationGraph({
   const nodesRef = useRef<GraphNode[]>([])
   const selectRef = useRef(onSelectAgent)
   const selectedIdRef = useRef(selectedAgentId)
+  const pulseRef = useRef(pulseNodes)
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
   const themeRef = useRef({
     primaryColor: '#f54e00',
@@ -64,7 +71,8 @@ export function SimulationGraph({
   useEffect(() => {
     selectRef.current = onSelectAgent
     selectedIdRef.current = selectedAgentId
-  }, [onSelectAgent, selectedAgentId])
+    pulseRef.current = pulseNodes
+  }, [onSelectAgent, selectedAgentId, pulseNodes])
 
   // Build or rebuild nodes when personas change
   useEffect(() => {
@@ -227,6 +235,18 @@ export function SimulationGraph({
       // Nodes
       nodesRef.current.forEach((node) => {
         const isSelected = selectedIdRef.current === node.id
+        const isPulsing = pulseRef.current?.has(node.id)
+
+        if (isPulsing) {
+          const pulsePhase = (Date.now() / 600) % 1
+          const pulseRadius = 22 + Math.sin(pulsePhase * Math.PI * 2) * 8
+          const pulseAlpha = 0.35 * (1 - pulsePhase)
+          c.beginPath()
+          c.arc(node.x!, node.y!, pulseRadius, 0, 2 * Math.PI)
+          c.fillStyle = node.color + Math.round(pulseAlpha * 255).toString(16).padStart(2, '0')
+          c.fill()
+        }
+
         if (isSelected) {
           c.beginPath()
           c.arc(node.x!, node.y!, 30, 0, 2 * Math.PI)
@@ -266,6 +286,8 @@ export function SimulationGraph({
 
     return () => {
       simulation.stop()
+      // Remove D3 drag listeners to prevent leak (#8)
+      select(canvas).on('.drag', null)
       simRef.current = null
     }
   }, [personas])
@@ -297,6 +319,10 @@ export function SimulationGraph({
 
     if (newLinks.length > 0) {
       existing.push(...newLinks)
+    }
+    // Cap links to prevent unbounded growth (#10)
+    if (existing.length > MAX_GRAPH_LINKS) {
+      existing.splice(0, existing.length - MAX_GRAPH_LINKS)
     }
 
     const linkForce = simRef.current.force('link') as d3.ForceLink<GraphNode, GraphLink> | undefined

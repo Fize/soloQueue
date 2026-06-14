@@ -31,8 +31,13 @@ type SimulationConfig struct {
 	DefaultModelID         string `json:"defaultModelId" toml:"default_model_id,omitempty"`
 	DefaultProviderID      string `json:"defaultProviderId" toml:"default_provider_id,omitempty"`
 	DBPath                 string `json:"dbPath" toml:"db_path,omitempty"`
-	DefaultMaxActions      int    `json:"defaultMaxActions" toml:"default_max_actions,omitempty"`
 	DefaultMaxWallClockMs  int    `json:"defaultMaxWallClockMs" toml:"default_max_wall_clock_ms,omitempty"`
+
+	// Generative Agents mode
+	EnableReflection       bool  `json:"enableReflection" toml:"enable_reflection,omitempty"`
+	SimulatedHours         int   `json:"simulatedHours" toml:"simulated_hours,omitempty"`
+	TickIntervalMs         int   `json:"tickIntervalMs" toml:"tick_interval_ms,omitempty"`
+	TimeScale              int   `json:"timeScale" toml:"time_scale,omitempty"`
 }
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────

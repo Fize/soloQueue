@@ -3,6 +3,9 @@ package simulation
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"time"
@@ -33,11 +36,10 @@ type SimulationEngine struct {
 
 // SimulationConfigFile mirrors the TOML config section.
 type SimulationConfigFile struct {
-	DefaultModelID         string `toml:"default_model_id"`
-	DefaultProviderID      string `toml:"default_provider_id"`
-	DBPath                 string `toml:"db_path,omitempty"`
-	DefaultMaxActions      int    `toml:"default_max_actions"`
-	DefaultMaxWallClockMs  int    `toml:"default_max_wall_clock_ms"`
+	DefaultModelID        string `toml:"default_model_id"`
+	DefaultProviderID     string `toml:"default_provider_id"`
+	DBPath                string `toml:"db_path,omitempty"`
+	DefaultMaxWallClockMs int    `toml:"default_max_wall_clock_ms"`
 }
 
 // NewSimulationEngine creates a new engine.
@@ -108,7 +110,6 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 	events := make(chan SimulationEvent, 64)
 
 	go func() {
-		defer close(events)
 		defer func() {
 			if r := recover(); r != nil {
 				e.emit(events, SimulationEvent{
@@ -128,6 +129,9 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 		}()
 
 		e.runSimulation(ctx, state, events)
+		// Ensure fan-in goroutines have drained before closing events.
+		time.Sleep(200 * time.Millisecond)
+		close(events)
 	}()
 
 	return events, nil
@@ -157,6 +161,11 @@ func (e *SimulationEngine) Get(simID string) (*SimulationState, error) {
 
 func (e *SimulationEngine) List() []*SimulationState {
 	return e.store.List()
+}
+
+// GetAgentMemories retrieves memory records for a specific agent in a simulation.
+func (e *SimulationEngine) GetAgentMemories(simID, personaID string) ([]MemoryRecord, error) {
+	return e.store.GetAgentMemories(simID, personaID)
 }
 
 // SetDBPath replaces the store with a SQLite-backed one at the given path.
@@ -195,12 +204,13 @@ func (e *SimulationEngine) resolveModelID(modelID string) string {
 
 // CreateFromSeedOptions defines configuration overrides during seed-based simulation generation.
 type CreateFromSeedOptions struct {
-	ModelID            string `json:"model_id,omitempty"`
-	ProviderID         string `json:"provider_id,omitempty"`
-	MaxActions         int    `json:"max_actions,omitempty"`
-	MaxWallClockMs     int    `json:"max_wall_clock_ms,omitempty"`
-	TriggerPolicy      string `json:"trigger_policy,omitempty"`
-	MinSpeakIntervalMs int    `json:"min_speak_interval_ms,omitempty"`
+	ModelID         string `json:"model_id,omitempty"`
+	ProviderID      string `json:"provider_id,omitempty"`
+	MaxWallClockMs  int    `json:"max_wall_clock_ms,omitempty"`
+	SimulatedHours  int    `json:"simulated_hours,omitempty"`
+	TickIntervalMs  int    `json:"tick_interval_ms,omitempty"`
+	TimeScale       int    `json:"time_scale,omitempty"`
+	EnableReflection bool  `json:"enable_reflection,omitempty"`
 }
 
 // CreateFromSeed extracts entities and generates personas from seed text,
@@ -306,32 +316,34 @@ func (e *SimulationEngine) CreateFromSeed(
 		}
 	}
 
-	maxActions := e.config.DefaultMaxActions
-	if opts.MaxActions > 0 {
-		maxActions = opts.MaxActions
-	}
 	maxWallClockMs := e.config.DefaultMaxWallClockMs
 	if opts.MaxWallClockMs > 0 {
 		maxWallClockMs = opts.MaxWallClockMs
 	}
-	triggerPolicy := "selective"
-	if opts.TriggerPolicy != "" {
-		triggerPolicy = opts.TriggerPolicy
+
+	simulatedHours := 48
+	if opts.SimulatedHours > 0 {
+		simulatedHours = opts.SimulatedHours
 	}
-	minSpeakIntervalMs := 2000
-	if opts.MinSpeakIntervalMs > 0 {
-		minSpeakIntervalMs = opts.MinSpeakIntervalMs
+	tickIntervalMs := 500
+	if opts.TickIntervalMs > 0 {
+		tickIntervalMs = opts.TickIntervalMs
+	}
+	timeScale := 600
+	if opts.TimeScale > 0 {
+		timeScale = opts.TimeScale
 	}
 
 	// Step 3: Create the simulation
 	config := SimulationConfig{
-		Topic:              topic,
-		Personas:           personas,
-		WorldState:         extraction.WorldState,
-		MaxActions:         maxActions,
-		MaxWallClockMs:     maxWallClockMs,
-		TriggerPolicy:      triggerPolicy,
-		MinSpeakIntervalMs: minSpeakIntervalMs,
+		Topic:           topic,
+		Personas:        personas,
+		WorldState:      extraction.WorldState,
+		MaxWallClockMs:  maxWallClockMs,
+		SimulatedHours:  simulatedHours,
+		TickIntervalMs:  tickIntervalMs,
+		TimeScale:       timeScale,
+		EnableReflection: opts.EnableReflection,
 	}
 
 	// Step 3: Build initial graph edges from seed extraction entity relations
@@ -472,15 +484,18 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 			return "", fmt.Errorf("no report found for simulation %s", simID)
 		}
 		prompt := BuildReportAnalystPrompt(state.Config.Topic, report, question)
-	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
-		Model:      e.resolveModelID(e.config.DefaultModelID),
-		ProviderID: e.config.DefaultProviderID,
-		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
+		if e.llm == nil {
+			return "", fmt.Errorf("no LLM client configured for replay")
+		}
+		resp, err := e.llm.Chat(ctx, agent.LLMRequest{
+			Model:      e.resolveModelID(e.config.DefaultModelID),
+			ProviderID: e.config.DefaultProviderID,
+			Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
 		})
 		if err != nil {
 			return "", fmt.Errorf("report analyst ask: %w", err)
 		}
-	return resp.Content, nil
+		return resp.Content, nil
 }
 
 // Find the persona
@@ -507,6 +522,9 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 	// Build follow-up prompt
 	prompt := BuildReplayPrompt(persona, state.Config.Topic, records, question)
 
+	if e.llm == nil {
+		return "", fmt.Errorf("no LLM client configured for replay")
+	}
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
 		Model:      e.config.DefaultModelID,
 		ProviderID: e.config.DefaultProviderID,
@@ -521,10 +539,10 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 
 // ForkRequest defines what-if parameters when forking a simulation.
 type ForkRequest struct {
-	NewWorldState   map[string]any `json:"new_world_state,omitempty"`
-	ExtraPersonas   []Persona      `json:"extra_personas,omitempty"`
-	NewTopic        string         `json:"new_topic,omitempty"`
-	NewMaxActions   int            `json:"new_max_actions,omitempty"`
+	NewWorldState    map[string]any `json:"new_world_state,omitempty"`
+	ExtraPersonas    []Persona      `json:"extra_personas,omitempty"`
+	NewTopic         string         `json:"new_topic,omitempty"`
+	NewMaxWallClockMs int           `json:"new_max_wall_clock_ms,omitempty"`
 }
 
 // Fork clones a completed simulation with modified parameters for "what-if" replay.
@@ -558,10 +576,10 @@ func (e *SimulationEngine) Fork(ctx context.Context, sourceSimID string, req For
 		newConfig.Topic = req.NewTopic
 	}
 
-	if req.NewMaxActions > 0 {
-		newConfig.MaxActions = req.NewMaxActions
+	if req.NewMaxWallClockMs > 0 {
+		newConfig.MaxWallClockMs = req.NewMaxWallClockMs
 	} else {
-		newConfig.MaxActions = srcConfig.MaxActions
+		newConfig.MaxWallClockMs = srcConfig.MaxWallClockMs
 	}
 
 	// Merge world state: start with original, overlay with fork overrides
@@ -593,13 +611,14 @@ func (e *SimulationEngine) Fork(ctx context.Context, sourceSimID string, req For
 		}
 	}
 
-	// Preserve other config from source
-	if newConfig.MaxActions <= 0 {
-		newConfig.MaxActions = srcConfig.MaxActions
+	// Preserve other config from source (only if not overridden by fork)
+	if req.NewMaxWallClockMs <= 0 {
+		newConfig.MaxWallClockMs = srcConfig.MaxWallClockMs
 	}
-	newConfig.MaxWallClockMs = srcConfig.MaxWallClockMs
-	newConfig.TriggerPolicy = srcConfig.TriggerPolicy
-	newConfig.MinSpeakIntervalMs = srcConfig.MinSpeakIntervalMs
+	newConfig.SimulatedHours = srcConfig.SimulatedHours
+	newConfig.TickIntervalMs = srcConfig.TickIntervalMs
+	newConfig.TimeScale = srcConfig.TimeScale
+	newConfig.EnableReflection = srcConfig.EnableReflection
 
 	return e.Create(newConfig)
 }
@@ -616,6 +635,42 @@ func (e *SimulationEngine) Delete(simID string) error {
 	}
 	state.Unlock()
 	return e.store.Delete(simID)
+}
+
+// ─── pprof heap profiling helpers ───────────────────────────────────────────
+
+func dumpHeapProfile(label string) {
+	path := fmt.Sprintf("/tmp/sim_heap_%s_%d.prof", label, time.Now().Unix())
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	pprof.WriteHeapProfile(f)
+}
+
+func dumpGoroutineProfile(label string) {
+	path := fmt.Sprintf("/tmp/sim_goroutine_%s_%d.txt", label, time.Now().Unix())
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	pprof.Lookup("goroutine").WriteTo(f, 2)
+}
+
+func logMemStats(log *logger.Logger, label string) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	log.Info(logger.CatSimulation, "memstats",
+		"label", label,
+		"heap_alloc_mb", m.HeapAlloc/1024/1024,
+		"heap_inuse_mb", m.HeapInuse/1024/1024,
+		"heap_objects", m.HeapObjects,
+		"goroutines", runtime.NumGoroutine(),
+		"num_gc", m.NumGC,
+		"total_alloc_mb", m.TotalAlloc/1024/1024,
+	)
 }
 
 func (e *SimulationEngine) Subscribe(ch chan SimulationEvent) {
@@ -664,122 +719,241 @@ func (e *SimulationEngine) emit(events chan SimulationEvent, ev SimulationEvent)
 	e.subscribersMu.RUnlock()
 }
 
-// runSimulation executes the event-driven simulation.
+// runSimulation executes the Generative-Agents simulation.
 func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationState, events chan SimulationEvent) {
 	simID := state.RunID
 	config := state.Config
 
-	e.emitProgress(events, simID, "initializing", 0, config.MaxActions)
+	if e.llm == nil {
+		state.Lock()
+		state.Status = StatusFailed
+		state.Error = "simulation engine has no LLM client configured"
+		state.Unlock()
+		e.emit(events, SimulationEvent{Type: "error", SimulationID: simID, Error: "no LLM client configured"})
+		return
+	}
 
-	e.emit(events, SimulationEvent{
-		Type:         "simulation_start",
-		SimulationID: simID,
-		Data: map[string]any{
-			"topic": config.Topic, "personas": len(config.Personas),
-			"max_actions": config.MaxActions, "trigger_policy": config.TriggerPolicy,
-		},
-	})
+	e.emitProgress(events, simID, "initializing", 0, config.MaxWallClockMs)
 
-	graph := NewRelationGraph()
+	// [pprof] baseline before anything happens
+	logMemStats(e.log, "baseline_before_any_work")
+	dumpHeapProfile("01_baseline")
+
+	// ─── Setup GA infrastructure ───────────────────────────────────────
+	timeScale := float64(config.TimeScale)
+	if timeScale <= 0 {
+		timeScale = 600
+	}
+	tickDur := time.Duration(config.TickIntervalMs) * time.Millisecond
+	if tickDur <= 0 {
+		tickDur = 500 * time.Millisecond
+	}
+	clockCfg := ClockConfig{
+		TimeScale: timeScale,
+		TickDur:   tickDur,
+	}
+	clock := NewSimClock(clockCfg)
+
+	env := NewEnvironment(clock)
+	setupDefaultZones(env, config.Personas)
+
 	bus := NewMessageBus(64)
+	dialogueMgr := NewDialogueManager(bus)
+	relationshipMgr := NewRelationshipManager()
+
+	planGen := NewPlanGenerator(e.llm, e.resolveModelID(e.config.DefaultModelID), e.config.DefaultProviderID)
+
+	var reflectionEng *ReflectionEngine
+	if config.EnableReflection {
+		reflectionEng = NewReflectionEngine(e.llm, e.resolveModelID(e.config.DefaultModelID), e.config.DefaultProviderID, 50)
+		if e.log != nil {
+			reflectionEng.SetLogger(e.log)
+		}
+	}
+
 	simAgents, err := e.createSimAgents(ctx, config, bus)
 	if err != nil {
 		state.Lock()
 		state.Status = StatusFailed
 		state.Error = err.Error()
 		state.Unlock()
-		if errUpdate := e.store.Update(simID, state); errUpdate != nil && e.log != nil {
-			e.log.Warn(logger.CatSimulation, "failed to persist failed status", "err", errUpdate.Error())
-		}
 		e.emit(events, SimulationEvent{Type: "error", SimulationID: simID, Error: err.Error()})
 		return
 	}
+	logMemStats(e.log, "after_create_agents")
+	dumpHeapProfile("02_after_agents")
+
 	defer func() {
 		for _, sa := range simAgents {
 			sa.Stop(10 * time.Second)
 		}
 	}()
 
-	e.runEventDriven(ctx, state, simAgents, bus, graph, events)
-}
+	// Generate persona name mapping once
+	nameByID := make(map[string]string, len(config.Personas))
+	for _, p := range config.Personas {
+		nameByID[p.ID] = p.Name
+	}
 
-// runEventDriven executes the event-driven loop.
-func (e *SimulationEngine) runEventDriven(ctx context.Context, state *SimulationState, simAgents []*SimAgent, bus *MessageBus, graph *RelationGraph, events chan SimulationEvent) {
-	config := state.Config
+	e.emitProgress(events, simID, "generating_plans", 0, config.MaxWallClockMs)
 
-	minInterval := time.Duration(config.MinSpeakIntervalMs) * time.Millisecond
-	trigger := NewTriggerPolicy(config.TriggerPolicy, minInterval)
+	// ─── Generate daily plans & system prompts for each agent ──────────
+	agentPlans := make(map[string]*DailyPlan)
+	for _, sa := range simAgents {
+		persona := sa.Persona()
+		plan, err := planGen.GenerateDailyPlan(ctx, persona, env, clock)
+		if err != nil && e.log != nil {
+			e.log.WarnContext(ctx, logger.CatSimulation, "plan generation failed, using default",
+				"agent_id", persona.ID, "err", err.Error())
+			plan = defaultDailyPlan(persona.ID, clock.Now(), env.ZoneNames())
+		}
+		agentPlans[persona.ID] = plan
+	}
+	logMemStats(e.log, "after_plan_generation")
+	dumpHeapProfile("03_after_plans")
+
+	e.emitProgress(events, simID, "building_prompts", 0, config.MaxWallClockMs)
+
+	// Build full system prompts and push to each agent
+	for _, sa := range simAgents {
+		persona := sa.Persona()
+		plan := agentPlans[persona.ID]
+		systemPrompt := BuildGenerativeAgentSystemPrompt(*persona, config.Personas, env, plan, relationshipMgr, nil, nameByID, clock)
+		sa.ClearCW(systemPrompt)
+	}
+
+	// ─── Create GA agent loops ────────────────────────────────────────
+	gaLoops := make([]*GAAgentLoop, 0, len(simAgents))
+	gaEventChannels := make([]<-chan SimulationEvent, 0, len(simAgents))
+
+	for _, sa := range simAgents {
+		persona := sa.Persona()
+		loop := NewGAAgentLoop(
+			sa, env, bus, clock, planGen, relationshipMgr,
+			e.memoryEngine, reflectionEng, dialogueMgr,
+			state.WorldState, nameByID, config.Personas, e.log,
+		)
+		loop.plan = agentPlans[persona.ID]
+		gaLoops = append(gaLoops, loop)
+		gaEventChannels = append(gaEventChannels, loop.Events())
+	}
+	logMemStats(e.log, "after_create_loops")
+	dumpHeapProfile("04_after_loops")
+
+	// ─── Fan-in all agent event channels ──────────────────────────────
+	go func() {
+		for _, ch := range gaEventChannels {
+			go func(c <-chan SimulationEvent) {
+				for ev := range c {
+					ev.SimulationID = simID
+					e.emit(events, ev)
+					if ev.Type == "agent_message" {
+						if rm, ok := ev.Data.(*RoundMessage); ok {
+							state.Lock()
+							state.Rounds = append(state.Rounds, RoundResult{
+								RoundNumber: ev.Round,
+								Messages:    []RoundMessage{*rm},
+								CompletedAt: time.Now(),
+							})
+							state.Unlock()
+						}
+					}
+				}
+			}(ch)
+		}
+	}()
+
+	// Start clock in background
+	go clock.Start()
+	defer clock.Stop()
+
+	// Start all agent loops
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	defer loopCancel()
+
+	for _, loop := range gaLoops {
+		go loop.Run(loopCtx)
+	}
+
+	// Periodic runtime stats monitor
+	statsDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		defer close(statsDone)
+		for {
+			select {
+			case <-ticker.C:
+				logMemStats(e.log, "periodic")
+			case <-loopCtx.Done():
+				return
+			}
+		}
+	}()
+	// [pprof] snapshot after 15s of simulation running
+	time.AfterFunc(15*time.Second, func() {
+		logMemStats(e.log, "after_15s_running")
+		dumpHeapProfile("05_after_15s")
+	})
+
+	// ─── Place agents in initial zones ────────────────────────────────
+	for _, sa := range simAgents {
+		plan := agentPlans[sa.PersonaID()]
+		if activity := plan.GetCurrentActivity(clock.Now()); activity != nil {
+			env.PlaceAgent(sa.PersonaID(), activity.Location)
+		} else {
+			env.PlaceAgent(sa.PersonaID(), "town_square")
+		}
+	}
+
+	// Wait for max wall clock timeout
 	timeout := time.Duration(config.MaxWallClockMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
 
-	poolSize := 20
-	if len(simAgents) < poolSize {
-		poolSize = len(simAgents)
-	}
-	loop := NewEventLoop(simAgents, bus, state.WorldState, graph, config.Topic, trigger, timeout, config.MaxActions, poolSize, e.log)
-
-	evCh := loop.Run(ctx)
-	for ev := range evCh {
-		ev.SimulationID = state.RunID
-		if ev.Type == "progress" {
-			if p, ok := ev.Data.(*SimulationProgress); ok {
-				p.SimulationID = state.RunID
-			}
-		}
-		e.emit(events, ev)
-
-		if ev.Type == "agent_message" {
-			if rm, ok := ev.Data.(*RoundMessage); ok {
-				state.Lock()
-				state.Rounds = append(state.Rounds, RoundResult{
-					RoundNumber: ev.Round,
-					Messages:    []RoundMessage{*rm},
-					CompletedAt: time.Now(),
-				})
-				if as, ok2 := state.AgentStates[rm.AgentID]; ok2 {
-					as.TotalMessages++
-				}
-				// Update current graph state in memory
-				nodes := make([]string, 0, len(graph.nodes))
-				for n := range graph.nodes {
-					nodes = append(nodes, n)
-				}
-				state.Graph = &SimulationRelationGraph{
-					Nodes: nodes,
-					Edges: graph.ToEdgeDTOs(),
-				}
-				state.Unlock()
-			}
-		}
+	select {
+	case <-ctx.Done():
+	case <-time.After(timeout):
 	}
 
-	// Persist state if using SQLite store
-	e.maybePersist(state)
+	// [pprof] simulation just ended
+	logMemStats(e.log, "after_simulation_run")
+	dumpHeapProfile("06_after_run")
+	dumpGoroutineProfile("after_run")
 
-	// Persist agent memories
-	e.persistAgentMemories(state.RunID, simAgents)
+	// Stop all loops
+	for _, loop := range gaLoops {
+		loop.Stop()
+	}
+	loopCancel()
 
-	e.emitProgress(events, state.RunID, "generating_report", config.MaxActions, config.MaxActions)
+	// ─── Generate report ──────────────────────────────────────────────
+	e.emitProgress(events, simID, "generating_report", config.MaxWallClockMs, config.MaxWallClockMs)
 
-	// Generate report with graph data
+	graph := NewRelationGraph()
+	for _, sa := range simAgents {
+		graph.AddNode(sa.PersonaID())
+	}
+
 	report, err := e.generateReport(ctx, config, simAgents, graph, state.WorldState)
 	if err == nil && report != "" {
 		state.Lock()
 		state.Report = report
 		state.Unlock()
 	}
+	logMemStats(e.log, "after_report_generation")
+	dumpHeapProfile("07_final")
 
-	// Index simulation results into MemoryEngine KG (if configured)
-	e.indexSimulationToKG(ctx, state.RunID, config.Topic, simAgents, graph, state.WorldState, report)
+	// Index to KG
+	e.indexSimulationToKG(ctx, simID, config.Topic, simAgents, graph, state.WorldState, report)
 
-	e.emitProgress(events, state.RunID, "completed", config.MaxActions, config.MaxActions)
+	e.emitProgress(events, simID, "completed", config.MaxWallClockMs, config.MaxWallClockMs)
 
 	e.emit(events, SimulationEvent{
 		Type:         "finished",
-		SimulationID: state.RunID,
-		Data:         map[string]any{"report": report, "rounds": len(state.Rounds)},
+		SimulationID: simID,
+		Data:         map[string]any{"report": report},
 	})
 
 	state.Lock()
@@ -788,19 +962,48 @@ func (e *SimulationEngine) runEventDriven(ctx context.Context, state *Simulation
 	}
 	now := time.Now()
 	state.CompletedAt = &now
-	nodes := make([]string, 0, len(graph.nodes))
-	for n := range graph.nodes {
-		nodes = append(nodes, n)
-	}
-	state.Graph = &SimulationRelationGraph{
-		Nodes: nodes,
-		Edges: graph.ToEdgeDTOs(),
-	}
 	state.Unlock()
 
-	if err := e.store.Update(state.RunID, state); err != nil && e.log != nil {
+	if err := e.store.Update(simID, state); err != nil && e.log != nil {
 		e.log.Warn(logger.CatSimulation, "failed to persist final simulation state", "err", err.Error())
 	}
+}
+
+// SetupDefaultZones creates a standard set of zones if none are pre-configured.
+func setupDefaultZones(env *Environment, personas []Persona) {
+	env.AddZone("town_square", "The central gathering place of the town.", 100)
+	env.AddZone("cafe", "A cozy coffee shop serving fresh pastries and drinks.", 20)
+	env.AddZone("library", "A quiet public library with reading rooms and computers.", 30)
+	env.AddZone("park", "A beautiful outdoor park with walking paths and benches.", 50)
+	env.AddZone("office", "A modern co-working office space.", 25)
+	env.AddZone("home", "A residential area with private homes.", 10)
+	env.AddZone("market", "A bustling market with various shops and stalls.", 40)
+	env.AddZone("gym", "A fitness center with exercise equipment.", 15)
+	env.AddZone("restaurant", "A popular restaurant serving lunch and dinner.", 20)
+
+	// Add some interactive objects
+	env.AddObject("library", &EnvObject{ID: "library_pc", Name: "Public Computer", Description: "A computer with internet access.", IsInteractive: true, State: map[string]any{"available": true}})
+	env.AddObject("cafe", &EnvObject{ID: "cafe_menu", Name: "Menu Board", Description: "Today's specials are written on the board.", IsInteractive: true, State: map[string]any{}})
+	env.AddObject("park", &EnvObject{ID: "park_bench", Name: "Wooden Bench", Description: "A comfortable bench for sitting and relaxing.", IsInteractive: true, State: map[string]any{}})
+	env.AddObject("market", &EnvObject{ID: "market_stall", Name: "News Stand", Description: "A stall selling newspapers and magazines.", IsInteractive: true, State: map[string]any{}})
+}
+
+// defaultDailyPlan creates a minimal plan when generation fails.
+func defaultDailyPlan(agentID string, now time.Time, zones []string) *DailyPlan {
+	plan := &DailyPlan{AgentID: agentID, GeneratedAt: time.Now()}
+	defaultZone := "town_square"
+	if len(zones) > 0 {
+		defaultZone = zones[0]
+	}
+	plan.Schedule = append(plan.Schedule, PlanItem{
+		StartTime:   now,
+		EndTime:     now.Add(12 * time.Hour),
+		Activity:    "Go about my day",
+		Location:    defaultZone,
+		Description: "Live my daily life and interact with people I meet.",
+		Status:      "in_progress",
+	})
+	return plan
 }
 
 func (e *SimulationEngine) maybePersist(state *SimulationState) {
@@ -913,11 +1116,14 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 }
 
 // createSimAgents creates Agent instances for each persona.
+// System prompts are NOT pushed here — that happens in runSimulation after
+// plans and other context are generated.
 func (e *SimulationEngine) createSimAgents(ctx context.Context, config SimulationConfig, bus *MessageBus) ([]*SimAgent, error) {
 	var simAgents []*SimAgent
 
 	for _, persona := range config.Personas {
-		systemPrompt := BuildSimulationSystemPrompt(persona, config.Topic, config.Personas)
+		// Placeholder system prompt — will be replaced in runSimulation
+		placeholderPrompt := "Simulation agent placeholder. System prompt will be set before simulation starts."
 
 		modelID := persona.ModelID
 		if modelID == "" {
@@ -932,7 +1138,7 @@ func (e *SimulationEngine) createSimAgents(ctx context.Context, config Simulatio
 			ID:           "sim-" + persona.ID,
 			Name:         persona.Name,
 			Description:  persona.Role,
-			SystemPrompt: systemPrompt,
+			SystemPrompt: placeholderPrompt,
 			ModelID:      modelID,
 			Permission:   true,
 		}
@@ -945,15 +1151,12 @@ func (e *SimulationEngine) createSimAgents(ctx context.Context, config Simulatio
 			return nil, fmt.Errorf("create agent for persona %s: %w", persona.ID, err)
 		}
 
-		// Replace the factory's framework system prompt (L2/L3) with the
-		// simulation-specific persona prompt. Factory always pushes its own
-		// L2/L3 prompt; simulation agents only need their persona prompt.
 		maxTokens := agt.Def.ContextWindow
 		if maxTokens <= 0 {
 			maxTokens = agent.DefaultContextWindow
 		}
 		cw = ctxwin.NewContextWindow(maxTokens, 2000, 0, ctxwin.NewTokenizer())
-		cw.Push(ctxwin.RoleSystem, systemPrompt)
+		cw.Push(ctxwin.RoleSystem, placeholderPrompt)
 
 		if providerID != "" {
 			agt.Def.ProviderID = providerID

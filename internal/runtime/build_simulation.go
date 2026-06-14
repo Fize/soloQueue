@@ -29,7 +29,6 @@ func (bc *buildContext) buildSimulationEngine() error {
 		DefaultModelID:        defaultModelID,
 		DefaultProviderID:     defaultProviderID,
 		DBPath:                bc.settings.Simulation.DBPath,
-		DefaultMaxActions:     bc.settings.Simulation.DefaultMaxActions,
 		DefaultMaxWallClockMs: bc.settings.Simulation.DefaultMaxWallClockMs,
 	}
 
