@@ -63,6 +63,7 @@ func newLifecycleManager(
 	nameByID map[string]string,
 	allPersonas []Persona,
 	worldState *WorldState,
+	state *SimulationState,
 	l *logger.Logger,
 ) *lifecycleManager {
 	maxSpawn := len(allPersonas) * 2
@@ -85,6 +86,7 @@ func newLifecycleManager(
 		allPersonas:     allPersonas,
 		log:             l,
 		worldState:      worldState,
+		state:           state,
 		gaLoops:         make(map[string]*GAAgentLoop),
 		maxSpawnTotal:   maxSpawn,
 		lifecycleCh:     make(chan SimulationEvent, 32),
@@ -242,11 +244,16 @@ func (lm *lifecycleManager) handleAgentDeath(ctx context.Context, personaID, rea
 	// 7. Remove from dynamic loop map
 	lm.removeLoop(personaID)
 
-	// 8. Mark as inactive
+	// 8. Mark as inactive and persist for API visibility
 	if lm.state != nil {
 		lm.state.Lock()
 		if as, ok := lm.state.AgentStates[personaID]; ok {
 			as.IsActive = false
+		}
+		// Persist to store so API consumers can see the state change
+		if err := lm.engine.store.Update(lm.state.RunID, lm.state); err != nil && lm.log != nil {
+			lm.log.WarnContext(ctx, logger.CatSimulation, "lifecycle: failed to persist agent death state",
+				"agent_id", personaID, "err", err.Error())
 		}
 		lm.state.Unlock()
 	}
@@ -383,6 +390,11 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 			PersonaID:  personaID,
 			InstanceID: agt.InstanceID,
 			IsActive:   true,
+		}
+		// Persist immediately for API visibility
+		if err := lm.engine.store.Update(lm.state.RunID, lm.state); err != nil && lm.log != nil {
+			lm.log.WarnContext(ctx, logger.CatSimulation, "lifecycle: failed to persist agent spawn state",
+				"agent_id", personaID, "err", err.Error())
 		}
 		lm.state.Unlock()
 	}
