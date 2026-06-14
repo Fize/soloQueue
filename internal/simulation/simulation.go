@@ -843,7 +843,7 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	lifecycleMgr := newLifecycleManager(
 		e, config, clock, env, bus, dialogueMgr, relationshipMgr,
 		graph, planGen, reflectionEng,
-		nameByID, config.Personas, state.WorldState, e.log,
+		nameByID, config.Personas, state.WorldState, state, e.log,
 	)
 
 	// ─── Create GA agent loops ────────────────────────────────────────
