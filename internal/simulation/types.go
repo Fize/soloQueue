@@ -353,3 +353,61 @@ func (am *AgentMemory) TruncateTo(n int) {
 	}
 	am.records = am.records[len(am.records)-n:]
 }
+
+// TruncateByImportance reduces the memory to approximately n records,
+// keeping the most recent records but prioritizing high-importance ones.
+// This follows the Generative Agents paper's approach of retaining memories
+// weighted by recency, importance, and relevance.
+func (am *AgentMemory) TruncateByImportance(n int) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	if len(am.records) <= n {
+		return
+	}
+
+	// Keep the most recent 2/3 of target as-is (recency wins for recent memories).
+	// For the remaining 1/3, select from older records by importance.
+	recentKeep := n * 2 / 3
+	importanceKeep := n - recentKeep
+
+	// Always keep the most recent records
+	newRecords := make([]MemoryRecord, 0, n)
+	split := len(am.records) - recentKeep
+	if split < 0 {
+		split = 0
+	}
+	newRecords = append(newRecords, am.records[split:]...)
+
+	// From the older records, keep those with highest importance
+	olderRecords := am.records[:split]
+	if len(olderRecords) > 0 && importanceKeep > 0 {
+		// Sort older records by importance descending (simple insertion sort for small N)
+		sorted := make([]MemoryRecord, len(olderRecords))
+		copy(sorted, olderRecords)
+		for i := 1; i < len(sorted); i++ {
+			j := i
+			for j > 0 && sorted[j].Importance > sorted[j-1].Importance {
+				sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+				j--
+			}
+		}
+		// Take the top importanceKeep from sorted (or fewer if not enough)
+		take := importanceKeep
+		if take > len(sorted) {
+			take = len(sorted)
+		}
+		// Insert them at the beginning of newRecords, preserving time order among selected
+		selected := sorted[:take]
+		// Sort selected back by timestamp to maintain chronological order
+		for i := 1; i < len(selected); i++ {
+			j := i
+			for j > 0 && selected[j].Timestamp.Before(selected[j-1].Timestamp) {
+				selected[j], selected[j-1] = selected[j-1], selected[j]
+				j--
+			}
+		}
+		newRecords = append(selected, newRecords...)
+	}
+
+	am.records = newRecords
+}

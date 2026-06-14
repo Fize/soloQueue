@@ -3,7 +3,6 @@ package simulation
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
@@ -107,76 +106,3 @@ func personaTokenBudget(persona *Persona, contextWindow int) int {
 	return contextWindow * 80 / 100
 }
 
-// AskForRoundEvent is a deprecated compatibility shim for the old EventLoop.
-// It builds a user message and calls the LLM directly. The new GA agent loop
-// handles this through the tick-driven GAAgentLoop instead.
-func (sa *SimAgent) AskForRoundEvent(ctx context.Context, seq int, topic string, worldState *WorldState, inbox []Message) (*RoundMessage, error) {
-	userMsg := BuildUserMessageEvent(seq, topic, worldState, inbox)
-	sa.cw.Push(ctxwin.RoleUser, userMsg)
-
-	content, _, err := sa.agent.AskWithHistory(ctx, sa.cw, userMsg)
-	if err != nil {
-		return nil, fmt.Errorf("agent %s seq %d: %w", sa.persona.Name, seq, err)
-	}
-
-	msgType, proposals := parseResponse(content)
-	for _, prop := range proposals {
-		worldState.Set(prop.key, prop.value, sa.personaID, seq)
-	}
-
-	return &RoundMessage{
-		AgentID:   sa.personaID,
-		AgentName: sa.persona.Name,
-		Content:   content,
-		To:        "*",
-		Type:      msgType,
-		Round:     seq,
-		SeqNum:    seq,
-	}, nil
-}
-
-// parseResponse extracts message type and [PROPOSE key: value] directives.
-// Deprecated shim: uses ParseActions for GA compatibility but preserves old
-// type classification behavior for backward compatibility.
-func parseResponse(content string) (msgType string, proposals []proposal) {
-	actions, props := ParseActions(content)
-	proposals = props
-
-	msgType = classifyMessageType(content, actions)
-	return msgType, proposals
-}
-
-// classifyMessageType determines the message type from content and parsed actions.
-func classifyMessageType(content string, actions []Action) string {
-	lines := strings.Split(content, "\n")
-	hasRebuttal := false
-	hasQuestion := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "@") {
-			hasRebuttal = true
-		}
-		if strings.HasSuffix(trimmed, "?") {
-			hasQuestion = true
-		}
-	}
-
-	// Check action types for additional signals
-	for _, a := range actions {
-		switch a.Type {
-		case ActionSpeak:
-			if a.Target != "*" {
-				return "private_speak"
-			}
-		}
-	}
-
-	if hasRebuttal {
-		return "rebuttal"
-	}
-	if hasQuestion {
-		return "question"
-	}
-	return "statement"
-}

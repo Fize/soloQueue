@@ -345,26 +345,3 @@ func BuildUserMessage(round int, topic string, worldState *WorldState, msgs []Me
 	return BuildTickUserMessage(round, observations, worldState, "", nil, nil)
 }
 
-// BuildUserMessageEvent is a compatibility wrapper that matches the old format.
-func BuildUserMessageEvent(seq int, topic string, worldState *WorldState, msgs []Message) string {
-	_ = topic
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("--- Interaction #%d ---\n\n", seq))
-
-	if worldState != nil {
-		b.WriteString(worldState.FormatForPrompt())
-		b.WriteString("\n")
-	}
-
-	b.WriteString(FormatMessages(msgs))
-	b.WriteString("\n")
-
-	b.WriteString("Based on the above, provide your response. You may:\n")
-	b.WriteString("- State your position or argument\n")
-	b.WriteString("- Respond to another participant (start with \"@Name: ...\")\n")
-	b.WriteString("- Propose a change to the world state (use [PROPOSE key: value])\n")
-	b.WriteString("- Ask a question\n")
-	b.WriteString("- Stay silent if you have nothing to add (respond with [PASS])\n")
-
-	return b.String()
-}

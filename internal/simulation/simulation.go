@@ -906,16 +906,42 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 		}
 	}
 
-	// Wait for max wall clock timeout
+	// Wait for max wall clock timeout OR simulated hours limit.
 	timeout := time.Duration(config.MaxWallClockMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
 
+	// Monitor simulated hours: cancel if we exceed the configured limit.
+	simHoursDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if clock.ElapsedHours() >= float64(config.SimulatedHours) {
+					if e.log != nil {
+						e.log.InfoContext(ctx, logger.CatSimulation, "simulated hours limit reached",
+							"elapsed_hours", clock.ElapsedHours(),
+							"configured_hours", config.SimulatedHours)
+					}
+					loopCancel()
+					return
+				}
+			case <-simHoursDone:
+				return
+			case <-loopCtx.Done():
+				return
+			}
+		}
+	}()
+
 	select {
 	case <-ctx.Done():
 	case <-time.After(timeout):
 	}
+	close(simHoursDone)
 
 	// [pprof] simulation just ended
 	logMemStats(e.log, "after_simulation_run")

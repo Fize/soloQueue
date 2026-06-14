@@ -90,7 +90,7 @@ func (re *ReflectionEngine) Reflect(
 		AgentID:     persona.ID,
 		Content:     content,
 		GeneratedAt: clock.Now(),
-		Importance:  7.0, // reflections are generally important
+		Importance:  computeReflectionImportance(recent),
 	}
 
 	// Track which memory rounds inspired this reflection
@@ -129,4 +129,37 @@ func buildReflectionPrompt(persona *Persona, recentRecords []MemoryRecord, now t
 	b.WriteString("Each reflection should be 1-2 sentences. Output ONLY the reflections, one per line, no numbering.\n")
 
 	return b.String()
+}
+
+// computeReflectionImportance scores a reflection based on the importance of its
+// constituent memories, following the Generative Agents paper's approach of
+// weighting reflections by the significance of the memories that inspired them.
+func computeReflectionImportance(recentRecords []MemoryRecord) float64 {
+	if len(recentRecords) == 0 {
+		return 5.0
+	}
+
+	var total float64
+	var count int
+	for _, r := range recentRecords {
+		if r.Importance > 0 {
+			total += r.Importance
+			count++
+		}
+	}
+
+	if count == 0 {
+		// All memories have default importance; use median default
+		return 5.0
+	}
+
+	avg := total / float64(count)
+
+	// Reflections are generally more important than single memories,
+	// so we apply a slight boost (1.2x) capped at 10.0.
+	boosted := avg * 1.2
+	if boosted > 10.0 {
+		boosted = 10.0
+	}
+	return boosted
 }
