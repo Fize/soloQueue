@@ -247,51 +247,51 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 func parseExtraction(content string) (*SeedExtraction, error) {
 	cleaned := cleanJSONResponse(content)
 
-	// Use a raw message to tolerate both object and string forms of world_state
-	var raw struct {
-		Entities        []memoryengine.EntityExtraction `json:"entities"`
-		WorldState      json.RawMessage                 `json:"world_state"`
-		KeyTopics       []string                        `json:"key_topics"`
-		ConflictAreas   []string                        `json:"conflict_areas"`
-		SuggestedAgents []SuggestedAgent                `json:"suggested_agents,omitempty"`
-		LifecycleEvents []SeedLifecycleEvent            `json:"lifecycle_events,omitempty"`
+	// Validate field types before full unmarshal — catch common LLM mistakes early
+	if typeErr := validateExtractionJSON(cleaned); typeErr != nil {
+		return nil, typeErr
 	}
-	if err := json.Unmarshal([]byte(cleaned), &raw); err != nil {
+
+	var ext SeedExtraction
+	if err := json.Unmarshal([]byte(cleaned), &ext); err != nil {
 		return nil, fmt.Errorf("json unmarshal: %w\nraw: %s", err, truncateStr(content, 200))
 	}
 
-	ext := &SeedExtraction{
-		Entities:        raw.Entities,
-		WorldState:      parseFlexibleWorldState(raw.WorldState),
-		KeyTopics:       raw.KeyTopics,
-		ConflictAreas:   raw.ConflictAreas,
-		SuggestedAgents: raw.SuggestedAgents,
-		LifecycleEvents: raw.LifecycleEvents,
+	if ext.WorldState == nil {
+		ext.WorldState = make(map[string]any)
 	}
 
-	return ext, nil
+	return &ext, nil
 }
 
-// parseFlexibleWorldState handles both object and string forms of world_state.
-// LLMs sometimes return a string instead of an object for this field.
-func parseFlexibleWorldState(raw json.RawMessage) map[string]any {
-	if len(raw) == 0 || string(raw) == "null" {
-		return make(map[string]any)
+// validateExtractionJSON checks for common LLM JSON mistakes like returning
+// a string where an object is required. Returns a descriptive error for the user.
+func validateExtractionJSON(raw string) error {
+	var partial struct {
+		WorldState json.RawMessage `json:"world_state"`
+	}
+	if err := json.Unmarshal([]byte(raw), &partial); err != nil {
+		// Can't even parse as JSON — let the full unmarshal handle the error
+		return nil
 	}
 
-	// Try as object first
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err == nil {
-		return m
+	if len(partial.WorldState) == 0 || string(partial.WorldState) == "null" {
+		return nil
 	}
 
-	// Try as string — treat the string value as the "description" key
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return map[string]any{"description": s}
+	// Check if world_state is a string instead of an object
+	if partial.WorldState[0] == '"' {
+		var s string
+		json.Unmarshal(partial.WorldState, &s)
+		return fmt.Errorf("world_state must be a JSON object {}, got a string: %q. The LLM returned a malformed response. Please retry or simplify the seed text.", truncateStr(s, 100))
 	}
 
-	return make(map[string]any)
+	// Check if world_state is an array instead of an object
+	if partial.WorldState[0] == '[' {
+		return fmt.Errorf("world_state must be a JSON object {}, got an array. The LLM returned a malformed response. Please retry or simplify the seed text.")
+	}
+
+	return nil
 }
 
 // --- prompts ---
