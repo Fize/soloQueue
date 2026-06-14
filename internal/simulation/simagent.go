@@ -13,7 +13,7 @@ import (
 
 // SimAgent wraps an agent.Agent for simulation use.
 // Each SimAgent owns one Agent instance, a persistent ContextWindow for LLM cache,
-// and an AgentMemory that retains full history for report analysis.
+// and an AgentMemory that retains full history for analysis.
 type SimAgent struct {
 	agent       *agent.Agent
 	persona     *Persona
@@ -29,7 +29,6 @@ type SimAgent struct {
 }
 
 // NewSimAgent wraps an already-created and started agent.Agent.
-// The CW should already contain the system prompt (pushed during agent creation).
 func NewSimAgent(
 	agt *agent.Agent,
 	persona *Persona,
@@ -52,128 +51,74 @@ func NewSimAgent(
 	}
 }
 
-// AskForRound builds the round-specific user message, pushes it to CW,
-// calls AskWithHistory, records to AgentMemory, and returns a RoundMessage.
-func (sa *SimAgent) AskForRound(ctx context.Context, round int, topic string, worldState *WorldState) (*RoundMessage, error) {
-	// 1. Drain pending messages from the bus
-	msgs := sa.bus.DrainAll(sa.personaID)
-
-	// 2. Snapshot current world state
-	wsSnap := worldState.Snapshot()
-
-	// 3. Build the user message (variable part only — system prompt is static in CW)
-	userMsg := BuildUserMessage(round, topic, worldState, msgs)
-
-	// 4. Push user message to CW
-	sa.cw.Push(ctxwin.RoleUser, userMsg)
-
-	// 5. Record the incoming prompt into AgentMemory
-	sa.memory.Record(MemoryRecord{
-		Round:        round,
-		Role:         "user",
-		Content:      userMsg,
-		WorldState:   wsSnap,
-		ReceivedMsgs: sliceToMessages(msgs),
-		Timestamp:    time.Now(),
-	})
-
-	// 6. Call AskWithHistory with timeout
-	askCtx, cancel := context.WithTimeout(ctx, sa.timeout)
-	defer cancel()
-
-	content, reasoning, err := sa.agent.AskWithHistory(askCtx, sa.cw, userMsg)
-	if err != nil {
-		if sa.log != nil {
-			sa.log.WarnContext(ctx, logger.CatSimulation, "simagent: ask with history failed",
-				"persona_id", sa.personaID,
-				"round", round,
-				"err", err.Error(),
-			)
-		}
-		return nil, fmt.Errorf("agent %s round %d: %w", sa.persona.Name, round, err)
-	}
-
-	// 7. Record the response into AgentMemory
-	sa.memory.Record(MemoryRecord{
-		Round:      round,
-		Role:       "assistant",
-		Content:    content,
-		WorldState: wsSnap,
-		Timestamp:  time.Now(),
-	})
-
-	// 8. Parse response to extract message type and [PROPOSE] directives
-	msgType, proposals := parseResponse(content)
-
-	// 9. Apply proposals to world state
-	for _, prop := range proposals {
-		worldState.Set(prop.key, prop.value, sa.personaID, round)
-	}
-
-	// 10. Build and broadcast the round message
-	rm := &RoundMessage{
-		AgentID:   sa.personaID,
-		AgentName: sa.persona.Name,
-		Content:   content,
-		Reasoning: reasoning,
-		To:        "*",
-		Type:      msgType,
-		Round:     round,
-		SeqNum:    round,
-	}
-
-	sa.bus.Broadcast(sa.personaID, Message{
-		From:    sa.personaID,
-		To:      "*",
-		Content: content,
-		Round:   round,
-		Type:    msgType,
-	})
-
-	return rm, nil
+// PushSystemPrompt pushes the Generative Agents system prompt into the CW.
+// Called once during agent creation, before the simulation starts.
+func (sa *SimAgent) PushSystemPrompt(prompt string) {
+	sa.cw.Push(ctxwin.RoleSystem, prompt)
 }
 
-// AskForRoundEvent is like AskForRound but accepts pre-drained inbox messages.
-// Used by EventLoop where message collection and broadcast are handled externally.
-func (sa *SimAgent) AskForRoundEvent(ctx context.Context, seq int, topic string, worldState *WorldState, inbox []Message) (*RoundMessage, error) {
-	// Snapshot current world state
-	wsSnap := worldState.Snapshot()
+// ClearCW replaces the context window with a fresh one containing only the system prompt.
+func (sa *SimAgent) ClearCW(systemPrompt string) {
+	maxTokens := sa.agent.Def.ContextWindow
+	if maxTokens <= 0 {
+		maxTokens = agent.DefaultContextWindow
+	}
+	sa.cw = ctxwin.NewContextWindow(maxTokens, 2000, 0, ctxwin.NewTokenizer())
+	sa.cw.Push(ctxwin.RoleSystem, systemPrompt)
+}
 
-	// Build user message with pre-collected inbox
-	userMsg := BuildUserMessageEvent(seq, topic, worldState, inbox)
-
-	// Push to CW
-	sa.cw.Push(ctxwin.RoleUser, userMsg)
-
-	// Record incoming prompt
-	sa.memory.Record(MemoryRecord{
-		Round:        seq,
-		Role:         "user",
-		Content:      userMsg,
-		WorldState:   wsSnap,
-		ReceivedMsgs: sliceToMessages(inbox),
-		Timestamp:    time.Now(),
-	})
-
-	// Call LLM
+// AskRaw sends a raw user message to the LLM and returns the response.
+// Does not record to AgentMemory. Used by the GA agent loop which handles
+// memory recording separately.
+func (sa *SimAgent) AskRaw(ctx context.Context, userMsg string) (string, error) {
 	askCtx, cancel := context.WithTimeout(ctx, sa.timeout)
 	defer cancel()
 
-	content, reasoning, err := sa.agent.AskWithHistory(askCtx, sa.cw, userMsg)
+	content, _, err := sa.agent.AskWithHistory(askCtx, sa.cw, userMsg)
+	if err != nil {
+		if sa.log != nil {
+			sa.log.WarnContext(ctx, logger.CatSimulation, "simagent: ask failed",
+				"persona_id", sa.personaID, "err", err.Error())
+		}
+		return "", fmt.Errorf("agent %s: %w", sa.persona.Name, err)
+	}
+	return content, nil
+}
+
+// PushToCW pushes a message to the context window.
+func (sa *SimAgent) PushToCW(role ctxwin.MessageRole, content string) {
+	sa.cw.Push(role, content)
+}
+
+func (sa *SimAgent) Stop(timeout time.Duration) error {
+	return sa.agent.Stop(timeout)
+}
+
+func (sa *SimAgent) InstanceID() string     { return sa.instanceID }
+func (sa *SimAgent) PersonaID() string       { return sa.personaID }
+func (sa *SimAgent) Persona() *Persona       { return sa.persona }
+func (sa *SimAgent) Memory() *AgentMemory    { return sa.memory }
+func (sa *SimAgent) ContextWindow() *ctxwin.ContextWindow { return sa.cw }
+
+func personaTokenBudget(persona *Persona, contextWindow int) int {
+	if contextWindow <= 0 {
+		contextWindow = 128000
+	}
+	return contextWindow * 80 / 100
+}
+
+// AskForRoundEvent is a deprecated compatibility shim for the old EventLoop.
+// It builds a user message and calls the LLM directly. The new GA agent loop
+// handles this through the tick-driven GAAgentLoop instead.
+func (sa *SimAgent) AskForRoundEvent(ctx context.Context, seq int, topic string, worldState *WorldState, inbox []Message) (*RoundMessage, error) {
+	userMsg := BuildUserMessageEvent(seq, topic, worldState, inbox)
+	sa.cw.Push(ctxwin.RoleUser, userMsg)
+
+	content, _, err := sa.agent.AskWithHistory(ctx, sa.cw, userMsg)
 	if err != nil {
 		return nil, fmt.Errorf("agent %s seq %d: %w", sa.persona.Name, seq, err)
 	}
 
-	// Record response
-	sa.memory.Record(MemoryRecord{
-		Round:      seq,
-		Role:       "assistant",
-		Content:    content,
-		WorldState: wsSnap,
-		Timestamp:  time.Now(),
-	})
-
-	// Parse and apply proposals
 	msgType, proposals := parseResponse(content)
 	for _, prop := range proposals {
 		worldState.Set(prop.key, prop.value, sa.personaID, seq)
@@ -183,7 +128,6 @@ func (sa *SimAgent) AskForRoundEvent(ctx context.Context, seq int, topic string,
 		AgentID:   sa.personaID,
 		AgentName: sa.persona.Name,
 		Content:   content,
-		Reasoning: reasoning,
 		To:        "*",
 		Type:      msgType,
 		Round:     seq,
@@ -191,65 +135,48 @@ func (sa *SimAgent) AskForRoundEvent(ctx context.Context, seq int, topic string,
 	}, nil
 }
 
-func (sa *SimAgent) Stop(timeout time.Duration) error {
-	return sa.agent.Stop(timeout)
-}
-
-func (sa *SimAgent) InstanceID() string { return sa.instanceID }
-func (sa *SimAgent) PersonaID() string  { return sa.personaID }
-func (sa *SimAgent) Persona() *Persona  { return sa.persona }
-func (sa *SimAgent) Memory() *AgentMemory { return sa.memory }
-
-type proposal struct {
-	key   string
-	value string
-}
-
-// parseResponse extracts message type and [PROPOSE key: value] directives from agent output.
+// parseResponse extracts message type and [PROPOSE key: value] directives.
+// Deprecated shim: uses ParseActions for GA compatibility but preserves old
+// type classification behavior for backward compatibility.
 func parseResponse(content string) (msgType string, proposals []proposal) {
-	msgType = "statement"
+	actions, props := ParseActions(content)
+	proposals = props
 
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Detect [PROPOSE key: value]
-		if strings.HasPrefix(trimmed, "[PROPOSE ") && strings.HasSuffix(trimmed, "]") {
-			inner := strings.TrimPrefix(trimmed, "[PROPOSE ")
-			inner = strings.TrimSuffix(inner, "]")
-			parts := strings.SplitN(inner, ":", 2)
-			if len(parts) == 2 {
-				proposals = append(proposals, proposal{
-					key:   strings.TrimSpace(parts[0]),
-					value: strings.TrimSpace(parts[1]),
-				})
-			}
-			continue
-		}
-
-		// Detect message type from @mentions
-		if strings.HasPrefix(trimmed, "@") {
-			msgType = "rebuttal"
-		}
-		if strings.HasSuffix(trimmed, "?") {
-			if msgType != "rebuttal" {
-				msgType = "question"
-			}
-		}
-	}
+	msgType = classifyMessageType(content, actions)
 	return msgType, proposals
 }
 
-func personaTokenBudget(persona *Persona, contextWindow int) int {
-	if contextWindow <= 0 {
-		contextWindow = 128000
-	}
-	// Use 80% of context window as budget
-	return contextWindow * 80 / 100
-}
+// classifyMessageType determines the message type from content and parsed actions.
+func classifyMessageType(content string, actions []Action) string {
+	lines := strings.Split(content, "\n")
+	hasRebuttal := false
+	hasQuestion := false
 
-func sliceToMessages(msgs []Message) []Message {
-	out := make([]Message, len(msgs))
-	copy(out, msgs)
-	return out
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "@") {
+			hasRebuttal = true
+		}
+		if strings.HasSuffix(trimmed, "?") {
+			hasQuestion = true
+		}
+	}
+
+	// Check action types for additional signals
+	for _, a := range actions {
+		switch a.Type {
+		case ActionSpeak:
+			if a.Target != "*" {
+				return "private_speak"
+			}
+		}
+	}
+
+	if hasRebuttal {
+		return "rebuttal"
+	}
+	if hasQuestion {
+		return "question"
+	}
+	return "statement"
 }

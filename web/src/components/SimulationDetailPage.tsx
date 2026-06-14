@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { wsManager } from '@/lib/websocket'
 import { SimulationGraph, type GraphEdgeInput } from './SimulationGraph'
+import { AgentActivityPanel } from './AgentActivityPanel'
 import { SimulationProgressPanel } from './SimulationProgressPanel'
 import { SimulationMonitor } from './SimulationMonitor'
 import ReactMarkdown from 'react-markdown'
@@ -38,6 +39,12 @@ import {
 } from '@/components/ui/dialog'
 
 const MAX_MESSAGES = 500
+const MAX_CHAT_HISTORY = 20
+
+function capChatHistory(history: { q: string; a: string; loading?: boolean }[]): typeof history {
+  if (history.length > MAX_CHAT_HISTORY) return history.slice(-MAX_CHAT_HISTORY)
+  return history
+}
 const MAX_GRAPH_EDGES = 200
 
 function capMessages<T>(msgs: T[]): T[] {
@@ -57,10 +64,10 @@ export function SimulationDetailPage() {
   // Configuration Edit States
   const [isEditing, setIsEditing] = useState(false)
   const [editTopic, setEditTopic] = useState('')
-  const [editMaxActions, setEditMaxActions] = useState(15)
   const [editMaxWallClockMin, setEditMaxWallClockMin] = useState(5)
-  const [editTriggerPolicy, setEditTriggerPolicy] = useState('selective')
-  const [editMinSpeakIntervalSec, setEditMinSpeakIntervalSec] = useState(2)
+  const [editSimHours, setEditSimHours] = useState(48)
+  const [editTimeScale, setEditTimeScale] = useState(600)
+  const [editEnableReflection, setEditEnableReflection] = useState(false)
   const [editPersonas, setEditPersonas] = useState<any[]>([])
   const [savingConfig, setSavingConfig] = useState(false)
 
@@ -79,9 +86,28 @@ export function SimulationDetailPage() {
   // Progress display state
   const [progress, setProgress] = useState<SimulationProgress | null>(null)
   const [graphEdges, setGraphEdges] = useState<GraphEdgeInput[]>([])
-  const [progressSidebarTab, setProgressSidebarTab] = useState<'progress' | 'monitor'>('progress')
+  const [progressSidebarTab, setProgressSidebarTab] = useState<'progress' | 'monitor' | 'activity'>('progress')
+  // Use ref for pulse nodes to avoid render storms (#5). The graph reads via ref,
+  // triggered by a lightweight counter state (avoids Set recreation).
+  const pulseNodesRef = useRef<Set<string>>(new Set())
+  const [pulseVersion, setPulseVersion] = useState(0)
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const pulseTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const pulseAgent = (agentId: string) => {
+    pulseNodesRef.current.add(agentId)
+    setPulseVersion((v) => v + 1)
+    const existing = pulseTimersRef.current.get(agentId)
+    if (existing) clearTimeout(existing)
+    pulseTimersRef.current.set(
+      agentId,
+      setTimeout(() => {
+        pulseNodesRef.current.delete(agentId)
+        setPulseVersion((v) => v + 1)
+      }, 2500)
+    )
+  }
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -110,16 +136,12 @@ export function SimulationDetailPage() {
   useEffect(() => {
     if (state && !isEditing) {
       setEditTopic(state.config.topic)
-      setEditMaxActions(state.config.max_actions || 15)
       setEditMaxWallClockMin(
         state.config.max_wall_clock_ms ? Math.round(state.config.max_wall_clock_ms / 60000) : 5
       )
-      setEditTriggerPolicy(state.config.trigger_policy || 'selective')
-      setEditMinSpeakIntervalSec(
-        state.config.min_speak_interval_ms
-          ? Math.round(state.config.min_speak_interval_ms / 1000)
-          : 2
-      )
+      setEditSimHours(state.config.simulated_hours || 48)
+      setEditTimeScale(state.config.time_scale || 600)
+      setEditEnableReflection(state.config.enable_reflection || false)
       setEditPersonas(state.config.personas || [])
     }
   }, [state, isEditing])
@@ -134,10 +156,10 @@ export function SimulationDetailPage() {
         body: JSON.stringify({
           ...state.config,
           topic: editTopic,
-          max_actions: editMaxActions,
           max_wall_clock_ms: editMaxWallClockMin * 60 * 1000,
-          trigger_policy: editTriggerPolicy,
-          min_speak_interval_ms: editMinSpeakIntervalSec * 1000,
+          simulated_hours: editSimHours,
+          time_scale: editTimeScale,
+          enable_reflection: editEnableReflection,
           personas: editPersonas,
         }),
       })
@@ -151,7 +173,6 @@ export function SimulationDetailPage() {
       const mappedState: SimulationState = {
         ...data,
         id: data.config?.id || data.run_id || id,
-        personas: data.config?.personas || [],
         round: data.current_round || 0,
         messages: capMessages(
           (data.rounds || []).flatMap((r: any) =>
@@ -203,7 +224,6 @@ export function SimulationDetailPage() {
       const mappedState: SimulationState = {
         ...data,
         id: data.config?.id || data.run_id || id,
-        personas: data.config?.personas || [],
         round: data.current_round || 0,
         messages: capMessages(
           (data.rounds || []).flatMap((r: any) =>
@@ -239,6 +259,7 @@ export function SimulationDetailPage() {
 
       if (ev.type === 'agent_message' && ev.data) {
         const newMsg = ev.data as SimulationMessage
+        pulseAgent(newMsg.agent_id)
         setState((prev) => {
           if (!prev) return null
           if (prev.messages.some((m) => m.seq_num === newMsg.seq_num)) return prev
@@ -248,6 +269,12 @@ export function SimulationDetailPage() {
               messages: capMessages([...prev.messages, newMsg]),
             }
         })
+      } else if (ev.type === 'agent_move' && ev.data) {
+        const moveData = ev.data as { agent_id: string; to_zone: string }
+        if (moveData.agent_id) pulseAgent(moveData.agent_id)
+      } else if (ev.type === 'agent_reflection' && ev.data) {
+        const refData = ev.data as { agent_id: string }
+        if (refData.agent_id) pulseAgent(refData.agent_id)
       } else if (ev.type === 'round_start') {
         setState((prev) => (prev ? { ...prev, round: ev.round } : null))
       } else if (ev.type === 'simulation_end') {
@@ -305,6 +332,9 @@ export function SimulationDetailPage() {
     return () => {
       unsubEvent()
       unsubProgress()
+      // Clear all pulse timers (#3)
+      pulseTimersRef.current.forEach((t) => clearTimeout(t))
+      pulseTimersRef.current.clear()
     }
   }, [id, fetchState])
 
@@ -358,7 +388,7 @@ export function SimulationDetailPage() {
     // Append question immediately as loading state
     setChatHistory((prev) => ({
       ...prev,
-      [chatAgentId]: [...(prev[chatAgentId] || []), { q: question, a: '', loading: true }],
+      [chatAgentId]: capChatHistory([...(prev[chatAgentId] || []), { q: question, a: '', loading: true }]),
     }))
 
     try {
@@ -379,7 +409,7 @@ export function SimulationDetailPage() {
         if (lastIndex !== -1) {
           history[lastIndex] = { q: question, a: data.answer || 'No answer received.' }
         }
-        return { ...prev, [chatAgentId]: history }
+        return { ...prev, [chatAgentId]: capChatHistory(history) }
       })
     } catch (err: any) {
       setChatHistory((prev) => {
@@ -391,7 +421,7 @@ export function SimulationDetailPage() {
             a: `Error: ${err.message || 'Failed to query agent.'}`,
           }
         }
-        return { ...prev, [chatAgentId]: history }
+        return { ...prev, [chatAgentId]: capChatHistory(history) }
       })
     }
   }
@@ -461,7 +491,7 @@ export function SimulationDetailPage() {
               {state.status === 'running' && (
                 <>
                   <span>•</span>
-                  <span className="text-primary animate-pulse font-bold">Round {state.round}</span>
+                  <span className="text-primary animate-pulse font-bold">Round {state.current_round}</span>
                 </>
               )}
             </div>
@@ -500,7 +530,7 @@ export function SimulationDetailPage() {
           {/* Graph Visualization */}
           <div className="flex-1 min-h-[350px]">
             <SimulationGraph
-              personas={state.personas}
+              personas={state.config.personas}
               edges={
                 graphEdges.length > 0
                   ? graphEdges
@@ -513,8 +543,11 @@ export function SimulationDetailPage() {
               }
               onSelectAgent={(agentId) => {
                 setSelectedAgentId((prev) => (prev === agentId ? null : agentId))
+                if (agentId) setProgressSidebarTab('activity')
               }}
               selectedAgentId={selectedAgentId}
+              pulseNodes={pulseNodesRef.current}
+              pulseVersion={pulseVersion}
             />
           </div>
 
@@ -524,7 +557,7 @@ export function SimulationDetailPage() {
               Agents
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              {state.personas.map((persona) => {
+              {state.config.personas.map((persona) => {
                 const isSelected = selectedAgentId === persona.id
                 return (
                   <div
@@ -626,7 +659,7 @@ export function SimulationDetailPage() {
                       : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground'
                   }`}
                 >
-                  LIVE PROGRESS
+                  PROGRESS
                 </button>
                 <button
                   onClick={() => setProgressSidebarTab('monitor')}
@@ -638,6 +671,18 @@ export function SimulationDetailPage() {
                 >
                   MONITOR
                 </button>
+                {selectedAgentId && (
+                  <button
+                    onClick={() => setProgressSidebarTab('activity')}
+                    className={`flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors ${
+                      progressSidebarTab === 'activity'
+                        ? 'border-b-2 border-primary text-primary bg-card/20'
+                        : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground'
+                    }`}
+                  >
+                    AGENT
+                  </button>
+                )}
               </>
             ) : (
               <button className="flex-1 py-3 text-center text-xs font-semibold border-b-2 border-primary text-primary bg-card/20 font-mono">
@@ -655,6 +700,20 @@ export function SimulationDetailPage() {
                     messages={state.messages}
                     selectedAgentId={selectedAgentId}
                     onSelectAgent={setSelectedAgentId}
+                  />
+                ) : progressSidebarTab === 'monitor' ? (
+                  <SimulationMonitor logs={progress.recent_logs || []} />
+                ) : selectedAgentId ? (
+                  <AgentActivityPanel
+                    agentId={selectedAgentId}
+                    agentName={
+                      state.config.personas.find((p) => p.id === selectedAgentId)?.name || selectedAgentId
+                    }
+                    agentRole={
+                      state.config.personas.find((p) => p.id === selectedAgentId)?.role || ''
+                    }
+                    messages={state.messages}
+                    progress={progress}
                   />
                 ) : (
                   <SimulationMonitor logs={progress.recent_logs || []} />
@@ -696,22 +755,8 @@ export function SimulationDetailPage() {
                     />
                   </div>
 
-                  {/* Max Actions & Max Wall Clock */}
+                  {/* Wall Clock & Simulated Hours */}
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                        Max Rounds: {editMaxActions}
-                      </label>
-                      <input
-                        type="range"
-                        min={5}
-                        max={100}
-                        value={editMaxActions}
-                        onChange={(e) => setEditMaxActions(parseInt(e.target.value) || 15)}
-                        className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                      />
-                    </div>
-
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
                         Max Time: {editMaxWallClockMin}m
@@ -725,37 +770,64 @@ export function SimulationDetailPage() {
                         className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                       />
                     </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
+                        Sim Hours: {editSimHours}h
+                      </label>
+                      <input
+                        type="range"
+                        min={6}
+                        max={168}
+                        step={6}
+                        value={editSimHours}
+                        onChange={(e) => setEditSimHours(parseInt(e.target.value) || 48)}
+                        className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
                   </div>
 
-                  {/* Trigger Policy & Min Speak Interval */}
+                  {/* Time Scale & Reflection */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                        Trigger Policy
+                        Time Scale
                       </label>
                       <select
-                        value={editTriggerPolicy}
-                        onChange={(e) => setEditTriggerPolicy(e.target.value)}
+                        value={editTimeScale}
+                        onChange={(e) => setEditTimeScale(parseInt(e.target.value))}
                         className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all cursor-pointer"
                       >
-                        <option value="selective">Selective</option>
-                        <option value="reactive">Reactive</option>
-                        <option value="rate_limited">Rate Limited</option>
+                        <option value={60}>1s = 1min</option>
+                        <option value={300}>1s = 5min</option>
+                        <option value={600}>1s = 10min</option>
+                        <option value={1800}>1s = 30min</option>
+                        <option value={3600}>1s = 1h</option>
                       </select>
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                        Speak Interval (sec)
+                        Reflection
                       </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={60}
-                        value={editMinSpeakIntervalSec}
-                        onChange={(e) => setEditMinSpeakIntervalSec(parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all"
-                      />
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditEnableReflection(!editEnableReflection)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            editEnableReflection ? 'bg-primary' : 'bg-muted'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              editEnableReflection ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                            }`}
+                          />
+                        </button>
+                        <span className="text-[10px] text-muted-foreground">
+                          {editEnableReflection ? 'On' : 'Off'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -882,10 +954,10 @@ export function SimulationDetailPage() {
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="rounded-lg bg-background/45 border border-border/40 p-2.5">
                       <span className="block text-[8px] font-bold text-muted-foreground uppercase font-mono tracking-wider">
-                        Max Rounds
+                        Simulated Hours
                       </span>
                       <span className="font-semibold text-foreground mt-0.5 block">
-                        {state.config.max_actions || 15} rounds
+                        {state.config.simulated_hours || 48}h
                       </span>
                     </div>
 
@@ -903,22 +975,19 @@ export function SimulationDetailPage() {
 
                     <div className="rounded-lg bg-background/45 border border-border/40 p-2.5">
                       <span className="block text-[8px] font-bold text-muted-foreground uppercase font-mono tracking-wider">
-                        Trigger Policy
+                        Time Scale
                       </span>
-                      <span className="font-semibold text-foreground mt-0.5 block capitalize">
-                        {state.config.trigger_policy || 'selective'}
+                      <span className="font-semibold text-foreground mt-0.5 block">
+                        1s = {Math.round((state.config.time_scale || 600) / 60)}min
                       </span>
                     </div>
 
                     <div className="rounded-lg bg-background/45 border border-border/40 p-2.5">
                       <span className="block text-[8px] font-bold text-muted-foreground uppercase font-mono tracking-wider">
-                        Speak Interval
+                        Reflection
                       </span>
                       <span className="font-semibold text-foreground mt-0.5 block">
-                        {state.config.min_speak_interval_ms
-                          ? Math.round(state.config.min_speak_interval_ms / 1000)
-                          : 2}{' '}
-                        seconds
+                        {state.config.enable_reflection ? 'Enabled' : 'Disabled'}
                       </span>
                     </div>
                   </div>
@@ -939,7 +1008,7 @@ export function SimulationDetailPage() {
                       Agent Assignment
                     </span>
                     <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                      {state.personas.map((persona) => (
+                      {state.config.personas.map((persona) => (
                         <div
                           key={persona.id}
                           className="flex flex-col gap-1 rounded bg-background/25 border border-border/40 p-2.5 text-xs"
@@ -1047,7 +1116,7 @@ export function SimulationDetailPage() {
                 Chat with{' '}
                 {chatAgentId === 'report'
                   ? 'Report Analyst'
-                  : state.personas.find((p) => p.id === chatAgentId)?.name}
+                  : state.config.personas.find((p) => p.id === chatAgentId)?.name}
               </h3>
               <p className="text-[10px] text-muted-foreground">
                 Interview agent in-character regarding the simulation.

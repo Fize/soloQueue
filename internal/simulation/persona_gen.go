@@ -177,7 +177,11 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 	}
 
 	for i := range personas {
-		personas[i].SystemPrompt = BuildSimulationSystemPrompt(personas[i], topic, personas)
+		personas[i].SystemPrompt = BuildGenerativeAgentSystemPrompt(personas[i], personas, nil, nil, nil, nil, nil, nil)
+		// Append topic context for backward compatibility with topic-based simulations
+		if topic != "" {
+			personas[i].SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
+		}
 	}
 
 	if len(personas) < 2 {
@@ -543,7 +547,10 @@ func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *S
 		// We need personas for the prompt builder; since we're building all at once,
 		// create a partial list for cross-references
 		allPersonas := buildPartialPersonaList(result.Personas)
-		p.SystemPrompt = BuildSimulationSystemPrompt(p, topic, allPersonas)
+		p.SystemPrompt = BuildGenerativeAgentSystemPrompt(p, allPersonas, nil, nil, nil, nil, nil, nil)
+		if topic != "" {
+			p.SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
+		}
 
 		personas = append(personas, p)
 	}

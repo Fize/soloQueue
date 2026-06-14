@@ -23,10 +23,10 @@ export function SimulationListPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [maxActions, setMaxActions] = useState(15)
   const [maxWallClockMin, setMaxWallClockMin] = useState(5)
-  const [triggerPolicy, setTriggerPolicy] = useState('selective')
-  const [minSpeakIntervalSec, setMinSpeakIntervalSec] = useState(2)
+  const [simHours, setSimHours] = useState(48)
+  const [timeScale, setTimeScale] = useState(600)
+  const [enableReflection, setEnableReflection] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -80,6 +80,9 @@ export function SimulationListPage() {
         id: sim.config?.id || sim.run_id || sim.id,
         personas: sim.config?.personas || [],
         round: sim.current_round || 0,
+        simulated_hours: sim.config?.simulated_hours || 48,
+        time_scale: sim.config?.time_scale || 600,
+        enable_reflection: sim.config?.enable_reflection || false,
       }))
       setSimulations(mapped)
       setError(null)
@@ -111,10 +114,11 @@ export function SimulationListPage() {
           persona_count: autoPersonaCount ? 0 : personaCount,
           model_id: selectedModel || undefined,
           provider_id: selectedProvider || undefined,
-          max_actions: maxActions || undefined,
           max_wall_clock_ms: maxWallClockMin ? maxWallClockMin * 60 * 1000 : undefined,
-          trigger_policy: triggerPolicy || undefined,
-          min_speak_interval_ms: minSpeakIntervalSec ? minSpeakIntervalSec * 1000 : undefined,
+          simulated_hours: simHours || undefined,
+          time_scale: timeScale || undefined,
+          tick_interval_ms: 500,
+          enable_reflection: enableReflection || undefined,
         }),
       })
 
@@ -337,25 +341,8 @@ export function SimulationListPage() {
                       </div>
                     </div>
 
-                    {/* Max Actions & Max Wall Clock */}
+                    {/* Wall Clock & Simulated Hours */}
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
-                          Max Rounds: {maxActions} / 最大轮数
-                        </label>
-                        <input
-                          type="range"
-                          min={5}
-                          max={100}
-                          value={maxActions}
-                          onChange={(e) => setMaxActions(parseInt(e.target.value))}
-                          className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                        />
-                        <p className="text-[9px] text-muted-foreground/80 mt-1 leading-normal">
-                          控制仿真的最大对话回合数。
-                        </p>
-                      </div>
-
                       <div>
                         <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
                           Max Clock: {maxWallClockMin} min / 最长时间
@@ -372,43 +359,72 @@ export function SimulationListPage() {
                           仿真实际运行的物理时钟超时限制。
                         </p>
                       </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
+                          Sim Hours: {simHours}h / 模拟时长
+                        </label>
+                        <input
+                          type="range"
+                          min={6}
+                          max={168}
+                          step={6}
+                          value={simHours}
+                          onChange={(e) => setSimHours(parseInt(e.target.value))}
+                          className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                        />
+                        <p className="text-[9px] text-muted-foreground/80 mt-1 leading-normal">
+                          模拟世界内的时间跨度。
+                        </p>
+                      </div>
                     </div>
 
-                    {/* Trigger Policy & Min Speak Interval */}
+                    {/* Time Scale & Enable Reflection */}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
-                          Trigger Policy / 触发策略
+                          Time Scale: 1s = {Math.round(timeScale / 60)}min / 时间倍速
                         </label>
                         <select
-                          value={triggerPolicy}
-                          onChange={(e) => setTriggerPolicy(e.target.value)}
+                          value={timeScale}
+                          onChange={(e) => setTimeScale(parseInt(e.target.value))}
                           className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all cursor-pointer"
                         >
-                          <option value="selective">Selective</option>
-                          <option value="reactive">Reactive</option>
-                          <option value="rate_limited">Rate Limited</option>
+                          <option value={60}>1s = 1min</option>
+                          <option value={300}>1s = 5min</option>
+                          <option value={600}>1s = 10min</option>
+                          <option value={1800}>1s = 30min</option>
+                          <option value={3600}>1s = 1h</option>
                         </select>
                         <p className="text-[9px] text-muted-foreground/80 mt-1 leading-normal">
-                          Selective：角色判断相关性并发言；Reactive：被提及时回复；Rate
-                          Limited：轮流发言。
+                          现实时间与模拟时间的映射关系。
                         </p>
                       </div>
 
                       <div>
                         <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
-                          Speak Interval (sec) / 发言间隔
+                          Reflection / 反思
                         </label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={60}
-                          value={minSpeakIntervalSec}
-                          onChange={(e) => setMinSpeakIntervalSec(parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none transition-all"
-                        />
+                        <div className="flex items-center gap-2 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => setEnableReflection(!enableReflection)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              enableReflection ? 'bg-primary' : 'bg-muted'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                                enableReflection ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                              }`}
+                            />
+                          </button>
+                          <span className="text-[10px] text-muted-foreground">
+                            {enableReflection ? 'On' : 'Off'}
+                          </span>
+                        </div>
                         <p className="text-[9px] text-muted-foreground/80 mt-1 leading-normal">
-                          同一角色发言的最小等待时间，防刷屏。
+                          让 agent 定期反思自己的经历，生成高层次见解。会增加 LLM 调用量。
                         </p>
                       </div>
                     </div>
@@ -514,7 +530,7 @@ export function SimulationListPage() {
                   <div className="flex items-center justify-between border-t border-border/60 pt-3 text-[11px] text-muted-foreground font-mono">
                     <div className="flex items-center gap-1.5">
                       <Users className="h-3.5 w-3.5" />
-                      <span>{sim.personas.length} Agents</span>
+                      <span>{sim.config?.personas?.length || 0} Agents</span>
                     </div>
                     {sim.started_at && (
                       <div className="flex items-center gap-1.5">

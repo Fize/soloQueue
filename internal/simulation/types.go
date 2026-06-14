@@ -35,18 +35,20 @@ const (
 )
 
 // SimulationConfig is the complete simulation setup.
-// All simulations run in event-driven mode: agents independently decide when to speak.
 type SimulationConfig struct {
-	ID                 string         `json:"id,omitempty"`
-	Topic              string         `json:"topic"`
-	Description        string         `json:"description,omitempty"`
-	Personas           []Persona      `json:"personas"`
-	WorldState         map[string]any `json:"initial_world_state,omitempty"`
-	MaxActions         int            `json:"max_actions,omitempty"`
-	MaxWallClockMs     int            `json:"max_wall_clock_ms,omitempty"`
-	TriggerPolicy      string         `json:"trigger_policy,omitempty"`
-	MinSpeakIntervalMs int            `json:"min_speak_interval_ms,omitempty"`
-	InitialEdges       []EdgeDTO      `json:"-"` // populated from seed extraction, not persisted
+	ID              string         `json:"id,omitempty"`
+	Topic           string         `json:"topic"`
+	Description     string         `json:"description,omitempty"`
+	Personas        []Persona      `json:"personas"`
+	WorldState      map[string]any `json:"initial_world_state,omitempty"`
+	MaxWallClockMs  int            `json:"max_wall_clock_ms,omitempty"`
+	InitialEdges    []EdgeDTO      `json:"-"` // populated from seed extraction, not persisted
+
+	// Generative Agents extensions
+	SimulatedHours    int  `json:"simulated_hours,omitempty"`
+	TickIntervalMs    int  `json:"tick_interval_ms,omitempty"`
+	TimeScale         int  `json:"time_scale,omitempty"`
+	EnableReflection  bool `json:"enable_reflection,omitempty"`
 }
 
 // Validate checks the config and applies defaults.
@@ -70,17 +72,17 @@ func (c *SimulationConfig) Validate() error {
 		}
 		seen[p.ID] = true
 	}
-	if c.MaxActions <= 0 {
-		c.MaxActions = 15
-	}
 	if c.MaxWallClockMs <= 0 {
 		c.MaxWallClockMs = 300000 // 5 minutes
 	}
-	if c.TriggerPolicy == "" {
-		c.TriggerPolicy = "selective"
+	if c.TickIntervalMs <= 0 {
+		c.TickIntervalMs = 500
 	}
-	if c.MinSpeakIntervalMs <= 0 {
-		c.MinSpeakIntervalMs = 2000
+	if c.TimeScale <= 0 {
+		c.TimeScale = 600 // 1s real = 10min simulated
+	}
+	if c.SimulatedHours <= 0 {
+		c.SimulatedHours = 48
 	}
 	return nil
 }
@@ -207,6 +209,58 @@ type MemoryRecord struct {
 	WorldState   map[string]any `json:"world_state"`
 	ReceivedMsgs []Message      `json:"received_msgs"`
 	Timestamp    time.Time      `json:"timestamp"`
+
+	// Generative Agents extensions
+	RecordType    string    `json:"record_type,omitempty"`    // "observation", "action", "reflection", "plan", "dialogue"
+	Importance    float64   `json:"importance,omitempty"`     // 1-10 importance score
+	Source        string    `json:"source,omitempty"`         // agentID or objectID origin
+	Location      string    `json:"location,omitempty"`       // zone name where event occurred
+	SimulatedTime time.Time `json:"simulated_time,omitempty"` // simulated clock time
+}
+
+// Observation represents something an agent perceives from the environment.
+type Observation struct {
+	Type       string    `json:"type"`       // "agent_speak", "agent_move", "agent_enter", "agent_leave", "object", "environment", "nearby_zone", "agent_present", "time_event"
+	Content    string    `json:"content"`    // natural language description
+	Source     string    `json:"source"`     // agentID or objectID that generated this
+	Importance float64   `json:"importance"` // 1-10, for retrieval priority
+	At         time.Time `json:"at"`         // simulated time
+}
+
+// DailyPlan is an agent's full day schedule.
+type DailyPlan struct {
+	GeneratedAt time.Time  `json:"generated_at"`
+	Schedule    []PlanItem `json:"schedule"`
+	AgentID     string     `json:"agent_id"`
+}
+
+// PlanItem is a single scheduled activity.
+type PlanItem struct {
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	Activity    string    `json:"activity"`
+	Location    string    `json:"location"`    // zone name
+	Description string    `json:"description"` // short description
+	Status      string    `json:"status"`      // "pending", "in_progress", "completed", "cancelled"
+}
+
+// ReflectionRecord holds a generated reflection.
+type ReflectionRecord struct {
+	AgentID     string    `json:"agent_id"`
+	Content     string    `json:"content"`     // the reflection text
+	GeneratedAt time.Time `json:"generated_at"` // simulated time
+	Sources     []int     `json:"sources"`      // memory record rounds that inspired this
+	Importance  float64   `json:"importance"`
+}
+
+// AgentRelationship captures one agent's internal model of another agent.
+type AgentRelationship struct {
+	SubjectID   string    `json:"subject_id"`   // the observing agent
+	TargetID    string    `json:"target_id"`    // the agent being observed
+	Familiarity float64   `json:"familiarity"`  // 0.0-1.0
+	Affinity    float64   `json:"affinity"`     // -1.0 (hate) to 1.0 (love)
+	Tags        []string  `json:"tags"`         // "reliable", "annoying", etc.
+	LastUpdated time.Time `json:"last_updated"`
 }
 
 // AgentMemory accumulates all rounds for a single agent. Append-only, thread-safe.
@@ -288,4 +342,14 @@ func (am *AgentMemory) StanceEvolution() []StancePoint {
 		})
 	}
 	return points
+}
+
+// TruncateTo keeps the last n records and discards the rest.
+func (am *AgentMemory) TruncateTo(n int) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	if len(am.records) <= n {
+		return
+	}
+	am.records = am.records[len(am.records)-n:]
 }

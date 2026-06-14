@@ -1,0 +1,235 @@
+package simulation
+
+import (
+	"fmt"
+	"strings"
+)
+
+// ActionType enumerates the possible actions an agent can take.
+type ActionType string
+
+const (
+	ActionSpeak    ActionType = "speak"
+	ActionMove     ActionType = "move"
+	ActionInteract ActionType = "interact"
+	ActionWait     ActionType = "wait"
+	ActionPass     ActionType = "pass"
+)
+
+// proposal represents a [PROPOSE key: value] directive for WorldState updates.
+type proposal struct {
+	key   string
+	value string
+}
+
+// Action represents a single action decided by an agent.
+type Action struct {
+	Type    ActionType `json:"type"`
+	Target  string     `json:"target"`  // agent ID, zone name, object ID, or "*" for broadcast
+	Content string     `json:"content"` // for speak: the message text; for interact: the action
+	Duration string   `json:"duration,omitempty"` // for wait: how long (e.g. "30m")
+}
+
+// String returns the action formatted as a directive.
+func (a Action) String() string {
+	switch a.Type {
+	case ActionSpeak:
+		if a.Target == "*" {
+			return fmt.Sprintf("[SAY]: %s", a.Content)
+		}
+		return fmt.Sprintf("[SAY @%s]: %s", a.Target, a.Content)
+	case ActionMove:
+		return fmt.Sprintf("[MOVE %s]", a.Target)
+	case ActionInteract:
+		return fmt.Sprintf("[INTERACT %s: %s]", a.Target, a.Content)
+	case ActionWait:
+		return fmt.Sprintf("[WAIT %s]", a.Duration)
+	case ActionPass:
+		return "[PASS]"
+	default:
+		return fmt.Sprintf("[UNKNOWN %s]", a.Type)
+	}
+}
+
+// ParseActions extracts actions from an agent's LLM response.
+// Recognizes the action directive syntax:
+//   [SAY]: text                    → broadcast message
+//   [SAY @name]: text              → directed message
+//   [MOVE zone_name]               → move to zone
+//   [INTERACT object: action]      → interact with object
+//   [WAIT duration]                → wait
+//   [PASS]                         → do nothing this tick
+// Also recognizes legacy [PROPOSE key: value] for WorldState updates.
+func ParseActions(content string) (actions []Action, proposals []proposal) {
+	lines := strings.Split(content, "\n")
+	inSay := false
+	var sayTarget, sayContent strings.Builder
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Handle multi-line SAY blocks (content between [SAY...] and the end of paragraph)
+		if inSay {
+			if trimmed == "" || isActionLine(trimmed) {
+				// End of SAY block
+				actions = append(actions, Action{
+					Type:    ActionSpeak,
+					Target:  strings.TrimSpace(sayTarget.String()),
+					Content: strings.TrimSpace(sayContent.String()),
+				})
+				sayTarget.Reset()
+				sayContent.Reset()
+				inSay = false
+			} else {
+				sayContent.WriteString(trimmed)
+				sayContent.WriteString("\n")
+				continue
+			}
+		}
+
+		if trimmed == "" {
+			continue
+		}
+
+		// [SAY]: ... (broadcast)
+		if strings.HasPrefix(trimmed, "[SAY]:") {
+			remainder := strings.TrimPrefix(trimmed, "[SAY]:")
+			remainder = strings.TrimSpace(remainder)
+			if remainder != "" {
+				actions = append(actions, Action{
+					Type:    ActionSpeak,
+					Target:  "*",
+					Content: remainder,
+				})
+			}
+			continue
+		}
+
+		// [SAY @name]: ... (directed)
+		if strings.HasPrefix(trimmed, "[SAY @") {
+			atIdx := strings.Index(trimmed, "@")
+			colonIdx := strings.Index(trimmed[atIdx:], "]:")
+			if colonIdx != -1 {
+				target := strings.TrimSpace(trimmed[atIdx+1 : atIdx+colonIdx])
+				content := strings.TrimSpace(trimmed[atIdx+colonIdx+2:])
+				if content != "" {
+					actions = append(actions, Action{
+						Type:    ActionSpeak,
+						Target:  target,
+						Content: content,
+					})
+				}
+			}
+			continue
+		}
+
+		// [MOVE zone_name]
+		if strings.HasPrefix(trimmed, "[MOVE ") && strings.HasSuffix(trimmed, "]") {
+			zone := strings.TrimPrefix(trimmed, "[MOVE ")
+			zone = strings.TrimSuffix(zone, "]")
+			zone = strings.TrimSpace(zone)
+			if zone != "" {
+				actions = append(actions, Action{
+					Type:   ActionMove,
+					Target: zone,
+				})
+			}
+			continue
+		}
+
+		// [INTERACT object: action]
+		if strings.HasPrefix(trimmed, "[INTERACT ") && strings.HasSuffix(trimmed, "]") {
+			inner := strings.TrimPrefix(trimmed, "[INTERACT ")
+			inner = strings.TrimSuffix(inner, "]")
+			parts := strings.SplitN(inner, ":", 2)
+			if len(parts) == 2 {
+				actions = append(actions, Action{
+					Type:    ActionInteract,
+					Target:  strings.TrimSpace(parts[0]),
+					Content: strings.TrimSpace(parts[1]),
+				})
+			}
+			continue
+		}
+
+		// [WAIT duration]
+		if strings.HasPrefix(trimmed, "[WAIT ") && strings.HasSuffix(trimmed, "]") {
+			dur := strings.TrimPrefix(trimmed, "[WAIT ")
+			dur = strings.TrimSuffix(dur, "]")
+			dur = strings.TrimSpace(dur)
+			if dur != "" {
+				actions = append(actions, Action{
+					Type:     ActionWait,
+					Duration: dur,
+				})
+			}
+			continue
+		}
+
+		// [PASS]
+		if trimmed == "[PASS]" {
+			actions = append(actions, Action{Type: ActionPass})
+			continue
+		}
+
+		// Legacy [PROPOSE key: value]
+		if strings.HasPrefix(trimmed, "[PROPOSE ") && strings.HasSuffix(trimmed, "]") {
+			inner := strings.TrimPrefix(trimmed, "[PROPOSE ")
+			inner = strings.TrimSuffix(inner, "]")
+			parts := strings.SplitN(inner, ":", 2)
+			if len(parts) == 2 {
+				proposals = append(proposals, proposal{
+					key:   strings.TrimSpace(parts[0]),
+					value: strings.TrimSpace(parts[1]),
+				})
+			}
+			continue
+		}
+	}
+
+	// Handle SAY block that ends at EOF
+	if inSay {
+		actions = append(actions, Action{
+			Type:    ActionSpeak,
+			Target:  strings.TrimSpace(sayTarget.String()),
+			Content: strings.TrimSpace(sayContent.String()),
+		})
+	}
+
+	return actions, proposals
+}
+
+func isActionLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "[SAY]") || strings.HasPrefix(trimmed, "[SAY @") ||
+		strings.HasPrefix(trimmed, "[MOVE ") || strings.HasPrefix(trimmed, "[INTERACT ") ||
+		strings.HasPrefix(trimmed, "[WAIT ") || trimmed == "[PASS]" ||
+		strings.HasPrefix(trimmed, "[PROPOSE ")
+}
+
+// FormatActionsForPrompt generates the action syntax documentation for system prompts.
+func FormatActionsForPrompt() string {
+	return `## Available Actions
+You may take ONE of the following actions per response:
+
+1. Speak (broadcast to everyone in your zone):
+   [SAY]: Your message here.
+
+2. Speak to a specific person (private):
+   [SAY @agent_name]: Your private message here.
+
+3. Move to another zone:
+   [MOVE zone_name]
+
+4. Interact with an object:
+   [INTERACT object_name]: action description
+
+5. Wait for some time:
+   [WAIT 30m]
+
+6. Do nothing this turn:
+   [PASS]
+
+You may also propose changes to the shared world state:
+   [PROPOSE key]: value`
+}

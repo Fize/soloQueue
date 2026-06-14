@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
@@ -156,6 +157,41 @@ func TestChunkText_LargeWithOverlap(t *testing.T) {
 		if len(chunks[i]) < 20 {
 			t.Errorf("chunk %d is too short: %d chars", i, len(chunks[i]))
 		}
+	}
+}
+
+// TestChunkText_LargeParagraphNoInfiniteLoop is a regression test for an
+// infinite loop (and resulting OOM/SIGKILL) that occurred when a paragraph
+// larger than maxChunkSize followed a smaller paragraph. The old chunker never
+// advanced past the oversized paragraph, growing the chunks slice without bound.
+func TestChunkText_LargeParagraphNoInfiniteLoop(t *testing.T) {
+	small := "Intro paragraph."
+	large := strings.TrimSpace(strings.Repeat("word ", 1000)) // ~5000 chars, well over maxChunkSize
+	text := small + "\n\n" + large + "\n\nClosing paragraph."
+
+	done := make(chan []string, 1)
+	go func() {
+		done <- chunkText(text, 1500, 1)
+	}()
+
+	select {
+	case chunks := <-done:
+		if len(chunks) == 0 {
+			t.Fatalf("expected at least one chunk, got 0")
+		}
+		// The oversized paragraph must be present intact in some chunk.
+		found := false
+		for _, c := range chunks {
+			if strings.Contains(c, large) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("oversized paragraph was dropped or split across chunks")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("chunkText did not terminate (infinite loop regression)")
 	}
 }
 

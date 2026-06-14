@@ -492,6 +492,11 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 				r.Post("/agents/{personaId}/ask", m.handleAgentAsk)
 				r.Post("/fork", m.handleForkSimulation)
 				r.Delete("/", m.handleDeleteSimulation)
+				// Generative Agents extensions
+				r.Get("/environment", m.handleGetEnvironment)
+				r.Get("/agents/{personaId}/plan", m.handleGetAgentPlan)
+				r.Get("/agents/{personaId}/memory", m.handleGetAgentMemory)
+				r.Get("/agents/{personaId}/reflections", m.handleGetAgentReflections)
 			})
 		})
 	}

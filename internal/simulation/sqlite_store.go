@@ -93,10 +93,11 @@ func (s *SQLiteStore) migrate() error {
 	}
 
 	// Add missing configuration columns for custom/UI-driven simulation parameters
-	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN max_actions INTEGER NOT NULL DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN max_wall_clock_ms INTEGER NOT NULL DEFAULT 0")
-	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN trigger_policy TEXT NOT NULL DEFAULT ''")
-	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN min_speak_interval_ms INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN simulated_hours INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN tick_interval_ms INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN time_scale INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN enable_reflection INTEGER NOT NULL DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN graph_json TEXT NOT NULL DEFAULT '{}'")
 
 	return nil
@@ -136,9 +137,9 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 	gj, _ := json.Marshal(initialGraph)
 
 	s.mu.Lock()
-	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms, graph_json)
-		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?, ?)`,
-		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxActions, config.MaxWallClockMs, config.TriggerPolicy, config.MinSpeakIntervalMs, string(gj))
+	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json)
+		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxWallClockMs, config.SimulatedHours, config.TickIntervalMs, config.TimeScale, boolToInt(config.EnableReflection), string(gj))
 	s.mu.Unlock()
 
 	if err != nil {
@@ -149,17 +150,17 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 
 func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 	var (
-		topic, desc, mode, pj, wsj, report, errMsg, status, triggerPolicy, graphJSON string
-		currentRound, totalActions, maxActions, maxWallClockMs, minSpeakIntervalMs int
+		topic, desc, mode, pj, wsj, report, errMsg, status, graphJSON string
+		currentRound, totalActions, maxWallClockMs, simulatedHours, tickIntervalMs, timeScale, enableReflection int
 		startedAt, completedAt, createdAt                    sql.NullString
 	)
 	err := s.db.QueryRow(`SELECT topic, description, mode, personas_json, world_state_json,
 		status, report, error_msg, current_round, total_actions,
-		started_at, completed_at, created_at, max_actions, max_wall_clock_ms, trigger_policy, min_speak_interval_ms, graph_json
+		started_at, completed_at, created_at, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json
 		FROM simulations WHERE id = ?`, id).
 		Scan(&topic, &desc, &mode, &pj, &wsj, &status, &report, &errMsg,
 			&currentRound, &totalActions, &startedAt, &completedAt, &createdAt,
-			&maxActions, &maxWallClockMs, &triggerPolicy, &minSpeakIntervalMs, &graphJSON)
+			&maxWallClockMs, &simulatedHours, &tickIntervalMs, &timeScale, &enableReflection, &graphJSON)
 	if err == sql.ErrNoRows {
 		return nil, ErrSimNotFound
 	}
@@ -179,15 +180,16 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 
 	state := &SimulationState{
 		Config: SimulationConfig{
-			ID:                 id,
-			Topic:              topic,
-			Description:        desc,
-			Personas:           personas,
-			WorldState:         ws,
-			MaxActions:         maxActions,
-			MaxWallClockMs:     maxWallClockMs,
-			TriggerPolicy:      triggerPolicy,
-			MinSpeakIntervalMs: minSpeakIntervalMs,
+			ID:              id,
+			Topic:           topic,
+			Description:     desc,
+			Personas:        personas,
+			WorldState:      ws,
+			MaxWallClockMs:  maxWallClockMs,
+			SimulatedHours:  simulatedHours,
+			TickIntervalMs:  tickIntervalMs,
+			TimeScale:       timeScale,
+			EnableReflection: enableReflection != 0,
 		},
 		Status:       SimulationStatus(status),
 		CurrentRound: currentRound,
@@ -285,10 +287,10 @@ func (s *SQLiteStore) Update(id string, state *SimulationState) error {
 
 	_, err := s.db.Exec(`UPDATE simulations SET status=?, world_state_json=?, report=?, error_msg=?,
 		current_round=?, started_at=?, completed_at=?, topic=?, description=?, personas_json=?,
-		max_actions=?, max_wall_clock_ms=?, trigger_policy=?, min_speak_interval_ms=?, graph_json=? WHERE id=?`,
+		max_wall_clock_ms=?, simulated_hours=?, tick_interval_ms=?, time_scale=?, enable_reflection=?, graph_json=? WHERE id=?`,
 		string(state.Status), string(wsj), state.Report, state.Error,
 		state.CurrentRound, startedAt, completedAt, state.Config.Topic, state.Config.Description, string(pj),
-		state.Config.MaxActions, state.Config.MaxWallClockMs, state.Config.TriggerPolicy, state.Config.MinSpeakIntervalMs, graphJSON, id)
+		state.Config.MaxWallClockMs, state.Config.SimulatedHours, state.Config.TickIntervalMs, state.Config.TimeScale, boolToInt(state.Config.EnableReflection), graphJSON, id)
 	return err
 }
 
@@ -419,4 +421,11 @@ func parseTime(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("cannot parse time: %s", s)
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

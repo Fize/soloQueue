@@ -122,58 +122,57 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 // --- chunking ---
 
 // chunkText splits text into overlapping chunks for multi-pass extraction.
+//
+// It iterates over non-empty paragraphs, consuming exactly one paragraph per
+// loop iteration so termination is always guaranteed. When appending the next
+// paragraph to the current chunk would exceed maxChunkSize, the current chunk is
+// flushed and a new chunk is seeded with the last overlapLines paragraphs before
+// the current one is appended. A single paragraph larger than maxChunkSize is
+// emitted on its own rather than splitting mid-paragraph.
 func chunkText(text string, maxChunkSize int, overlapLines int) []string {
 	paragraphs := strings.Split(text, "\n\n")
 	var chunks []string
 
 	var current strings.Builder
-	paraIdx := 0
-	for paraIdx < len(paragraphs) {
-		p := strings.TrimSpace(paragraphs[paraIdx])
-		if p == "" {
-			paraIdx++
-			continue
-		}
+	var currentParas []string // paragraphs currently buffered in `current` (for overlap)
 
-		// If this paragraph alone exceeds maxChunkSize, force-add it anyway
-		if current.Len() == 0 {
-			current.WriteString(p)
-			current.WriteString("\n\n")
-			paraIdx++
-			if current.Len() >= maxChunkSize || paraIdx >= len(paragraphs) {
-				chunks = append(chunks, current.String())
-				current.Reset()
-			}
-			continue
-		}
-
-		// Estimate if adding this paragraph would exceed limit
-		nextLen := current.Len() + len(p) + 2
-		if nextLen > maxChunkSize {
+	flush := func() {
+		if current.Len() > 0 {
 			chunks = append(chunks, current.String())
 			current.Reset()
+		}
+	}
 
-			// Add overlap: rewind by overlapLines paragraphs
-			rewind := overlapLines
-			for rewind > 0 && paraIdx-rewind >= 0 {
-				prev := strings.TrimSpace(paragraphs[paraIdx-rewind])
-				if prev != "" {
-					current.WriteString(prev)
-					current.WriteString("\n\n")
-				}
-				rewind--
-			}
+	for _, raw := range paragraphs {
+		p := strings.TrimSpace(raw)
+		if p == "" {
 			continue
+		}
+
+		// If the current chunk is non-empty and adding this paragraph would
+		// exceed the limit, flush it and seed a fresh chunk with the overlap.
+		if current.Len() > 0 && current.Len()+len(p)+2 > maxChunkSize {
+			flush()
+
+			start := len(currentParas) - overlapLines
+			if start < 0 {
+				start = 0
+			}
+			overlap := append([]string(nil), currentParas[start:]...)
+			currentParas = currentParas[:0]
+			for _, ov := range overlap {
+				current.WriteString(ov)
+				current.WriteString("\n\n")
+				currentParas = append(currentParas, ov)
+			}
 		}
 
 		current.WriteString(p)
 		current.WriteString("\n\n")
-		paraIdx++
+		currentParas = append(currentParas, p)
 	}
 
-	if current.Len() > 0 {
-		chunks = append(chunks, current.String())
-	}
+	flush()
 
 	return chunks
 }

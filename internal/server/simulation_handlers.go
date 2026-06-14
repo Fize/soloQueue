@@ -99,15 +99,16 @@ func (m *Mux) handleDeleteSimulation(w http.ResponseWriter, r *http.Request) {
 }
 
 type fromSeedRequest struct {
-	SeedText           string `json:"seed_text"`
-	Topic              string `json:"topic,omitempty"`
-	PersonaCount       int    `json:"persona_count"`
-	ModelID            string `json:"model_id,omitempty"`
-	ProviderID         string `json:"provider_id,omitempty"`
-	MaxActions         int    `json:"max_actions,omitempty"`
-	MaxWallClockMs     int    `json:"max_wall_clock_ms,omitempty"`
-	TriggerPolicy      string `json:"trigger_policy,omitempty"`
-	MinSpeakIntervalMs int    `json:"min_speak_interval_ms,omitempty"`
+	SeedText        string `json:"seed_text"`
+	Topic           string `json:"topic,omitempty"`
+	PersonaCount    int    `json:"persona_count"`
+	ModelID         string `json:"model_id,omitempty"`
+	ProviderID      string `json:"provider_id,omitempty"`
+	MaxWallClockMs  int    `json:"max_wall_clock_ms,omitempty"`
+	SimulatedHours  int    `json:"simulated_hours,omitempty"`
+	TickIntervalMs  int    `json:"tick_interval_ms,omitempty"`
+	TimeScale       int    `json:"time_scale,omitempty"`
+	EnableReflection bool  `json:"enable_reflection,omitempty"`
 }
 
 type fromSeedResponse struct {
@@ -138,12 +139,13 @@ func (m *Mux) handleCreateFromSeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opts := simulation.CreateFromSeedOptions{
-		ModelID:            req.ModelID,
-		ProviderID:         req.ProviderID,
-		MaxActions:         req.MaxActions,
-		MaxWallClockMs:     req.MaxWallClockMs,
-		TriggerPolicy:      req.TriggerPolicy,
-		MinSpeakIntervalMs: req.MinSpeakIntervalMs,
+		ModelID:         req.ModelID,
+		ProviderID:      req.ProviderID,
+		MaxWallClockMs:  req.MaxWallClockMs,
+		SimulatedHours:  req.SimulatedHours,
+		TickIntervalMs:  req.TickIntervalMs,
+		TimeScale:       req.TimeScale,
+		EnableReflection: req.EnableReflection,
 	}
 
 	m.log.InfoContext(r.Context(), logger.CatSimulation, "create from seed: request received", "seed_text_len", len(req.SeedText))
@@ -272,4 +274,79 @@ func (m *Mux) handleUpdateSimulation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, state)
+}
+
+// handleGetEnvironment returns the environment state for a simulation.
+func (m *Mux) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	state, err := m.simEngine.Get(id)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{
+		"simulation_id": id,
+		"world_state":   state.WorldState.Snapshot(),
+		"status":        state.Status,
+	})
+}
+
+// handleGetAgentPlan returns the current plan for a simulation agent.
+func (m *Mux) handleGetAgentPlan(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	personaID := chi.URLParam(r, "personaId")
+	state, err := m.simEngine.Get(id)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if as, ok := state.AgentStates[personaID]; ok {
+		m.writeJSON(w, http.StatusOK, map[string]any{
+			"simulation_id": id,
+			"persona_id":    personaID,
+			"agent_state":   as,
+		})
+		return
+	}
+	m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "agent not found"})
+}
+
+// handleGetAgentMemory returns the memory records for a simulation agent.
+func (m *Mux) handleGetAgentMemory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	personaID := chi.URLParam(r, "personaId")
+	records, err := m.simEngine.GetAgentMemories(id, personaID)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{
+		"simulation_id": id,
+		"persona_id":    personaID,
+		"memories":      records,
+		"count":         len(records),
+	})
+}
+
+// handleGetAgentReflections returns the reflections for a simulation agent.
+func (m *Mux) handleGetAgentReflections(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	personaID := chi.URLParam(r, "personaId")
+	records, err := m.simEngine.GetAgentMemories(id, personaID)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var reflections []simulation.MemoryRecord
+	for _, rec := range records {
+		if rec.RecordType == "reflection" {
+			reflections = append(reflections, rec)
+		}
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{
+		"simulation_id": id,
+		"persona_id":    personaID,
+		"reflections":   reflections,
+		"count":         len(reflections),
+	})
 }
