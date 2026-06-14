@@ -42,23 +42,10 @@ func (ps *PerceptionSystem) CollectObservations(agentID, personaName string) []O
 	// 2. Incoming messages (drain the message bus)
 	inbox := ps.bus.DrainAll(agentID)
 	for _, msg := range inbox {
-		msgContent := msg.Content
-		if msg.Type == "dialogue_request" {
-			msgContent = fmt.Sprintf("%s wants to speak with you privately. Say [SAY @%s]: ... to respond, or [PASS] to decline.", msg.From, msg.From)
-		}
-
-		obsType := "agent_speak"
-		if msg.Type == "system" {
-			obsType = "system"
-		} else if msg.Type == "dialogue_request" {
-			obsType = "dialogue_request"
-		} else if msg.Type == "dialogue_response" {
-			obsType = "dialogue_response"
-		}
-
+		obsType, formattedContent := formatMessageObservation(msg)
 		observations = append(observations, Observation{
 			Type:    obsType,
-			Content: fmt.Sprintf("%s: %s", msg.From, msgContent),
+			Content: formattedContent,
 			Source:  msg.From,
 			At:      now,
 		})
@@ -137,6 +124,23 @@ func FormatObservationsForCW(observations []Observation) string {
 		return ""
 	}
 	return FormatObservations(observations)
+}
+
+// formatMessageObservation converts a bus message into an observation type and content string.
+// It avoids double-prefixing the sender name when the message content already includes it
+// (as with dialogue_request messages which are pre-formatted).
+func formatMessageObservation(msg Message) (obsType string, content string) {
+	switch msg.Type {
+	case "system":
+		return "system", fmt.Sprintf("[System] %s", msg.Content)
+	case "dialogue_request":
+		// Content is pre-formatted by DialogueManager with the initiator name.
+		return "dialogue_request", msg.Content
+	case "dialogue_response":
+		return "dialogue_response", fmt.Sprintf("%s (privately): %s", msg.From, msg.Content)
+	default:
+		return "agent_speak", fmt.Sprintf("%s: %s", msg.From, msg.Content)
+	}
 }
 
 // ObservationToMemory converts an observation to a MemoryRecord for storage.

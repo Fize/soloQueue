@@ -128,7 +128,13 @@ func (gal *GAAgentLoop) Run(ctx context.Context) {
 			return
 		case timeEvt := <-timeCh:
 			if !gal.busy.CompareAndSwap(0, 1) {
-				continue // still processing previous tick, skip
+				// Still processing previous tick — log and skip to avoid
+				// accumulating backpressure. The agent will catch the next tick.
+				if gal.log != nil {
+					gal.log.WarnContext(ctx, logger.CatSimulation, "ga_agent_loop: tick dropped due to busy agent",
+						"agent_id", gal.sa.PersonaID())
+				}
+				continue
 			}
 			gal.tick(ctx, timeEvt)
 			gal.busy.Store(0)
@@ -155,10 +161,11 @@ func (gal *GAAgentLoop) tick(ctx context.Context, timeEvt SimTimeEvent) {
 		gal.sa.cw.Push(ctxwin.RoleSystem, systemPrompt)
 	}
 
-	// Limit AgentMemory growth
+	// Limit AgentMemory growth — use importance-weighted retention
+	// so that significant observations survive pruning.
 	memRecords := gal.sa.Memory().Records()
 	if len(memRecords) > 500 {
-		gal.sa.Memory().TruncateTo(300)
+		gal.sa.Memory().TruncateByImportance(300)
 	}
 
 	// Avoid acting on every tick — use a cooldown

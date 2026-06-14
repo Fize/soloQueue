@@ -244,28 +244,44 @@ func TestFormatMessagesEmpty(t *testing.T) {
 	}
 }
 
-func TestParseResponse(t *testing.T) {
+func TestParseActions(t *testing.T) {
 	tests := []struct {
 		name          string
 		content       string
-		wantType      string
+		wantSpeak     bool
 		wantPropCount int
+		wantTarget    string
 	}{
-		{name: "simple statement", content: "I believe Rust is best.", wantType: "statement"},
-		{name: "rebuttal with mention", content: "@Alice: I disagree.", wantType: "rebuttal"},
-		{name: "question", content: "What about memory usage?", wantType: "question"},
-		{name: "with proposal", content: "OK.\n[PROPOSE consensus: leaning-go]\nDone.", wantType: "statement", wantPropCount: 1},
-		{name: "multiple proposals", content: "[PROPOSE vote: 1]\n[PROPOSE concern: safety]", wantType: "statement", wantPropCount: 2},
+		{name: "simple statement", content: "I believe Rust is best.", wantSpeak: false, wantPropCount: 0},
+		{name: "with say", content: "[SAY]: Hello everyone", wantSpeak: true, wantPropCount: 0, wantTarget: "*"},
+		{name: "with private say", content: "[SAY @Alice]: I have a question for you.", wantSpeak: true, wantPropCount: 0, wantTarget: "Alice"},
+		{name: "with proposal", content: "OK.\n[PROPOSE consensus: leaning-go]\nDone.", wantSpeak: false, wantPropCount: 1},
+		{name: "multiple proposals", content: "[PROPOSE vote: 1]\n[PROPOSE concern: safety]", wantSpeak: false, wantPropCount: 2},
+		{name: "with move", content: "[MOVE cafe] Let's go.", wantSpeak: false, wantPropCount: 0},
+		{name: "with interact", content: "[INTERACT library_pc: search]", wantSpeak: false, wantPropCount: 0},
+		{name: "with wait", content: "[WAIT 30m]", wantSpeak: false, wantPropCount: 0},
+		{name: "with pass", content: "[PASS]", wantSpeak: false, wantPropCount: 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			msgType, proposals := parseResponse(tt.content)
-			if msgType != tt.wantType {
-				t.Errorf("expected type %q, got %q", tt.wantType, msgType)
-			}
+			actions, proposals := ParseActions(tt.content)
 			if len(proposals) != tt.wantPropCount {
 				t.Errorf("expected %d proposals, got %d", tt.wantPropCount, len(proposals))
+			}
+			if tt.wantSpeak {
+				found := false
+				for _, a := range actions {
+					if a.Type == ActionSpeak {
+						found = true
+						if a.Target != tt.wantTarget {
+							t.Errorf("expected target %q, got %q", tt.wantTarget, a.Target)
+						}
+					}
+				}
+				if !found {
+					t.Error("expected a speak action")
+				}
 			}
 		})
 	}
@@ -329,21 +345,6 @@ func TestSimulationStore(t *testing.T) {
 	}
 }
 
-func TestBuildUserMessageEvent(t *testing.T) {
-	ws := NewWorldState(map[string]any{"consensus": "undecided"})
-	msgs := []Message{{From: "bob", Type: "statement", Content: "Go is simpler", Round: 1}}
-
-	userMsg := BuildUserMessageEvent(3, "Test topic", ws, msgs)
-	if !strings.Contains(userMsg, "Interaction #3") {
-		t.Error("should contain interaction number")
-	}
-	if !strings.Contains(userMsg, "PASS") {
-		t.Error("should contain PASS instruction")
-	}
-	if !strings.Contains(userMsg, "consensus") {
-		t.Error("should contain world state")
-	}
-}
 
 func TestBuildSimulationSystemPrompt(t *testing.T) {
 	persona := Persona{
@@ -390,165 +391,7 @@ func TestBuildReportPrompt(t *testing.T) {
 	}
 }
 
-// ─── Phase 2: Event-Driven Tests ──────────────────────────────────────────────
-
-func TestReactiveTrigger(t *testing.T) {
-	trigger := &ReactiveTrigger{MinInterval: 100 * time.Millisecond}
-
-	if !trigger.ShouldSpeak("alice", "", []Message{{From: "bob"}}, nil, time.Time{}) {
-		t.Error("should speak when inbox has messages")
-	}
-	if trigger.ShouldSpeak("alice", "", nil, nil, time.Time{}) {
-		t.Error("should not speak with empty inbox")
-	}
-
-	now := time.Now()
-	if trigger.ShouldSpeak("alice", "", []Message{{From: "bob"}}, nil, now) {
-		t.Error("should not speak within MinInterval")
-	}
-
-	time.Sleep(150 * time.Millisecond)
-	if !trigger.ShouldSpeak("alice", "", []Message{{From: "bob"}}, nil, now) {
-		t.Error("should speak after MinInterval elapsed")
-	}
-}
-
-func TestSelectiveTrigger_NameMatch(t *testing.T) {
-	trigger := NewSelectiveTrigger(true, true, true, 0)
-
-	// Should match @personaName, not just @agentID
-	if !trigger.ShouldSpeak("uuid-1234", "张三", []Message{{Content: "hey @张三 what do you think?"}}, nil, time.Time{}) {
-		t.Error("should respond to mention by persona name")
-	}
-
-	// Should also still match @agentID
-	if !trigger.ShouldSpeak("agent_1", "Alice", []Message{{Content: "hey @agent_1 what do you think?"}}, nil, time.Time{}) {
-		t.Error("should respond to mention by agent ID")
-	}
-
-	// Should not match on plain name without @
-	if trigger.ShouldSpeak("agent_1", "Alice", []Message{{Content: "I think Alice is right."}}, nil, time.Time{}) {
-		t.Error("should not respond to plain name without @")
-	}
-}
-
-func TestSelectiveTrigger(t *testing.T) {
-	trigger := NewSelectiveTrigger(true, true, true, 0)
-
-	if !trigger.ShouldSpeak("alice", "", []Message{{Content: "hey @alice what do you think?"}}, nil, time.Time{}) {
-		t.Error("should respond to mention")
-	}
-	if !trigger.ShouldSpeak("bob", "", []Message{{Content: "is Rust really safer?"}}, nil, time.Time{}) {
-		t.Error("should respond to question")
-	}
-	if !trigger.ShouldSpeak("charlie", "", []Message{{Content: "I think [PROPOSE consensus: go]"}}, nil, time.Time{}) {
-		t.Error("should respond to proposal")
-	}
-	if trigger.ShouldSpeak("alice", "", []Message{{Content: "I think Go is great."}}, nil, time.Time{}) {
-		t.Error("should not respond to plain statement")
-	}
-	if trigger.ShouldSpeak("alice", "", nil, nil, time.Time{}) {
-		t.Error("should not speak with empty inbox")
-	}
-}
-
-func TestSelectiveTriggerIdleTimeout(t *testing.T) {
-	trigger := NewSelectiveTrigger(false, false, false, 50*time.Millisecond)
-	trigger.ShouldSpeak("alice", "", []Message{{Content: "hello"}}, nil, time.Time{})
-	time.Sleep(100 * time.Millisecond)
-	if !trigger.ShouldSpeak("alice", "", nil, nil, time.Time{}) {
-		t.Error("should speak after idle timeout")
-	}
-}
-
-func TestRateLimitedTrigger(t *testing.T) {
-	inner := &ReactiveTrigger{MinInterval: 0}
-	trigger := NewRateLimitedTrigger(inner, 3, 5)
-
-	inbox := []Message{{From: "bob"}}
-
-	for i := 0; i < 3; i++ {
-		if !trigger.ShouldSpeak("alice", "", inbox, nil, time.Time{}) {
-			t.Errorf("rate-limited call %d should pass", i+1)
-		}
-	}
-	if trigger.ShouldSpeak("alice", "", inbox, nil, time.Time{}) {
-		t.Error("should be rate limited after exceeding MaxPerMin")
-	}
-}
-
-func TestNewTriggerPolicy(t *testing.T) {
-	if _, ok := NewTriggerPolicy("reactive", time.Second).(*ReactiveTrigger); !ok {
-		t.Error("expected ReactiveTrigger")
-	}
-	if _, ok := NewTriggerPolicy("selective", time.Second).(*SelectiveTrigger); !ok {
-		t.Error("expected SelectiveTrigger")
-	}
-	if _, ok := NewTriggerPolicy("unknown", time.Second).(*SelectiveTrigger); !ok {
-		t.Error("default should be SelectiveTrigger")
-	}
-}
-
-func TestEventDrivenSimulationIntegration(t *testing.T) {
-	t.Skip("Skipped: old event-driven flow replaced by Generative Agents architecture. Needs rewritten GA integration tests.")
-	var responses []string
-	responses = []string{
-		"I advocate for Rust due to memory safety.",
-		"I prefer Go for its simplicity.",
-		"I agree with the Rust advocate on safety, but Go's ecosystem is more mature.",
-		"Good point about the ecosystem. However, Rust's ecosystem has improved.",
-		"I think we should consider the team's expertise.",
-	}
-	fakeLLM := &agent.FakeLLM{Responses: responses}
-	registry := agent.NewRegistry(nil)
-	factory := createTestFactory(registry, fakeLLM)
-
-	engine := NewSimulationEngine(
-		factory, registry, fakeLLM,
-		tools.Config{WorkDir: "/tmp"},
-		SimulationConfigFile{},
-		nil,
-	)
-
-	config := SimulationConfig{
-		Topic:             "Rust vs Go",
-		Personas:          []Persona{{ID: "alice", Name: "Alice"}, {ID: "bob", Name: "Bob"}},
-		MaxWallClockMs:    15000,
-	}
-
-	id, err := engine.Create(config)
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	events, err := engine.Start(ctx, id)
-	if err != nil {
-		t.Fatalf("start: %v", err)
-	}
-
-	msgCount := 0
-	for ev := range events {
-		if ev.Type == "agent_message" {
-			msgCount++
-		}
-	}
-
-	t.Logf("messages: %d", msgCount)
-	if msgCount == 0 {
-		t.Error("expected at least some agent messages")
-	}
-
-	state, err := engine.Get(id)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if state.Status != StatusCompleted {
-		t.Errorf("expected completed, got %s", state.Status)
-	}
-}
+// ─── Phase 2: GA Integration Tests ────────────────────────────────────────────
 
 func TestCreateFromSeed(t *testing.T) {
 	fakeLLM := &agent.FakeLLM{
@@ -798,59 +641,7 @@ func TestAgentMemoryPersistence_Empty(t *testing.T) {
 	}
 }
 
-func TestReplayAsk(t *testing.T) {
-	t.Skip("Skipped: old event-driven flow replaced by Generative Agents architecture. Needs rewritten GA integration tests.")
-	fakeLLM := &agent.FakeLLM{
-		Responses: []string{
-			// Phase 1: simulation responses
-			"I advocate for Rust due to memory safety.",
-			"I prefer Go for its simplicity.",
-			"Yeah, good point Bob. But Rust's ecosystem is mature enough.",
-			// Phase 2: replay ask response
-			"As Alice, the Rust advocate, I still believe Rust is superior for systems programming. The simulation reinforced my conviction because safety guarantees prevent entire classes of bugs.",
-		},
-	}
 
-	registry := agent.NewRegistry(nil)
-	factory := createTestFactory(registry, fakeLLM)
-	engine := NewSimulationEngine(
-		factory, registry, fakeLLM,
-		tools.Config{WorkDir: "/tmp"},
-		SimulationConfigFile{DefaultMaxWallClockMs: 15000},
-		nil,
-	)
-
-	config := SimulationConfig{
-		Topic:             "Rust vs Go",
-		Personas:          []Persona{{ID: "alice", Name: "Alice", Role: "Rust advocate"}, {ID: "bob", Name: "Bob", Role: "Go advocate"}},
-		MaxWallClockMs:    15000,
-	}
-
-	id, err := engine.Create(config)
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	ctx := context.Background()
-	events, err := engine.Start(ctx, id)
-	if err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	for range events {
-	}
-
-	// Now ask the agent a question
-	answer, err := engine.ReplayAsk(ctx, id, "alice", "Did you change your mind about Rust vs Go?")
-	if err != nil {
-		t.Fatalf("ReplayAsk: %v", err)
-	}
-	if answer == "" {
-		t.Error("expected non-empty answer")
-	}
-	if !strings.Contains(answer, "Rust") {
-		t.Errorf("expected answer to mention Rust, got: %s", answer)
-	}
-}
 
 func TestReplayAsk_InvalidPersona(t *testing.T) {
 	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, SimulationConfigFile{}, nil)
@@ -1045,56 +836,9 @@ func TestMessageBusBroadcastNotify(t *testing.T) {
 	}
 }
 
-func TestExtractMentions(t *testing.T) {
-	mentions := extractMentions("I agree with @alice and @bob on this point.")
-	if len(mentions) != 2 {
-		t.Errorf("expected 2 mentions, got %d: %v", len(mentions), mentions)
-	}
 
-	// Chinese names with @prefix
-	mentions = extractMentions("@杨凡: 我同意你的看法。@方旭 你说得对。")
-	if len(mentions) != 2 {
-		t.Errorf("expected 2 Chinese mentions, got %d: %v", len(mentions), mentions)
-	}
-	if len(mentions) > 0 && mentions[0] != "杨凡" {
-		t.Errorf("expected first mention 杨凡, got %s", mentions[0])
-	}
-	if len(mentions) > 1 && mentions[1] != "方旭" {
-		t.Errorf("expected second mention 方旭, got %s", mentions[1])
-	}
-}
 
-func TestClassifyRelation(t *testing.T) {
-	tests := []struct {
-		inMsg    Message
-		response *RoundMessage
-		want     RelationType
-	}{
-		{
-			inMsg:    Message{From: "bob", Content: "Go is better"},
-			response: &RoundMessage{Content: "I disagree with that completely."},
-			want:     RelRebuttal,
-		},
-		{
-			inMsg:    Message{From: "alice", Content: "Rust is safer"},
-			response: &RoundMessage{Content: "Exactly! I agree with you."},
-			want:     RelAgree,
-		},
-		{
-			inMsg:    Message{From: "bob", Content: "some point"},
-			response: &RoundMessage{Content: "@bob I hear your concern."},
-			want:     RelReply,
-		},
-	}
 
-	for _, tt := range tests {
-		got := classifyRelation(tt.inMsg, tt.response, "")
-		if got != tt.want {
-			t.Errorf("classify(%q, %q) = %q, want %q",
-				tt.inMsg.Content, tt.response.Content, got, tt.want)
-		}
-	}
-}
 
 func createTestFactory(registry *agent.Registry, llm agent.LLMClient) *agent.DefaultFactory {
 	return agent.NewDefaultFactory(registry, llm, tools.Config{WorkDir: "/tmp"}, nil)

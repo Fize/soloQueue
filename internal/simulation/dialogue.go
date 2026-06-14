@@ -260,11 +260,12 @@ func (dm *DialogueManager) GetSession(agentID string) *DialogueSession {
 }
 
 func (dm *DialogueManager) cleanup(key string) {
-	delete(dm.sessions, key)
+	// Save session reference BEFORE deleting from map.
 	sess := dm.sessions[key]
 	if sess == nil {
 		return
 	}
+	delete(dm.sessions, key)
 	delete(dm.agentSess, sess.InitiatorID)
 	delete(dm.agentSess, sess.TargetID)
 }
