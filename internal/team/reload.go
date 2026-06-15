@@ -231,7 +231,7 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 	}
 
 	var wasModified bool
-	if strings.EqualFold(fm.Name, "architect") {
+	if strings.EqualFold(fm.Name, "Andrej Karpathy") {
 		var builtinPrompt string
 		if w.cfg.TeamStore != nil {
 			builtinPrompt = w.cfg.TeamStore.GetBuiltinLeaderPrompt()

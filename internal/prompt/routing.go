@@ -57,13 +57,13 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 				}
 			}
 
-			toolName := "delegate_" + l.Name
+			toolName := "delegate_" + strings.ReplaceAll(l.Name, " ", "_")
 			fmt.Fprintf(&b, "- Leader: %s → call %s(task=\"...\", work_dir=\"...\")\n", l.Name, toolName)
 		}
 	} else {
 		// Old format: inline (backward compatible)
 		for _, l := range sorted {
-			toolName := "delegate_" + l.Name
+			toolName := "delegate_" + strings.ReplaceAll(l.Name, " ", "_")
 			if l.Group != "" {
 				fmt.Fprintf(&b, "\n- %s (%s): %s → call %s(task=\"...\")", l.Name, l.Group, l.Description, toolName)
 			} else {

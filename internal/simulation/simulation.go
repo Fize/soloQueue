@@ -112,6 +112,11 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
+				// Print panic and stack trace to stderr so it's visible in test logs
+				buf := make([]byte, 1024)
+				n := runtime.Stack(buf, false)
+				fmt.Fprintf(os.Stderr, "PANIC in simulation: %v\nStack trace:\n%s\n", r, buf[:n])
+
 				e.emit(events, SimulationEvent{
 					Type:         "error",
 					SimulationID: simID,
@@ -126,12 +131,12 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 					e.log.Warn(logger.CatSimulation, "failed to persist failed status", "err", err.Error())
 				}
 			}
+			close(events)
 		}()
 
 		e.runSimulation(ctx, state, events)
 		// Ensure fan-in goroutines have drained before closing events.
 		time.Sleep(200 * time.Millisecond)
-		close(events)
 	}()
 
 	return events, nil
@@ -656,6 +661,9 @@ func dumpGoroutineProfile(label string) {
 }
 
 func logMemStats(log *logger.Logger, label string) {
+	if log == nil {
+		return
+	}
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	log.Info(logger.CatSimulation, "memstats",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -133,8 +134,16 @@ func (s *Store) EnsureBuiltinTechTeam(ctx context.Context) error {
 		}
 	}
 
-	// 2. Ensure "architect" leader exists and prompt is correct.
-	agentPath := getAgentFilePath(s.agentsDir, "architect")
+	// Clean up old "architect.md" and "Andrej Karpathy.md" files if they exist.
+	for _, oldName := range []string{"architect.md", "Andrej Karpathy.md"} {
+		oldAgentPath := filepath.Join(s.agentsDir, oldName)
+		if _, err := os.Stat(oldAgentPath); err == nil {
+			_ = os.Remove(oldAgentPath)
+		}
+	}
+
+	// 2. Ensure "Andrej Karpathy" leader exists and prompt is correct.
+	agentPath := getAgentFilePath(s.agentsDir, "Andrej Karpathy")
 
 	var needWriteAgent bool
 	var existingAgent *Agent
@@ -157,8 +166,8 @@ func (s *Store) EnsureBuiltinTechTeam(ctx context.Context) error {
 	if needWriteAgent {
 		now := time.Now().Format(time.RFC3339)
 		a := &Agent{
-			ID:           "architect",
-			Name:         "architect",
+			ID:           "andrej karpathy",
+			Name:         "Andrej Karpathy",
 			Description:  "Principal Architect responsible for task breakdown, architectural decisions, and technical leadership.",
 			TeamName:     "engineering",
 			IsLeader:     true,
@@ -168,7 +177,7 @@ func (s *Store) EnsureBuiltinTechTeam(ctx context.Context) error {
 			UpdatedAt:    now,
 		}
 		if err := s.writeAgentFile(agentPath, a); err != nil {
-			return fmt.Errorf("ensure builtin architect: %w", err)
+			return fmt.Errorf("ensure builtin leader: %w", err)
 		}
 	}
 

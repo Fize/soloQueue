@@ -247,7 +247,7 @@ func (s *Store) CreateAgent(ctx context.Context, a *Agent) error {
 	a.CreatedAt = now
 	a.UpdatedAt = now
 
-	if strings.EqualFold(a.Name, "architect") {
+	if strings.EqualFold(a.Name, "Andrej Karpathy") {
 		if a.SystemPrompt != BuiltinLeaderPrompt {
 			return fmt.Errorf("teamstore: built-in leader %q must use the built-in prompt", a.Name)
 		}
@@ -376,7 +376,7 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 		return err
 	}
 
-	if strings.EqualFold(name, "architect") {
+	if strings.EqualFold(name, "Andrej Karpathy") {
 		if a.SystemPrompt != BuiltinLeaderPrompt {
 			// Write the original unmodified prompt back to disk (revert file modification if any)
 			existing.SystemPrompt = BuiltinLeaderPrompt
@@ -421,7 +421,7 @@ func (s *Store) DeleteAgent(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if strings.EqualFold(name, "architect") ||
+	if strings.EqualFold(name, "Andrej Karpathy") ||
 		strings.EqualFold(name, "explorer") ||
 		strings.EqualFold(name, "editor") ||
 		strings.EqualFold(name, "tester") {
@@ -469,6 +469,9 @@ func getTeamFilePath(groupsDir, name string) string {
 }
 
 func getAgentFilePath(agentsDir, name string) string {
+	if strings.EqualFold(name, "Andrej Karpathy") || strings.EqualFold(name, "AndrejKarpathy") {
+		return filepath.Join(agentsDir, "AndrejKarpathy.md")
+	}
 	return filepath.Join(agentsDir, strings.ToLower(name)+".md")
 }
 
@@ -478,6 +481,9 @@ func (s *Store) findFileCaseInsensitive(dir, name string) (string, os.FileInfo, 
 		return "", nil, err
 	}
 	target := strings.ToLower(name) + ".md"
+	if strings.EqualFold(name, "Andrej Karpathy") || strings.EqualFold(name, "AndrejKarpathy") {
+		target = "andrejkarpathy.md"
+	}
 	for _, entry := range entries {
 		if strings.EqualFold(entry.Name(), target) {
 			path := filepath.Join(dir, entry.Name())
