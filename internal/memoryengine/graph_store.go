@@ -37,7 +37,7 @@ func (g *GraphStore) UpsertNode(ctx context.Context, name, nodeType string, conf
 	res, err := g.db.ExecContext(ctx,
 		`UPDATE kg_nodes SET mention_count = mention_count + 1, last_seen = ?,
 		 confidence = (confidence + ?) / 2.0, type = CASE WHEN type = 'entity' THEN ? ELSE type END
-		 WHERE name = ?`,
+		 WHERE LOWER(name) = LOWER(?)`,
 		now, confidence, nodeType, name,
 	)
 	if err != nil {
@@ -47,7 +47,7 @@ func (g *GraphStore) UpsertNode(ctx context.Context, name, nodeType string, conf
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected > 0 {
 		var id int64
-		err := g.db.QueryRowContext(ctx, `SELECT id FROM kg_nodes WHERE name = ?`, name).Scan(&id)
+		err := g.db.QueryRowContext(ctx, `SELECT id FROM kg_nodes WHERE LOWER(name) = LOWER(?)`, name).Scan(&id)
 		return id, false, err
 	}
 
