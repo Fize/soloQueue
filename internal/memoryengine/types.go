@@ -83,6 +83,7 @@ type SearchResultSet struct {
 // ConsolidationReport summarizes maintenance operations.
 type ConsolidationReport struct {
 	EdgesDecayed         int              `json:"edges_decayed"`
+	EntitiesMerged       int              `json:"entities_merged"`
 	StaleMemoriesRemoved int              `json:"stale_memories_removed"`
 	DedupSuggestions     []DedupSuggestion `json:"dedup_suggestions,omitempty"`
 	Communities          [][]string       `json:"communities,omitempty"`
