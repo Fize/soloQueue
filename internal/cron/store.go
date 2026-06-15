@@ -316,7 +316,7 @@ func (s *DBStore) UpdateNextRun(ctx context.Context, id string, lastRun time.Tim
 	nRun := nextRun.Format(time.RFC3339)
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE scheduled_tasks SET last_run_at = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE scheduled_tasks SET status = 'active', last_run_at = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
 		lRun, nRun, now, id)
 	if err != nil {
 		return fmt.Errorf("cron store: update next run: %w", err)

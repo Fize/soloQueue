@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -264,7 +265,7 @@ func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Con
 	if a.tools == nil {
 		return false
 	}
-	t, ok := a.tools.Get("delegate_" + leaderID)
+	t, ok := a.tools.Get("delegate_" + strings.ReplaceAll(leaderID, " ", "_"))
 	if !ok {
 		return false
 	}

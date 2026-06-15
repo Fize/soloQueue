@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -107,7 +108,7 @@ func (dt *DelegateTool) SetLogger(l *logger.Logger) {
 }
 
 func (dt *DelegateTool) Name() string {
-	return "delegate_" + dt.LeaderID
+	return "delegate_" + strings.ReplaceAll(dt.LeaderID, " ", "_")
 }
 
 func (dt *DelegateTool) Description() string {

@@ -812,6 +812,11 @@ GOOD (to L1): "Task completed. The CSS styling issue on the login page has been 
 func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, projectAgents []AgentTemplate, hasPermanentMemory bool) string {
 	var b strings.Builder
 
+	// ── Identity ──────────────────────────────────────────
+	b.WriteString("# Identity\n\n")
+	fmt.Fprintf(&b, "You are %s.\n\n", tmpl.Name)
+	b.WriteString("Your responses must be extremely concise and direct. Answer exactly what is asked without any unnecessary fluff, conversational filler, or pleasantries.\n\n")
+
 	// ── Segment 1: 用户定义区 ──────────────────────────────
 	// tmpl.SystemPrompt 是 markdown body，已包含用户自定义的完整 role 定义
 	// tmpl.Description 仅在 SystemPrompt 为空时作为兜底
@@ -1013,6 +1018,11 @@ Before reading file contents, you MUST first use Grep or Glob to locate the rele
 // Segment 2 (框架强制区): 不可篡改的底层契约
 func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, hasPermanentMemory bool) string {
 	var b strings.Builder
+
+	// ── Identity ──────────────────────────────────────────
+	b.WriteString("# Identity\n\n")
+	fmt.Fprintf(&b, "You are %s.\n\n", tmpl.Name)
+	b.WriteString("Your responses must be extremely concise and direct. Answer exactly what is asked without any unnecessary fluff, conversational filler, or pleasantries.\n\n")
 
 	// ── Segment 1: 用户定义区 ──────────────────────────────
 	if tmpl.SystemPrompt != "" {

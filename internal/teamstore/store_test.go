@@ -251,7 +251,7 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 	store := NewStore(groupsDir, agentsDir, nil)
 	ctx := context.Background()
 
-	// 1. EnsureBuiltinTechTeam creates engineering and architect files.
+	// 1. EnsureBuiltinTechTeam creates engineering and Andrej Karpathy files.
 	err := store.EnsureBuiltinTechTeam(ctx)
 	if err != nil {
 		t.Fatalf("EnsureBuiltinTechTeam failed: %v", err)
@@ -263,10 +263,10 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 		t.Errorf("engineering.md not created: %v", err)
 	}
 
-	// Verify architect agent file exists.
-	agentPath := filepath.Join(agentsDir, "architect.md")
+	// Verify Andrej Karpathy agent file exists.
+	agentPath := filepath.Join(agentsDir, "AndrejKarpathy.md")
 	if _, err := os.Stat(agentPath); err != nil {
-		t.Errorf("architect.md not created: %v", err)
+		t.Errorf("AndrejKarpathy.md not created: %v", err)
 	}
 
 	// Verify sub-agent files exist.
@@ -277,25 +277,25 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 		}
 	}
 
-	// 2. Verify we cannot modify architect's system prompt.
-	architect, err := store.GetAgentByName(ctx, "architect")
+	// 2. Verify we cannot modify Andrej Karpathy's system prompt.
+	architect, err := store.GetAgentByName(ctx, "Andrej Karpathy")
 	if err != nil {
-		t.Fatalf("failed to retrieve architect: %v", err)
+		t.Fatalf("failed to retrieve Andrej Karpathy: %v", err)
 	}
 
 	architect.SystemPrompt = "modified prompt"
-	err = store.UpdateAgent(ctx, "architect", architect)
+	err = store.UpdateAgent(ctx, "Andrej Karpathy", architect)
 	if err == nil {
-		t.Error("expected UpdateAgent to fail when modifying architect prompt")
+		t.Error("expected UpdateAgent to fail when modifying leader prompt")
 	}
 
 	// Check if prompt was reverted on disk.
-	architect2, err := store.GetAgentByName(ctx, "architect")
+	architect2, err := store.GetAgentByName(ctx, "Andrej Karpathy")
 	if err != nil {
-		t.Fatalf("failed to retrieve architect after failed update: %v", err)
+		t.Fatalf("failed to retrieve leader after failed update: %v", err)
 	}
 	if architect2.SystemPrompt == "modified prompt" {
-		t.Error("expected architect prompt to be reverted")
+		t.Error("expected leader prompt to be reverted")
 	}
 
 	// Verify we cannot modify explorer's system prompt.
@@ -318,8 +318,8 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 		t.Error("expected explorer prompt to be reverted")
 	}
 
-	// 3. Verify we cannot delete architect or engineering or sub-agents.
-	err = store.DeleteAgent(ctx, "architect")
+	// 3. Verify we cannot delete Andrej Karpathy or engineering or sub-agents.
+	err = store.DeleteAgent(ctx, "Andrej Karpathy")
 	if err == nil {
 		t.Error("expected DeleteAgent to fail for architect")
 	}

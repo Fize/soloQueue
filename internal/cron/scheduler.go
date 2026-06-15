@@ -192,9 +192,8 @@ func (s *Scheduler) executeTask(t Task) {
 
 	// Panic recovery: if executeTask panics, catch it, log, and mark the task
 	// as failed so it doesn't remain stuck in 'running' state.
-	var panicValue interface{}
 	defer func() {
-		if panicValue != nil {
+		if panicValue := recover(); panicValue != nil {
 			s.logger.Error(logger.CatApp, "cron: task execution panicked", "task_id", t.ID, "panic", panicValue)
 			// Mark as 'active' so it can be retried on next schedule tick
 			if err := s.dbStore.UpdateTaskStatus(ctx, t.ID, "active"); err != nil {

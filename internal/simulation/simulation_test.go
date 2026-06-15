@@ -418,7 +418,7 @@ func TestCreateFromSeed(t *testing.T) {
 	engine := NewSimulationEngine(
 		factory, registry, fakeLLM,
 		tools.Config{WorkDir: "/tmp"},
-		SimulationConfigFile{DefaultMaxWallClockMs: 15000},
+		SimulationConfigFile{DefaultMaxWallClockMs: 2000},
 		nil,
 	)
 
@@ -510,7 +510,7 @@ func TestCreateFromSeedWithSuggestedAgents(t *testing.T) {
 	engine := NewSimulationEngine(
 		factory, registry, fakeLLM,
 		tools.Config{WorkDir: "/tmp"},
-		SimulationConfigFile{DefaultMaxWallClockMs: 15000},
+		SimulationConfigFile{DefaultMaxWallClockMs: 2000},
 		nil,
 	)
 
