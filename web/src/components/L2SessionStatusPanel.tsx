@@ -1,7 +1,8 @@
-import type { ChatSession, AgentInfo } from '@/types'
+import type { ChatSession, AgentInfo, LLMModel } from '@/types'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Folder, Cpu, Layers, Copy, Check } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { listModels, getDefaultModels } from '@/lib/api'
 
 interface L2SessionStatusPanelProps {
   session: ChatSession
@@ -10,16 +11,52 @@ interface L2SessionStatusPanelProps {
 
 export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPanelProps) {
   const used = session.ctxwin_used || 0
-  const limit = session.ctxwin_limit
+  const [fastModel, setFastModel] = useState<LLMModel | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // Fetch the live fast model from config on mount (so model changes are reflected immediately).
+  useEffect(() => {
+    let cancelled = false
+    async function fetchFastModel() {
+      try {
+        const [models, defaults] = await Promise.all([listModels(), getDefaultModels()])
+        if (cancelled) return
+        // The fast ref is "provider:id" format, e.g. "deepseek:deepseek-v4-flash".
+        const fastRef = defaults.fast || defaults.fallback
+        if (!fastRef) return
+        const colonIdx = fastRef.indexOf(':')
+        if (colonIdx === -1) return
+        const providerId = fastRef.slice(0, colonIdx)
+        const modelId = fastRef.slice(colonIdx + 1)
+        const found = models.find((m) => m.providerId === providerId && m.id === modelId)
+        if (found) setFastModel(found)
+      } catch {
+        // Non-critical: context limit will fall back to session value.
+      }
+    }
+    fetchFastModel()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Prefer the live fast model's context window; fall back to session value.
+  const limit =
+    fastModel && fastModel.contextWindow > 0 ? fastModel.contextWindow : session.ctxwin_limit
   if (!limit || limit <= 0) {
     throw new Error('Context window limit is not configured or available for this session.')
   }
   const pct = Math.min(100, Math.max(0, (used / limit) * 100))
-  const [copied, setCopied] = useState(false)
 
-  const formatNumber = (num: number) => {
-    return new Intl.NumberFormat().format(num)
-  }
+  const isProcessing = activeAgent?.state === 'processing'
+
+  // During active processing the agent's model_id reflects the router-assigned override.
+  // While idle it falls back to the template definition, so we prefer the live config value.
+  const displayModel = isProcessing && activeAgent?.model_id
+    ? activeAgent.model_id
+    : (fastModel?.name || fastModel?.id || activeAgent?.model_id)
+
+  const formatNumber = (num: number) => new Intl.NumberFormat().format(num)
 
   const handleCopy = () => {
     if (!session.project_path) return
@@ -42,13 +79,13 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
-        {/* Unified Glassmorphic Card */}
+        {/* Agent Info Card */}
         <div className="relative group rounded-2xl border border-border/40 bg-card/40 backdrop-blur-md p-5 shadow-lg shadow-black/5 overflow-hidden transition-all duration-300 hover:border-violet-500/20 hover:shadow-violet-500/5">
-          {/* Subtle Ambient Glow */}
+          {/* Ambient glow */}
           <div className="absolute -right-8 -top-8 w-24 h-24 bg-violet-500/10 rounded-full blur-2xl group-hover:bg-violet-500/15 transition-all duration-300 pointer-events-none" />
 
-          {/* Leader Section */}
           <div className="space-y-4">
+            {/* Name / role */}
             <div className="flex items-start gap-3">
               <div className="h-9 w-9 rounded-xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
                 <Cpu className="h-4 w-4 text-violet-500" />
@@ -63,17 +100,25 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
               </div>
             </div>
 
-            {activeAgent?.model_id && (
+            {/* Model — always live from config, labelled differently during processing */}
+            {displayModel && (
               <div className="pt-3 border-t border-border/20 space-y-1">
                 <span className="text-[10px] font-semibold text-muted-foreground/60">
-                  Effective Model
+                  {isProcessing ? 'Active Model' : 'Default Model (Fast)'}
                 </span>
-                <div className="font-mono text-[9px] text-foreground bg-muted/40 p-2 rounded-lg border border-border/10 truncate">
-                  {activeAgent.model_id}
+                <div className="font-mono text-[9px] text-foreground bg-muted/40 p-2 rounded-lg border border-border/10 flex items-center gap-1.5 min-w-0">
+                  {/* Provider badge */}
+                  {!isProcessing && fastModel?.providerId && (
+                    <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded">
+                      {fastModel.providerId}
+                    </span>
+                  )}
+                  <span className="truncate">{displayModel}</span>
                 </div>
               </div>
             )}
 
+            {/* Iteration + Task Level — only shown during active processing */}
             {activeAgent && (activeAgent.iteration !== undefined || activeAgent.task_level) && (
               <div className="pt-3 border-t border-border/20 grid grid-cols-2 gap-4">
                 {activeAgent.iteration !== undefined && (
@@ -101,7 +146,7 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
           </div>
         </div>
 
-        {/* Context Usage Card */}
+        {/* Context Window Card */}
         <div className="relative group rounded-2xl border border-border/40 bg-card/40 backdrop-blur-md p-5 shadow-lg shadow-black/5 overflow-hidden transition-all duration-300 hover:border-violet-500/20 hover:shadow-violet-500/5">
           <div className="absolute -left-8 -bottom-8 w-24 h-24 bg-violet-500/5 rounded-full blur-2xl pointer-events-none" />
 
@@ -130,6 +175,12 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
                   {formatNumber(limit)}
                 </span>
               </div>
+              {/* Indicate that the limit is based on the live fast model */}
+              {fastModel && (
+                <p className="text-[9px] text-muted-foreground/45 text-right leading-tight">
+                  Limit from {fastModel.name || fastModel.id}
+                </p>
+              )}
             </div>
           </div>
         </div>
