@@ -57,6 +57,14 @@ func (s *Session) CurrentLevel() string {
 	return s.lastLevel
 }
 
+// LevelLocked returns whether the task level has been locked by the user
+// via /l0, /l1, /l2, or /l3 commands.
+func (s *Session) LevelLocked() bool {
+	s.lastLevelMu.RLock()
+	defer s.lastLevelMu.RUnlock()
+	return s.levelLocked
+}
+
 // ─── TaskRouter Interface ─────────────────────────────────────────────────────
 
 // RouteResult is a minimal routing decision passed to the session layer.

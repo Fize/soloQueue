@@ -296,9 +296,14 @@ type AgentInfoResponse struct {
 	Name               string `json:"name"`
 	State              string `json:"state"`
 	ModelID            string `json:"model_id"`
+	ProviderID         string `json:"provider_id"`
 	Group              string `json:"group"`
 	IsLeader           bool   `json:"is_leader"`
 	TaskLevel          string `json:"task_level"`
+	ThinkingEnabled    bool   `json:"thinking_enabled"`
+	ReasoningEffort    string `json:"reasoning_effort"`
+	LevelLocked        bool   `json:"level_locked"`
+	LastLevel          string `json:"last_level"`
 	ErrorCount         int    `json:"error_count"`
 	LastError          string `json:"last_error"`
 	PendingDelegations int    `json:"pending_delegations"`
@@ -694,8 +699,19 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 	for _, a := range registered {
 		high, normal := a.MailboxDepth()
 		isQBot := false
+		levelLocked := false
+		lastLevel := ""
 		if a.Def.ID == "l1-agent" && m.sessionMgr != nil && m.sessionMgr.Session() != nil {
-			isQBot = m.sessionMgr.Session().IsQBot()
+			sess := m.sessionMgr.Session()
+			isQBot = sess.IsQBot()
+			levelLocked = sess.LevelLocked()
+			lastLevel = sess.CurrentLevel()
+		}
+		mp := a.ModelOverride()
+		te := mp != nil && mp.ThinkingEnabled
+		var re string
+		if mp != nil {
+			re = mp.ReasoningEffort
 		}
 		info := AgentInfoResponse{
 			ID:                 a.Def.ID,
@@ -703,9 +719,14 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			Name:               a.Def.Name,
 			State:              a.State().String(),
 			ModelID:            a.EffectiveModelID(),
+			ProviderID:         a.EffectiveProviderID(),
 			Group:              agentGroup[a.InstanceID],
 			IsLeader:           agentLeader[a.InstanceID],
 			TaskLevel:          a.EffectiveTaskLevel(),
+			ThinkingEnabled:    te,
+			ReasoningEffort:    re,
+			LevelLocked:        levelLocked,
+			LastLevel:          lastLevel,
 			ErrorCount:         int(a.ErrorCount()),
 			LastError:          a.LastError(),
 			PendingDelegations: a.PendingDelegations(),

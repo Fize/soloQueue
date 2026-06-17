@@ -331,6 +331,12 @@ func (a *Agent) ClearModelOverride() {
 	a.modelOverride.Store(nil)
 }
 
+// ModelOverride returns the current per-ask model override, or nil if none is active.
+// Thread-safe (atomic pointer load).
+func (a *Agent) ModelOverride() *ModelParams {
+	return a.modelOverride.Load()
+}
+
 // EffectiveModelID returns the model ID actually in use.
 // It prefers the per-ask override (set by the router) and falls back to the
 // Definition default. Thread-safe (atomic pointer load).
@@ -339,6 +345,16 @@ func (a *Agent) EffectiveModelID() string {
 		return mp.ModelID
 	}
 	return a.Def.ModelID
+}
+
+// EffectiveProviderID returns the provider ID actually in use.
+// It prefers the per-ask override (set by the router) and falls back to the
+// Definition default. Thread-safe (atomic pointer load).
+func (a *Agent) EffectiveProviderID() string {
+	if mp := a.modelOverride.Load(); mp != nil && mp.ProviderID != "" {
+		return mp.ProviderID
+	}
+	return a.Def.ProviderID
 }
 
 // EffectiveContextWindow returns the context window capacity actually in use.
