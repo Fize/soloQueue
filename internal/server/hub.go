@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -13,11 +14,56 @@ import (
 
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
-	Type     string                          `json:"type"`              // "connected" | "state" | "simulation_event" | "simulation_progress"
-	Runtime  *RuntimeStatusResponse          `json:"runtime,omitempty"`
-	Agents   *AgentListResponse              `json:"agents,omitempty"`
-	Event    *simulation.SimulationEvent     `json:"event,omitempty"`
-	Progress *simulation.SimulationProgress  `json:"progress,omitempty"`
+	Type string `json:"type"`
+
+	// State broadcast fields.
+	Runtime  *RuntimeStatusResponse         `json:"runtime,omitempty"`
+	Agents   *AgentListResponse             `json:"agents,omitempty"`
+	Event    *simulation.SimulationEvent    `json:"event,omitempty"`
+	Progress *simulation.SimulationProgress `json:"progress,omitempty"`
+
+	// Chat streaming fields.
+	RequestID        string `json:"request_id,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
+	Delta            string `json:"delta,omitempty"`
+	CallID           string `json:"call_id,omitempty"`
+	Name             string `json:"name,omitempty"`
+	Args             string `json:"args,omitempty"`
+	Result           string `json:"result,omitempty"`
+	Error            string `json:"error,omitempty"`
+	DurationMS       int64  `json:"duration_ms,omitempty"`
+	Content          string `json:"content,omitempty"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Prompt           string `json:"prompt,omitempty"`
+	AllowInSession   bool   `json:"allow_in_session,omitempty"`
+	TargetAgentID    string `json:"target_agent_id,omitempty"`
+	AgentName        string `json:"agent_name,omitempty"`
+	ResultContent    string `json:"result_content,omitempty"`
+	NumTasks         int    `json:"num_tasks,omitempty"`
+}
+
+// ClientMessage is decoded from incoming WebSocket text frames.
+type ClientMessage struct {
+	Type      string       `json:"type"`
+	RequestID string       `json:"request_id,omitempty"`
+	SessionID string       `json:"session_id,omitempty"`
+	Prompt    string       `json:"prompt,omitempty"`
+	Files     []ClientFile `json:"files,omitempty"`
+	CallID    string       `json:"call_id,omitempty"`
+	Choice    string       `json:"choice,omitempty"`
+}
+
+// ClientFile references an uploaded file.
+type ClientFile struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// activeRequest tracks a single chat request within the client's lifecycle.
+type activeRequest struct {
+	RequestID  string
+	Cancel     context.CancelFunc
+	Delegating bool // true while async delegation is in progress
 }
 
 // wsNotify is an internal signal that state has changed and needs broadcasting.
@@ -206,6 +252,7 @@ func (h *Hub) buildStateMessage() *WSMessage {
 
 // removeClient removes a client from the Hub and cleans up its resources.
 func (h *Hub) removeClient(client *Client) {
+	client.cancelAllRequests()
 	h.mu.Lock()
 	if _, ok := h.clients[client]; ok {
 		delete(h.clients, client)
@@ -218,16 +265,58 @@ func (h *Hub) removeClient(client *Client) {
 
 // Client represents a single WebSocket client connection.
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte // buffered outbound messages
+	hub            *Hub
+	conn           *websocket.Conn
+	send           chan []byte
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.Mutex
+	activeRequests map[string]*activeRequest // request_id → request
 }
 
 // newClient creates a new Client for the given WebSocket connection.
 func newClient(hub *Hub, conn *websocket.Conn) *Client {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 64),
+		hub:            hub,
+		conn:           conn,
+		send:           make(chan []byte, 256),
+		ctx:            ctx,
+		cancel:         cancel,
+		activeRequests: make(map[string]*activeRequest),
 	}
+}
+
+// addActiveRequest registers a chat request with the client.
+func (c *Client) addActiveRequest(reqID string, cancel context.CancelFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activeRequests[reqID] = &activeRequest{RequestID: reqID, Cancel: cancel}
+}
+
+// removeActiveRequest removes a chat request registration.
+func (c *Client) removeActiveRequest(reqID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.activeRequests, reqID)
+}
+
+// setRequestDelegating marks a request as delegating or not.
+func (c *Client) setRequestDelegating(reqID string, v bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if r, ok := c.activeRequests[reqID]; ok {
+		r.Delegating = v
+	}
+}
+
+// cancelAllRequests cancels all active chat requests.
+func (c *Client) cancelAllRequests() {
+	c.cancel() // kill client ctx → all request contexts cascade
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, r := range c.activeRequests {
+		r.Cancel()
+	}
+	c.activeRequests = make(map[string]*activeRequest)
 }

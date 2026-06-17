@@ -352,6 +352,7 @@ function SegmentView({
           <DelegationCard
             name={segment.name}
             args={segment.args}
+            callId={segment.callId}
             done={segment.done}
             error={segment.error}
             durationMs={segment.durationMs}

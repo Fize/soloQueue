@@ -19,6 +19,7 @@ export function ChatPage() {
     activeSessionId,
     messages,
     streaming,
+    delegating,
     sessions,
     historyHasMore,
     loadMoreHistory,
@@ -338,6 +339,7 @@ export function ChatPage() {
           onSend={(text, files) => send(text, files)}
           onCancel={cancel}
           streaming={streaming}
+          delegating={delegating}
           disabled={noSession}
           activeSessionId={activeSessionId || undefined}
         />

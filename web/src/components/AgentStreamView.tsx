@@ -144,6 +144,7 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
                   key={seg.call_id || i}
                   name={seg.name}
                   args={seg.args}
+                  callId={seg.call_id || ''}
                   done={seg.done}
                   error={seg.error}
                   durationMs={seg.duration_ms}
