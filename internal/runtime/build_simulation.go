@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"path/filepath"
+
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 )
 
@@ -25,10 +27,15 @@ func (bc *buildContext) buildSimulationEngine() error {
 		defaultProviderID = bc.defaultModel.ProviderID
 	}
 
+	dbPath := bc.settings.Simulation.DBPath
+	if dbPath == "" {
+		dbPath = filepath.Join(bc.workDir, "simulation.db")
+	}
+
 	simCfg := simulation.SimulationConfigFile{
 		DefaultModelID:        defaultModelID,
 		DefaultProviderID:     defaultProviderID,
-		DBPath:                bc.settings.Simulation.DBPath,
+		DBPath:                dbPath,
 		DefaultMaxWallClockMs: bc.settings.Simulation.DefaultMaxWallClockMs,
 	}
 

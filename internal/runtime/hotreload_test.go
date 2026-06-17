@@ -109,4 +109,38 @@ func TestRegisterPromptHotReload(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Error("timeout waiting for prompt hot-reload on rules.md change")
 	}
+
+	// Reset counter and modify user.md
+	rebuildMu.Lock()
+	rebuildCalled = 0
+	rebuildMu.Unlock()
+
+	userFile := filepath.Join(globalDir, "user.md")
+	if err := os.WriteFile(userFile, []byte("original user context"), 0o644); err != nil {
+		t.Fatalf("failed to write user.md: %v", err)
+	}
+
+	rebuildMu.Lock()
+	done3 := make(chan struct{})
+	go func() {
+		rebuildMu.Lock()
+		defer rebuildMu.Unlock()
+		for rebuildCalled == 0 {
+			rebuildCond.Wait()
+		}
+		close(done3)
+	}()
+	rebuildMu.Unlock()
+
+	// Modify user.md to trigger change
+	if err := os.WriteFile(userFile, []byte("modified user context"), 0o644); err != nil {
+		t.Fatalf("failed to modify user.md: %v", err)
+	}
+
+	select {
+	case <-done3:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Error("timeout waiting for prompt hot-reload on user.md change")
+	}
 }

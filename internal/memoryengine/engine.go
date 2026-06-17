@@ -175,7 +175,7 @@ func (e *Engine) Timeline(ctx context.Context, from, to string, limit int) ([]Me
 
 // Consolidate runs maintenance operations.
 func (e *Engine) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
-	c := NewConsolidator(e.store, e.graph)
+	c := NewConsolidator(e.store, e.graph, e.log)
 	return c.Run(ctx, 30, 90)
 }
 

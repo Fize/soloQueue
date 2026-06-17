@@ -445,6 +445,7 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 	if rolesDir == "" {
 		return
 	}
+	globalDir := rt.PromptCfg.GlobalDir
 
 	if err := os.MkdirAll(rolesDir, 0o755); err != nil {
 		log.Warn(logger.CatApp, "prompt hot-reload: cannot create roles dir", "err", err.Error())
@@ -461,6 +462,13 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 		_ = w.Close()
 		log.Warn(logger.CatApp, "prompt hot-reload: cannot watch roles dir", "err", err.Error())
 		return
+	}
+
+	if globalDir != "" {
+		_ = os.MkdirAll(globalDir, 0o755)
+		if err := w.Add(globalDir); err != nil {
+			log.Warn(logger.CatApp, "prompt hot-reload: cannot watch global dir", "err", err.Error())
+		}
 	}
 
 	if groupsDir != "" {
@@ -512,14 +520,16 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 
 				absDir, _ := filepath.Abs(dir)
 				absRoles, _ := filepath.Abs(rolesDir)
+				absGlobal, _ := filepath.Abs(globalDir)
 				absGroups, _ := filepath.Abs(groupsDir)
 				absAgents, _ := filepath.Abs(agentsDir)
 
 				isRolesFile := (absDir == absRoles) && (filename == "soul.md" || filename == "rules.md")
+				isGlobalFile := (absDir == absGlobal) && (filename == "user.md")
 				isGroupsFile := (absDir == absGroups) && strings.HasSuffix(filename, ".md")
 				isAgentsFile := (absDir == absAgents) && strings.HasSuffix(filename, ".md")
 
-				if !isRolesFile && !isGroupsFile && !isAgentsFile {
+				if !isRolesFile && !isGlobalFile && !isGroupsFile && !isAgentsFile {
 					continue
 				}
 

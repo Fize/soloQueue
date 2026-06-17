@@ -470,6 +470,17 @@ export interface L1AgentSettings {
   externalMcpServers?: string[]
 }
 
+export interface SimulationConfig {
+  defaultModelId?: string
+  defaultProviderId?: string
+  dbPath?: string
+  defaultMaxWallClockMs?: number
+  enableReflection?: boolean
+  simulatedHours?: number
+  tickIntervalMs?: number
+  timeScale?: number
+}
+
 export interface AppConfig {
   session: SessionConfig
   log: LogConfig
@@ -481,6 +492,7 @@ export interface AppConfig {
   qqbot: QQBotConfig
   agent: L1AgentSettings
   lspmcp: LSPMCPConfig
+  simulation: SimulationConfig
 }
 
 // ─── Tool & Skill Types ────────────────────────────────────────────────────
