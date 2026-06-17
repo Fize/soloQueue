@@ -466,3 +466,43 @@ func (m *Mux) handleUpdateSessionConfig(w http.ResponseWriter, r *http.Request) 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, cfg)
 }
+
+// ─── Simulation Config ───────────────────────────────────────────────────────
+
+// GET /api/config/simulation
+func (m *Mux) handleGetSimulationConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	settings := m.configSvc.Get()
+	m.writeJSON(w, http.StatusOK, settings.Simulation)
+}
+
+// PUT /api/config/simulation
+func (m *Mux) handleUpdateSimulationConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil || m.configSvc.GetDB() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+		return
+	}
+	var cfg config.SimulationConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "simulation", cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.configSvc.ReloadFromDB(); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
+		return
+	}
+	if cfg.DBPath != "" && m.simEngine != nil {
+		if err := m.simEngine.SetDBPath(cfg.DBPath); err != nil {
+			m.log.WarnContext(r.Context(), logger.CatSimulation, "failed to update simulation engine DB path", "err", err.Error())
+		}
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, http.StatusOK, cfg)
+}

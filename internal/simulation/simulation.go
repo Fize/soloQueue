@@ -321,7 +321,7 @@ func (e *SimulationEngine) CreateFromSeed(
 		maxWallClockMs = opts.MaxWallClockMs
 	}
 
-	simulatedHours := 48
+	simulatedHours := 168
 	if opts.SimulatedHours > 0 {
 		simulatedHours = opts.SimulatedHours
 	}

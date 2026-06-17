@@ -64,10 +64,10 @@ export function SimulationDetailPage() {
   // Configuration Edit States
   const [isEditing, setIsEditing] = useState(false)
   const [editTopic, setEditTopic] = useState('')
-  const [editMaxWallClockMin, setEditMaxWallClockMin] = useState(5)
-  const [editSimHours, setEditSimHours] = useState(48)
+  const [editMaxWallClockMin, setEditMaxWallClockMin] = useState(18)
+  const [editSimHours, setEditSimHours] = useState(168)
   const [editTimeScale, setEditTimeScale] = useState(600)
-  const [editEnableReflection, setEditEnableReflection] = useState(false)
+  const [editEnableReflection, setEditEnableReflection] = useState(true)
   const [editPersonas, setEditPersonas] = useState<any[]>([])
   const [savingConfig, setSavingConfig] = useState(false)
 
@@ -86,7 +86,9 @@ export function SimulationDetailPage() {
   // Progress display state
   const [progress, setProgress] = useState<SimulationProgress | null>(null)
   const [graphEdges, setGraphEdges] = useState<GraphEdgeInput[]>([])
-  const [progressSidebarTab, setProgressSidebarTab] = useState<'progress' | 'monitor' | 'activity'>('progress')
+  const [progressSidebarTab, setProgressSidebarTab] = useState<'progress' | 'monitor' | 'activity'>(
+    'progress'
+  )
   // Use ref for pulse nodes to avoid render storms (#5). The graph reads via ref,
   // triggered by a lightweight counter state (avoids Set recreation).
   const pulseNodesRef = useRef<Set<string>>(new Set())
@@ -137,11 +139,13 @@ export function SimulationDetailPage() {
     if (state && !isEditing) {
       setEditTopic(state.config.topic)
       setEditMaxWallClockMin(
-        state.config.max_wall_clock_ms ? Math.round(state.config.max_wall_clock_ms / 60000) : 5
+        state.config.max_wall_clock_ms ? Math.round(state.config.max_wall_clock_ms / 60000) : 18
       )
-      setEditSimHours(state.config.simulated_hours || 48)
+      setEditSimHours(state.config.simulated_hours || 168)
       setEditTimeScale(state.config.time_scale || 600)
-      setEditEnableReflection(state.config.enable_reflection || false)
+      setEditEnableReflection(
+        state.config.enable_reflection !== undefined ? state.config.enable_reflection : true
+      )
       setEditPersonas(state.config.personas || [])
     }
   }, [state, isEditing])
@@ -178,12 +182,12 @@ export function SimulationDetailPage() {
           (data.rounds || []).flatMap((r: any) =>
             (r.messages || []).map((m: any) => ({
               agent_id: m.agent_id,
-            agent_name: m.agent_name,
-            content: m.content,
-            reasoning: m.reasoning,
-            to: m.to,
-            type: m.type,
-            round: m.round,
+              agent_name: m.agent_name,
+              content: m.content,
+              reasoning: m.reasoning,
+              to: m.to,
+              type: m.type,
+              round: m.round,
               seq_num: m.seq_num,
             }))
           )
@@ -263,11 +267,11 @@ export function SimulationDetailPage() {
         setState((prev) => {
           if (!prev) return null
           if (prev.messages.some((m) => m.seq_num === newMsg.seq_num)) return prev
-            return {
-              ...prev,
-              round: ev.round,
-              messages: capMessages([...prev.messages, newMsg]),
-            }
+          return {
+            ...prev,
+            round: ev.round,
+            messages: capMessages([...prev.messages, newMsg]),
+          }
         })
       } else if (ev.type === 'agent_move' && ev.data) {
         const moveData = ev.data as { agent_id: string; to_zone: string }
@@ -396,7 +400,10 @@ export function SimulationDetailPage() {
     // Append question immediately as loading state
     setChatHistory((prev) => ({
       ...prev,
-      [chatAgentId]: capChatHistory([...(prev[chatAgentId] || []), { q: question, a: '', loading: true }]),
+      [chatAgentId]: capChatHistory([
+        ...(prev[chatAgentId] || []),
+        { q: question, a: '', loading: true },
+      ]),
     }))
 
     try {
@@ -499,7 +506,9 @@ export function SimulationDetailPage() {
               {state.status === 'running' && (
                 <>
                   <span>•</span>
-                  <span className="text-primary animate-pulse font-bold">Round {state.current_round}</span>
+                  <span className="text-primary animate-pulse font-bold">
+                    Round {state.current_round}
+                  </span>
                 </>
               )}
             </div>
@@ -715,7 +724,8 @@ export function SimulationDetailPage() {
                   <AgentActivityPanel
                     agentId={selectedAgentId}
                     agentName={
-                      state.config.personas.find((p) => p.id === selectedAgentId)?.name || selectedAgentId
+                      state.config.personas.find((p) => p.id === selectedAgentId)?.name ||
+                      selectedAgentId
                     }
                     agentRole={
                       state.config.personas.find((p) => p.id === selectedAgentId)?.role || ''
@@ -789,7 +799,11 @@ export function SimulationDetailPage() {
                         max={168}
                         step={6}
                         value={editSimHours}
-                        onChange={(e) => setEditSimHours(parseInt(e.target.value) || 48)}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 48
+                          setEditSimHours(val)
+                          setEditMaxWallClockMin(Math.round((val * 5) / 48))
+                        }}
                         className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                       />
                     </div>

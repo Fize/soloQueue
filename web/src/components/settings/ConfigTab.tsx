@@ -25,6 +25,8 @@ import {
   updateEmbeddingConfig,
   getSessionConfig,
   updateSessionConfig,
+  getSimulationConfig,
+  updateSimulationConfig,
 } from '@/lib/api'
 import type {
   LLMProvider,
@@ -35,6 +37,7 @@ import type {
   LSPMCPConfig,
   EmbeddingConfig,
   SessionConfig,
+  SimulationConfig,
   LSPMCPEntry,
 } from '@/types'
 import {
@@ -74,6 +77,7 @@ export function ConfigTab() {
     | 'lspmcp'
     | 'embedding'
     | 'session'
+    | 'simulation'
 
   const handleTabChange = (val: string) => {
     setSearchParams({ tab: val, subTab })
@@ -107,6 +111,7 @@ export function ConfigTab() {
   const [lspmcpConfig, setLspmcpConfig] = useState<LSPMCPConfig | null>(null)
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | null>(null)
   const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(null)
+  const [simulationConfig, setSimulationConfig] = useState<SimulationConfig | null>(null)
 
   // Form states
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null)
@@ -144,6 +149,7 @@ export function ConfigTab() {
       const dbLspmcp = await getLSPMCPConfig()
       const dbEmbedding = await getEmbeddingConfig()
       const dbSession = await getSessionConfig()
+      const dbSimulation = await getSimulationConfig()
 
       setProviders(dbProviders || [])
       setModels(dbModels || [])
@@ -162,6 +168,7 @@ export function ConfigTab() {
       setLspmcpConfig(dbLspmcp)
       setEmbeddingConfig(dbEmbedding)
       setSessionConfig(dbSession)
+      setSimulationConfig(dbSimulation)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -245,6 +252,20 @@ export function ConfigTab() {
     try {
       await updateSessionConfig(sessionConfig)
       setSuccessMsg('Session configuration updated successfully!')
+      setTimeout(() => setSuccessMsg(null), 3000)
+      loadAll()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const handleSaveSimulation = async () => {
+    if (!simulationConfig) return
+    setError(null)
+    setSuccessMsg(null)
+    try {
+      await updateSimulationConfig(simulationConfig)
+      setSuccessMsg('Simulation configuration updated successfully!')
       setTimeout(() => setSuccessMsg(null), 3000)
       loadAll()
     } catch (err) {
@@ -724,6 +745,17 @@ export function ConfigTab() {
               }`}
             >
               Session Settings
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSubTabChange('simulation')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                subTab === 'simulation'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Simulation Settings
             </button>
           </div>
 
@@ -2290,6 +2322,175 @@ export function ConfigTab() {
                           })
                         }
                       />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="simulation">
+              {simulationConfig && (
+                <div className="rounded-xl border bg-card p-6 shadow-sm space-y-6">
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4 text-primary" />
+                      <h3 className="font-semibold text-foreground">Simulation Config</h3>
+                    </div>
+                    <Button size="sm" onClick={handleSaveSimulation}>
+                      Save Simulation Settings
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Database Path / 数据库路径
+                      </label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. ~/.soloqueue/simulation.db"
+                        value={simulationConfig.dbPath || ''}
+                        onChange={(e) =>
+                          setSimulationConfig({
+                            ...simulationConfig,
+                            dbPath: e.target.value,
+                          })
+                        }
+                      />
+                      <p className="text-[10px] text-muted-foreground leading-normal">
+                        仿真记录持久化的 SQLite 数据库路径。若为空将使用默认位置。
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Default Model / 默认模型
+                      </label>
+                      <select
+                        value={simulationConfig.defaultModelId || ''}
+                        onChange={(e) =>
+                          setSimulationConfig({
+                            ...simulationConfig,
+                            defaultModelId: e.target.value,
+                          })
+                        }
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none transition-all cursor-pointer"
+                      >
+                        <option value="">(Default Fast Model)</option>
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-muted-foreground leading-normal">
+                        新建仿真时，角色默认对话使用的语言大模型。
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Default Provider / 默认服务商
+                      </label>
+                      <select
+                        value={simulationConfig.defaultProviderId || ''}
+                        onChange={(e) =>
+                          setSimulationConfig({
+                            ...simulationConfig,
+                            defaultProviderId: e.target.value,
+                          })
+                        }
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none transition-all cursor-pointer"
+                      >
+                        <option value="">(Default Fast Provider)</option>
+                        {providers.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-muted-foreground leading-normal">
+                        新建仿真时，默认使用的 LLM 接口服务商。
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Simulated Hours / 默认模拟时长 ({simulationConfig.simulatedHours || 168}h)
+                      </label>
+                      <input
+                        type="range"
+                        min={6}
+                        max={168}
+                        step={6}
+                        value={simulationConfig.simulatedHours || 168}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 168
+                          const mins = Math.round((val * 5) / 48)
+                          setSimulationConfig({
+                            ...simulationConfig,
+                            simulatedHours: val,
+                            defaultMaxWallClockMs: mins * 60 * 1000,
+                          })
+                        }}
+                        className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                      <p className="text-[10px] text-muted-foreground leading-normal">
+                        新建仿真时，默认模拟世界内的时间跨度。
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Max Clock / 默认超时时长 (
+                        {simulationConfig.defaultMaxWallClockMs
+                          ? Math.round(simulationConfig.defaultMaxWallClockMs / 60000)
+                          : 18}
+                        min)
+                      </label>
+                      <input
+                        type="range"
+                        min={1}
+                        max={30}
+                        value={
+                          simulationConfig.defaultMaxWallClockMs
+                            ? Math.round(simulationConfig.defaultMaxWallClockMs / 60000)
+                            : 18
+                        }
+                        onChange={(e) =>
+                          setSimulationConfig({
+                            ...simulationConfig,
+                            defaultMaxWallClockMs: parseInt(e.target.value) * 60 * 1000,
+                          })
+                        }
+                        className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                      <p className="text-[10px] text-muted-foreground leading-normal">
+                        仿真实际运行的物理时钟超时限制。
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Reflection / 默认反思
+                      </label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Switch
+                          checked={simulationConfig.enableReflection || false}
+                          onCheckedChange={(val) =>
+                            setSimulationConfig({
+                              ...simulationConfig,
+                              enableReflection: val,
+                            })
+                          }
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {simulationConfig.enableReflection ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-normal">
+                        新建仿真时，默认开启反思以生成高层次见解。
+                      </p>
                     </div>
                   </div>
                 </div>

@@ -441,6 +441,11 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Get("/", m.handleGetSessionConfig)
 			r.Put("/", m.handleUpdateSessionConfig)
 		})
+
+		r.Route("/simulation", func(r chi.Router) {
+			r.Get("/", m.handleGetSimulationConfig)
+			r.Put("/", m.handleUpdateSimulationConfig)
+		})
 	})
 
 	// Tools & Skills routes

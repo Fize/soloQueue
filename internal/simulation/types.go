@@ -73,17 +73,21 @@ func (c *SimulationConfig) Validate() error {
 		}
 		seen[p.ID] = true
 	}
+	if c.SimulatedHours <= 0 {
+		c.SimulatedHours = 168
+	}
 	if c.MaxWallClockMs <= 0 {
-		c.MaxWallClockMs = 300000 // 5 minutes
+		mins := int(float64(c.SimulatedHours)*5.0/48.0 + 0.5)
+		if mins < 1 {
+			mins = 1
+		}
+		c.MaxWallClockMs = mins * 60 * 1000
 	}
 	if c.TickIntervalMs <= 0 {
 		c.TickIntervalMs = 500
 	}
 	if c.TimeScale <= 0 {
 		c.TimeScale = 600 // 1s real = 10min simulated
-	}
-	if c.SimulatedHours <= 0 {
-		c.SimulatedHours = 48
 	}
 	return nil
 }

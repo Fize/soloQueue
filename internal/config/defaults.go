@@ -168,7 +168,9 @@ func DefaultSettings() Settings {
 		},
 		Agent: AgentConfig{},
 		Simulation: SimulationConfig{
-			DefaultMaxWallClockMs: 300000,
+			DefaultMaxWallClockMs: 1080000,
+			EnableReflection:      true,
+			SimulatedHours:        168,
 		},
 	}
 }

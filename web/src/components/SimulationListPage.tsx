@@ -23,10 +23,11 @@ export function SimulationListPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [maxWallClockMin, setMaxWallClockMin] = useState(5)
-  const [simHours, setSimHours] = useState(48)
+  const [maxWallClockMin, setMaxWallClockMin] = useState(18)
+  const [simHours, setSimHours] = useState(168)
   const [timeScale, setTimeScale] = useState(600)
-  const [enableReflection, setEnableReflection] = useState(false)
+  const [enableReflection, setEnableReflection] = useState(true)
+  const [dbPath, setDbPath] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -42,6 +43,16 @@ export function SimulationListPage() {
         const modelData = await modelRes.json()
         setModels(modelData || [])
       }
+      const simRes = await fetch('/api/config/simulation')
+      if (simRes.ok) {
+        const simData = await simRes.json()
+        if (simData.dbPath !== undefined) setDbPath(simData.dbPath)
+        if (simData.enableReflection !== undefined) setEnableReflection(simData.enableReflection)
+        if (simData.simulatedHours !== undefined) setSimHours(simData.simulatedHours)
+        if (simData.defaultMaxWallClockMs !== undefined) {
+          setMaxWallClockMin(Math.round(simData.defaultMaxWallClockMs / 60000))
+        }
+      }
     } catch (err) {
       console.error('Failed to load LLM configs', err)
     }
@@ -54,7 +65,9 @@ export function SimulationListPage() {
     if (!file) return
 
     if (file.size > MAX_FILE_SIZE) {
-      setError(`File "${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB. Maximum allowed size is 50MB.`)
+      setError(
+        `File "${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB. Maximum allowed size is 50MB.`
+      )
       // Reset the input so the user can re-select
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
@@ -118,6 +131,23 @@ export function SimulationListPage() {
     try {
       setCreating(true)
       setCreateError(null)
+
+      // Save global simulation settings first (like DB path)
+      try {
+        await fetch('/api/config/simulation', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dbPath: dbPath,
+            enableReflection: enableReflection,
+            simulatedHours: simHours,
+            defaultMaxWallClockMs: maxWallClockMin ? maxWallClockMin * 60 * 1000 : undefined,
+          }),
+        })
+      } catch (err) {
+        console.error('Failed to update simulation config before launch', err)
+      }
+
       const res = await fetch('/api/simulations/from-seed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -383,7 +413,11 @@ export function SimulationListPage() {
                           max={168}
                           step={6}
                           value={simHours}
-                          onChange={(e) => setSimHours(parseInt(e.target.value))}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value) || 48
+                            setSimHours(val)
+                            setMaxWallClockMin(Math.round((val * 5) / 48))
+                          }}
                           className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                         />
                         <p className="text-[9px] text-muted-foreground/80 mt-1 leading-normal">
@@ -440,6 +474,23 @@ export function SimulationListPage() {
                           让 agent 定期反思自己的经历，生成高层次见解。会增加 LLM 调用量。
                         </p>
                       </div>
+                    </div>
+
+                    {/* Database Path */}
+                    <div className="border-t border-border/40 pt-3">
+                      <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
+                        Database Path / 数据库路径
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. ~/.soloqueue/simulation.db"
+                        value={dbPath}
+                        onChange={(e) => setDbPath(e.target.value)}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none transition-all"
+                      />
+                      <p className="text-[9px] text-muted-foreground/80 mt-1 leading-normal">
+                        仿真记录持久化的 SQLite 数据库路径。若为空将使用默认位置。
+                      </p>
                     </div>
                   </div>
                 )}

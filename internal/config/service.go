@@ -15,6 +15,7 @@ import (
 // Provides business-related convenience query interfaces on top of that
 type GlobalService struct {
 	*Loader[Settings]
+	workDir    string
 	db         *sqlitedb.DB
 	dbSettings Settings
 	dbMu       sync.RWMutex
@@ -32,7 +33,7 @@ func New(workDir string) (*GlobalService, error) {
 		return nil, fmt.Errorf("config.New: %w", err)
 	}
 
-	return &GlobalService{Loader: loader}, nil
+	return &GlobalService{Loader: loader, workDir: workDir}, nil
 }
 
 // Get returns the current config snapshot (DB-backed values override file values if DB is ready)
@@ -48,6 +49,7 @@ func (s *GlobalService) Get() Settings {
 		fileSettings.LSPMCP = s.dbSettings.LSPMCP
 		fileSettings.Embedding = s.dbSettings.Embedding
 		fileSettings.Session = s.dbSettings.Session
+		fileSettings.Simulation = s.dbSettings.Simulation
 		s.dbMu.RUnlock()
 		return fileSettings
 	}
@@ -160,6 +162,15 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 			return fmt.Errorf("seed session: %w", err)
 		}
 	}
+	if !hasSetting("simulation") {
+		simCfg := fileSettings.Simulation
+		if simCfg.DBPath == "" {
+			simCfg.DBPath = filepath.Join(s.workDir, "simulation.db")
+		}
+		if err := SaveSystemSetting(ctx, db, "simulation", simCfg); err != nil {
+			return fmt.Errorf("seed simulation: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -225,6 +236,16 @@ func (s *GlobalService) ReloadFromDB() error {
 		session = DefaultSettings().Session
 	}
 
+	var simulation SimulationConfig
+	if ok, err := LoadSystemSetting(ctx, db, "simulation", &simulation); err != nil {
+		return err
+	} else if !ok {
+		simulation = DefaultSettings().Simulation
+	}
+	if simulation.DBPath == "" {
+		simulation.DBPath = filepath.Join(s.workDir, "simulation.db")
+	}
+
 	s.dbMu.Lock()
 	s.dbSettings.Providers = providers
 	s.dbSettings.Models = models
@@ -234,6 +255,7 @@ func (s *GlobalService) ReloadFromDB() error {
 	s.dbSettings.LSPMCP = lspmcp
 	s.dbSettings.Embedding = embedding
 	s.dbSettings.Session = session
+	s.dbSettings.Simulation = simulation
 	s.hasDB = true
 	s.dbMu.Unlock()
 
@@ -256,6 +278,7 @@ func (s *GlobalService) LoadFromDisk() (Settings, error) {
 		settings.LSPMCP = s.dbSettings.LSPMCP
 		settings.Embedding = s.dbSettings.Embedding
 		settings.Session = s.dbSettings.Session
+		settings.Simulation = s.dbSettings.Simulation
 	}
 	s.dbMu.RUnlock()
 	return settings, nil
