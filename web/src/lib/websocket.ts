@@ -5,11 +5,25 @@ import type {
   AgentStreamState,
   SimulationEvent,
   SimulationProgress,
+  ClientMessage,
 } from '@/types'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
+
+export interface ChatHandler {
+  onChunk?: (delta: string) => void
+  onReasoning?: (delta: string) => void
+  onToolStart?: (data: { call_id: string; name: string; args: string }) => void
+  onToolDone?: (data: { call_id: string; name: string; result: string; error: string; duration_ms: number }) => void
+  onToolConfirm?: (data: { call_id: string; name: string; prompt: string; allow_in_session: boolean }) => void
+  onDone?: (data: { content: string; reasoning_content: string }) => void
+  onError?: (error: string) => void
+  onDelegationStart?: (data: { num_tasks: number }) => void
+  onDelegationDone?: (data: { target_agent_id: string; agent_name?: string; duration_ms?: number; result_content?: string }) => void
+  onClose?: () => void
+}
 
 type MessageHandler = {
   runtime: Set<(data: RuntimeStatus) => void>
@@ -28,6 +42,8 @@ class WebSocketManager {
   private ws: WebSocket | null = null
   private cachedStreams: Record<string, AgentStreamState> = {}
   private streamTimestamps: Record<string, number> = {}
+  private chatHandlers: Map<string, ChatHandler> = new Map()
+  private pendingMessages: string[] = []
   private handlers: MessageHandler = {
     runtime: new Set(),
     agents: new Set(),
@@ -51,7 +67,6 @@ class WebSocketManager {
 
     this.intentionalClose = false
 
-    // Fetch temporary handshake token via standard HTTP request (browser automatically attaches basic auth)
     let token = ''
     try {
       const res = await fetch('/api/auth/token')
@@ -74,6 +89,7 @@ class WebSocketManager {
       this.reconnectDelay = 1000
       this.setStatus('connected')
       this.startPingInterval()
+      this.flushPendingMessages()
     }
 
     this.ws.onmessage = (event) => {
@@ -87,6 +103,9 @@ class WebSocketManager {
 
     this.ws.onclose = () => {
       this.stopPingInterval()
+      // Notify all active chat handlers of close.
+      this.chatHandlers.forEach((h) => h.onClose?.())
+      this.chatHandlers.clear()
       if (!this.intentionalClose) {
         this.setStatus('reconnecting')
         this.scheduleReconnect()
@@ -112,6 +131,34 @@ class WebSocketManager {
       this.ws = null
     }
     this.setStatus('disconnected')
+    this.chatHandlers.clear()
+    this.pendingMessages = []
+  }
+
+  /** Register a chat handler for a specific request_id. */
+  registerChat(requestId: string, handler: ChatHandler) {
+    this.chatHandlers.set(requestId, handler)
+  }
+
+  /** Unregister a chat handler. */
+  unregisterChat(requestId: string) {
+    this.chatHandlers.delete(requestId)
+  }
+
+  /** Send a message to the server. Queues if disconnected. */
+  send(msg: ClientMessage) {
+    const data = JSON.stringify(msg)
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(data)
+    } else {
+      this.pendingMessages.push(data)
+    }
+  }
+
+  private flushPendingMessages() {
+    while (this.pendingMessages.length > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(this.pendingMessages.shift()!)
+    }
   }
 
   private startPingInterval() {
@@ -141,6 +188,76 @@ class WebSocketManager {
   }
 
   private dispatch(msg: WSMessage) {
+    // Chat streaming messages — route to request handler.
+    switch (msg.type) {
+      case 'chat_chunk': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onChunk?.(msg.delta)
+        return
+      }
+      case 'reasoning_chunk': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onReasoning?.(msg.delta)
+        return
+      }
+      case 'tool_start': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onToolStart?.({ call_id: msg.call_id, name: msg.name, args: msg.args })
+        return
+      }
+      case 'tool_done': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onToolDone?.({
+          call_id: msg.call_id,
+          name: msg.name,
+          result: msg.result,
+          error: msg.error,
+          duration_ms: msg.duration_ms,
+        })
+        return
+      }
+      case 'tool_confirm': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onToolConfirm?.({
+          call_id: msg.call_id,
+          name: msg.name,
+          prompt: msg.prompt,
+          allow_in_session: msg.allow_in_session,
+        })
+        return
+      }
+      case 'chat_done': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onDone?.({ content: msg.content, reasoning_content: msg.reasoning_content })
+        return
+      }
+      case 'chat_error': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onError?.(msg.error)
+        return
+      }
+      case 'delegation_start': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onDelegationStart?.({ num_tasks: msg.num_tasks })
+        return
+      }
+      case 'delegation_done': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onDelegationDone?.({
+          target_agent_id: msg.target_agent_id,
+          agent_name: msg.agent_name,
+          duration_ms: msg.duration_ms,
+          result_content: msg.result_content,
+        })
+        return
+      }
+      case 'session_name': {
+        // Handled by custom subscription — dispatched below as generic runtime event
+        break
+      }
+    }
+
+    // State / simulation messages.
     if (msg.type === 'state') {
       if (msg.runtime) {
         if (msg.runtime.agent_streams) {
@@ -198,5 +315,4 @@ class WebSocketManager {
   }
 }
 
-// Singleton instance
 export const wsManager = new WebSocketManager()

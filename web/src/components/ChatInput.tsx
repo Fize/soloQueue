@@ -6,6 +6,7 @@ export interface ChatInputProps {
   onSend: (text: string, files?: { name: string; path: string }[]) => void
   onCancel: () => void
   streaming: boolean
+  delegating: boolean
   disabled: boolean
   activeSessionId?: string
 }
@@ -24,6 +25,7 @@ export function ChatInput({
   onSend,
   onCancel,
   streaming,
+  delegating,
   disabled,
   activeSessionId,
 }: ChatInputProps) {
@@ -213,7 +215,7 @@ export function ChatInput({
               onPaste={handlePaste}
             />
             <div className="shrink-0 flex items-center gap-1 pr-2 pb-2">
-              {streaming ? (
+              {streaming && !delegating ? (
                 <button
                   onClick={onCancel}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors text-xs font-medium"
@@ -222,6 +224,11 @@ export function ChatInput({
                   <StopCircle className="h-3.5 w-3.5" />
                   <span>Stop</span>
                 </button>
+              ) : delegating ? (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-500/10 text-violet-500 text-xs font-medium">
+                  <span className="inline-block h-2 w-2 rounded-full bg-violet-500 animate-pulse" />
+                  <span>Delegating</span>
+                </div>
               ) : (
                 <button
                   onClick={handleSubmit}

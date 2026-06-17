@@ -1,9 +1,15 @@
 import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/stores/chatStore'
-import { streamAsk } from '@/lib/sse'
+import { wsManager } from '@/lib/websocket'
+import type { ChatHandler } from '@/lib/websocket'
+
+function generateRequestId(): string {
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 export function useChatStream() {
-  const abortRef = useRef<AbortController | null>(null)
+  const activeRequestIdRef = useRef<string | null>(null)
+
   const {
     activeSessionId,
     titleGenerated,
@@ -17,12 +23,16 @@ export function useChatStream() {
     renameSession,
     markTitleGenerated,
     completeLastDelegation,
+    setDelegating,
   } = useChatStore()
 
   const send = useCallback(
     async (prompt: string, files?: { name: string; path: string }[]) => {
       const sid = activeSessionId
       if (!sid || !prompt.trim()) return
+
+      const requestId = generateRequestId()
+      activeRequestIdRef.current = requestId
 
       const msgId = `msg-${Date.now()}`
 
@@ -46,89 +56,86 @@ export function useChatStream() {
 
       setStreaming(true)
 
-      const abort = new AbortController()
-      abortRef.current = abort
-
-      // Track content for title generation (L2 only, first exchange).
       const isL2 = sid.startsWith('l2:')
       const shouldGenTitle = isL2 && !titleGenerated[sid]
       let finalContent = ''
 
-      try {
-        const gen = await streamAsk(prompt, sid, files, abort.signal)
-        for await (const ev of gen) {
-          switch (ev.type) {
-            case 'content_delta':
-              appendToLastAssistantContent(ev.delta)
-              if (shouldGenTitle) finalContent += ev.delta
-              break
-            case 'session_name':
-              if (ev.name) {
-                renameSession(sid, ev.name)
-              }
-              break
-            case 'reasoning_delta':
-              appendToLastAssistantThinking(ev.delta)
-              break
-            case 'tool_start':
-              updateLastAssistantSegment({
-                type: 'tool_call',
-                callId: ev.call_id,
-                name: ev.name,
-                args: ev.args,
-                done: false,
-              })
-              break
-            case 'tool_done':
-              updateToolCallResult(
-                ev.call_id,
-                ev.result,
-                ev.error || undefined,
-                ev.duration_ms || undefined
-              )
-              break
-            case 'error':
-              updateLastAssistantSegment({ type: 'error', text: ev.error })
-              break
-            case 'done':
-              // Auto-generate title for L2 sessions on first exchange.
-              if (shouldGenTitle && prompt.trim()) {
-                const title = generateTitle(prompt, finalContent || ev.content)
-                if (title) {
-                  renameSession(sid, title)
-                }
-                markTitleGenerated(sid)
-              }
-              break
-            case 'tool_confirm':
-              updateLastAssistantSegment({
-                type: 'tool_confirm',
-                callId: ev.call_id,
-                name: ev.name,
-                prompt: ev.prompt,
-                allowInSession: ev.allow_in_session ?? false,
-                resolved: false,
-              })
-              break
-            case 'delegation_start':
-              // tool_start now creates the tool_call segment that renders
-              // DelegationCard — skip the legacy delegation segment.
-              break
-            case 'delegation_done':
-              completeLastDelegation(ev.target_agent_id, ev.duration_ms, ev.result_content)
-              break
+      const handler: ChatHandler = {
+        onChunk: (delta) => {
+          appendToLastAssistantContent(delta)
+          if (shouldGenTitle) finalContent += delta
+        },
+        onReasoning: (delta) => {
+          appendToLastAssistantThinking(delta)
+        },
+        onToolStart: (data) => {
+          updateLastAssistantSegment({
+            type: 'tool_call',
+            callId: data.call_id,
+            name: data.name,
+            args: data.args,
+            done: false,
+          })
+        },
+        onToolDone: (data) => {
+          updateToolCallResult(
+            data.call_id,
+            data.result,
+            data.error || undefined,
+            data.duration_ms || undefined
+          )
+        },
+        onToolConfirm: (data) => {
+          updateLastAssistantSegment({
+            type: 'tool_confirm',
+            callId: data.call_id,
+            name: data.name,
+            prompt: data.prompt,
+            allowInSession: data.allow_in_session ?? false,
+            resolved: false,
+          })
+        },
+        onDone: (_data) => {
+          // Auto-generate title for L2 sessions on first exchange.
+          if (shouldGenTitle && prompt.trim()) {
+            const title = generateTitle(prompt, finalContent)
+            if (title) {
+              renameSession(sid, title)
+            }
+            markTitleGenerated(sid)
           }
-        }
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'AbortError') return
-        updateLastAssistantSegment({
-          type: 'error',
-          text: err instanceof Error ? err.message : 'Stream failed',
-        })
-      } finally {
-        setStreaming(false)
-        abortRef.current = null
+        },
+        onError: (error) => {
+          updateLastAssistantSegment({ type: 'error', text: error })
+        },
+        onDelegationStart: () => {
+          setDelegating(true)
+        },
+        onDelegationDone: (data) => {
+          setDelegating(false)
+          completeLastDelegation(
+            data.target_agent_id,
+            data.duration_ms,
+            data.result_content
+          )
+        },
+        onClose: () => {
+          setStreaming(false)
+          setDelegating(false)
+          activeRequestIdRef.current = null
+          wsManager.unregisterChat(requestId)
+        },
       }
+
+      wsManager.registerChat(requestId, handler)
+
+      wsManager.send({
+        type: 'chat_send',
+        request_id: requestId,
+        session_id: sid,
+        prompt,
+        files,
+      })
     },
     [
       activeSessionId,
@@ -141,14 +148,27 @@ export function useChatStream() {
       setStreaming,
       renameSession,
       markTitleGenerated,
+      completeLastDelegation,
+      setDelegating,
     ]
   )
 
   const cancel = useCallback(() => {
-    abortRef.current?.abort()
-    // Remove empty assistant placeholder so "Thinking..." never lingers after stop.
+    const requestId = activeRequestIdRef.current
+    if (!requestId) return
+
+    wsManager.send({
+      type: 'chat_cancel',
+      request_id: requestId,
+      session_id: activeSessionId!,
+    })
+
     removeLastEmptyAssistantMessage()
-  }, [removeLastEmptyAssistantMessage])
+    setStreaming(false)
+    setDelegating(false)
+    wsManager.unregisterChat(requestId)
+    activeRequestIdRef.current = null
+  }, [activeSessionId, removeLastEmptyAssistantMessage, setStreaming, setDelegating])
 
   return { send, cancel }
 }
@@ -156,7 +176,6 @@ export function useChatStream() {
 // generateTitle creates a concise title from the first exchange.
 function generateTitle(prompt: string, _response: string): string {
   if (!prompt.trim()) return ''
-  // Use the first line or first 60 chars of the prompt as title.
   let title: string
   const newlineIdx = prompt.indexOf('\n')
   if (newlineIdx >= 0) {

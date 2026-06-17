@@ -8,12 +8,14 @@ import { cn } from '@/lib/utils'
 export function DelegationCard({
   name,
   args,
+  callId: _callId,
   done,
   error,
   durationMs,
 }: {
   name: string
   args: string
+  callId: string
   done: boolean
   error?: string
   durationMs?: number
@@ -21,12 +23,9 @@ export function DelegationCard({
   const [modalOpen, setModalOpen] = useState(false)
   const agentsData = useAgentStore((state) => state.agents)
 
-  // Extract agent name
-  // Format from tool: delegate_Andrej_Karpathy
   const rawName = name.startsWith('delegate_') ? name.substring(9) : name
   const cleanName = rawName.replace(/_/g, ' ')
 
-  // Match agent in store
   const namePart = rawName.toLowerCase().replace(/[\s_]/g, '')
   const matchedAgent = agentsData?.agents.find(
     (a) => a.name.toLowerCase().replace(/[\s_]/g, '') === namePart
@@ -47,62 +46,50 @@ export function DelegationCard({
   }
   const taskText = getTaskText()
 
-  // Clickable only if running and we have instanceId
-  const isClickable = running && !!instanceId
+  const isClickable = running
 
   return (
     <>
-      <div className="my-2">
+      <div className="my-1.5">
         <button
           onClick={() => {
             if (isClickable) setModalOpen(true)
           }}
           disabled={!isClickable}
           className={cn(
-            'w-full text-left rounded-xl border p-3.5 transition-all duration-200 flex flex-col gap-2.5 relative overflow-hidden',
+            'w-full text-left rounded-lg border px-2.5 py-2 transition-colors flex items-center gap-2',
             isClickable
-              ? 'cursor-pointer hover:bg-muted/40 hover:ring-1 hover:ring-violet-500/20 border-violet-500/20 bg-violet-500/5'
-              : 'cursor-default border-border/80 bg-card/40'
+              ? 'cursor-pointer hover:bg-muted/40 border-violet-500/20 bg-violet-500/5'
+              : 'cursor-default border-border/60 bg-card/30'
           )}
         >
-          {running && (
-            <div className="absolute top-0 left-0 right-0 h-[2px] bg-violet-500 animate-pulse" />
+          {running ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500 shrink-0" />
+          ) : error ? (
+            <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+          ) : (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
           )}
-
-          <div className="flex items-center justify-between gap-2 w-full">
-            <div className="flex items-center gap-2 min-w-0">
-              {running ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500 shrink-0" />
-              ) : error ? (
-                <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-              )}
-              <span className="font-semibold text-xs truncate text-foreground">
-                Delegated to: {cleanName}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5 text-[10px] uppercase font-semibold tracking-wider text-muted-foreground/60 select-none">
-              {running ? 'Running' : error ? 'Failed' : 'Completed'}
-            </div>
-          </div>
-
+          <span className="font-medium text-xs truncate text-foreground/80 min-w-0">
+            {cleanName}
+          </span>
           {taskText && (
-            <div className="text-[11px] text-muted-foreground line-clamp-2 bg-muted/20 rounded p-1.5 font-mono border border-border/10">
-              {taskText}
-            </div>
+            <span className="text-[11px] text-muted-foreground/50 truncate min-w-0 flex-1">
+              &mdash; {taskText}
+            </span>
           )}
-
-          {durationMs != null && durationMs > 0 && (
-            <div className="text-[9px] text-muted-foreground/40 font-mono self-end">
+          <span className="text-[9px] uppercase font-semibold tracking-wider text-muted-foreground/40 shrink-0 ml-auto">
+            {running ? 'Running' : error ? 'Failed' : 'Done'}
+          </span>
+          {durationMs != null && durationMs > 0 && !running && (
+            <span className="text-[9px] text-muted-foreground/30 font-mono shrink-0">
               {(durationMs / 1000).toFixed(1)}s
-            </div>
+            </span>
           )}
         </button>
       </div>
 
-      {modalOpen && isClickable && agentStream && (
+      {modalOpen && isClickable && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={() => setModalOpen(false)}
@@ -111,7 +98,6 @@ export function DelegationCard({
             className="bg-card border border-border/60 rounded-2xl shadow-2xl w-[90vw] max-w-4xl h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border/50 bg-card/50">
               <div className="flex items-center gap-2.5">
                 <div className="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
@@ -121,9 +107,11 @@ export function DelegationCard({
                   <h3 className="text-sm font-semibold text-foreground">
                     {cleanName} Event Stream
                   </h3>
-                  <p className="text-[10px] text-muted-foreground/60 font-mono">
-                    Instance: {instanceId}
-                  </p>
+                  {instanceId && (
+                    <p className="text-[10px] text-muted-foreground/60 font-mono">
+                      Instance: {instanceId}
+                    </p>
+                  )}
                 </div>
               </div>
               <button
@@ -134,9 +122,18 @@ export function DelegationCard({
               </button>
             </div>
 
-            {/* Scrollable Event Stream Content */}
             <div className="flex-1 overflow-y-auto p-6 bg-card/20">
-              <AgentStreamView state={agentStream} />
+              {agentStream ? (
+                <AgentStreamView state={agentStream} />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
+                  <Bot className="h-8 w-8" />
+                  <p className="text-xs">Waiting for agent stream...</p>
+                  {taskText && (
+                    <p className="text-[11px] max-w-md text-center">{taskText}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

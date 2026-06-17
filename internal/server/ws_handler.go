@@ -11,8 +11,8 @@ import (
 // ─── WebSocket Upgrader ─────────────────────────────────────────────────────
 
 var wsUpgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
 	// Allow all origins — this is a local-only server.
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
@@ -49,14 +49,15 @@ func (m *Mux) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // ─── Read Pump ──────────────────────────────────────────────────────────────
 
 // readPump reads messages from the WebSocket connection.
-// It enforces read limits and detects disconnections.
+// It handles client chat messages (chat_send, chat_cancel, tool_confirm) in
+// addition to app-level ping-pong.
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadLimit(512) // We don't expect client messages, but allow small pings
+	c.conn.SetReadLimit(65536) // allow large prompt messages
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -68,12 +69,30 @@ func (c *Client) readPump() {
 		if err != nil {
 			break
 		}
-		// Intercept application-level text ping-pong
-		if messageType == websocket.TextMessage && string(p) == "ping" {
-			c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-			select {
+
+		if messageType == websocket.TextMessage {
+			if string(p) == "ping" {
+				c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+				select {
 				case c.send <- jsonMarshal(WSMessage{Type: "pong"}):
 				default:
+				}
+				continue
+			}
+
+			// Parse as ClientMessage.
+			var msg ClientMessage
+			if err := json.Unmarshal(p, &msg); err != nil {
+				continue
+			}
+
+			switch msg.Type {
+			case "chat_send":
+				c.hub.handleChatSend(c, &msg)
+			case "chat_cancel":
+				c.hub.handleChatCancel(c, &msg)
+			case "tool_confirm":
+				c.hub.handleToolConfirm(c, &msg)
 			}
 		}
 	}

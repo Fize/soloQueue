@@ -335,7 +335,128 @@ export interface WSSimulationProgressMessage {
   progress: SimulationProgress
 }
 
-export type WSMessage = WSStateMessage | WSSimulationEventMessage | WSSimulationProgressMessage
+// Chat streaming messages (server → client)
+export interface WSChatChunk {
+  type: 'chat_chunk'
+  request_id: string
+  delta: string
+}
+
+export interface WSReasoningChunk {
+  type: 'reasoning_chunk'
+  request_id: string
+  delta: string
+}
+
+export interface WSToolStart {
+  type: 'tool_start'
+  request_id: string
+  call_id: string
+  name: string
+  args: string
+}
+
+export interface WSToolDone {
+  type: 'tool_done'
+  request_id: string
+  call_id: string
+  name: string
+  result: string
+  error: string
+  duration_ms: number
+}
+
+export interface WSToolConfirm {
+  type: 'tool_confirm'
+  request_id: string
+  call_id: string
+  name: string
+  prompt: string
+  allow_in_session: boolean
+}
+
+export interface WSChatDone {
+  type: 'chat_done'
+  request_id: string
+  content: string
+  reasoning_content: string
+}
+
+export interface WSChatError {
+  type: 'chat_error'
+  request_id: string
+  error: string
+}
+
+export interface WSDelegationStart {
+  type: 'delegation_start'
+  request_id: string
+  num_tasks: number
+}
+
+export interface WSDelegationDone {
+  type: 'delegation_done'
+  request_id: string
+  target_agent_id: string
+  agent_name?: string
+  duration_ms?: number
+  result_content?: string
+}
+
+export interface WSSessionName {
+  type: 'session_name'
+  request_id: string
+  name: string
+}
+
+export interface WSConnected {
+  type: 'connected'
+}
+
+export interface WSPong {
+  type: 'pong'
+}
+
+export type WSMessage =
+  | WSStateMessage
+  | WSSimulationEventMessage
+  | WSSimulationProgressMessage
+  | WSChatChunk
+  | WSReasoningChunk
+  | WSToolStart
+  | WSToolDone
+  | WSToolConfirm
+  | WSChatDone
+  | WSChatError
+  | WSDelegationStart
+  | WSDelegationDone
+  | WSSessionName
+  | WSConnected
+  | WSPong
+
+// Client → server messages
+export interface ClientChatSend {
+  type: 'chat_send'
+  request_id: string
+  session_id: string
+  prompt: string
+  files?: { name: string; path: string }[]
+}
+
+export interface ClientChatCancel {
+  type: 'chat_cancel'
+  request_id: string
+  session_id: string
+}
+
+export interface ClientToolConfirm {
+  type: 'tool_confirm'
+  call_id: string
+  choice: string
+  session_id: string
+}
+
+export type ClientMessage = ClientChatSend | ClientChatCancel | ClientToolConfirm
 
 // ─── Config Types ────────────────────────────────────────────────────────────
 
