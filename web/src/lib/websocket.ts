@@ -16,12 +16,28 @@ export interface ChatHandler {
   onChunk?: (delta: string) => void
   onReasoning?: (delta: string) => void
   onToolStart?: (data: { call_id: string; name: string; args: string }) => void
-  onToolDone?: (data: { call_id: string; name: string; result: string; error: string; duration_ms: number }) => void
-  onToolConfirm?: (data: { call_id: string; name: string; prompt: string; allow_in_session: boolean }) => void
+  onToolDone?: (data: {
+    call_id: string
+    name: string
+    result: string
+    error: string
+    duration_ms: number
+  }) => void
+  onToolConfirm?: (data: {
+    call_id: string
+    name: string
+    prompt: string
+    allow_in_session: boolean
+  }) => void
   onDone?: (data: { content: string; reasoning_content: string }) => void
   onError?: (error: string) => void
   onDelegationStart?: (data: { num_tasks: number }) => void
-  onDelegationDone?: (data: { target_agent_id: string; agent_name?: string; duration_ms?: number; result_content?: string }) => void
+  onDelegationDone?: (data: {
+    target_agent_id: string
+    agent_name?: string
+    duration_ms?: number
+    result_content?: string
+  }) => void
   onClose?: () => void
 }
 

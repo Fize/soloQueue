@@ -11,12 +11,17 @@ import {
   Bot,
   X,
   ShieldAlert,
+  CheckCircle2,
+  ExternalLink,
 } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { useState, useRef, useEffect } from 'react'
 import { confirmSessionTool, getFileUrl } from '@/lib/api'
 import { useChatStore } from '@/stores/chatStore'
-import { formatToolCallHeader } from '@/lib/utils'
+import { useAgentStore } from '@/stores/agentStore'
+import { useAgentStream } from '@/hooks/useAgentStream'
+import { AgentStreamView } from '@/components/AgentStreamView'
+import { formatToolCallHeader, cn } from '@/lib/utils'
 import { DelegationCard } from '@/components/DelegationCard'
 
 export interface ChatMessageProps {
@@ -215,10 +220,11 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
-    // delegate_* tool calls are rendered as standalone DelegationCard —
-    // keep them outside the worked group so they are visually independent.
-    const isDelegate = seg.type === 'tool_call' && seg.name.startsWith('delegate_')
-    if (!isDelegate && (seg.type === 'thinking' || seg.type === 'tool_call')) {
+    // Delegation segments (active subagent sessions) and delegate_* tool calls
+    // are rendered as standalone cards — keep them outside the worked group.
+    const isStandalone =
+      seg.type === 'delegation' || (seg.type === 'tool_call' && seg.name.startsWith('delegate_'))
+    if (!isStandalone && (seg.type === 'thinking' || seg.type === 'tool_call')) {
       currentGroup.push({ segment: seg, originalIndex: i })
     } else {
       flush()
@@ -363,7 +369,7 @@ function SegmentView({
     case 'tool_confirm':
       return <ToolConfirmSegment segment={segment} isUser={isUser} />
     case 'delegation':
-      return <SubagentCard segment={segment} isUser={isUser} />
+      return <SubagentCard segment={segment} />
     case 'error':
       return (
         <div
@@ -380,97 +386,152 @@ function SegmentView({
 
 function SubagentCard({
   segment,
-  isUser,
 }: {
   segment: Extract<ChatMessage['segments'][number], { type: 'delegation' }>
-  isUser?: boolean
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const running = segment.status === 'running'
   const failed = segment.status === 'failed'
-  const hasDetail = !!segment.resultContent
+  const completed = segment.status === 'completed'
+  const hasResult = !!segment.resultContent
+
+  // Resolve the live agent stream by matching the agent name.
+  const agentsData = useAgentStore((state) => state.agents)
+  const namePart = segment.agentName.toLowerCase().replace(/[\s_]/g, '')
+  const matchedAgent = agentsData?.agents.find(
+    (a) => a.name.toLowerCase().replace(/[\s_]/g, '') === namePart
+  )
+  const instanceId = matchedAgent?.instance_id || null
+  const agentStream = useAgentStream(instanceId)
+
+  // Clickable whenever the agent is running (to watch live stream) or has
+  // finished output (to review results).
+  const isClickable = running || completed || failed
 
   return (
     <>
       <button
         onClick={() => {
-          if (!running && hasDetail) setModalOpen(true)
+          if (isClickable) setModalOpen(true)
         }}
-        className={`w-full text-left text-xs border rounded-xl overflow-hidden transition-colors ${
-          !running && hasDetail
-            ? 'cursor-pointer hover:ring-1 hover:ring-violet-500/30'
-            : 'cursor-default'
-        } ${isUser ? 'border-primary-foreground/15 bg-primary-foreground/5' : 'border-violet-500/20 bg-violet-500/5'}`}
+        disabled={!isClickable}
+        className={cn(
+          'w-full text-left rounded-xl border overflow-hidden transition-all',
+          isClickable
+            ? 'cursor-pointer hover:shadow-md hover:shadow-violet-500/5 border-violet-500/30 bg-gradient-to-r from-violet-500/8 via-violet-500/4 to-transparent'
+            : 'cursor-default border-border/50 bg-card/20'
+        )}
       >
+        {/* Accent bar */}
         <div
-          className={`flex items-center gap-2 w-full px-3 py-2 ${isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
-        >
-          {running ? (
-            <Loader2
-              className={`h-3.5 w-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-violet-500'}`}
-            />
-          ) : failed ? (
-            <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-          ) : (
-            <div className="h-3.5 w-3.5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            </div>
+          className={cn(
+            'h-0.5 w-full',
+            running
+              ? 'bg-gradient-to-r from-violet-500 to-purple-400'
+              : failed
+                ? 'bg-destructive/60'
+                : 'bg-emerald-500/40'
           )}
-          <Bot
-            className={`h-3 w-3 ${isUser ? 'text-primary-foreground/50' : 'text-violet-500/60'}`}
-          />
-          <span className="font-medium">{segment.agentName}</span>
+        />
+
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          {/* Status icon */}
+          <div
+            className={cn(
+              'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
+              running ? 'bg-violet-500/15' : failed ? 'bg-destructive/10' : 'bg-emerald-500/10'
+            )}
+          >
+            {running ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+            ) : failed ? (
+              <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            )}
+          </div>
+
+          {/* Content */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-xs text-foreground/90 truncate">
+                {segment.agentName}
+              </span>
+              <span
+                className={cn(
+                  'text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md',
+                  running
+                    ? 'bg-violet-500/15 text-violet-600'
+                    : failed
+                      ? 'bg-destructive/10 text-destructive'
+                      : 'bg-emerald-500/10 text-emerald-600'
+                )}
+              >
+                {running ? 'Running' : failed ? 'Failed' : 'Done'}
+              </span>
+              {isClickable && <ExternalLink className="h-2.5 w-2.5 text-violet-500/40 shrink-0" />}
+            </div>
+            {segment.task && (
+              <p className="text-[11px] text-muted-foreground/60 truncate mt-0.5">{segment.task}</p>
+            )}
+          </div>
+
+          {/* Duration */}
           {segment.durationMs != null && (
-            <span
-              className={`tabular-nums ${isUser ? 'text-primary-foreground/50' : 'text-muted-foreground/50'}`}
-            >
+            <span className="text-[9px] text-muted-foreground/30 font-mono shrink-0">
               {(segment.durationMs / 1000).toFixed(1)}s
             </span>
           )}
-          <span className="flex-1" />
-          <span
-            className={`text-[10px] uppercase tracking-wider ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/40'}`}
-          >
-            {running ? 'Running...' : failed ? 'Failed' : 'Completed'}
-          </span>
-          {!running && hasDetail && <ChevronRight className="h-3 w-3 text-muted-foreground/40" />}
         </div>
       </button>
 
-      {/* Modal for subagent detail */}
-      {modalOpen && hasDetail && (
+      {/* Modal for subagent live stream / result */}
+      {modalOpen && isClickable && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={() => setModalOpen(false)}
         >
           <div
-            className="bg-background border border-border/60 rounded-2xl shadow-2xl max-w-2xl w-[90vw] max-h-[80vh] overflow-hidden"
+            className="bg-card border border-border/60 rounded-2xl shadow-2xl w-[90vw] max-w-4xl h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
-              <div className="flex items-center gap-2">
-                <Bot className="h-4 w-4 text-violet-500" />
-                <span className="text-sm font-semibold text-foreground">{segment.agentName}</span>
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border/50 bg-card/50">
+              <div className="flex items-center gap-2.5">
+                <div className="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                  <Bot className="h-4 w-4 text-violet-500" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">{segment.agentName}</h3>
+                  {instanceId && (
+                    <p className="text-[10px] text-muted-foreground/60 font-mono">
+                      Instance: {instanceId}
+                    </p>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() => setModalOpen(false)}
-                className="text-muted-foreground/50 hover:text-muted-foreground transition-colors p-1"
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
               >
-                <svg
-                  className="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="p-5 overflow-y-auto max-h-[calc(80vh-60px)]">
-              <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/80 font-mono">
-                {segment.resultContent}
-              </pre>
+
+            <div className="flex-1 overflow-y-auto p-6 bg-card/20">
+              {running && agentStream ? (
+                <AgentStreamView state={agentStream} />
+              ) : hasResult ? (
+                <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/80 font-mono">
+                  {segment.resultContent}
+                </pre>
+              ) : agentStream ? (
+                <AgentStreamView state={agentStream} />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
+                  <Bot className="h-8 w-8" />
+                  <p className="text-xs">Waiting for agent stream...</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bot, Loader2, CheckCircle2, XCircle, X } from 'lucide-react'
+import { Bot, Loader2, CheckCircle2, XCircle, X, ExternalLink } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
 import { AgentStreamView } from '@/components/AgentStreamView'
@@ -46,46 +46,86 @@ export function DelegationCard({
   }
   const taskText = getTaskText()
 
-  const isClickable = running
+  const isClickable = true // always clickable — user may inspect agent stream at any time
 
   return (
     <>
-      <div className="my-1.5">
+      <div className="my-2">
         <button
           onClick={() => {
             if (isClickable) setModalOpen(true)
           }}
           disabled={!isClickable}
           className={cn(
-            'w-full text-left rounded-lg border px-2.5 py-2 transition-colors flex items-center gap-2',
+            'w-full text-left rounded-xl border overflow-hidden transition-all',
             isClickable
-              ? 'cursor-pointer hover:bg-muted/40 border-violet-500/20 bg-violet-500/5'
-              : 'cursor-default border-border/60 bg-card/30'
+              ? 'cursor-pointer hover:shadow-md hover:shadow-violet-500/5 border-violet-500/30 bg-gradient-to-r from-violet-500/8 via-violet-500/4 to-transparent'
+              : 'cursor-default border-border/50 bg-card/20'
           )}
         >
-          {running ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500 shrink-0" />
-          ) : error ? (
-            <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
-          ) : (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-          )}
-          <span className="font-medium text-xs truncate text-foreground/80 min-w-0">
-            {cleanName}
-          </span>
-          {taskText && (
-            <span className="text-[11px] text-muted-foreground/50 truncate min-w-0 flex-1">
-              &mdash; {taskText}
-            </span>
-          )}
-          <span className="text-[9px] uppercase font-semibold tracking-wider text-muted-foreground/40 shrink-0 ml-auto">
-            {running ? 'Running' : error ? 'Failed' : 'Done'}
-          </span>
-          {durationMs != null && durationMs > 0 && !running && (
-            <span className="text-[9px] text-muted-foreground/30 font-mono shrink-0">
-              {(durationMs / 1000).toFixed(1)}s
-            </span>
-          )}
+          {/* Accent bar */}
+          <div
+            className={cn(
+              'h-0.5 w-full',
+              running
+                ? 'bg-gradient-to-r from-violet-500 to-purple-400'
+                : error
+                  ? 'bg-destructive/60'
+                  : 'bg-emerald-500/40'
+            )}
+          />
+
+          <div className="flex items-center gap-2.5 px-3 py-2">
+            {/* Agent icon */}
+            <div
+              className={cn(
+                'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
+                running ? 'bg-violet-500/15' : error ? 'bg-destructive/10' : 'bg-emerald-500/10'
+              )}
+            >
+              {running ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+              ) : error ? (
+                <XCircle className="h-3.5 w-3.5 text-destructive" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              )}
+            </div>
+
+            {/* Content */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-xs text-foreground/90 truncate">
+                  {cleanName}
+                </span>
+                <span
+                  className={cn(
+                    'text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md',
+                    running
+                      ? 'bg-violet-500/15 text-violet-600'
+                      : error
+                        ? 'bg-destructive/10 text-destructive'
+                        : 'bg-emerald-500/10 text-emerald-600'
+                  )}
+                >
+                  {running ? 'Running' : error ? 'Failed' : 'Done'}
+                </span>
+                {isClickable && (
+                  <ExternalLink className="h-2.5 w-2.5 text-violet-500/40 shrink-0" />
+                )}
+              </div>
+              {taskText && (
+                <p className="text-[11px] text-muted-foreground/60 truncate mt-0.5">{taskText}</p>
+              )}
+            </div>
+
+            {/* Duration */}
+            {durationMs != null && durationMs > 0 && !running && (
+              <span className="text-[9px] text-muted-foreground/30 font-mono shrink-0">
+                {(durationMs / 1000).toFixed(1)}s
+              </span>
+            )}
+          </div>
         </button>
       </div>
 
@@ -129,9 +169,7 @@ export function DelegationCard({
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
                   <Bot className="h-8 w-8" />
                   <p className="text-xs">Waiting for agent stream...</p>
-                  {taskText && (
-                    <p className="text-[11px] max-w-md text-center">{taskText}</p>
-                  )}
+                  {taskText && <p className="text-[11px] max-w-md text-center">{taskText}</p>}
                 </div>
               )}
             </div>

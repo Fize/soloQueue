@@ -127,7 +127,7 @@ export function ChatInput({
       .filter((att) => att.status === 'done' && att.path)
       .map((att) => ({ name: att.name, path: att.path! }))
 
-    if ((!text && uploadedFiles.length === 0) || streaming || disabled) return
+    if ((!text && uploadedFiles.length === 0) || (streaming && !delegating) || disabled) return
 
     // Fallback prompt to satisfy backend non-empty check
     const finalPrompt =
@@ -209,7 +209,7 @@ export function ChatInput({
               className="flex-1 resize-none bg-transparent px-4 py-3 text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none min-h-[48px] rounded-2xl"
               placeholder={placeholderText}
               rows={1}
-              disabled={streaming || disabled}
+              disabled={(streaming && !delegating) || disabled}
               onKeyDown={handleKeyDown}
               onInput={autoResize}
               onPaste={handlePaste}

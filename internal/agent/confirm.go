@@ -115,10 +115,10 @@ func isToolPruned(level string, name string) bool {
 		}
 	}
 	if strings.HasPrefix(lvl, "L1") {
-		// L1-SimpleSingleFile: prune delegate_*, Skill, and all todo tools
-		if strings.HasPrefix(name, "delegate_") {
-			return true
-		}
+		// L1-SimpleSingleFile: prune Skill and todo tools only.
+		// delegate_* tools are NOT pruned here — the system prompt controls
+		// delegation behavior. Pruning delegate tools breaks L2 supervisors
+		// that receive L1 task classifications from direct user queries.
 		if name == "Skill" {
 			return true
 		}

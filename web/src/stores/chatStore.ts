@@ -314,16 +314,39 @@ export const useChatStore = create<ChatState>((set) => ({
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
       if (!last || last.role !== 'assistant') return s
+
+      const normalize = (n: string) => n.toLowerCase().replace(/[\s_]/g, '')
+      const target = normalize(agentName)
+
       const segs = last.segments.map((seg) => {
-        if (seg.type === 'delegation' && seg.agentName === agentName && seg.status === 'running') {
-          return { ...seg, status: 'completed' as const, durationMs, resultContent }
-        }
-        // If no matching running delegation, mark the last running one
-        if (seg.type === 'delegation' && seg.status === 'running') {
+        if (seg.type !== 'delegation' || seg.status !== 'running') return seg
+        if (target && normalize(seg.agentName) === target) {
           return { ...seg, status: 'completed' as const, durationMs, resultContent }
         }
         return seg
       })
+
+      // Fallback: if no exact match, complete the last running delegation.
+      let lastRunningIdx = -1
+      for (let i = segs.length - 1; i >= 0; i--) {
+        const seg = segs[i]
+        if (seg.type === 'delegation' && seg.status === 'running') {
+          lastRunningIdx = i
+          break
+        }
+      }
+      if (lastRunningIdx >= 0) {
+        const seg = segs[lastRunningIdx]
+        if (seg.type === 'delegation') {
+          segs[lastRunningIdx] = {
+            ...seg,
+            status: 'completed' as const,
+            durationMs,
+            resultContent,
+          }
+        }
+      }
+
       return {
         messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
       }
