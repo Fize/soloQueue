@@ -527,7 +527,7 @@ func (s *Store) writeTeamFile(path string, t *Team) error {
 		return fmt.Errorf("teamstore: marshal team frontmatter: %w", err)
 	}
 
-	content := fmt.Sprintf("---\n%s---\n%s\n", strings.TrimSpace(string(fmBytes)), strings.TrimSpace(t.Description))
+	content := fmt.Sprintf("---\n%s\n---\n%s\n", strings.TrimSpace(string(fmBytes)), strings.TrimSpace(t.Description))
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
@@ -551,7 +551,7 @@ func (s *Store) writeAgentFile(path string, a *Agent) error {
 		return fmt.Errorf("teamstore: marshal agent frontmatter: %w", err)
 	}
 
-	content := fmt.Sprintf("---\n%s---\n%s\n", strings.TrimSpace(string(fmBytes)), strings.TrimSpace(a.SystemPrompt))
+	content := fmt.Sprintf("---\n%s\n---\n%s\n", strings.TrimSpace(string(fmBytes)), strings.TrimSpace(a.SystemPrompt))
 	return os.WriteFile(path, []byte(content), 0644)
 }
 

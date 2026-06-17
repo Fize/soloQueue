@@ -9,6 +9,7 @@ import { Sparkles, PanelRight } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { AgentListPage } from '@/components/AgentListPage'
 import { cn } from '@/lib/utils'
+import type { AgentInfo } from '@/types'
 import { L2SessionStatusPanel } from '@/components/L2SessionStatusPanel'
 
 export function ChatPage() {
@@ -80,23 +81,23 @@ export function ChatPage() {
         l1 = agents.find((a) => !l2Ids.has(a.instance_id) && !l3Ids.has(a.instance_id))
       }
 
-      return [
-        l1 || {
-          id: 'main',
-          instance_id: '',
-          name: 'L1 Agent',
-          state: 'stopped' as const,
-          model_id: 'Expert Model',
-          group: 'L1',
-          is_leader: true,
-          task_level: '',
-          error_count: 0,
-          last_error: '',
-          pending_delegations: 0,
-          mailbox_high: 0,
-          mailbox_normal: 0,
-        },
-      ]
+      const fallback: AgentInfo = {
+        id: 'main',
+        instance_id: '',
+        name: 'L1 Agent',
+        state: 'stopped' as const,
+        model_id: 'Expert Model',
+        provider_id: '',
+        group: 'L1',
+        is_leader: true,
+        task_level: '',
+        error_count: 0,
+        last_error: '',
+        pending_delegations: 0,
+        mailbox_high: 0,
+        mailbox_normal: 0,
+      }
+      return [l1 || fallback]
     }
 
     if (!activeGroup) return []
@@ -113,23 +114,23 @@ export function ChatPage() {
     // Map each template to live instance or static placeholder
     return team.agents.map((tmpl) => {
       const live = agentsData?.agents.find((a) => a.id === tmpl.id)
-      return (
-        live || {
-          id: tmpl.id,
-          instance_id: '',
-          name: tmpl.name,
-          state: 'stopped' as const,
-          model_id: tmpl.model_id,
-          group: activeGroup,
-          is_leader: tmpl.is_leader,
-          task_level: '',
-          error_count: 0,
-          last_error: '',
-          pending_delegations: 0,
-          mailbox_high: 0,
-          mailbox_normal: 0,
-        }
-      )
+      const placeholder: AgentInfo = {
+        id: tmpl.id,
+        instance_id: '',
+        name: tmpl.name,
+        state: 'stopped' as const,
+        model_id: tmpl.model_id,
+        provider_id: '',
+        group: activeGroup,
+        is_leader: tmpl.is_leader,
+        task_level: '',
+        error_count: 0,
+        last_error: '',
+        pending_delegations: 0,
+        mailbox_high: 0,
+        mailbox_normal: 0,
+      }
+      return live || placeholder
     })
   }, [agentsData, teamsData, activeGroup, isL1Session])
 

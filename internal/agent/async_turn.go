@@ -163,6 +163,13 @@ func (a *Agent) execToolsWithAsync(
 
 		results[i] = formatDelegationStarted(tc)
 
+		a.emit(ctx, out, ToolExecStartEvent{
+			Iter:   iter,
+			CallID: tc.ID,
+			Name:   tc.Function.Name,
+			Args:   tc.Function.Arguments,
+		})
+
 		turnState.pending.Add(1)
 		replyCh := make(chan delegateResult, 1)
 
@@ -472,6 +479,24 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 		TargetAgentID: turn.agentID,
 		ResultContent: resultContent,
 	})
+
+	// 为每个异步委托工具发射 ToolExecDoneEvent，使前端能将
+	// ToolExecStartEvent 创建的 tool_call segment 标记为完成。
+	for i, tc := range turn.toolCalls {
+		if !strings.HasPrefix(tc.Function.Name, "delegate_") {
+			continue
+		}
+		result := ""
+		if i < len(turn.results) {
+			result = turn.results[i]
+		}
+		a.emit(turn.callerCtx, turn.out, ToolExecDoneEvent{
+			Iter:   turn.iter,
+			CallID: tc.ID,
+			Name:   tc.Function.Name,
+			Result: result,
+		})
+	}
 
 	// Overflow check: async results may have pushed CW over capacity
 	// while the agent was handling user messages.

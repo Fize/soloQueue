@@ -215,7 +215,10 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
-    if (seg.type === 'thinking' || seg.type === 'tool_call') {
+    // delegate_* tool calls are rendered as standalone DelegationCard —
+    // keep them outside the worked group so they are visually independent.
+    const isDelegate = seg.type === 'tool_call' && seg.name.startsWith('delegate_')
+    if (!isDelegate && (seg.type === 'thinking' || seg.type === 'tool_call')) {
       currentGroup.push({ segment: seg, originalIndex: i })
     } else {
       flush()

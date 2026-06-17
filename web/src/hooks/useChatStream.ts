@@ -16,7 +16,6 @@ export function useChatStream() {
     removeLastEmptyAssistantMessage,
     renameSession,
     markTitleGenerated,
-    addDelegationSegment,
     completeLastDelegation,
   } = useChatStore()
 
@@ -112,10 +111,8 @@ export function useChatStream() {
               })
               break
             case 'delegation_start':
-              addDelegationSegment({
-                agentName: `Subagent (${ev.num_tasks} task${ev.num_tasks > 1 ? 's' : ''})`,
-                task: '',
-              })
+              // tool_start now creates the tool_call segment that renders
+              // DelegationCard — skip the legacy delegation segment.
               break
             case 'delegation_done':
               completeLastDelegation(ev.target_agent_id, ev.duration_ms, ev.result_content)

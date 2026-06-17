@@ -1,6 +1,6 @@
 import type { ChatSession, AgentInfo, LLMModel } from '@/types'
 import { StatusBadge } from '@/components/ui/status-badge'
-import { Folder, Cpu, Layers, Copy, Check } from 'lucide-react'
+import { Folder, Cpu, Layers, Copy, Check, Lock } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { listModels, getDefaultModels } from '@/lib/api'
 
@@ -49,12 +49,17 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
   const pct = Math.min(100, Math.max(0, (used / limit) * 100))
 
   const isProcessing = activeAgent?.state === 'processing'
+  const isLocked = activeAgent?.level_locked ?? false
+
+  // Provider: prefer live agent data (has override during processing), fallback to config.
+  const providerId = activeAgent?.provider_id || fastModel?.providerId || ''
 
   // During active processing the agent's model_id reflects the router-assigned override.
   // While idle it falls back to the template definition, so we prefer the live config value.
-  const displayModel = isProcessing && activeAgent?.model_id
-    ? activeAgent.model_id
-    : (fastModel?.name || fastModel?.id || activeAgent?.model_id)
+  const displayModel =
+    isProcessing && activeAgent?.model_id
+      ? activeAgent.model_id
+      : fastModel?.name || fastModel?.id || activeAgent?.model_id
 
   const formatNumber = (num: number) => new Intl.NumberFormat().format(num)
 
@@ -104,45 +109,52 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
             {displayModel && (
               <div className="pt-3 border-t border-border/20 space-y-1">
                 <span className="text-[10px] font-semibold text-muted-foreground/60">
-                  {isProcessing ? 'Active Model' : 'Default Model (Fast)'}
+                  {isLocked
+                    ? 'Locked — Active Model'
+                    : isProcessing
+                      ? 'Active Model'
+                      : 'Default Model (Fast)'}
                 </span>
                 <div className="font-mono text-[9px] text-foreground bg-muted/40 p-2 rounded-lg border border-border/10 flex items-center gap-1.5 min-w-0">
                   {/* Provider badge */}
-                  {!isProcessing && fastModel?.providerId && (
+                  {providerId && (
                     <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded">
-                      {fastModel.providerId}
+                      {providerId}
                     </span>
                   )}
+                  {isLocked && <Lock className="h-3 w-3 text-amber-400 shrink-0" />}
                   <span className="truncate">{displayModel}</span>
                 </div>
               </div>
             )}
 
-            {/* Iteration + Task Level — only shown during active processing */}
-            {activeAgent && (activeAgent.iteration !== undefined || activeAgent.task_level) && (
-              <div className="pt-3 border-t border-border/20 grid grid-cols-2 gap-4">
-                {activeAgent.iteration !== undefined && (
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-semibold text-muted-foreground/60">
-                      Iteration
-                    </span>
-                    <div className="font-mono text-xs font-semibold text-violet-500 bg-violet-500/10 px-2.5 py-1 rounded-lg border border-violet-500/20 w-fit min-w-[50px] text-center">
-                      {activeAgent.iteration}
+            {/* Iteration + Task Level — only shown during active processing or locked */}
+            {activeAgent &&
+              (activeAgent.iteration !== undefined || activeAgent.task_level || isLocked) && (
+                <div className="pt-3 border-t border-border/20 grid grid-cols-2 gap-4">
+                  {activeAgent.iteration !== undefined && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-semibold text-muted-foreground/60">
+                        Iteration
+                      </span>
+                      <div className="font-mono text-xs font-semibold text-violet-500 bg-violet-500/10 px-2.5 py-1 rounded-lg border border-violet-500/20 w-fit min-w-[50px] text-center">
+                        {activeAgent.iteration}
+                      </div>
                     </div>
-                  </div>
-                )}
-                {activeAgent.task_level && (
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-semibold text-muted-foreground/60">
-                      Task Level
-                    </span>
-                    <div className="font-mono text-xs font-semibold text-foreground bg-muted/40 px-2.5 py-1 rounded-lg border border-border/10 w-fit capitalize">
-                      {activeAgent.task_level}
+                  )}
+                  {(activeAgent.task_level || isLocked) && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-semibold text-muted-foreground/60">
+                        Task Level
+                      </span>
+                      <div className="font-mono text-xs font-semibold text-foreground bg-muted/40 px-2.5 py-1 rounded-lg border border-border/10 w-fit capitalize flex items-center gap-1.5">
+                        {isLocked && <Lock className="h-3 w-3 text-amber-400" />}
+                        {activeAgent.task_level || activeAgent.last_level || '—'}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
           </div>
         </div>
 

@@ -68,9 +68,14 @@ export interface AgentInfo {
   name: string
   state: AgentState
   model_id: string
+  provider_id: string
   group: string
   is_leader: boolean
   task_level: string
+  thinking_enabled?: boolean
+  reasoning_effort?: string
+  level_locked?: boolean
+  last_level?: string
   error_count: number
   last_error: string
   pending_delegations: number
