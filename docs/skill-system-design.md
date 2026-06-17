@@ -5,6 +5,7 @@
 Skills 是 soloQueue 中受 Claude Code 启发的技能系统，允许用户通过编写 `SKILL.md` 文件来扩展 AI Agent 的行为。每个 Skill 是一个 Markdown 文件（带 YAML frontmatter），定义了一段可被 Agent 通过工具调用或斜杠命令触发的指令集。
 
 系统支持三种加载来源（优先级从低到高）：
+
 - **Builtin**：Go 代码内注册的内置技能（当前为 stub）
 - **Plugin**：插件提供的技能（`~/.codebuddy/plugins/.../skills/`）
 - **User**：用户安装的技能（`~/.soloqueue/skills/`）
@@ -38,24 +39,26 @@ required_env:
 ---
 
 # Fullstack Development Skill
+
 ## Instructions
+
 ...
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `name` | string | 技能名称，缺省时用父目录名 |
-| `description` | string | 给 LLM 的描述，缺省时取正文第一段 |
-| `when_to_use` | string | 附加触发条件说明 |
-| `allowed-tools` | string | 逗号分隔的工具白名单（`Bash(git:*)`、`mcp__server__tool`、glob 匹配） |
-| `disable_model_invocation` | bool | `true` 时 Skill 工具描述中隐藏，只能通过 `/slash` 调用 |
-| `user_invocable` | bool | `false` 时隐藏于 UI `/` 菜单，仅供内部/AI 使用 |
-| `context` | string | `""`=内联执行，`"fork"`=派生子 Agent 执行 |
-| `agent` | string | `context=fork` 时指定子 Agent 类型（`Explore`/`Plan` 等） |
-| `triggers` | []string | 触发词列表，用于 UI 展示和匹配 |
-| `upstream` | string | 远程 Git 仓库 URL（技能商店来源） |
-| `branch` / `subpath` | string | 远程仓库的分支和子路径 |
-| `required_env` | []string | 执行前检查的必需环境变量 |
+| 字段                       | 类型     | 说明                                                                  |
+| -------------------------- | -------- | --------------------------------------------------------------------- |
+| `name`                     | string   | 技能名称，缺省时用父目录名                                            |
+| `description`              | string   | 给 LLM 的描述，缺省时取正文第一段                                     |
+| `when_to_use`              | string   | 附加触发条件说明                                                      |
+| `allowed-tools`            | string   | 逗号分隔的工具白名单（`Bash(git:*)`、`mcp__server__tool`、glob 匹配） |
+| `disable_model_invocation` | bool     | `true` 时 Skill 工具描述中隐藏，只能通过 `/slash` 调用                |
+| `user_invocable`           | bool     | `false` 时隐藏于 UI `/` 菜单，仅供内部/AI 使用                        |
+| `context`                  | string   | `""`=内联执行，`"fork"`=派生子 Agent 执行                             |
+| `agent`                    | string   | `context=fork` 时指定子 Agent 类型（`Explore`/`Plan` 等）             |
+| `triggers`                 | []string | 触发词列表，用于 UI 展示和匹配                                        |
+| `upstream`                 | string   | 远程 Git 仓库 URL（技能商店来源）                                     |
+| `branch` / `subpath`       | string   | 远程仓库的分支和子路径                                                |
+| `required_env`             | []string | 执行前检查的必需环境变量                                              |
 
 ### 2.2 内存数据结构
 
@@ -112,6 +115,7 @@ Build()
 ```
 
 `LoadSkillsFromDir()` 的实现（`internal/skill/skill_md.go`）：
+
 1. 检查目录是否存在，不存在则返回空 map（不报错）
 2. 遍历目录下所有子目录，每个子目录视为一个 Skill
 3. 读取 `{dir}/SKILL.md`，调用 `ParseSkillMD(path)` 解析
@@ -199,11 +203,11 @@ Agent 执行 SkillTool.Execute(ctx, rawArgs)
 
 `PreprocessContent()`（`internal/skill/preprocess.go`）按序执行三步：
 
-| 步骤 | 语法 | 实现 |
-|------|------|------|
-| 参数替换 | `$ARGUMENTS` | `strings.ReplaceAll` 全局替换 |
+| 步骤       | 语法             | 实现                                                                    |
+| ---------- | ---------------- | ----------------------------------------------------------------------- |
+| 参数替换   | `$ARGUMENTS`     | `strings.ReplaceAll` 全局替换                                           |
 | Shell 执行 | `` !`command` `` | 正则匹配 → `exec.CommandContext` 执行（10 分钟超时）→ stdout 替换原位置 |
-| 文件引用 | `@filepath` | 正则匹配 → `os.ReadFile`（路径相对于 `skill.Dir`）→ 文件内容替换原位置 |
+| 文件引用   | `@filepath`      | 正则匹配 → `os.ReadFile`（路径相对于 `skill.Dir`）→ 文件内容替换原位置  |
 
 错误处理：Shell 执行失败 → 替换为空字符串；文件读取失败 → 替换为 `<file error: ...>`。
 
@@ -221,6 +225,7 @@ SkillForkSpawnFn(ctx, skill, content, args) (Locatable, cleanup, error)
 ```
 
 `ToolMatchesAllowed()` 支持三种匹配模式：
+
 - 精确匹配：`"Bash"` 匹配 `"Bash"`
 - MCP 前缀匹配：`"mcp__server"` 匹配 `"mcp__server__tool"`
 - 括号模式：`"Bash(git:*)"` 匹配 `"Bash"`，且参数需符合 `git:*` 前缀
@@ -271,17 +276,17 @@ Agent 持有独立的 `skills` 字段（`*SkillRegistry`），与 `tools`（`*to
 
 `internal/server/server.go` 注册路由，`internal/server/tool_skill_handlers.go` 实现 Handler。
 
-| 方法 | 路径 | Handler | 说明 |
-|------|------|---------|------|
-| `GET` | `/api/skills` | `handleListSkills` | 列出所有已注册技能（含 builtin + user） |
-| `POST` | `/api/skills` | `handleImportSkill` | 用户创建新技能（写入 `~/.soloqueue/skills/`） |
-| `GET` | `/api/skills/store` | `handleListStoreSkills` | 列出技能商店目录（bundled + remote） |
-| `POST` | `/api/skills/install` | `handleInstallSkill` | 从商店/GitHub/本地路径安装技能 |
-| `GET` | `/api/skills/{id}` | `handleGetSkillDetail` | 获取单个技能详情（含 body） |
-| `PUT` | `/api/skills/{id}` | `handleUpdateSkill` | 更新用户技能 |
-| `DELETE` | `/api/skills/{id}` | `handleDeleteSkill` | 卸载用户技能 |
-| `GET` | `/api/skills/{id}/files` | `handleGetSkillFiles` | 递归列出技能目录文件树 |
-| `POST` | `/api/skills/{id}/toggle` | `handleToggleSkill` | 启用/禁用（创建/删除 `.disabled` 文件） |
+| 方法     | 路径                      | Handler                 | 说明                                          |
+| -------- | ------------------------- | ----------------------- | --------------------------------------------- |
+| `GET`    | `/api/skills`             | `handleListSkills`      | 列出所有已注册技能（含 builtin + user）       |
+| `POST`   | `/api/skills`             | `handleImportSkill`     | 用户创建新技能（写入 `~/.soloqueue/skills/`） |
+| `GET`    | `/api/skills/store`       | `handleListStoreSkills` | 列出技能商店目录（bundled + remote）          |
+| `POST`   | `/api/skills/install`     | `handleInstallSkill`    | 从商店/GitHub/本地路径安装技能                |
+| `GET`    | `/api/skills/{id}`        | `handleGetSkillDetail`  | 获取单个技能详情（含 body）                   |
+| `PUT`    | `/api/skills/{id}`        | `handleUpdateSkill`     | 更新用户技能                                  |
+| `DELETE` | `/api/skills/{id}`        | `handleDeleteSkill`     | 卸载用户技能                                  |
+| `GET`    | `/api/skills/{id}/files`  | `handleGetSkillFiles`   | 递归列出技能目录文件树                        |
+| `POST`   | `/api/skills/{id}/toggle` | `handleToggleSkill`     | 启用/禁用（创建/删除 `.disabled` 文件）       |
 
 写入操作（install/update/delete/toggle）后，Handler 调用 `m.skillReg.Rebuild(m.skillDirs)` 刷新内存中的注册表。
 
@@ -299,6 +304,7 @@ Agent 持有独立的 `skills` 字段（`*SkillRegistry`），与 `tools`（`*to
 ### 7.2 功能
 
 **Installed Skills 标签页**：
+
 - 搜索（按 id/name/description/triggers）
 - 分类过滤（All / Built-in / User Created）
 - 技能卡片可展开：左侧文件树，右侧 Markdown 预览/编辑
@@ -306,6 +312,7 @@ Agent 持有独立的 `skills` 字段（`*SkillRegistry`），与 `tools`（`*to
 - 创建、编辑、卸载技能
 
 **Skill Store 标签页**：
+
 - 从 `/api/skills/store` 获取可用技能目录
 - 支持从 Git URL 或本地路径安装
 
@@ -332,6 +339,7 @@ Skill 的 Instructions 可能很长（数百行）。如果直接放在 Tool Des
 ### 8.4 `.disabled` 文件而非数据库字段？
 
 技能启用状态存储在文件系统（`{skill_dir}/.disabled`），而非数据库。这样：
+
 1. 不需要额外的数据库迁移
 2. 用户可以直接 `touch .disabled` 手动禁用
 3. 与文件系统监听（fsnotify）天然集成，修改即时生效
@@ -340,16 +348,16 @@ Skill 的 Instructions 可能很长（数百行）。如果直接放在 Tool Des
 
 ## 9. 错误处理
 
-| 场景 | 处理方式 |
-|------|---------|
-| SKILL.md 解析失败 | 记录 warning，跳过该 Skill，继续加载其他 |
-| 技能目录不存在 | `LoadSkillsFromDir` 返回空 map，不报错 |
-| 注册重复 Skill ID | 返回 `ErrSkillAlreadyRegistered` |
-| LLM 调用不存在的 Skill | 返回错误字符串（给 LLM，不 panic） |
-| Fork 执行失败 | 返回错误字符串 |
-| 预处理中 Shell 执行失败 | 替换为空字符串，不中断 |
-| 预处理中文件读取失败 | 替换为 `<file error: ...>` |
-| `forkSpawn == nil` | 降级为 inline 模式 |
+| 场景                    | 处理方式                                 |
+| ----------------------- | ---------------------------------------- |
+| SKILL.md 解析失败       | 记录 warning，跳过该 Skill，继续加载其他 |
+| 技能目录不存在          | `LoadSkillsFromDir` 返回空 map，不报错   |
+| 注册重复 Skill ID       | 返回 `ErrSkillAlreadyRegistered`         |
+| LLM 调用不存在的 Skill  | 返回错误字符串（给 LLM，不 panic）       |
+| Fork 执行失败           | 返回错误字符串                           |
+| 预处理中 Shell 执行失败 | 替换为空字符串，不中断                   |
+| 预处理中文件读取失败    | 替换为 `<file error: ...>`               |
+| `forkSpawn == nil`      | 降级为 inline 模式                       |
 
 ---
 

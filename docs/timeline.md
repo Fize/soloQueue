@@ -9,6 +9,7 @@ SoloQueue implements conversation storage and session recovery using event sourc
 ## Architecture Principles
 
 Instead of updating database records or deleting history, the timeline operates on **Append-Only** principles:
+
 - **No Destruction**: Destructive actions like `/clear` do not delete files on disk. They append a control event to the log.
 - **Single Source of Truth**: The JSONL event stream represents the complete history. The in-memory `ContextWindow` is a projection built by replaying the timeline.
 - **File Rotation**: Timeline logs are stored under `~/.soloqueue/logs/timelines/` and rotated by date or size constraints using the `rotating` package.
@@ -32,6 +33,7 @@ Each line in a timeline file is a JSON object representing a `timeline.Event`:
 ```
 
 ### Event Types
+
 1. **`message` (EventMessage)**: Represents conversation content.
    - **`role`**: `system`, `user`, `assistant`, or `tool`.
    - **`content`**: The message text payload.
@@ -50,10 +52,11 @@ Each line in a timeline file is a JSON object representing a `timeline.Event`:
 When an agent session starts or is restored, it reconstructs its active context by reading the timeline files chronological (oldest to newest) and replaying the events.
 
 ### `/clear` Boundary Rules
+
 1. The reader reads all log files and parses them into a chronological slice of events.
 2. The event slice is split into **Segments** using `control` events as markers:
    - When a control event with action `"clear"` is encountered, it closes the current segment and starts a new one.
-3. **Active Segment**: Only the *last* segment (all events occurring *after* the most recent `/clear` control event) is selected for replay.
+3. **Active Segment**: Only the _last_ segment (all events occurring _after_ the most recent `/clear` control event) is selected for replay.
 4. Consequently, a user executing `/clear` immediately truncates the active agent context without destroying the underlying historical audit log.
 
 ---
@@ -61,16 +64,18 @@ When an agent session starts or is restored, it reconstructs its active context 
 ## Orphaned Tool-Call Filtering
 
 A critical robustness challenge in tool-using agents is handling **orphaned tool calls**:
+
 - **The Problem**: If an assistant message contains `tool_calls` but the execution fails (e.g. user aborts, network cuts out, server crashes) before all tool responses are generated, replaying the partial sequence to the LLM on reload will cause an HTTP 400 error ("invalid role sequence" or "missing tool response").
 - **The Solution**: Both payload assembly (`ctxwin.BuildPayload`) and the timeline replay engine (`timeline.ReplayInto`) implement filtering to heal the message stream.
 
 ### Replay Filtering Algorithm (`replaySegment`)
+
 The replay logic uses a streaming finite state machine to filter messages before pushing them into the `ContextWindow`:
 
 1. **State Machine Buffer**: A `pendingGroup` is initialized when an `assistant` message with `tool_calls` is encountered.
 2. **Result Matching**:
    - As subsequent messages are read, any `tool` message matching one of the pending `tool_call_ids` is added to the buffer.
-   - If *all* tool calls in the group receive their corresponding results, the group is marked `allFound` (complete).
+   - If _all_ tool calls in the group receive their corresponding results, the group is marked `allFound` (complete).
 3. **State Violation / Interruption**:
    - If a new non-tool message (e.g. a `user` prompt or a new `assistant` turn) arrives before the pending group is complete, a sequence violation occurs.
    - The incomplete pending group (assistant calls and any partial results) is **dropped** entirely.

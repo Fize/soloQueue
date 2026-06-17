@@ -30,15 +30,15 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null)
   const [activeTab, setActiveTab] = useState<'console' | 'status' | 'prompt' | 'config'>('console')
 
-  const isQBotChat = isL1 && selectedAgent?.is_qbot === true
+  const showConsoleTab = !isL1
 
   useEffect(() => {
-    if (!isQBotChat && activeTab === 'console') {
+    if (!showConsoleTab && activeTab === 'console') {
       setActiveTab('status')
-    } else if (isQBotChat && activeTab !== 'console') {
+    } else if (showConsoleTab && activeTab !== 'console') {
       setActiveTab('console')
     }
-  }, [isQBotChat])
+  }, [showConsoleTab])
 
   // Reset selected agent when switching groups/teams
   useEffect(() => {
@@ -182,7 +182,8 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 justify-between">
               <span className="font-semibold text-xs truncate text-foreground">
-                {selectedAgent.name}
+                {selectedAgent.name}{' '}
+                {isL1 && selectedAgent.task_level ? `(Level ${selectedAgent.task_level})` : ''}
               </span>
               <StatusBadge state={selectedAgent.state} size="sm" />
             </div>
@@ -193,8 +194,8 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
         </div>
 
         {/* Tab Controls */}
-        <div className="flex border border-border/60 bg-muted/30 rounded-lg p-0.5 gap-0.5 text-[10px] font-semibold mt-1">
-          {isQBotChat && (
+        {!isL1 && (
+          <div className="flex border border-border/60 bg-muted/30 rounded-lg p-0.5 gap-0.5 text-[10px] font-semibold mt-1">
             <button
               onClick={() => setActiveTab('console')}
               className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
@@ -208,137 +209,54 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
                 Console
               </span>
             </button>
-          )}
-          <button
-            onClick={() => setActiveTab('status')}
-            className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
-              activeTab === 'status'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <span className="flex items-center justify-center gap-1">
-              <Info className="h-3 w-3" />
-              Status
-            </span>
-          </button>
-          <button
-            onClick={() => setActiveTab('prompt')}
-            className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
-              activeTab === 'prompt'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <span className="flex items-center justify-center gap-1">
-              <Settings className="h-3 w-3" />
-              Prompt
-            </span>
-          </button>
-        </div>
+            <button
+              onClick={() => setActiveTab('status')}
+              className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
+                activeTab === 'status'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <span className="flex items-center justify-center gap-1">
+                <Info className="h-3 w-3" />
+                Status
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('prompt')}
+              className={`flex-1 py-1 rounded-md text-center transition-all cursor-pointer ${
+                activeTab === 'prompt'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <span className="flex items-center justify-center gap-1">
+                <Settings className="h-3 w-3" />
+                Prompt
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tab Contents */}
       <div className="flex-1 overflow-hidden relative">
-        {activeTab === 'console' && isQBotChat && (
-          <ScrollArea className="h-full p-3 bg-card/10">
-            {stream ? (
-              <AgentStreamView state={stream} />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full py-16 text-center text-muted-foreground">
-                <Terminal className="h-6 w-6 text-muted-foreground/30 mb-2" />
-                <p className="text-xs">No active terminal logs</p>
-                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                  Logs appear when the agent executes tasks.
-                </p>
-              </div>
-            )}
-          </ScrollArea>
-        )}
-
-        {activeTab === 'status' && (
-          <ScrollArea className="h-full p-4 space-y-4">
-            {/* Workload Status Card */}
-            <div className="bg-card/40 border border-border/60 rounded-xl p-3.5 space-y-3">
-              <h3 className="text-xs font-bold text-foreground border-b border-border/20 pb-1.5">
-                Workload Details
-              </h3>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="space-y-0.5">
-                  <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
-                    Delegations
-                  </span>
-                  <p className="font-bold text-foreground tabular-nums">
-                    {selectedAgent.pending_delegations}
-                  </p>
-                </div>
-                <div className="space-y-0.5">
-                  <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
-                    Mailbox (H/N)
-                  </span>
-                  <p className="font-bold text-foreground tabular-nums">
-                    {selectedAgent.mailbox_high} / {selectedAgent.mailbox_normal}
-                  </p>
-                </div>
-                <div className="space-y-0.5">
-                  <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
-                    Task Level
-                  </span>
-                  <p className="font-medium text-foreground">
-                    Level {selectedAgent.task_level || 'Normal'}
-                  </p>
-                </div>
-                <div className="space-y-0.5">
-                  <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
-                    Instance ID
-                  </span>
-                  <p
-                    className="font-mono text-[9px] truncate text-muted-foreground"
-                    title={selectedAgent.instance_id}
-                  >
-                    {selectedAgent.instance_id.slice(0, 8)}...
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Error logs */}
-            {selectedAgent.error_count > 0 && (
-              <div className="bg-destructive/5 border border-destructive/25 rounded-xl p-3.5 space-y-2">
-                <div className="flex items-center gap-1.5 text-destructive">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <h3 className="text-xs font-bold">
-                    Errors Detected ({selectedAgent.error_count})
-                  </h3>
-                </div>
-                <ScrollArea className="max-h-40 bg-card/60 rounded border border-border/40 p-2">
-                  <pre className="whitespace-pre-wrap font-mono text-[9px] text-destructive leading-relaxed">
-                    {selectedAgent.last_error || 'No error details recorded'}
-                  </pre>
-                </ScrollArea>
-              </div>
-            )}
-          </ScrollArea>
-        )}
-
-        {activeTab === 'prompt' && (
+        {isL1 ? (
           <ScrollArea className="h-full p-4">
             <div className="bg-card/40 border border-border/60 rounded-xl p-3 space-y-2">
               <div className="flex items-center justify-between border-b border-border/20 pb-1.5 px-1">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">
-                  {isL1 ? 'System Soul Prompt' : 'Agent Prompt'}
+                  System Soul Prompt
                 </span>
               </div>
-              <div className="bg-card border border-border/40 rounded p-2.5 max-h-[50vh] overflow-y-auto">
-                {profileLoading || configLoading ? (
+              <div className="bg-card border border-border/40 rounded p-2.5 max-h-[75vh] overflow-y-auto">
+                {profileLoading ? (
                   <div className="flex justify-center py-6 text-muted-foreground text-xs">
                     <RotateCw className="h-4 w-4 animate-spin mr-1.5" />
                     Loading prompt...
                   </div>
-                ) : isL1 && profile?.soul ? (
+                ) : profile?.soul ? (
                   <MarkdownPreview content={profile.soul} />
-                ) : !isL1 && config?.system_prompt ? (
-                  <MarkdownPreview content={config.system_prompt} />
                 ) : (
                   <p className="text-[10px] text-muted-foreground italic text-center py-4">
                     No prompt configured
@@ -347,6 +265,115 @@ export function AgentMonitorPanel({ agents, groupName, isL1 }: AgentMonitorPanel
               </div>
             </div>
           </ScrollArea>
+        ) : (
+          <>
+            {activeTab === 'console' && showConsoleTab && (
+              <ScrollArea className="h-full p-3 bg-card/10">
+                {stream ? (
+                  <AgentStreamView state={stream} />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full py-16 text-center text-muted-foreground">
+                    <Terminal className="h-6 w-6 text-muted-foreground/30 mb-2" />
+                    <p className="text-xs">No active terminal logs</p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                      Logs appear when the agent executes tasks.
+                    </p>
+                  </div>
+                )}
+              </ScrollArea>
+            )}
+
+            {activeTab === 'status' && (
+              <ScrollArea className="h-full p-4 space-y-4">
+                {/* Workload Status Card */}
+                <div className="bg-card/40 border border-border/60 rounded-xl p-3.5 space-y-3">
+                  <h3 className="text-xs font-bold text-foreground border-b border-border/20 pb-1.5">
+                    Workload Details
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="space-y-0.5">
+                      <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
+                        Delegations
+                      </span>
+                      <p className="font-bold text-foreground tabular-nums">
+                        {selectedAgent.pending_delegations}
+                      </p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
+                        Mailbox (H/N)
+                      </span>
+                      <p className="font-bold text-foreground tabular-nums">
+                        {selectedAgent.mailbox_high} / {selectedAgent.mailbox_normal}
+                      </p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
+                        Task Level
+                      </span>
+                      <p className="font-medium text-foreground">
+                        Level {selectedAgent.task_level || 'Normal'}
+                      </p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
+                        Instance ID
+                      </span>
+                      <p
+                        className="font-mono text-[9px] truncate text-muted-foreground"
+                        title={selectedAgent.instance_id}
+                      >
+                        {selectedAgent.instance_id.slice(0, 8)}...
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Error logs */}
+                {selectedAgent.error_count > 0 && (
+                  <div className="bg-destructive/5 border border-destructive/25 rounded-xl p-3.5 space-y-2">
+                    <div className="flex items-center gap-1.5 text-destructive">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <h3 className="text-xs font-bold">
+                        Errors Detected ({selectedAgent.error_count})
+                      </h3>
+                    </div>
+                    <ScrollArea className="max-h-40 bg-card/60 rounded border border-border/40 p-2">
+                      <pre className="whitespace-pre-wrap font-mono text-[9px] text-destructive leading-relaxed">
+                        {selectedAgent.last_error || 'No error details recorded'}
+                      </pre>
+                    </ScrollArea>
+                  </div>
+                )}
+              </ScrollArea>
+            )}
+
+            {activeTab === 'prompt' && (
+              <ScrollArea className="h-full p-4">
+                <div className="bg-card/40 border border-border/60 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between border-b border-border/20 pb-1.5 px-1">
+                    <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">
+                      Agent Prompt
+                    </span>
+                  </div>
+                  <div className="bg-card border border-border/40 rounded p-2.5 max-h-[50vh] overflow-y-auto">
+                    {configLoading ? (
+                      <div className="flex justify-center py-6 text-muted-foreground text-xs">
+                        <RotateCw className="h-4 w-4 animate-spin mr-1.5" />
+                        Loading prompt...
+                      </div>
+                    ) : config?.system_prompt ? (
+                      <MarkdownPreview content={config.system_prompt} />
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground italic text-center py-4">
+                        No prompt configured
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </ScrollArea>
+            )}
+          </>
         )}
       </div>
     </div>

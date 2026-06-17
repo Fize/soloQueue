@@ -48,15 +48,15 @@ Semi Design supports both CSS Variables and JavaScript Design Token.
 ### Custom Theme
 
 ```tsx
-import { ConfigProvider } from '@douyinfe/semi-ui';
+import { ConfigProvider } from "@douyinfe/semi-ui";
 
 <ConfigProvider
   theme={{
-    primaryColor: '#5b8bff',
+    primaryColor: "#5b8bff",
   }}
 >
   <App />
-</ConfigProvider>
+</ConfigProvider>;
 ```
 
 ## Common Component Specifications
@@ -84,7 +84,7 @@ import { ConfigProvider } from '@douyinfe/semi-ui';
 
 ```tsx
 <Form
-  onSubmit={values => handleSubmit(values)}
+  onSubmit={(values) => handleSubmit(values)}
   layout="vertical"
   labelPosition="top"
 >
@@ -92,22 +92,20 @@ import { ConfigProvider } from '@douyinfe/semi-ui';
     field="username"
     label="Username"
     placeholder="Please enter username"
-    rules={[{ required: true, message: 'Please enter username' }]}
+    rules={[{ required: true, message: "Please enter username" }]}
   />
-  <Form.Input
-    field="password"
-    label="Password"
-    mode="password"
-  />
+  <Form.Input field="password" label="Password" mode="password" />
   <Form.Select
     field="role"
     label="Role"
     options={[
-      { value: 'admin', label: 'Admin' },
-      { value: 'user', label: 'User' },
+      { value: "admin", label: "Admin" },
+      { value: "user", label: "User" },
     ]}
   />
-  <Button type="primary" htmlType="submit" block>Submit</Button>
+  <Button type="primary" htmlType="submit" block>
+    Submit
+  </Button>
 </Form>
 ```
 
@@ -116,15 +114,27 @@ import { ConfigProvider } from '@douyinfe/semi-ui';
 ```tsx
 <Table
   columns={[
-    { title: 'Name', dataIndex: 'name', width: 150 },
-    { title: 'Age', dataIndex: 'age', sorter: true },
+    { title: "Name", dataIndex: "name", width: 150 },
+    { title: "Age", dataIndex: "age", sorter: true },
     {
-      title: 'Actions',
-      dataIndex: 'action',
+      title: "Actions",
+      dataIndex: "action",
       render: (_, record) => (
         <Space>
-          <Button type="tertiary" size="small" onClick={() => handleEdit(record)}>Edit</Button>
-          <Button type="danger" size="small" onClick={() => handleDelete(record)}>Delete</Button>
+          <Button
+            type="tertiary"
+            size="small"
+            onClick={() => handleEdit(record)}
+          >
+            Edit
+          </Button>
+          <Button
+            type="danger"
+            size="small"
+            onClick={() => handleDelete(record)}
+          >
+            Delete
+          </Button>
         </Space>
       ),
     },
@@ -153,12 +163,12 @@ import { ConfigProvider } from '@douyinfe/semi-ui';
   maskClosable={false}
 >
   <p>Modal content</p>
-</Modal>
+</Modal>;
 
 // Functional call
 Modal.confirm({
-  title: 'Confirm deletion?',
-  content: 'This action cannot be undone',
+  title: "Confirm deletion?",
+  content: "This action cannot be undone",
   onOk: () => deleteItem(id),
 });
 ```

@@ -18,6 +18,7 @@ subpath: skills/mcp-builder
 This is a remote skill catalog entry.
 
 ## Upstream
+
 - Repo: https://github.com/anthropics/skills
 - Branch: main
 - SubPath: skills/mcp-builder

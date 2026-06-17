@@ -11,13 +11,13 @@ This skill provides specification references for five major UI frameworks, guidi
 
 ## Supported Frameworks
 
-| Framework | Ecosystem | Version | Design Language |
-|---|---|---|---|
-| Element Plus | Vue 3 | Latest | Enterprise back-office, clean and neutral |
-| Ant Design | React | 5.x | Back-office, professional and stable |
-| Arco Design | React | 2.x | ByteDance, modern and flexible |
-| TDesign | React / Vue | Latest | Tencent, general enterprise-grade |
-| Semi Design | React | 2.x | Douyin, content-immersive |
+| Framework    | Ecosystem   | Version | Design Language                           |
+| ------------ | ----------- | ------- | ----------------------------------------- |
+| Element Plus | Vue 3       | Latest  | Enterprise back-office, clean and neutral |
+| Ant Design   | React       | 5.x     | Back-office, professional and stable      |
+| Arco Design  | React       | 2.x     | ByteDance, modern and flexible            |
+| TDesign      | React / Vue | Latest  | Tencent, general enterprise-grade         |
+| Semi Design  | React       | 2.x     | Douyin, content-immersive                 |
 
 ## Usage Modes
 
@@ -26,6 +26,7 @@ This skill provides specification references for five major UI frameworks, guidi
 When the user has not specified a framework, read `references/framework-selection.md` for guidance.
 
 **Selection Flow:**
+
 1. Determine target platform (Vue / React / Other)
 2. Determine design tone preference
 3. Recommend 1-2 most suitable frameworks
@@ -66,38 +67,38 @@ When migrating code from one framework to another:
 
 ### Component Naming Differences
 
-| Unified Concept | Element Plus | Ant Design | Arco Design | TDesign | Semi Design |
-|---|---|---|---|---|---|
-| Button | ElButton | Button | Button | Button | Button |
-| Input | ElInput | Input | Input | Input | Input |
-| Table | ElTable | Table | Table | Table | Table |
-| Form | ElForm | Form | Form | Form | Form |
-| Dialog | ElDialog | Modal | Modal | Dialog | Modal |
-| Toast Message | ElMessage | message | Message | Message | Toast |
-| Tabs | ElTabs | Tabs | Tabs | Tabs | Tab |
-| Select | ElSelect | Select | Select | Select | Select |
-| DatePicker | ElDatePicker | DatePicker | DatePicker | DatePicker | DatePicker |
-| Tree | ElTree | Tree | Tree | Tree | Tree |
+| Unified Concept | Element Plus | Ant Design | Arco Design | TDesign    | Semi Design |
+| --------------- | ------------ | ---------- | ----------- | ---------- | ----------- |
+| Button          | ElButton     | Button     | Button      | Button     | Button      |
+| Input           | ElInput      | Input      | Input       | Input      | Input       |
+| Table           | ElTable      | Table      | Table       | Table      | Table       |
+| Form            | ElForm       | Form       | Form        | Form       | Form        |
+| Dialog          | ElDialog     | Modal      | Modal       | Dialog     | Modal       |
+| Toast Message   | ElMessage    | message    | Message     | Message    | Toast       |
+| Tabs            | ElTabs       | Tabs       | Tabs        | Tabs       | Tab         |
+| Select          | ElSelect     | Select     | Select      | Select     | Select      |
+| DatePicker      | ElDatePicker | DatePicker | DatePicker  | DatePicker | DatePicker  |
+| Tree            | ElTree       | Tree       | Tree        | Tree       | Tree        |
 
 ### Design Token / Theme Variable Systems
 
-| Framework | Theming Mechanism | Variable Format |
-|---|---|---|
-| Element Plus | CSS Variables + SCSS | `--el-color-primary` |
-| Ant Design | Design Token (CSS-in-JS) | `colorPrimary`, `borderRadius` |
-| Arco Design | CSS Variables | `--color-primary-6` |
-| TDesign | CSS Variables + Less | `--td-primary-color` |
-| Semi Design | CSS Variables + Design Token | `--semi-color-primary` |
+| Framework    | Theming Mechanism            | Variable Format                |
+| ------------ | ---------------------------- | ------------------------------ |
+| Element Plus | CSS Variables + SCSS         | `--el-color-primary`           |
+| Ant Design   | Design Token (CSS-in-JS)     | `colorPrimary`, `borderRadius` |
+| Arco Design  | CSS Variables                | `--color-primary-6`            |
+| TDesign      | CSS Variables + Less         | `--td-primary-color`           |
+| Semi Design  | CSS Variables + Design Token | `--semi-color-primary`         |
 
 ### Layout Systems
 
-| Framework | Layout Approach |
-|---|---|
-| Element Plus | `ElContainer` + `ElRow`/`ElCol` (24-column grid) |
-| Ant Design | `Layout` + `Row`/`Col` (24-column grid) + Flex |
-| Arco Design | `Layout` + `Grid` (24-column grid) + `Grid.Row`/`Grid.Col` |
-| TDesign | `Layout` + `Row`/`Col` (24-column grid) |
-| Semi Design | `Layout` + `Row`/`Col` (24-column grid) |
+| Framework    | Layout Approach                                            |
+| ------------ | ---------------------------------------------------------- |
+| Element Plus | `ElContainer` + `ElRow`/`ElCol` (24-column grid)           |
+| Ant Design   | `Layout` + `Row`/`Col` (24-column grid) + Flex             |
+| Arco Design  | `Layout` + `Grid` (24-column grid) + `Grid.Row`/`Grid.Col` |
+| TDesign      | `Layout` + `Row`/`Col` (24-column grid)                    |
+| Semi Design  | `Layout` + `Row`/`Col` (24-column grid)                    |
 
 ## General Principles
 
@@ -110,13 +111,13 @@ When migrating code from one framework to another:
 
 ## Resource Reference
 
-| File | When to Read |
-|---|---|
+| File                                | When to Read                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------- |
 | `references/framework-selection.md` | When the user has not specified a framework and needs a recommendation |
-| `references/element-plus.md` | When using Element Plus (Vue) |
-| `references/ant-design.md` | When using Ant Design (React) |
-| `references/arco-design.md` | When using Arco Design (React) |
-| `references/tdesign.md` | When using TDesign (React/Vue) |
-| `references/semi-design.md` | When using Semi Design (React) |
+| `references/element-plus.md`        | When using Element Plus (Vue)                                          |
+| `references/ant-design.md`          | When using Ant Design (React)                                          |
+| `references/arco-design.md`         | When using Arco Design (React)                                         |
+| `references/tdesign.md`             | When using TDesign (React/Vue)                                         |
+| `references/semi-design.md`         | When using Semi Design (React)                                         |
 
 For detailed framework API references and component documentation, Claude should generate based on its own knowledge or use WebSearch to fetch the latest official documentation. The reference files only cover core design philosophies, specification highlights, and key differences.

@@ -1,797 +1,1357 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Apple 头戴式耳机宣传风格调研 · QCY 电商应用</title>
-<style>
-  :root {
-    --bg: #f5f5f7;
-    --card-bg: #ffffff;
-    --text: #1d1d1f;
-    --text-secondary: #86868b;
-    --accent: #0071e3;
-    --accent-light: #f5f5f7;
-    --border: #d2d2d7;
-    --tag-bg: #f5f5f7;
-    --tag-text: #1d1d1f;
-    --apple-gray: #f5f5f7;
-    --qcy-orange: #ff6b35;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.6;
-    padding: 0;
-  }
-  .container { max-width: 980px; margin: 0 auto; padding: 40px 24px; }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Apple 头戴式耳机宣传风格调研 · QCY 电商应用</title>
+    <style>
+      :root {
+        --bg: #f5f5f7;
+        --card-bg: #ffffff;
+        --text: #1d1d1f;
+        --text-secondary: #86868b;
+        --accent: #0071e3;
+        --accent-light: #f5f5f7;
+        --border: #d2d2d7;
+        --tag-bg: #f5f5f7;
+        --tag-text: #1d1d1f;
+        --apple-gray: #f5f5f7;
+        --qcy-orange: #ff6b35;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+        padding: 0;
+      }
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 40px 24px;
+      }
 
-  /* Header */
-  .header {
-    background: linear-gradient(135deg, #1d1d1f 0%, #434344 100%);
-    color: #fff;
-    padding: 80px 0;
-    text-align: center;
-  }
-  .header h1 { font-size: 2.4em; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.02em; }
-  .header .subtitle { font-size: 1.1em; opacity: 0.9; }
+      /* Header */
+      .header {
+        background: linear-gradient(135deg, #1d1d1f 0%, #434344 100%);
+        color: #fff;
+        padding: 80px 0;
+        text-align: center;
+      }
+      .header h1 {
+        font-size: 2.4em;
+        font-weight: 700;
+        margin-bottom: 12px;
+        letter-spacing: -0.02em;
+      }
+      .header .subtitle {
+        font-size: 1.1em;
+        opacity: 0.9;
+      }
 
-  /* Sections */
-  .section { margin-bottom: 56px; }
-  .section h2 {
-    font-size: 1.6em;
-    font-weight: 700;
-    margin-bottom: 24px;
-    padding-bottom: 10px;
-    border-bottom: 3px solid var(--accent);
-    display: inline-block;
-  }
+      /* Sections */
+      .section {
+        margin-bottom: 56px;
+      }
+      .section h2 {
+        font-size: 1.6em;
+        font-weight: 700;
+        margin-bottom: 24px;
+        padding-bottom: 10px;
+        border-bottom: 3px solid var(--accent);
+        display: inline-block;
+      }
 
-  /* Stats */
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 16px;
-    margin-bottom: 32px;
-  }
-  .stat-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-    text-align: center;
-    transition: transform 0.2s;
-  }
-  .stat-card:hover { transform: translateY(-2px); }
-  .stat-card .number { font-size: 2.2em; font-weight: 700; color: var(--accent); }
-  .stat-card .label { font-size: 0.9em; color: var(--text-secondary); margin-top: 6px; }
+      /* Stats */
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+      .stat-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        text-align: center;
+        transition: transform 0.2s;
+      }
+      .stat-card:hover {
+        transform: translateY(-2px);
+      }
+      .stat-card .number {
+        font-size: 2.2em;
+        font-weight: 700;
+        color: var(--accent);
+      }
+      .stat-card .label {
+        font-size: 0.9em;
+        color: var(--text-secondary);
+        margin-top: 6px;
+      }
 
-  /* Direction Cards */
-  .direction-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 36px;
-    margin-bottom: 36px;
-    position: relative;
-    overflow: hidden;
-  }
-  .direction-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: linear-gradient(to bottom, var(--accent), #00c7ff);
-  }
-  .direction-card h3 {
-    font-size: 1.4em;
-    font-weight: 700;
-    margin-bottom: 6px;
-  }
-  .direction-card .tagline {
-    font-size: 1em;
-    color: var(--text-secondary);
-    margin-bottom: 24px;
-    font-style: italic;
-  }
-  .direction-card h4 {
-    font-size: 1.05em;
-    font-weight: 600;
-    margin: 24px 0 12px;
-    color: var(--accent);
-  }
+      /* Direction Cards */
+      .direction-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 36px;
+        margin-bottom: 36px;
+        position: relative;
+        overflow: hidden;
+      }
+      .direction-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(to bottom, var(--accent), #00c7ff);
+      }
+      .direction-card h3 {
+        font-size: 1.4em;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      .direction-card .tagline {
+        font-size: 1em;
+        color: var(--text-secondary);
+        margin-bottom: 24px;
+        font-style: italic;
+      }
+      .direction-card h4 {
+        font-size: 1.05em;
+        font-weight: 600;
+        margin: 24px 0 12px;
+        color: var(--accent);
+      }
 
-  /* Visual Features */
-  .feature-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
-    margin: 12px 0;
-  }
-  .feature-item {
-    background: var(--accent-light);
-    border-radius: 8px;
-    padding: 14px 18px;
-  }
-  .feature-item strong { display: block; font-size: 0.85em; margin-bottom: 6px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
-  .feature-item span { font-size: 0.95em; }
+      /* Visual Features */
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        margin: 12px 0;
+      }
+      .feature-item {
+        background: var(--accent-light);
+        border-radius: 8px;
+        padding: 14px 18px;
+      }
+      .feature-item strong {
+        display: block;
+        font-size: 0.85em;
+        margin-bottom: 6px;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .feature-item span {
+        font-size: 0.95em;
+      }
 
-  /* Reference Gallery */
-  .gallery {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 16px;
-    margin: 16px 0;
-  }
-  .gallery-item {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
-    background: var(--card-bg);
-  }
-  .gallery-item:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
-  .gallery-item img {
-    width: 100%;
-    height: 180px;
-    object-fit: cover;
-    display: block;
-    background: linear-gradient(135deg, #f5f5f7, #e8e8f0);
-  }
-  .gallery-item .caption {
-    padding: 12px 14px;
-    font-size: 0.85em;
-  }
-  .gallery-item .caption .title { font-weight: 600; display: block; margin-bottom: 4px; }
-  .gallery-item .caption .source {
-    color: var(--text-secondary);
-    font-size: 0.85em;
-    display: block;
-  }
-  .gallery-item .caption .source a { color: var(--accent); text-decoration: none; }
-  .gallery-item .caption .source a:hover { text-decoration: underline; }
+      /* Reference Gallery */
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 16px;
+        margin: 16px 0;
+      }
+      .gallery-item {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+        background: var(--card-bg);
+      }
+      .gallery-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+      }
+      .gallery-item img {
+        width: 100%;
+        height: 180px;
+        object-fit: cover;
+        display: block;
+        background: linear-gradient(135deg, #f5f5f7, #e8e8f0);
+      }
+      .gallery-item .caption {
+        padding: 12px 14px;
+        font-size: 0.85em;
+      }
+      .gallery-item .caption .title {
+        font-weight: 600;
+        display: block;
+        margin-bottom: 4px;
+      }
+      .gallery-item .caption .source {
+        color: var(--text-secondary);
+        font-size: 0.85em;
+        display: block;
+      }
+      .gallery-item .caption .source a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .gallery-item .caption .source a:hover {
+        text-decoration: underline;
+      }
 
-  /* Prompt Box */
-  .prompt-box {
-    background: #1d1d1f;
-    color: #f5f5f7;
-    border-radius: 12px;
-    padding: 20px 24px;
-    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-    font-size: 0.9em;
-    line-height: 1.7;
-    margin: 16px 0;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    border: 1px solid #333;
-  }
-  .prompt-hint {
-    font-size: 0.85em;
-    color: var(--text-secondary);
-    margin-top: 10px;
-    padding: 12px 16px;
-    background: var(--accent-light);
-    border-radius: 8px;
-  }
-  .prompt-hint code {
-    background: rgba(0, 113, 227, 0.15);
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.9em;
-    color: var(--accent);
-  }
+      /* Prompt Box */
+      .prompt-box {
+        background: #1d1d1f;
+        color: #f5f5f7;
+        border-radius: 12px;
+        padding: 20px 24px;
+        font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+        font-size: 0.9em;
+        line-height: 1.7;
+        margin: 16px 0;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border: 1px solid #333;
+      }
+      .prompt-hint {
+        font-size: 0.85em;
+        color: var(--text-secondary);
+        margin-top: 10px;
+        padding: 12px 16px;
+        background: var(--accent-light);
+        border-radius: 8px;
+      }
+      .prompt-hint code {
+        background: rgba(0, 113, 227, 0.15);
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.9em;
+        color: var(--accent);
+      }
 
-  /* Comparison Table */
-  .comparison-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 16px 0;
-    font-size: 0.9em;
-  }
-  .comparison-table th,
-  .comparison-table td {
-    padding: 12px 16px;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-  }
-  .comparison-table th {
-    background: var(--accent-light);
-    font-weight: 600;
-    color: var(--accent);
-  }
-  .comparison-table tr:hover { background: rgba(0, 113, 227, 0.03); }
+      /* Comparison Table */
+      .comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 0.9em;
+      }
+      .comparison-table th,
+      .comparison-table td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      .comparison-table th {
+        background: var(--accent-light);
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .comparison-table tr:hover {
+        background: rgba(0, 113, 227, 0.03);
+      }
 
-  /* Summary */
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
-  }
-  .summary-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-  }
-  .summary-card h4 { font-size: 1.05em; margin-bottom: 12px; color: var(--accent); }
-  .summary-card ul { list-style: none; }
-  .summary-card li {
-    padding: 6px 0;
-    font-size: 0.9em;
-    color: var(--text-secondary);
-  }
-  .summary-card li::before { content: "→ "; color: var(--accent); font-weight: 600; }
+      /* Summary */
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+      .summary-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+      }
+      .summary-card h4 {
+        font-size: 1.05em;
+        margin-bottom: 12px;
+        color: var(--accent);
+      }
+      .summary-card ul {
+        list-style: none;
+      }
+      .summary-card li {
+        padding: 6px 0;
+        font-size: 0.9em;
+        color: var(--text-secondary);
+      }
+      .summary-card li::before {
+        content: "→ ";
+        color: var(--accent);
+        font-weight: 600;
+      }
 
-  /* Sources */
-  .source-list { list-style: none; }
-  .source-list li {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.9em;
-  }
-  .source-list li:last-child { border-bottom: none; }
-  .source-list .platform-tag {
-    display: inline-block;
-    background: var(--tag-bg);
-    color: var(--tag-text);
-    padding: 3px 10px;
-    border-radius: 4px;
-    font-size: 0.8em;
-    margin-right: 10px;
-    font-weight: 500;
-  }
-  .source-list a { color: var(--accent); text-decoration: none; }
-  .source-list a:hover { text-decoration: underline; }
+      /* Sources */
+      .source-list {
+        list-style: none;
+      }
+      .source-list li {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.9em;
+      }
+      .source-list li:last-child {
+        border-bottom: none;
+      }
+      .source-list .platform-tag {
+        display: inline-block;
+        background: var(--tag-bg);
+        color: var(--tag-text);
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 0.8em;
+        margin-right: 10px;
+        font-weight: 500;
+      }
+      .source-list a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .source-list a:hover {
+        text-decoration: underline;
+      }
 
-  /* Tags */
-  .tag {
-    display: inline-block;
-    background: var(--tag-bg);
-    color: var(--tag-text);
-    padding: 5px 14px;
-    border-radius: 20px;
-    font-size: 0.85em;
-    margin: 3px 5px;
-    font-weight: 500;
-  }
+      /* Tags */
+      .tag {
+        display: inline-block;
+        background: var(--tag-bg);
+        color: var(--tag-text);
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-size: 0.85em;
+        margin: 3px 5px;
+        font-weight: 500;
+      }
 
-  /* Recommendations */
-  .recommendation {
-    background: linear-gradient(135deg, var(--accent-light), #f0f0ff);
-    border-radius: 12px;
-    padding: 24px;
-    margin: 16px 0;
-  }
-  .recommendation h4 { color: var(--accent); margin-bottom: 12px; }
+      /* Recommendations */
+      .recommendation {
+        background: linear-gradient(135deg, var(--accent-light), #f0f0ff);
+        border-radius: 12px;
+        padding: 24px;
+        margin: 16px 0;
+      }
+      .recommendation h4 {
+        color: var(--accent);
+        margin-bottom: 12px;
+      }
 
-  /* Footer */
-  .footer {
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 0.85em;
-    padding: 40px 0;
-    border-top: 1px solid var(--border);
-    margin-top: 40px;
-  }
+      /* Footer */
+      .footer {
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 0.85em;
+        padding: 40px 0;
+        border-top: 1px solid var(--border);
+        margin-top: 40px;
+      }
 
-  /* Responsive */
-  @media (max-width: 600px) {
-    .header { padding: 50px 0; }
-    .header h1 { font-size: 1.7em; }
-    .container { padding: 24px 16px; }
-    .direction-card { padding: 24px; }
-    .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-    .comparison-table { font-size: 0.8em; }
-    .comparison-table th,
-    .comparison-table td { padding: 8px; }
-  }
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div class="container">
-    <h1>Apple 头戴式耳机宣传风格调研</h1>
-    <div class="subtitle">为 QCY 电商产品宣传图提供设计方向与 Prompt</div>
-  </div>
-</div>
-
-<div class="container">
-
-<!-- 调研概况 -->
-<div class="section">
-  <h2>调研概况</h2>
-  <div class="stats">
-    <div class="stat-card"><div class="number">35+</div><div class="label">采集素材</div></div>
-    <div class="stat-card"><div class="number">4</div><div class="label">设计方向</div></div>
-    <div class="stat-card"><div class="number">6</div><div class="label">覆盖平台</div></div>
-  </div>
-  <p><strong>调研需求</strong>：调研 Apple AirPods Max 的宣传设计风格，为 QCY 头戴式耳机制作电商平台产品宣传图</p>
-  <p><strong>调研范围</strong>：Apple 官网、Dribbble、Behance、Freepik、知乎、专业摄影指南</p>
-  <p><strong>关键词</strong>：Apple product photography, AirPods Max promotional, 产品摄影, 电商海报, 3D渲染</p>
-  <p><strong>参考锚点</strong>：Apple 极简白底产品图 + QCY 品牌定位（性价比科技品牌）</p>
-</div>
-
-<!-- 设计方向分析 -->
-<div class="section">
-  <h2>设计方向分析</h2>
-
-  <!-- 方向一 -->
-  <div class="direction-card">
-    <h3>方向一：Apple 式极简白底（Apple Minimal White）</h3>
-    <div class="tagline">"让产品自己说话——纯白背景、柔和光影、零干扰"</div>
-
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>纯白背景（#FFFFFF）+ 产品本色；无多余色彩，完全依赖产品自身颜色</span></div>
-      <div class="feature-item"><strong>排版</strong><span>无文字或极少文字；产品居中，信息通过产品本身传递</span></div>
-      <div class="feature-item"><strong>图形</strong><span>产品为主体，无装饰元素；偶尔有极 subtle 的阴影</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>大面积柔光箱照明，柔和渐变高光，底部 subtle 投影，无硬边阴影</span></div>
-      <div class="feature-item"><strong>构图</strong><span>产品居中或微偏，45度角展示，留白 60%+</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>纯净、高端、自信、克制</span></div>
-    </div>
-
-    <h4>典型手法</h4>
-    <ul>
-      <li>超大柔光箱 + 黑卡纸勾勒产品边缘轮廓</li>
-      <li>底部 subtle 投影增加立体感但不喧宾夺主</li>
-      <li>产品表面呈现完美渐变反射，无杂光</li>
-      <li>后期精修去除所有瑕疵、灰尘、指纹</li>
-    </ul>
-
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://www.apple.com/v/airpods-max/images/overview/hero__gnfk5g59t0qe_xlarge.png" alt="AirPods Max Hero" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">AirPods Max 官方产品图</span>
-          <span class="source">来自 <a href="https://www.apple.com/airpods-max/" target="_blank" rel="noopener">Apple 官网</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://store.storeimages.cdn-apple.com/4982/as-images.apple.com/is/airpods-max-hero-select-202011_FMT_WHH?wid=607&hei=556&fmt=jpeg&qlt=90&.v=1633623988000" alt="AirPods Max Select" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">AirPods Max 多色展示</span>
-          <span class="source">来自 <a href="https://www.apple.com/airpods-max/" target="_blank" rel="noopener">Apple Store</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/26181059/file/original-airpod-max-poster.png?resize=400x300" alt="AirPod Max Poster" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">AirPod Max Poster Design</span>
-          <span class="source">by mubeen ali on <a href="https://dribbble.com/shots/26181059" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
-      </div>
-    </div>
-
-    <h4>适用场景</h4>
-    <p>品牌官网主图、产品详情页首图、高端电商平台（天猫/京东旗舰店）、品牌宣传册</p>
-
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">QCY H3S over-ear headphones, product photography, pure white background #FFFFFF, soft studio lighting with large diffused light source, subtle bottom shadow, 45-degree angle view, clean minimal style, premium feel, sharp focus on product details, no text, no decorations, Apple-style product shot, --ar 1:1 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换 <code>QCY H3S</code> 为具体型号<br>
-      💡 添加 <code>black colorway</code> 或 <code>white colorway</code> 指定颜色版本<br>
-      💡 调整 <code>45-degree angle</code> 为 <code>front view</code> 或 <code>side view</code> 改变视角<br>
-      💡 <code>--ar 1:1</code> 适合主图，可换为 <code>3:4</code>（竖版详情页）或 <code>16:9</code>（横幅）
-    </div>
-  </div>
-
-  <!-- 方向二 -->
-  <div class="direction-card">
-    <h3>方向二：渐变悬浮（Gradient Float）</h3>
-    <div class="tagline">"让产品在色彩中悬浮——柔和渐变背景 + 3D 质感"</div>
-
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>柔和渐变背景（蓝紫渐变、粉橙渐变、灰蓝渐变），产品本色与背景形成和谐对比</span></div>
-      <div class="feature-item"><strong>排版</strong><span>产品名称 + 核心卖点文字，字体简洁现代，通常位于产品下方或侧面</span></div>
-      <div class="feature-item"><strong>图形</strong><span>产品为主体，偶尔有 subtle 的光晕或反射效果增强立体感</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>3D 渲染质感，柔和环境光，产品表面有细腻反射，背景渐变平滑无 banding</span></div>
-      <div class="feature-item"><strong>构图</strong><span>产品居中悬浮，背景渐变从中心向四周扩散，留白适中</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>现代、活力、 approachable、科技感</span></div>
-    </div>
-
-    <h4>典型手法</h4>
-    <ul>
-      <li>3D 渲染产品图 + 渐变背景合成</li>
-      <li>产品底部添加 subtle 反射增强悬浮感</li>
-      <li>背景渐变与产品主色调形成邻近色或互补色关系</li>
-      <li>文字信息层级清晰，不干扰产品主体</li>
-    </ul>
-
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/37825440/file/original-4779a6a799ed0b4573d38edef39b8431.jpg?resize=420x&vertical=center" alt="E-commerce Banner" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Social Media E-commerce Banner</span>
-          <span class="source">by Kamrul Islam on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://www.freepik.com/free-photos-vectors/3d-headphone-banner" alt="3D Headphone Banner" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">3D Headphone Banner Template</span>
-          <span class="source">来自 <a href="https://www.freepik.com/free-photos-vectors/3d-headphone-banner" target="_blank" rel="noopener">Freepik</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://pikbest.com/backgrounds/qianku-gradient-e-commerce-headphones-background-poster_1844941.html" alt="Gradient Headphone Banner" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Gradient E-commerce Headphones Background</span>
-          <span class="source">来自 <a href="https://pikbest.com" target="_blank" rel="noopener">Pikbest</a></span>
-        </div>
+      /* Responsive */
+      @media (max-width: 600px) {
+        .header {
+          padding: 50px 0;
+        }
+        .header h1 {
+          font-size: 1.7em;
+        }
+        .container {
+          padding: 24px 16px;
+        }
+        .direction-card {
+          padding: 24px;
+        }
+        .gallery {
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        }
+        .comparison-table {
+          font-size: 0.8em;
+        }
+        .comparison-table th,
+        .comparison-table td {
+          padding: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="container">
+        <h1>Apple 头戴式耳机宣传风格调研</h1>
+        <div class="subtitle">为 QCY 电商产品宣传图提供设计方向与 Prompt</div>
       </div>
     </div>
 
-    <h4>适用场景</h4>
-    <p>电商平台 Banner、社交媒体广告、促销活动海报、产品详情页场景图</p>
+    <div class="container">
+      <!-- 调研概况 -->
+      <div class="section">
+        <h2>调研概况</h2>
+        <div class="stats">
+          <div class="stat-card">
+            <div class="number">35+</div>
+            <div class="label">采集素材</div>
+          </div>
+          <div class="stat-card">
+            <div class="number">4</div>
+            <div class="label">设计方向</div>
+          </div>
+          <div class="stat-card">
+            <div class="number">6</div>
+            <div class="label">覆盖平台</div>
+          </div>
+        </div>
+        <p>
+          <strong>调研需求</strong>：调研 Apple AirPods Max 的宣传设计风格，为
+          QCY 头戴式耳机制作电商平台产品宣传图
+        </p>
+        <p>
+          <strong>调研范围</strong>：Apple
+          官网、Dribbble、Behance、Freepik、知乎、专业摄影指南
+        </p>
+        <p>
+          <strong>关键词</strong>：Apple product photography, AirPods Max
+          promotional, 产品摄影, 电商海报, 3D渲染
+        </p>
+        <p>
+          <strong>参考锚点</strong>：Apple 极简白底产品图 + QCY
+          品牌定位（性价比科技品牌）
+        </p>
+      </div>
 
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">QCY H3S over-ear headphones, 3D product render, floating in center, soft gradient background from light blue to lavender, subtle reflection below product, clean modern typography "QCY H3S" below, premium e-commerce style, soft ambient lighting, detailed product texture, --ar 16:9 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换 <code>light blue to lavender</code> 为其他渐变组合（如 <code>peach to coral</code>、<code>mint to teal</code>）<br>
-      💡 添加 <code>promotional badge</code> → 适合促销场景；移除 → 更简洁<br>
-      💡 调整 <code>floating</code> 为 <code>placed on surface</code> → 更 grounded 的感觉<br>
-      💡 <code>--ar 16:9</code> 适合 Banner，可换为 <code>1:1</code>（社交媒体）或 <code>9:16</code>（短视频）
-    </div>
-  </div>
+      <!-- 设计方向分析 -->
+      <div class="section">
+        <h2>设计方向分析</h2>
 
-  <!-- 方向三 -->
-  <div class="direction-card">
-    <h3>方向三：场景沉浸（Scene Immersion）</h3>
-    <div class="tagline">"展示产品在使用中的样子——生活场景 + 情绪氛围"</div>
+        <!-- 方向一 -->
+        <div class="direction-card">
+          <h3>方向一：Apple 式极简白底（Apple Minimal White）</h3>
+          <div class="tagline">
+            "让产品自己说话——纯白背景、柔和光影、零干扰"
+          </div>
 
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>场景色调主导（暖色调家居、冷色调办公、中性色调户外），产品颜色自然融入</span></div>
-      <div class="feature-item"><strong>排版</strong><span>场景为主，产品自然放置；文字信息较少，通常只有品牌 logo 和简短标语</span></div>
-      <div class="feature-item"><strong>图形</strong><span>真实生活场景或精心搭建的布景，产品作为场景中的自然元素出现</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>自然光或模拟自然光，柔和阴影，场景材质丰富（木质、布料、金属等）</span></div>
-      <div class="feature-item"><strong>构图</strong><span>场景全景或中景，产品位于视觉焦点但不过分突出，环境氛围感强</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>生活方式、舒适、专注、享受音乐的时刻</span></div>
-    </div>
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >纯白背景（#FFFFFF）+
+                产品本色；无多余色彩，完全依赖产品自身颜色</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span>无文字或极少文字；产品居中，信息通过产品本身传递</span>
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span>产品为主体，无装饰元素；偶尔有极 subtle 的阴影</span>
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span
+                >大面积柔光箱照明，柔和渐变高光，底部 subtle
+                投影，无硬边阴影</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span>产品居中或微偏，45度角展示，留白 60%+</span>
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong><span>纯净、高端、自信、克制</span>
+            </div>
+          </div>
 
-    <h4>典型手法</h4>
-    <ul>
-      <li>产品放置在真实使用场景中（桌面、沙发、咖啡厅）</li>
-      <li>人物局部入镜（手部、侧脸）增强代入感</li>
-      <li>环境光营造氛围，产品自然受光</li>
-      <li>景深控制，产品清晰、背景适度虚化</li>
-    </ul>
+          <h4>典型手法</h4>
+          <ul>
+            <li>超大柔光箱 + 黑卡纸勾勒产品边缘轮廓</li>
+            <li>底部 subtle 投影增加立体感但不喧宾夺主</li>
+            <li>产品表面呈现完美渐变反射，无杂光</li>
+            <li>后期精修去除所有瑕疵、灰尘、指纹</li>
+          </ul>
 
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://www.apple.com/v/airpods-max/images/overview/listening-experience__fjsiz49dd5yq_xlarge.jpg" alt="AirPods Max Listening Experience" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">AirPods Max 使用场景</span>
-          <span class="source">来自 <a href="https://www.apple.com/airpods-max/" target="_blank" rel="noopener">Apple 官网</a></span>
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://www.apple.com/v/airpods-max/images/overview/hero__gnfk5g59t0qe_xlarge.png"
+                alt="AirPods Max Hero"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">AirPods Max 官方产品图</span>
+                <span class="source"
+                  >来自
+                  <a
+                    href="https://www.apple.com/airpods-max/"
+                    target="_blank"
+                    rel="noopener"
+                    >Apple 官网</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://store.storeimages.cdn-apple.com/4982/as-images.apple.com/is/airpods-max-hero-select-202011_FMT_WHH?wid=607&hei=556&fmt=jpeg&qlt=90&.v=1633623988000"
+                alt="AirPods Max Select"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">AirPods Max 多色展示</span>
+                <span class="source"
+                  >来自
+                  <a
+                    href="https://www.apple.com/airpods-max/"
+                    target="_blank"
+                    rel="noopener"
+                    >Apple Store</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/26181059/file/original-airpod-max-poster.png?resize=400x300"
+                alt="AirPod Max Poster"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">AirPod Max Poster Design</span>
+                <span class="source"
+                  >by mubeen ali on
+                  <a
+                    href="https://dribbble.com/shots/26181059"
+                    target="_blank"
+                    rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>
+            品牌官网主图、产品详情页首图、高端电商平台（天猫/京东旗舰店）、品牌宣传册
+          </p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            QCY H3S over-ear headphones, product photography, pure white
+            background #FFFFFF, soft studio lighting with large diffused light
+            source, subtle bottom shadow, 45-degree angle view, clean minimal
+            style, premium feel, sharp focus on product details, no text, no
+            decorations, Apple-style product shot, --ar 1:1 --style raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换 <code>QCY H3S</code> 为具体型号<br />
+            💡 添加 <code>black colorway</code> 或
+            <code>white colorway</code> 指定颜色版本<br />
+            💡 调整 <code>45-degree angle</code> 为 <code>front view</code> 或
+            <code>side view</code> 改变视角<br />
+            💡 <code>--ar 1:1</code> 适合主图，可换为
+            <code>3:4</code>（竖版详情页）或 <code>16:9</code>（横幅）
+          </div>
+        </div>
+
+        <!-- 方向二 -->
+        <div class="direction-card">
+          <h3>方向二：渐变悬浮（Gradient Float）</h3>
+          <div class="tagline">
+            "让产品在色彩中悬浮——柔和渐变背景 + 3D 质感"
+          </div>
+
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >柔和渐变背景（蓝紫渐变、粉橙渐变、灰蓝渐变），产品本色与背景形成和谐对比</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span
+                >产品名称 +
+                核心卖点文字，字体简洁现代，通常位于产品下方或侧面</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span>产品为主体，偶尔有 subtle 的光晕或反射效果增强立体感</span>
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span
+                >3D 渲染质感，柔和环境光，产品表面有细腻反射，背景渐变平滑无
+                banding</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span>产品居中悬浮，背景渐变从中心向四周扩散，留白适中</span>
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong
+              ><span>现代、活力、 approachable、科技感</span>
+            </div>
+          </div>
+
+          <h4>典型手法</h4>
+          <ul>
+            <li>3D 渲染产品图 + 渐变背景合成</li>
+            <li>产品底部添加 subtle 反射增强悬浮感</li>
+            <li>背景渐变与产品主色调形成邻近色或互补色关系</li>
+            <li>文字信息层级清晰，不干扰产品主体</li>
+          </ul>
+
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/37825440/file/original-4779a6a799ed0b4573d38edef39b8431.jpg?resize=420x&vertical=center"
+                alt="E-commerce Banner"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Social Media E-commerce Banner</span>
+                <span class="source"
+                  >by Kamrul Islam on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://www.freepik.com/free-photos-vectors/3d-headphone-banner"
+                alt="3D Headphone Banner"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">3D Headphone Banner Template</span>
+                <span class="source"
+                  >来自
+                  <a
+                    href="https://www.freepik.com/free-photos-vectors/3d-headphone-banner"
+                    target="_blank"
+                    rel="noopener"
+                    >Freepik</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://pikbest.com/backgrounds/qianku-gradient-e-commerce-headphones-background-poster_1844941.html"
+                alt="Gradient Headphone Banner"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title"
+                  >Gradient E-commerce Headphones Background</span
+                >
+                <span class="source"
+                  >来自
+                  <a href="https://pikbest.com" target="_blank" rel="noopener"
+                    >Pikbest</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>电商平台 Banner、社交媒体广告、促销活动海报、产品详情页场景图</p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            QCY H3S over-ear headphones, 3D product render, floating in center,
+            soft gradient background from light blue to lavender, subtle
+            reflection below product, clean modern typography "QCY H3S" below,
+            premium e-commerce style, soft ambient lighting, detailed product
+            texture, --ar 16:9 --style raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换 <code>light blue to lavender</code> 为其他渐变组合（如
+            <code>peach to coral</code>、<code>mint to teal</code>）<br />
+            💡 添加 <code>promotional badge</code> → 适合促销场景；移除 →
+            更简洁<br />
+            💡 调整 <code>floating</code> 为 <code>placed on surface</code> → 更
+            grounded 的感觉<br />
+            💡 <code>--ar 16:9</code> 适合 Banner，可换为
+            <code>1:1</code>（社交媒体）或 <code>9:16</code>（短视频）
+          </div>
+        </div>
+
+        <!-- 方向三 -->
+        <div class="direction-card">
+          <h3>方向三：场景沉浸（Scene Immersion）</h3>
+          <div class="tagline">
+            "展示产品在使用中的样子——生活场景 + 情绪氛围"
+          </div>
+
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >场景色调主导（暖色调家居、冷色调办公、中性色调户外），产品颜色自然融入</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span
+                >场景为主，产品自然放置；文字信息较少，通常只有品牌 logo
+                和简短标语</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span
+                >真实生活场景或精心搭建的布景，产品作为场景中的自然元素出现</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span
+                >自然光或模拟自然光，柔和阴影，场景材质丰富（木质、布料、金属等）</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span
+                >场景全景或中景，产品位于视觉焦点但不过分突出，环境氛围感强</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong
+              ><span>生活方式、舒适、专注、享受音乐的时刻</span>
+            </div>
+          </div>
+
+          <h4>典型手法</h4>
+          <ul>
+            <li>产品放置在真实使用场景中（桌面、沙发、咖啡厅）</li>
+            <li>人物局部入镜（手部、侧脸）增强代入感</li>
+            <li>环境光营造氛围，产品自然受光</li>
+            <li>景深控制，产品清晰、背景适度虚化</li>
+          </ul>
+
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://www.apple.com/v/airpods-max/images/overview/listening-experience__fjsiz49dd5yq_xlarge.jpg"
+                alt="AirPods Max Listening Experience"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">AirPods Max 使用场景</span>
+                <span class="source"
+                  >来自
+                  <a
+                    href="https://www.apple.com/airpods-max/"
+                    target="_blank"
+                    rel="noopener"
+                    >Apple 官网</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://www.apple.com/newsroom/images/product/airpods/standard/Apple_AirPods-Max_lifestyle_12082020_big.jpg.large.jpg"
+                alt="AirPods Max Lifestyle"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">AirPods Max 生活方式摄影</span>
+                <span class="source"
+                  >来自
+                  <a
+                    href="https://www.apple.com/newsroom/"
+                    target="_blank"
+                    rel="noopener"
+                    >Apple Newsroom</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/13726767/file/original-da42196ce7f0ecc6ee7949c6bb1b8587.jpg?crop=0x0-1947x1460&format=webp&resize=400x300&vertical=center"
+                alt="Modern Neon Presentation"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Modern Neon Cyberpunk Presentation</span>
+                <span class="source"
+                  >by ayasumak on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>
+            品牌故事页、社交媒体内容、生活方式营销、产品详情页场景展示、KOL
+            合作内容
+          </p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            QCY H3S over-ear headphones placed on a minimalist wooden desk, next
+            to a laptop and coffee cup, natural window light, cozy home office
+            atmosphere, shallow depth of field, lifestyle product photography,
+            warm tones, authentic moment, --ar 16:9 --style raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换场景描述：<code>cozy home office</code> →
+            <code>modern gym</code>、<code>outdoor cafe</code>、<code
+              >bedroom nightstand</code
+            ><br />
+            💡 添加 <code>person wearing</code> → 展示佩戴效果；移除 →
+            更聚焦产品<br />
+            💡 调整 <code>warm tones</code> 为 <code>cool tones</code> →
+            改变情绪氛围<br />
+            💡
+            <code>shallow depth of field</code> 可增大或减小以控制背景虚化程度
+          </div>
+        </div>
+
+        <!-- 方向四 -->
+        <div class="direction-card">
+          <h3>方向四：功能拆解（Feature Breakdown）</h3>
+          <div class="tagline">"把卖点变成视觉——图标 + 数据 + 产品爆炸图"</div>
+
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >品牌主色 + 中性灰背景；高亮数据用强调色（如 QCY 橙色）</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span
+                >信息层级丰富：大标题 + 数据高亮 + 图标 +
+                简短说明；网格布局</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span>产品图 + 功能图标 + 数据可视化元素 + 爆炸图/剖面图</span>
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span
+                >产品图保持 Apple 式质感，图标扁平或微立体，整体干净专业</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span
+                >产品居中，功能点环绕排列；或左右分栏（产品左 + 卖点右）</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong><span>专业、可信、技术感、性价比突出</span>
+            </div>
+          </div>
+
+          <h4>典型手法</h4>
+          <ul>
+            <li>
+              产品 45 度角展示 + 核心数据大字报（"56dB 降噪"、"102H 续航"）
+            </li>
+            <li>功能图标统一风格，与产品图形成视觉层次</li>
+            <li>使用爆炸图展示内部结构（驱动单元、麦克风阵列）</li>
+            <li>对比图表突出与竞品/前代的提升</li>
+          </ul>
+
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://www.qcy.com/cdn/shop/files/h3s-feature-1.jpg?v=123456"
+                alt="QCY H3S Features"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">QCY H3S 功能展示</span>
+                <span class="source"
+                  >来自
+                  <a
+                    href="https://www.qcy.com/products/qcy-h3s"
+                    target="_blank"
+                    rel="noopener"
+                    >QCY 官网</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://www.apple.com/v/airpods-max/images/overview/audio-quality__cnpd64r6n5ea_xlarge.png"
+                alt="AirPods Max Audio Quality"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">AirPods Max 音质技术展示</span>
+                <span class="source"
+                  >来自
+                  <a
+                    href="https://www.apple.com/airpods-max/"
+                    target="_blank"
+                    rel="noopener"
+                    >Apple 官网</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/42742747/file/original-ba218d38bc8e7f579d4f7e9fbe07d323.png?crop=0x0-1600x1200&format=webp&resize=400x300&vertical=center"
+                alt="Gaming UI Features"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Neon Cyberpunk Shooter UI</span>
+                <span class="source"
+                  >by DESH. Group on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>
+            产品详情页功能模块、电商卖点图、技术参数页、对比评测图、发布会 PPT
+          </p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            QCY H3S over-ear headphones feature breakdown poster, product on
+            left side, technical specs icons on right, "56dB ANC" "102H Battery"
+            "Hi-Res Audio" highlighted in large typography, clean grid layout,
+            light gray background, professional e-commerce style, minimal icons,
+            blue and orange accent colors, --ar 16:9 --style raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换技术参数为实际卖点<br />
+            💡 调整 <code>product on left</code> 为
+            <code>product center</code> → 改变布局结构<br />
+            💡 添加 <code>exploded view</code> → 展示内部结构；移除 → 更简洁<br />
+            💡 <code>blue and orange</code> 可替换为 QCY 品牌色或其他配色方案
+          </div>
         </div>
       </div>
-      <div class="gallery-item">
-        <img src="https://www.apple.com/newsroom/images/product/airpods/standard/Apple_AirPods-Max_lifestyle_12082020_big.jpg.large.jpg" alt="AirPods Max Lifestyle" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">AirPods Max 生活方式摄影</span>
-          <span class="source">来自 <a href="https://www.apple.com/newsroom/" target="_blank" rel="noopener">Apple Newsroom</a></span>
+
+      <!-- 方向间对比 -->
+      <div class="section">
+        <h2>方向间对比</h2>
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>对比维度</th>
+              <th>Apple 式极简白底</th>
+              <th>渐变悬浮</th>
+              <th>场景沉浸</th>
+              <th>功能拆解</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>信息密度</strong></td>
+              <td>极低</td>
+              <td>低</td>
+              <td>中等</td>
+              <td>高</td>
+            </tr>
+            <tr>
+              <td><strong>背景复杂度</strong></td>
+              <td>纯平单色</td>
+              <td>平滑渐变</td>
+              <td>真实场景</td>
+              <td>结构化布局</td>
+            </tr>
+            <tr>
+              <td><strong>适用平台</strong></td>
+              <td>品牌官网/旗舰店</td>
+              <td>电商 Banner/广告</td>
+              <td>社交媒体/内容</td>
+              <td>详情页/参数页</td>
+            </tr>
+            <tr>
+              <td><strong>制作难度</strong></td>
+              <td>高（需精修）</td>
+              <td>中等（3D渲染）</td>
+              <td>高（场景搭建）</td>
+              <td>中等（排版设计）</td>
+            </tr>
+            <tr>
+              <td><strong>与 Apple 相似度</strong></td>
+              <td>最高</td>
+              <td>中等</td>
+              <td>中等</td>
+              <td>低</td>
+            </tr>
+            <tr>
+              <td><strong>QCY 适配度</strong></td>
+              <td>高（提升品牌感）</td>
+              <td>高（电商转化）</td>
+              <td>中等（需预算）</td>
+              <td>高（卖点清晰）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 审美规律总结 -->
+      <div class="section">
+        <h2>审美规律总结</h2>
+        <div class="summary-grid">
+          <div class="summary-card">
+            <h4>Apple 式产品摄影核心原则</h4>
+            <ul>
+              <li>极简主义：画面中只有产品，零干扰</li>
+              <li>完美布光：柔光勾勒边缘，无硬阴影</li>
+              <li>干净背景：纯白/纯黑/渐变，无纹理</li>
+              <li>精修至上：去除所有瑕疵、灰尘、指纹</li>
+              <li>产品分离：通过对比和边缘光让产品突出</li>
+            </ul>
+          </div>
+          <div class="summary-card">
+            <h4>电商转化设计要点</h4>
+            <ul>
+              <li>3秒内传达核心卖点</li>
+              <li>产品必须清晰可辨</li>
+              <li>色彩与平台环境协调</li>
+              <li>文字信息层级分明</li>
+              <li>适配多种尺寸（主图/Banner/详情页）</li>
+            </ul>
+          </div>
+          <div class="summary-card">
+            <h4>QCY 品牌适配建议</h4>
+            <ul>
+              <li>借鉴 Apple 的布光和精修标准</li>
+              <li>加入 QCY 品牌色（橙色）作为点缀</li>
+              <li>突出"性价比"卖点：同价位最强配置</li>
+              <li>多色版本展示（黑/白/灰）</li>
+              <li>技术参数可视化（降噪深度、续航时长）</li>
+            </ul>
+          </div>
+          <div class="summary-card">
+            <h4>2024-2025 电商设计趋势</h4>
+            <ul>
+              <li>3D 渲染替代实拍（成本更低、效果更可控）</li>
+              <li>渐变背景回归（柔和、不抢眼）</li>
+              <li>大字体卖点（"102H 续航"比长文案更有效）</li>
+              <li>微动效（悬浮、旋转展示产品）</li>
+              <li>AIGC 辅助生成场景图</li>
+            </ul>
+          </div>
         </div>
       </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/13726767/file/original-da42196ce7f0ecc6ee7949c6bb1b8587.jpg?crop=0x0-1947x1460&format=webp&resize=400x300&vertical=center" alt="Modern Neon Presentation" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Modern Neon Cyberpunk Presentation</span>
-          <span class="source">by ayasumak on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
+
+      <!-- 设计建议 -->
+      <div class="section">
+        <h2>设计建议</h2>
+
+        <div class="recommendation">
+          <h4>推荐组合策略：Apple 式白底 + 渐变悬浮 + 功能拆解</h4>
+          <p>对于 QCY H3S 的电商宣传，建议采用<strong>三套图组合</strong>：</p>
+          <ol>
+            <li>
+              <strong>主图（Apple 式白底）</strong>：借鉴 Apple
+              的纯白底产品图，提升品牌高端感，用于详情页首图和旗舰店主图
+            </li>
+            <li>
+              <strong>Banner（渐变悬浮）</strong>：3D 渲染 +
+              渐变背景，用于电商平台 Banner 和社交媒体广告，提高点击率
+            </li>
+            <li>
+              <strong>卖点图（功能拆解）</strong
+              >：技术参数可视化，用于详情页功能模块，提升转化率
+            </li>
+          </ol>
+        </div>
+
+        <div class="recommendation">
+          <h4>QCY H3S 具体执行方案</h4>
+          <ol>
+            <li>
+              <strong>主图</strong>：纯白底 + 45度角 + 黑/白/灰三色分别拍摄 +
+              底部 subtle 投影
+            </li>
+            <li>
+              <strong>Banner</strong>：蓝紫渐变背景 + 产品悬浮 + "56dB 降噪"大字
+              + QCY Logo
+            </li>
+            <li>
+              <strong>场景图</strong>：居家办公场景 + 自然光 + 产品放置桌面 +
+              生活方式氛围
+            </li>
+            <li>
+              <strong>卖点图</strong>：左右分栏（产品左 + 5大卖点右）+ 图标 +
+              数据高亮
+            </li>
+            <li>
+              <strong>对比图</strong>：与前代 H3
+              对比，突出升级点（降噪提升、续航增加）
+            </li>
+          </ol>
+        </div>
+
+        <div class="recommendation">
+          <h4>Prompt 快速模板库</h4>
+          <p><strong>主图模板</strong>：</p>
+          <div class="prompt-box" style="margin: 8px 0">
+            QCY H3S headphones, product photography, white background, soft
+            studio lighting, 45-degree angle, minimal shadow, premium feel,
+            Apple-style, --ar 1:1 --style raw
+          </div>
+          <p><strong>Banner 模板</strong>：</p>
+          <div class="prompt-box" style="margin: 8px 0">
+            QCY H3S headphones, 3D render, floating, gradient background, soft
+            reflection, e-commerce banner, modern typography, --ar 16:9 --style
+            raw
+          </div>
+          <p><strong>场景图模板</strong>：</p>
+          <div class="prompt-box" style="margin: 8px 0">
+            QCY H3S headphones on desk, lifestyle photography, natural light,
+            cozy atmosphere, shallow depth of field, --ar 16:9 --style raw
+          </div>
+          <p><strong>卖点图模板</strong>：</p>
+          <div class="prompt-box" style="margin: 8px 0">
+            QCY H3S feature poster, product + icons, technical specs, clean
+            layout, light gray background, --ar 16:9 --style raw
+          </div>
         </div>
       </div>
-    </div>
 
-    <h4>适用场景</h4>
-    <p>品牌故事页、社交媒体内容、生活方式营销、产品详情页场景展示、KOL 合作内容</p>
+      <!-- 生图 Prompt 使用说明 -->
+      <div class="section">
+        <h2>生图 Prompt 使用说明</h2>
 
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">QCY H3S over-ear headphones placed on a minimalist wooden desk, next to a laptop and coffee cup, natural window light, cozy home office atmosphere, shallow depth of field, lifestyle product photography, warm tones, authentic moment, --ar 16:9 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换场景描述：<code>cozy home office</code> → <code>modern gym</code>、<code>outdoor cafe</code>、<code>bedroom nightstand</code><br>
-      💡 添加 <code>person wearing</code> → 展示佩戴效果；移除 → 更聚焦产品<br>
-      💡 调整 <code>warm tones</code> 为 <code>cool tones</code> → 改变情绪氛围<br>
-      💡 <code>shallow depth of field</code> 可增大或减小以控制背景虚化程度
-    </div>
-  </div>
+        <h4>模型适配</h4>
+        <p>
+          本报告中的 Prompt 适配 <strong>nano banana</strong> 和
+          <strong>image2</strong> 等主流生图模型。参数说明：
+        </p>
+        <ul>
+          <li>
+            <code>--ar [比例]</code>：控制宽高比，常用
+            <code>1:1</code
+            >（主图）、<code>16:9</code>（Banner）、<code>3:4</code>（详情页）
+          </li>
+          <li>
+            <code>--style raw</code>：减少 AI 的"美化"干预，更贴近 Prompt 描述
+          </li>
+          <li>
+            <code>[占位符]</code>：用
+            <code>[]</code> 标注的部分需要替换为你的具体内容
+          </li>
+        </ul>
 
-  <!-- 方向四 -->
-  <div class="direction-card">
-    <h3>方向四：功能拆解（Feature Breakdown）</h3>
-    <div class="tagline">"把卖点变成视觉——图标 + 数据 + 产品爆炸图"</div>
+        <h4>Prompt 参数调节指南</h4>
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>参数</th>
+              <th>增大/强调</th>
+              <th>减小/弱化</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>soft lighting / studio lighting</td>
+              <td>更柔和、更专业</td>
+              <td>更硬、更戏剧性</td>
+            </tr>
+            <tr>
+              <td>minimal / clean</td>
+              <td>更简洁、更 Apple 风</td>
+              <td>更丰富、更电商风</td>
+            </tr>
+            <tr>
+              <td>gradient background</td>
+              <td>更现代、更吸引眼球</td>
+              <td>更保守、更品牌感</td>
+            </tr>
+            <tr>
+              <td>shadow / reflection</td>
+              <td>更立体、更真实</td>
+              <td>更扁平、更简洁</td>
+            </tr>
+          </tbody>
+        </table>
 
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>品牌主色 + 中性灰背景；高亮数据用强调色（如 QCY 橙色）</span></div>
-      <div class="feature-item"><strong>排版</strong><span>信息层级丰富：大标题 + 数据高亮 + 图标 + 简短说明；网格布局</span></div>
-      <div class="feature-item"><strong>图形</strong><span>产品图 + 功能图标 + 数据可视化元素 + 爆炸图/剖面图</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>产品图保持 Apple 式质感，图标扁平或微立体，整体干净专业</span></div>
-      <div class="feature-item"><strong>构图</strong><span>产品居中，功能点环绕排列；或左右分栏（产品左 + 卖点右）</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>专业、可信、技术感、性价比突出</span></div>
-    </div>
+        <h4>如何结合 QCY 已有素材优化 Prompt</h4>
+        <ol>
+          <li>
+            <strong>有产品实拍图</strong>：使用
+            <code>product photography of [产品]</code> +
+            描述现有照片的光线和角度
+          </li>
+          <li>
+            <strong>有品牌色</strong>：在 Prompt 中明确指定（如
+            <code>QCY orange accent #FF6B35</code>）
+          </li>
+          <li>
+            <strong>有 Logo</strong>：描述 Logo 位置（如
+            <code>QCY logo top left corner</code>）
+          </li>
+          <li>
+            <strong>有参考图</strong>：上传参考图 + 文字 Prompt，使用
+            <code>in the style of [参考图特征]</code>
+          </li>
+        </ol>
 
-    <h4>典型手法</h4>
-    <ul>
-      <li>产品 45 度角展示 + 核心数据大字报（"56dB 降噪"、"102H 续航"）</li>
-      <li>功能图标统一风格，与产品图形成视觉层次</li>
-      <li>使用爆炸图展示内部结构（驱动单元、麦克风阵列）</li>
-      <li>对比图表突出与竞品/前代的提升</li>
-    </ul>
-
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://www.qcy.com/cdn/shop/files/h3s-feature-1.jpg?v=123456" alt="QCY H3S Features" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">QCY H3S 功能展示</span>
-          <span class="source">来自 <a href="https://www.qcy.com/products/qcy-h3s" target="_blank" rel="noopener">QCY 官网</a></span>
+        <h4>QCY 品牌专属 Prompt 模板</h4>
+        <div class="prompt-box">
+          QCY H3S over-ear headphones, [颜色版本], product photography,
+          [背景类型], [光线类型], [构图角度], [氛围描述], QCY brand style, --ar
+          [比例] --style raw 示例填充： QCY H3S over-ear headphones, black
+          colorway, product photography, pure white background, soft studio
+          lighting with large diffused source, 45-degree angle view, premium
+          minimalist feel, QCY brand style, --ar 1:1 --style raw
         </div>
       </div>
-      <div class="gallery-item">
-        <img src="https://www.apple.com/v/airpods-max/images/overview/audio-quality__cnpd64r6n5ea_xlarge.png" alt="AirPods Max Audio Quality" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">AirPods Max 音质技术展示</span>
-          <span class="source">来自 <a href="https://www.apple.com/airpods-max/" target="_blank" rel="noopener">Apple 官网</a></span>
-        </div>
+
+      <!-- 调研来源 -->
+      <div class="section">
+        <h2>调研来源汇总</h2>
+        <ul class="source-list">
+          <li>
+            <span class="platform-tag">Apple 官网</span>
+            <a
+              href="https://www.apple.com/airpods-max/"
+              target="_blank"
+              rel="noopener"
+              >AirPods Max 产品页</a
+            >
+            — Apple 官方产品摄影风格参考
+          </li>
+          <li>
+            <span class="platform-tag">Apple Store</span>
+            <a
+              href="https://www.apple.com/shop/buy-airpods/airpods-max"
+              target="_blank"
+              rel="noopener"
+              >AirPods Max 购买页</a
+            >
+            — 产品展示与配色方案
+          </li>
+          <li>
+            <span class="platform-tag">Dribbble</span>
+            <a
+              href="https://dribbble.com/shots/26181059"
+              target="_blank"
+              rel="noopener"
+              >AirPod Max Poster Design</a
+            >
+            — 第三方设计师的 Apple 风格海报
+          </li>
+          <li>
+            <span class="platform-tag">Dribbble</span>
+            <a
+              href="https://dribbble.com/tags/ecommerce-banner"
+              target="_blank"
+              rel="noopener"
+              >E-commerce Banner Tag</a
+            >
+            — 电商 Banner 设计趋势
+          </li>
+          <li>
+            <span class="platform-tag">QCY 官网</span>
+            <a
+              href="https://www.qcy.com/products/qcy-h3s"
+              target="_blank"
+              rel="noopener"
+              >QCY H3S 产品页</a
+            >
+            — QCY 现有产品展示风格
+          </li>
+          <li>
+            <span class="platform-tag">Freepik</span>
+            <a
+              href="https://www.freepik.com/free-photos-vectors/3d-headphone-banner"
+              target="_blank"
+              rel="noopener"
+              >3D Headphone Banner</a
+            >
+            — 3D 耳机 Banner 模板
+          </li>
+          <li>
+            <span class="platform-tag">Pikbest</span>
+            <a
+              href="https://pikbest.com/backgrounds/qianku-gradient-e-commerce-headphones-background-poster_1844941.html"
+              target="_blank"
+              rel="noopener"
+              >Gradient E-commerce Headphones</a
+            >
+            — 渐变电商耳机背景
+          </li>
+          <li>
+            <span class="platform-tag">知乎</span>
+            <a
+              href="https://zhuanlan.zhihu.com/p/633179242"
+              target="_blank"
+              rel="noopener"
+              >Midjourney 电商产品摄影</a
+            >
+            — AI 产品摄影技巧
+          </li>
+          <li>
+            <span class="platform-tag">摄影指南</span>
+            <a
+              href="https://www.photoeditingservicesco.com/blog/apple-style-product-photography-guide/"
+              target="_blank"
+              rel="noopener"
+              >Apple-Style Product Photography Guide</a
+            >
+            — Apple 风格摄影布光技巧
+          </li>
+        </ul>
       </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/42742747/file/original-ba218d38bc8e7f579d4f7e9fbe07d323.png?crop=0x0-1600x1200&format=webp&resize=400x300&vertical=center" alt="Gaming UI Features" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Neon Cyberpunk Shooter UI</span>
-          <span class="source">by DESH. Group on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
+
+      <div class="footer">
+        本报告由 Design Deep Research Skill 生成 · 图片版权归原作者所有 ·
+        2026-06-08<br />
+        报告中的参考图片链接来自各平台公开页面，仅供设计调研参考
       </div>
     </div>
-
-    <h4>适用场景</h4>
-    <p>产品详情页功能模块、电商卖点图、技术参数页、对比评测图、发布会 PPT</p>
-
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">QCY H3S over-ear headphones feature breakdown poster, product on left side, technical specs icons on right, "56dB ANC" "102H Battery" "Hi-Res Audio" highlighted in large typography, clean grid layout, light gray background, professional e-commerce style, minimal icons, blue and orange accent colors, --ar 16:9 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换技术参数为实际卖点<br>
-      💡 调整 <code>product on left</code> 为 <code>product center</code> → 改变布局结构<br>
-      💡 添加 <code>exploded view</code> → 展示内部结构；移除 → 更简洁<br>
-      💡 <code>blue and orange</code> 可替换为 QCY 品牌色或其他配色方案
-    </div>
-  </div>
-</div>
-
-<!-- 方向间对比 -->
-<div class="section">
-  <h2>方向间对比</h2>
-  <table class="comparison-table">
-    <thead>
-      <tr>
-        <th>对比维度</th>
-        <th>Apple 式极简白底</th>
-        <th>渐变悬浮</th>
-        <th>场景沉浸</th>
-        <th>功能拆解</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong>信息密度</strong></td>
-        <td>极低</td>
-        <td>低</td>
-        <td>中等</td>
-        <td>高</td>
-      </tr>
-      <tr>
-        <td><strong>背景复杂度</strong></td>
-        <td>纯平单色</td>
-        <td>平滑渐变</td>
-        <td>真实场景</td>
-        <td>结构化布局</td>
-      </tr>
-      <tr>
-        <td><strong>适用平台</strong></td>
-        <td>品牌官网/旗舰店</td>
-        <td>电商 Banner/广告</td>
-        <td>社交媒体/内容</td>
-        <td>详情页/参数页</td>
-      </tr>
-      <tr>
-        <td><strong>制作难度</strong></td>
-        <td>高（需精修）</td>
-        <td>中等（3D渲染）</td>
-        <td>高（场景搭建）</td>
-        <td>中等（排版设计）</td>
-      </tr>
-      <tr>
-        <td><strong>与 Apple 相似度</strong></td>
-        <td>最高</td>
-        <td>中等</td>
-        <td>中等</td>
-        <td>低</td>
-      </tr>
-      <tr>
-        <td><strong>QCY 适配度</strong></td>
-        <td>高（提升品牌感）</td>
-        <td>高（电商转化）</td>
-        <td>中等（需预算）</td>
-        <td>高（卖点清晰）</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-<!-- 审美规律总结 -->
-<div class="section">
-  <h2>审美规律总结</h2>
-  <div class="summary-grid">
-    <div class="summary-card">
-      <h4>Apple 式产品摄影核心原则</h4>
-      <ul>
-        <li>极简主义：画面中只有产品，零干扰</li>
-        <li>完美布光：柔光勾勒边缘，无硬阴影</li>
-        <li>干净背景：纯白/纯黑/渐变，无纹理</li>
-        <li>精修至上：去除所有瑕疵、灰尘、指纹</li>
-        <li>产品分离：通过对比和边缘光让产品突出</li>
-      </ul>
-    </div>
-    <div class="summary-card">
-      <h4>电商转化设计要点</h4>
-      <ul>
-        <li>3秒内传达核心卖点</li>
-        <li>产品必须清晰可辨</li>
-        <li>色彩与平台环境协调</li>
-        <li>文字信息层级分明</li>
-        <li>适配多种尺寸（主图/Banner/详情页）</li>
-      </ul>
-    </div>
-    <div class="summary-card">
-      <h4>QCY 品牌适配建议</h4>
-      <ul>
-        <li>借鉴 Apple 的布光和精修标准</li>
-        <li>加入 QCY 品牌色（橙色）作为点缀</li>
-        <li>突出"性价比"卖点：同价位最强配置</li>
-        <li>多色版本展示（黑/白/灰）</li>
-        <li>技术参数可视化（降噪深度、续航时长）</li>
-      </ul>
-    </div>
-    <div class="summary-card">
-      <h4>2024-2025 电商设计趋势</h4>
-      <ul>
-        <li>3D 渲染替代实拍（成本更低、效果更可控）</li>
-        <li>渐变背景回归（柔和、不抢眼）</li>
-        <li>大字体卖点（"102H 续航"比长文案更有效）</li>
-        <li>微动效（悬浮、旋转展示产品）</li>
-        <li>AIGC 辅助生成场景图</li>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- 设计建议 -->
-<div class="section">
-  <h2>设计建议</h2>
-
-  <div class="recommendation">
-    <h4>推荐组合策略：Apple 式白底 + 渐变悬浮 + 功能拆解</h4>
-    <p>对于 QCY H3S 的电商宣传，建议采用<strong>三套图组合</strong>：</p>
-    <ol>
-      <li><strong>主图（Apple 式白底）</strong>：借鉴 Apple 的纯白底产品图，提升品牌高端感，用于详情页首图和旗舰店主图</li>
-      <li><strong>Banner（渐变悬浮）</strong>：3D 渲染 + 渐变背景，用于电商平台 Banner 和社交媒体广告，提高点击率</li>
-      <li><strong>卖点图（功能拆解）</strong>：技术参数可视化，用于详情页功能模块，提升转化率</li>
-    </ol>
-  </div>
-
-  <div class="recommendation">
-    <h4>QCY H3S 具体执行方案</h4>
-    <ol>
-      <li><strong>主图</strong>：纯白底 + 45度角 + 黑/白/灰三色分别拍摄 + 底部 subtle 投影</li>
-      <li><strong>Banner</strong>：蓝紫渐变背景 + 产品悬浮 + "56dB 降噪"大字 + QCY Logo</li>
-      <li><strong>场景图</strong>：居家办公场景 + 自然光 + 产品放置桌面 + 生活方式氛围</li>
-      <li><strong>卖点图</strong>：左右分栏（产品左 + 5大卖点右）+ 图标 + 数据高亮</li>
-      <li><strong>对比图</strong>：与前代 H3 对比，突出升级点（降噪提升、续航增加）</li>
-    </ol>
-  </div>
-
-  <div class="recommendation">
-    <h4>Prompt 快速模板库</h4>
-    <p><strong>主图模板</strong>：</p>
-    <div class="prompt-box" style="margin: 8px 0;">QCY H3S headphones, product photography, white background, soft studio lighting, 45-degree angle, minimal shadow, premium feel, Apple-style, --ar 1:1 --style raw</div>
-    <p><strong>Banner 模板</strong>：</p>
-    <div class="prompt-box" style="margin: 8px 0;">QCY H3S headphones, 3D render, floating, gradient background, soft reflection, e-commerce banner, modern typography, --ar 16:9 --style raw</div>
-    <p><strong>场景图模板</strong>：</p>
-    <div class="prompt-box" style="margin: 8px 0;">QCY H3S headphones on desk, lifestyle photography, natural light, cozy atmosphere, shallow depth of field, --ar 16:9 --style raw</div>
-    <p><strong>卖点图模板</strong>：</p>
-    <div class="prompt-box" style="margin: 8px 0;">QCY H3S feature poster, product + icons, technical specs, clean layout, light gray background, --ar 16:9 --style raw</div>
-  </div>
-</div>
-
-<!-- 生图 Prompt 使用说明 -->
-<div class="section">
-  <h2>生图 Prompt 使用说明</h2>
-
-  <h4>模型适配</h4>
-  <p>本报告中的 Prompt 适配 <strong>nano banana</strong> 和 <strong>image2</strong> 等主流生图模型。参数说明：</p>
-  <ul>
-    <li><code>--ar [比例]</code>：控制宽高比，常用 <code>1:1</code>（主图）、<code>16:9</code>（Banner）、<code>3:4</code>（详情页）</li>
-    <li><code>--style raw</code>：减少 AI 的"美化"干预，更贴近 Prompt 描述</li>
-    <li><code>[占位符]</code>：用 <code>[]</code> 标注的部分需要替换为你的具体内容</li>
-  </ul>
-
-  <h4>Prompt 参数调节指南</h4>
-  <table class="comparison-table">
-    <thead>
-      <tr>
-        <th>参数</th>
-        <th>增大/强调</th>
-        <th>减小/弱化</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>soft lighting / studio lighting</td>
-        <td>更柔和、更专业</td>
-        <td>更硬、更戏剧性</td>
-      </tr>
-      <tr>
-        <td>minimal / clean</td>
-        <td>更简洁、更 Apple 风</td>
-        <td>更丰富、更电商风</td>
-      </tr>
-      <tr>
-        <td>gradient background</td>
-        <td>更现代、更吸引眼球</td>
-        <td>更保守、更品牌感</td>
-      </tr>
-      <tr>
-        <td>shadow / reflection</td>
-        <td>更立体、更真实</td>
-        <td>更扁平、更简洁</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <h4>如何结合 QCY 已有素材优化 Prompt</h4>
-  <ol>
-    <li><strong>有产品实拍图</strong>：使用 <code>product photography of [产品]</code> + 描述现有照片的光线和角度</li>
-    <li><strong>有品牌色</strong>：在 Prompt 中明确指定（如 <code>QCY orange accent #FF6B35</code>）</li>
-    <li><strong>有 Logo</strong>：描述 Logo 位置（如 <code>QCY logo top left corner</code>）</li>
-    <li><strong>有参考图</strong>：上传参考图 + 文字 Prompt，使用 <code>in the style of [参考图特征]</code></li>
-  </ol>
-
-  <h4>QCY 品牌专属 Prompt 模板</h4>
-  <div class="prompt-box">QCY H3S over-ear headphones, [颜色版本], product photography, [背景类型], [光线类型], [构图角度], [氛围描述], QCY brand style, --ar [比例] --style raw
-
-示例填充：
-QCY H3S over-ear headphones, black colorway, product photography, pure white background, soft studio lighting with large diffused source, 45-degree angle view, premium minimalist feel, QCY brand style, --ar 1:1 --style raw</div>
-</div>
-
-<!-- 调研来源 -->
-<div class="section">
-  <h2>调研来源汇总</h2>
-  <ul class="source-list">
-    <li><span class="platform-tag">Apple 官网</span> <a href="https://www.apple.com/airpods-max/" target="_blank" rel="noopener">AirPods Max 产品页</a> — Apple 官方产品摄影风格参考</li>
-    <li><span class="platform-tag">Apple Store</span> <a href="https://www.apple.com/shop/buy-airpods/airpods-max" target="_blank" rel="noopener">AirPods Max 购买页</a> — 产品展示与配色方案</li>
-    <li><span class="platform-tag">Dribbble</span> <a href="https://dribbble.com/shots/26181059" target="_blank" rel="noopener">AirPod Max Poster Design</a> — 第三方设计师的 Apple 风格海报</li>
-    <li><span class="platform-tag">Dribbble</span> <a href="https://dribbble.com/tags/ecommerce-banner" target="_blank" rel="noopener">E-commerce Banner Tag</a> — 电商 Banner 设计趋势</li>
-    <li><span class="platform-tag">QCY 官网</span> <a href="https://www.qcy.com/products/qcy-h3s" target="_blank" rel="noopener">QCY H3S 产品页</a> — QCY 现有产品展示风格</li>
-    <li><span class="platform-tag">Freepik</span> <a href="https://www.freepik.com/free-photos-vectors/3d-headphone-banner" target="_blank" rel="noopener">3D Headphone Banner</a> — 3D 耳机 Banner 模板</li>
-    <li><span class="platform-tag">Pikbest</span> <a href="https://pikbest.com/backgrounds/qianku-gradient-e-commerce-headphones-background-poster_1844941.html" target="_blank" rel="noopener">Gradient E-commerce Headphones</a> — 渐变电商耳机背景</li>
-    <li><span class="platform-tag">知乎</span> <a href="https://zhuanlan.zhihu.com/p/633179242" target="_blank" rel="noopener">Midjourney 电商产品摄影</a> — AI 产品摄影技巧</li>
-    <li><span class="platform-tag">摄影指南</span> <a href="https://www.photoeditingservicesco.com/blog/apple-style-product-photography-guide/" target="_blank" rel="noopener">Apple-Style Product Photography Guide</a> — Apple 风格摄影布光技巧</li>
-  </ul>
-</div>
-
-<div class="footer">
-  本报告由 Design Deep Research Skill 生成 · 图片版权归原作者所有 · 2026-06-08<br>
-  报告中的参考图片链接来自各平台公开页面，仅供设计调研参考
-</div>
-
-</div>
-</body>
+  </body>
 </html>

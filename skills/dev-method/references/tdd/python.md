@@ -3,6 +3,7 @@
 ## Test Framework: pytest
 
 ### Setup
+
 ```bash
 # Install
 pip install pytest pytest-mock
@@ -15,6 +16,7 @@ pytest -x           # Stop on first failure
 ```
 
 ### Test Structure
+
 ```python
 # test_<module>.py
 import pytest
@@ -51,6 +53,7 @@ class TestMyClass:
 ```
 
 ### Mocking
+
 ```python
 # Use pytest-mock fixture
 def test_with_mocker(mocker):
@@ -62,6 +65,7 @@ from unittest.mock import Mock, MagicMock, patch
 ```
 
 ## Best Practices
+
 - One assert per test (prefer single concept per test)
 - Test names: `test_<method>_<scenario>_<expected>`
 - Use fixtures for setup: `@pytest.fixture`

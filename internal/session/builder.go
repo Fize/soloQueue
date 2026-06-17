@@ -619,53 +619,17 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		effectiveCW = agent.DefaultContextWindow
 	}
 
-	// Summary hook (same pattern as L1).
+	// Summary hook (timeline-only, no memory writes).
 	summaryHook := func(segments []ctxwin.SummarySegment) {
-		cutoff := time.Now().AddDate(0, 0, -7)
-		cursor := time.Time{}
-		if b.RT.MemoryManager != nil {
-			cursor = b.RT.MemoryManager.LastRecordedAt()
-		}
-		var latest time.Time
 		for _, seg := range segments {
-			filtered := filterMessagesSince(seg.Msgs, cursor)
-			if len(filtered) == 0 {
-				continue
+			if err := tl.AppendControl(&timeline.ControlPayload{
+				Action:  "summary",
+				Reason:  "auto_compact",
+				Content: seg.Summary,
+			}); err != nil {
+				sessLog.Error(logger.CatActor, "timeline summary append failed",
+					"err", err.Error(), "agent_id", agentID)
 			}
-			if seg.Date.Before(cutoff) {
-				if b.RT.MemoryEngine != nil {
-					_, _, _ = b.RT.MemoryEngine.Save(context.Background(), seg.Summary, seg.Date.Format("2006-01-02"), "auto-compact", seg.Date.Format("2006-01-02")+"T00:00:00Z")
-				}
-			} else {
-				if err := tl.AppendControl(&timeline.ControlPayload{
-					Action:  "summary",
-					Reason:  "auto_compact",
-					Content: seg.Summary,
-				}); err != nil {
-					sessLog.Error(logger.CatActor, "timeline summary append failed",
-						"err", err.Error(), "agent_id", agentID)
-				}
-				if b.RT.MemoryManager != nil {
-					go func(date time.Time, msgs []ctxwin.Message) {
-						defer func() {
-							if r := recover(); r != nil {
-								sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
-									"panic", fmt.Sprintf("%v", r))
-							}
-						}()
-						text := FormatCtxwinMessages(msgs)
-						_ = b.RT.MemoryManager.RecordAt(context.Background(), text, date)
-					}(seg.Date, filtered)
-				}
-			}
-			for _, m := range filtered {
-				if m.Timestamp.After(latest) {
-					latest = m.Timestamp
-				}
-			}
-		}
-		if b.RT.MemoryManager != nil && !latest.IsZero() {
-			b.RT.MemoryManager.AdvanceLastRecordedAt(latest)
 		}
 	}
 
@@ -728,6 +692,9 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	// Build the Session.
 	sessLogger := sessLog.Child()
 	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
+	// Enable auto-compression for idle L2 sessions (same thresholds as L1).
+	s.idleTimeout = 30 * time.Minute
+	s.compactThreshold = 200000
 
 	// Wire router (same as L1).
 	if b.RT.TaskRouter != nil {

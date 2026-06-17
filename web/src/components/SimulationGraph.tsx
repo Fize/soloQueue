@@ -243,7 +243,11 @@ export function SimulationGraph({
           const pulseAlpha = 0.35 * (1 - pulsePhase)
           c.beginPath()
           c.arc(node.x!, node.y!, pulseRadius, 0, 2 * Math.PI)
-          c.fillStyle = node.color + Math.round(pulseAlpha * 255).toString(16).padStart(2, '0')
+          c.fillStyle =
+            node.color +
+            Math.round(pulseAlpha * 255)
+              .toString(16)
+              .padStart(2, '0')
           c.fill()
         }
 

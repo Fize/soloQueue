@@ -86,6 +86,7 @@ func ServeCmd(version string) *cobra.Command {
 
 			factory := session.BuildFactory(rt, workDir, cfg, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, log)
+			session.Version = version
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 			mgr.SetMemoryManager(rt.MemoryManager)

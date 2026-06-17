@@ -48,11 +48,14 @@ The old embedding-dependent permanent memory (`internal/permanent/`, `internal/v
 Short-term memory preserves a rolling log of user interactions in daily Markdown files at `~/.soloqueue/memory/YYYY-MM-DD.md`.
 
 ### Triggers
+
 1. **Context Window Compaction**: When the context window soft waterline is exceeded, compressed daily segments are written to memory.
 2. **`/clear` Command**: Current conversation segments are summarized and stored before clearing.
 
 ### Consolidation
+
 The system uses an LLM-driven merge pipeline to prevent duplicate records:
+
 1. Read the existing daily file.
 2. Format the new conversation segment with `[YYYY-MM-DD HH:MM]` markers.
 3. Send both to the LLM via `buildMergePrompt`.
@@ -60,6 +63,7 @@ The system uses an LLM-driven merge pipeline to prevent duplicate records:
 5. Save atomically via temp-file-write + rename.
 
 ### Retention
+
 - Files older than 7 days are candidates for long-term storage.
 - The session builder's `summaryHook` writes compacted segments directly to the MemoryEngine.
 - A `DailyMemoryFlusher` runs at midnight, flushing unpersisted messages and triggering engine consolidation.
@@ -70,10 +74,10 @@ The system uses an LLM-driven merge pipeline to prevent duplicate records:
 
 The memory engine is a **config-driven hybrid search system** that can operate in two modes:
 
-| Mode | Config | Pipelines | Dependencies |
-|---|---|---|---|
-| **None** (default) | `provider = "none"` | BM25 + KG (dual-hybrid) | Zero |
-| **Remote API** | `provider = "openai"` | BM25 + KG + Vector (tri-hybrid) | Network + API key |
+| Mode               | Config                | Pipelines                       | Dependencies      |
+| ------------------ | --------------------- | ------------------------------- | ----------------- |
+| **None** (default) | `provider = "none"`   | BM25 + KG (dual-hybrid)         | Zero              |
+| **Remote API**     | `provider = "openai"` | BM25 + KG + Vector (tri-hybrid) | Network + API key |
 
 ### Config
 
@@ -146,6 +150,7 @@ Query string
 **BM25** — SQLite FTS5 with `unicode61` tokenizer. Query tokens are cleaned of FTS5 special characters and individually quoted. BM25 scores are normalized to [0,1] relative to the best match in the result set.
 
 **Knowledge Graph** — Two routing strategies:
+
 - **Entity PPR**: When `SearchQuery.Entities` is provided, resolve entity names (through aliases), run Personalized PageRank (power iteration, damping=0.85, convergence tolerance=1e-8), accumulate source_hash scores weighted by edge weight × PPR score.
 - **Token fallback**: Tokenize query, filter English+Chinese stopwords, match against entity names via `LIKE`, BFS from matches up to 2 hops, collect incident edge source_hashes.
 
@@ -163,19 +168,20 @@ Query string
 
 ### Agent Tools
 
-| Tool | Description |
-|---|---|
-| `Remember` | Save content to memory. Optionally include extracted entities/relations for KG indexing. |
-| `RecallMemory` | Hybrid search across all configured pipelines. Returns ranked, hydrated results with scores and sources. |
-| `KGIndex` | Index entities and relationships into the KG. Entity types and relation types are open schema (agent-defined). |
-| `RecallEntity` | Traverse KG from an entity to find all related memories via BFS + incident edges. |
-| `ConnectEntities` | Find shortest path between two entities in the KG (BFS with path tracking). |
-| `MemoryTimeline` | List memories chronologically within a date range. |
-| `ConsolidateMemories` | Run maintenance: edge weight decay, stale memory removal, community detection. |
+| Tool                  | Description                                                                                                    |
+| --------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `Remember`            | Save content to memory. Optionally include extracted entities/relations for KG indexing.                       |
+| `RecallMemory`        | Hybrid search across all configured pipelines. Returns ranked, hydrated results with scores and sources.       |
+| `KGIndex`             | Index entities and relationships into the KG. Entity types and relation types are open schema (agent-defined). |
+| `RecallEntity`        | Traverse KG from an entity to find all related memories via BFS + incident edges.                              |
+| `ConnectEntities`     | Find shortest path between two entities in the KG (BFS with path tracking).                                    |
+| `MemoryTimeline`      | List memories chronologically within a date range.                                                             |
+| `ConsolidateMemories` | Run maintenance: edge weight decay, stale memory removal, community detection.                                 |
 
 ### Consolidation (Daily Maintenance)
 
 The `DailyMemoryFlusher` triggers consolidation at midnight:
+
 1. **Edge decay**: `weight *= 0.5^(days_since_reinforced / half_life)`. Edges not reinforced naturally lose weight.
 2. **Stale removal**: Delete `mem_entries` with salience < 0.1 and event_time older than 90 days.
 3. **Community detection**: Connected components via BFS flood-fill on the undirected KG.
@@ -183,12 +189,11 @@ The `DailyMemoryFlusher` triggers consolidation at midnight:
 ### Migration from Old System
 
 The v13 database migration handles transitioning from the old `memories` table:
+
 - Content is copied from `memories` to `mem_entries`.
 - `content_hash` is set to `"legacy:" + id` (new entries use SHA-256).
 - Old embeddings are discarded (they depended on the old embedding model).
 - If a new embedding provider is configured, entries are re-embedded lazily on subsequent writes.
-
-
 
 ## Key Design Decisions
 
@@ -201,10 +206,10 @@ The v13 database migration handles transitioning from the old `memories` table:
 
 ## Trade-offs
 
-| Aspect | Advantage | Limitation |
-|---|---|---|
-| BM25 vs Vector | Exact keyword match, zero deps | No semantic generalization without KG |
-| KG in SQLite | Zero ops, co-located with data | No horizontal scaling, in-memory PPR |
-| Agent-driven extraction | No hidden LLM costs, full control | Entity coverage depends on agent diligence |
-| Salience decay | Old/unused memories fade naturally | Can lose rarely-accessed but important facts |
-| Single SQLite file | Simple backup, no infra | Writer contention under high concurrency |
+| Aspect                  | Advantage                          | Limitation                                   |
+| ----------------------- | ---------------------------------- | -------------------------------------------- |
+| BM25 vs Vector          | Exact keyword match, zero deps     | No semantic generalization without KG        |
+| KG in SQLite            | Zero ops, co-located with data     | No horizontal scaling, in-memory PPR         |
+| Agent-driven extraction | No hidden LLM costs, full control  | Entity coverage depends on agent diligence   |
+| Salience decay          | Old/unused memories fade naturally | Can lose rarely-accessed but important facts |
+| Single SQLite file      | Simple backup, no infra            | Writer contention under high concurrency     |

@@ -55,12 +55,12 @@ Default server port: 57647. Bind address: `127.0.0.1`. Subcommands: `serve`, `ve
 
 SoloQueue uses a 4-tier task classification and routing system:
 
-| Level | Role | Use case | Thinking mode |
-|-------|------|----------|--------------|
-| L0 | fast | Conversation, simple queries | disabled |
-| L1 | universal | Single-file tasks, quick edits | high |
-| L2 | superior | Multi-file changes, medium complexity | high |
-| L3 | expert | Complex refactoring, large-scale work | max |
+| Level | Role      | Use case                              | Thinking mode |
+| ----- | --------- | ------------------------------------- | ------------- |
+| L0    | fast      | Conversation, simple queries          | disabled      |
+| L1    | universal | Single-file tasks, quick edits        | high          |
+| L2    | superior  | Multi-file changes, medium complexity | high          |
+| L3    | expert    | Complex refactoring, large-scale work | max           |
 
 The `internal/router/` package classifies each user prompt, then selects the appropriate model from config. Agents at each level use different system prompts and tool sets.
 

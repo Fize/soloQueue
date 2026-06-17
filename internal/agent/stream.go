@@ -19,14 +19,10 @@ import (
 
 // ─── Bypass Confirm Context ─────────────────────────────────────────────────
 
-type bypassConfirmCtxKeyType struct{}
-
-var bypassConfirmCtxKey bypassConfirmCtxKeyType
-
 // WithBypassConfirm returns a context that skips all tool confirmations.
 // Used by QQ bot and other non-interactive channels.
 func WithBypassConfirmCtx(ctx context.Context) context.Context {
-	return context.WithValue(ctx, bypassConfirmCtxKey, struct{}{})
+	return iface.ContextWithBypassConfirm(ctx)
 }
 
 // ─── Context Keys for Tool Execution ───────────────────────────────────────
@@ -865,7 +861,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	//   2. 否则 CheckConfirmation，需要确认时发 ToolNeedsConfirmEvent 并阻塞等待；
 	//   3. 用户选择 ChoiceAllowInSession → 加入白名单并按 ChoiceApprove 处理。
 	if c, ok := tool.(tools.Confirmable); ok {
-		if a.bypassConfirm || ctx.Value(bypassConfirmCtxKey) != nil {
+		if a.bypassConfirm || iface.BypassConfirmFromContext(ctx) {
 			args = c.ConfirmArgs(args, choiceApprove)
 		} else if a.confirmStore.IsConfirmed(name) {
 			args = c.ConfirmArgs(args, choiceApprove)

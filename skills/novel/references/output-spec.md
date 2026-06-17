@@ -37,18 +37,18 @@
 
 ## 二、路径规范（强制）
 
-| 产物 | 路径模板 |
-|---|---|
-| 项目红线 | `<project>/novel-project.md` |
-| 世界观总纲 | `<project>/核心世界观总纲.md`（项目可覆盖文件名） |
-| 体系文档 | `<project>/{体系名}.md`（直接放项目根，命名由项目定） |
-| 总大纲 | `outlines/总大纲.md`（名称可由项目覆盖） |
-| 卷大纲 | `outlines/volume-{N}-outline.md` |
-| 章节蓝图 | `blueprints/volume-{N}/chapter-{X}-blueprint.md` |
-| 章节正文 | `contents/volume-{N}/chapter-{X}.txt` |
-| 活跃钩子 | `plots/active-hooks/hook-{名称}.md` |
-| 里程碑 | `plots/milestones/vol-{N}-ch-{Y}-summary.md` |
-| 质检报告（单章） | `quality-control/correction-suggestions/vol-{N}-ch-{X}-quality-report.md` |
+| 产物             | 路径模板                                                                      |
+| ---------------- | ----------------------------------------------------------------------------- |
+| 项目红线         | `<project>/novel-project.md`                                                  |
+| 世界观总纲       | `<project>/核心世界观总纲.md`（项目可覆盖文件名）                             |
+| 体系文档         | `<project>/{体系名}.md`（直接放项目根，命名由项目定）                         |
+| 总大纲           | `outlines/总大纲.md`（名称可由项目覆盖）                                      |
+| 卷大纲           | `outlines/volume-{N}-outline.md`                                              |
+| 章节蓝图         | `blueprints/volume-{N}/chapter-{X}-blueprint.md`                              |
+| 章节正文         | `contents/volume-{N}/chapter-{X}.txt`                                         |
+| 活跃钩子         | `plots/active-hooks/hook-{名称}.md`                                           |
+| 里程碑           | `plots/milestones/vol-{N}-ch-{Y}-summary.md`                                  |
+| 质检报告（单章） | `quality-control/correction-suggestions/vol-{N}-ch-{X}-quality-report.md`     |
 | 质检报告（批量） | `quality-control/correction-suggestions/vol-{N}-ch-{A}-{B}-quality-report.md` |
 
 **命名规则**：
@@ -61,9 +61,9 @@
 
 ## 三、文件格式
 
-| 产物 | 格式 | 语言 |
-|---|---|---|
-| 章节正文 | `.txt` | 中文 |
+| 产物         | 格式              | 语言 |
+| ------------ | ----------------- | ---- |
+| 章节正文     | `.txt`            | 中文 |
 | 其他所有文档 | Markdown（`.md`） | 中文 |
 
 **强制要求**：

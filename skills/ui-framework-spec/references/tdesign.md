@@ -19,14 +19,14 @@ TDesign is an enterprise-level design system by Tencent, supporting multiple pla
 
 TDesign provides multi-framework implementations:
 
-| Framework | Package Name | Use Case |
-|---|---|---|
-| React | `tdesign-react` | Web React projects |
-| Vue 3 | `tdesign-vue-next` | Web Vue 3 projects |
-| Vue 2 | `tdesign-vue` | Web Vue 2 projects |
-| Mobile (Vue) | `tdesign-mobile-vue` | H5 mobile |
-| Mobile (React) | `tdesign-mobile-react` | H5 mobile |
-| Miniprogram | `tdesign-miniprogram` | WeChat Mini Program |
+| Framework      | Package Name           | Use Case            |
+| -------------- | ---------------------- | ------------------- |
+| React          | `tdesign-react`        | Web React projects  |
+| Vue 3          | `tdesign-vue-next`     | Web Vue 3 projects  |
+| Vue 2          | `tdesign-vue`          | Web Vue 2 projects  |
+| Mobile (Vue)   | `tdesign-mobile-vue`   | H5 mobile           |
+| Mobile (React) | `tdesign-mobile-react` | H5 mobile           |
+| Miniprogram    | `tdesign-miniprogram`  | WeChat Mini Program |
 
 ## CSS Variable System
 
@@ -59,15 +59,15 @@ TDesign uses CSS Variables, prefixed with `--td-`.
 
 ```tsx
 // React
-import { ConfigProvider } from 'tdesign-react';
+import { ConfigProvider } from "tdesign-react";
 
 <ConfigProvider
   globalConfig={{
-    classPrefix: 't',
+    classPrefix: "t",
   }}
 >
   <App />
-</ConfigProvider>
+</ConfigProvider>;
 ```
 
 ## Common Component Specifications
@@ -104,15 +104,11 @@ import { ConfigProvider } from 'tdesign-react';
 ### Form
 
 ```tsx
-<Form
-  form={form}
-  layout="vertical"
-  onFinish={onSubmit}
->
+<Form form={form} layout="vertical" onFinish={onSubmit}>
   <FormItem
     label="Username"
     name="username"
-    rules={[{ required: true, message: 'Please enter username' }]}
+    rules={[{ required: true, message: "Please enter username" }]}
   >
     <Input placeholder="Please enter username" />
   </FormItem>
@@ -120,7 +116,9 @@ import { ConfigProvider } from 'tdesign-react';
     <Input type="password" />
   </FormItem>
   <FormItem>
-    <Button theme="primary" type="submit">Submit</Button>
+    <Button theme="primary" type="submit">
+      Submit
+    </Button>
   </FormItem>
 </Form>
 ```
@@ -130,15 +128,23 @@ import { ConfigProvider } from 'tdesign-react';
 ```tsx
 <Table
   columns={[
-    { colKey: 'name', title: 'Name', width: 120 },
-    { colKey: 'age', title: 'Age', sorter: true },
+    { colKey: "name", title: "Name", width: 120 },
+    { colKey: "age", title: "Age", sorter: true },
     {
-      colKey: 'action',
-      title: 'Actions',
+      colKey: "action",
+      title: "Actions",
       cell: ({ row }) => (
         <Space>
-          <Button variant="text" onClick={() => handleEdit(row)}>Edit</Button>
-          <Button variant="text" theme="danger" onClick={() => handleDelete(row)}>Delete</Button>
+          <Button variant="text" onClick={() => handleEdit(row)}>
+            Edit
+          </Button>
+          <Button
+            variant="text"
+            theme="danger"
+            onClick={() => handleDelete(row)}
+          >
+            Delete
+          </Button>
         </Space>
       ),
     },
@@ -159,17 +165,17 @@ import { ConfigProvider } from 'tdesign-react';
   visible={visible}
   onConfirm={handleOk}
   onClose={handleCancel}
-  confirmBtn={{ content: 'Confirm', loading: confirmLoading }}
+  confirmBtn={{ content: "Confirm", loading: confirmLoading }}
   cancelBtn="Cancel"
   width={520}
 >
   <p>Dialog content</p>
-</Dialog>
+</Dialog>;
 
 // Functional call
 Dialog.confirm({
-  header: 'Confirm deletion?',
-  body: 'This action cannot be undone',
+  header: "Confirm deletion?",
+  body: "This action cannot be undone",
   onConfirm: () => deleteItem(id),
 });
 ```

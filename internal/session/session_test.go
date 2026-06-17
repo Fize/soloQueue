@@ -712,3 +712,113 @@ func TestSession_AskStream_InterceptsCron(t *testing.T) {
 		t.Errorf("unexpected last event: %+v", events[len(events)-1])
 	}
 }
+
+func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
+	fake := &agent.FakeLLM{}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	Version = "0.2.0-test"
+
+	t.Run("help", func(t *testing.T) {
+		ch, err := s.AskStream(context.Background(), "/help")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var events []iface.AgentEvent
+		for ev := range ch {
+			events = append(events, ev)
+		}
+		if len(events) < 2 {
+			t.Fatalf("expected at least 2 events, got %d", len(events))
+		}
+		delta, ok := events[0].(agent.ContentDeltaEvent)
+		if !ok || !strings.Contains(delta.Delta, "可用命令：") {
+			t.Errorf("unexpected event content: %+v", events[0])
+		}
+	})
+
+	t.Run("version", func(t *testing.T) {
+		ch, err := s.AskStream(context.Background(), "/version")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var events []iface.AgentEvent
+		for ev := range ch {
+			events = append(events, ev)
+		}
+		if len(events) < 2 {
+			t.Fatalf("expected at least 2 events, got %d", len(events))
+		}
+		delta, ok := events[0].(agent.ContentDeltaEvent)
+		if !ok || !strings.Contains(delta.Delta, "SoloQueue 0.2.0-test") {
+			t.Errorf("unexpected event content: %+v", events[0])
+		}
+	})
+
+	t.Run("clear", func(t *testing.T) {
+		ch, err := s.AskStream(context.Background(), "/clear")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var events []iface.AgentEvent
+		for ev := range ch {
+			events = append(events, ev)
+		}
+		if len(events) < 2 {
+			t.Fatalf("expected at least 2 events, got %d", len(events))
+		}
+		delta, ok := events[0].(agent.ContentDeltaEvent)
+		if !ok || !strings.Contains(delta.Delta, "对话历史已清空") {
+			t.Errorf("unexpected event content: %+v", events[0])
+		}
+	})
+
+	t.Run("cancel when idle", func(t *testing.T) {
+		ch, err := s.AskStream(context.Background(), "/cancel")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var events []iface.AgentEvent
+		for ev := range ch {
+			events = append(events, ev)
+		}
+		if len(events) < 2 {
+			t.Fatalf("expected at least 2 events, got %d", len(events))
+		}
+		delta, ok := events[0].(agent.ContentDeltaEvent)
+		if !ok || !strings.Contains(delta.Delta, "取消失败：") {
+			t.Errorf("unexpected event content: %+v", events[0])
+		}
+	})
+
+	t.Run("cancel when busy", func(t *testing.T) {
+		// Mock activeCancel to simulate a running task
+		cancelCalled := false
+		s.activeCancel = func() {
+			cancelCalled = true
+		}
+
+		ch, err := s.AskStream(context.Background(), "/cancel")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var events []iface.AgentEvent
+		for ev := range ch {
+			events = append(events, ev)
+		}
+		if len(events) < 2 {
+			t.Fatalf("expected at least 2 events, got %d", len(events))
+		}
+		delta, ok := events[0].(agent.ContentDeltaEvent)
+		if !ok || !strings.Contains(delta.Delta, "已取消当前任务") {
+			t.Errorf("unexpected event content: %+v", events[0])
+		}
+		if !cancelCalled {
+			t.Error("expected activeCancel to be called")
+		}
+
+		// Reset activeCancel
+		s.activeCancel = nil
+	})
+}
+

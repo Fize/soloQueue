@@ -77,6 +77,7 @@ export interface AgentInfo {
   mailbox_high: number
   mailbox_normal: number
   is_qbot?: boolean
+  iteration?: number
 }
 
 export interface SupervisorInfo {
@@ -705,8 +706,11 @@ export interface ChatSession {
   name: string
   group?: string
   agent_name?: string
+  agent_instance_id?: string
   project_path?: string
   createdAt: string
+  ctxwin_used?: number
+  ctxwin_limit?: number
 }
 
 export interface ChatMessage {

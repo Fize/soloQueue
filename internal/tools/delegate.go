@@ -211,7 +211,8 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 		timeout = DelegateMaxTimeout
 	}
 
-	delCtx, cancel := context.WithTimeout(ctx, timeout)
+	delCtx := iface.ContextWithBypassConfirm(ctx)
+	delCtx, cancel := context.WithTimeout(delCtx, timeout)
 	defer cancel()
 
 	// 4. Extract parent event channel (injected by agent.execToolStream)

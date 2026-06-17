@@ -26,12 +26,15 @@ type L2SessionEntry struct {
 
 // L2SessionInfo is the public metadata returned by List().
 type L2SessionInfo struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Group     string    `json:"group"`
-	ProjectID string    `json:"project_id,omitempty"`
-	WorkDir   string    `json:"work_dir,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Group           string    `json:"group"`
+	ProjectID       string    `json:"project_id,omitempty"`
+	WorkDir         string    `json:"work_dir,omitempty"`
+	AgentInstanceID string    `json:"agent_instance_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	CtxwinUsed      int       `json:"ctxwin_used"`
+	CtxwinLimit     int       `json:"ctxwin_limit"`
 }
 
 // L2SessionStore manages multiple L2 sessions keyed by UUID.
@@ -274,6 +277,17 @@ func (s *L2SessionStore) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
+// DefaultContextLimit resolves the default model context window limit.
+func (s *L2SessionStore) DefaultContextLimit() int {
+	if s.builder != nil && s.builder.RT != nil {
+		dm := s.builder.RT.ReadDefaultModel()
+		if dm != nil && dm.ContextWindow > 0 {
+			return dm.ContextWindow
+		}
+	}
+	return 1048576 // fallback default
+}
+
 // List returns metadata for all L2 sessions, sorted by created_at descending.
 func (s *L2SessionStore) List() []L2SessionInfo {
 	s.mu.RLock()
@@ -281,13 +295,26 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 
 	result := make([]L2SessionInfo, 0, len(s.sessions))
 	for _, entry := range s.sessions {
+		agentInstanceID := ""
+		if entry.Session != nil && entry.Session.Agent != nil {
+			agentInstanceID = entry.Session.Agent.InstanceID
+		}
+		ctxwinUsed, ctxwinLimit := 0, 0
+		if entry.Session != nil && entry.Session.CW() != nil {
+			ctxwinUsed, ctxwinLimit, _ = entry.Session.CW().TokenUsage()
+		} else {
+			ctxwinLimit = s.DefaultContextLimit()
+		}
 		result = append(result, L2SessionInfo{
-			ID:        entry.ID,
-			Name:      entry.Name,
-			Group:     entry.Group,
-			ProjectID: entry.ProjectID,
-			WorkDir:   entry.WorkDir,
-			CreatedAt: entry.CreatedAt,
+			ID:              entry.ID,
+			Name:            entry.Name,
+			Group:           entry.Group,
+			ProjectID:       entry.ProjectID,
+			WorkDir:         entry.WorkDir,
+			AgentInstanceID: agentInstanceID,
+			CreatedAt:       entry.CreatedAt,
+			CtxwinUsed:      ctxwinUsed,
+			CtxwinLimit:     ctxwinLimit,
 		})
 	}
 

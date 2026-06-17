@@ -1,807 +1,1321 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>科技感品牌海报 · 设计调研报告</title>
-<style>
-  :root {
-    --bg: #f8f9fa;
-    --card-bg: #ffffff;
-    --text: #1a1a2e;
-    --text-secondary: #6c757d;
-    --accent: #4361ee;
-    --accent-light: #eef1ff;
-    --border: #e9ecef;
-    --tag-bg: #f0f0f5;
-    --tag-text: #495057;
-    --neon-pink: #ff006e;
-    --neon-cyan: #00f5ff;
-    --neon-green: #39ff14;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.7;
-    padding: 0;
-  }
-  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>科技感品牌海报 · 设计调研报告</title>
+    <style>
+      :root {
+        --bg: #f8f9fa;
+        --card-bg: #ffffff;
+        --text: #1a1a2e;
+        --text-secondary: #6c757d;
+        --accent: #4361ee;
+        --accent-light: #eef1ff;
+        --border: #e9ecef;
+        --tag-bg: #f0f0f5;
+        --tag-text: #495057;
+        --neon-pink: #ff006e;
+        --neon-cyan: #00f5ff;
+        --neon-green: #39ff14;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.7;
+        padding: 0;
+      }
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 40px 24px;
+      }
 
-  /* Header */
-  .header {
-    background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #4361ee 100%);
-    color: #fff;
-    padding: 80px 0;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-  }
-  .header::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, rgba(255,0,110,0.1) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(0,245,255,0.1) 0%, transparent 40%);
-    animation: pulse 8s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.5; }
-    50% { transform: scale(1.1); opacity: 0.8; }
-  }
-  .header h1 { font-size: 2.4em; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.02em; position: relative; }
-  .header .subtitle { font-size: 1.1em; opacity: 0.85; position: relative; }
+      /* Header */
+      .header {
+        background: linear-gradient(
+          135deg,
+          #0a0a0f 0%,
+          #1a1a2e 50%,
+          #4361ee 100%
+        );
+        color: #fff;
+        padding: 80px 0;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+      .header::before {
+        content: "";
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background:
+          radial-gradient(circle, rgba(255, 0, 110, 0.1) 0%, transparent 50%),
+          radial-gradient(
+            circle at 80% 20%,
+            rgba(0, 245, 255, 0.1) 0%,
+            transparent 40%
+          );
+        animation: pulse 8s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.5;
+        }
+        50% {
+          transform: scale(1.1);
+          opacity: 0.8;
+        }
+      }
+      .header h1 {
+        font-size: 2.4em;
+        font-weight: 700;
+        margin-bottom: 12px;
+        letter-spacing: -0.02em;
+        position: relative;
+      }
+      .header .subtitle {
+        font-size: 1.1em;
+        opacity: 0.85;
+        position: relative;
+      }
 
-  /* Sections */
-  .section { margin-bottom: 56px; }
-  .section h2 {
-    font-size: 1.6em;
-    font-weight: 700;
-    margin-bottom: 24px;
-    padding-bottom: 10px;
-    border-bottom: 3px solid var(--accent);
-    display: inline-block;
-  }
+      /* Sections */
+      .section {
+        margin-bottom: 56px;
+      }
+      .section h2 {
+        font-size: 1.6em;
+        font-weight: 700;
+        margin-bottom: 24px;
+        padding-bottom: 10px;
+        border-bottom: 3px solid var(--accent);
+        display: inline-block;
+      }
 
-  /* Stats */
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 16px;
-    margin-bottom: 32px;
-  }
-  .stat-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-    text-align: center;
-    transition: transform 0.2s;
-  }
-  .stat-card:hover { transform: translateY(-2px); }
-  .stat-card .number { font-size: 2.2em; font-weight: 700; color: var(--accent); }
-  .stat-card .label { font-size: 0.9em; color: var(--text-secondary); margin-top: 6px; }
+      /* Stats */
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+      .stat-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        text-align: center;
+        transition: transform 0.2s;
+      }
+      .stat-card:hover {
+        transform: translateY(-2px);
+      }
+      .stat-card .number {
+        font-size: 2.2em;
+        font-weight: 700;
+        color: var(--accent);
+      }
+      .stat-card .label {
+        font-size: 0.9em;
+        color: var(--text-secondary);
+        margin-top: 6px;
+      }
 
-  /* Direction Cards */
-  .direction-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 36px;
-    margin-bottom: 36px;
-    position: relative;
-    overflow: hidden;
-  }
-  .direction-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: linear-gradient(to bottom, var(--accent), #7209b7);
-  }
-  .direction-card h3 {
-    font-size: 1.4em;
-    font-weight: 700;
-    margin-bottom: 6px;
-  }
-  .direction-card .tagline {
-    font-size: 1em;
-    color: var(--text-secondary);
-    margin-bottom: 24px;
-    font-style: italic;
-  }
-  .direction-card h4 {
-    font-size: 1.05em;
-    font-weight: 600;
-    margin: 24px 0 12px;
-    color: var(--accent);
-  }
+      /* Direction Cards */
+      .direction-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 36px;
+        margin-bottom: 36px;
+        position: relative;
+        overflow: hidden;
+      }
+      .direction-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(to bottom, var(--accent), #7209b7);
+      }
+      .direction-card h3 {
+        font-size: 1.4em;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      .direction-card .tagline {
+        font-size: 1em;
+        color: var(--text-secondary);
+        margin-bottom: 24px;
+        font-style: italic;
+      }
+      .direction-card h4 {
+        font-size: 1.05em;
+        font-weight: 600;
+        margin: 24px 0 12px;
+        color: var(--accent);
+      }
 
-  /* Visual Features */
-  .feature-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
-    margin: 12px 0;
-  }
-  .feature-item {
-    background: var(--accent-light);
-    border-radius: 8px;
-    padding: 14px 18px;
-  }
-  .feature-item strong { display: block; font-size: 0.85em; margin-bottom: 6px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
-  .feature-item span { font-size: 0.95em; }
+      /* Visual Features */
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        margin: 12px 0;
+      }
+      .feature-item {
+        background: var(--accent-light);
+        border-radius: 8px;
+        padding: 14px 18px;
+      }
+      .feature-item strong {
+        display: block;
+        font-size: 0.85em;
+        margin-bottom: 6px;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .feature-item span {
+        font-size: 0.95em;
+      }
 
-  /* Reference Gallery */
-  .gallery {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 16px;
-    margin: 16px 0;
-  }
-  .gallery-item {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
-    background: var(--card-bg);
-  }
-  .gallery-item:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
-  .gallery-item img {
-    width: 100%;
-    height: 180px;
-    object-fit: cover;
-    display: block;
-    background: linear-gradient(135deg, #f0f0f5, #e8e8f0);
-  }
-  .gallery-item .caption {
-    padding: 12px 14px;
-    font-size: 0.85em;
-  }
-  .gallery-item .caption .title { font-weight: 600; display: block; margin-bottom: 4px; }
-  .gallery-item .caption .source {
-    color: var(--text-secondary);
-    font-size: 0.85em;
-    display: block;
-  }
-  .gallery-item .caption .source a { color: var(--accent); text-decoration: none; }
-  .gallery-item .caption .source a:hover { text-decoration: underline; }
+      /* Reference Gallery */
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 16px;
+        margin: 16px 0;
+      }
+      .gallery-item {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+        background: var(--card-bg);
+      }
+      .gallery-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+      }
+      .gallery-item img {
+        width: 100%;
+        height: 180px;
+        object-fit: cover;
+        display: block;
+        background: linear-gradient(135deg, #f0f0f5, #e8e8f0);
+      }
+      .gallery-item .caption {
+        padding: 12px 14px;
+        font-size: 0.85em;
+      }
+      .gallery-item .caption .title {
+        font-weight: 600;
+        display: block;
+        margin-bottom: 4px;
+      }
+      .gallery-item .caption .source {
+        color: var(--text-secondary);
+        font-size: 0.85em;
+        display: block;
+      }
+      .gallery-item .caption .source a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .gallery-item .caption .source a:hover {
+        text-decoration: underline;
+      }
 
-  /* Prompt Box */
-  .prompt-box {
-    background: #0a0a0f;
-    color: #e8e8e8;
-    border-radius: 12px;
-    padding: 20px 24px;
-    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-    font-size: 0.9em;
-    line-height: 1.7;
-    margin: 16px 0;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    border: 1px solid #333;
-  }
-  .prompt-hint {
-    font-size: 0.85em;
-    color: var(--text-secondary);
-    margin-top: 10px;
-    padding: 12px 16px;
-    background: var(--accent-light);
-    border-radius: 8px;
-  }
-  .prompt-hint code {
-    background: rgba(67, 97, 238, 0.15);
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.9em;
-    color: var(--accent);
-  }
+      /* Prompt Box */
+      .prompt-box {
+        background: #0a0a0f;
+        color: #e8e8e8;
+        border-radius: 12px;
+        padding: 20px 24px;
+        font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+        font-size: 0.9em;
+        line-height: 1.7;
+        margin: 16px 0;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border: 1px solid #333;
+      }
+      .prompt-hint {
+        font-size: 0.85em;
+        color: var(--text-secondary);
+        margin-top: 10px;
+        padding: 12px 16px;
+        background: var(--accent-light);
+        border-radius: 8px;
+      }
+      .prompt-hint code {
+        background: rgba(67, 97, 238, 0.15);
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.9em;
+        color: var(--accent);
+      }
 
-  /* Comparison Table */
-  .comparison-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 16px 0;
-    font-size: 0.9em;
-  }
-  .comparison-table th,
-  .comparison-table td {
-    padding: 12px 16px;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-  }
-  .comparison-table th {
-    background: var(--accent-light);
-    font-weight: 600;
-    color: var(--accent);
-  }
-  .comparison-table tr:hover { background: rgba(67, 97, 238, 0.03); }
+      /* Comparison Table */
+      .comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 0.9em;
+      }
+      .comparison-table th,
+      .comparison-table td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      .comparison-table th {
+        background: var(--accent-light);
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .comparison-table tr:hover {
+        background: rgba(67, 97, 238, 0.03);
+      }
 
-  /* Summary */
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
-  }
-  .summary-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-  }
-  .summary-card h4 { font-size: 1.05em; margin-bottom: 12px; color: var(--accent); }
-  .summary-card ul { list-style: none; }
-  .summary-card li {
-    padding: 6px 0;
-    font-size: 0.9em;
-    color: var(--text-secondary);
-  }
-  .summary-card li::before { content: "→ "; color: var(--accent); font-weight: 600; }
+      /* Summary */
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+      .summary-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+      }
+      .summary-card h4 {
+        font-size: 1.05em;
+        margin-bottom: 12px;
+        color: var(--accent);
+      }
+      .summary-card ul {
+        list-style: none;
+      }
+      .summary-card li {
+        padding: 6px 0;
+        font-size: 0.9em;
+        color: var(--text-secondary);
+      }
+      .summary-card li::before {
+        content: "→ ";
+        color: var(--accent);
+        font-weight: 600;
+      }
 
-  /* Sources */
-  .source-list { list-style: none; }
-  .source-list li {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.9em;
-  }
-  .source-list li:last-child { border-bottom: none; }
-  .source-list .platform-tag {
-    display: inline-block;
-    background: var(--tag-bg);
-    color: var(--tag-text);
-    padding: 3px 10px;
-    border-radius: 4px;
-    font-size: 0.8em;
-    margin-right: 10px;
-    font-weight: 500;
-  }
-  .source-list a { color: var(--accent); text-decoration: none; }
-  .source-list a:hover { text-decoration: underline; }
+      /* Sources */
+      .source-list {
+        list-style: none;
+      }
+      .source-list li {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.9em;
+      }
+      .source-list li:last-child {
+        border-bottom: none;
+      }
+      .source-list .platform-tag {
+        display: inline-block;
+        background: var(--tag-bg);
+        color: var(--tag-text);
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 0.8em;
+        margin-right: 10px;
+        font-weight: 500;
+      }
+      .source-list a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .source-list a:hover {
+        text-decoration: underline;
+      }
 
-  /* Tags */
-  .tag {
-    display: inline-block;
-    background: var(--tag-bg);
-    color: var(--tag-text);
-    padding: 5px 14px;
-    border-radius: 20px;
-    font-size: 0.85em;
-    margin: 3px 5px;
-    font-weight: 500;
-  }
+      /* Tags */
+      .tag {
+        display: inline-block;
+        background: var(--tag-bg);
+        color: var(--tag-text);
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-size: 0.85em;
+        margin: 3px 5px;
+        font-weight: 500;
+      }
 
-  /* Recommendations */
-  .recommendation {
-    background: linear-gradient(135deg, var(--accent-light), #f0f0ff);
-    border-radius: 12px;
-    padding: 24px;
-    margin: 16px 0;
-  }
-  .recommendation h4 { color: var(--accent); margin-bottom: 12px; }
+      /* Recommendations */
+      .recommendation {
+        background: linear-gradient(135deg, var(--accent-light), #f0f0ff);
+        border-radius: 12px;
+        padding: 24px;
+        margin: 16px 0;
+      }
+      .recommendation h4 {
+        color: var(--accent);
+        margin-bottom: 12px;
+      }
 
-  /* Footer */
-  .footer {
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 0.85em;
-    padding: 40px 0;
-    border-top: 1px solid var(--border);
-    margin-top: 40px;
-  }
+      /* Footer */
+      .footer {
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 0.85em;
+        padding: 40px 0;
+        border-top: 1px solid var(--border);
+        margin-top: 40px;
+      }
 
-  /* Responsive */
-  @media (max-width: 600px) {
-    .header { padding: 50px 0; }
-    .header h1 { font-size: 1.7em; }
-    .container { padding: 24px 16px; }
-    .direction-card { padding: 24px; }
-    .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-    .comparison-table { font-size: 0.8em; }
-    .comparison-table th,
-    .comparison-table td { padding: 8px; }
-  }
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div class="container">
-    <h1>科技感品牌海报</h1>
-    <div class="subtitle">赛博朋克 × 极简 · 设计调研报告</div>
-  </div>
-</div>
-
-<div class="container">
-
-<!-- 调研概况 -->
-<div class="section">
-  <h2>调研概况</h2>
-  <div class="stats">
-    <div class="stat-card"><div class="number">40+</div><div class="label">采集素材</div></div>
-    <div class="stat-card"><div class="number">4</div><div class="label">设计方向</div></div>
-    <div class="stat-card"><div class="number">8</div><div class="label">覆盖平台</div></div>
-  </div>
-  <p><strong>调研需求</strong>：为科技品牌制作海报，面向年轻用户，风格偏赛博朋克和极简的结合</p>
-  <p><strong>调研范围</strong>：Dribbble、Behance、Pinterest、站酷、Freepik、Unsplash、Pexels、PosterBlast</p>
-  <p><strong>关键词</strong>：cyberpunk minimalist poster, tech brand, neon dark, 赛博朋克 极简 海报, futuristic poster design</p>
-  <p><strong>参考图锚点</strong>：无（纯文字需求驱动）</p>
-</div>
-
-<!-- 设计方向分析 -->
-<div class="section">
-  <h2>设计方向分析</h2>
-
-  <!-- 方向一 -->
-  <div class="direction-card">
-    <h3>方向一：霓虹极简（Neon Minimal）</h3>
-    <div class="tagline">"用极少的元素制造极强的视觉张力——深色画布上，一道霓虹光就是全部"</div>
-
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>近黑背景 + 单一高饱和霓虹色（电光粉/电光蓝/荧光绿），纯单色对比</span></div>
-      <div class="feature-item"><strong>排版</strong><span>几何无衬线字体，字重极粗或极细，通常只有1-2层信息</span></div>
-      <div class="feature-item"><strong>图形</strong><span>单一几何图形或线条，无复杂插画，偶尔有微妙 glow 效果</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>霓虹发光效果（外发光+内发光），无纹理，背景纯平</span></div>
-      <div class="feature-item"><strong>构图</strong><span>居中或偏置构图，视觉重心单一，大量留白包围核心元素</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>克制、神秘、高端、未来感</span></div>
-    </div>
-
-    <h4>典型手法</h4>
-    <ul>
-      <li>用一条霓虹线分割画面</li>
-      <li>文字即图形，字号对比极端</li>
-      <li>单一元素重复排列制造节奏</li>
-    </ul>
-
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/42742747/file/original-ba218d38bc8e7f579d4f7e9fbe07d323.png?crop=0x0-1600x1200&format=webp&resize=400x300&vertical=center" alt="Neon Cyberpunk Shooter UI" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Neon Cyberpunk Shooter UI</span>
-          <span class="source">by DESH. Group on <a href="https://dribbble.com/shots/27349702" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/13726767/file/original-da42196ce7f0ecc6ee7949c6bb1b8587.jpg?crop=0x0-1947x1460&format=webp&resize=400x300&vertical=center" alt="Modern Neon Cyberpunk Presentation" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Modern Neon Cyberpunk Presentation</span>
-          <span class="source">by ayasumak on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/30865320/file/original-5c050894e19a1518ea0c002f98fad09f.png?format=webp&resize=400x300&vertical=center" alt="neon cyberpunk detergent" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">neon cyberpunk detergent</span>
-          <span class="source">by t4tris on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
-      </div>
-    </div>
-
-    <h4>适用场景</h4>
-    <p>科技品牌主视觉、发布会海报、高端产品宣传、极简主义科技品牌</p>
-
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">[产品/品牌名] minimalist poster, single neon [颜色] accent on pure black background, geometric sans-serif typography, extreme negative space, subtle glow effect, clean lines, futuristic tech aesthetic, --ar 3:4 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换 <code>[产品/品牌名]</code> 为你的具体内容，<code>[颜色]</code> 可选：pink/cyan/green/purple<br>
-      💡 增大 "extreme negative space" → 更极简；减小 → 更饱满<br>
-      💡 <code>--ar 3:4</code> 适合竖版海报，可换为 <code>16:9</code>（横版）或 <code>1:1</code>（方形）
-    </div>
-  </div>
-
-  <!-- 方向二 -->
-  <div class="direction-card">
-    <h3>方向二：赛博朋克叙事（Cyberpunk Narrative）</h3>
-    <div class="tagline">"把未来城市的夜晚装进画面——高密度、高对比、高情绪"</div>
-
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>深紫、深蓝、近黑 + 多色霓虹并存（粉+青+绿），高对比高饱和</span></div>
-      <div class="feature-item"><strong>排版</strong><span>科技感等宽字体或锐角几何体，多层信息叠加，文字常带发光效果</span></div>
-      <div class="feature-item"><strong>图形</strong><span>未来城市建筑、全息投影、数据流、机械元素；复杂场景插画或3D渲染</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>强烈环境光（霓虹反射）、雨夜湿润表面反光、volumetric lighting、粒子效果</span></div>
-      <div class="feature-item"><strong>构图</strong><span>复杂多层构图、前景-中景-背景纵深、斜向动线、不对称</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>迷幻、压抑中的华丽、反乌托邦的浪漫、年轻叛逆</span></div>
-    </div>
-
-    <h4>典型手法</h4>
-    <ul>
-      <li>雨夜城市 + 霓虹招牌</li>
-      <li>人物剪影 + 全息投影</li>
-      <li>数据流/代码作为装饰元素</li>
-      <li>故障艺术作为点缀</li>
-    </ul>
-
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/45604097/file/still-943c6734635477b7cb19599b47605dcf.png?format=webp&resize=400x300&vertical=center" alt="Neon Cyberpunk Building Entrance" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Neon Cyberpunk Building Entrance in the Rain</span>
-          <span class="source">by Xin Yan on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/45079344/file/3dd92cd23c24d2f8a72a54d14ef9183e.png?resize=420x&vertical=center" alt="Cyber Extrusion" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Cyber Extrusion (Merch)</span>
-          <span class="source">by Marcos Abdallah on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
-      </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/47633358/file/86c55e852ee467a975b71ca63e7f79a1.jpg?resize=420x&vertical=center" alt="1044 Cyber Face" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">1044 - Cyber Face</span>
-          <span class="source">by Gustavo Zambelli on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
+      /* Responsive */
+      @media (max-width: 600px) {
+        .header {
+          padding: 50px 0;
+        }
+        .header h1 {
+          font-size: 1.7em;
+        }
+        .container {
+          padding: 24px 16px;
+        }
+        .direction-card {
+          padding: 24px;
+        }
+        .gallery {
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        }
+        .comparison-table {
+          font-size: 0.8em;
+        }
+        .comparison-table th,
+        .comparison-table td {
+          padding: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="container">
+        <h1>科技感品牌海报</h1>
+        <div class="subtitle">赛博朋克 × 极简 · 设计调研报告</div>
       </div>
     </div>
 
-    <h4>适用场景</h4>
-    <p>游戏宣传、音乐节海报、街头潮牌、青年文化品牌、电竞活动</p>
+    <div class="container">
+      <!-- 调研概况 -->
+      <div class="section">
+        <h2>调研概况</h2>
+        <div class="stats">
+          <div class="stat-card">
+            <div class="number">40+</div>
+            <div class="label">采集素材</div>
+          </div>
+          <div class="stat-card">
+            <div class="number">4</div>
+            <div class="label">设计方向</div>
+          </div>
+          <div class="stat-card">
+            <div class="number">8</div>
+            <div class="label">覆盖平台</div>
+          </div>
+        </div>
+        <p>
+          <strong>调研需求</strong
+          >：为科技品牌制作海报，面向年轻用户，风格偏赛博朋克和极简的结合
+        </p>
+        <p>
+          <strong>调研范围</strong
+          >：Dribbble、Behance、Pinterest、站酷、Freepik、Unsplash、Pexels、PosterBlast
+        </p>
+        <p>
+          <strong>关键词</strong>：cyberpunk minimalist poster, tech brand, neon
+          dark, 赛博朋克 极简 海报, futuristic poster design
+        </p>
+        <p><strong>参考图锚点</strong>：无（纯文字需求驱动）</p>
+      </div>
 
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">[产品/品牌名] cyberpunk poster, neon-lit futuristic cityscape at night, rain-soaked streets with reflections, holographic UI elements, magenta and cyan neon glow, volumetric lighting, dense layered composition, dystopian yet glamorous mood, --ar 2:3 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换 <code>[产品/品牌名]</code> 为你的具体内容<br>
-      💡 增大 "dense layered composition" → 更复杂；减小 → 更简洁<br>
-      💡 添加 "rain" 或移除 → 控制天气氛围<br>
-      💡 <code>magenta and cyan</code> 可替换为其他霓虹色组合
-    </div>
-  </div>
+      <!-- 设计方向分析 -->
+      <div class="section">
+        <h2>设计方向分析</h2>
 
-  <!-- 方向三 -->
-  <div class="direction-card">
-    <h3>方向三：复古未来主义（Retro Futurism）</h3>
-    <div class="tagline">"用今天的技术，做80年代的人想象中的'未来'"</div>
+        <!-- 方向一 -->
+        <div class="direction-card">
+          <h3>方向一：霓虹极简（Neon Minimal）</h3>
+          <div class="tagline">
+            "用极少的元素制造极强的视觉张力——深色画布上，一道霓虹光就是全部"
+          </div>
 
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>暖橙、日落粉、复古蓝；点缀铬色、金属银、全息渐变；整体偏暖有胶片感</span></div>
-      <div class="feature-item"><strong>排版</strong><span>复古科幻体（NASA风格、VHS风格）、粗体无衬线；简洁，常有大字报效果</span></div>
-      <div class="feature-item"><strong>图形</strong><span>几何抽象图形、太阳放射纹、流线型图案、复古科技元素（磁带、CRT、飞船）</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>金属质感、铬色反射、胶片颗粒、扫描线、渐变色带（vaporwave风格）</span></div>
-      <div class="feature-item"><strong>构图</strong><span>对称或中心放射构图、几何分割、复古海报的黄金比例</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>怀旧、乐观、太空时代的浪漫、Y2K的纯真</span></div>
-    </div>
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >近黑背景 +
+                单一高饱和霓虹色（电光粉/电光蓝/荧光绿），纯单色对比</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span>几何无衬线字体，字重极粗或极细，通常只有1-2层信息</span>
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span>单一几何图形或线条，无复杂插画，偶尔有微妙 glow 效果</span>
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span>霓虹发光效果（外发光+内发光），无纹理，背景纯平</span>
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span>居中或偏置构图，视觉重心单一，大量留白包围核心元素</span>
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong><span>克制、神秘、高端、未来感</span>
+            </div>
+          </div>
 
-    <h4>典型手法</h4>
-    <ul>
-      <li>日落渐变 + 棕榈树剪影</li>
-      <li>铬色 3D 文字</li>
-      <li>网格地面 + 消失点透视</li>
-      <li>复古科技产品 + 现代排版</li>
-    </ul>
+          <h4>典型手法</h4>
+          <ul>
+            <li>用一条霓虹线分割画面</li>
+            <li>文字即图形，字号对比极端</li>
+            <li>单一元素重复排列制造节奏</li>
+          </ul>
 
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/17119330/file/original-2d8521b3c47b3d0b557a4475efa528ec.jpg?resize=420x&vertical=center" alt="4 explorations" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">4 explorations</span>
-          <span class="source">by Ethan Fender on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/42742747/file/original-ba218d38bc8e7f579d4f7e9fbe07d323.png?crop=0x0-1600x1200&format=webp&resize=400x300&vertical=center"
+                alt="Neon Cyberpunk Shooter UI"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Neon Cyberpunk Shooter UI</span>
+                <span class="source"
+                  >by DESH. Group on
+                  <a
+                    href="https://dribbble.com/shots/27349702"
+                    target="_blank"
+                    rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/13726767/file/original-da42196ce7f0ecc6ee7949c6bb1b8587.jpg?crop=0x0-1947x1460&format=webp&resize=400x300&vertical=center"
+                alt="Modern Neon Cyberpunk Presentation"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Modern Neon Cyberpunk Presentation</span>
+                <span class="source"
+                  >by ayasumak on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/30865320/file/original-5c050894e19a1518ea0c002f98fad09f.png?format=webp&resize=400x300&vertical=center"
+                alt="neon cyberpunk detergent"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">neon cyberpunk detergent</span>
+                <span class="source"
+                  >by t4tris on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>科技品牌主视觉、发布会海报、高端产品宣传、极简主义科技品牌</p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            [产品/品牌名] minimalist poster, single neon [颜色] accent on pure
+            black background, geometric sans-serif typography, extreme negative
+            space, subtle glow effect, clean lines, futuristic tech aesthetic,
+            --ar 3:4 --style raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换 <code>[产品/品牌名]</code> 为你的具体内容，<code
+              >[颜色]</code
+            >
+            可选：pink/cyan/green/purple<br />
+            💡 增大 "extreme negative space" → 更极简；减小 → 更饱满<br />
+            💡 <code>--ar 3:4</code> 适合竖版海报，可换为
+            <code>16:9</code>（横版）或 <code>1:1</code>（方形）
+          </div>
+        </div>
+
+        <!-- 方向二 -->
+        <div class="direction-card">
+          <h3>方向二：赛博朋克叙事（Cyberpunk Narrative）</h3>
+          <div class="tagline">
+            "把未来城市的夜晚装进画面——高密度、高对比、高情绪"
+          </div>
+
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >深紫、深蓝、近黑 + 多色霓虹并存（粉+青+绿），高对比高饱和</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span
+                >科技感等宽字体或锐角几何体，多层信息叠加，文字常带发光效果</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span
+                >未来城市建筑、全息投影、数据流、机械元素；复杂场景插画或3D渲染</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span
+                >强烈环境光（霓虹反射）、雨夜湿润表面反光、volumetric
+                lighting、粒子效果</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span>复杂多层构图、前景-中景-背景纵深、斜向动线、不对称</span>
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong
+              ><span>迷幻、压抑中的华丽、反乌托邦的浪漫、年轻叛逆</span>
+            </div>
+          </div>
+
+          <h4>典型手法</h4>
+          <ul>
+            <li>雨夜城市 + 霓虹招牌</li>
+            <li>人物剪影 + 全息投影</li>
+            <li>数据流/代码作为装饰元素</li>
+            <li>故障艺术作为点缀</li>
+          </ul>
+
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/45604097/file/still-943c6734635477b7cb19599b47605dcf.png?format=webp&resize=400x300&vertical=center"
+                alt="Neon Cyberpunk Building Entrance"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title"
+                  >Neon Cyberpunk Building Entrance in the Rain</span
+                >
+                <span class="source"
+                  >by Xin Yan on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/45079344/file/3dd92cd23c24d2f8a72a54d14ef9183e.png?resize=420x&vertical=center"
+                alt="Cyber Extrusion"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Cyber Extrusion (Merch)</span>
+                <span class="source"
+                  >by Marcos Abdallah on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/47633358/file/86c55e852ee467a975b71ca63e7f79a1.jpg?resize=420x&vertical=center"
+                alt="1044 Cyber Face"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">1044 - Cyber Face</span>
+                <span class="source"
+                  >by Gustavo Zambelli on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>游戏宣传、音乐节海报、街头潮牌、青年文化品牌、电竞活动</p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            [产品/品牌名] cyberpunk poster, neon-lit futuristic cityscape at
+            night, rain-soaked streets with reflections, holographic UI
+            elements, magenta and cyan neon glow, volumetric lighting, dense
+            layered composition, dystopian yet glamorous mood, --ar 2:3 --style
+            raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换 <code>[产品/品牌名]</code> 为你的具体内容<br />
+            💡 增大 "dense layered composition" → 更复杂；减小 → 更简洁<br />
+            💡 添加 "rain" 或移除 → 控制天气氛围<br />
+            💡 <code>magenta and cyan</code> 可替换为其他霓虹色组合
+          </div>
+        </div>
+
+        <!-- 方向三 -->
+        <div class="direction-card">
+          <h3>方向三：复古未来主义（Retro Futurism）</h3>
+          <div class="tagline">"用今天的技术，做80年代的人想象中的'未来'"</div>
+
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >暖橙、日落粉、复古蓝；点缀铬色、金属银、全息渐变；整体偏暖有胶片感</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span
+                >复古科幻体（NASA风格、VHS风格）、粗体无衬线；简洁，常有大字报效果</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span
+                >几何抽象图形、太阳放射纹、流线型图案、复古科技元素（磁带、CRT、飞船）</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span
+                >金属质感、铬色反射、胶片颗粒、扫描线、渐变色带（vaporwave风格）</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span>对称或中心放射构图、几何分割、复古海报的黄金比例</span>
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong
+              ><span>怀旧、乐观、太空时代的浪漫、Y2K的纯真</span>
+            </div>
+          </div>
+
+          <h4>典型手法</h4>
+          <ul>
+            <li>日落渐变 + 棕榈树剪影</li>
+            <li>铬色 3D 文字</li>
+            <li>网格地面 + 消失点透视</li>
+            <li>复古科技产品 + 现代排版</li>
+          </ul>
+
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/17119330/file/original-2d8521b3c47b3d0b557a4475efa528ec.jpg?resize=420x&vertical=center"
+                alt="4 explorations"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">4 explorations</span>
+                <span class="source"
+                  >by Ethan Fender on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/17006006/file/original-9caf7784174152c8e97bd4c0fb7405fc.png?resize=420x&vertical=center"
+                alt="Letter D compendium"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Letter D compendium</span>
+                <span class="source"
+                  >by Ethan Fender on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/45079344/file/3dd92cd23c24d2f8a72a54d14ef9183e.png?resize=420x&vertical=center"
+                alt="Unused Retro Logo"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Unused Retro Logo</span>
+                <span class="source"
+                  >by Jord Riekwel on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>
+            复古主题活动、音乐专辑封面、潮牌联名、科技公司的"怀旧营销"、音乐节
+          </p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            [产品/品牌名] retro futurism poster, sunset gradient background with
+            palm tree silhouettes, chrome 3D typography, geometric sunburst
+            patterns, VHS scanline texture, warm orange and pink tones,
+            nostalgic yet forward-looking mood, --ar 4:5 --style raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换 <code>[产品/品牌名]</code> 为你的具体内容<br />
+            💡 添加 "synthwave" → 更电子音乐感；添加 "vaporwave" → 更梦幻感<br />
+            💡 替换 <code>sunset gradient</code> 为
+            <code>space background</code> → 更太空感<br />
+            💡 <code>warm orange and pink</code> 可替换为
+            <code>purple and teal</code> 改变色调
+          </div>
+        </div>
+
+        <!-- 方向四 -->
+        <div class="direction-card">
+          <h3>方向四：数字故障（Digital Glitch）</h3>
+          <div class="tagline">
+            "把'数字出错'变成一种美学——RGB分离、扫描线、数据碎片"
+          </div>
+
+          <h4>视觉特征</h4>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <strong>色彩</strong
+              ><span
+                >黑或深灰背景；RGB分离色（红/青/蓝错位）、数字绿；色彩来自"错误"而非设计</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>排版</strong
+              ><span
+                >等宽字体、像素字体、被切割/错位的文字；混乱中有序，文字常是故障的一部分</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>图形</strong
+              ><span>图像被切割成条状、像素化、数据马赛克、扫描线、波形图</span>
+            </div>
+            <div class="feature-item">
+              <strong>材质与光影</strong
+              ><span
+                >无传统光影；"错误"本身就是材质；偶尔有CRT屏幕的弧面变形</span
+              >
+            </div>
+            <div class="feature-item">
+              <strong>构图</strong
+              ><span>破碎构图、元素错位、网格系统被打乱、重复叠加</span>
+            </div>
+            <div class="feature-item">
+              <strong>情绪</strong
+              ><span>不安、批判、数字时代的焦虑、反叛、酷</span>
+            </div>
+          </div>
+
+          <h4>典型手法</h4>
+          <ul>
+            <li>RGB 通道分离错位</li>
+            <li>图像被切割成水平条带</li>
+            <li>像素化过渡</li>
+            <li>数据可视化元素作为装饰</li>
+            <li>扫描线覆盖</li>
+          </ul>
+
+          <h4>参考案例</h4>
+          <div class="gallery">
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/46898953/file/still-1a490699785668b264d7730c70bddb96.png?resize=420x&vertical=center"
+                alt="Product Design"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Product Design</span>
+                <span class="source"
+                  >by Nicolás Duque on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/27603019/file/still-eea1444521e34bffcb4d297c94fab0f3.png?resize=420x&vertical=center"
+                alt="Euro 2016 Revisited"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Euro 2016 Revisited</span>
+                <span class="source"
+                  >by Sean Ford on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+            <div class="gallery-item">
+              <img
+                src="https://cdn.dribbble.com/userupload/42742747/file/original-ba218d38bc8e7f579d4f7e9fbe07d323.png?crop=0x0-1600x1200&format=webp&resize=400x300&vertical=center"
+                alt="Neon Cyberpunk Shooter UI"
+                loading="lazy"
+                onerror="this.parentElement.style.display = 'none'"
+              />
+              <div class="caption">
+                <span class="title">Neon Cyberpunk Shooter UI</span>
+                <span class="source"
+                  >by DESH. Group on
+                  <a href="https://dribbble.com" target="_blank" rel="noopener"
+                    >Dribbble</a
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <h4>适用场景</h4>
+          <p>数字艺术展览、黑客文化、独立音乐、反主流品牌、实验性设计项目</p>
+
+          <h4>生图 Prompt</h4>
+          <div class="prompt-box">
+            [产品/品牌名] digital glitch art poster, RGB channel separation with
+            color offset, horizontal scan lines, pixelated transitions, data
+            mosaic fragments, monospace typography with cuts, dark background
+            with digital green accents, corrupted yet aesthetic, --ar 1:1
+            --style raw
+          </div>
+          <div class="prompt-hint">
+            💡 替换 <code>[产品/品牌名]</code> 为你的具体内容<br />
+            💡 增大 "RGB channel separation" → 更强烈的故障感；减小 → 更
+            subtle<br />
+            💡 添加 "datamoshing" → 更极端的破坏感<br />
+            💡 替换 <code>digital green</code> 为
+            <code>neon pink</code> 改变故障色调
+          </div>
         </div>
       </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/17006006/file/original-9caf7784174152c8e97bd4c0fb7405fc.png?resize=420x&vertical=center" alt="Letter D compendium" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Letter D compendium</span>
-          <span class="source">by Ethan Fender on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
+
+      <!-- 方向间对比 -->
+      <div class="section">
+        <h2>方向间对比</h2>
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>对比维度</th>
+              <th>霓虹极简</th>
+              <th>赛博朋克叙事</th>
+              <th>复古未来主义</th>
+              <th>数字故障</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>信息密度</strong></td>
+              <td>极低</td>
+              <td>极高</td>
+              <td>中等</td>
+              <td>高（但混乱）</td>
+            </tr>
+            <tr>
+              <td><strong>色彩数量</strong></td>
+              <td>2色（黑+霓虹）</td>
+              <td>多色霓虹</td>
+              <td>暖色渐变</td>
+              <td>RGB分离色</td>
+            </tr>
+            <tr>
+              <td><strong>情绪基调</strong></td>
+              <td>克制高端</td>
+              <td>迷幻叛逆</td>
+              <td>怀旧乐观</td>
+              <td>批判反叛</td>
+            </tr>
+            <tr>
+              <td><strong>适用品牌</strong></td>
+              <td>高端科技</td>
+              <td>青年潮牌/游戏</td>
+              <td>生活方式/音乐</td>
+              <td>艺术/独立</td>
+            </tr>
+            <tr>
+              <td><strong>与极简关系</strong></td>
+              <td>本身就是极简</td>
+              <td>反极简</td>
+              <td>复古极简</td>
+              <td>破坏极简</td>
+            </tr>
+            <tr>
+              <td><strong>可混搭性</strong></td>
+              <td>+ 轻微故障</td>
+              <td>+ 日落色调</td>
+              <td>+ 极简排版</td>
+              <td>+ 霓虹发光</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 审美规律总结 -->
+      <div class="section">
+        <h2>审美规律总结</h2>
+        <div class="summary-grid">
+          <div class="summary-card">
+            <h4>整体色彩趋势</h4>
+            <ul>
+              <li>深色背景是绝对主流（90%+ 素材）</li>
+              <li>霓虹色作为点缀色出现频率极高</li>
+              <li>电光粉、电光蓝、荧光绿是三大核心霓虹色</li>
+              <li>渐变从"彩虹渐变"转向"单色霓虹渐变"</li>
+            </ul>
+          </div>
+          <div class="summary-card">
+            <h4>排版共性</h4>
+            <ul>
+              <li>几何无衬线字体占绝对主导</li>
+              <li>字号对比极端（极大 vs 极小）</li>
+              <li>等宽字体在科技/故障方向高频出现</li>
+              <li>文字常带发光或扫描线效果</li>
+            </ul>
+          </div>
+          <div class="summary-card">
+            <h4>视觉手法要点</h4>
+            <ul>
+              <li>发光效果（glow/bloom）是科技感核心手法</li>
+              <li>深色+单一高饱和点缀 = 最高级感</li>
+              <li>故障艺术从"装饰"变为"主体"</li>
+              <li>3D/玻璃态材质增加层次但不喧宾夺主</li>
+            </ul>
+          </div>
+          <div class="summary-card">
+            <h4>行业趋势判断</h4>
+            <ul>
+              <li>"赛博朋克"正在从亚文化走向主流商业</li>
+              <li>极简+霓虹是2024-2025最稳的组合</li>
+              <li>复古未来主义在Z世代中持续升温</li>
+              <li>数字故障从"小众"变为"潮流符号"</li>
+            </ul>
+          </div>
         </div>
       </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/45079344/file/3dd92cd23c24d2f8a72a54d14ef9183e.png?resize=420x&vertical=center" alt="Unused Retro Logo" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Unused Retro Logo</span>
-          <span class="source">by Jord Riekwel on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
+
+      <!-- 设计建议 -->
+      <div class="section">
+        <h2>设计建议</h2>
+
+        <div class="recommendation">
+          <h4>推荐方向：霓虹极简</h4>
+          <p>
+            对于"科技感品牌海报 +
+            年轻用户"这个需求，<strong>霓虹极简</strong>是最佳选择。原因：
+          </p>
+          <ul>
+            <li>极简保证了品牌的高级感和辨识度</li>
+            <li>霓虹点缀精准命中年轻用户的审美偏好</li>
+            <li>执行难度适中，落地性强</li>
+            <li>延展性好，可应用于线上线下多种场景</li>
+          </ul>
+        </div>
+
+        <div class="recommendation">
+          <h4>可操作的设计方法</h4>
+          <ol>
+            <li>
+              <strong>色彩方案</strong>：选择 1 个霓虹色（推荐电光粉 #FF006E
+              或电光蓝 #00F5FF）+ 纯黑背景
+            </li>
+            <li>
+              <strong>字体选择</strong>：使用几何无衬线字体（Montserrat Bold /
+              Inter / Futura）
+            </li>
+            <li>
+              <strong>核心元素</strong
+              >：设计一个极简的几何图形或线条作为视觉锚点
+            </li>
+            <li>
+              <strong>发光处理</strong>：给核心元素添加 subtle
+              的外发光（不要过度）
+            </li>
+            <li><strong>留白控制</strong>：保持 60% 以上的负空间</li>
+          </ol>
+        </div>
+
+        <div class="recommendation">
+          <h4>参考素材推荐组合</h4>
+          <p>
+            <strong>找灵感</strong>：Pinterest（搜 "neon minimalist poster"）+
+            Dribbble（搜 "cyberpunk minimal"）
+          </p>
+          <p><strong>找配色</strong>：Coolors.co 搜 "cyberpunk" 配色方案</p>
+          <p>
+            <strong>找字体</strong>：Google Fonts 搜
+            "Montserrat"、"Orbitron"、"Rajdhani"
+          </p>
+          <p>
+            <strong>找背景图</strong>：Unsplash 搜 "neon night"、"dark texture"
+          </p>
+          <p><strong>找样机</strong>：Mockup World 搜 "poster mockup"</p>
         </div>
       </div>
-    </div>
 
-    <h4>适用场景</h4>
-    <p>复古主题活动、音乐专辑封面、潮牌联名、科技公司的"怀旧营销"、音乐节</p>
+      <!-- 生图 Prompt 使用说明 -->
+      <div class="section">
+        <h2>生图 Prompt 使用说明</h2>
 
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">[产品/品牌名] retro futurism poster, sunset gradient background with palm tree silhouettes, chrome 3D typography, geometric sunburst patterns, VHS scanline texture, warm orange and pink tones, nostalgic yet forward-looking mood, --ar 4:5 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换 <code>[产品/品牌名]</code> 为你的具体内容<br>
-      💡 添加 "synthwave" → 更电子音乐感；添加 "vaporwave" → 更梦幻感<br>
-      💡 替换 <code>sunset gradient</code> 为 <code>space background</code> → 更太空感<br>
-      💡 <code>warm orange and pink</code> 可替换为 <code>purple and teal</code> 改变色调
-    </div>
-  </div>
+        <h4>模型适配</h4>
+        <p>
+          本报告中的 Prompt 适配 <strong>nano banana</strong> 和
+          <strong>image2</strong> 等主流生图模型。参数说明：
+        </p>
+        <ul>
+          <li>
+            <code>--ar [比例]</code>：控制宽高比，常用
+            <code>3:4</code
+            >（竖版海报）、<code>16:9</code>（横版）、<code>1:1</code>（方形）
+          </li>
+          <li>
+            <code>--style raw</code>：减少 AI 的"美化"干预，更贴近 Prompt 描述
+          </li>
+          <li>
+            <code>[占位符]</code>：用
+            <code>[]</code> 标注的部分需要替换为你的具体内容
+          </li>
+        </ul>
 
-  <!-- 方向四 -->
-  <div class="direction-card">
-    <h3>方向四：数字故障（Digital Glitch）</h3>
-    <div class="tagline">"把'数字出错'变成一种美学——RGB分离、扫描线、数据碎片"</div>
+        <h4>Prompt 参数调节指南</h4>
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>参数</th>
+              <th>增大/强调</th>
+              <th>减小/弱化</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>negative space / minimal</td>
+              <td>更极简、更高端</td>
+              <td>更丰富、更饱满</td>
+            </tr>
+            <tr>
+              <td>neon glow / glow effect</td>
+              <td>更强烈的科技感</td>
+              <td>更 subtle、更克制</td>
+            </tr>
+            <tr>
+              <td>glitch / RGB separation</td>
+              <td>更叛逆、更实验</td>
+              <td>更商业、更稳妥</td>
+            </tr>
+            <tr>
+              <td>retro / vintage</td>
+              <td>更怀旧、更温暖</td>
+              <td>更现代、更冷峻</td>
+            </tr>
+          </tbody>
+        </table>
 
-    <h4>视觉特征</h4>
-    <div class="feature-grid">
-      <div class="feature-item"><strong>色彩</strong><span>黑或深灰背景；RGB分离色（红/青/蓝错位）、数字绿；色彩来自"错误"而非设计</span></div>
-      <div class="feature-item"><strong>排版</strong><span>等宽字体、像素字体、被切割/错位的文字；混乱中有序，文字常是故障的一部分</span></div>
-      <div class="feature-item"><strong>图形</strong><span>图像被切割成条状、像素化、数据马赛克、扫描线、波形图</span></div>
-      <div class="feature-item"><strong>材质与光影</strong><span>无传统光影；"错误"本身就是材质；偶尔有CRT屏幕的弧面变形</span></div>
-      <div class="feature-item"><strong>构图</strong><span>破碎构图、元素错位、网格系统被打乱、重复叠加</span></div>
-      <div class="feature-item"><strong>情绪</strong><span>不安、批判、数字时代的焦虑、反叛、酷</span></div>
-    </div>
+        <h4>如何结合已有素材优化 Prompt</h4>
+        <ol>
+          <li>
+            <strong>有品牌色</strong>：在 Prompt 中明确指定颜色（如 "primary
+            color electric blue #00F5FF"）
+          </li>
+          <li>
+            <strong>有 Logo</strong>：描述 Logo 的特征（如 "incorporate
+            geometric hexagon logo"）
+          </li>
+          <li>
+            <strong>有产品图</strong>：描述产品特征（如 " sleek smartphone
+            product shot"）
+          </li>
+          <li>
+            <strong>有参考图</strong>：上传参考图 + 文字 Prompt，使用 "in the
+            style of [参考图特征]"
+          </li>
+        </ol>
 
-    <h4>典型手法</h4>
-    <ul>
-      <li>RGB 通道分离错位</li>
-      <li>图像被切割成水平条带</li>
-      <li>像素化过渡</li>
-      <li>数据可视化元素作为装饰</li>
-      <li>扫描线覆盖</li>
-    </ul>
-
-    <h4>参考案例</h4>
-    <div class="gallery">
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/46898953/file/still-1a490699785668b264d7730c70bddb96.png?resize=420x&vertical=center" alt="Product Design" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Product Design</span>
-          <span class="source">by Nicolás Duque on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
+        <h4>快速上手模板</h4>
+        <div class="prompt-box">
+          [品牌名] tech brand poster, [风格关键词], [主色] accent on dark
+          background, [核心元素], clean typography, futuristic aesthetic, --ar
+          3:4 --style raw
+        </div>
+        <div class="prompt-hint">
+          示例（霓虹极简）：<code
+            >NeonTech brand poster, minimalist neon design, electric pink accent
+            on pure black background, single glowing geometric line, clean
+            sans-serif typography, futuristic aesthetic, --ar 3:4 --style
+            raw</code
+          >
         </div>
       </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/27603019/file/still-eea1444521e34bffcb4d297c94fab0f3.png?resize=420x&vertical=center" alt="Euro 2016 Revisited" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Euro 2016 Revisited</span>
-          <span class="source">by Sean Ford on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
+
+      <!-- 调研来源 -->
+      <div class="section">
+        <h2>调研来源汇总</h2>
+        <ul class="source-list">
+          <li>
+            <span class="platform-tag">Dribbble</span>
+            <a
+              href="https://dribbble.com/tags/cyberpunk"
+              target="_blank"
+              rel="noopener"
+              >Cyberpunk Tag</a
+            >
+            — 7000+ 赛博朋克相关设计作品
+          </li>
+          <li>
+            <span class="platform-tag">Dribbble</span>
+            <a
+              href="https://dribbble.com/tags/retro-futurism"
+              target="_blank"
+              rel="noopener"
+              >Retro Futurism Tag</a
+            >
+            — 200+ 复古未来主义作品
+          </li>
+          <li>
+            <span class="platform-tag">Dribbble</span>
+            <a
+              href="https://dribbble.com/tags/minimalist-poster"
+              target="_blank"
+              rel="noopener"
+              >Minimalist Poster Tag</a
+            >
+            — 500+ 极简海报作品
+          </li>
+          <li>
+            <span class="platform-tag">Behance</span>
+            <a
+              href="https://www.behance.net/search/projects/cyberpunk%20minimalist"
+              target="_blank"
+              rel="noopener"
+              >Cyberpunk Minimalist Projects</a
+            >
+            — 品牌全案与海报
+          </li>
+          <li>
+            <span class="platform-tag">Freepik</span>
+            <a
+              href="https://www.freepik.com/free-photos-vectors/cyberpunk-neon-design"
+              target="_blank"
+              rel="noopener"
+              >Cyberpunk Neon Design</a
+            >
+            — 矢量素材与模板
+          </li>
+          <li>
+            <span class="platform-tag">PosterBlast</span>
+            <a
+              href="https://posterblast.com/glitch-art-posters-decor-ideas/"
+              target="_blank"
+              rel="noopener"
+              >Glitch Art Posters</a
+            >
+            — 故障艺术海报专题
+          </li>
+          <li>
+            <span class="platform-tag">Kreafolk</span>
+            <a
+              href="https://kreafolk.com/blogs/inspirations/cyberpunk-illustration"
+              target="_blank"
+              rel="noopener"
+              >Cyberpunk Illustration Guide</a
+            >
+            — 赛博朋克插画风格指南
+          </li>
+          <li>
+            <span class="platform-tag">GraphicEagle</span>
+            <a
+              href="https://www.graphiceagle.com/retro-futurism-in-modern-branding/"
+              target="_blank"
+              rel="noopener"
+              >Retro Futurism in Branding</a
+            >
+            — 复古未来主义品牌趋势
+          </li>
+        </ul>
       </div>
-      <div class="gallery-item">
-        <img src="https://cdn.dribbble.com/userupload/42742747/file/original-ba218d38bc8e7f579d4f7e9fbe07d323.png?crop=0x0-1600x1200&format=webp&resize=400x300&vertical=center" alt="Neon Cyberpunk Shooter UI" loading="lazy" onerror="this.parentElement.style.display='none'">
-        <div class="caption">
-          <span class="title">Neon Cyberpunk Shooter UI</span>
-          <span class="source">by DESH. Group on <a href="https://dribbble.com" target="_blank" rel="noopener">Dribbble</a></span>
-        </div>
+
+      <div class="footer">
+        本报告由 Design Deep Research Skill 生成 · 图片版权归原作者所有 ·
+        2026-06-08<br />
+        报告中的参考图片链接来自各设计平台公开页面，仅供设计调研参考
       </div>
     </div>
-
-    <h4>适用场景</h4>
-    <p>数字艺术展览、黑客文化、独立音乐、反主流品牌、实验性设计项目</p>
-
-    <h4>生图 Prompt</h4>
-    <div class="prompt-box">[产品/品牌名] digital glitch art poster, RGB channel separation with color offset, horizontal scan lines, pixelated transitions, data mosaic fragments, monospace typography with cuts, dark background with digital green accents, corrupted yet aesthetic, --ar 1:1 --style raw</div>
-    <div class="prompt-hint">
-      💡 替换 <code>[产品/品牌名]</code> 为你的具体内容<br>
-      💡 增大 "RGB channel separation" → 更强烈的故障感；减小 → 更 subtle<br>
-      💡 添加 "datamoshing" → 更极端的破坏感<br>
-      💡 替换 <code>digital green</code> 为 <code>neon pink</code> 改变故障色调
-    </div>
-  </div>
-</div>
-
-<!-- 方向间对比 -->
-<div class="section">
-  <h2>方向间对比</h2>
-  <table class="comparison-table">
-    <thead>
-      <tr>
-        <th>对比维度</th>
-        <th>霓虹极简</th>
-        <th>赛博朋克叙事</th>
-        <th>复古未来主义</th>
-        <th>数字故障</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong>信息密度</strong></td>
-        <td>极低</td>
-        <td>极高</td>
-        <td>中等</td>
-        <td>高（但混乱）</td>
-      </tr>
-      <tr>
-        <td><strong>色彩数量</strong></td>
-        <td>2色（黑+霓虹）</td>
-        <td>多色霓虹</td>
-        <td>暖色渐变</td>
-        <td>RGB分离色</td>
-      </tr>
-      <tr>
-        <td><strong>情绪基调</strong></td>
-        <td>克制高端</td>
-        <td>迷幻叛逆</td>
-        <td>怀旧乐观</td>
-        <td>批判反叛</td>
-      </tr>
-      <tr>
-        <td><strong>适用品牌</strong></td>
-        <td>高端科技</td>
-        <td>青年潮牌/游戏</td>
-        <td>生活方式/音乐</td>
-        <td>艺术/独立</td>
-      </tr>
-      <tr>
-        <td><strong>与极简关系</strong></td>
-        <td>本身就是极简</td>
-        <td>反极简</td>
-        <td>复古极简</td>
-        <td>破坏极简</td>
-      </tr>
-      <tr>
-        <td><strong>可混搭性</strong></td>
-        <td>+ 轻微故障</td>
-        <td>+ 日落色调</td>
-        <td>+ 极简排版</td>
-        <td>+ 霓虹发光</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-<!-- 审美规律总结 -->
-<div class="section">
-  <h2>审美规律总结</h2>
-  <div class="summary-grid">
-    <div class="summary-card">
-      <h4>整体色彩趋势</h4>
-      <ul>
-        <li>深色背景是绝对主流（90%+ 素材）</li>
-        <li>霓虹色作为点缀色出现频率极高</li>
-        <li>电光粉、电光蓝、荧光绿是三大核心霓虹色</li>
-        <li>渐变从"彩虹渐变"转向"单色霓虹渐变"</li>
-      </ul>
-    </div>
-    <div class="summary-card">
-      <h4>排版共性</h4>
-      <ul>
-        <li>几何无衬线字体占绝对主导</li>
-        <li>字号对比极端（极大 vs 极小）</li>
-        <li>等宽字体在科技/故障方向高频出现</li>
-        <li>文字常带发光或扫描线效果</li>
-      </ul>
-    </div>
-    <div class="summary-card">
-      <h4>视觉手法要点</h4>
-      <ul>
-        <li>发光效果（glow/bloom）是科技感核心手法</li>
-        <li>深色+单一高饱和点缀 = 最高级感</li>
-        <li>故障艺术从"装饰"变为"主体"</li>
-        <li>3D/玻璃态材质增加层次但不喧宾夺主</li>
-      </ul>
-    </div>
-    <div class="summary-card">
-      <h4>行业趋势判断</h4>
-      <ul>
-        <li>"赛博朋克"正在从亚文化走向主流商业</li>
-        <li>极简+霓虹是2024-2025最稳的组合</li>
-        <li>复古未来主义在Z世代中持续升温</li>
-        <li>数字故障从"小众"变为"潮流符号"</li>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- 设计建议 -->
-<div class="section">
-  <h2>设计建议</h2>
-
-  <div class="recommendation">
-    <h4>推荐方向：霓虹极简</h4>
-    <p>对于"科技感品牌海报 + 年轻用户"这个需求，<strong>霓虹极简</strong>是最佳选择。原因：</p>
-    <ul>
-      <li>极简保证了品牌的高级感和辨识度</li>
-      <li>霓虹点缀精准命中年轻用户的审美偏好</li>
-      <li>执行难度适中，落地性强</li>
-      <li>延展性好，可应用于线上线下多种场景</li>
-    </ul>
-  </div>
-
-  <div class="recommendation">
-    <h4>可操作的设计方法</h4>
-    <ol>
-      <li><strong>色彩方案</strong>：选择 1 个霓虹色（推荐电光粉 #FF006E 或电光蓝 #00F5FF）+ 纯黑背景</li>
-      <li><strong>字体选择</strong>：使用几何无衬线字体（Montserrat Bold / Inter / Futura）</li>
-      <li><strong>核心元素</strong>：设计一个极简的几何图形或线条作为视觉锚点</li>
-      <li><strong>发光处理</strong>：给核心元素添加 subtle 的外发光（不要过度）</li>
-      <li><strong>留白控制</strong>：保持 60% 以上的负空间</li>
-    </ol>
-  </div>
-
-  <div class="recommendation">
-    <h4>参考素材推荐组合</h4>
-    <p><strong>找灵感</strong>：Pinterest（搜 "neon minimalist poster"）+ Dribbble（搜 "cyberpunk minimal"）</p>
-    <p><strong>找配色</strong>：Coolors.co 搜 "cyberpunk" 配色方案</p>
-    <p><strong>找字体</strong>：Google Fonts 搜 "Montserrat"、"Orbitron"、"Rajdhani"</p>
-    <p><strong>找背景图</strong>：Unsplash 搜 "neon night"、"dark texture"</p>
-    <p><strong>找样机</strong>：Mockup World 搜 "poster mockup"</p>
-  </div>
-</div>
-
-<!-- 生图 Prompt 使用说明 -->
-<div class="section">
-  <h2>生图 Prompt 使用说明</h2>
-
-  <h4>模型适配</h4>
-  <p>本报告中的 Prompt 适配 <strong>nano banana</strong> 和 <strong>image2</strong> 等主流生图模型。参数说明：</p>
-  <ul>
-    <li><code>--ar [比例]</code>：控制宽高比，常用 <code>3:4</code>（竖版海报）、<code>16:9</code>（横版）、<code>1:1</code>（方形）</li>
-    <li><code>--style raw</code>：减少 AI 的"美化"干预，更贴近 Prompt 描述</li>
-    <li><code>[占位符]</code>：用 <code>[]</code> 标注的部分需要替换为你的具体内容</li>
-  </ul>
-
-  <h4>Prompt 参数调节指南</h4>
-  <table class="comparison-table">
-    <thead>
-      <tr>
-        <th>参数</th>
-        <th>增大/强调</th>
-        <th>减小/弱化</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>negative space / minimal</td>
-        <td>更极简、更高端</td>
-        <td>更丰富、更饱满</td>
-      </tr>
-      <tr>
-        <td>neon glow / glow effect</td>
-        <td>更强烈的科技感</td>
-        <td>更 subtle、更克制</td>
-      </tr>
-      <tr>
-        <td>glitch / RGB separation</td>
-        <td>更叛逆、更实验</td>
-        <td>更商业、更稳妥</td>
-      </tr>
-      <tr>
-        <td>retro / vintage</td>
-        <td>更怀旧、更温暖</td>
-        <td>更现代、更冷峻</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <h4>如何结合已有素材优化 Prompt</h4>
-  <ol>
-    <li><strong>有品牌色</strong>：在 Prompt 中明确指定颜色（如 "primary color electric blue #00F5FF"）</li>
-    <li><strong>有 Logo</strong>：描述 Logo 的特征（如 "incorporate geometric hexagon logo"）</li>
-    <li><strong>有产品图</strong>：描述产品特征（如 " sleek smartphone product shot"）</li>
-    <li><strong>有参考图</strong>：上传参考图 + 文字 Prompt，使用 "in the style of [参考图特征]"</li>
-  </ol>
-
-  <h4>快速上手模板</h4>
-  <div class="prompt-box">[品牌名] tech brand poster, [风格关键词], [主色] accent on dark background, [核心元素], clean typography, futuristic aesthetic, --ar 3:4 --style raw</div>
-  <div class="prompt-hint">
-    示例（霓虹极简）：<code>NeonTech brand poster, minimalist neon design, electric pink accent on pure black background, single glowing geometric line, clean sans-serif typography, futuristic aesthetic, --ar 3:4 --style raw</code>
-  </div>
-</div>
-
-<!-- 调研来源 -->
-<div class="section">
-  <h2>调研来源汇总</h2>
-  <ul class="source-list">
-    <li><span class="platform-tag">Dribbble</span> <a href="https://dribbble.com/tags/cyberpunk" target="_blank" rel="noopener">Cyberpunk Tag</a> — 7000+ 赛博朋克相关设计作品</li>
-    <li><span class="platform-tag">Dribbble</span> <a href="https://dribbble.com/tags/retro-futurism" target="_blank" rel="noopener">Retro Futurism Tag</a> — 200+ 复古未来主义作品</li>
-    <li><span class="platform-tag">Dribbble</span> <a href="https://dribbble.com/tags/minimalist-poster" target="_blank" rel="noopener">Minimalist Poster Tag</a> — 500+ 极简海报作品</li>
-    <li><span class="platform-tag">Behance</span> <a href="https://www.behance.net/search/projects/cyberpunk%20minimalist" target="_blank" rel="noopener">Cyberpunk Minimalist Projects</a> — 品牌全案与海报</li>
-    <li><span class="platform-tag">Freepik</span> <a href="https://www.freepik.com/free-photos-vectors/cyberpunk-neon-design" target="_blank" rel="noopener">Cyberpunk Neon Design</a> — 矢量素材与模板</li>
-    <li><span class="platform-tag">PosterBlast</span> <a href="https://posterblast.com/glitch-art-posters-decor-ideas/" target="_blank" rel="noopener">Glitch Art Posters</a> — 故障艺术海报专题</li>
-    <li><span class="platform-tag">Kreafolk</span> <a href="https://kreafolk.com/blogs/inspirations/cyberpunk-illustration" target="_blank" rel="noopener">Cyberpunk Illustration Guide</a> — 赛博朋克插画风格指南</li>
-    <li><span class="platform-tag">GraphicEagle</span> <a href="https://www.graphiceagle.com/retro-futurism-in-modern-branding/" target="_blank" rel="noopener">Retro Futurism in Branding</a> — 复古未来主义品牌趋势</li>
-  </ul>
-</div>
-
-<div class="footer">
-  本报告由 Design Deep Research Skill 生成 · 图片版权归原作者所有 · 2026-06-08<br>
-  报告中的参考图片链接来自各设计平台公开页面，仅供设计调研参考
-</div>
-
-</div>
-</body>
+  </body>
 </html>

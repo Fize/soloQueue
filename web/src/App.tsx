@@ -49,7 +49,7 @@ function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen bg-background overflow-hidden pb-14 md:pb-0">
+      <div className="flex h-screen bg-background overflow-hidden pb-14 md:pb-0 relative">
         {/* Desktop sidebar — always rendered for layout on md+ */}
         <div className="hidden md:block shrink-0 h-full border-r border-border bg-card">
           <Sidebar />

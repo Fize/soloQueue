@@ -95,11 +95,11 @@ web/                    React web UI (Vite dev server)
 
 The memory engine replaces the old embedding-dependent `internal/permanent/` system. It provides config-driven hybrid search across three pipelines:
 
-| Pipeline | Technology | Dependency |
-|---|---|---|
-| BM25 | SQLite FTS5 over `mem_entries` | Zero (built into SQLite) |
-| Knowledge Graph | Entity-relationship graph with PPR/BFS traversal | Zero (pure Go) |
-| Vector | Cosine similarity over `mem_vec` BLOBs | OpenAI API (remote) |
+| Pipeline        | Technology                                       | Dependency               |
+| --------------- | ------------------------------------------------ | ------------------------ |
+| BM25            | SQLite FTS5 over `mem_entries`                   | Zero (built into SQLite) |
+| Knowledge Graph | Entity-relationship graph with PPR/BFS traversal | Zero (pure Go)           |
+| Vector          | Cosine similarity over `mem_vec` BLOBs           | OpenAI API (remote)      |
 
 ### Config: two modes
 
@@ -165,25 +165,25 @@ User query → Query string
 
 ### Agent tools
 
-| Tool | Purpose |
-|---|---|
-| `Remember` | Save content + optionally index entities/relations into KG |
-| `RecallMemory` | Hybrid search (BM25 + KG + optional vector) |
-| `KGIndex` | Index extracted entities and relationships into the KG |
-| `RecallEntity` | Traverse KG from an entity to find related memories |
-| `ConnectEntities` | Find shortest path between two entities in the KG |
-| `MemoryTimeline` | List memories chronologically within a date range |
-| `ConsolidateMemories` | Run maintenance (edge decay, stale cleanup, communities) |
+| Tool                  | Purpose                                                    |
+| --------------------- | ---------------------------------------------------------- |
+| `Remember`            | Save content + optionally index entities/relations into KG |
+| `RecallMemory`        | Hybrid search (BM25 + KG + optional vector)                |
+| `KGIndex`             | Index extracted entities and relationships into the KG     |
+| `RecallEntity`        | Traverse KG from an entity to find related memories        |
+| `ConnectEntities`     | Find shortest path between two entities in the KG          |
+| `MemoryTimeline`      | List memories chronologically within a date range          |
+| `ConsolidateMemories` | Run maintenance (edge decay, stale cleanup, communities)   |
 
 ### Trade-offs
 
-| Aspect | Win | Loss |
-|---|---|---|
-| BM25 vs Vector | Exact keyword match, zero deps | No semantic generalization without KG |
-| KG vs Graph DB | Zero ops, co-located with data | No horizontal scaling, in-memory PPR |
-| Agent-driven extraction | No hidden LLM costs, full control | Entity coverage depends on agent diligence |
-| Salience decay | Old/unused memories fade naturally | Can lose rarely-accessed but important facts |
-| Single SQLite file | Simple backup, no infra | Writer contention under high concurrency |
+| Aspect                  | Win                                | Loss                                         |
+| ----------------------- | ---------------------------------- | -------------------------------------------- |
+| BM25 vs Vector          | Exact keyword match, zero deps     | No semantic generalization without KG        |
+| KG vs Graph DB          | Zero ops, co-located with data     | No horizontal scaling, in-memory PPR         |
+| Agent-driven extraction | No hidden LLM costs, full control  | Entity coverage depends on agent diligence   |
+| Salience decay          | Old/unused memories fade naturally | Can lose rarely-accessed but important facts |
+| Single SQLite file      | Simple backup, no infra            | Writer contention under high concurrency     |
 
 ### Key patterns
 

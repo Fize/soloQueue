@@ -17,6 +17,7 @@ import { useState, useRef, useEffect } from 'react'
 import { confirmSessionTool, getFileUrl } from '@/lib/api'
 import { useChatStore } from '@/stores/chatStore'
 import { formatToolCallHeader } from '@/lib/utils'
+import { DelegationCard } from '@/components/DelegationCard'
 
 export interface ChatMessageProps {
   message: ChatMessage
@@ -343,6 +344,17 @@ function SegmentView({
     case 'thinking':
       return <ThinkingSegment segment={segment} isUser={isUser} isLastSegment={isLastSegment} />
     case 'tool_call':
+      if (segment.name.startsWith('delegate_')) {
+        return (
+          <DelegationCard
+            name={segment.name}
+            args={segment.args}
+            done={segment.done}
+            error={segment.error}
+            durationMs={segment.durationMs}
+          />
+        )
+      }
       return <ToolCallSegment segment={segment} isUser={isUser} />
     case 'tool_confirm':
       return <ToolConfirmSegment segment={segment} isUser={isUser} />

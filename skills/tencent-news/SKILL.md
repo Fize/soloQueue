@@ -18,19 +18,19 @@ required_env:
 
 ## 平台约定
 
-| 平台 | 脚本运行方式 | 示例 |
-|------|------------|------|
-| macOS / Linux | `sh scripts/<name>.sh` | `sh scripts/cli-state.sh` |
-| Windows | `powershell scripts/<name>.ps1` | `powershell scripts/cli-state.ps1` |
+| 平台          | 脚本运行方式                    | 示例                               |
+| ------------- | ------------------------------- | ---------------------------------- |
+| macOS / Linux | `sh scripts/<name>.sh`          | `sh scripts/cli-state.sh`          |
+| Windows       | `powershell scripts/<name>.ps1` | `powershell scripts/cli-state.ps1` |
 
 以下所有脚本调用均以 macOS / Linux 为例，Windows 将 `.sh` 替换为 `.ps1`，`sh` 替换为 `powershell`。
 
 除 `cli-state` 外，所有 CLI 命令都通过 `run-cli` 脚本执行：
 
-| 平台 | CLI 调用模板 |
-|------|-------------|
-| macOS / Linux | `sh scripts/run-cli.sh <subcommand> [args]` |
-| Windows | `powershell scripts/run-cli.ps1 <subcommand> [args]` |
+| 平台          | CLI 调用模板                                         |
+| ------------- | ---------------------------------------------------- |
+| macOS / Linux | `sh scripts/run-cli.sh <subcommand> [args]`          |
+| Windows       | `powershell scripts/run-cli.ps1 <subcommand> [args]` |
 
 ## Phase 1：环境就绪
 
@@ -44,16 +44,16 @@ sh scripts/cli-state.sh
 
 解析返回的 JSON，关注以下字段：
 
-| 字段 | 含义 |
-|------|------|
-| `platform.cliPath` | 底层实际使用的 CLI 完整路径，供诊断错误或权限问题时参考 |
+| 字段                 | 含义                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `platform.cliPath`   | 底层实际使用的 CLI 完整路径，供诊断错误或权限问题时参考                                                                                      |
 | `platform.cliSource` | `global`（优先命中 PATH 中可用的全局命令，否则命中默认全局安装目录）/ `local`（旧版 skill 目录内安装，兼容兜底）/ `none`（以上路径都未找到） |
-| `cliExists` | CLI 是否存在 |
-| `update.needUpdate` | 当前版本是否需要更新 |
-| `update.error` | `version` 检查失败时的错误信息 |
-| `apiKey.present` | API Key 是否已配置 |
-| `apiKey.status` | `configured` / `missing` / `error` |
-| `apiKey.error` | `apikey-get` 执行异常或输出异常时的错误信息 |
+| `cliExists`          | CLI 是否存在                                                                                                                                 |
+| `update.needUpdate`  | 当前版本是否需要更新                                                                                                                         |
+| `update.error`       | `version` 检查失败时的错误信息                                                                                                               |
+| `apiKey.present`     | API Key 是否已配置                                                                                                                           |
+| `apiKey.status`      | `configured` / `missing` / `error`                                                                                                           |
+| `apiKey.error`       | `apikey-get` 执行异常或输出异常时的错误信息                                                                                                  |
 
 ### 2. 安装 CLI（`cliExists` 为 `false` 时）
 

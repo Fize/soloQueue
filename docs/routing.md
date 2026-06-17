@@ -4,12 +4,12 @@ SoloQueue uses intelligent task classification to route user input to the approp
 
 ## Classification Levels
 
-| Level | Name | Scope | Model | Thinking |
-|-------|------|-------|-------|----------|
-| **L0** | Conversation | Q&A, explanation | deepseek-v4-flash | disabled |
-| **L1** | Simple | Single file changes | deepseek-v4-flash-thinking | high |
-| **L2** | Medium | Multi-file features (2-5 files) | deepseek-v4-pro | high |
-| **L3** | Complex | Architecture changes (5+ files) | deepseek-v4-pro-max | max |
+| Level  | Name         | Scope                           | Model                      | Thinking |
+| ------ | ------------ | ------------------------------- | -------------------------- | -------- |
+| **L0** | Conversation | Q&A, explanation                | deepseek-v4-flash          | disabled |
+| **L1** | Simple       | Single file changes             | deepseek-v4-flash-thinking | high     |
+| **L2** | Medium       | Multi-file features (2-5 files) | deepseek-v4-pro            | high     |
+| **L3** | Complex      | Architecture changes (5+ files) | deepseek-v4-pro-max        | max      |
 
 ## How It Works
 
@@ -30,6 +30,7 @@ The result with higher confidence wins.
 The classifier is **session-aware**. Without this, short follow-up messages would be misclassified.
 
 **Problem:**
+
 ```
 User: "Refactor the auth module"  → L3 ✓
 User: "test again"                  → L1 ✗ (wrong!)
@@ -37,11 +38,11 @@ User: "test again"                  → L1 ✗ (wrong!)
 
 **Solution:** Session remembers its current task level.
 
-| New Confidence | Prior Level | Result |
-|---------------|-------------|--------|
-| ≥ 85 (high) | any | Use new result |
+| New Confidence | Prior Level     | Result                           |
+| -------------- | --------------- | -------------------------------- |
+| ≥ 85 (high)    | any             | Use new result                   |
 | 50–84 (medium) | higher than new | Use prior (stay at higher level) |
-| < 50 (low) | exists | Use prior (inherit context) |
+| < 50 (low)     | exists          | Use prior (inherit context)      |
 
 ## Explicit Level Locking
 
@@ -58,6 +59,7 @@ Users can lock the session to a specific level:
 ```
 
 **Lock behavior:**
+
 - Once locked, all subsequent messages use the locked level
 - Lock applies until a new lock command changes it
 - Locked level is displayed in the runtime status API
@@ -78,10 +80,12 @@ These influence classification for the **current message only**:
 ## Escalation & De-escalation
 
 **Escalation** (bump level up):
+
 - "think carefully", "be thorough", "in depth"
 - "solve thoroughly" (bumps by +2)
 
 **De-escalation** (bump level down):
+
 - "just", "quick", "simple"
 
 ## Architecture
@@ -114,11 +118,11 @@ Session.AskStream()
 
 ## Related Files
 
-| File | Purpose |
-|------|---------|
-| `internal/router/models.go` | Level constants, ClassificationResult |
-| `internal/router/fasttrack.go` | Pattern-based Fast Track classifier |
-| `internal/router/llm_classifier.go` | LLM semantic fallback |
-| `internal/router/classifier.go` | Dual-channel classifier + hybrid logic |
-| `internal/router/router.go` | Router: classification → model params |
-| `internal/session/session.go` | Session: level lock, sticky state |
+| File                                | Purpose                                |
+| ----------------------------------- | -------------------------------------- |
+| `internal/router/models.go`         | Level constants, ClassificationResult  |
+| `internal/router/fasttrack.go`      | Pattern-based Fast Track classifier    |
+| `internal/router/llm_classifier.go` | LLM semantic fallback                  |
+| `internal/router/classifier.go`     | Dual-channel classifier + hybrid logic |
+| `internal/router/router.go`         | Router: classification → model params  |
+| `internal/session/session.go`       | Session: level lock, sticky state      |

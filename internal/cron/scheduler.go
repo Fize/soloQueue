@@ -220,7 +220,7 @@ func (s *Scheduler) executeTask(t Task) {
 
 	start := time.Now()
 	// Trigger task execution via AskStream
-	ch, err := session.AskStream(context.Background(), t.Instruction)
+	ch, err := session.AskStream(iface.ContextWithBypassConfirm(context.Background()), t.Instruction)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: task execution failed to start", "task_id", t.ID, "err", err)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")

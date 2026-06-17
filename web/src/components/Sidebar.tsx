@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import { useRuntime } from '@/hooks/useRuntime'
 import { Button } from '@/components/ui/button'
 import {
   Bot,
@@ -14,7 +13,6 @@ import {
   Sparkles,
   Server,
   Users,
-  Circle,
   X,
   PanelLeftClose,
   PanelLeftOpen,
@@ -79,7 +77,6 @@ function NavItem({
 export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const runtime = useRuntime()
   const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
 
   const isChatActive = location.pathname.startsWith('/chat')
@@ -168,7 +165,7 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
       <nav
         className={cn('flex-1 overflow-y-auto space-y-0.5', collapsed && !mobile ? 'p-1.5' : 'p-3')}
       >
-        {/* Chat/Workspace Dropdown Menu */}
+        {/* Chat Dropdown Menu */}
         <div className="py-0.5">
           <button
             onClick={() => {
@@ -186,7 +183,7 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
                 }
               }
             }}
-            title={collapsed && !mobile ? 'Workspace' : undefined}
+            title={collapsed && !mobile ? 'Chat' : undefined}
             className={cn(
               'flex w-full items-center rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer',
               collapsed && !mobile ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
@@ -200,7 +197,7 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
             />
             {(!collapsed || mobile) && (
               <>
-                <span className="flex-1 text-left truncate">Workspace</span>
+                <span className="flex-1 text-left truncate">Chat</span>
                 {chatOpen ? (
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 ) : (
@@ -310,93 +307,6 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
           )}
         </div>
       </nav>
-
-      {/* Runtime Status */}
-      {runtime && (!collapsed || mobile) && (
-        <div className="border-t border-border p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Agents</span>
-            <span className="font-medium text-foreground tabular-nums">
-              {runtime.running_agents}/{runtime.total_agents}
-            </span>
-          </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full bg-primary transition-all duration-500"
-              style={{
-                width: `${runtime.total_agents > 0 ? (runtime.running_agents / runtime.total_agents) * 100 : 0}%`,
-              }}
-            />
-          </div>
-
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Window</span>
-            <span
-              className={cn(
-                'font-medium tabular-nums',
-                runtime.context_pct >= 90
-                  ? 'text-destructive'
-                  : runtime.context_pct >= 70
-                    ? 'text-warning'
-                    : 'text-success'
-              )}
-            >
-              {runtime.context_pct}%
-            </span>
-          </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn(
-                'h-full rounded-full transition-all duration-500',
-                runtime.context_pct >= 90
-                  ? 'bg-destructive'
-                  : runtime.context_pct >= 70
-                    ? 'bg-warning'
-                    : 'bg-success'
-              )}
-              style={{ width: `${Math.min(runtime.context_pct, 100)}%` }}
-            />
-          </div>
-
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Phase</span>
-            <span className="inline-flex items-center gap-1 font-medium text-foreground">
-              <Circle
-                className={cn(
-                  'h-2 w-2 fill-current',
-                  runtime.phase === 'processing'
-                    ? 'text-success'
-                    : runtime.phase === 'stopping'
-                      ? 'text-warning'
-                      : 'text-muted-foreground'
-                )}
-              />
-              {runtime.phase || 'idle'}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Iter</span>
-            <span className="font-medium text-foreground tabular-nums">{runtime.current_iter}</span>
-          </div>
-
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Delegations</span>
-            <span className="font-medium text-foreground tabular-nums">
-              {runtime.active_delegations}
-            </span>
-          </div>
-
-          {runtime.total_errors > 0 && (
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Errors</span>
-              <span className="font-medium text-destructive tabular-nums">
-                {runtime.total_errors}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Theme toggle + Collapse toggle (desktop) */}
       <div className="border-t border-border shrink-0">

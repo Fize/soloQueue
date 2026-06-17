@@ -17,6 +17,7 @@ subpath: skills/skill-creator
 This is a remote skill catalog entry.
 
 ## Upstream
+
 - Repo: https://github.com/anthropics/skills
 - Branch: main
 - SubPath: skills/skill-creator

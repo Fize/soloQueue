@@ -4,6 +4,7 @@ import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { formatToolCallHeader } from '@/lib/utils'
+import { DelegationCard } from '@/components/DelegationCard'
 
 function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
   const [expanded, setExpanded] = useState(false)
@@ -137,6 +138,18 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
           case 'content':
             return <ContentBlock key={i} text={seg.text} />
           case 'tool_call':
+            if (seg.name.startsWith('delegate_')) {
+              return (
+                <DelegationCard
+                  key={seg.call_id || i}
+                  name={seg.name}
+                  args={seg.args}
+                  done={seg.done}
+                  error={seg.error}
+                  durationMs={seg.duration_ms}
+                />
+              )
+            }
             return <ToolCallCard key={seg.call_id || i} seg={seg} />
         }
       })}

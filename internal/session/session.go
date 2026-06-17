@@ -46,6 +46,9 @@ var (
 	ErrNoActiveTask = errors.New("session: no active task")
 )
 
+// Version is the current version of soloqueue. It is set at startup by the main command.
+var Version = "0.1.0"
+
 // CurrentLevel returns the classification level of the last routed task.
 // Returns "" if no task has been routed yet or routing is disabled.
 func (s *Session) CurrentLevel() string {
@@ -579,8 +582,28 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		return nil, ErrSessionClosed
 	}
 
-	// Intercept /cron slash command
-	if strings.HasPrefix(strings.TrimSpace(prompt), "/cron") {
+	trimmed := strings.TrimSpace(prompt)
+	lowerTrimmed := strings.ToLower(trimmed)
+
+	// Intercept /cancel slash command immediately (non-blocking, don't wait for inFlight)
+	if lowerTrimmed == "/cancel" {
+		out := make(chan iface.AgentEvent, 2)
+		go func() {
+			defer close(out)
+			err := s.CancelCurrent("User requested cancellation")
+			if err != nil {
+				out <- agent.ContentDeltaEvent{Delta: "取消失败：" + err.Error()}
+				out <- agent.DoneEvent{Content: "Cancel failed: " + err.Error()}
+			} else {
+				out <- agent.ContentDeltaEvent{Delta: "已取消当前任务"}
+				out <- agent.DoneEvent{Content: "Task cancelled."}
+			}
+		}()
+		return out, nil
+	}
+
+	// Intercept other builtin slash commands: /help, /?, /clear, /version, /cron
+	if lowerTrimmed == "/help" || lowerTrimmed == "/?" || lowerTrimmed == "/clear" || lowerTrimmed == "/version" || strings.HasPrefix(lowerTrimmed, "/cron") {
 		if !s.inFlight.CompareAndSwap(0, 1) {
 			s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
 				"session_id", s.ID,
@@ -590,7 +613,69 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			return nil, ErrQueued
 		}
 		s.touch()
-		return s.handleCronCommand(ctx, prompt)
+
+		out := make(chan iface.AgentEvent, 2)
+		go func() {
+			defer close(out)
+			defer s.inFlight.Store(0)
+			defer s.touch()
+
+			if strings.HasPrefix(lowerTrimmed, "/cron") {
+				expr, inst, err := parseCronCommandLine(trimmed)
+				if err != nil {
+					out <- agent.ErrorEvent{Err: fmt.Errorf("invalid cron command format: %w", err)}
+					return
+				}
+				if s.cronHandler == nil {
+					out <- agent.ErrorEvent{Err: fmt.Errorf("cron system is not configured")}
+					return
+				}
+				taskID, nextRun, err := s.cronHandler(ctx, expr, inst)
+				if err != nil {
+					out <- agent.ErrorEvent{Err: err}
+					return
+				}
+				out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("定时任务已成功创建！\n- **任务ID**: %s\n- **计划**: %s\n- **任务**: %s\n- **下次执行**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
+				out <- agent.DoneEvent{Content: "Cron task created."}
+				return
+			}
+
+			switch lowerTrimmed {
+			case "/help", "/?":
+				text := "可用命令：\n" +
+					"- `/help` 或 `/?` — 查看可用命令\n" +
+					"- `/cancel` — 取消当前任务\n" +
+					"- `/clear` — 清空对话历史\n" +
+					"- `/version` — 查看版本号\n" +
+					"- `/cron <计划表达式/时间> <任务指令>` — 创建定时任务\n" +
+					"- `/l0` 或 `/chat` — 锁定路由级别为 L0 (日常对话)\n" +
+					"- `/l1` — 锁定路由级别为 L1 (单文件修改)\n" +
+					"- `/l2` — 锁定路由级别为 L2 (多文件修改)\n" +
+					"- `/l3`、`/max` 或 `/expert` — 锁定路由级别为 L3 (复杂架构重构)"
+				out <- agent.ContentDeltaEvent{Delta: text}
+				out <- agent.DoneEvent{Content: text}
+
+			case "/clear":
+				if err := s.Clear(); err != nil {
+					out <- agent.ContentDeltaEvent{Delta: "清空失败：" + err.Error()}
+					out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
+				} else {
+					out <- agent.ContentDeltaEvent{Delta: "对话历史已清空"}
+					out <- agent.DoneEvent{Content: "Session history cleared."}
+				}
+
+			case "/version":
+				v := Version
+				if v == "" {
+					v = "SoloQueue"
+				} else {
+					v = "SoloQueue " + v
+				}
+				out <- agent.ContentDeltaEvent{Delta: v}
+				out <- agent.DoneEvent{Content: v}
+			}
+		}()
+		return out, nil
 	}
 
 	// 重置 cancelled 标志，防止前一次 AskStream 的残留标志泄漏到本次调用。

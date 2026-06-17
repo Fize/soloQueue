@@ -3,6 +3,7 @@
 ## Test Framework: Jest (Node.js) / Vitest (modern alternative)
 
 ### Setup
+
 ```bash
 # Jest
 npm install --save-dev jest @types/jest
@@ -14,6 +15,7 @@ npm install --save-dev vitest @vitest/ui
 ```
 
 ### Test Structure (Jest)
+
 ```javascript
 // math.test.js
 const { add, divide } = require("./math");
@@ -40,6 +42,7 @@ describe("divide", () => {
 ```
 
 ### Test Structure (TypeScript + Vitest)
+
 ```typescript
 // math.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -76,6 +79,7 @@ describe("UserService", () => {
 ```
 
 ### Mocking
+
 ```javascript
 // Jest mocks
 // Manual mock
@@ -95,6 +99,7 @@ ApiClient.prototype.fetch = vi.fn();
 ```
 
 ## Best Practices
+
 - Use `describe` to group related tests
 - Use `it`/`test` (prefer `it` for readability)
 - AAA pattern: Arrange, Act, Assert
