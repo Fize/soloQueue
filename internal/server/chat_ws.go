@@ -275,11 +275,18 @@ func (h *Hub) resolveSession(sessionID string) (*session.Session, error) {
 
 // sendJSON marshals a WSMessage and sends it to the client's send channel.
 // Returns false if the client is disconnected (send channel closed or full).
-func (c *Client) sendJSON(msg WSMessage) bool {
+// Uses recover to handle send on closed channel — the send channel is closed
+// by removeClient/hub shutdown, which can race with forwardAgentEvents goroutines.
+func (c *Client) sendJSON(msg WSMessage) (ok bool) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return true
 	}
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
 	select {
 	case c.send <- data:
 		return true

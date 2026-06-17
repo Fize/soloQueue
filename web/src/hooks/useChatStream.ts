@@ -60,6 +60,16 @@ export function useChatStream() {
       const shouldGenTitle = isL2 && !titleGenerated[sid]
       let finalContent = ''
 
+      let finished = false
+      const finishRequest = () => {
+        if (finished) return
+        finished = true
+        setStreaming(false)
+        setDelegating(false)
+        activeRequestIdRef.current = null
+        wsManager.unregisterChat(requestId)
+      }
+
       const handler: ChatHandler = {
         onChunk: (delta) => {
           appendToLastAssistantContent(delta)
@@ -96,7 +106,6 @@ export function useChatStream() {
           })
         },
         onDone: (_data) => {
-          // Auto-generate title for L2 sessions on first exchange.
           if (shouldGenTitle && prompt.trim()) {
             const title = generateTitle(prompt, finalContent)
             if (title) {
@@ -104,26 +113,21 @@ export function useChatStream() {
             }
             markTitleGenerated(sid)
           }
+          finishRequest()
         },
         onError: (error) => {
           updateLastAssistantSegment({ type: 'error', text: error })
+          finishRequest()
         },
         onDelegationStart: () => {
           setDelegating(true)
         },
         onDelegationDone: (data) => {
           setDelegating(false)
-          completeLastDelegation(
-            data.target_agent_id,
-            data.duration_ms,
-            data.result_content
-          )
+          completeLastDelegation(data.target_agent_id, data.duration_ms, data.result_content)
         },
         onClose: () => {
-          setStreaming(false)
-          setDelegating(false)
-          activeRequestIdRef.current = null
-          wsManager.unregisterChat(requestId)
+          finishRequest()
         },
       }
 

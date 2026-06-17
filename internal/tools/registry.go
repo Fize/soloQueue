@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -129,6 +130,23 @@ func (r *ToolRegistry) Names() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// HasPrefix 检查是否有名称以 prefix 开头的工具。
+// 用于快速检测 agent 是否包含某一类工具（如 delegate_*, lsp__*）。
+// nil receiver 返回 false。
+func (r *ToolRegistry) HasPrefix(prefix string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for name := range r.tools {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Unregister 内部删除方法，仅供 SkillRegistry 回滚使用

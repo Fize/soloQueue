@@ -542,26 +542,34 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 	a := startedAgentWithTools(t, fake, readTool, writeTool, delegateTool, skillTool)
 
 	// 1. 验证 L0-Conversation 下的过滤
+	// At L0 (conversation-only), only a whitelist of read-only tools is allowed.
+	// delegate_* tools are not in this whitelist — they remain pruned at L0.
 	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
 	specsL0 := a.ToolSpecs()
 	hasRead := false
 	hasWrite := false
+	hasDelegate := false
 	for _, spec := range specsL0 {
-		if spec.Function.Name == "Read" {
+		switch spec.Function.Name {
+		case "Read":
 			hasRead = true
-		}
-		if spec.Function.Name == "Write" {
+		case "Write":
 			hasWrite = true
+		case "delegate_task":
+			hasDelegate = true
 		}
 	}
-	if !hasRead || hasWrite || len(specsL0) != 1 {
-		t.Errorf("L0 filter failed: specs count = %d, hasRead = %v, hasWrite = %v", len(specsL0), hasRead, hasWrite)
+	if !hasRead || hasWrite || hasDelegate || len(specsL0) != 1 {
+		t.Errorf("L0 filter failed: specs count = %d, hasRead = %v, hasWrite = %v, hasDelegate = %v",
+			len(specsL0), hasRead, hasWrite, hasDelegate)
 	}
 
 	// 2. 验证 L1-SimpleSingleFile 下的过滤
+	// delegate_* tools are always preserved for supervisors.
+	// Skill is still pruned for L1 level.
 	a.modelOverride.Store(&ModelParams{Level: "L1-SimpleSingleFile"})
 	specsL1 := a.ToolSpecs()
-	hasDelegate := false
+	hasDelegate = false
 	hasSkill := false
 	hasRead = false
 	hasWrite = false
@@ -577,7 +585,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 			hasSkill = true
 		}
 	}
-	if !hasRead || !hasWrite || hasDelegate || hasSkill || len(specsL1) != 2 {
+	if !hasRead || !hasWrite || !hasDelegate || hasSkill || len(specsL1) != 3 {
 		t.Errorf("L1 filter failed: specs count = %d, hasRead = %v, hasWrite = %v, hasDelegate = %v, hasSkill = %v",
 			len(specsL1), hasRead, hasWrite, hasDelegate, hasSkill)
 	}
