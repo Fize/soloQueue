@@ -228,7 +228,8 @@ func TestConfirmEventBubble_L2Respond_L3Executes(t *testing.T) {
 	fix := setupConfirmBubbleFixture(t)
 	defer fix.Cleanup()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx := iface.ContextWithForceConfirm(context.Background())
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// 从 L2 直接投递（跳过 L1），测试 L2→L3 的 confirm 路由
@@ -295,7 +296,8 @@ func TestConfirmEventBubble_Denied(t *testing.T) {
 	fix := setupConfirmBubbleFixture(t)
 	defer fix.Cleanup()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx := iface.ContextWithForceConfirm(context.Background())
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	eventCh, err := fix.L2Agent.AskStream(ctx, "invoke L3 task")

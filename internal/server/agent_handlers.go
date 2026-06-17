@@ -305,6 +305,7 @@ type AgentInfoResponse struct {
 	MailboxHigh        int    `json:"mailbox_high"`
 	MailboxNormal      int    `json:"mailbox_normal"`
 	IsQBot             bool   `json:"is_qbot"`
+	Iteration          int    `json:"iteration"`
 }
 
 // SupervisorInfoResponse groups agents into teams.
@@ -711,6 +712,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			MailboxHigh:        high,
 			MailboxNormal:      normal,
 			IsQBot:             isQBot,
+			Iteration:          a.CurrentWork().Iteration,
 		}
 		agents = append(agents, info)
 	}
@@ -743,6 +745,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 				PendingDelegations: child.PendingDelegations(),
 				MailboxHigh:        high,
 				MailboxNormal:      normal,
+				Iteration:          child.CurrentWork().Iteration,
 			}
 			agents = append(agents, info)
 		}

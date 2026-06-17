@@ -21,13 +21,13 @@ Ant Design 5.x uses a CSS-in-JS Design Token mechanism.
 
 ```tsx
 // Global Token
-import { ConfigProvider } from 'antd';
+import { ConfigProvider } from "antd";
 
 const theme = {
   token: {
-    colorPrimary: '#1677ff',
+    colorPrimary: "#1677ff",
     borderRadius: 6,
-    colorBgContainer: '#f6f8fa',
+    colorBgContainer: "#f6f8fa",
     fontSize: 14,
     controlHeight: 32,
   },
@@ -35,7 +35,7 @@ const theme = {
 
 <ConfigProvider theme={theme}>
   <App />
-</ConfigProvider>
+</ConfigProvider>;
 ```
 
 ### Common Tokens
@@ -76,28 +76,21 @@ boxShadow             // Box shadow
 ### Form
 
 ```tsx
-<Form
-  form={form}
-  layout="vertical"
-  onFinish={onSubmit}
-  initialValues={{}}
->
+<Form form={form} layout="vertical" onFinish={onSubmit} initialValues={{}}>
   <Form.Item
     label="Username"
     name="username"
-    rules={[{ required: true, message: 'Please enter username' }]}
+    rules={[{ required: true, message: "Please enter username" }]}
   >
     <Input placeholder="Please enter username" />
   </Form.Item>
-  <Form.Item
-    label="Password"
-    name="password"
-    rules={[{ required: true }]}
-  >
+  <Form.Item label="Password" name="password" rules={[{ required: true }]}>
     <Input.Password />
   </Form.Item>
   <Form.Item>
-    <Button type="primary" htmlType="submit">Submit</Button>
+    <Button type="primary" htmlType="submit">
+      Submit
+    </Button>
   </Form.Item>
 </Form>
 ```
@@ -107,11 +100,11 @@ boxShadow             // Box shadow
 ```tsx
 <Table
   columns={[
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Age', dataIndex: 'age', key: 'age', sorter: true },
+    { title: "Name", dataIndex: "name", key: "name" },
+    { title: "Age", dataIndex: "age", key: "age", sorter: true },
     {
-      title: 'Actions',
-      key: 'action',
+      title: "Actions",
+      key: "action",
       render: (_, record) => (
         <Space>
           <a onClick={() => handleEdit(record)}>Edit</a>
@@ -140,12 +133,12 @@ boxShadow             // Box shadow
   width={520}
 >
   <p>This is modal content</p>
-</Modal>
+</Modal>;
 
 // Functional call
 Modal.confirm({
-  title: 'Confirm deletion?',
-  content: 'This action cannot be undone',
+  title: "Confirm deletion?",
+  content: "This action cannot be undone",
   onOk: () => deleteItem(id),
 });
 ```

@@ -34,14 +34,14 @@ All sample profiles are written in English and share a common structure. The cha
 native name may appear in its original script (for example `韩立`, `本座`); this is intentional
 and part of the voice the profile is trying to reproduce.
 
-| File | Character | One-line description |
-| --- | --- | --- |
-| `hanli.md` | 韩立 (Han Li) | A calm, taciturn rogue cultivator — cautious, measured, and always prepared with an escape route. |
-| `jiyin.md` | 极阴老祖 (Ancestor Ji Yin) | A domineering, millennia-old devil-path patriarch — imperious, predatory, and ruthlessly pragmatic. |
-| `nangongwan.md` | 南宫婉 (Nangong Wan) | A clear, cold, aloof cultivator — sparse of words, firm of Dao-heart, decisive in action. |
-| `xuangu.md` | 玄骨上人 (Venerable Xuan Gu) | A sinister, ancient elder — every word a trap, every alliance a prepared coffin. |
-| `yuanyao.md` | 元瑶 (Yuan Yao) | Gentle and soft-spoken with inner resilience — keeps a silent debt-of-gratitude ledger. |
-| `ziling.md` | 紫灵 (Zi Ling / Wang Ning) | A measured, calculating strategist — every move weighed for cost, timing, and retreat. |
+| File            | Character                    | One-line description                                                                                |
+| --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| `hanli.md`      | 韩立 (Han Li)                | A calm, taciturn rogue cultivator — cautious, measured, and always prepared with an escape route.   |
+| `jiyin.md`      | 极阴老祖 (Ancestor Ji Yin)   | A domineering, millennia-old devil-path patriarch — imperious, predatory, and ruthlessly pragmatic. |
+| `nangongwan.md` | 南宫婉 (Nangong Wan)         | A clear, cold, aloof cultivator — sparse of words, firm of Dao-heart, decisive in action.           |
+| `xuangu.md`     | 玄骨上人 (Venerable Xuan Gu) | A sinister, ancient elder — every word a trap, every alliance a prepared coffin.                    |
+| `yuanyao.md`    | 元瑶 (Yuan Yao)              | Gentle and soft-spoken with inner resilience — keeps a silent debt-of-gratitude ledger.             |
+| `ziling.md`     | 紫灵 (Zi Ling / Wang Ning)   | A measured, calculating strategist — every move weighed for cost, timing, and retreat.              |
 
 ## Recommended Structure For Your Own Soul
 

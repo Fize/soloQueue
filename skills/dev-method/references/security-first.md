@@ -26,20 +26,20 @@ You are NOT a general-purpose assistant while this method is active. You are a S
 
 ## MANDATORY RULES (Violation = Method Failure)
 
-| # | Rule | NEVER Do This |
-|---|------|---------------|
-| 1 | **No Secrets in Code** — No passwords, API keys, or tokens in source code | Committing `.env` files, hardcoding `API_KEY = "sk-..."` |
-| 2 | **Input Validation** — ALL external input MUST be validated and sanitized before use | Trusting `request.body` without validation; SQL concatenation |
-| 3 | **Output Encoding** — ALL output to HTML/SQL must be encoded to prevent injection | Using `innerHTML = userInput` without encoding |
-| 4 | **Auth Checks on Every Sensitive Operation** — No "TODO: add auth later" | Creating an API endpoint without auth check |
-| 5 | **Least Privilege** — Code MUST run with minimum necessary permissions | Running as `root` in Docker; using `admin` DB user for reads |
-| 6 | **No Debug in Production** — Debug endpoints, detailed error messages, and stack traces MUST be disabled in production | Leaving `/debug` endpoint accessible in prod |
-| 7 | **Dependency Scanning** — MUST check new dependencies for known CVEs before adding | Adding a library with a known high-severity CVE |
-| 8 | **Secure Defaults** — Security features MUST be ON by default, not opt-in | Defaulting to `http://` instead of `https://` |
-| 9 | **Clarify Security Requirements First** — If auth, RBAC, encryption, or PII handling is unclear, you MUST ask | Guessing whether a field contains PII |
-| 10 | **Evidence Required** — MUST show security check output (lint pass, CVE scan, auth test) | Claiming "it's secure" without showing evidence |
-| 11 | **No Over-Engineering** — Solve ONLY the stated security problem | Adding rate limiting when only auth was asked for |
-| 12 | **Comments Explain WHY (Security)** — Security decisions MUST be commented with rationale | Writing `hash_password(pwd)` without explaining WHY that algo was chosen |
+| #   | Rule                                                                                                                   | NEVER Do This                                                            |
+| --- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 1   | **No Secrets in Code** — No passwords, API keys, or tokens in source code                                              | Committing `.env` files, hardcoding `API_KEY = "sk-..."`                 |
+| 2   | **Input Validation** — ALL external input MUST be validated and sanitized before use                                   | Trusting `request.body` without validation; SQL concatenation            |
+| 3   | **Output Encoding** — ALL output to HTML/SQL must be encoded to prevent injection                                      | Using `innerHTML = userInput` without encoding                           |
+| 4   | **Auth Checks on Every Sensitive Operation** — No "TODO: add auth later"                                               | Creating an API endpoint without auth check                              |
+| 5   | **Least Privilege** — Code MUST run with minimum necessary permissions                                                 | Running as `root` in Docker; using `admin` DB user for reads             |
+| 6   | **No Debug in Production** — Debug endpoints, detailed error messages, and stack traces MUST be disabled in production | Leaving `/debug` endpoint accessible in prod                             |
+| 7   | **Dependency Scanning** — MUST check new dependencies for known CVEs before adding                                     | Adding a library with a known high-severity CVE                          |
+| 8   | **Secure Defaults** — Security features MUST be ON by default, not opt-in                                              | Defaulting to `http://` instead of `https://`                            |
+| 9   | **Clarify Security Requirements First** — If auth, RBAC, encryption, or PII handling is unclear, you MUST ask          | Guessing whether a field contains PII                                    |
+| 10  | **Evidence Required** — MUST show security check output (lint pass, CVE scan, auth test)                               | Claiming "it's secure" without showing evidence                          |
+| 11  | **No Over-Engineering** — Solve ONLY the stated security problem                                                       | Adding rate limiting when only auth was asked for                        |
+| 12  | **Comments Explain WHY (Security)** — Security decisions MUST be commented with rationale                              | Writing `hash_password(pwd)` without explaining WHY that algo was chosen |
 
 ---
 
@@ -47,18 +47,18 @@ You are NOT a general-purpose assistant while this method is active. You are a S
 
 Use this checklist during the Security Review checkpoint:
 
-| # | Vulnerability | How to Check |
-|---|----------------|-------------|
-| A01 | Broken Access Control | Are auth checks enforced on every sensitive endpoint? |
-| A02 | Cryptographic Failures | Are passwords hashed with bcrypt/argon2? Is TLS used? |
-| A03 | Injection | Are SQL queries parameterized? Is user input sanitized? |
-| A04 | Insecure Design | Was a threat model created before coding? |
-| A05 | Security Misconfiguration | Are debug modes disabled? Are default creds changed? |
-| A06 | Vulnerable Components | Were dependencies checked for CVEs? |
-| A07 | Identity/Auth Failures | Are passwords securely hashed? Is session management secure? |
-| A08 | Data Integrity Failures | Is user input validated before processing? |
-| A09 | Logging/Monitoring Failures | Are security events (login failures, etc.) logged? |
-| A10 | Server-Side Request Forgery | Are user-supplied URLs validated and allowlisted? |
+| #   | Vulnerability               | How to Check                                                 |
+| --- | --------------------------- | ------------------------------------------------------------ |
+| A01 | Broken Access Control       | Are auth checks enforced on every sensitive endpoint?        |
+| A02 | Cryptographic Failures      | Are passwords hashed with bcrypt/argon2? Is TLS used?        |
+| A03 | Injection                   | Are SQL queries parameterized? Is user input sanitized?      |
+| A04 | Insecure Design             | Was a threat model created before coding?                    |
+| A05 | Security Misconfiguration   | Are debug modes disabled? Are default creds changed?         |
+| A06 | Vulnerable Components       | Were dependencies checked for CVEs?                          |
+| A07 | Identity/Auth Failures      | Are passwords securely hashed? Is session management secure? |
+| A08 | Data Integrity Failures     | Is user input validated before processing?                   |
+| A09 | Logging/Monitoring Failures | Are security events (login failures, etc.) logged?           |
+| A10 | Server-Side Request Forgery | Are user-supplied URLs validated and allowlisted?            |
 
 ---
 
@@ -126,13 +126,13 @@ type CreateUserRequest struct {
 
 ```javascript
 // GOOD: parameterized query (using pg)
-await db.query('SELECT * FROM users WHERE email = $1', [email]);
+await db.query("SELECT * FROM users WHERE email = $1", [email]);
 
 // BAD: string concatenation (SQL injection)
 await db.query(`SELECT * FROM users WHERE email = '${email}'`);
 
 // GOOD: password hashing
-const bcrypt = require('bcrypt');
+const bcrypt = require("bcrypt");
 const hash = await bcrypt.hash(password, 10);
 
 // BAD: plain text
@@ -145,7 +145,9 @@ const schema = z.object({
 });
 
 // BAD: no validation
-app.post('/users', (req, res) => { /* use req.body directly */ });
+app.post("/users", (req, res) => {
+  /* use req.body directly */
+});
 ```
 
 ---
@@ -173,6 +175,7 @@ Same as TDD Checkpoint 0. Determine language and framework to apply the correct 
 **Purpose:** Identify what needs protection BEFORE designing the solution. Retrofitting security is expensive and error-prone.
 
 **Actions:**
+
 1. Identify assets: what data/functionality needs protection? (PII, payment data, auth tokens, etc.)
 2. Identify threats: who might attack, and how? (OWASP Top 10 as reference)
 3. Identify trust boundaries: where does untrusted input enter the system?
@@ -181,22 +184,27 @@ Same as TDD Checkpoint 0. Determine language and framework to apply the correct 
 6. **WAIT for user confirmation** before proceeding to design.
 
 **Threat model minimum structure:**
+
 ```markdown
 # <Feature Name> — Threat Model
 
 ## Assets to Protect
+
 - [ ] <asset 1: e.g., user passwords>
 - [ ] <asset 2: e.g., payment data>
 
 ## Threats Identified
+
 - [ ] <threat 1: e.g., SQL injection via search form>
 - [ ] <threat 2: e.g., brute-force login>
 
 ## Trust Boundaries
+
 - [ ] <boundary 1: e.g., API endpoint receives untrusted input from frontend>
 - [ ] <boundary 2: e.g., webhook endpoint receives untrusted input from external service>
 
 ## Mitigations (Planned)
+
 - [ ] <mitigation 1: e.g., parameterized queries for all DB access>
 - [ ] <mitigation 2: e.g., rate limiting on login endpoint>
 ```
@@ -210,6 +218,7 @@ Same as TDD Checkpoint 0. Determine language and framework to apply the correct 
 **Purpose:** Design the solution with security built in, not bolted on.
 
 **Actions:**
+
 1. Review the threat model. Ensure the design addresses EVERY identified threat.
 2. Write secure design doc to `docs/design/<feature-name>-secure-design.md`.
 3. **MUST include**: auth strategy, input validation strategy, output encoding strategy, error handling (no stack traces to user), logging strategy (no PII in logs).
@@ -217,25 +226,32 @@ Same as TDD Checkpoint 0. Determine language and framework to apply the correct 
 5. **WAIT for user confirmation** before writing code.
 
 **Secure design doc minimum structure:**
+
 ```markdown
 # <Feature Name> — Secure Design
 
 ## Auth Strategy
+
 [How is the user authenticated? Tokens? Sessions? MFA?]
 
 ## Input Validation
+
 [What validates input? Where? (frontend + backend both?)]
 
 ## Output Encoding
+
 [How are outputs encoded to prevent XSS/injection?]
 
 ## Error Handling
+
 [What does the user see on error? (NEVER stack trace)]
 
 ## Logging
+
 [What is logged? (NEVER passwords, tokens, PII)]
 
 ## Dependencies
+
 [New dependencies — MUST be CVE-scanned before adding]
 ```
 
@@ -248,6 +264,7 @@ Same as TDD Checkpoint 0. Determine language and framework to apply the correct 
 **Purpose:** Implement the design, with security checks at every step.
 
 **Actions:**
+
 1. Write code following the secure coding standards for the language (see reference above).
 2. For EVERY function that handles external input: add input validation.
 3. For EVERY sensitive operation: add auth check.
@@ -262,6 +279,7 @@ Same as TDD Checkpoint 0. Determine language and framework to apply the correct 
 **Purpose:** Final check against OWASP Top 10 and the threat model.
 
 **Actions:**
+
 1. Review the code against the OWASP Top 10 checklist (see Reference section).
 2. Verify EVERY threat in the threat model has a corresponding mitigation in the code.
 3. Run the security linter again.
@@ -276,31 +294,31 @@ Same as TDD Checkpoint 0. Determine language and framework to apply the correct 
 
 ## Anti-Patterns (Recognize and Refuse)
 
-| Anti-Pattern | What It Looks Like | What to Do Instead |
-|-------------|-------------------|-------------------|
-| Skipping threat model | User: "just implement it, don't worry about security" | Use refusal script — security cannot be retrofitted |
-| Trusting input | Using `request.body` directly in DB query | Validate and sanitize ALL external input |
-| Hardcoding secrets | `API_KEY = "sk-abc123"` in source | Use env vars + secret management (Vault, AWS Secrets Manager) |
-| Weak hashing | `md5(password)`, `sha1(password)` | Use bcrypt, argon2, or scrypt |
-| Logging PII | `logger.info(f"User {email} logged in with password {password}")` | NEVER log passwords, tokens, or PII |
-| Detailed errors to user | `return {"error": stack_trace}` in production | Return generic error; log details server-side |
-| No auth on sensitive endpoints | `GET /api/users` without auth check | Auth check on EVERY sensitive endpoint |
-| Using default credentials | Leaving default admin/admin credentials | FORCE credential change on first login |
+| Anti-Pattern                   | What It Looks Like                                                | What to Do Instead                                            |
+| ------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| Skipping threat model          | User: "just implement it, don't worry about security"             | Use refusal script — security cannot be retrofitted           |
+| Trusting input                 | Using `request.body` directly in DB query                         | Validate and sanitize ALL external input                      |
+| Hardcoding secrets             | `API_KEY = "sk-abc123"` in source                                 | Use env vars + secret management (Vault, AWS Secrets Manager) |
+| Weak hashing                   | `md5(password)`, `sha1(password)`                                 | Use bcrypt, argon2, or scrypt                                 |
+| Logging PII                    | `logger.info(f"User {email} logged in with password {password}")` | NEVER log passwords, tokens, or PII                           |
+| Detailed errors to user        | `return {"error": stack_trace}` in production                     | Return generic error; log details server-side                 |
+| No auth on sensitive endpoints | `GET /api/users` without auth check                               | Auth check on EVERY sensitive endpoint                        |
+| Using default credentials      | Leaving default admin/admin credentials                           | FORCE credential change on first login                        |
 
 ---
 
 ## Quick Reference: Security Tools
 
-| Language | Tool | What It Does |
-|----------|------|-------------|
-| Python | `bandit` | Static security linter |
-| Python | `safety` | Check dependencies for known CVEs |
-| Go | `gosec` | Static security linter |
-| Go | `govulncheck` | Check for known vulnerabilities |
-| JS/TS | `eslint-plugin-security` | Security rules for ESLint |
-| JS/TS | `npm audit` | Check dependencies for known CVEs |
-| All | `trivy` | Container and dependency vulnerability scanner |
-| All | `semgrep` | Static analysis for security patterns |
+| Language | Tool                     | What It Does                                   |
+| -------- | ------------------------ | ---------------------------------------------- |
+| Python   | `bandit`                 | Static security linter                         |
+| Python   | `safety`                 | Check dependencies for known CVEs              |
+| Go       | `gosec`                  | Static security linter                         |
+| Go       | `govulncheck`            | Check for known vulnerabilities                |
+| JS/TS    | `eslint-plugin-security` | Security rules for ESLint                      |
+| JS/TS    | `npm audit`              | Check dependencies for known CVEs              |
+| All      | `trivy`                  | Container and dependency vulnerability scanner |
+| All      | `semgrep`                | Static analysis for security patterns          |
 
 ---
 

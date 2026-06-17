@@ -143,7 +143,7 @@
 
 - [ ] Uses Roboto / Noto font family
 - [ ] Uses Material 3 color system (primary/secondary/tertiary/surface)
-- [ ] Uses on-* colors to ensure text readability
+- [ ] Uses on-\* colors to ensure text readability
 - [ ] Uses container colors (surfaceContainer) to build hierarchy
 - [ ] Supports dynamic color (Android 12+)
 
@@ -579,11 +579,13 @@
 # UI Design Specification Validation Report
 
 ## Basic Information
+
 - **Specification**: HIG / Fluent / Material / All
 - **Inspection Date**: YYYY-MM-DD
 - **Inspector**: Agent
 
 ## Statistics
+
 - **Total Check Items**: XXX
 - **Passed**: XXX
 - **Warnings**: XXX
@@ -593,6 +595,7 @@
 ## Issue List
 
 ### Errors
+
 1. **[Component Name] - [Issue Description]**
    - Location: [File Path:Line Number]
    - Expected: [Specification Requirement]
@@ -600,9 +603,11 @@
    - Suggestion: [Modification Plan]
 
 ### Warnings
+
 1. **[Component Name] - [Issue Description]**
    - Suggestion: [Optimization Plan]
 
 ## Summary
+
 [Overall Evaluation and Modification Suggestions]
 ```

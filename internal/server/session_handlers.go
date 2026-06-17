@@ -377,31 +377,48 @@ func (m *Mux) leaderAgentName(group string) string {
 	return ""
 }
 
-// handleListSessions returns L1 + all L2 sessions with metadata.
-// Also scans disk for past L2 sessions not currently in memory.
 func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	type sessionInfo struct {
-		ID          string    `json:"id"`
-		Type        string    `json:"type"`
-		Name        string    `json:"name"`
-		Group       string    `json:"group,omitempty"`
-		AgentName   string    `json:"agent_name,omitempty"`
-		ProjectPath string    `json:"project_path,omitempty"`
-		CreatedAt   time.Time `json:"created_at"`
-		IsQBot      bool      `json:"is_qbot"`
+		ID              string    `json:"id"`
+		Type            string    `json:"type"`
+		Name            string    `json:"name"`
+		Group           string    `json:"group,omitempty"`
+		AgentName       string    `json:"agent_name,omitempty"`
+		AgentInstanceID string    `json:"agent_instance_id,omitempty"`
+		ProjectPath     string    `json:"project_path,omitempty"`
+		CreatedAt       time.Time `json:"created_at"`
+		IsQBot          bool      `json:"is_qbot"`
+		CtxwinUsed      int       `json:"ctxwin_used"`
+		CtxwinLimit     int       `json:"ctxwin_limit"`
 	}
 
 	sessions := []sessionInfo{}
 
 	// L1 is always present if initialized.
 	if m.sessionMgr != nil && m.sessionMgr.Session() != nil {
+		l1Sess := m.sessionMgr.Session()
+		name := "L1 Orchestrator"
+		agentInstanceID := ""
+		if l1Sess.Agent != nil {
+			if l1Sess.Agent.Def.Name != "" {
+				name = l1Sess.Agent.Def.Name
+			}
+			agentInstanceID = l1Sess.Agent.InstanceID
+		}
+		var ctxwinUsed, ctxwinLimit int
+		if l1Sess.CW() != nil {
+			ctxwinUsed, ctxwinLimit, _ = l1Sess.CW().TokenUsage()
+		}
 		sessions = append(sessions, sessionInfo{
-			ID:        "l1",
-			Type:      "l1",
-			Name:      "L1 Orchestrator",
-			AgentName: "L1 Orchestrator",
-			CreatedAt: m.sessionMgr.Session().Created,
-			IsQBot:    m.sessionMgr.Session().IsQBot(),
+			ID:              "l1",
+			Type:            "l1",
+			Name:            name,
+			AgentName:       name,
+			AgentInstanceID: agentInstanceID,
+			CreatedAt:       l1Sess.Created,
+			IsQBot:          l1Sess.IsQBot(),
+			CtxwinUsed:      ctxwinUsed,
+			CtxwinLimit:     ctxwinLimit,
 		})
 	}
 
@@ -413,13 +430,16 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				name = fmt.Sprintf("New session (%s)", info.Group)
 			}
 			sessions = append(sessions, sessionInfo{
-				ID:          "l2:" + info.ID,
-				Type:        "l2",
-				Name:        name,
-				Group:       info.Group,
-				AgentName:   m.leaderAgentName(info.Group),
-				ProjectPath: info.WorkDir,
-				CreatedAt:   info.CreatedAt,
+				ID:              "l2:" + info.ID,
+				Type:            "l2",
+				Name:            name,
+				Group:           info.Group,
+				AgentName:       m.leaderAgentName(info.Group),
+				AgentInstanceID: info.AgentInstanceID,
+				ProjectPath:     info.WorkDir,
+				CreatedAt:       info.CreatedAt,
+				CtxwinUsed:      info.CtxwinUsed,
+				CtxwinLimit:     info.CtxwinLimit,
 			})
 		}
 	}
@@ -493,6 +513,11 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				name = fmt.Sprintf("Past session (%s)", group)
 			}
 
+			ctxwinLimit := 0
+			if m.l2Store != nil {
+				ctxwinLimit = m.l2Store.DefaultContextLimit()
+			}
+
 			sessions = append(sessions, sessionInfo{
 				ID:          "l2:" + id,
 				Type:        "l2",
@@ -501,6 +526,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				AgentName:   m.leaderAgentName(group),
 				ProjectPath: projectPath,
 				CreatedAt:   createdAt,
+				CtxwinLimit: ctxwinLimit,
 			})
 		}
 	}
@@ -699,7 +725,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 
 	var dir string
 	if sessionID == "l1" {
-		dir = filepath.Join(m.workDir, "logs", "timelines", "session")
+		dir = filepath.Join(m.workDir, "logs", "timelines", "default")
 	} else {
 		id := strings.TrimPrefix(sessionID, "l2:")
 		dir = filepath.Join(m.workDir, "logs", "timelines", "l2-"+id)
@@ -880,7 +906,7 @@ func extractDelegationAgentName(content string) string {
 }
 
 func readAllTimelineEvents(dir string) ([]timeline.Event, error) {
-	files, err := listTimelineFiles(dir)
+	files, err := timeline.ListTimelineFiles(dir, "timeline")
 	if err != nil {
 		return nil, err
 	}
@@ -916,25 +942,6 @@ func readTimelineFile(path string) ([]timeline.Event, error) {
 		events = append(events, evt)
 	}
 	return events, scanner.Err()
-}
-
-// listTimelineFiles finds timeline JSONL files in a directory.
-// Matches: timeline.jsonl, timeline-*.jsonl (legacy), timeline-*-*.jsonl (date-size).
-func listTimelineFiles(dir string) ([]string, error) {
-	patterns := []string{
-		filepath.Join(dir, "timeline.jsonl"),
-		filepath.Join(dir, "timeline-*.jsonl"),
-	}
-	for _, pattern := range patterns {
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			return nil, fmt.Errorf("timeline: glob %s: %w", pattern, err)
-		}
-		if len(matches) > 0 {
-			return matches, nil
-		}
-	}
-	return nil, fmt.Errorf("no timeline files in %s", dir)
 }
 
 

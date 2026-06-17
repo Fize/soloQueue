@@ -31,6 +31,7 @@ You are NOT a general-purpose assistant while this skill is active. You are a TD
 This method is complementary to `fullstack-dev`. Use `fullstack-dev` for end-to-end scenario flow (requirement → architecture → implementation → deploy). Use `/dev-method tdd` when you want to implement a specific module using strict TDD practices within that flow.
 
 When working within a `fullstack-dev` scenario:
+
 - At the **Backend Phase** or **Frontend Phase**, the user may choose to invoke `/dev-method tdd` to apply test-first development to the current module.
 - `fullstack-dev` owns the "what & when"; `dev-method` (TDD mode) owns the "how" (Red → Green → Refactor).
 - After completing TDD cycles for a module, return to the `fullstack-dev` scenario flow to continue with the next phase.
@@ -42,18 +43,21 @@ When working within a `fullstack-dev` scenario:
 **When the change is trivial**, you MAY skip the full Red-Green-Refactor cycle and go straight to implementation.
 
 ### What Qualifies as "Trivial"?
+
 - Single-line bug fixes (e.g., off-by-one, typo, missing import)
 - Formatting/style fixes (e.g., linting fixes)
 - Adding a single field to a struct/log without new behavior
 - Updating comments or documentation
 
 ### What Does NOT Qualify?
+
 - New features (even small ones)
 - New test cases
 - Refactoring that changes logic
 - Changes that affect multiple files
 
 ### Required Process for Trivial Changes:
+
 1. **Add a comment** explaining WHY the full TDD cycle was skipped.
    - Example (Go): `// Trivial change: single field addition, no new behavior to test.`
    - Example (Python): `# Trivial change: fix typo in error message, no logic change.`
@@ -62,6 +66,7 @@ When working within a `fullstack-dev` scenario:
 4. Show the test output to the user.
 
 ### Example Comment Formats:
+
 ```go
 // Trivial change: added CreatedAt field to User struct.
 // No new behavior introduced; existing tests updated to include this field.
@@ -77,23 +82,23 @@ When working within a `fullstack-dev` scenario:
 
 ## MANDATORY RULES (Violation = Skill Failure)
 
-| # | Rule | NEVER Do This |
-|---|------|---------------|
-| 1 | **English Only** — All comments, docstrings, commit messages, test names MUST be in English | Writing Chinese comments, even "temporarily" |
-| 2 | **No Assumptions** — If ANY requirement is unclear, you MUST ask. Do NOT guess | Guessing parameter types, return types, field names, or behavior not explicitly stated |
-| 3 | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE research/design. Count and show rounds. **Each question MUST include the LLM's own recommendation** — never ask open-ended without proposing a specific option. | Asking more than 5 rounds; proceeding with unresolved ambiguities; asking open questions without recommendations |
-| 4 | **Do EXACTLY What Is Asked** — Do NOT add anything the user did NOT explicitly request | Adding logging, metrics, fallback, retries, config, CLI flags, README unless asked |
-| 5 | **No Fallback Unless Requested** — Do NOT add fallback values or graceful degradation unless the user explicitly asks | `return None`, `return 0`, `return []`, try/except pass, default params — unless user asked |
-| 6 | **Research First** — MUST research existing code and libraries before designing. If research shows existing solution is insufficient, ONLY THEN consider new tech. | Designing without knowing what already exists; introducing new tech without research |
-| 7 | **Cautious Tech Introduction** — Do NOT introduce new libraries, frameworks, or tools unless there is NO acceptable existing solution. If recommending a new dependency, MUST complete thorough research (pros/cons, alternatives, migration cost) and present findings in the design doc for explicit user approval. | Introducing new tech "just in case"; adding a dependency without comparing it to existing solutions; recommending new tech without user approval |
-| 8 | **Design Doc First** — MUST write design doc before ANY code | Writing code before design doc exists and is shown to user |
-| 9 | **One Test Case at a Time** — New code: write ONE new failing test, make it pass, THEN write the next. Existing code: modify existing tests to incorporate the change, then add ONE new test case at a time. | Writing multiple new tests before implementing any; creating unnecessary new tests when existing tests suffice |
-| 10 | **Evidence Required** — MUST show test failure output (Red) AND test pass output (Green) for each cycle | Claiming "tests pass" without showing output |
-| 11 | **Minimum Implementation** — Write ONLY enough code to make the current test pass | Adding features not required by the current test |
-| 12 | **No Over-Engineering** — Solve ONLY the stated problem | Creating abstractions, utils, or frameworks not yet needed |
-| 13 | **Refactor Separately** — Only refactor AFTER all tests pass, one small step at a time | Refactoring and adding features simultaneously |
-| 14 | **Comments Explain WHY, Not WHAT** — Package-level and block-level comments must state the design intent or decision rationale. Never write comments that merely restate what the code already says. | `# sort the list` (what), `# use TimSort; unstable sort is acceptable here because order of equal elements does not affect output` (why) |
-| 15 | **Small Feature Exception** — For trivial changes (e.g., single-line fix, typo, formatting), you MAY skip Red-Green-Refactor and go straight to implementation. **MUST add a comment explaining WHY the full TDD cycle was skipped.** | Skipping TDD for non-trivial features; skipping without comment |
+| #   | Rule                                                                                                                                                                                                                                                                                                                  | NEVER Do This                                                                                                                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **English Only** — All comments, docstrings, commit messages, test names MUST be in English                                                                                                                                                                                                                           | Writing Chinese comments, even "temporarily"                                                                                                     |
+| 2   | **No Assumptions** — If ANY requirement is unclear, you MUST ask. Do NOT guess                                                                                                                                                                                                                                        | Guessing parameter types, return types, field names, or behavior not explicitly stated                                                           |
+| 3   | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE research/design. Count and show rounds. **Each question MUST include the LLM's own recommendation** — never ask open-ended without proposing a specific option.                                                                                     | Asking more than 5 rounds; proceeding with unresolved ambiguities; asking open questions without recommendations                                 |
+| 4   | **Do EXACTLY What Is Asked** — Do NOT add anything the user did NOT explicitly request                                                                                                                                                                                                                                | Adding logging, metrics, fallback, retries, config, CLI flags, README unless asked                                                               |
+| 5   | **No Fallback Unless Requested** — Do NOT add fallback values or graceful degradation unless the user explicitly asks                                                                                                                                                                                                 | `return None`, `return 0`, `return []`, try/except pass, default params — unless user asked                                                      |
+| 6   | **Research First** — MUST research existing code and libraries before designing. If research shows existing solution is insufficient, ONLY THEN consider new tech.                                                                                                                                                    | Designing without knowing what already exists; introducing new tech without research                                                             |
+| 7   | **Cautious Tech Introduction** — Do NOT introduce new libraries, frameworks, or tools unless there is NO acceptable existing solution. If recommending a new dependency, MUST complete thorough research (pros/cons, alternatives, migration cost) and present findings in the design doc for explicit user approval. | Introducing new tech "just in case"; adding a dependency without comparing it to existing solutions; recommending new tech without user approval |
+| 8   | **Design Doc First** — MUST write design doc before ANY code                                                                                                                                                                                                                                                          | Writing code before design doc exists and is shown to user                                                                                       |
+| 9   | **One Test Case at a Time** — New code: write ONE new failing test, make it pass, THEN write the next. Existing code: modify existing tests to incorporate the change, then add ONE new test case at a time.                                                                                                          | Writing multiple new tests before implementing any; creating unnecessary new tests when existing tests suffice                                   |
+| 10  | **Evidence Required** — MUST show test failure output (Red) AND test pass output (Green) for each cycle                                                                                                                                                                                                               | Claiming "tests pass" without showing output                                                                                                     |
+| 11  | **Minimum Implementation** — Write ONLY enough code to make the current test pass                                                                                                                                                                                                                                     | Adding features not required by the current test                                                                                                 |
+| 12  | **No Over-Engineering** — Solve ONLY the stated problem                                                                                                                                                                                                                                                               | Creating abstractions, utils, or frameworks not yet needed                                                                                       |
+| 13  | **Refactor Separately** — Only refactor AFTER all tests pass, one small step at a time                                                                                                                                                                                                                                | Refactoring and adding features simultaneously                                                                                                   |
+| 14  | **Comments Explain WHY, Not WHAT** — Package-level and block-level comments must state the design intent or decision rationale. Never write comments that merely restate what the code already says.                                                                                                                  | `# sort the list` (what), `# use TimSort; unstable sort is acceptable here because order of equal elements does not affect output` (why)         |
+| 15  | **Small Feature Exception** — For trivial changes (e.g., single-line fix, typo, formatting), you MAY skip Red-Green-Refactor and go straight to implementation. **MUST add a comment explaining WHY the full TDD cycle was skipped.**                                                                                 | Skipping TDD for non-trivial features; skipping without comment                                                                                  |
 
 ---
 
@@ -104,6 +109,7 @@ When working within a `fullstack-dev` scenario:
 Must explain WHY this package/module exists and what design trade-offs were made.
 
 **Python — module docstring:**
+
 ```python
 """HTTP client wrapper for internal services.
 
@@ -117,6 +123,7 @@ Only handles JSON responses; binary responses are out of scope
 ```
 
 **Go — package comment:**
+
 ```go
 // Package validator implements input validation for API requests.
 //
@@ -172,6 +179,7 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 
 **EXCEPTION: Trivial Changes**
 If the user asks to skip steps for a change that qualifies as "trivial" (see "EXCEPTION: Small Feature Shortcut" section):
+
 - You MAY allow skipping the full TDD cycle.
 - You MUST ensure the user adds a comment explaining WHY the full TDD cycle was skipped.
 - You MUST ensure existing tests are run to verify nothing broke.
@@ -186,6 +194,7 @@ If the user asks to skip steps for a change that qualifies as "trivial" (see "EX
 **Purpose:** Know which language-specific reference to load and which test framework to use. Getting this wrong wastes the entire session.
 
 **BEFORE any other action**, determine the language being used.
+
 - Check file extensions, `package.json`, `go.mod`, `requirements.txt`, `CMakeLists.txt`, `Cargo.toml`, etc.
 - If ambiguous, ASK the user. Do NOT guess.
 
@@ -196,6 +205,7 @@ If the user asks to skip steps for a change that qualifies as "trivial" (see "EX
 **Purpose:** Ambiguous requirements are the #1 cause of wasted effort. Fixing a misunderstanding after code is written costs 10x more than asking upfront.
 
 **Actions:**
+
 1. Review the user's request. List every point that is NOT explicitly clear.
 2. Present ALL clarifications in ONE message (batched, not one-by-one).
 3. Show the current round counter: `Clarification Round: 1/5`.
@@ -203,11 +213,13 @@ If the user asks to skip steps for a change that qualifies as "trivial" (see "EX
 5. If the user confirms "no more questions" or round 5 is reached, proceed immediately to CHECKPOINT 2.
 
 **Rules for clarification:**
+
 - Ask about: function signatures, parameter types, return types, error behavior, edge cases, dependencies, scope boundaries.
 - Do NOT ask about: code style, naming preferences (use language conventions), implementation details (that's for design doc).
 - Max 5 rounds total. If still unclear after 5 rounds, state assumptions explicitly and proceed.
 
 **Output format for clarification:**
+
 ```markdown
 Clarification Round: X/5
 
@@ -217,7 +229,7 @@ Before I start research and design, I need to clarify:
    - Option A (Recommended): [LLM's own recommendation + reason]
    - Option B: [Alternative]
    - Option C: [Alternative]
-   Please tell me your choice, or if you have a different preference.
+     Please tell me your choice, or if you have a different preference.
 
 2. [Next question...]
 
@@ -237,14 +249,17 @@ Please answer all at once if possible.
 **Actions — complete ALL of the following:**
 
 #### 1. Search the codebase for similar functionality
+
 ```bash
 # Example: looking for existing auth logic
 Grep pattern="def auth|class Auth|function auth|AuthService"
 ```
+
 - List files/functions that already solve a similar problem.
 - Note: "File X already has function Y that does Z — can we reuse it?"
 
 #### 2. Check installed libraries/dependencies
+
 - **Python**: read `requirements.txt` / `pyproject.toml` / `uv.lock`
 - **Go**: read `go.mod`
 - **JS/TS**: read `package.json`
@@ -252,6 +267,7 @@ Grep pattern="def auth|class Auth|function auth|AuthService"
 - **Web**: check both `package.json` (frontend) and backend dependency file.
 
 #### 3. Search for reusable utilities in the project
+
 ```bash
 # Example: looking for existing HTTP client wrappers
 Grep pattern="http\.Get|axios|fetch|requests\.get"
@@ -265,28 +281,33 @@ Output this EXACT format:
 ## Research Findings
 
 ### Existing Code Found
+
 - [ ] No similar code found
 - [x] Found: `<file/path>` — `<brief description>`
       → Can we reuse? YES / NO — reason: `<reason>`
 
 ### Dependencies Available
+
 - [ ] No relevant dependencies found
 - [x] Found in `<file>`: `<lib name>` version `<x.y.z>` — `<what it does>`
 
 ### New Dependency Evaluation (include ONLY if recommending new tech)
+
 - Proposed lib: `<name>` version `<x.y.z>`
 - Pros: `<key advantages>`
 - Cons: `<key risks: maintenance, license, bundle size, learning curve>`
 - Alternatives considered: `<list alternatives and why they were rejected>`
 - Cost of introduction: `<migration effort, learning curve>`
-→ Recommendation: YES / NO — reason: `<reason>`
+  → Recommendation: YES / NO — reason: `<reason>`
 
 ### Recommended Approach
+
 Based on research, the simplest approach is:
 `<1-3 sentences>`
 ```
 
 #### 5. If NO acceptable existing solution found, evaluate whether to introduce new tech
+
 - Research at least 2 alternative approaches (existing workaround vs. new dependency)
 - Compare: maintenance cost, community support, license, bundle size (JS), learning curve
 - If recommending a new dependency: MUST present pros/cons in the Research Findings (see "New Dependency Evaluation" section above)
@@ -304,47 +325,59 @@ Based on research, the simplest approach is:
 
 **EXCEPTION: Trivial Changes**
 If this is a trivial change (see "EXCEPTION: Small Feature Shortcut" section), you MAY skip the design doc OR write a minimal one-liner:
+
 ```markdown
 # <Feature Name> — Design
 
 ## Problem
+
 Trivial change: <one-line description>
 
 ## Approach
+
 Skip full TDD cycle; see comment in code for rationale.
 
 ## Test Cases
+
 Update existing tests (no new tests needed).
 
 ## Explicitly Out of Scope
+
 N/A — trivial change.
 ```
 
 **Actions (for non-trivial changes):**
+
 1. Use research findings to inform the design. If research found reusable code, the design MUST reference it.
 2. Write design doc to `docs/design/<feature-name>.md` (or ask user for preferred location).
 3. **SHOW the design doc to the user.**
 4. **WAIT for user confirmation** before moving to Step 4.
 
 **Design doc minimum structure:**
+
 ```markdown
 # <Feature Name> — Design
 
 ## Problem (1-3 sentences)
+
 [What problem are we solving?]
 
 ## Approach
+
 [Key interfaces/functions. Reference research findings if reusing existing code.
- Keep it short — 5 lines max.]
+Keep it short — 5 lines max.]
 
 ## Dependencies
+
 [What existing libs/modules are we using? None if starting fresh.]
 
 ## Test Cases
+
 - [ ] <test case 1: can be "modify existing test X to include new field" or "add new test for behavior Y">
 - [ ] <test case 2>
 
 ## Explicitly Out of Scope
+
 [What we are NOT doing — prevents over-engineering and scope creep.]
 ```
 
@@ -358,15 +391,18 @@ N/A — trivial change.
 
 **EXCEPTION: Trivial Changes**
 If this is a trivial change (see "EXCEPTION: Small Feature Shortcut" section above), you MAY skip to implementation directly.
+
 - You MUST add a comment explaining WHY the full TDD cycle was skipped (see examples in the Exception section).
 - You MUST run existing tests to ensure nothing broke.
 - If the change is NOT trivial, you MUST follow the full Red-Green-Refactor cycle.
 
 **Scenario A: Greenfield (New Code)**
+
 - Write a NEW test that fails (import error, assertion failure, etc.)
 - This is the "test first" approach
 
 **Scenario B: Extending/Refactoring Existing Code**
+
 - FIRST: Identify existing tests affected by the change
 - Modify existing tests to incorporate the new requirement (e.g., add new field to existing struct initialization)
 - Run modified tests — they should fail because production code hasn't been updated yet (Red)
@@ -374,6 +410,7 @@ If this is a trivial change (see "EXCEPTION: Small Feature Shortcut" section abo
 - Only write a new test if there's genuinely NEW behavior to test
 
 **Actions:**
+
 1. Pick the FIRST test case from the design doc (or the first existing test to modify).
 2. Write/modify the test file.
 3. **RUN the test. You MUST see a failure.**
@@ -391,11 +428,13 @@ If this is a trivial change (see "EXCEPTION: Small Feature Shortcut" section abo
 
 **EXCEPTION: Trivial Changes**
 If this is a trivial change (see "EXCEPTION: Small Feature Shortcut" section), you MAY skip this checkpoint and go straight to implementation.
+
 - You MUST have added a comment explaining WHY the full TDD cycle was skipped (in the implementation file).
 - You MUST run existing tests to ensure nothing broke.
 - Show the test output to the user.
 
 **Actions:**
+
 1. Write the MINIMUM code to make the failing test pass.
 2. **RUN the test. You MUST see it pass (Green).**
 3. **SHOW the passing test output to the user.**
@@ -403,6 +442,7 @@ If this is a trivial change (see "EXCEPTION: Small Feature Shortcut" section), y
 5. **Do NOT add fallback, default values, or error handling unless the user explicitly asked for it.**
 
 **Minimum code examples:**
+
 - Test expects `add(1,2)` to return `3` → implementation: `def add(a,b): return 3` is OK for GREEN
 - Only generalize when the NEXT test forces you to
 
@@ -416,11 +456,13 @@ If this is a trivial change (see "EXCEPTION: Small Feature Shortcut" section), y
 If this is a trivial change, refactoring is usually not needed. If you do refactor, you MUST still add a comment explaining WHY the full TDD cycle was skipped.
 
 **Only if code has a clear smell:**
+
 - Duplicated logic
 - Terrible naming
 - Obviously wrong structure
 
 **Actions:**
+
 1. Make ONE small refactor change.
 2. Run tests immediately.
 3. If tests fail → REVERT immediately.
@@ -435,9 +477,11 @@ If this is a trivial change, refactoring is usually not needed. If you do refact
 **Purpose:** TDD is a cycle, not a one-shot. Each test case gets its own Red-Green-Refactor cycle. This keeps the codebase working at every step.
 
 **If more test cases remain in the design doc:**
+
 - Return to CHECKPOINT 4 with the next test case.
 
 **If all test cases pass:**
+
 - Do a final **English-only audit**: scan all files modified in this session.
 - Do a **scope audit**: verify no extra features/fallbacks were added.
 - Do a **comment audit**: verify all package/block comments explain WHY, not WHAT.
@@ -448,24 +492,24 @@ If this is a trivial change, refactoring is usually not needed. If you do refact
 
 ## Anti-Patterns (Recognize and Refuse)
 
-| Anti-Pattern | What It Looks Like | What to Do Instead |
-|-------------|-------------------|-------------------|
-| Skipping clarification | User: "just start coding" | Use refusal script — ambiguous requirements lead to wrong code |
-| Making assumptions | Assuming `id` is an integer without asking | Ask: "What type is `id`?" |
-| Skipping research | User: "I know what I want, just design it" | Use refusal script |
-| Skipping design | User: "just code it" | Use refusal script |
-| Writing impl before test | Creating `math.py` before `test_math.py` | Write test first; import error = Red |
-| Multiple tests at once | Writing 5 new tests then implementing | One test case → Green → next test case |
-| Unnecessary new tests | Creating new tests when existing tests can be extended (for existing code) | Modify existing tests to incorporate changes; only add new tests for new behavior |
-| Misusing small feature exception | Skipping TDD for non-trivial features by calling them "trivial" | If unsure whether change is trivial, use full TDD cycle; only skip for single-line fixes, typos, formatting |
-| Adding fallback not asked for | `return None` when user didn't ask for fallback | Return empty-handed or raise — only add fallback if user asks |
-| Adding "obvious" features | Adding logging, metrics, retry logic | Do ONLY what the user asked |
-| Over-engineering | Adding `BaseCalculator` class for one function | Simplest code that passes the test |
-| Refactoring while adding | Renaming variables while writing new feature | Green first, refactor second |
-| Not showing evidence | Saying "tests pass" without output | MUST show test run output every cycle |
-| Reinventing the wheel | Writing a new HTTP client when one exists | Research phase should have found it |
-| Writing "what" comments | `# sort the list` | Explain WHY, not WHAT |
-| Introducing new tech without research | Adding `httpx` when `requests` already exists in deps | Research first; only introduce new tech if existing solutions are clearly insufficient; present findings for user approval |
+| Anti-Pattern                          | What It Looks Like                                                         | What to Do Instead                                                                                                         |
+| ------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Skipping clarification                | User: "just start coding"                                                  | Use refusal script — ambiguous requirements lead to wrong code                                                             |
+| Making assumptions                    | Assuming `id` is an integer without asking                                 | Ask: "What type is `id`?"                                                                                                  |
+| Skipping research                     | User: "I know what I want, just design it"                                 | Use refusal script                                                                                                         |
+| Skipping design                       | User: "just code it"                                                       | Use refusal script                                                                                                         |
+| Writing impl before test              | Creating `math.py` before `test_math.py`                                   | Write test first; import error = Red                                                                                       |
+| Multiple tests at once                | Writing 5 new tests then implementing                                      | One test case → Green → next test case                                                                                     |
+| Unnecessary new tests                 | Creating new tests when existing tests can be extended (for existing code) | Modify existing tests to incorporate changes; only add new tests for new behavior                                          |
+| Misusing small feature exception      | Skipping TDD for non-trivial features by calling them "trivial"            | If unsure whether change is trivial, use full TDD cycle; only skip for single-line fixes, typos, formatting                |
+| Adding fallback not asked for         | `return None` when user didn't ask for fallback                            | Return empty-handed or raise — only add fallback if user asks                                                              |
+| Adding "obvious" features             | Adding logging, metrics, retry logic                                       | Do ONLY what the user asked                                                                                                |
+| Over-engineering                      | Adding `BaseCalculator` class for one function                             | Simplest code that passes the test                                                                                         |
+| Refactoring while adding              | Renaming variables while writing new feature                               | Green first, refactor second                                                                                               |
+| Not showing evidence                  | Saying "tests pass" without output                                         | MUST show test run output every cycle                                                                                      |
+| Reinventing the wheel                 | Writing a new HTTP client when one exists                                  | Research phase should have found it                                                                                        |
+| Writing "what" comments               | `# sort the list`                                                          | Explain WHY, not WHAT                                                                                                      |
+| Introducing new tech without research | Adding `httpx` when `requests` already exists in deps                      | Research first; only introduce new tech if existing solutions are clearly insufficient; present findings for user approval |
 
 ---
 
@@ -489,12 +533,12 @@ TestAdd_ReturnsSumWhenGivenTwoIntegers  (Go table-driven subtest name)
 
 After completing CHECKPOINT 0 (Language Detection), read the relevant file from `references/tdd/`:
 
-| Language | Read This File |
-|----------|----------------|
-| Python | [references/tdd/python.md](references/tdd/python.md) |
-| Go | [references/tdd/go.md](references/tdd/go.md) |
-| JavaScript/TypeScript | [references/tdd/js-ts.md](references/tdd/js-ts.md) |
-| C | [references/tdd/c-cpp.md](references/tdd/c-cpp.md) |
-| C++ | [references/tdd/c-cpp.md](references/tdd/c-cpp.md) |
-| Web frontend | [references/tdd/web.md](references/tdd/web.md) |
-| Web backend | [references/tdd/web.md](references/tdd/web.md) |
+| Language              | Read This File                                       |
+| --------------------- | ---------------------------------------------------- |
+| Python                | [references/tdd/python.md](references/tdd/python.md) |
+| Go                    | [references/tdd/go.md](references/tdd/go.md)         |
+| JavaScript/TypeScript | [references/tdd/js-ts.md](references/tdd/js-ts.md)   |
+| C                     | [references/tdd/c-cpp.md](references/tdd/c-cpp.md)   |
+| C++                   | [references/tdd/c-cpp.md](references/tdd/c-cpp.md)   |
+| Web frontend          | [references/tdd/web.md](references/tdd/web.md)       |
+| Web backend           | [references/tdd/web.md](references/tdd/web.md)       |

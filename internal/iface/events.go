@@ -167,3 +167,25 @@ func AgentNameFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(agentNameCtxKey{}).(string)
 	return v
 }
+
+type bypassConfirmCtxKey struct{}
+type forceConfirmCtxKey struct{}
+
+// ContextWithBypassConfirm injects a bypass confirm flag into context.
+func ContextWithBypassConfirm(ctx context.Context) context.Context {
+	return context.WithValue(ctx, bypassConfirmCtxKey{}, true)
+}
+
+// ContextWithForceConfirm injects a force confirm flag into context.
+func ContextWithForceConfirm(ctx context.Context) context.Context {
+	return context.WithValue(ctx, forceConfirmCtxKey{}, true)
+}
+
+// BypassConfirmFromContext checks if the bypass confirm flag is present in context.
+func BypassConfirmFromContext(ctx context.Context) bool {
+	if ctx.Value(forceConfirmCtxKey{}) != nil {
+		return false
+	}
+	v, _ := ctx.Value(bypassConfirmCtxKey{}).(bool)
+	return v
+}

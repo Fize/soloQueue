@@ -4,11 +4,12 @@ import { ChatMessageView } from '@/components/ChatMessage'
 import { ChatInput } from '@/components/ChatInput'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatStream } from '@/hooks/useChatStream'
+import { useAgentStream } from '@/hooks/useAgentStream'
 import { Sparkles, PanelRight } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
-import { AgentMonitorPanel } from '@/components/AgentMonitorPanel'
 import { AgentListPage } from '@/components/AgentListPage'
 import { cn } from '@/lib/utils'
+import { L2SessionStatusPanel } from '@/components/L2SessionStatusPanel'
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -22,6 +23,7 @@ export function ChatPage() {
     loadMoreHistory,
     loadSessions,
     setActiveSession,
+    loadHistory,
   } = useChatStore()
   const { send, cancel } = useChatStream()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -41,10 +43,10 @@ export function ChatPage() {
     fetchTeams()
   }, [fetchLiveAgents, fetchTeams])
 
-  // Load sessions once on mount of ChatPage
+  // Load sessions on mount and when streaming completes
   useEffect(() => {
     loadSessions()
-  }, [loadSessions])
+  }, [loadSessions, streaming])
 
   // Sync activeSessionId with the URL parameter sessionId
   useEffect(() => {
@@ -142,8 +144,57 @@ export function ChatPage() {
     }
   }, [anyRunning])
 
+  const l1Agent = isL1Session ? groupAgents[0] : null
+  const l1AgentState = l1Agent?.state
+  const l1AgentInstanceId = l1Agent?.instance_id || null
+  const stream = useAgentStream(l1AgentInstanceId)
+
+  // Keep L1 session history in sync when L1 agent state changes
+  useEffect(() => {
+    if (isL1Session && l1AgentState) {
+      loadHistory('l1')
+    }
+  }, [isL1Session, l1AgentState, loadHistory])
+
+  const streamChatSegments = useMemo(() => {
+    if (!stream?.segments) return []
+    return stream.segments.map((seg) => {
+      if (seg.type === 'tool_call') {
+        return {
+          type: 'tool_call' as const,
+          callId: seg.call_id,
+          name: seg.name,
+          args: seg.args,
+          result: seg.result || undefined,
+          error: seg.error || undefined,
+          durationMs: seg.duration_ms || undefined,
+          done: seg.done,
+        }
+      }
+      return seg
+    })
+  }, [stream])
+
+  const finalMessages = useMemo(() => {
+    if (
+      isL1Session &&
+      l1AgentState === 'processing' &&
+      !streaming &&
+      streamChatSegments.length > 0
+    ) {
+      const virtualMessage = {
+        id: `msg-virtual-stream`,
+        role: 'assistant' as const,
+        segments: streamChatSegments,
+        timestamp: new Date().toISOString(),
+      }
+      return [...currentMessages, virtualMessage]
+    }
+    return currentMessages
+  }, [currentMessages, isL1Session, l1AgentState, streaming, streamChatSegments])
+
   // Content checksum: changes on every text append within any segment (captures streaming content updates)
-  const contentSum = currentMessages.reduce((acc, msg) => {
+  const contentSum = finalMessages.reduce((acc, msg) => {
     let sum = 0
     for (const seg of msg.segments) {
       if ('text' in seg && typeof (seg as any).text === 'string') {
@@ -186,7 +237,7 @@ export function ChatPage() {
     if (!userScrolledUp.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' })
     }
-  }, [currentMessages.length, contentSum, streaming])
+  }, [finalMessages.length, contentSum, streaming])
 
   if (noSession) {
     return (
@@ -208,10 +259,7 @@ export function ChatPage() {
             </div>
             <div>
               <h1 className="text-sm font-semibold text-foreground">
-                {activeSession
-                  ? activeSession.name ||
-                    (activeSession.type === 'l1' ? 'L1 Orchestrator' : 'New session')
-                  : 'Chat'}
+                {activeSession ? activeSession.name || l1Agent?.name || 'New session' : 'Chat'}
               </h1>
               {activeSession && activeSession.group && (
                 <p className="text-[11px] text-muted-foreground/60">{activeSession.group}</p>
@@ -258,7 +306,7 @@ export function ChatPage() {
                 </p>
               </div>
             </div>
-          ) : currentMessages.length === 0 ? (
+          ) : finalMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
               <div className="h-16 w-16 rounded-2xl bg-violet-500/5 flex items-center justify-center ring-1 ring-violet-500/10">
                 <Sparkles className="h-8 w-8 text-violet-500/30" />
@@ -276,7 +324,7 @@ export function ChatPage() {
             </div>
           ) : (
             <div>
-              {currentMessages.map((msg) => (
+              {finalMessages.map((msg) => (
                 <ChatMessageView key={msg.id} message={msg} agentName={activeSession?.agent_name} />
               ))}
             </div>
@@ -294,13 +342,18 @@ export function ChatPage() {
         />
       </div>
 
-      {/* Agent Monitor panel */}
+      {/* Agent Monitor / Status panel */}
       {showMonitor && activeSession && (
         <div className="w-[320px] md:w-[380px] shrink-0 h-full border-l border-border bg-card/10 backdrop-blur-sm animate-in slide-in-from-right duration-200">
-          <AgentMonitorPanel
-            agents={groupAgents}
-            groupName={activeSession.group || (isL1Session ? 'L1' : 'unknown')}
-            isL1={isL1Session}
+          <L2SessionStatusPanel
+            session={activeSession}
+            activeAgent={
+              isL1Session
+                ? groupAgents[0] || null
+                : agentsData?.agents.find(
+                    (a) => a.instance_id === activeSession.agent_instance_id
+                  ) || null
+            }
           />
         </div>
       )}

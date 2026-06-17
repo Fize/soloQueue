@@ -49,18 +49,18 @@ SoloQueue uses a hierarchical architecture design. The core systems include Agen
 
 ### Subsystems Index
 
-| Subsystem | Path | Description | Documentation |
-|--------|------|-------------|---|
-| **Agent System** | `internal/agent/` | Actor-model agent runtime, tool loops, async delegation, supervisor | Below |
-| **LLM System** | `internal/llm/` | Provider-agnostic protocol layer + DeepSeek HTTP/SSE transport | Below |
-| **Tool System** | `internal/tools/` | Executable primitive layer (file, shell, HTTP, search, LSP) | Below |
-| **Skill System** | `internal/skill/` | Reusable task recipes (inline/fork) & remote store manager | [skill_store.md](skill_store.md) |
-| **Config System** | `internal/config/` | Layered TOML config, hot-reload, type-safe access | [config.md](config.md) |
-| **Task Routing** | `internal/router/` | Intelligent task classification and model routing (L0-L3) | [routing.md](routing.md) |
-| **Context Window** | `internal/ctxwin/` | Token count calibration, middle-out JSON truncation, FIFO sliding | [ctxwin.md](ctxwin.md) |
-| **Memory System** | `internal/memory/` `internal/memoryengine/` | Short-term daily summaries & long-term BM25 + KG + optional vector engine | [memory.md](memory.md) |
-| **QQ Bot Client** | `internal/qqbot/` | WebSocket connection loop, active/passive reply queue, media upload | [qqbot.md](qqbot.md) |
-| **MCP & LSP** | `internal/mcp/` | Model Context Protocol servers loading, LSP JSON-RPC tool binding | [mcp.md](mcp.md) |
+| Subsystem          | Path                                        | Description                                                               | Documentation                    |
+| ------------------ | ------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------- |
+| **Agent System**   | `internal/agent/`                           | Actor-model agent runtime, tool loops, async delegation, supervisor       | Below                            |
+| **LLM System**     | `internal/llm/`                             | Provider-agnostic protocol layer + DeepSeek HTTP/SSE transport            | Below                            |
+| **Tool System**    | `internal/tools/`                           | Executable primitive layer (file, shell, HTTP, search, LSP)               | Below                            |
+| **Skill System**   | `internal/skill/`                           | Reusable task recipes (inline/fork) & remote store manager                | [skill_store.md](skill_store.md) |
+| **Config System**  | `internal/config/`                          | Layered TOML config, hot-reload, type-safe access                         | [config.md](config.md)           |
+| **Task Routing**   | `internal/router/`                          | Intelligent task classification and model routing (L0-L3)                 | [routing.md](routing.md)         |
+| **Context Window** | `internal/ctxwin/`                          | Token count calibration, middle-out JSON truncation, FIFO sliding         | [ctxwin.md](ctxwin.md)           |
+| **Memory System**  | `internal/memory/` `internal/memoryengine/` | Short-term daily summaries & long-term BM25 + KG + optional vector engine | [memory.md](memory.md)           |
+| **QQ Bot Client**  | `internal/qqbot/`                           | WebSocket connection loop, active/passive reply queue, media upload       | [qqbot.md](qqbot.md)             |
+| **MCP & LSP**      | `internal/mcp/`                             | Model Context Protocol servers loading, LSP JSON-RPC tool binding         | [mcp.md](mcp.md)                 |
 
 ---
 
@@ -104,12 +104,16 @@ SoloQueue orchestrates complex workloads by letting higher-level agents delegate
 ```
 
 #### 1. Synchronous vs Asynchronous Delegation
+
 The system supports two delegation modes via the `DelegateTool` (`internal/tools/delegate.go`):
+
 - **Synchronous (L2 ➔ L3)**: The parent agent blocks waiting for the child agent to complete. This is used for deeply nested, linear sub-tasks.
 - **Asynchronous (L1 ➔ L2)**: The L1 agent yields execution immediately after spawning the L2 agent. The parent is freed to process other mailbox messages or user interactions.
 
 #### 2. Continuation-Passing over Mailbox
+
 To support async delegation without blocking OS threads, SoloQueue uses a **Continuation-Passing** pattern:
+
 - When L1 calls `DelegateTool` asynchronously, it records the delegation status in `internal/agent/async_turn.go` and returns an `AsyncAction` payload to the tool loop.
 - The L1 agent's tool loop yields execution and returns to `Idle`.
 - The child L2 agent executes its job in a separate actor thread.
@@ -117,7 +121,9 @@ To support async delegation without blocking OS threads, SoloQueue uses a **Cont
 - The L1 parent wakes up, correlates the result with the saved async state, restores the tool execution context, and continues the conversation.
 
 #### 3. Supervisor Lifecycle Management (`supervisor.go`)
+
 Child agents are managed by a `Supervisor` instance:
+
 - **Registry**: Tracks active child agent IDs spawned during the current session.
 - **Orphan Prevention**: If a session is cancelled or the parent L1 agent stops, the supervisor captures the event and cascades termination commands to all running L2/L3 child agents, ensuring no orphan processes or dangling LLM API connections remain.
 
@@ -154,6 +160,7 @@ internal/agent/
 ### Layer 1: Provider-Agnostic Types (`internal/llm/types.go`)
 
 Defines universal protocol objects:
+
 - Tool-calling types: `ToolCall`, `ToolDef`, `FunctionCall`
 - Streaming event model: `Event` (EventDelta/EventDone/EventError)
 - Usage accounting: `Usage`, `FinishReason`
@@ -162,6 +169,7 @@ Defines universal protocol objects:
 ### Layer 2: Agent-Facing Contract (`internal/agent/llm.go`)
 
 `LLMClient` interface:
+
 ```go
 type LLMClient interface {
     ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Event, error)
@@ -216,6 +224,7 @@ Tools are the executable primitive layer. Every tool maps directly to one LLM fu
 ### Delegation Tool
 
 `DelegateTool` supports two modes:
+
 - **Synchronous**: L2 -> L3 delegation (blocks until complete)
 - **Asynchronous**: L1 -> L2 delegation (returns `AsyncAction` for agent framework)
 
@@ -258,6 +267,7 @@ Skills add a second abstraction layer above raw tools. A tool is a low-level exe
 ### Preprocessing Pipeline
 
 `PreprocessContent()` applies three transformations:
+
 1. `$ARGUMENTS` substitution
 2. Shell expansion for `` `!`command` ``
 3. File reference expansion for `@path`
@@ -265,6 +275,7 @@ Skills add a second abstraction layer above raw tools. A tool is a low-level exe
 ### Skill Loading
 
 Skills are loaded from Markdown files (`SKILL.md`) with YAML frontmatter:
+
 - `name`, `description`, `allowed-tools`, `context`, `agent`
 
 Loading supports layered scopes: `plugin -> user -> project` (override precedence)
@@ -336,14 +347,15 @@ internal/config/
 
 Classifies user input into 4 levels (L0-L3) based on complexity:
 
-| Level | Name | Model | Use Case |
-|-------|------|-------|----------|
-| L0 | Conversation | deepseek-v4-flash | Q&A, explanation |
-| L1 | Simple | deepseek-v4-flash-thinking | Single file changes |
-| L2 | Medium | deepseek-v4-pro | Multi-file features |
-| L3 | Complex | deepseek-v4-pro-max | Architecture changes |
+| Level | Name         | Model                      | Use Case             |
+| ----- | ------------ | -------------------------- | -------------------- |
+| L0    | Conversation | deepseek-v4-flash          | Q&A, explanation     |
+| L1    | Simple       | deepseek-v4-flash-thinking | Single file changes  |
+| L2    | Medium       | deepseek-v4-pro            | Multi-file features  |
+| L3    | Complex      | deepseek-v4-pro-max        | Architecture changes |
 
 **Classification strategy**:
+
 1. **Fast Track**: Pattern-based rules (zero latency)
 2. **LLM Fallback**: Semantic understanding (4s timeout)
 
@@ -354,18 +366,23 @@ Classifies user input into 4 levels (L0-L3) based on complexity:
 ## Key Design Decisions
 
 ### 1. Streaming-First Design
+
 Both Agent and LLM systems prioritize streaming APIs. Blocking APIs are wrappers over event accumulation. This avoids divergence between sync and stream paths.
 
 ### 2. Event-Based Architecture
+
 Typed event streams (`llm.Event` -> `agent.AgentEvent`) provide clear contract boundaries between:
+
 - Agent and Session/Server layers
 - Parent and child agents during delegation
 - Agent and Tools package during confirm forwarding
 
 ### 3. Actor Model for Concurrency
+
 Each agent processes one job at a time (mailbox semantics). This simplifies concurrency reasoning and avoids shared mutable state issues.
 
 ### 4. Separation of Concerns
+
 - `llm` owns retry policy mechanics
 - Provider package owns request execution and error classification
 - `tools` own capability semantics
@@ -373,7 +390,9 @@ Each agent processes one job at a time (mailbox semantics). This simplifies conc
 - `session` owns conversation ordering and context mutation
 
 ### 5. Markdown-Defined Agents and Skills
+
 Agent templates and skills are defined in Markdown with YAML frontmatter. This makes them:
+
 - Easy to author and version control
 - Supports user/project overrides through directory layering
 - Separates behavior definition from code
@@ -383,24 +402,29 @@ Agent templates and skills are defined in Markdown with YAML frontmatter. This m
 ## Files to Read First
 
 **Agent System:**
+
 - `internal/agent/agent.go`
 - `internal/agent/stream.go`
 - `internal/agent/async_turn.go`
 
 **LLM System:**
+
 - `internal/llm/types.go`
 - `internal/llm/deepseek/client.go`
 - `internal/llm/deepseek/wire.go`
 
 **Tool System:**
+
 - `internal/tools/tool.go`
 - `internal/tools/delegate.go`
 
 **Skill System:**
+
 - `internal/skill/skill.go`
 - `internal/skill/skill_tool.go`
 
 **Config System:**
+
 - `internal/config/schema.go`
 - `internal/config/loader.go`
 - `internal/config/service.go`

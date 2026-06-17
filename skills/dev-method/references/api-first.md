@@ -26,20 +26,20 @@ You are NOT a general-purpose assistant while this method is active. You are an 
 
 ## MANDATORY RULES (Violation = Method Failure)
 
-| # | Rule | NEVER Do This |
-|---|------|---------------|
-| 1 | **English Only** — All API contracts, endpoint names, field names, error codes MUST be in English | Writing Chinese field names or error messages in the contract |
-| 2 | **No Assumptions** — If ANY requirement is unclear, you MUST ask | Guessing resource names, field types, error formats, or status codes |
-| 3 | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE writing the contract | Proceeding with unresolved ambiguities |
-| 4 | **Contract First** — MUST define API contract before ANY implementation | Writing route handlers before the OpenAPI/Protobuf spec exists |
-| 5 | **Contract Is Source of Truth** — Implementation MUST match contract exactly | Adding fields or endpoints not in the contract |
-| 6 | **Version the Contract** — Any contract change after implementation starts MUST be a new version (v2, v3, etc.) | Silent breaking changes to a "v1" contract |
-| 7 | **Do EXACTLY What Is Asked** — Do NOT add endpoints or fields not requested | Adding a `DELETE` endpoint "because it might be useful" |
-| 8 | **Research First** — MUST research existing APIs in the codebase before designing new ones | Designing a new user API when one already exists |
-| 9 | **Standard Error Format** — MUST use a unified error response format | Returning different error shapes from different endpoints |
-| 10 | **Evidence Required** — MUST show contract validation output (lint pass, mock server start, etc.) | Claiming "contract is valid" without showing validation |
-| 11 | **No Over-Engineering** — Solve ONLY the stated problem | Adding pagination, filtering, sorting "because REST APIs usually have them" |
-| 12 | **Comments Explain WHY, Not WHAT** | Writing comments that restate the endpoint purpose |
+| #   | Rule                                                                                                            | NEVER Do This                                                               |
+| --- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | **English Only** — All API contracts, endpoint names, field names, error codes MUST be in English               | Writing Chinese field names or error messages in the contract               |
+| 2   | **No Assumptions** — If ANY requirement is unclear, you MUST ask                                                | Guessing resource names, field types, error formats, or status codes        |
+| 3   | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE writing the contract                          | Proceeding with unresolved ambiguities                                      |
+| 4   | **Contract First** — MUST define API contract before ANY implementation                                         | Writing route handlers before the OpenAPI/Protobuf spec exists              |
+| 5   | **Contract Is Source of Truth** — Implementation MUST match contract exactly                                    | Adding fields or endpoints not in the contract                              |
+| 6   | **Version the Contract** — Any contract change after implementation starts MUST be a new version (v2, v3, etc.) | Silent breaking changes to a "v1" contract                                  |
+| 7   | **Do EXACTLY What Is Asked** — Do NOT add endpoints or fields not requested                                     | Adding a `DELETE` endpoint "because it might be useful"                     |
+| 8   | **Research First** — MUST research existing APIs in the codebase before designing new ones                      | Designing a new user API when one already exists                            |
+| 9   | **Standard Error Format** — MUST use a unified error response format                                            | Returning different error shapes from different endpoints                   |
+| 10  | **Evidence Required** — MUST show contract validation output (lint pass, mock server start, etc.)               | Claiming "contract is valid" without showing validation                     |
+| 11  | **No Over-Engineering** — Solve ONLY the stated problem                                                         | Adding pagination, filtering, sorting "because REST APIs usually have them" |
+| 12  | **Comments Explain WHY, Not WHAT**                                                                              | Writing comments that restate the endpoint purpose                          |
 
 ---
 
@@ -64,7 +64,7 @@ paths:
             type: integer
             default: 20
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
@@ -74,7 +74,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/User'
+                      $ref: "#/components/schemas/User"
                   error:
                     type: string
                     nullable: true
@@ -85,12 +85,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateUserRequest'
+              $ref: "#/components/schemas/CreateUserRequest"
       responses:
-        '201':
+        "201":
           description: Created
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        "400":
+          $ref: "#/components/responses/BadRequest"
 components:
   schemas:
     User:
@@ -194,6 +194,7 @@ message User {
 ```
 
 **Rules:**
+
 - `data`: the resource on success, `null` on error
 - `error`: `null` on success, `"error_code: human message"` on error
 - Error code MUST be a `snake_case` identifier (e.g., `invalid_email`, `unauthorized`, `not_found`)
@@ -217,6 +218,7 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 **Purpose:** Know whether to use OpenAPI (REST) or Protobuf (gRPC).
 
 **BEFORE any other action**, determine the API style:
+
 - Check existing API files: `openapi.yaml`, `api.yaml`, `*.proto`, `swagger.json`
 - Check dependencies: `fastapi`, `flask` → OpenAPI; `grpc`, `grpcio` → Protobuf
 - If ambiguous, ASK the user. Do NOT guess.
@@ -228,17 +230,20 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 **Purpose:** Ambiguous API requirements lead to wrong contracts. Fixing a contract after implementation is expensive.
 
 **Actions:**
+
 1. Review the user's request. List every point that is NOT explicitly clear.
 2. Present ALL clarifications in ONE message (batched).
 3. Show the current round counter: `Clarification Round: 1/5`.
 4. WAIT for user reply. Do NOT proceed to contract until all ambiguities are resolved.
 
 **Rules for clarification:**
+
 - Ask about: resource names, field types, required vs optional, error cases, auth requirements, pagination strategy, status codes.
 - Do NOT ask about: code structure, ORM choice (that's for implementation).
 - Max 5 rounds total.
 
 **Output format:**
+
 ```markdown
 Clarification Round: X/5
 
@@ -247,7 +252,7 @@ Before I write the API contract, I need to clarify:
 1. [Question — be specific]
    - Option A (Recommended): [LLM's own recommendation + reason]
    - Option B: [Alternative]
-   Please tell me your choice.
+     Please tell me your choice.
 
 2. [Next question...]
 ```
@@ -263,29 +268,35 @@ Before I write the API contract, I need to clarify:
 **Actions — complete ALL of the following:**
 
 #### 1. Search for existing API definitions
+
 ```bash
 Grep pattern="openapi|swagger|proto3|rpc |service |path.*api"
 ```
 
 #### 2. Search for existing route definitions
+
 ```bash
 Grep pattern="@router|app\.get|app\.post|router\.|path\(|endpoint\("
 ```
 
 #### 3. Present research findings
+
 ```markdown
 ## API Research Findings
 
 ### Existing APIs Found
+
 - [ ] No existing API found
 - [x] Found: `<file/path>` — `<brief description>`
       → Can we extend it? YES / NO — reason: `<reason>`
 
 ### Existing Models/Types Found
+
 - [x] Found: `<file/path>` — `<model/type name>`
       → Can we reuse the type? YES / NO — reason: `<reason>`
 
 ### Recommended Approach
+
 Based on research, the simplest approach is:
 `<1-3 sentences>`
 ```
@@ -299,6 +310,7 @@ Based on research, the simplest approach is:
 **Purpose:** The contract is the single source of truth. Implementation follows the contract, not the other way around.
 
 **Actions:**
+
 1. Write the API contract in the appropriate format (OpenAPI YAML or Protobuf).
 2. Include: all endpoints, all request/response schemas, all error codes, auth requirements.
 3. **Validate the contract** using a linter (`openapi-lint`, `buf lint`, etc.).
@@ -306,6 +318,7 @@ Based on research, the simplest approach is:
 5. **WAIT for user confirmation** before generating code or writing implementation.
 
 **Contract minimum structure (OpenAPI):**
+
 ```yaml
 openapi: 3.0.0
 info:
@@ -329,6 +342,7 @@ components:
 **Purpose:** Generate server stubs and client SDKs from the contract. This ensures implementation matches contract.
 
 **Actions:**
+
 1. Run code generator:
    - OpenAPI: `openapi-generator-cli generate` or framework-native (FastAPI auto-generates from code)
    - Protobuf: `protoc --go_out=. --go-grpc_out=.`
@@ -344,12 +358,14 @@ components:
 **Purpose:** Implement the API exactly as defined in the contract. No more, no less.
 
 **Actions:**
+
 1. Implement ONE endpoint at a time.
 2. Validate the implementation against the contract (manually or with a validator).
 3. **SHOW evidence** that the implementation matches the contract (e.g., curl output compared to contract example).
 4. Do NOT add fields or endpoints not in the contract.
 
 **Minimum implementation discipline:**
+
 - Every response MUST match the contract's response schema.
 - Every error MUST use the contract's error format.
 - Every endpoint path/ethod MUST match the contract exactly.
@@ -361,6 +377,7 @@ components:
 **Purpose:** Final check that implementation matches contract.
 
 **Actions:**
+
 1. Run contract validation tool (e.g., `openapi-validator`, `buf lint`).
 2. Run a smoke test against the running server (curl / httpie).
 3. **SHOW the validation output and smoke test results.**
@@ -370,27 +387,27 @@ components:
 
 ## Anti-Patterns (Recognize and Refuse)
 
-| Anti-Pattern | What It Looks Like | What to Do Instead |
-|-------------|-------------------|-------------------|
-| Skipping contract | User: "just implement the API" | Use refusal script — contract is the source of truth |
-| Implementing before contract | Writing route handlers before OpenAPI spec | Write contract first; empty stubs = starting point |
-| Silent contract changes | Changing the response shape without updating the contract | Update contract FIRST, then implement |
-| Non-standard error format | Returning `{ "error": true, "msg": "..." }` | Use the unified `{"data": ..., "error": ...}` format |
-| Over-engineering the API | Adding pagination/filtering/sorting not asked for | Implement ONLY what's in the contract |
-| Duplicating existing APIs | Creating a new `/users` API when one exists | Extend the existing API; don't create a parallel one |
-| Guessing field types | Using `string` for everything | Ask: "What type should `created_at` be?" |
+| Anti-Pattern                 | What It Looks Like                                        | What to Do Instead                                   |
+| ---------------------------- | --------------------------------------------------------- | ---------------------------------------------------- |
+| Skipping contract            | User: "just implement the API"                            | Use refusal script — contract is the source of truth |
+| Implementing before contract | Writing route handlers before OpenAPI spec                | Write contract first; empty stubs = starting point   |
+| Silent contract changes      | Changing the response shape without updating the contract | Update contract FIRST, then implement                |
+| Non-standard error format    | Returning `{ "error": true, "msg": "..." }`               | Use the unified `{"data": ..., "error": ...}` format |
+| Over-engineering the API     | Adding pagination/filtering/sorting not asked for         | Implement ONLY what's in the contract                |
+| Duplicating existing APIs    | Creating a new `/users` API when one exists               | Extend the existing API; don't create a parallel one |
+| Guessing field types         | Using `string` for everything                             | Ask: "What type should `created_at` be?"             |
 
 ---
 
 ## Quick Reference: Tools
 
-| Task | Tool | Language |
-|------|------|----------|
-| Contract writing | Swagger Editor (VS Code ext) | Language-agnostic |
-| Contract validation | `openapi-lint`, `speakeasy validate` | OpenAPI |
-| Contract validation | `buf lint` | Protobuf |
-| Server stub generation | `openapi-generator-cli` | OpenAPI → many langs |
-| Server stub generation | `protoc --go_out` | Protobuf → Go |
-| Client SDK generation | `openapi-generator-cli` | OpenAPI → many langs |
-| Mock server | `prism` (from Stoplight) | OpenAPI |
-| Contract testing | `pact`, `schemathesis` | OpenAPI |
+| Task                   | Tool                                 | Language             |
+| ---------------------- | ------------------------------------ | -------------------- |
+| Contract writing       | Swagger Editor (VS Code ext)         | Language-agnostic    |
+| Contract validation    | `openapi-lint`, `speakeasy validate` | OpenAPI              |
+| Contract validation    | `buf lint`                           | Protobuf             |
+| Server stub generation | `openapi-generator-cli`              | OpenAPI → many langs |
+| Server stub generation | `protoc --go_out`                    | Protobuf → Go        |
+| Client SDK generation  | `openapi-generator-cli`              | OpenAPI → many langs |
+| Mock server            | `prism` (from Stoplight)             | OpenAPI              |
+| Contract testing       | `pact`, `schemathesis`               | OpenAPI              |

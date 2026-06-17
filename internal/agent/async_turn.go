@@ -183,7 +183,8 @@ func (a *Agent) execToolsWithAsync(
 			if timeout <= 0 {
 				timeout = tools.DelegateDefaultTimeout
 			}
-			delCtx, cancel := context.WithTimeout(turnState.callerCtx, timeout)
+			delCtx := iface.ContextWithBypassConfirm(turnState.callerCtx)
+			delCtx, cancel := context.WithTimeout(delCtx, timeout)
 			defer cancel()
 
 			a.logInfo(delCtx, logger.CatTool, "async-goroutine: starting, about to call AskStream",

@@ -20,7 +20,7 @@ type Segment struct {
 	Messages []MessagePayload
 }
 
-func listTimelineFiles(dir, baseName string) ([]string, error) {
+func ListTimelineFiles(dir, baseName string) ([]string, error) {
 	legacy, err := rotating.ListFiles(dir, baseName)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func ReadTailBefore(dir, baseName string, maxTurns int, before time.Time, agentI
 // after the most recent /clear are replayed.  It also filters by agentID
 // so old sessions do not pollute a new L1 session on restart.
 func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID string) ([]Segment, *time.Time, error) {
-	files, err := listTimelineFiles(dir, baseName)
+	files, err := ListTimelineFiles(dir, baseName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("timeline: list files: %w", err)
 	}

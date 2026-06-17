@@ -67,16 +67,16 @@ This is a very long body that exceeds the 3 line limit and provides too much det
 
 ## 2. Commit Types
 
-| Type | Description | When to Use | Example |
-|------|-------------|--------------|---------|
-| `feat` | New feature | Adding new functionality | `feat(auth): add OAuth2 login support` |
-| `fix` | Bug fix | Fixing a bug | `fix(login): fix null password bypass` |
-| `refactor` | Refactoring | Code changes that neither fix bugs nor add features | `refactor(auth): extract auth logic` |
-| `perf` | Performance improvement | Code changes that improve performance | `perf(query): optimize user query index` |
-| `docs` | Documentation | Documentation only changes | `docs(api): update REST API docs` |
-| `test` | Testing | Adding or updating tests | `test(auth): add OAuth2 test cases` |
-| `chore` | Build/tool changes | Changes to build process, tools, dependencies | `chore(deps): upgrade flask to 3.0` |
-| `ci` | CI configuration | Changes to CI configuration files | `ci(gitlab): add multi-stage pipeline` |
+| Type       | Description             | When to Use                                         | Example                                  |
+| ---------- | ----------------------- | --------------------------------------------------- | ---------------------------------------- |
+| `feat`     | New feature             | Adding new functionality                            | `feat(auth): add OAuth2 login support`   |
+| `fix`      | Bug fix                 | Fixing a bug                                        | `fix(login): fix null password bypass`   |
+| `refactor` | Refactoring             | Code changes that neither fix bugs nor add features | `refactor(auth): extract auth logic`     |
+| `perf`     | Performance improvement | Code changes that improve performance               | `perf(query): optimize user query index` |
+| `docs`     | Documentation           | Documentation only changes                          | `docs(api): update REST API docs`        |
+| `test`     | Testing                 | Adding or updating tests                            | `test(auth): add OAuth2 test cases`      |
+| `chore`    | Build/tool changes      | Changes to build process, tools, dependencies       | `chore(deps): upgrade flask to 3.0`      |
+| `ci`       | CI configuration        | Changes to CI configuration files                   | `ci(gitlab): add multi-stage pipeline`   |
 
 ## 3. Commit Granularity
 
@@ -101,13 +101,13 @@ This is a very long body that exceeds the 3 line limit and provides too much det
 
 ### Splitting Rules
 
-| Scenario | Action | Example |
-|----------|---------|---------|
-| Different features | Split | `feat(auth): add OAuth2` + `feat(utils): add token utils` |
-| Feature + tests | Can merge | `feat(auth): add OAuth2 login support` (includes tests) |
-| Feature + docs | Split | `feat(auth): add OAuth2` + `docs(auth): update docs` |
-| Cross-directory changes | Split | `src/` changes + `docs/` changes |
-| Bug fix + refactor | Split | `fix(login): fix bug` + `refactor(login): cleanup` |
+| Scenario                | Action    | Example                                                   |
+| ----------------------- | --------- | --------------------------------------------------------- |
+| Different features      | Split     | `feat(auth): add OAuth2` + `feat(utils): add token utils` |
+| Feature + tests         | Can merge | `feat(auth): add OAuth2 login support` (includes tests)   |
+| Feature + docs          | Split     | `feat(auth): add OAuth2` + `docs(auth): update docs`      |
+| Cross-directory changes | Split     | `src/` changes + `docs/` changes                          |
+| Bug fix + refactor      | Split     | `fix(login): fix bug` + `refactor(login): cleanup`        |
 
 ## 4. Subject Length Limit
 
@@ -162,24 +162,24 @@ or
 
 ### Examples
 
-| Branch Name | Description |
-|-------------|-------------|
-| `feat/oauth2-login` | New feature: OAuth2 login |
-| `fix/123-login-bypass` | Bug fix: Issue #123, login bypass |
-| `refactor/auth-module` | Refactoring: Auth module |
-| `docs/api-endpoints` | Documentation: API endpoints |
-| `test/oauth2-cases` | Testing: OAuth2 test cases |
-| `chore/upgrade-flask` | Chore: Upgrade Flask dependency |
-| `ci/multi-stage-pipeline` | CI: Multi-stage pipeline |
+| Branch Name               | Description                       |
+| ------------------------- | --------------------------------- |
+| `feat/oauth2-login`       | New feature: OAuth2 login         |
+| `fix/123-login-bypass`    | Bug fix: Issue #123, login bypass |
+| `refactor/auth-module`    | Refactoring: Auth module          |
+| `docs/api-endpoints`      | Documentation: API endpoints      |
+| `test/oauth2-cases`       | Testing: OAuth2 test cases        |
+| `chore/upgrade-flask`     | Chore: Upgrade Flask dependency   |
+| `ci/multi-stage-pipeline` | CI: Multi-stage pipeline          |
 
 ### Invalid Examples
 
-| Branch Name | Issue |
-|-------------|-------|
-| `feature/oauth2` | ❌ Use `feat/` not `feature/` |
-| `Feat/oauth2` | ❌ Type must be lowercase |
-| `feat/OAuth2_Login` | ❌ Use hyphens, not underscores or camelCase |
-| `feat/very-long-branch-name-that-exceeds-thirty-characters` | ❌ Too long |
+| Branch Name                                                 | Issue                                        |
+| ----------------------------------------------------------- | -------------------------------------------- |
+| `feature/oauth2`                                            | ❌ Use `feat/` not `feature/`                |
+| `Feat/oauth2`                                               | ❌ Type must be lowercase                    |
+| `feat/OAuth2_Login`                                         | ❌ Use hyphens, not underscores or camelCase |
+| `feat/very-long-branch-name-that-exceeds-thirty-characters` | ❌ Too long                                  |
 
 ## 6. AI Author Tagging
 
@@ -241,20 +241,24 @@ Must include:
 
 ```markdown
 ## Title
+
 feat(auth): add OAuth2 login support
 
 ## Description
 
 ### Background
+
 Users need to login with their Google or Facebook accounts for better UX.
 
 ### Changes
+
 - Add OAuth2 login endpoints
 - Add token refresh logic
 - Add user info fetching from provider
 - Update login page UI
 
 ### Test Plan
+
 - [x] Unit tests for OAuth2 logic
 - [x] Integration tests with mock providers
 - [x] Manual testing with Google OAuth2
@@ -304,13 +308,13 @@ Closes #123
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| Commit message too long | Shorten subject or move details to body (max 3 lines) |
-| Merge conflicts | Use `/git-flow pull` to auto-rebase, resolve conflicts manually |
-| Forgot to add AI tag | Amend commit: `git commit --amend -m "..." -m "Co-Authored-By: AI Agent"` |
-| Wrong branch name | Rename: `git branch -m <new-name>`, update remote |
-| Accidental push of WIP | Revert commit or force push to own branch (not main) |
+| Issue                   | Solution                                                                  |
+| ----------------------- | ------------------------------------------------------------------------- |
+| Commit message too long | Shorten subject or move details to body (max 3 lines)                     |
+| Merge conflicts         | Use `/git-flow pull` to auto-rebase, resolve conflicts manually           |
+| Forgot to add AI tag    | Amend commit: `git commit --amend -m "..." -m "Co-Authored-By: AI Agent"` |
+| Wrong branch name       | Rename: `git branch -m <new-name>`, update remote                         |
+| Accidental push of WIP  | Revert commit or force push to own branch (not main)                      |
 
 ### Getting Help
 

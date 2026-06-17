@@ -19,6 +19,7 @@ subpath: skills/algorithmic-art
 This is a remote skill catalog entry.
 
 ## Upstream
+
 - Repo: https://github.com/anthropics/skills
 - Branch: main
 - SubPath: skills/algorithmic-art

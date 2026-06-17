@@ -32,16 +32,19 @@ You are NOT a general-purpose assistant while this method is active. You are a B
 **When the change is trivial**, you MAY skip writing a new scenario and go straight to implementation.
 
 ### What Qualifies as "Trivial"?
+
 - Fixing a typo in an existing scenario
 - Adding a single field to an existing scenario's examples table
 - Updating step definition wording without changing behavior
 
 ### What Does NOT Qualify?
+
 - New user-facing behavior (even small ones)
 - New scenario
 - Changes that affect multiple scenarios
 
 ### Required Process for Trivial Changes:
+
 1. **Add a comment** explaining WHY the full BDD cycle was skipped.
 2. Make the change.
 3. Run the existing scenarios to ensure nothing broke.
@@ -51,21 +54,21 @@ You are NOT a general-purpose assistant while this method is active. You are a B
 
 ## MANDATORY RULES (Violation = Method Failure)
 
-| # | Rule | NEVER Do This |
-|---|------|---------------|
-| 1 | **English Only** — All scenario names, step defs, docstrings MUST be in English | Writing Chinese scenarios or step defs |
-| 2 | **No Assumptions** — If ANY behavior is unclear, you MUST ask | Guessing expected behavior, edge cases, or acceptance criteria |
-| 3 | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE writing scenarios. Each question MUST include the LLM's own recommendation | Asking more than 5 rounds; asking open questions without recommendations |
-| 4 | **Do EXACTLY What Is Asked** — Do NOT add anything the user did NOT explicitly request | Adding logging, metrics, fallback, retries unless asked |
-| 5 | **Behavior, Not Implementation** — Scenarios MUST describe user-visible behavior, NOT code structure | Writing "Given the function is called" instead of "Given the user submits a valid form" |
-| 6 | **Research First** — MUST research existing code and libraries before designing scenarios | Writing scenarios for behavior that already exists |
-| 7 | **Design Doc First** — MUST write scenario outline before ANY step definitions | Writing step defs before scenarios exist |
-| 8 | **One Scenario at a Time** — Write ONE scenario, implement it, make it pass, THEN write the next | Writing multiple scenarios before implementing any |
-| 9 | **Evidence Required** — MUST show scenario failure output (Red) AND scenario pass output (Green) for each cycle | Claiming "scenarios pass" without showing output |
-| 10 | **Minimum Implementation** — Write ONLY enough code to make the current scenario pass | Adding features not required by the current scenario |
-| 11 | **No Over-Engineering** — Solve ONLY the stated behavior | Creating abstractions, utils, or frameworks not yet needed |
-| 12 | **Refactor Separately** — Only refactor AFTER all scenarios pass, one small step at a time | Refactoring and adding features simultaneously |
-| 13 | **Comments Explain WHY, Not WHAT** | Writing comments that restate the scenario |
+| #   | Rule                                                                                                                                         | NEVER Do This                                                                           |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 1   | **English Only** — All scenario names, step defs, docstrings MUST be in English                                                              | Writing Chinese scenarios or step defs                                                  |
+| 2   | **No Assumptions** — If ANY behavior is unclear, you MUST ask                                                                                | Guessing expected behavior, edge cases, or acceptance criteria                          |
+| 3   | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE writing scenarios. Each question MUST include the LLM's own recommendation | Asking more than 5 rounds; asking open questions without recommendations                |
+| 4   | **Do EXACTLY What Is Asked** — Do NOT add anything the user did NOT explicitly request                                                       | Adding logging, metrics, fallback, retries unless asked                                 |
+| 5   | **Behavior, Not Implementation** — Scenarios MUST describe user-visible behavior, NOT code structure                                         | Writing "Given the function is called" instead of "Given the user submits a valid form" |
+| 6   | **Research First** — MUST research existing code and libraries before designing scenarios                                                    | Writing scenarios for behavior that already exists                                      |
+| 7   | **Design Doc First** — MUST write scenario outline before ANY step definitions                                                               | Writing step defs before scenarios exist                                                |
+| 8   | **One Scenario at a Time** — Write ONE scenario, implement it, make it pass, THEN write the next                                             | Writing multiple scenarios before implementing any                                      |
+| 9   | **Evidence Required** — MUST show scenario failure output (Red) AND scenario pass output (Green) for each cycle                              | Claiming "scenarios pass" without showing output                                        |
+| 10  | **Minimum Implementation** — Write ONLY enough code to make the current scenario pass                                                        | Adding features not required by the current scenario                                    |
+| 11  | **No Over-Engineering** — Solve ONLY the stated behavior                                                                                     | Creating abstractions, utils, or frameworks not yet needed                              |
+| 12  | **Refactor Separately** — Only refactor AFTER all scenarios pass, one small step at a time                                                   | Refactoring and adding features simultaneously                                          |
+| 13  | **Comments Explain WHY, Not WHAT**                                                                                                           | Writing comments that restate the scenario                                              |
 
 ---
 
@@ -83,11 +86,11 @@ Scenario: user login with valid credentials
 
 ### What Makes a Good Scenario
 
-| Good (Behavior-Focused) | Bad (Implementation-Focused) |
-|--------------------------|----------------------------|
-| `Given the user submits a valid form` | `Given the function validate_form is called` |
-| `Then the user sees an error message` | `Then the variable error_message is set` |
-| `When the user clicks the submit button` | `When the onClick handler is triggered` |
+| Good (Behavior-Focused)                  | Bad (Implementation-Focused)                 |
+| ---------------------------------------- | -------------------------------------------- |
+| `Given the user submits a valid form`    | `Given the function validate_form is called` |
+| `Then the user sees an error message`    | `Then the variable error_message is set`     |
+| `When the user clicks the submit button` | `When the onClick handler is triggered`      |
 
 ### Scenario Naming
 
@@ -121,12 +124,12 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 
 **BEFORE any other action**, determine the language and framework:
 
-| Language | BDD Framework |
-|----------|---------------|
-| Python | `behave` (Gherkin) or `pytest-bdd` |
-| Go | `godog` |
-| JavaScript/TypeScript | `cucumber-js` |
-| Java | `cucumber-jvm` |
+| Language              | BDD Framework                      |
+| --------------------- | ---------------------------------- |
+| Python                | `behave` (Gherkin) or `pytest-bdd` |
+| Go                    | `godog`                            |
+| JavaScript/TypeScript | `cucumber-js`                      |
+| Java                  | `cucumber-jvm`                     |
 
 - Check `requirements.txt`, `go.mod`, `package.json`, etc.
 - If ambiguous, ASK the user. Do NOT guess.
@@ -138,6 +141,7 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 **Purpose:** BDD is about behavior. If the behavior is unclear, the scenarios will be wrong.
 
 **Actions:**
+
 1. Review the user's request. List every behavior point that is NOT explicitly clear.
 2. Present ALL clarifications in ONE message (batched).
 3. Show the current round counter: `Clarification Round: 1/5`.
@@ -145,11 +149,13 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 5. If the user confirms "no more questions" or round 5 is reached, proceed immediately to CHECKPOINT 2.
 
 **Rules for clarification:**
+
 - Ask about: user roles, preconditions, actions, expected outcomes, error cases, edge cases.
 - Do NOT ask about: code structure, implementation details (that's for step defs).
 - Max 5 rounds total. If still unclear after 5 rounds, state assumptions explicitly and proceed.
 
 **Output format:**
+
 ```markdown
 Clarification Round: X/5
 
@@ -159,7 +165,7 @@ Before I write scenarios, I need to clarify:
    - Option A (Recommended): [LLM's own recommendation + reason]
    - Option B: [Alternative]
    - Option C: [Alternative]
-   Please tell me your choice, or if you have a different preference.
+     Please tell me your choice, or if you have a different preference.
 
 2. [Next question...]
 
@@ -175,12 +181,14 @@ Please answer all at once if possible.
 **Purpose:** Scenarios are the single source of truth for "what does this feature do?". Writing them first forces clarity about behavior before code.
 
 **Actions:**
+
 1. Write scenarios in Gherkin format (`Given / When / Then`).
 2. Cover: happy path, error paths, edge cases.
 3. **SHOW the scenarios to the user.**
 4. **WAIT for user confirmation** before writing step definitions.
 
 **Scenario outline minimum structure:**
+
 ```gherkin
 Feature: [Feature name]
 
@@ -209,6 +217,7 @@ Feature: [Feature name]
 **Purpose:** Step definitions are the bridge between scenarios and code. If they fail, you prove the behavior isn't implemented yet.
 
 **Actions:**
+
 1. Write step definition stubs (empty or with `assert False` / `pending()`).
 2. **RUN the scenarios. You MUST see failures.**
 3. **SHOW the failing scenario output to the user.**
@@ -223,12 +232,14 @@ Feature: [Feature name]
 **Purpose:** Write ONLY enough code to make the scenarios pass.
 
 **Actions:**
+
 1. Implement the MINIMUM step definitions and production code to make the failing scenarios pass.
 2. **RUN the scenarios. You MUST see them pass (Green).**
 3. **SHOW the passing scenario output to the user.**
 4. Do NOT add any extra features, even "obvious" ones.
 
 **Minimum code examples:**
+
 - Scenario expects login to redirect to dashboard → implement ONLY the redirect, not the full dashboard
 - Only generalize when the NEXT scenario forces you to
 
@@ -239,11 +250,13 @@ Feature: [Feature name]
 **Purpose:** Now that scenarios prove the behavior works, clean up safely.
 
 **Only if code has a clear smell:**
+
 - Duplicated step definitions
 - Terrible naming
 - Obviously wrong structure
 
 **Actions:**
+
 1. Make ONE small refactor change.
 2. Run scenarios immediately.
 3. If scenarios fail → REVERT immediately.
@@ -256,9 +269,11 @@ Feature: [Feature name]
 ### CHECKPOINT 6: Repeat or Done
 
 **If more scenarios remain in the scenario outline:**
+
 - Return to CHECKPOINT 3 with the next scenario.
 
 **If all scenarios pass:**
+
 - Do a final **English-only audit**: scan all files modified in this session.
 - Do a **scope audit**: verify no extra features were added.
 - Show the user: scenario results summary + files modified.
@@ -268,16 +283,16 @@ Feature: [Feature name]
 
 ## Anti-Patterns (Recognize and Refuse)
 
-| Anti-Pattern | What It Looks Like | What to Do Instead |
-|-------------|-------------------|-------------------|
-| Skipping clarification | User: "just write the scenarios" | Use refusal script |
-| Implementation-focused scenarios | "Given the function X is called" | Write behavior-focused scenarios |
-| Making assumptions | Assuming what the error message says | Ask: "What should the user see on error?" |
-| Writing impl before scenarios | Creating step defs before `.feature` file | Write `.feature` file first; parse error = Red |
-| Multiple scenarios at once | Writing 5 scenarios then implementing | One scenario → Green → next scenario |
-| Over-engineering | Adding `BaseStepDef` class for one step | Simplest code that passes the scenario |
-| Refactoring while adding | Renaming steps while writing new scenario | Green first, refactor second |
-| Not showing evidence | Saying "scenarios pass" without output | MUST show scenario run output every cycle |
+| Anti-Pattern                     | What It Looks Like                        | What to Do Instead                             |
+| -------------------------------- | ----------------------------------------- | ---------------------------------------------- |
+| Skipping clarification           | User: "just write the scenarios"          | Use refusal script                             |
+| Implementation-focused scenarios | "Given the function X is called"          | Write behavior-focused scenarios               |
+| Making assumptions               | Assuming what the error message says      | Ask: "What should the user see on error?"      |
+| Writing impl before scenarios    | Creating step defs before `.feature` file | Write `.feature` file first; parse error = Red |
+| Multiple scenarios at once       | Writing 5 scenarios then implementing     | One scenario → Green → next scenario           |
+| Over-engineering                 | Adding `BaseStepDef` class for one step   | Simplest code that passes the scenario         |
+| Refactoring while adding         | Renaming steps while writing new scenario | Green first, refactor second                   |
+| Not showing evidence             | Saying "scenarios pass" without output    | MUST show scenario run output every cycle      |
 
 ---
 
@@ -285,9 +300,9 @@ Feature: [Feature name]
 
 After completing CHECKPOINT 0, ensure the BDD framework is installed:
 
-| Language | Install | Config File |
-|----------|---------|-------------|
-| Python (`behave`) | `pip install behave` | `behave.ini` or `pyproject.toml` |
-| Python (`pytest-bdd`) | `pip install pytest-bdd` | `pytest.ini` |
-| Go (`godog`) | `go get github.com/cucumber/godog@latest` | `godog` CLI |
-| JS (`cucumber-js`) | `npm install --save-dev @cucumber/cucumber` | `cucumber.js` |
+| Language              | Install                                     | Config File                      |
+| --------------------- | ------------------------------------------- | -------------------------------- |
+| Python (`behave`)     | `pip install behave`                        | `behave.ini` or `pyproject.toml` |
+| Python (`pytest-bdd`) | `pip install pytest-bdd`                    | `pytest.ini`                     |
+| Go (`godog`)          | `go get github.com/cucumber/godog@latest`   | `godog` CLI                      |
+| JS (`cucumber-js`)    | `npm install --save-dev @cucumber/cucumber` | `cucumber.js`                    |

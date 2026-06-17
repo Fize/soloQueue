@@ -27,6 +27,7 @@ SoloQueue uses a hybrid configuration model. Runtime settings are split between 
 ```
 
 ### TOML Files (`settings.toml` & `settings.local.toml`)
+
 - **Location**: `~/.soloqueue/settings.toml` (shared user config) and `~/.soloqueue/settings.local.toml` (optional machine-specific override).
 - **Scope**: Used for process bootstrap parameters, authentication, logging options, and core agent server settings.
 - **Serialization Rules (`MarshalTOML`)**: When settings are edited in the UI and saved back to the file system, SoloQueue customizes serialization:
@@ -34,6 +35,7 @@ SoloQueue uses a hybrid configuration model. Runtime settings are split between 
   - Migrated blocks are **excluded** from TOML serialization to prevent conflicts with database values.
 
 ### SQLite Database (`entries.db`)
+
 - **Scope**: Used for LLM providers, models, default model mappings, tool execution limits, QQ Bot gateway settings, LSP server entries, and vector store parameters.
 - **Tables**: Managed transactionally in SQLite:
   - `llm_providers`: API endpoints and keys.
@@ -53,11 +55,13 @@ At startup, the `config.Loader` initializes settings by merging inputs in ascend
 3. **Local File** (`settings.local.toml`): Local process overrides.
 
 ### Merge Rules
+
 - **Objects/Maps**: Merged recursively. Keys in higher layers override lower layers.
 - **Arrays**: Replaced wholesale. No index-by-index merging.
 - **Omits**: Missing keys in overrides preserve default/lower-layer values.
 
 ### Hot Reload
+
 - The loader watches TOML files using `fsnotify`.
 - File writes or rename events trigger reloading.
 - Debounced by **200ms** to prevent partial reads during multi-pass editor save operations.
@@ -69,23 +73,29 @@ At startup, the `config.Loader` initializes settings by merging inputs in ascend
 Below is the complete structure of all config blocks.
 
 ### `[auth]` — HTTP API Authentication
+
 - `user` (string): Username. If empty, authentication is disabled.
 - `password` (string): Password. Excluded from JSON payloads for security.
 
 ### `[log]` — Logger Output Settings
+
 - `level` (string): Logging level (`debug`, `info`, `warn`, `error`).
 - `console` (bool): If true, logs are output to stderr.
 - `file` (bool): If true, logs are written to rotating files under `~/.soloqueue/logs/`.
 
 ### `[agent]` — Core Agent Subsystems
+
 - `builtin_mcp_servers` (array of strings): Whitelist of built-in MCP servers to load. If omitted, all built-ins are loaded.
 - `external_mcp_servers` (array of strings): Whitelist of external MCP servers to load.
 
 ### `[session]` — Session Context History
+
 - `timeline_max_file_mb` (int): Maximum size of an event timeline log before rotation (default: 50MB).
 
 ### `[tools]` — Built-in Tool Constraints
+
 Controls sandbox resource usage and safety rules:
+
 - **Read/Write Limits**:
   - `max_file_size` (int): Max bytes allowed when reading a file.
   - `max_matches` (int): Ripgrep matches cap.
@@ -101,6 +111,7 @@ Controls sandbox resource usage and safety rules:
   - `shell_max_output` (int): Max stdout/stderr size in bytes kept in context.
 
 ### `[[providers]]` — LLM Connection Endpoints
+
 - `id` (string): Unique identifier (e.g. `deepseek`).
 - `name` (string): User-friendly label.
 - `base_url` (string): API endpoint URL.
@@ -112,6 +123,7 @@ Controls sandbox resource usage and safety rules:
   - `backoff_multiplier` (float): Multiplier for exponential backoff (e.g. 2.0).
 
 ### `[[models]]` — LLM Model catalog
+
 - `id` (string): Unique model identifier.
 - `provider_id` (string): The hosting provider's ID.
 - `context_window` (int): Context window token count (hard waterline).
@@ -123,7 +135,9 @@ Controls sandbox resource usage and safety rules:
   - `reasoning_effort` (string): Effort setting (`low`, `medium`, `high`, `max`).
 
 ### `[default_models]` — Role Mappings
+
 Maps generic model roles used by agents to concrete provider model IDs (format: `provider_id:model_id`):
+
 - `expert`: Used for complex code generation and system design.
 - `superior`: Used for medium tasks.
 - `universal`: Used for simple tasks.
@@ -137,6 +151,7 @@ Controls the vector search pipeline in the memory engine:
 - `provider` (string): Embedding provider. `"none"` (default, dual-hybrid BM25+KG), `"openai"` (remote API).
 
 Sub-table `[embedding.openai]`:
+
 - `base_url` (string): OpenAI-compatible API endpoint.
 - `api_key` (string): API key.
 - `model` (string): Model name (e.g., `text-embedding-3-small`).
@@ -145,13 +160,16 @@ Sub-table `[embedding.openai]`:
 When `provider = "none"`, the memory engine uses only BM25 and KG — no embedding model or API key needed.
 
 ### `[qqbot]` — Tencent QQ Bot Integration
+
 - `enabled` (bool): Activate the gateway connection.
 - `app_id` / `app_secret` (string): Tencent Developer App ID and Secret.
 - `intents` (int): Integer bitmask representing gateway intents.
 - `sandbox` (bool): Use Tencent sandbox environment for testing.
 
 ### `[[lspmcp.servers]]` — Built-in LSP Server Configurations
+
 Spawns editor language servers as MCP tools:
+
 - `id` (string): LSP server ID (e.g. `gopls`).
 - `command` (string): Subprocess executable name.
 - `args` (array of strings): Startup arguments.

@@ -3,28 +3,28 @@
 ## Completed
 
 - [x] **Phase 1: Core types & event-driven architecture**  
-  `Persona`, `SimulationConfig`, `SimulationState`, `AgentMemory`, `WorldState`, `MessageBus`, `SimAgent` wrapper around `agent.Agent`, `SimulationEngine` lifecycle.
+       `Persona`, `SimulationConfig`, `SimulationState`, `AgentMemory`, `WorldState`, `MessageBus`, `SimAgent` wrapper around `agent.Agent`, `SimulationEngine` lifecycle.
 
 - [x] **Phase 1: LLM cache optimization**  
-  System prompt pushed once to ContextWindow → prefix-cache hits every round after the first. Direct CW eviction (FIFO), AgentMemory retains full history.
+       System prompt pushed once to ContextWindow → prefix-cache hits every round after the first. Direct CW eviction (FIFO), AgentMemory retains full history.
 
 - [x] **Phase 2: Event-driven mode**  
-  `EventLoop` with goroutine-per-agent, `TriggerPolicy` (Reactive/Selective/RateLimited), `AgentScheduler` with semaphore pool.
+       `EventLoop` with goroutine-per-agent, `TriggerPolicy` (Reactive/Selective/RateLimited), `AgentScheduler` with semaphore pool.
 
 - [x] **Phase 3: Notification-based wakeup + goroutine pool**  
-  `MessageBus` with `notifyCh` per agent → agents block on channel receive instead of ticker polling. Semaphore-controlled LLM concurrency (default 20).
+       `MessageBus` with `notifyCh` per agent → agents block on channel receive instead of ticker polling. Semaphore-controlled LLM concurrency (default 20).
 
 - [x] **Phase 3: Agent relationship graph**  
-  `RelationGraph` with directed edges (mention/rebuttal/agree/propose). Built incrementally during simulation, fed into final report.
+       `RelationGraph` with directed edges (mention/rebuttal/agree/propose). Built incrementally during simulation, fed into final report.
 
 - [x] **SQLite persistence**  
-  `SQLiteStore` with separate DB file (user-specified path), WAL mode, `busy_timeout=10000`. Does NOT share the existing `entries.db`.
+       `SQLiteStore` with separate DB file (user-specified path), WAL mode, `busy_timeout=10000`. Does NOT share the existing `entries.db`.
 
 - [x] **Config, runtime, API, CLI integration**  
-  `SimulationConfigFile` in `settings.toml`, `SimulationEngine` in `runtime.Stack`, REST endpoints (`/api/simulations`), `soloqueue simulate` CLI.
+       `SimulationConfigFile` in `settings.toml`, `SimulationEngine` in `runtime.Stack`, REST endpoints (`/api/simulations`), `soloqueue simulate` CLI.
 
 - [x] **Tests**  
-  41 unit + integration tests, all passing with `-race`. Existing 514 tests unaffected.
+       41 unit + integration tests, all passing with `-race`. Existing 514 tests unaffected.
 
 ---
 
@@ -56,6 +56,7 @@
   - File: `internal/simulation/persona_gen.go`
 
 ### 1.3 KG as World Model
+
 - [x] Wire `MemoryEngine` into the simulation lifecycle
   - Built in: `indexSimulationToKG` runs at simulation end
   - On simulation end: final report + graph persisted to KG via `SaveWithEntities`

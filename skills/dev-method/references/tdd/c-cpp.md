@@ -5,6 +5,7 @@
 ### Option 1: Unity + CMock (for C)
 
 #### Setup
+
 ```bash
 # Install Unity and CMock
 git clone https://github.com/ThrowTheSwitch/Unity.git
@@ -20,6 +21,7 @@ project/
 ```
 
 #### Test Structure
+
 ```c
 /* tests/test_mymodule.c */
 #include "unity.h"
@@ -54,6 +56,7 @@ void test_mymodule_process_handles_zero_input(void) {
 ### Option 2: Google Test (for C++)
 
 #### Setup
+
 ```bash
 # CMake approach
 mkdir build && cd build
@@ -63,6 +66,7 @@ ctest
 ```
 
 #### Test Structure
+
 ```cpp
 // tests/mymodule_test.cpp
 #include <gtest/gtest.h>
@@ -110,6 +114,7 @@ TEST(MyModuleTest, UsesMockDependency) {
 ```
 
 ## Best Practices
+
 - **C**: Use Unity + CMock for unit tests with mocks
 - **C++**: Use Google Test + Google Mock
 - Test file naming: `test_<module>.c` or `<module>_test.cpp`

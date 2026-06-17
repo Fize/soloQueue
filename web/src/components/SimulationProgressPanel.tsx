@@ -9,7 +9,12 @@ interface SimulationProgressPanelProps {
   onSelectAgent?: (agentId: string | null) => void
 }
 
-export function SimulationProgressPanel({ progress, messages, selectedAgentId, onSelectAgent }: SimulationProgressPanelProps) {
+export function SimulationProgressPanel({
+  progress,
+  messages,
+  selectedAgentId,
+  onSelectAgent,
+}: SimulationProgressPanelProps) {
   const timelineEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -123,9 +128,13 @@ export function SimulationProgressPanel({ progress, messages, selectedAgentId, o
                 }`}
               >
                 <div className="relative shrink-0">
-                  <div className={`flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold ${
-                    isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-                  }`}>
+                  <div
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold ${
+                      isSelected
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
                     {agent.name.charAt(0).toUpperCase()}
                   </div>
                   {agent.status === 'thinking' && (
@@ -178,7 +187,9 @@ export function SimulationProgressPanel({ progress, messages, selectedAgentId, o
         {filteredMessages.length === 0 ? (
           <div className="flex h-24 items-center justify-center text-xs text-muted-foreground font-mono">
             <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-            {selectedAgentId ? 'Waiting for this agent to respond...' : 'Waiting for agents to respond...'}
+            {selectedAgentId
+              ? 'Waiting for this agent to respond...'
+              : 'Waiting for agents to respond...'}
           </div>
         ) : (
           [...filteredMessages].reverse().map((msg, idx) => (
@@ -205,10 +216,14 @@ export function SimulationProgressPanel({ progress, messages, selectedAgentId, o
                       {msg.type.toUpperCase()}
                     </span>
                   </div>
-                  <span className="shrink-0 text-[8px] text-muted-foreground font-mono">R{msg.round}</span>
+                  <span className="shrink-0 text-[8px] text-muted-foreground font-mono">
+                    R{msg.round}
+                  </span>
                 </div>
               )}
-              <p className={`text-foreground/90 leading-relaxed whitespace-pre-wrap ${!selectedAgentId ? 'line-clamp-2' : ''}`}>
+              <p
+                className={`text-foreground/90 leading-relaxed whitespace-pre-wrap ${!selectedAgentId ? 'line-clamp-2' : ''}`}
+              >
                 {msg.content}
               </p>
               {msg.reasoning && selectedAgentId && (

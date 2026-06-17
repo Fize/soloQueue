@@ -3,19 +3,22 @@
 ## Frontend Testing Stack
 
 ### Framework Recommendations
-| Type | Tool | Notes |
-|------|------|-------|
-| Test Runner | Vitest | Fast, modern, Jest-compatible |
-| Component Testing | @testing-library/react (React) / @testing-library/vue (Vue) | User-centric testing |
-| E2E Testing | Playwright / Cypress | Browser automation |
-| Mock API | MSW (Mock Service Worker) | Intercept network requests |
+
+| Type              | Tool                                                        | Notes                         |
+| ----------------- | ----------------------------------------------------------- | ----------------------------- |
+| Test Runner       | Vitest                                                      | Fast, modern, Jest-compatible |
+| Component Testing | @testing-library/react (React) / @testing-library/vue (Vue) | User-centric testing          |
+| E2E Testing       | Playwright / Cypress                                        | Browser automation            |
+| Mock API          | MSW (Mock Service Worker)                                   | Intercept network requests    |
 
 ### Setup (React + Vitest + Testing Library)
+
 ```bash
 npm install --save-dev vitest @testing-library/react @testing-library/jest-dom jsdom
 ```
 
 ### Component Test Example
+
 ```typescript
 // UserProfile.test.tsx
 import { describe, it, expect, vi } from "vitest";
@@ -55,6 +58,7 @@ describe("UserProfile", () => {
 ```
 
 ### API Mocking with MSW
+
 ```typescript
 // mocks/handlers.ts
 import { http, HttpResponse } from "msw";
@@ -77,6 +81,7 @@ export const worker = setupWorker(...handlers);
 ```
 
 ### E2E Test Example (Playwright)
+
 ```typescript
 // e2e/user-flow.spec.ts
 import { test, expect } from "@playwright/test";
@@ -99,11 +104,13 @@ test("user can log in and see dashboard", async ({ page }) => {
 ## Backend Testing (Node.js/Express)
 
 ### Setup
+
 ```bash
 npm install --save-dev supertest
 ```
 
 ### API Test Example
+
 ```typescript
 // api/users.test.ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -126,18 +133,14 @@ describe("Users API", () => {
       await db("users").insert({ id: "1", name: "Alice" });
 
       // Act
-      const response = await request(app)
-        .get("/api/users/1")
-        .expect(200);
+      const response = await request(app).get("/api/users/1").expect(200);
 
       // Assert
       expect(response.body).toMatchObject({ id: "1", name: "Alice" });
     });
 
     it("returns 404 when user not found", async () => {
-      await request(app)
-        .get("/api/users/nonexistent")
-        .expect(404);
+      await request(app).get("/api/users/nonexistent").expect(404);
     });
   });
 
@@ -156,6 +159,7 @@ describe("Users API", () => {
 ```
 
 ## Best Practices
+
 - Test user behavior, not implementation details
 - Use `data-testid` only when necessary (prefer accessible queries)
 - Keep component tests isolated (mock API calls)

@@ -43,15 +43,15 @@ Arco Design uses CSS Variables for theme customization, with a 10-level color sc
 ### Custom Theme
 
 ```tsx
-import { ConfigProvider } from '@arco-design/web-react';
+import { ConfigProvider } from "@arco-design/web-react";
 
 <ConfigProvider
   theme={{
-    primaryColor: '#165DFF',
+    primaryColor: "#165DFF",
   }}
 >
   <App />
-</ConfigProvider>
+</ConfigProvider>;
 ```
 
 ## Common Component Specifications
@@ -80,16 +80,11 @@ import { ConfigProvider } from '@arco-design/web-react';
 ### Form
 
 ```tsx
-<Form
-  form={form}
-  layout="vertical"
-  onSubmit={onSubmit}
-  scrollToFirstError
->
+<Form form={form} layout="vertical" onSubmit={onSubmit} scrollToFirstError>
   <Form.Item
     label="Username"
     field="username"
-    rules={[{ required: true, message: 'Please enter username' }]}
+    rules={[{ required: true, message: "Please enter username" }]}
   >
     <Input placeholder="Please enter username" />
   </Form.Item>
@@ -97,7 +92,9 @@ import { ConfigProvider } from '@arco-design/web-react';
     <Input.Password />
   </Form.Item>
   <Form.Item>
-    <Button type="primary" htmlType="submit" long>Submit</Button>
+    <Button type="primary" htmlType="submit" long>
+      Submit
+    </Button>
   </Form.Item>
 </Form>
 ```
@@ -107,14 +104,22 @@ import { ConfigProvider } from '@arco-design/web-react';
 ```tsx
 <Table
   columns={[
-    { title: 'Name', dataIndex: 'name' },
-    { title: 'Age', dataIndex: 'age', sorter: true },
+    { title: "Name", dataIndex: "name" },
+    { title: "Age", dataIndex: "age", sorter: true },
     {
-      title: 'Actions',
+      title: "Actions",
       render: (_, record) => (
         <Space>
-          <Button type="text" onClick={() => handleEdit(record)}>Edit</Button>
-          <Button type="text" status="danger" onClick={() => handleDelete(record)}>Delete</Button>
+          <Button type="text" onClick={() => handleEdit(record)}>
+            Edit
+          </Button>
+          <Button
+            type="text"
+            status="danger"
+            onClick={() => handleDelete(record)}
+          >
+            Delete
+          </Button>
         </Space>
       ),
     },
@@ -142,12 +147,12 @@ import { ConfigProvider } from '@arco-design/web-react';
   style={{ width: 520 }}
 >
   <p>Modal content</p>
-</Modal>
+</Modal>;
 
 // Functional call
 Modal.confirm({
-  title: 'Confirm deletion?',
-  content: 'This action cannot be undone',
+  title: "Confirm deletion?",
+  content: "This action cannot be undone",
   onOk: () => deleteItem(id),
 });
 ```

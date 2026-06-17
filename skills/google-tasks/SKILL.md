@@ -52,11 +52,13 @@ Maton proxies requests to `tasks.googleapis.com` and automatically injects your 
 ## Installation
 
 **NPM:**
+
 ```bash
 npm install -g @maton-ai/cli
 ```
 
 **Homebrew:**
+
 ```bash
 brew install maton-ai/cli/maton
 ```
@@ -158,6 +160,7 @@ EOF
 ```
 
 **Response:**
+
 ```json
 {
   "connection": {
@@ -241,6 +244,7 @@ GET /google-tasks/tasks/v1/users/@me/lists
 ```
 
 **Query Parameters:**
+
 - `maxResults` - Maximum number of task lists to return (default: 20, max: 100)
 - `pageToken` - Token for pagination
 
@@ -334,6 +338,7 @@ GET /google-tasks/tasks/v1/lists/{tasklistId}/tasks?showCompleted=true
 ```
 
 **Query Parameters:**
+
 - `maxResults` - Maximum number of tasks to return (default: 20, max: 100)
 - `pageToken` - Token for pagination
 - `showCompleted` - Include completed tasks (default: true)
@@ -377,6 +382,7 @@ Content-Type: application/json
 ```
 
 **Query Parameters (optional):**
+
 - `parent` - Parent task ID (for subtasks)
 - `previous` - Previous sibling task ID (for positioning)
 
@@ -444,6 +450,7 @@ POST /google-tasks/tasks/v1/lists/{tasklistId}/tasks/{taskId}/move
 ```
 
 **Query Parameters (optional):**
+
 - `parent` - New parent task ID (for making it a subtask)
 - `previous` - Previous sibling task ID (for positioning after this task)
 
@@ -469,35 +476,35 @@ maton google-tasks tasklist clear <tasklistId>
 
 ## Task Resource Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `kind` | string | Always "tasks#task" (output only) |
-| `id` | string | Task identifier |
-| `etag` | string | ETag of the resource |
-| `title` | string | Task title (max 1024 characters) |
-| `updated` | string | Last modification time (RFC 3339, output only) |
-| `selfLink` | string | URL to this task (output only) |
-| `parent` | string | Parent task ID (output only) |
-| `position` | string | Position among siblings (output only) |
-| `notes` | string | Task notes (max 8192 characters) |
-| `status` | string | "needsAction" or "completed" |
-| `due` | string | Due date (RFC 3339 timestamp) |
-| `completed` | string | Completion date (RFC 3339, output only) |
-| `deleted` | boolean | Whether task is deleted |
-| `hidden` | boolean | Whether task is hidden |
-| `links` | array | Collection of links (output only) |
-| `webViewLink` | string | Link to task in Google Tasks UI (output only) |
+| Field         | Type    | Description                                    |
+| ------------- | ------- | ---------------------------------------------- |
+| `kind`        | string  | Always "tasks#task" (output only)              |
+| `id`          | string  | Task identifier                                |
+| `etag`        | string  | ETag of the resource                           |
+| `title`       | string  | Task title (max 1024 characters)               |
+| `updated`     | string  | Last modification time (RFC 3339, output only) |
+| `selfLink`    | string  | URL to this task (output only)                 |
+| `parent`      | string  | Parent task ID (output only)                   |
+| `position`    | string  | Position among siblings (output only)          |
+| `notes`       | string  | Task notes (max 8192 characters)               |
+| `status`      | string  | "needsAction" or "completed"                   |
+| `due`         | string  | Due date (RFC 3339 timestamp)                  |
+| `completed`   | string  | Completion date (RFC 3339, output only)        |
+| `deleted`     | boolean | Whether task is deleted                        |
+| `hidden`      | boolean | Whether task is hidden                         |
+| `links`       | array   | Collection of links (output only)              |
+| `webViewLink` | string  | Link to task in Google Tasks UI (output only)  |
 
 ## Task List Resource Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `kind` | string | Always "tasks#taskList" (output only) |
-| `id` | string | Task list identifier |
-| `etag` | string | ETag of the resource |
-| `title` | string | Task list title (max 1024 characters) |
-| `updated` | string | Last modification time (RFC 3339, output only) |
-| `selfLink` | string | URL to this task list (output only) |
+| Field      | Type   | Description                                    |
+| ---------- | ------ | ---------------------------------------------- |
+| `kind`     | string | Always "tasks#taskList" (output only)          |
+| `id`       | string | Task list identifier                           |
+| `etag`     | string | ETag of the resource                           |
+| `title`    | string | Task list title (max 1024 characters)          |
+| `updated`  | string | Last modification time (RFC 3339, output only) |
+| `selfLink` | string | URL to this task list (output only)            |
 
 ## Pagination
 
@@ -529,29 +536,29 @@ maton google-tasks task create -l <tasklistId> --title 'Write spec' --due 2026-1
 ```javascript
 // List all task lists
 const response = await fetch(
-  'https://api.maton.ai/google-tasks/tasks/v1/users/@me/lists',
+  "https://api.maton.ai/google-tasks/tasks/v1/users/@me/lists",
   {
     headers: {
-      'Authorization': `Bearer ${process.env.MATON_API_KEY}`
-    }
-  }
+      Authorization: `Bearer ${process.env.MATON_API_KEY}`,
+    },
+  },
 );
 
 // Create a new task
 const createResponse = await fetch(
   `https://api.maton.ai/google-tasks/tasks/v1/lists/${tasklistId}/tasks`,
   {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Authorization': `Bearer ${process.env.MATON_API_KEY}`,
-      'Content-Type': 'application/json'
+      Authorization: `Bearer ${process.env.MATON_API_KEY}`,
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      title: 'New Task',
-      notes: 'Task description',
-      due: '2026-03-01T00:00:00.000Z'
-    })
-  }
+      title: "New Task",
+      notes: "Task description",
+      due: "2026-03-01T00:00:00.000Z",
+    }),
+  },
 );
 ```
 
@@ -591,12 +598,12 @@ create_response = requests.post(
 
 ## Error Handling
 
-| Status | Meaning |
-|--------|---------|
-| 400 | Missing Google Tasks connection |
-| 401 | Invalid or missing Maton API key |
-| 404 | Task or task list not found |
-| 429 | Rate limited |
+| Status  | Meaning                                 |
+| ------- | --------------------------------------- |
+| 400     | Missing Google Tasks connection         |
+| 401     | Invalid or missing Maton API key        |
+| 404     | Task or task list not found             |
+| 429     | Rate limited                            |
 | 4xx/5xx | Passthrough error from Google Tasks API |
 
 ### Troubleshooting: API Key Issues

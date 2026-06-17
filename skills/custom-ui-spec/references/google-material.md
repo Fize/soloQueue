@@ -40,13 +40,13 @@
 
 ### 1.4 Core Design Values
 
-| Value | Description |
-|---|---|
-| Adaptability | Design adapts to different screens, platforms, and input methods |
-| Consistency | Use a unified design language and components |
-| Hierarchy | Establish clear hierarchy through elevation, color, and motion |
-| Feedback | Provide immediate feedback for every user action |
-| Personalization | Support dynamic color and theme customization |
+| Value           | Description                                                      |
+| --------------- | ---------------------------------------------------------------- |
+| Adaptability    | Design adapts to different screens, platforms, and input methods |
+| Consistency     | Use a unified design language and components                     |
+| Hierarchy       | Establish clear hierarchy through elevation, color, and motion   |
+| Feedback        | Provide immediate feedback for every user action                 |
+| Personalization | Support dynamic color and theme customization                    |
 
 ---
 
@@ -56,67 +56,67 @@
 
 ### 2.1 Primary / Secondary / Tertiary Colors
 
-| Token | Light | Dark | Usage |
-|---|---|---|---|
-| primary | `#6750A4` | `#D0BCFF` | Primary color |
-| onPrimary | `#FFFFFF` | `#381E72` | Text on primary |
-| primaryContainer | `#EADDFF` | `#4F378B` | Primary container |
-| onPrimaryContainer | `#21005D` | `#EADDFF` | Text on primary container |
-| secondary | `#625B71` | `#CCC2DC` | Secondary color |
-| onSecondary | `#FFFFFF` | `#332D41` | Text on secondary |
-| secondaryContainer | `#E8DEF8` | `#4A4458` | Secondary container |
+| Token                | Light     | Dark      | Usage                       |
+| -------------------- | --------- | --------- | --------------------------- |
+| primary              | `#6750A4` | `#D0BCFF` | Primary color               |
+| onPrimary            | `#FFFFFF` | `#381E72` | Text on primary             |
+| primaryContainer     | `#EADDFF` | `#4F378B` | Primary container           |
+| onPrimaryContainer   | `#21005D` | `#EADDFF` | Text on primary container   |
+| secondary            | `#625B71` | `#CCC2DC` | Secondary color             |
+| onSecondary          | `#FFFFFF` | `#332D41` | Text on secondary           |
+| secondaryContainer   | `#E8DEF8` | `#4A4458` | Secondary container         |
 | onSecondaryContainer | `#1D192B` | `#E8DEF8` | Text on secondary container |
-| tertiary | `#7D5260` | `#EFB8C8` | Tertiary color |
-| onTertiary | `#FFFFFF` | `#492532` | Text on tertiary |
-| tertiaryContainer | `#FFD8E4` | `#633B48` | Tertiary container |
-| onTertiaryContainer | `#31111D` | `#FFD8E4` | Text on tertiary container |
+| tertiary             | `#7D5260` | `#EFB8C8` | Tertiary color              |
+| onTertiary           | `#FFFFFF` | `#492532` | Text on tertiary            |
+| tertiaryContainer    | `#FFD8E4` | `#633B48` | Tertiary container          |
+| onTertiaryContainer  | `#31111D` | `#FFD8E4` | Text on tertiary container  |
 
 ### 2.2 Surface Colors
 
-| Token | Light | Dark | Usage |
-|---|---|---|---|
-| surface | `#FFFBFE` | `#1C1B1F` | Primary surface |
-| onSurface | `#1C1B1F` | `#E6E1E5` | Text on surface |
-| surfaceVariant | `#E7E0EC` | `#49454F` | Surface variant |
+| Token            | Light     | Dark      | Usage                   |
+| ---------------- | --------- | --------- | ----------------------- |
+| surface          | `#FFFBFE` | `#1C1B1F` | Primary surface         |
+| onSurface        | `#1C1B1F` | `#E6E1E5` | Text on surface         |
+| surfaceVariant   | `#E7E0EC` | `#49454F` | Surface variant         |
 | onSurfaceVariant | `#49454F` | `#CAC4D0` | Text on surface variant |
-| surfaceDim | `#DED8E1` | `#141218` | Dim surface |
-| surfaceBright | `#F7F2FA` | `#3B383E` | Bright surface |
-| inverseSurface | `#322F35` | `#E6E1E5` | Inverse surface |
+| surfaceDim       | `#DED8E1` | `#141218` | Dim surface             |
+| surfaceBright    | `#F7F2FA` | `#3B383E` | Bright surface          |
+| inverseSurface   | `#322F35` | `#E6E1E5` | Inverse surface         |
 | inverseOnSurface | `#F5EFF7` | `#322F35` | Text on inverse surface |
 
 ### 2.3 Background and Error Colors
 
-| Token | Light | Dark | Usage |
-|---|---|---|---|
-| background | `#FFFBFE` | `#1C1B1F` | Background |
-| onBackground | `#1C1B1F` | `#E6E1E5` | Text on background |
-| error | `#B3261E` | `#F2B8B5` | Error |
-| onError | `#FFFFFF` | `#601410` | Text on error |
-| errorContainer | `#F9DEDC` | `#8C1D18` | Error container |
+| Token            | Light     | Dark      | Usage                   |
+| ---------------- | --------- | --------- | ----------------------- |
+| background       | `#FFFBFE` | `#1C1B1F` | Background              |
+| onBackground     | `#1C1B1F` | `#E6E1E5` | Text on background      |
+| error            | `#B3261E` | `#F2B8B5` | Error                   |
+| onError          | `#FFFFFF` | `#601410` | Text on error           |
+| errorContainer   | `#F9DEDC` | `#8C1D18` | Error container         |
 | onErrorContainer | `#410E0B` | `#F9DEDC` | Text on error container |
 
 ### 2.4 Outline Colors
 
-| Token | Light | Dark | Usage |
-|---|---|---|---|
-| outline | `#79747E` | `#938F99` | Outline |
+| Token          | Light     | Dark      | Usage           |
+| -------------- | --------- | --------- | --------------- |
+| outline        | `#79747E` | `#938F99` | Outline         |
 | outlineVariant | `#CAC4D0` | `#49454F` | Outline variant |
 
 ### 2.5 Surface Container Colors
 
-| Token | Light | Dark | Usage |
-|---|---|---|---|
-| surfaceContainerLowest | `#FFFFFF` | `#0F0D13` | Lowest container |
-| surfaceContainerLow | `#F7F2FA` | `#1D1B20` | Low container |
-| surfaceContainer | `#F3EDF7` | `#211F26` | Standard container |
-| surfaceContainerHigh | `#ECE6F0` | `#2B2930` | High container |
-| surfaceContainerHighest | `#E6E0E9` | `#36343B` | Highest container |
+| Token                   | Light     | Dark      | Usage              |
+| ----------------------- | --------- | --------- | ------------------ |
+| surfaceContainerLowest  | `#FFFFFF` | `#0F0D13` | Lowest container   |
+| surfaceContainerLow     | `#F7F2FA` | `#1D1B20` | Low container      |
+| surfaceContainer        | `#F3EDF7` | `#211F26` | Standard container |
+| surfaceContainerHigh    | `#ECE6F0` | `#2B2930` | High container     |
+| surfaceContainerHighest | `#E6E0E9` | `#36343B` | Highest container  |
 
 ### 2.6 Color Usage Principles
 
 - Use surface colors to build interface hierarchy
 - Use primary/secondary/tertiary to emphasize interactive elements
-- Use on-* colors to ensure text readability
+- Use on-\* colors to ensure text readability
 - Container colors are used for cards, dialogs, etc.
 - Support dynamic color (Android 12+ extracts from wallpaper)
 
@@ -132,31 +132,31 @@
 
 ### 3.2 Type Scale (Font Ramp)
 
-| Token | Size | Weight | Line Height | Letter Spacing | Usage |
-|---|---|---|---|---|---|
-| displayLarge | 57pt | Regular | 64pt | -0.25pt | Largest display |
-| displayMedium | 45pt | Regular | 52pt | 0pt | Large display |
-| displaySmall | 36pt | Regular | 44pt | 0pt | Small display |
-| headlineLarge | 32pt | Regular | 40pt | 0pt | Large headline |
-| headlineMedium | 28pt | Regular | 36pt | 0pt | Medium headline |
-| headlineSmall | 24pt | Regular | 32pt | 0pt | Small headline |
-| titleLarge | 22pt | Regular | 28pt | 0pt | Large title |
-| titleMedium | 16pt | Medium | 24pt | 0.15pt | Medium title |
-| titleSmall | 14pt | Medium | 20pt | 0.1pt | Small title |
-| bodyLarge | 16pt | Regular | 24pt | 0.5pt | Large body |
-| bodyMedium | 14pt | Regular | 20pt | 0.25pt | Medium body |
-| bodySmall | 12pt | Regular | 16pt | 0.4pt | Small body |
-| labelLarge | 14pt | Medium | 20pt | 0.1pt | Large label |
-| labelMedium | 12pt | Medium | 16pt | 0.5pt | Medium label |
-| labelSmall | 11pt | Medium | 16pt | 0.5pt | Small label |
+| Token          | Size | Weight  | Line Height | Letter Spacing | Usage           |
+| -------------- | ---- | ------- | ----------- | -------------- | --------------- |
+| displayLarge   | 57pt | Regular | 64pt        | -0.25pt        | Largest display |
+| displayMedium  | 45pt | Regular | 52pt        | 0pt            | Large display   |
+| displaySmall   | 36pt | Regular | 44pt        | 0pt            | Small display   |
+| headlineLarge  | 32pt | Regular | 40pt        | 0pt            | Large headline  |
+| headlineMedium | 28pt | Regular | 36pt        | 0pt            | Medium headline |
+| headlineSmall  | 24pt | Regular | 32pt        | 0pt            | Small headline  |
+| titleLarge     | 22pt | Regular | 28pt        | 0pt            | Large title     |
+| titleMedium    | 16pt | Medium  | 24pt        | 0.15pt         | Medium title    |
+| titleSmall     | 14pt | Medium  | 20pt        | 0.1pt          | Small title     |
+| bodyLarge      | 16pt | Regular | 24pt        | 0.5pt          | Large body      |
+| bodyMedium     | 14pt | Regular | 20pt        | 0.25pt         | Medium body     |
+| bodySmall      | 12pt | Regular | 16pt        | 0.4pt          | Small body      |
+| labelLarge     | 14pt | Medium  | 20pt        | 0.1pt          | Large label     |
+| labelMedium    | 12pt | Medium  | 16pt        | 0.5pt          | Medium label    |
+| labelSmall     | 11pt | Medium  | 16pt        | 0.5pt          | Small label     |
 
 ### 3.3 Font Weights
 
-| Weight | Value | Usage |
-|---|---|---|
-| Regular | 400 | Body text, titles |
-| Medium | 500 | Buttons, labels, small titles |
-| Bold | 700 | Rarely used |
+| Weight  | Value | Usage                         |
+| ------- | ----- | ----------------------------- |
+| Regular | 400   | Body text, titles             |
+| Medium  | 500   | Buttons, labels, small titles |
+| Bold    | 700   | Rarely used                   |
 
 ### 3.4 Typography Principles
 
@@ -178,37 +178,37 @@
 
 ### 4.2 Standard Spacing Values
 
-| Token | Value | Usage |
-|---|---|---|
-| none | 0dp | No spacing |
-| extraSmall | 4dp | Very tight |
-| small | 8dp | Default element spacing |
-| medium | 16dp | Standard padding |
-| large | 24dp | Component spacing |
-| extraLarge | 32dp | Section spacing |
-| extraExtraLarge | 48dp | Large section spacing |
-| extraExtraExtraLarge | 64dp | Page spacing |
+| Token                | Value | Usage                   |
+| -------------------- | ----- | ----------------------- |
+| none                 | 0dp   | No spacing              |
+| extraSmall           | 4dp   | Very tight              |
+| small                | 8dp   | Default element spacing |
+| medium               | 16dp  | Standard padding        |
+| large                | 24dp  | Component spacing       |
+| extraLarge           | 32dp  | Section spacing         |
+| extraExtraLarge      | 48dp  | Large section spacing   |
+| extraExtraExtraLarge | 64dp  | Page spacing            |
 
 ### 4.3 Layout Grid
 
-| Breakpoint | Width | Columns | Spacing |
-|---|---|---|---|
-| Compact | < 600dp | 4 | 16dp |
-| Medium | 600-840dp | 8 | 24dp |
-| Expanded | 840-1200dp | 12 | 24dp |
-| Large | 1200-1600dp | 12 | 24dp |
-| ExtraLarge | > 1600dp | 12 | 24dp |
+| Breakpoint | Width       | Columns | Spacing |
+| ---------- | ----------- | ------- | ------- |
+| Compact    | < 600dp     | 4       | 16dp    |
+| Medium     | 600-840dp   | 8       | 24dp    |
+| Expanded   | 840-1200dp  | 12      | 24dp    |
+| Large      | 1200-1600dp | 12      | 24dp    |
+| ExtraLarge | > 1600dp    | 12      | 24dp    |
 
 ### 4.4 Margin Specifications
 
-| Scenario | Margin |
-|---|---|
-| Page horizontal margin | 16dp |
-| Card padding | 16dp |
-| Button padding | 24dp horizontal, 8dp vertical |
-| List item padding | 16dp horizontal, 12dp vertical |
-| Form field spacing | 16dp |
-| Icon to text spacing | 8dp |
+| Scenario               | Margin                         |
+| ---------------------- | ------------------------------ |
+| Page horizontal margin | 16dp                           |
+| Card padding           | 16dp                           |
+| Button padding         | 24dp horizontal, 8dp vertical  |
+| List item padding      | 16dp horizontal, 12dp vertical |
+| Form field spacing     | 16dp                           |
+| Icon to text spacing   | 8dp                            |
 
 ---
 
@@ -216,28 +216,28 @@
 
 ### 5.1 Shape Tokens
 
-| Token | Value | Usage |
-|---|---|---|
-| none | 0dp | Right angle |
-| extraSmall | 4dp | Small elements |
-| small | 8dp | Buttons, input fields |
-| medium | 12dp | Cards |
-| large | 16dp | Large cards |
-| extraLarge | 28dp | Dialogs, bottom Sheet |
-| full | 9999dp | Capsule buttons, avatars |
+| Token      | Value  | Usage                    |
+| ---------- | ------ | ------------------------ |
+| none       | 0dp    | Right angle              |
+| extraSmall | 4dp    | Small elements           |
+| small      | 8dp    | Buttons, input fields    |
+| medium     | 12dp   | Cards                    |
+| large      | 16dp   | Large cards              |
+| extraLarge | 28dp   | Dialogs, bottom Sheet    |
+| full       | 9999dp | Capsule buttons, avatars |
 
 ### 5.2 Component-Specific Corner Radius
 
-| Component | Corner Radius | Description |
-|---|---|---|
-| Button | full | Capsule shape |
-| Card | medium (12dp) | Standard card |
-| Dialog | extraLarge (28dp) | Dialog |
-| Input | small (8dp) | Input field |
-| Menu | medium (12dp) | Menu |
-| Chip | full | Capsule shape |
-| Avatar | full | Circle |
-| FAB | full | Circle |
+| Component | Corner Radius     | Description   |
+| --------- | ----------------- | ------------- |
+| Button    | full              | Capsule shape |
+| Card      | medium (12dp)     | Standard card |
+| Dialog    | extraLarge (28dp) | Dialog        |
+| Input     | small (8dp)       | Input field   |
+| Menu      | medium (12dp)     | Menu          |
+| Chip      | full              | Capsule shape |
+| Avatar    | full              | Circle        |
+| FAB       | full              | Circle        |
 
 ### 5.3 Corner Radius Principles
 
@@ -254,29 +254,29 @@
 
 Material uses an elevation system to express hierarchical relationships:
 
-| Token | Value | Usage |
-|---|---|---|
-| level0 | 0dp | Ground level |
-| level1 | 1dp | Card static state |
-| level2 | 3dp | Card hover state |
-| level3 | 6dp | Button pressed, Menu |
-| level4 | 8dp | Bottom navigation, FAB |
-| level5 | 12dp | Dialog, Drawer |
+| Token  | Value | Usage                  |
+| ------ | ----- | ---------------------- |
+| level0 | 0dp   | Ground level           |
+| level1 | 1dp   | Card static state      |
+| level2 | 3dp   | Card hover state       |
+| level3 | 6dp   | Button pressed, Menu   |
+| level4 | 8dp   | Bottom navigation, FAB |
+| level5 | 12dp  | Dialog, Drawer         |
 
 ### 6.2 Shadow Specifications
 
-| Elevation | Shadow Parameters |
-|---|---|
-| 0dp | No shadow |
-| 1dp | `0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14)` |
-| 2dp | `0 2px 4px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14)` |
-| 3dp | `0 3px 6px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.14)` |
-| 4dp | `0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.14)` |
-| 6dp | `0 6px 12px rgba(0,0,0,0.12), 0 3px 6px rgba(0,0,0,0.14)` |
-| 8dp | `0 8px 16px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.14)` |
-| 12dp | `0 12px 24px rgba(0,0,0,0.12), 0 6px 12px rgba(0,0,0,0.14)` |
-| 16dp | `0 16px 32px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.14)` |
-| 24dp | `0 24px 48px rgba(0,0,0,0.12), 0 12px 24px rgba(0,0,0,0.14)` |
+| Elevation | Shadow Parameters                                            |
+| --------- | ------------------------------------------------------------ |
+| 0dp       | No shadow                                                    |
+| 1dp       | `0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14)`     |
+| 2dp       | `0 2px 4px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14)`     |
+| 3dp       | `0 3px 6px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.14)`     |
+| 4dp       | `0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.14)`     |
+| 6dp       | `0 6px 12px rgba(0,0,0,0.12), 0 3px 6px rgba(0,0,0,0.14)`    |
+| 8dp       | `0 8px 16px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.14)`    |
+| 12dp      | `0 12px 24px rgba(0,0,0,0.12), 0 6px 12px rgba(0,0,0,0.14)`  |
+| 16dp      | `0 16px 32px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.14)`  |
+| 24dp      | `0 24px 48px rgba(0,0,0,0.12), 0 12px 24px rgba(0,0,0,0.14)` |
 
 ### 6.3 Elevation Principles
 
@@ -292,21 +292,21 @@ Material uses an elevation system to express hierarchical relationships:
 
 ### 7.1 Animation Duration
 
-| Type | Duration | Usage |
-|---|---|---|
-| Instant feedback | 50-100ms | Button press, switch toggle |
-| Fast transition | 150-200ms | Color change, state switch |
-| Standard transition | 250-300ms | Element show/hide |
-| Complex animation | 350-500ms | Page switch, dialog |
-| Large movement | 500-700ms | Large element movement |
+| Type                | Duration  | Usage                       |
+| ------------------- | --------- | --------------------------- |
+| Instant feedback    | 50-100ms  | Button press, switch toggle |
+| Fast transition     | 150-200ms | Color change, state switch  |
+| Standard transition | 250-300ms | Element show/hide           |
+| Complex animation   | 350-500ms | Page switch, dialog         |
+| Large movement      | 500-700ms | Large element movement      |
 
 ### 7.2 Easing Functions
 
-| Name | Curve | Usage |
-|---|---|---|
-| Standard | `cubic-bezier(0.2, 0, 0, 1)` | Standard transition |
-| Decelerate | `cubic-bezier(0, 0, 0.2, 1)` | Element entry |
-| Accelerate | `cubic-bezier(0.4, 0, 1, 1)` | Element exit |
+| Name       | Curve                        | Usage                |
+| ---------- | ---------------------------- | -------------------- |
+| Standard   | `cubic-bezier(0.2, 0, 0, 1)` | Standard transition  |
+| Decelerate | `cubic-bezier(0, 0, 0.2, 1)` | Element entry        |
+| Accelerate | `cubic-bezier(0.4, 0, 1, 1)` | Element exit         |
 | Emphasized | `cubic-bezier(0.2, 0, 0, 1)` | Emphasized animation |
 
 ### 7.3 Motion Principles
@@ -333,6 +333,7 @@ Material uses an elevation system to express hierarchical relationships:
 **Material Name**: Button
 
 **Anatomy**:
+
 ```
 Button
 ├── Container
@@ -342,23 +343,24 @@ Button
 
 **Size Specifications**:
 
-| Variant | Height | Horizontal Padding | Corner Radius |
-|---|---|---|---|
-| Small | 32dp | 16dp | full |
-| Medium (default) | 40dp | 24dp | full |
-| Large | 48dp | 32dp | full |
+| Variant          | Height | Horizontal Padding | Corner Radius |
+| ---------------- | ------ | ------------------ | ------------- |
+| Small            | 32dp   | 16dp               | full          |
+| Medium (default) | 40dp   | 24dp               | full          |
+| Large            | 48dp   | 32dp               | full          |
 
 **States**:
 
-| State | Container | Text | Description |
-|---|---|---|---|
-| Default | primaryContainer | onPrimaryContainer | Default |
-| Hover | primaryContainer + 8% onPrimary | onPrimaryContainer | Hover |
-| Pressed | primaryContainer + 12% onPrimary | onPrimaryContainer | Pressed |
-| Focused | primaryContainer + onPrimary outline | onPrimaryContainer | Focused |
-| Disabled | onSurface 12% opacity | onSurface 38% opacity | Disabled |
+| State    | Container                            | Text                  | Description |
+| -------- | ------------------------------------ | --------------------- | ----------- |
+| Default  | primaryContainer                     | onPrimaryContainer    | Default     |
+| Hover    | primaryContainer + 8% onPrimary      | onPrimaryContainer    | Hover       |
+| Pressed  | primaryContainer + 12% onPrimary     | onPrimaryContainer    | Pressed     |
+| Focused  | primaryContainer + onPrimary outline | onPrimaryContainer    | Focused     |
+| Disabled | onSurface 12% opacity                | onSurface 38% opacity | Disabled    |
 
 **Variants**:
+
 - **Elevated**: With shadow (1dp), surface color background
 - **Filled**: primaryContainer background (default)
 - **Tonal**: secondaryContainer background
@@ -366,6 +368,7 @@ Button
 - **Text**: Transparent background, no border
 
 **Accessibility**:
+
 - Minimum touch target: 48x48dp
 - Color contrast ratio >= 4.5:1
 - Support keyboard focus
@@ -378,6 +381,7 @@ Button
 **Material Name**: Text Field
 
 **Anatomy**:
+
 ```
 TextField
 ├── Container
@@ -391,25 +395,26 @@ TextField
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum height | 56dp |
-| Horizontal padding | 16dp |
-| Corner radius | small (8dp) |
-| Border | 1dp solid outline |
+| Property           | Value             |
+| ------------------ | ----------------- |
+| Minimum height     | 56dp              |
+| Horizontal padding | 16dp              |
+| Corner radius      | small (8dp)       |
+| Border             | 1dp solid outline |
 
 **States**:
 
-| State | Border | Container | Label | Description |
-|---|---|---|---|---|
-| Default | outline | transparent | onSurfaceVariant | Default |
-| Hover | onSurface | transparent | onSurfaceVariant | Hover |
-| Focused | primary | transparent | primary | Focused |
-| Filled | outline | transparent | onSurfaceVariant | Has content |
-| Error | error | transparent | error | Error |
-| Disabled | onSurface 38% | onSurface 12% | onSurface 38% | Disabled |
+| State    | Border        | Container     | Label            | Description |
+| -------- | ------------- | ------------- | ---------------- | ----------- |
+| Default  | outline       | transparent   | onSurfaceVariant | Default     |
+| Hover    | onSurface     | transparent   | onSurfaceVariant | Hover       |
+| Focused  | primary       | transparent   | primary          | Focused     |
+| Filled   | outline       | transparent   | onSurfaceVariant | Has content |
+| Error    | error         | transparent   | error            | Error       |
+| Disabled | onSurface 38% | onSurface 12% | onSurface 38%    | Disabled    |
 
 **Accessibility**:
+
 - Floating label associated with input
 - Error state provides error text
 - Support keyboard navigation
@@ -421,6 +426,7 @@ TextField
 **Material Name**: Checkbox
 
 **Anatomy**:
+
 ```
 Checkbox
 ├── Box (square)
@@ -430,23 +436,23 @@ Checkbox
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Box size | 18x18dp |
-| Box corner radius | 2dp |
-| Label spacing | 16dp |
-| Checkmark line width | 2dp |
+| Property             | Value   |
+| -------------------- | ------- |
+| Box size             | 18x18dp |
+| Box corner radius    | 2dp     |
+| Label spacing        | 16dp    |
+| Checkmark line width | 2dp     |
 
 **States**:
 
-| State | Box Background | Border | Checkmark | Description |
-|---|---|---|---|---|
-| Unchecked | transparent | outline | None | Unselected |
-| Checked | primary | primary | onPrimary | Selected |
-| Indeterminate | primary | primary | onPrimary line | Mixed |
-| Hover (unchecked) | onSurface 8% | outline | None | Hover |
-| Hover (checked) | primary + 8% onPrimary | primary | onPrimary | Hover checked |
-| Disabled | onSurface 12% | onSurface 38% | onSurface 38% | Disabled |
+| State             | Box Background         | Border        | Checkmark      | Description   |
+| ----------------- | ---------------------- | ------------- | -------------- | ------------- |
+| Unchecked         | transparent            | outline       | None           | Unselected    |
+| Checked           | primary                | primary       | onPrimary      | Selected      |
+| Indeterminate     | primary                | primary       | onPrimary line | Mixed         |
+| Hover (unchecked) | onSurface 8%           | outline       | None           | Hover         |
+| Hover (checked)   | primary + 8% onPrimary | primary       | onPrimary      | Hover checked |
+| Disabled          | onSurface 12%          | onSurface 38% | onSurface 38%  | Disabled      |
 
 ---
 
@@ -455,6 +461,7 @@ Checkbox
 **Material Name**: Radio Button
 
 **Anatomy**:
+
 ```
 RadioButton
 ├── Circle
@@ -464,21 +471,21 @@ RadioButton
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Outer circle diameter | 20dp |
-| Inner dot diameter | 10dp |
-| Border width | 2dp |
-| Label spacing | 16dp |
+| Property              | Value |
+| --------------------- | ----- |
+| Outer circle diameter | 20dp  |
+| Inner dot diameter    | 10dp  |
+| Border width          | 2dp   |
+| Label spacing         | 16dp  |
 
 **States**:
 
-| State | Outer Circle | Inner Dot | Description |
-|---|---|---|---|
-| Unselected | transparent + outline | None | Unselected |
-| Selected | transparent + primary | primary | Selected |
-| Hover | onSurface 8% | Same | Hover |
-| Disabled | onSurface 38% | onSurface 38% | Disabled |
+| State      | Outer Circle          | Inner Dot     | Description |
+| ---------- | --------------------- | ------------- | ----------- |
+| Unselected | transparent + outline | None          | Unselected  |
+| Selected   | transparent + primary | primary       | Selected    |
+| Hover      | onSurface 8%          | Same          | Hover       |
+| Disabled   | onSurface 38%         | onSurface 38% | Disabled    |
 
 ---
 
@@ -487,6 +494,7 @@ RadioButton
 **Material Name**: Switch
 
 **Anatomy**:
+
 ```
 Switch
 ├── Track (pill shape)
@@ -495,25 +503,26 @@ Switch
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Track width | 52dp |
-| Track height | 32dp |
-| Thumb diameter | 24dp |
-| Thumb margin | 4dp |
+| Property       | Value |
+| -------------- | ----- |
+| Track width    | 52dp  |
+| Track height   | 32dp  |
+| Thumb diameter | 24dp  |
+| Thumb margin   | 4dp   |
 
 **States**:
 
-| State | Track | Thumb | Description |
-|---|---|---|---|
-| Off | outline | surface + shadow1 | Off |
-| On | primary | onPrimary + shadow1 | On |
-| Hover (off) | onSurface 8% | surface + shadow2 | Hover off |
-| Hover (on) | primary + 8% onPrimary | onPrimary + shadow2 | Hover on |
-| Disabled (off) | onSurface 12% | surface | Disabled off |
-| Disabled (on) | onSurface 12% | onSurface | Disabled on |
+| State          | Track                  | Thumb               | Description  |
+| -------------- | ---------------------- | ------------------- | ------------ |
+| Off            | outline                | surface + shadow1   | Off          |
+| On             | primary                | onPrimary + shadow1 | On           |
+| Hover (off)    | onSurface 8%           | surface + shadow2   | Hover off    |
+| Hover (on)     | primary + 8% onPrimary | onPrimary + shadow2 | Hover on     |
+| Disabled (off) | onSurface 12%          | surface             | Disabled off |
+| Disabled (on)  | onSurface 12%          | onSurface           | Disabled on  |
 
 **Motion**:
+
 - Toggle animation: 150ms standard easing
 - Thumb movement uses spring effect
 
@@ -524,6 +533,7 @@ Switch
 **Material Name**: Slider
 
 **Anatomy**:
+
 ```
 Slider
 ├── Track (background)
@@ -533,21 +543,21 @@ Slider
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Track height | 4dp |
-| Track corner radius | 2dp |
-| Thumb diameter | 20dp |
-| Minimum touch area | 48x48dp |
+| Property            | Value   |
+| ------------------- | ------- |
+| Track height        | 4dp     |
+| Track corner radius | 2dp     |
+| Thumb diameter      | 20dp    |
+| Minimum touch area  | 48x48dp |
 
 **States**:
 
-| State | Active Track | Thumb | Description |
-|---|---|---|---|
-| Default | primary | surface + shadow1 | Default |
-| Hover | primary | surface + shadow2 | Hover |
-| Pressed | primary | surface + shadow1 + enlarge | Pressed |
-| Disabled | onSurface 38% | onSurface 38% | Disabled |
+| State    | Active Track  | Thumb                       | Description |
+| -------- | ------------- | --------------------------- | ----------- |
+| Default  | primary       | surface + shadow1           | Default     |
+| Hover    | primary       | surface + shadow2           | Hover       |
+| Pressed  | primary       | surface + shadow1 + enlarge | Pressed     |
+| Disabled | onSurface 38% | onSurface 38%               | Disabled    |
 
 ---
 
@@ -556,6 +566,7 @@ Slider
 **Material Name**: Progress Indicator
 
 **Anatomy**:
+
 ```
 ProgressIndicator
 ├── Track (background)
@@ -564,22 +575,25 @@ ProgressIndicator
 
 **Size Specifications**:
 
-| Variant | Size |
-|---|---|
-| Linear | Height 4dp, width adapts |
+| Variant  | Size                        |
+| -------- | --------------------------- |
+| Linear   | Height 4dp, width adapts    |
 | Circular | Diameter 24dp / 40dp / 48dp |
 
 **Linear Progress Bar**:
+
 - Track: surfaceVariant
 - Fill: primary
 - Corner radius: 2dp
 
 **Circular Progress Bar**:
+
 - Line width: 4dp
 - Color: primary
 - Rotation animation: 1.4s linear infinite
 
 **Indeterminate State**:
+
 - Linear: Loop animation
 - Circular: Continuous rotation
 
@@ -590,6 +604,7 @@ ProgressIndicator
 **Material Name**: Menu
 
 **Anatomy**:
+
 ```
 Menu
 ├── Menu Item
@@ -603,24 +618,24 @@ Menu
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum width | 180dp |
-| Maximum width | 320dp |
-| Item height | 48dp |
-| Item padding | 16dp horizontal |
-| Corner radius | medium (12dp) |
-| Shadow | 3dp |
+| Property      | Value           |
+| ------------- | --------------- |
+| Minimum width | 180dp           |
+| Maximum width | 320dp           |
+| Item height   | 48dp            |
+| Item padding  | 16dp horizontal |
+| Corner radius | medium (12dp)   |
+| Shadow        | 3dp             |
 
 **States**:
 
-| State | Background | Text | Description |
-|---|---|---|---|
-| Default | transparent | onSurface | Default |
-| Hover | onSurface 8% | onSurface | Hover |
-| Pressed | onSurface 12% | onSurface | Pressed |
-| Focused | onSurface 8% + primary outline | onSurface | Focused |
-| Disabled | transparent | onSurface 38% | Disabled |
+| State    | Background                     | Text          | Description |
+| -------- | ------------------------------ | ------------- | ----------- |
+| Default  | transparent                    | onSurface     | Default     |
+| Hover    | onSurface 8%                   | onSurface     | Hover       |
+| Pressed  | onSurface 12%                  | onSurface     | Pressed     |
+| Focused  | onSurface 8% + primary outline | onSurface     | Focused     |
+| Disabled | transparent                    | onSurface 38% | Disabled    |
 
 ---
 
@@ -629,6 +644,7 @@ Menu
 **Material Name**: Dialog
 
 **Anatomy**:
+
 ```
 Dialog
 ├── Container
@@ -643,20 +659,22 @@ Dialog
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum width | 280dp |
-| Maximum width | 560dp |
-| Corner radius | extraLarge (28dp) |
-| Padding | 24dp |
-| Title to content spacing | 16dp |
-| Content to button spacing | 24dp |
+| Property                  | Value             |
+| ------------------------- | ----------------- |
+| Minimum width             | 280dp             |
+| Maximum width             | 560dp             |
+| Corner radius             | extraLarge (28dp) |
+| Padding                   | 24dp              |
+| Title to content spacing  | 16dp              |
+| Content to button spacing | 24dp              |
 
 **Background**:
+
 - Dialog background: surfaceContainerHigh
 - Overlay: scrim (onSurface 32% opacity)
 
 **Button Layout**:
+
 - Primary action on the right
 - Secondary action on the left
 - 3+ buttons vertically arranged
@@ -668,6 +686,7 @@ Dialog
 **Material Name**: Card
 
 **Anatomy**:
+
 ```
 Card
 ├── Container
@@ -680,22 +699,22 @@ Card
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Corner radius | medium (12dp) |
-| Padding | 16dp |
-| Background | surfaceContainerLow |
-| Border | None |
-| Shadow | 1dp (static) |
+| Property      | Value               |
+| ------------- | ------------------- |
+| Corner radius | medium (12dp)       |
+| Padding       | 16dp                |
+| Background    | surfaceContainerLow |
+| Border        | None                |
+| Shadow        | 1dp (static)        |
 
 **States**:
 
-| State | Background | Shadow | Description |
-|---|---|---|---|
-| Default | surfaceContainerLow | 1dp | Default |
-| Hover | surfaceContainerLow | 3dp | Hover |
-| Pressed | surfaceContainer | 1dp | Pressed |
-| Dragged | surfaceContainer | 4dp | Drag |
+| State   | Background          | Shadow | Description |
+| ------- | ------------------- | ------ | ----------- |
+| Default | surfaceContainerLow | 1dp    | Default     |
+| Hover   | surfaceContainerLow | 3dp    | Hover       |
+| Pressed | surfaceContainer    | 1dp    | Pressed     |
+| Dragged | surfaceContainer    | 4dp    | Drag        |
 
 ---
 
@@ -704,6 +723,7 @@ Card
 **Material Name**: List
 
 **Anatomy**:
+
 ```
 List
 ├── List Item
@@ -718,22 +738,22 @@ List
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Single line height | 48dp |
-| Double line height | 64dp |
-| Triple line height | 88dp |
-| Item padding | 16dp horizontal |
-| Separator | 1dp, inset 16dp or 56dp |
+| Property           | Value                   |
+| ------------------ | ----------------------- |
+| Single line height | 48dp                    |
+| Double line height | 64dp                    |
+| Triple line height | 88dp                    |
+| Item padding       | 16dp horizontal         |
+| Separator          | 1dp, inset 16dp or 56dp |
 
 **States**:
 
-| State | Background | Description |
-|---|---|---|
-| Default | transparent | Default |
-| Hover | onSurface 8% | Hover |
-| Selected | onSurface 12% | Selected |
-| Pressed | onSurface 12% | Pressed |
+| State    | Background    | Description |
+| -------- | ------------- | ----------- |
+| Default  | transparent   | Default     |
+| Hover    | onSurface 8%  | Hover       |
+| Selected | onSurface 12% | Selected    |
+| Pressed  | onSurface 12% | Pressed     |
 
 ---
 
@@ -742,6 +762,7 @@ List
 **Material Name**: Bottom App Bar / Top App Bar
 
 **Anatomy**:
+
 ```
 TopAppBar
 ├── Leading Icon (menu / back)
@@ -751,14 +772,15 @@ TopAppBar
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Height | 64dp (small) / 80dp (medium) / 152dp (large) |
-| Background | surface |
-| Title font | titleLarge 22pt |
-| Large title font | displaySmall 36pt |
+| Property         | Value                                        |
+| ---------------- | -------------------------------------------- |
+| Height           | 64dp (small) / 80dp (medium) / 152dp (large) |
+| Background       | surface                                      |
+| Title font       | titleLarge 22pt                              |
+| Large title font | displaySmall 36pt                            |
 
 **Bottom Navigation**:
+
 - Height: 80dp
 - Icon size: 24x24dp
 - Label font: labelMedium 12pt
@@ -772,6 +794,7 @@ TopAppBar
 **Material Name**: Tabs
 
 **Anatomy**:
+
 ```
 Tabs
 ├── Tab List
@@ -781,20 +804,20 @@ Tabs
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Item height | 48dp |
-| Item padding | 16dp horizontal |
-| Selected indicator | Bottom 3dp primary bar |
+| Property             | Value                  |
+| -------------------- | ---------------------- |
+| Item height          | 48dp                   |
+| Item padding         | 16dp horizontal        |
+| Selected indicator   | Bottom 3dp primary bar |
 | Unselected indicator | Bottom 1dp outline bar |
 
 **States**:
 
-| State | Text | Indicator | Description |
-|---|---|---|---|
-| Selected | primary | primary 3dp | Selected |
-| Unselected | onSurfaceVariant | transparent | Unselected |
-| Hover | onSurface | onSurface 1dp | Hover |
+| State      | Text             | Indicator     | Description |
+| ---------- | ---------------- | ------------- | ----------- |
+| Selected   | primary          | primary 3dp   | Selected    |
+| Unselected | onSurfaceVariant | transparent   | Unselected  |
+| Hover      | onSurface        | onSurface 1dp | Hover       |
 
 ---
 
@@ -809,6 +832,7 @@ Tabs
 **Material Name**: Tooltip
 
 **Anatomy**:
+
 ```
 Tooltip
 ├── Container
@@ -818,16 +842,17 @@ Tooltip
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Maximum width | 200dp |
-| Padding | 8dp 12dp |
-| Corner radius | small (8dp) |
-| Font | bodySmall 12pt |
-| Background | inverseSurface |
-| Text | inverseOnSurface |
+| Property      | Value            |
+| ------------- | ---------------- |
+| Maximum width | 200dp            |
+| Padding       | 8dp 12dp         |
+| Corner radius | small (8dp)      |
+| Font          | bodySmall 12pt   |
+| Background    | inverseSurface   |
+| Text          | inverseOnSurface |
 
 **Behavior**:
+
 - Shows after 500ms hover
 - Shows after 500ms long press (mobile)
 - Hides 0ms after leaving target
@@ -839,6 +864,7 @@ Tooltip
 **Material Name**: Badge
 
 **Anatomy**:
+
 ```
 Badge
 ├── Background
@@ -847,12 +873,13 @@ Badge
 
 **Size Specifications**:
 
-| Variant | Size |
-|---|---|
-| Small | 6x6dp |
-| Large | Height 16dp, width adapts |
+| Variant | Size                      |
+| ------- | ------------------------- |
+| Small   | 6x6dp                     |
+| Large   | Height 16dp, width adapts |
 
 **Number Badge**:
+
 - Height: 16dp
 - Minimum width: 16dp
 - Padding: 4dp horizontal
@@ -867,6 +894,7 @@ Badge
 **Material Name**: Chip
 
 **Anatomy**:
+
 ```
 Chip
 ├── Container
@@ -877,14 +905,15 @@ Chip
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Height | 32dp |
-| Horizontal padding | 12dp |
-| Corner radius | full |
-| Background | surfaceContainerLow |
+| Property           | Value               |
+| ------------------ | ------------------- |
+| Height             | 32dp                |
+| Horizontal padding | 12dp                |
+| Corner radius      | full                |
+| Background         | surfaceContainerLow |
 
 **Variants**:
+
 - **Assist**: Auxiliary action, surfaceContainerLow
 - **Filter**: Filtering, selectable
 - **Input**: Input tag, removable
@@ -892,11 +921,11 @@ Chip
 
 **States**:
 
-| State | Background | Description |
-|---|---|---|
-| Default | surfaceContainerLow | Default |
-| Selected | secondaryContainer | Selected |
-| Hover | onSurface 8% | Hover |
+| State    | Background          | Description |
+| -------- | ------------------- | ----------- |
+| Default  | surfaceContainerLow | Default     |
+| Selected | secondaryContainer  | Selected    |
+| Hover    | onSurface 8%        | Hover       |
 
 ---
 
@@ -905,6 +934,7 @@ Chip
 **Material Name**: Date Picker
 
 **Anatomy**:
+
 ```
 DatePicker
 ├── Header (month / year selector)
@@ -915,13 +945,13 @@ DatePicker
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Cell size | 40x40dp |
-| Cell spacing | 0dp |
-| Selected background | primary circle |
-| Today marker | primary border circle |
-| Corner radius | extraLarge (28dp) |
+| Property            | Value                 |
+| ------------------- | --------------------- |
+| Cell size           | 40x40dp               |
+| Cell spacing        | 0dp                   |
+| Selected background | primary circle        |
+| Today marker        | primary border circle |
+| Corner radius       | extraLarge (28dp)     |
 
 ---
 
@@ -930,6 +960,7 @@ DatePicker
 **Material Name**: Data Table
 
 **Anatomy**:
+
 ```
 DataTable
 ├── Table Header
@@ -941,26 +972,27 @@ DataTable
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Row height | 52dp |
-| Header height | 56dp |
-| Cell padding | 16dp horizontal |
-| Separator | 1dp, full width |
+| Property      | Value           |
+| ------------- | --------------- |
+| Row height    | 52dp            |
+| Header height | 56dp            |
+| Cell padding  | 16dp horizontal |
+| Separator     | 1dp, full width |
 
 **Table Header**:
+
 - Font: titleSmall 14pt Medium
 - Color: onSurface
 - Background: surface
 
 **Row States**:
 
-| State | Background | Description |
-|---|---|---|
-| Default | transparent | Default |
-| Hover | onSurface 8% | Hover |
-| Selected | onSurface 12% | Selected |
-| Pressed | onSurface 12% | Pressed |
+| State    | Background    | Description |
+| -------- | ------------- | ----------- |
+| Default  | transparent   | Default     |
+| Hover    | onSurface 8%  | Hover       |
+| Selected | onSurface 12% | Selected    |
+| Pressed  | onSurface 12% | Pressed     |
 
 ---
 
@@ -969,6 +1001,7 @@ DataTable
 **Material Name**: No direct equivalent
 
 **Anatomy**:
+
 ```
 Breadcrumb
 ├── Item
@@ -980,13 +1013,13 @@ Breadcrumb
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Item font | bodyMedium 14pt |
-| Separator | "/" |
-| Separator color | outline |
-| Current item | onSurface |
-| Clickable item | primary |
+| Property        | Value           |
+| --------------- | --------------- |
+| Item font       | bodyMedium 14pt |
+| Separator       | "/"             |
+| Separator color | outline         |
+| Current item    | onSurface       |
+| Clickable item  | primary         |
 
 ---
 
@@ -995,6 +1028,7 @@ Breadcrumb
 **Material Name**: Exposed Dropdown Menu / Select
 
 **Anatomy**:
+
 ```
 Select
 ├── Anchor (Text Field style)
@@ -1010,31 +1044,33 @@ Select
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Anchor minimum height | 56dp |
-| Horizontal padding | 16dp |
-| Anchor corner radius | small (8dp) |
-| Menu corner radius | medium (12dp) |
-| Menu item height | 48dp |
-| Menu shadow | 3dp |
+| Property              | Value         |
+| --------------------- | ------------- |
+| Anchor minimum height | 56dp          |
+| Horizontal padding    | 16dp          |
+| Anchor corner radius  | small (8dp)   |
+| Menu corner radius    | medium (12dp) |
+| Menu item height      | 48dp          |
+| Menu shadow           | 3dp           |
 
 **States**:
 
-| State | Border | Container | Label | Description |
-|---|---|---|---|---|
-| Default | outline | transparent | onSurfaceVariant | Default |
-| Hover | onSurface | transparent | onSurfaceVariant | Hover |
-| Focused / Open | primary | transparent | primary | Focused/Expanded |
-| Filled | outline | transparent | onSurfaceVariant | Has selected value |
-| Error | error | transparent | error | Error |
-| Disabled | onSurface 38% | onSurface 12% | onSurface 38% | Disabled |
+| State          | Border        | Container     | Label            | Description        |
+| -------------- | ------------- | ------------- | ---------------- | ------------------ |
+| Default        | outline       | transparent   | onSurfaceVariant | Default            |
+| Hover          | onSurface     | transparent   | onSurfaceVariant | Hover              |
+| Focused / Open | primary       | transparent   | primary          | Focused/Expanded   |
+| Filled         | outline       | transparent   | onSurfaceVariant | Has selected value |
+| Error          | error         | transparent   | error            | Error              |
+| Disabled       | onSurface 38% | onSurface 12% | onSurface 38%    | Disabled           |
 
 **Variants**:
+
 - **Filled**: surfaceContainerHighest background, bottom 1dp indicator line
 - **Outlined**: Transparent background, outline border (default)
 
 **Accessibility**:
+
 - Touch target >= 48x48dp
 - Expanded menu supports keyboard up/down navigation
 - Selected item provides visual marker, role association
@@ -1046,6 +1082,7 @@ Select
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (auto-complete based on Menu + Text Field)
 
 **Anatomy**:
+
 ```
 Autocomplete
 ├── Text Field
@@ -1061,35 +1098,36 @@ Autocomplete
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Input field minimum height | 56dp |
-| Horizontal padding | 16dp |
-| Input corner radius | small (8dp) |
-| Suggestion menu corner radius | medium (12dp) |
-| Suggestion item height | 48dp |
-| Suggestion menu background | surfaceContainer |
-| Suggestion menu shadow | 3dp |
+| Property                      | Value            |
+| ----------------------------- | ---------------- |
+| Input field minimum height    | 56dp             |
+| Horizontal padding            | 16dp             |
+| Input corner radius           | small (8dp)      |
+| Suggestion menu corner radius | medium (12dp)    |
+| Suggestion item height        | 48dp             |
+| Suggestion menu background    | surfaceContainer |
+| Suggestion menu shadow        | 3dp              |
 
 **States**:
 
-| State | Border | Container | Description |
-|---|---|---|---|
-| Default | outline | transparent | Default |
-| Hover | onSurface | transparent | Hover |
-| Focused | primary | transparent | Focused (show suggestions) |
-| Error | error | transparent | Error |
-| Disabled | onSurface 38% | onSurface 12% | Disabled |
+| State    | Border        | Container     | Description                |
+| -------- | ------------- | ------------- | -------------------------- |
+| Default  | outline       | transparent   | Default                    |
+| Hover    | onSurface     | transparent   | Hover                      |
+| Focused  | primary       | transparent   | Focused (show suggestions) |
+| Error    | error         | transparent   | Error                      |
+| Disabled | onSurface 38% | onSurface 12% | Disabled                   |
 
 **Suggestion Item States**:
 
-| State | Background | Text | Description |
-|---|---|---|---|
-| Default | transparent | onSurface | Default |
-| Hover | onSurface 8% | onSurface | Hover |
+| State             | Background    | Text      | Description       |
+| ----------------- | ------------- | --------- | ----------------- |
+| Default           | transparent   | onSurface | Default           |
+| Hover             | onSurface 8%  | onSurface | Hover             |
 | Active (keyboard) | onSurface 12% | onSurface | Keyboard selected |
 
 **Accessibility**:
+
 - Touch target >= 48x48dp
 - Input updates suggestion list in real-time
 - Keyboard up/down to select, Enter to confirm, Esc to close
@@ -1102,6 +1140,7 @@ Autocomplete
 **Material Name**: Text Field (multiline)
 
 **Anatomy**:
+
 ```
 Textarea
 ├── Container
@@ -1113,33 +1152,35 @@ Textarea
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum height | 56dp (single line start) |
-| Horizontal padding | 16dp |
-| Vertical padding | 16dp |
-| Corner radius | small (8dp) |
-| Border | 1dp solid outline |
-| Line height | bodyLarge 24pt |
+| Property           | Value                    |
+| ------------------ | ------------------------ |
+| Minimum height     | 56dp (single line start) |
+| Horizontal padding | 16dp                     |
+| Vertical padding   | 16dp                     |
+| Corner radius      | small (8dp)              |
+| Border             | 1dp solid outline        |
+| Line height        | bodyLarge 24pt           |
 
 **States**:
 
-| State | Border | Container | Label | Description |
-|---|---|---|---|---|
-| Default | outline | transparent | onSurfaceVariant | Default |
-| Hover | onSurface | transparent | onSurfaceVariant | Hover |
-| Focused | primary | transparent | primary | Focused |
-| Filled | outline | transparent | onSurfaceVariant | Has content |
-| Error | error | transparent | error | Error |
-| Disabled | onSurface 38% | onSurface 12% | onSurface 38% | Disabled |
+| State    | Border        | Container     | Label            | Description |
+| -------- | ------------- | ------------- | ---------------- | ----------- |
+| Default  | outline       | transparent   | onSurfaceVariant | Default     |
+| Hover    | onSurface     | transparent   | onSurfaceVariant | Hover       |
+| Focused  | primary       | transparent   | primary          | Focused     |
+| Filled   | outline       | transparent   | onSurfaceVariant | Has content |
+| Error    | error         | transparent   | error            | Error       |
+| Disabled | onSurface 38% | onSurface 12% | onSurface 38%    | Disabled    |
 
 **Variants**:
+
 - **Filled**: surfaceContainerHighest background, bottom indicator line
 - **Outlined**: Transparent background, outline border (default)
 - **Auto-grow**: Auto-increases height with content
 - **Fixed**: Fixed height, scroll when overflow
 
 **Accessibility**:
+
 - Floating label associated with input area
 - Character counter assists with limit indication
 - Support keyboard navigation and text scaling
@@ -1151,6 +1192,7 @@ Textarea
 **Material Name**: No native spinner component; the following is a reasonable implementation derived from Material 3 design language (Text Field + stepper buttons)
 
 **Anatomy**:
+
 ```
 NumberInput
 ├── Text Field
@@ -1163,34 +1205,35 @@ NumberInput
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum height | 56dp |
-| Horizontal padding | 16dp |
-| Corner radius | small (8dp) |
-| Stepper button width | 48dp |
-| Stepper button touch area | 48x48dp |
-| Stepper icon | 24x24dp |
+| Property                  | Value       |
+| ------------------------- | ----------- |
+| Minimum height            | 56dp        |
+| Horizontal padding        | 16dp        |
+| Corner radius             | small (8dp) |
+| Stepper button width      | 48dp        |
+| Stepper button touch area | 48x48dp     |
+| Stepper icon              | 24x24dp     |
 
 **States**:
 
-| State | Border | Container | Stepper Button | Description |
-|---|---|---|---|---|
-| Default | outline | transparent | onSurfaceVariant | Default |
-| Hover | onSurface | transparent | onSurface | Hover |
-| Focused | primary | transparent | primary | Focused |
-| Error | error | transparent | error | Out of bounds/Error |
-| Disabled | onSurface 38% | onSurface 12% | onSurface 38% | Disabled |
+| State    | Border        | Container     | Stepper Button   | Description         |
+| -------- | ------------- | ------------- | ---------------- | ------------------- |
+| Default  | outline       | transparent   | onSurfaceVariant | Default             |
+| Hover    | onSurface     | transparent   | onSurface        | Hover               |
+| Focused  | primary       | transparent   | primary          | Focused             |
+| Error    | error         | transparent   | error            | Out of bounds/Error |
+| Disabled | onSurface 38% | onSurface 12% | onSurface 38%    | Disabled            |
 
 **Stepper Button States**:
 
-| State | State Layer | Description |
-|---|---|---|
-| Hover | onSurface 8% | Hover |
-| Pressed | onSurface 12% | Pressed (with Ripple) |
+| State    | State Layer   | Description                        |
+| -------- | ------------- | ---------------------------------- |
+| Hover    | onSurface 8%  | Hover                              |
+| Pressed  | onSurface 12% | Pressed (with Ripple)              |
 | At Limit | onSurface 38% | Reached upper/lower limit disabled |
 
 **Accessibility**:
+
 - Stepper button touch target >= 48x48dp
 - Support keyboard up/down to increment/decrement
 - Out-of-bounds values enter Error state with prompt
@@ -1202,6 +1245,7 @@ NumberInput
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (based on Button + List)
 
 **Anatomy**:
+
 ```
 Upload
 ├── Trigger
@@ -1217,36 +1261,37 @@ Upload
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Button height | 40dp |
-| Drop zone height | >= 120dp |
-| Drop zone corner radius | medium (12dp) |
-| Drop zone border | 1dp dashed outline |
-| File item height | 56dp |
-| File item padding | 16dp horizontal |
-| File item background | surfaceContainerLow |
+| Property                | Value               |
+| ----------------------- | ------------------- |
+| Button height           | 40dp                |
+| Drop zone height        | >= 120dp            |
+| Drop zone corner radius | medium (12dp)       |
+| Drop zone border        | 1dp dashed outline  |
+| File item height        | 56dp                |
+| File item padding       | 16dp horizontal     |
+| File item background    | surfaceContainerLow |
 
 **States**:
 
-| State | Drop Zone Border | Background | Description |
-|---|---|---|---|
-| Default | outline (dashed) | surface | Default |
-| Hover / Drag Over | primary (dashed) | primaryContainer | Drag active |
-| Uploading | primary | surface | Uploading (progress bar) |
-| Success | outline | surfaceContainerLow | Complete |
-| Error | error | errorContainer | Failed |
-| Disabled | onSurface 38% | onSurface 12% | Disabled |
+| State             | Drop Zone Border | Background          | Description              |
+| ----------------- | ---------------- | ------------------- | ------------------------ |
+| Default           | outline (dashed) | surface             | Default                  |
+| Hover / Drag Over | primary (dashed) | primaryContainer    | Drag active              |
+| Uploading         | primary          | surface             | Uploading (progress bar) |
+| Success           | outline          | surfaceContainerLow | Complete                 |
+| Error             | error            | errorContainer      | Failed                   |
+| Disabled          | onSurface 38%    | onSurface 12%       | Disabled                 |
 
 **File Item States**:
 
-| State | Icon/Text | Description |
-|---|---|---|
+| State     | Icon/Text               | Description |
+| --------- | ----------------------- | ----------- |
 | Uploading | primary linear progress | In progress |
-| Success | primary check | Success |
-| Error | error icon | Failed |
+| Success   | primary check           | Success     |
+| Error     | error icon              | Failed      |
 
 **Accessibility**:
+
 - Button touch target >= 48x48dp
 - Drop zone also supports click to select
 - Upload progress and status text prompts
@@ -1259,6 +1304,7 @@ Upload
 **Material Name**: Snackbar
 
 **Anatomy**:
+
 ```
 Snackbar
 ├── Container
@@ -1269,37 +1315,40 @@ Snackbar
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum height | 48dp |
-| Minimum width | 344dp |
-| Maximum width | 600dp |
-| Horizontal padding | 16dp |
-| Corner radius | extraSmall (4dp) |
-| Background | inverseSurface |
-| Text | inverseOnSurface, bodyMedium 14pt |
-| Action text | inversePrimary, labelLarge 14pt |
-| Shadow | 3dp |
+| Property           | Value                             |
+| ------------------ | --------------------------------- |
+| Minimum height     | 48dp                              |
+| Minimum width      | 344dp                             |
+| Maximum width      | 600dp                             |
+| Horizontal padding | 16dp                              |
+| Corner radius      | extraSmall (4dp)                  |
+| Background         | inverseSurface                    |
+| Text               | inverseOnSurface, bodyMedium 14pt |
+| Action text        | inversePrimary, labelLarge 14pt   |
+| Shadow             | 3dp                               |
 
 **States**:
 
-| State | Background | Description |
-|---|---|---|
-| Visible | inverseSurface | Showing |
+| State        | Background                      | Description  |
+| ------------ | ------------------------------- | ------------ |
+| Visible      | inverseSurface                  | Showing      |
 | Action Hover | inverseSurface + 8% state layer | Action hover |
-| Dismissing | inverseSurface | Fading out |
+| Dismissing   | inverseSurface                  | Fading out   |
 
 **Variants**:
+
 - **Single-line**: Single line text, with/without action
 - **Two-line**: Two lines of text
 - **With Action**: Includes action button, right-aligned
 
 **Motion**:
+
 - Entry: 250ms decelerate, slides up from bottom
 - Exit: 200ms accelerate
 - Default duration: 4-10s auto-dismiss
 
 **Accessibility**:
+
 - Action button touch target >= 48x48dp
 - Does not interrupt current user operation
 - Can be manually operated before auto-dismiss
@@ -1311,6 +1360,7 @@ Snackbar
 **Material Name**: No independent component; the following is a reasonable implementation derived from Material 3 design language (in-app notification)
 
 **Anatomy**:
+
 ```
 Notification
 ├── Container
@@ -1325,34 +1375,36 @@ Notification
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum width | 344dp |
-| Maximum width | 416dp |
-| Padding | 16dp |
-| Corner radius | medium (12dp) |
-| Background | surfaceContainerHigh |
-| Title font | titleMedium 16pt |
-| Body font | bodyMedium 14pt |
+| Property       | Value                            |
+| -------------- | -------------------------------- |
+| Minimum width  | 344dp                            |
+| Maximum width  | 416dp                            |
+| Padding        | 16dp                             |
+| Corner radius  | medium (12dp)                    |
+| Background     | surfaceContainerHigh             |
+| Title font     | titleMedium 16pt                 |
+| Body font      | bodyMedium 14pt                  |
 | Timestamp font | bodySmall 12pt, onSurfaceVariant |
-| Shadow | 3dp |
+| Shadow         | 3dp                              |
 
 **States**:
 
-| State | Background | Description |
-|---|---|---|
-| Default | surfaceContainerHigh | Default |
-| Unread | surfaceContainerHigh + primary marker | Unread |
-| Hover | surfaceContainerHigh + onSurface 8% | Hover |
-| Read | surfaceContainer | Read |
+| State   | Background                            | Description |
+| ------- | ------------------------------------- | ----------- |
+| Default | surfaceContainerHigh                  | Default     |
+| Unread  | surfaceContainerHigh + primary marker | Unread      |
+| Hover   | surfaceContainerHigh + onSurface 8%   | Hover       |
+| Read    | surfaceContainer                      | Read        |
 
 **Variants**:
+
 - **Info**: Default, primary icon
 - **Success**: tertiary icon
 - **Warning**: tertiaryContainer background
 - **Error**: errorContainer background, error icon
 
 **Accessibility**:
+
 - Close/action button touch target >= 48x48dp
 - Unread state visual marker
 - Real-time notifications announced via role region
@@ -1364,6 +1416,7 @@ Notification
 **Material Name**: Banner (inline embeddable prompt)
 
 **Anatomy**:
+
 ```
 Banner
 ├── Container
@@ -1376,31 +1429,33 @@ Banner
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum height | 54dp |
-| Padding | 16dp horizontal, 16dp vertical |
-| Corner radius | 0dp (flush) / medium (12dp) (card style) |
-| Background | surfaceContainerLow |
-| Text | onSurface, bodyMedium 14pt |
-| Icon | 24x24dp |
-| Bottom divider | 1dp outlineVariant |
+| Property       | Value                                    |
+| -------------- | ---------------------------------------- |
+| Minimum height | 54dp                                     |
+| Padding        | 16dp horizontal, 16dp vertical           |
+| Corner radius  | 0dp (flush) / medium (12dp) (card style) |
+| Background     | surfaceContainerLow                      |
+| Text           | onSurface, bodyMedium 14pt               |
+| Icon           | 24x24dp                                  |
+| Bottom divider | 1dp outlineVariant                       |
 
 **State/Type**:
 
-| Type | Background | Icon Color | Description |
-|---|---|---|---|
-| Info | surfaceContainerLow | primary | Information prompt |
-| Success | surfaceContainerLow | tertiary | Success |
-| Warning | tertiaryContainer | onTertiaryContainer | Warning |
-| Error | errorContainer | error | Error |
+| Type    | Background          | Icon Color          | Description        |
+| ------- | ------------------- | ------------------- | ------------------ |
+| Info    | surfaceContainerLow | primary             | Information prompt |
+| Success | surfaceContainerLow | tertiary            | Success            |
+| Warning | tertiaryContainer   | onTertiaryContainer | Warning            |
+| Error   | errorContainer      | error               | Error              |
 
 **Variants**:
+
 - **Single-line**: Single line, action right-aligned
 - **Multi-line**: Multiple lines, action below
 - **Dismissible**: Includes dismiss action
 
 **Accessibility**:
+
 - Action button touch target >= 48x48dp
 - Color contrast ratio >= 4.5:1
 - Important prompts announced via role region
@@ -1412,6 +1467,7 @@ Banner
 **Material Name**: No independent component; the following is a reasonable implementation derived from Material 3 design language (Loading placeholder)
 
 **Anatomy**:
+
 ```
 Skeleton
 ├── Placeholder Block (text / circle / rect)
@@ -1420,28 +1476,30 @@ Skeleton
 
 **Size Specifications**:
 
-| Variant | Size | Corner Radius |
-|---|---|---|
-| Text Line | Height 16dp, width adapts | extraSmall (4dp) |
-| Title Line | Height 24dp | extraSmall (4dp) |
-| Circle (avatar) | 40x40dp | full |
-| Rectangle (media) | Adapts | medium (12dp) |
-| Button | Height 40dp | full |
+| Variant           | Size                      | Corner Radius    |
+| ----------------- | ------------------------- | ---------------- |
+| Text Line         | Height 16dp, width adapts | extraSmall (4dp) |
+| Title Line        | Height 24dp               | extraSmall (4dp) |
+| Circle (avatar)   | 40x40dp                   | full             |
+| Rectangle (media) | Adapts                    | medium (12dp)    |
+| Button            | Height 40dp               | full             |
 
 **States**:
 
-| State | Background | Shimmer | Description |
-|---|---|---|---|
-| Loading | surfaceVariant | surfaceContainerHighest sweep | Loading placeholder |
-| Loaded | — | — | Content replaces placeholder |
+| State   | Background     | Shimmer                       | Description                  |
+| ------- | -------------- | ----------------------------- | ---------------------------- |
+| Loading | surfaceVariant | surfaceContainerHighest sweep | Loading placeholder          |
+| Loaded  | —              | —                             | Content replaces placeholder |
 
 **Motion**:
+
 - Shimmer sweep: 1.5s linear infinite
 - Shimmer direction: Left to right
 - Shimmer color: surfaceContainerHighest (light-dark gradient)
 - Support reduced motion preference (degrade to static pulse)
 
 **Accessibility**:
+
 - Placeholder area marked as busy state
 - Focus handed over to real content after loading
 - Does not convey semantic content, only visual placeholder
@@ -1453,6 +1511,7 @@ Skeleton
 **Material Name**: Navigation Drawer
 
 **Anatomy**:
+
 ```
 NavigationDrawer
 ├── Container
@@ -1468,33 +1527,35 @@ NavigationDrawer
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Standard width | 360dp |
-| Maximum width | 80% of screen |
-| Item height | 56dp |
-| Item padding | 16dp horizontal, 12dp vertical |
-| Item corner radius | full |
-| Background | surfaceContainerLow |
-| Padding | 12dp |
-| Shadow (modal) | 12dp (level5) |
+| Property           | Value                          |
+| ------------------ | ------------------------------ |
+| Standard width     | 360dp                          |
+| Maximum width      | 80% of screen                  |
+| Item height        | 56dp                           |
+| Item padding       | 16dp horizontal, 12dp vertical |
+| Item corner radius | full                           |
+| Background         | surfaceContainerLow            |
+| Padding            | 12dp                           |
+| Shadow (modal)     | 12dp (level5)                  |
 
 **States**:
 
-| State | Background | Text/Icon | Description |
-|---|---|---|---|
-| Default | transparent | onSurfaceVariant | Default |
-| Hover | onSurface 8% | onSurfaceVariant | Hover |
+| State             | Background         | Text/Icon            | Description  |
+| ----------------- | ------------------ | -------------------- | ------------ |
+| Default           | transparent        | onSurfaceVariant     | Default      |
+| Hover             | onSurface 8%       | onSurfaceVariant     | Hover        |
 | Active (selected) | secondaryContainer | onSecondaryContainer | Current item |
-| Pressed | onSurface 12% | onSurfaceVariant | Pressed |
-| Disabled | transparent | onSurface 38% | Disabled |
+| Pressed           | onSurface 12%      | onSurfaceVariant     | Pressed      |
+| Disabled          | transparent        | onSurface 38%        | Disabled     |
 
 **Variants**:
+
 - **Standard**: Persistent sidebar, side-by-side with content
 - **Modal**: Overlays content, with overlay (scrim onSurface 32%)
 - **Bottom**: Slides up from bottom on mobile
 
 **Accessibility**:
+
 - Item touch target >= 48x48dp
 - Modal drawer supports Esc close, focus trap
 - Current item visual and semantic marker
@@ -1506,6 +1567,7 @@ NavigationDrawer
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (paginator)
 
 **Anatomy**:
+
 ```
 Pagination
 ├── Previous Button
@@ -1518,31 +1580,33 @@ Pagination
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Page item size | 40x40dp |
-| Page item touch area | 48x48dp |
-| Page item corner radius | full |
-| Page item spacing | 4dp |
-| Font | labelLarge 14pt |
-| Arrow icon | 24x24dp |
+| Property                | Value           |
+| ----------------------- | --------------- |
+| Page item size          | 40x40dp         |
+| Page item touch area    | 48x48dp         |
+| Page item corner radius | full            |
+| Page item spacing       | 4dp             |
+| Font                    | labelLarge 14pt |
+| Arrow icon              | 24x24dp         |
 
 **States**:
 
-| State | Background | Text | Description |
-|---|---|---|---|
-| Default | transparent | onSurface | Default page item |
-| Hover | onSurface 8% | onSurface | Hover |
-| Current | primary | onPrimary | Current page |
-| Pressed | onSurface 12% | onSurface | Pressed |
-| Disabled | transparent | onSurface 38% | First/last page arrow |
+| State    | Background    | Text          | Description           |
+| -------- | ------------- | ------------- | --------------------- |
+| Default  | transparent   | onSurface     | Default page item     |
+| Hover    | onSurface 8%  | onSurface     | Hover                 |
+| Current  | primary       | onPrimary     | Current page          |
+| Pressed  | onSurface 12% | onSurface     | Pressed               |
+| Disabled | transparent   | onSurface 38% | First/last page arrow |
 
 **Variants**:
+
 - **Numbered**: Shows page numbers (default)
 - **Simple**: Previous/Next only
 - **With Page Size**: Includes items per page selector
 
 **Accessibility**:
+
 - Touch target >= 48x48dp
 - Current page semantic marker
 - Arrows keyboard accessible, disabled state not focusable
@@ -1554,6 +1618,7 @@ Pagination
 **Material Name**: Stepper (process steps)
 
 **Anatomy**:
+
 ```
 Stepper
 ├── Step
@@ -1567,31 +1632,33 @@ Stepper
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Indicator diameter | 24dp |
-| Indicator font | labelMedium 12pt |
-| Connector line width | 1dp |
-| Step spacing | 16dp |
-| Title font | titleSmall 14pt |
-| Supporting text | bodySmall 12pt |
+| Property             | Value            |
+| -------------------- | ---------------- |
+| Indicator diameter   | 24dp             |
+| Indicator font       | labelMedium 12pt |
+| Connector line width | 1dp              |
+| Step spacing         | 16dp             |
+| Title font           | titleSmall 14pt  |
+| Supporting text      | bodySmall 12pt   |
 
 **States**:
 
-| State | Indicator | Text | Connector | Description |
-|---|---|---|---|---|
-| Inactive | onSurface 38% | onSurfaceVariant | outlineVariant | Not reached |
-| Active | primary | onSurface | outlineVariant | Current step |
-| Completed | primary (check) | onSurface | primary | Completed |
-| Error | error | error | error | Step error |
-| Disabled | onSurface 12% | onSurface 38% | outlineVariant | Disabled |
+| State     | Indicator       | Text             | Connector      | Description  |
+| --------- | --------------- | ---------------- | -------------- | ------------ |
+| Inactive  | onSurface 38%   | onSurfaceVariant | outlineVariant | Not reached  |
+| Active    | primary         | onSurface        | outlineVariant | Current step |
+| Completed | primary (check) | onSurface        | primary        | Completed    |
+| Error     | error           | error            | error          | Step error   |
+| Disabled  | onSurface 12%   | onSurface 38%    | outlineVariant | Disabled     |
 
 **Variants**:
+
 - **Horizontal**: Horizontal layout, horizontal connector lines
 - **Vertical**: Vertical layout, vertical connector lines, includes expandable content
 - **Mobile**: Dot indicator + progress text
 
 **Accessibility**:
+
 - Clickable step touch target >= 48x48dp
 - Current/complete/error state semantic markers
 - Keyboard navigation between steps
@@ -1603,6 +1670,7 @@ Stepper
 **Material Name**: Bottom Sheet
 
 **Anatomy**:
+
 ```
 BottomSheet
 ├── Scrim (modal only)
@@ -1615,37 +1683,40 @@ BottomSheet
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Maximum width | 640dp |
-| Top corner radius | extraLarge (28dp) |
-| Drag handle | 32x4dp, corner radius full |
-| Handle color | onSurfaceVariant |
-| Padding | 16dp |
-| Background | surfaceContainerLow |
-| Action item height | 56dp |
-| Shadow | 12dp (level5) |
+| Property           | Value                      |
+| ------------------ | -------------------------- |
+| Maximum width      | 640dp                      |
+| Top corner radius  | extraLarge (28dp)          |
+| Drag handle        | 32x4dp, corner radius full |
+| Handle color       | onSurfaceVariant           |
+| Padding            | 16dp                       |
+| Background         | surfaceContainerLow        |
+| Action item height | 56dp                       |
+| Shadow             | 12dp (level5)              |
 
 **States**:
 
-| State | Background | Description |
-|---|---|---|
-| Collapsed | surfaceContainerLow | Collapsed (peek height) |
-| Expanded | surfaceContainerLow | Expanded |
-| Item Hover | onSurface 8% | Action item hover |
-| Item Pressed | onSurface 12% | Action item pressed |
+| State        | Background          | Description             |
+| ------------ | ------------------- | ----------------------- |
+| Collapsed    | surfaceContainerLow | Collapsed (peek height) |
+| Expanded     | surfaceContainerLow | Expanded                |
+| Item Hover   | onSurface 8%        | Action item hover       |
+| Item Pressed | onSurface 12%       | Action item pressed     |
 
 **Variants**:
+
 - **Standard**: Coexists with content, can interact with main content
 - **Modal**: With overlay (scrim onSurface 32%), blocks background
 - **Action Sheet**: Action list, each item with icon + label
 
 **Motion**:
+
 - Entry: 300ms decelerate, slides up from bottom
 - Exit: 250ms accelerate
 - Supports drag handle gesture for height adjustment
 
 **Accessibility**:
+
 - Action item touch target >= 48x48dp
 - Modal supports Esc close, focus trap
 - Drag handle provides visual grab cue
@@ -1657,6 +1728,7 @@ BottomSheet
 **Material Name**: Avatar
 
 **Anatomy**:
+
 ```
 Avatar
 ├── Container (circle)
@@ -1665,40 +1737,42 @@ Avatar
 
 **Size Specifications**:
 
-| Variant | Size | Font |
-|---|---|---|
-| Small | 24x24dp | labelSmall 11pt |
-| Medium | 40x40dp | titleMedium 16pt |
-| Large | 56x56dp | titleLarge 22pt |
+| Variant    | Size    | Font               |
+| ---------- | ------- | ------------------ |
+| Small      | 24x24dp | labelSmall 11pt    |
+| Medium     | 40x40dp | titleMedium 16pt   |
+| Large      | 56x56dp | titleLarge 22pt    |
 | ExtraLarge | 72x72dp | headlineSmall 24pt |
 
 **General Specifications**:
 
-| Property | Value |
-|---|---|
-| Corner radius | full |
-| Text background | primaryContainer |
-| Text color | onPrimaryContainer |
-| Icon background | surfaceVariant |
-| Icon color | onSurfaceVariant |
+| Property          | Value              |
+| ----------------- | ------------------ |
+| Corner radius     | full               |
+| Text background   | primaryContainer   |
+| Text color        | onPrimaryContainer |
+| Icon background   | surfaceVariant     |
+| Icon color        | onSurfaceVariant   |
 | Border (optional) | 1dp outlineVariant |
 
 **States**:
 
-| State | Description |
-|---|---|
-| Image | Displays user image |
-| Initials | Displays initials (primaryContainer background) |
-| Icon | Displays placeholder icon (surfaceVariant background) |
-| With Badge | Badge overlaid at top-right (online status/count) |
+| State      | Description                                           |
+| ---------- | ----------------------------------------------------- |
+| Image      | Displays user image                                   |
+| Initials   | Displays initials (primaryContainer background)       |
+| Icon       | Displays placeholder icon (surfaceVariant background) |
+| With Badge | Badge overlaid at top-right (online status/count)     |
 
 **Variants**:
+
 - **Image**: Picture avatar
 - **Initials**: Initials avatar
 - **Icon**: Icon placeholder avatar
 - **Group**: Multiple avatars overlapping (overlap -8dp)
 
 **Accessibility**:
+
 - Image provides alt text
 - Initials/icon avatars provide readable name
 - When clickable, touch target >= 48x48dp
@@ -1710,6 +1784,7 @@ Avatar
 **Material Name**: No independent component; the following is a reasonable implementation derived from Material 3 design language (expand/collapse based on List)
 
 **Anatomy**:
+
 ```
 Accordion
 ├── Accordion Item
@@ -1723,37 +1798,40 @@ Accordion
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Header height | 56dp |
-| Header padding | 16dp horizontal |
-| Title font | titleMedium 16pt |
-| Expand icon | 24x24dp |
-| Panel padding | 16dp |
-| Divider | 1dp outlineVariant |
+| Property           | Value                      |
+| ------------------ | -------------------------- |
+| Header height      | 56dp                       |
+| Header padding     | 16dp horizontal            |
+| Title font         | titleMedium 16pt           |
+| Expand icon        | 24x24dp                    |
+| Panel padding      | 16dp                       |
+| Divider            | 1dp outlineVariant         |
 | Item corner radius | medium (12dp) (card style) |
-| Background | surfaceContainerLow |
+| Background         | surfaceContainerLow        |
 
 **States**:
 
-| State | Header Background | Icon Direction | Description |
-|---|---|---|---|
-| Collapsed | transparent | chevron down | Collapsed |
-| Expanded | transparent | chevron up | Expanded |
-| Hover | onSurface 8% | — | Hover |
-| Pressed | onSurface 12% | — | Pressed (with Ripple) |
-| Disabled | transparent | onSurface 38% | Disabled |
+| State     | Header Background | Icon Direction | Description           |
+| --------- | ----------------- | -------------- | --------------------- |
+| Collapsed | transparent       | chevron down   | Collapsed             |
+| Expanded  | transparent       | chevron up     | Expanded              |
+| Hover     | onSurface 8%      | —              | Hover                 |
+| Pressed   | onSurface 12%     | —              | Pressed (with Ripple) |
+| Disabled  | transparent       | onSurface 38%  | Disabled              |
 
 **Variants**:
+
 - **Single**: Only one item expanded at a time
 - **Multiple**: Multiple items expanded simultaneously
 - **Flush**: No card border, only dividers
 
 **Motion**:
+
 - Expand/Collapse: 250ms standard easing
 - Icon rotation: 250ms synchronized
 
 **Accessibility**:
+
 - Header touch target >= 48x48dp
 - Expand state semantic marker, panel association
 - Keyboard Enter/Space to toggle
@@ -1765,6 +1843,7 @@ Accordion
 **Material Name**: Carousel
 
 **Anatomy**:
+
 ```
 Carousel
 ├── Item Container
@@ -1775,36 +1854,39 @@ Carousel
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Item corner radius | large (16dp) |
-| Item spacing | 8dp |
-| Large item width | Adapts (hero) |
-| Small item width | 40-56dp (collapsed preview) |
-| Indicator dot diameter | 8dp |
-| Indicator dot spacing | 8dp |
-| Navigation button touch area | 48x48dp |
+| Property                     | Value                       |
+| ---------------------------- | --------------------------- |
+| Item corner radius           | large (16dp)                |
+| Item spacing                 | 8dp                         |
+| Large item width             | Adapts (hero)               |
+| Small item width             | 40-56dp (collapsed preview) |
+| Indicator dot diameter       | 8dp                         |
+| Indicator dot spacing        | 8dp                         |
+| Navigation button touch area | 48x48dp                     |
 
 **States**:
 
-| State | Item | Indicator Dot | Description |
-|---|---|---|---|
-| Active | Fully expanded | primary | Current item |
-| Adjacent | Partially visible | onSurfaceVariant | Adjacent item |
-| Collapsed | Minimum width preview | outlineVariant | Collapsed item |
-| Hover | + onSurface 8% | — | Hover |
+| State     | Item                  | Indicator Dot    | Description    |
+| --------- | --------------------- | ---------------- | -------------- |
+| Active    | Fully expanded        | primary          | Current item   |
+| Adjacent  | Partially visible     | onSurfaceVariant | Adjacent item  |
+| Collapsed | Minimum width preview | outlineVariant   | Collapsed item |
+| Hover     | + onSurface 8%        | —                | Hover          |
 
 **Variants**:
+
 - **Multi-browse**: Multiple items of different sizes side-by-side (hero + collapsed preview)
 - **Uncontained**: Items extend beyond screen edge
 - **Hero**: Single large item + one preview item
 - **Full-screen**: Vertical full-screen swipe
 
 **Motion**:
+
 - Transition: 350ms emphasized easing
 - Item size transition smoothly deforms
 
 **Accessibility**:
+
 - Navigation button touch target >= 48x48dp
 - Supports swipe gesture and keyboard left/right
 - Current item semantic marker, indicators clickable
@@ -1816,6 +1898,7 @@ Carousel
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (timeline)
 
 **Anatomy**:
+
 ```
 Timeline
 ├── Timeline Item
@@ -1830,32 +1913,34 @@ Timeline
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Node diameter | 12dp |
-| Node icon container | 24dp |
-| Connector line width | 2dp |
-| Node to content spacing | 16dp |
-| Item vertical spacing | 24dp |
-| Title font | titleSmall 14pt |
-| Timestamp font | bodySmall 12pt, onSurfaceVariant |
-| Body font | bodyMedium 14pt |
+| Property                | Value                            |
+| ----------------------- | -------------------------------- |
+| Node diameter           | 12dp                             |
+| Node icon container     | 24dp                             |
+| Connector line width    | 2dp                              |
+| Node to content spacing | 16dp                             |
+| Item vertical spacing   | 24dp                             |
+| Title font              | titleSmall 14pt                  |
+| Timestamp font          | bodySmall 12pt, onSurfaceVariant |
+| Body font               | bodyMedium 14pt                  |
 
 **States**:
 
-| State | Node | Connector | Description |
-|---|---|---|---|
-| Default | outline | outlineVariant | Normal node |
-| Active | primary | outlineVariant | Current/in-progress |
-| Completed | primary (filled) | primary | Completed |
-| Error | error | error | Error node |
+| State     | Node             | Connector      | Description         |
+| --------- | ---------------- | -------------- | ------------------- |
+| Default   | outline          | outlineVariant | Normal node         |
+| Active    | primary          | outlineVariant | Current/in-progress |
+| Completed | primary (filled) | primary        | Completed           |
+| Error     | error            | error          | Error node          |
 
 **Variants**:
+
 - **Left-aligned**: Node left, content right (default)
 - **Alternate**: Content alternates left/right
 - **With Icon**: Node displays status icon
 
 **Accessibility**:
+
 - Chronological order expressed through structure
 - Node status color contrast >= 4.5:1
 - Clickable node touch target >= 48x48dp
@@ -1867,6 +1952,7 @@ Timeline
 **Material Name**: No independent native component; the following is a reasonable implementation derived from Material 3 design language (tree list)
 
 **Anatomy**:
+
 ```
 Tree
 ├── Tree Node
@@ -1880,32 +1966,34 @@ Tree
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Node height | 48dp |
-| Node padding | 16dp horizontal |
-| Indent per level | 24dp |
-| Expand icon | 24x24dp |
-| Label font | bodyLarge 16pt |
+| Property           | Value                 |
+| ------------------ | --------------------- |
+| Node height        | 48dp                  |
+| Node padding       | 16dp horizontal       |
+| Indent per level   | 24dp                  |
+| Expand icon        | 24x24dp               |
+| Label font         | bodyLarge 16pt        |
 | Node corner radius | full (selected state) |
 
 **States**:
 
-| State | Background | Icon Direction | Description |
-|---|---|---|---|
-| Collapsed | transparent | chevron right | Collapsed |
-| Expanded | transparent | chevron down | Expanded |
-| Hover | onSurface 8% | — | Hover |
-| Selected | secondaryContainer | — | Selected |
-| Pressed | onSurface 12% | — | Pressed |
-| Disabled | transparent | onSurface 38% | Disabled |
+| State     | Background         | Icon Direction | Description |
+| --------- | ------------------ | -------------- | ----------- |
+| Collapsed | transparent        | chevron right  | Collapsed   |
+| Expanded  | transparent        | chevron down   | Expanded    |
+| Hover     | onSurface 8%       | —              | Hover       |
+| Selected  | secondaryContainer | —              | Selected    |
+| Pressed   | onSurface 12%      | —              | Pressed     |
+| Disabled  | transparent        | onSurface 38%  | Disabled    |
 
 **Variants**:
+
 - **Single Select**: Single node selection
 - **Multi Select**: With Checkbox multi-selection
 - **With Lines**: Shows hierarchy guide lines (outlineVariant)
 
 **Accessibility**:
+
 - Node touch target >= 48x48dp
 - Expand/collapse and hierarchy semantic markers
 - Keyboard up/down navigation, left/right collapse/expand
@@ -1917,6 +2005,7 @@ Tree
 **Material Name**: Divider
 
 **Anatomy**:
+
 ```
 Divider
 └── Line (horizontal / vertical)
@@ -1924,31 +2013,33 @@ Divider
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Line width | 1dp |
-| Color | outlineVariant |
-| Full width | No indent |
-| Inset indent | Left 16dp |
-| Middle inset | Left and right 16dp each |
-| Vertical divider height | Adapts to content |
+| Property                | Value                    |
+| ----------------------- | ------------------------ |
+| Line width              | 1dp                      |
+| Color                   | outlineVariant           |
+| Full width              | No indent                |
+| Inset indent            | Left 16dp                |
+| Middle inset            | Left and right 16dp each |
+| Vertical divider height | Adapts to content        |
 
 **Variants**:
 
-| Variant | Description |
-|---|---|
-| Full-width | Spans entire container width |
-| Inset | Left inset 16dp (aligns with text) |
-| Middle Inset | Left and right inset, centered |
-| Vertical | Vertical direction separator |
-| With Text | Contains centered text (line segments on both sides) |
+| Variant      | Description                                          |
+| ------------ | ---------------------------------------------------- |
+| Full-width   | Spans entire container width                         |
+| Inset        | Left inset 16dp (aligns with text)                   |
+| Middle Inset | Left and right inset, centered                       |
+| Vertical     | Vertical direction separator                         |
+| With Text    | Contains centered text (line segments on both sides) |
 
 **With Text Specifications**:
+
 - Text font: bodySmall 12pt
 - Text color: onSurfaceVariant
 - Text spacing on both sides: 16dp
 
 **Accessibility**:
+
 - Only serves as visual separator, marked as decorative
 - Does not receive focus, does not convey semantic content
 - Color is non-interactive low contrast, suitable for separation
@@ -1960,6 +2051,7 @@ Divider
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (responsive grid based on section 4 layout grid breakpoints)
 
 **Anatomy**:
+
 ```
 Grid
 ├── Container (max-width constraint)
@@ -1971,28 +2063,30 @@ Grid
 
 **Size Specifications (Responsive Breakpoints)**:
 
-| Breakpoint | Width | Columns | Gutter | Margin |
-|---|---|---|---|---|
-| Compact | < 600dp | 4 | 16dp | 16dp |
-| Medium | 600-840dp | 8 | 24dp | 24dp |
-| Expanded | 840-1200dp | 12 | 24dp | 24dp |
-| Large | 1200-1600dp | 12 | 24dp | 24dp |
-| ExtraLarge | > 1600dp | 12 | 24dp | 24dp |
+| Breakpoint | Width       | Columns | Gutter | Margin |
+| ---------- | ----------- | ------- | ------ | ------ |
+| Compact    | < 600dp     | 4       | 16dp   | 16dp   |
+| Medium     | 600-840dp   | 8       | 24dp   | 24dp   |
+| Expanded   | 840-1200dp  | 12      | 24dp   | 24dp   |
+| Large      | 1200-1600dp | 12      | 24dp   | 24dp   |
+| ExtraLarge | > 1600dp    | 12      | 24dp   | 24dp   |
 
 **General Specifications**:
 
-| Property | Value |
-|---|---|
-| Base unit | 8dp grid |
+| Property     | Value                                               |
+| ------------ | --------------------------------------------------- |
+| Base unit    | 8dp grid                                            |
 | Column width | (Container width - margin - spacing) / column count |
-| Column span | 1 to column count |
+| Column span  | 1 to column count                                   |
 
 **Variants**:
+
 - **Fixed**: Fixed column count, column width adapts
 - **Fluid**: Flowing, scales with container
 - **Auto-fit**: Content auto-wraps to fill
 
 **Accessibility**:
+
 - Layout structure only, does not affect DOM reading order
 - Responsive breakpoints ensure small screen readability
 - Grid adapts and reflows during content scaling
@@ -2004,6 +2098,7 @@ Grid
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (spacing layout container)
 
 **Anatomy**:
+
 ```
 Stack
 ├── Child
@@ -2014,31 +2109,33 @@ Stack
 
 **Size Specifications (Spacing values, following 8dp grid)**:
 
-| Token | Value | Usage |
-|---|---|---|
-| none | 0dp | No spacing |
-| extraSmall | 4dp | Very tight |
-| small | 8dp | Default element spacing |
-| medium | 16dp | Standard padding |
-| large | 24dp | Component spacing |
-| extraLarge | 32dp | Section spacing |
+| Token      | Value | Usage                   |
+| ---------- | ----- | ----------------------- |
+| none       | 0dp   | No spacing              |
+| extraSmall | 4dp   | Very tight              |
+| small      | 8dp   | Default element spacing |
+| medium     | 16dp  | Standard padding        |
+| large      | 24dp  | Component spacing       |
+| extraLarge | 32dp  | Section spacing         |
 
 **Properties**:
 
-| Property | Options | Description |
-|---|---|---|
-| Direction | horizontal / vertical | Layout direction |
-| Spacing | Tokens from table above | Gap between children |
-| Alignment | start / center / end / stretch | Cross-axis alignment |
-| Justify | start / center / between / around | Main-axis distribution |
-| Wrap | wrap / nowrap | Whether to wrap |
+| Property  | Options                           | Description            |
+| --------- | --------------------------------- | ---------------------- |
+| Direction | horizontal / vertical             | Layout direction       |
+| Spacing   | Tokens from table above           | Gap between children   |
+| Alignment | start / center / end / stretch    | Cross-axis alignment   |
+| Justify   | start / center / between / around | Main-axis distribution |
+| Wrap      | wrap / nowrap                     | Whether to wrap        |
 
 **Variants**:
+
 - **Horizontal**: Horizontal layout
 - **Vertical**: Vertical layout
 - **Wrap**: Auto-wrap when overflow (spacing applies to both rows and columns)
 
 **Accessibility**:
+
 - Layout container only, does not convey semantics
 - Maintain DOM reading order consistent with visual order
 - Spacing follows 8dp grid to ensure rhythm
@@ -2050,6 +2147,7 @@ Stack
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (aspect ratio container)
 
 **Anatomy**:
+
 ```
 AspectRatio
 ├── Container (fixed ratio)
@@ -2058,33 +2156,34 @@ AspectRatio
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Width | 100% (adapts to parent container) |
-| Height | Automatically calculated from ratio |
-| Corner radius | medium (12dp) (media card default) |
-| Content clipping | cover (fill and clip) |
-| Background (loading) | surfaceVariant |
+| Property             | Value                               |
+| -------------------- | ----------------------------------- |
+| Width                | 100% (adapts to parent container)   |
+| Height               | Automatically calculated from ratio |
+| Corner radius        | medium (12dp) (media card default)  |
+| Content clipping     | cover (fill and clip)               |
+| Background (loading) | surfaceVariant                      |
 
 **Common Ratios**:
 
-| Ratio | Usage |
-|---|---|
-| 1:1 | Avatar, square media |
-| 4:3 | Standard image |
-| 16:9 | Video, wide media |
-| 3:2 | Photo |
-| 21:9 | Ultra-wide banner |
+| Ratio | Usage                |
+| ----- | -------------------- |
+| 1:1   | Avatar, square media |
+| 4:3   | Standard image       |
+| 16:9  | Video, wide media    |
+| 3:2   | Photo                |
+| 21:9  | Ultra-wide banner    |
 
 **States**:
 
-| State | Background | Description |
-|---|---|---|
-| Loading | surfaceVariant | Media loading placeholder |
-| Loaded | Content | Media displayed |
-| Error | surfaceVariant + icon | Loading failed |
+| State   | Background            | Description               |
+| ------- | --------------------- | ------------------------- |
+| Loading | surfaceVariant        | Media loading placeholder |
+| Loaded  | Content               | Media displayed           |
+| Error   | surfaceVariant + icon | Loading failed            |
 
 **Accessibility**:
+
 - Container only maintains ratio, does not convey semantics
 - Contained media provides alt text
 - Maintaining ratio prevents content scaling jumps
@@ -2096,6 +2195,7 @@ AspectRatio
 **Material Name**: No independent component; the following is a reasonable implementation derived from Material 3 design language (floating panel based on Menu/surface)
 
 **Anatomy**:
+
 ```
 Popover
 ├── Trigger (anchor)
@@ -2108,34 +2208,37 @@ Popover
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Minimum width | 112dp |
-| Maximum width | 320dp |
-| Padding | 16dp |
-| Corner radius | medium (12dp) |
-| Background | surfaceContainer |
-| Shadow | 3dp (level3) |
-| Anchor spacing | 8dp |
+| Property       | Value            |
+| -------------- | ---------------- |
+| Minimum width  | 112dp            |
+| Maximum width  | 320dp            |
+| Padding        | 16dp             |
+| Corner radius  | medium (12dp)    |
+| Background     | surfaceContainer |
+| Shadow         | 3dp (level3)     |
+| Anchor spacing | 8dp              |
 
 **States**:
 
-| State | Background | Description |
-|---|---|---|
-| Hidden | — | Hidden |
-| Visible | surfaceContainer | Visible |
-| Closing | surfaceContainer | Fading out |
+| State   | Background       | Description |
+| ------- | ---------------- | ----------- |
+| Hidden  | —                | Hidden      |
+| Visible | surfaceContainer | Visible     |
+| Closing | surfaceContainer | Fading out  |
 
 **Variants**:
+
 - **Menu Popover**: Content as action list
 - **Rich Popover**: Includes title, body, and actions
 - **With Arrow**: Arrow pointing to anchor
 
 **Motion**:
+
 - Entry: 150ms decelerate, scale expand from anchor
 - Exit: 100ms accelerate
 
 **Accessibility**:
+
 - Trigger touch target >= 48x48dp
 - Supports Esc close, click outside to close
 - Focus moves into floating panel, returns to trigger on close
@@ -2147,6 +2250,7 @@ Popover
 **Material Name**: Full-screen Dialog (full screen, distinct from 8.9 regular Dialog)
 
 **Anatomy**:
+
 ```
 FullScreenDialog
 ├── Top App Bar
@@ -2158,34 +2262,37 @@ FullScreenDialog
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Width | 100% (full screen) |
-| Height | 100% (full screen) |
-| Top bar height | 64dp |
-| Corner radius | 0dp (full screen) |
-| Background | surface |
-| Content padding | 24dp |
-| Title font | titleLarge 22pt |
-| Top bar shadow | 3dp when scrolled |
+| Property        | Value              |
+| --------------- | ------------------ |
+| Width           | 100% (full screen) |
+| Height          | 100% (full screen) |
+| Top bar height  | 64dp               |
+| Corner radius   | 0dp (full screen)  |
+| Background      | surface            |
+| Content padding | 24dp               |
+| Title font      | titleLarge 22pt    |
+| Top bar shadow  | 3dp when scrolled  |
 
 **States**:
 
-| State | Description |
-|---|---|
-| Open | Full screen cover, enters from bottom |
-| Scrolled | Top bar shadow 3dp |
-| Closing | Exit animation |
+| State    | Description                           |
+| -------- | ------------------------------------- |
+| Open     | Full screen cover, enters from bottom |
+| Scrolled | Top bar shadow 3dp                    |
+| Closing  | Exit animation                        |
 
 **Variants**:
+
 - **Full-screen**: Full screen on mobile (default)
 - **Centered (large screen)**: Degrades to centered large Dialog on large screen, corner radius extraLarge (28dp)
 
 **Motion**:
+
 - Entry: 300ms decelerate, slides up from bottom
 - Exit: 250ms accelerate
 
 **Accessibility**:
+
 - Close/confirm button touch target >= 48x48dp
 - Focus trap, Esc close
 - Focus moves to first interactive element on open
@@ -2197,6 +2304,7 @@ FullScreenDialog
 **Material Name**: FAB (Floating Action Button, native component)
 
 **Anatomy**:
+
 ```
 FAB
 ├── Container (circle / capsule)
@@ -2206,33 +2314,34 @@ FAB
 
 **Size Specifications**:
 
-| Variant | Size | Icon | Corner Radius |
-|---|---|---|---|
-| Small | 40x40dp | 24x24dp | medium (12dp) |
-| Standard | 56x56dp | 24x24dp | large (16dp) |
-| Large | 96x96dp | 36x36dp | extraLarge (28dp) |
-| Extended | Height 56dp, horizontal padding 16dp | 24x24dp | large (16dp) |
+| Variant  | Size                                 | Icon    | Corner Radius     |
+| -------- | ------------------------------------ | ------- | ----------------- |
+| Small    | 40x40dp                              | 24x24dp | medium (12dp)     |
+| Standard | 56x56dp                              | 24x24dp | large (16dp)      |
+| Large    | 96x96dp                              | 36x36dp | extraLarge (28dp) |
+| Extended | Height 56dp, horizontal padding 16dp | 24x24dp | large (16dp)      |
 
 **General Specifications**:
 
-| Property | Value |
-|---|---|
-| Background | primaryContainer |
-| Icon/Text | onPrimaryContainer |
+| Property   | Value                      |
+| ---------- | -------------------------- |
+| Background | primaryContainer           |
+| Icon/Text  | onPrimaryContainer         |
 | Label font | labelLarge 14pt (Extended) |
-| Shadow | 6dp (level3) |
+| Shadow     | 6dp (level3)               |
 
 **States**:
 
-| State | Container | Shadow | Description |
-|---|---|---|---|
-| Default | primaryContainer | 6dp | Default |
-| Hover | primaryContainer + 8% onPrimaryContainer | 8dp | Hover |
-| Pressed | primaryContainer + 12% onPrimaryContainer | 6dp | Pressed (Ripple) |
-| Focused | primaryContainer + 12% state layer | 6dp | Focused |
-| Disabled | onSurface 12% | 0dp | onSurface 38% icon |
+| State    | Container                                 | Shadow | Description        |
+| -------- | ----------------------------------------- | ------ | ------------------ |
+| Default  | primaryContainer                          | 6dp    | Default            |
+| Hover    | primaryContainer + 8% onPrimaryContainer  | 8dp    | Hover              |
+| Pressed  | primaryContainer + 12% onPrimaryContainer | 6dp    | Pressed (Ripple)   |
+| Focused  | primaryContainer + 12% state layer        | 6dp    | Focused            |
+| Disabled | onSurface 12%                             | 0dp    | onSurface 38% icon |
 
 **Variants**:
+
 - **Small**: Compact scenario
 - **Standard**: Default primary action
 - **Large**: Emphasized primary action
@@ -2240,6 +2349,7 @@ FAB
 - **Color variants**: Surface / Secondary / Tertiary container colors
 
 **Accessibility**:
+
 - Touch target >= 48x48dp (Small needs expanded touch area)
 - Primary action semantic marker, provides readable label
 - Extended text improves identifiability
@@ -2251,6 +2361,7 @@ FAB
 **Material Name**: Search Bar
 
 **Anatomy**:
+
 ```
 SearchBar
 ├── Container
@@ -2263,34 +2374,36 @@ SearchBar
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Height | 56dp |
-| Minimum width | 360dp |
-| Maximum width | 720dp |
-| Horizontal padding | 16dp |
-| Corner radius | full |
-| Background | surfaceContainerHigh |
-| Text font | bodyLarge 16pt |
-| Icon | 24x24dp |
-| Shadow | Static 0dp, expanded 3dp |
+| Property           | Value                    |
+| ------------------ | ------------------------ |
+| Height             | 56dp                     |
+| Minimum width      | 360dp                    |
+| Maximum width      | 720dp                    |
+| Horizontal padding | 16dp                     |
+| Corner radius      | full                     |
+| Background         | surfaceContainerHigh     |
+| Text font          | bodyLarge 16pt           |
+| Icon               | 24x24dp                  |
+| Shadow             | Static 0dp, expanded 3dp |
 
 **States**:
 
-| State | Background | Text | Description |
-|---|---|---|---|
-| Default | surfaceContainerHigh | onSurfaceVariant (placeholder) | Default |
-| Hover | surfaceContainerHigh + onSurface 8% | onSurfaceVariant | Hover |
-| Focused / Active | surfaceContainerHigh | onSurface | Focused (expand suggestion view) |
-| Filled | surfaceContainerHigh | onSurface | Has input |
-| Disabled | onSurface 12% | onSurface 38% | Disabled |
+| State            | Background                          | Text                           | Description                      |
+| ---------------- | ----------------------------------- | ------------------------------ | -------------------------------- |
+| Default          | surfaceContainerHigh                | onSurfaceVariant (placeholder) | Default                          |
+| Hover            | surfaceContainerHigh + onSurface 8% | onSurfaceVariant               | Hover                            |
+| Focused / Active | surfaceContainerHigh                | onSurface                      | Focused (expand suggestion view) |
+| Filled           | surfaceContainerHigh                | onSurface                      | Has input                        |
+| Disabled         | onSurface 12%                       | onSurface 38%                  | Disabled                         |
 
 **Variants**:
+
 - **Search Bar**: Persistent search bar (default)
 - **Search View**: Full-screen/expanded suggestion view when focused
 - **Docked**: Fixed attached to top
 
 **Accessibility**:
+
 - Touch target >= 48x48dp
 - Icon buttons provide readable labels
 - Suggestion list keyboard navigable, Esc to dismiss
@@ -2302,6 +2415,7 @@ SearchBar
 **Material Name**: No independent native component; the following is a reasonable implementation derived from Material 3 design language (star rating)
 
 **Anatomy**:
+
 ```
 Rating
 ├── Star Item (filled / half / empty)
@@ -2312,36 +2426,38 @@ Rating
 **Size Specifications**:
 
 | Variant | Star Icon | Touch Area |
-|---|---|---|
-| Small | 18x18dp | 24x24dp |
-| Medium | 24x24dp | 48x48dp |
-| Large | 36x36dp | 48x48dp |
+| ------- | --------- | ---------- |
+| Small   | 18x18dp   | 24x24dp    |
+| Medium  | 24x24dp   | 48x48dp    |
+| Large   | 36x36dp   | 48x48dp    |
 
 **General Specifications**:
 
-| Property | Value |
-|---|---|
-| Star spacing | 4dp |
-| Selected color | primary |
-| Unselected color | outlineVariant |
-| Label font | bodyMedium 14pt, onSurfaceVariant |
+| Property         | Value                             |
+| ---------------- | --------------------------------- |
+| Star spacing     | 4dp                               |
+| Selected color   | primary                           |
+| Unselected color | outlineVariant                    |
+| Label font       | bodyMedium 14pt, onSurfaceVariant |
 
 **States**:
 
-| State | Star Color | Description |
-|---|---|---|
-| Filled | primary | Rated |
-| Half | primary half fill | Half star |
-| Empty | outlineVariant | Not rated |
-| Hover | primary (preview) | Hover preview |
-| Disabled | onSurface 38% | Read-only/Disabled |
+| State    | Star Color        | Description        |
+| -------- | ----------------- | ------------------ |
+| Filled   | primary           | Rated              |
+| Half     | primary half fill | Half star          |
+| Empty    | outlineVariant    | Not rated          |
+| Hover    | primary (preview) | Hover preview      |
+| Disabled | onSurface 38%     | Read-only/Disabled |
 
 **Variants**:
+
 - **Interactive**: Clickable rating
 - **Read-only**: Display only (includes half stars)
 - **With Count**: Includes rating value or review count
 
 **Accessibility**:
+
 - Interactive touch target >= 48x48dp
 - Current rating expressed through semantic value
 - Keyboard left/right adjustment of rating
@@ -2353,6 +2469,7 @@ Rating
 **Material Name**: No native component; the following is a reasonable implementation derived from Material 3 design language (color picker)
 
 **Anatomy**:
+
 ```
 ColorPicker
 ├── Trigger (Swatch + Value)
@@ -2366,34 +2483,36 @@ ColorPicker
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Swatch size | 40x40dp |
-| Swatch corner radius | small (8dp) |
-| Panel width | 280dp |
-| Panel corner radius | medium (12dp) |
-| Panel background | surfaceContainerHigh |
-| Panel shadow | 3dp |
-| Slider height | 24dp |
-| Preset swatch | 32x32dp, corner radius full |
-| Input field | Text Field, height 56dp |
+| Property             | Value                       |
+| -------------------- | --------------------------- |
+| Swatch size          | 40x40dp                     |
+| Swatch corner radius | small (8dp)                 |
+| Panel width          | 280dp                       |
+| Panel corner radius  | medium (12dp)               |
+| Panel background     | surfaceContainerHigh        |
+| Panel shadow         | 3dp                         |
+| Slider height        | 24dp                        |
+| Preset swatch        | 32x32dp, corner radius full |
+| Input field          | Text Field, height 56dp     |
 
 **States**:
 
-| State | Border/State Layer | Description |
-|---|---|---|
-| Default | outline | Default swatch |
-| Hover | onSurface 8% | Hover |
+| State             | Border/State Layer | Description    |
+| ----------------- | ------------------ | -------------- |
+| Default           | outline            | Default swatch |
+| Hover             | onSurface 8%       | Hover          |
 | Selected (preset) | primary 2dp border | Selected color |
-| Focused | primary border | Focused |
-| Disabled | onSurface 38% | Disabled |
+| Focused           | primary border     | Focused        |
+| Disabled          | onSurface 38%      | Disabled       |
 
 **Variants**:
+
 - **Swatch**: Swatch trigger only
 - **Inline Panel**: Directly inline panel
 - **With Alpha**: Includes opacity slider
 
 **Accessibility**:
+
 - Swatch/slider touch target >= 48x48dp
 - Provides HEX/RGB text input fallback (not reliant on visual selection)
 - Current color value expressed in text, keyboard adjustable
@@ -2405,6 +2524,7 @@ ColorPicker
 **Material Name**: Date Calendar / Docked DatePicker calendar view (distinct from 8.18 DatePicker)
 
 **Anatomy**:
+
 ```
 Calendar
 ├── Header
@@ -2418,36 +2538,38 @@ Calendar
 
 **Size Specifications**:
 
-| Property | Value |
-|---|---|
-| Cell size | 48x48dp |
-| Cell touch area | 48x48dp |
-| Cell corner radius | full |
-| Weekday label font | bodySmall 12pt, onSurfaceVariant |
-| Date font | bodyLarge 16pt |
-| Month title font | titleSmall 14pt |
-| Navigation icon | 24x24dp |
-| Background | surfaceContainerLow |
-| Container corner radius | large (16dp) |
+| Property                | Value                            |
+| ----------------------- | -------------------------------- |
+| Cell size               | 48x48dp                          |
+| Cell touch area         | 48x48dp                          |
+| Cell corner radius      | full                             |
+| Weekday label font      | bodySmall 12pt, onSurfaceVariant |
+| Date font               | bodyLarge 16pt                   |
+| Month title font        | titleSmall 14pt                  |
+| Navigation icon         | 24x24dp                          |
+| Background              | surfaceContainerLow              |
+| Container corner radius | large (16dp)                     |
 
 **States**:
 
-| State | Background | Text | Description |
-|---|---|---|---|
-| Default | transparent | onSurface | Normal date |
-| Hover | onSurface 8% | onSurface | Hover |
-| Today | transparent + primary border | primary | Today |
-| Selected | primary | onPrimary | Selected date |
-| In Range | primaryContainer | onPrimaryContainer | Within range |
-| Range End | primary | onPrimary | Range endpoint |
-| Disabled | transparent | onSurface 38% | Not selectable |
+| State     | Background                   | Text               | Description    |
+| --------- | ---------------------------- | ------------------ | -------------- |
+| Default   | transparent                  | onSurface          | Normal date    |
+| Hover     | onSurface 8%                 | onSurface          | Hover          |
+| Today     | transparent + primary border | primary            | Today          |
+| Selected  | primary                      | onPrimary          | Selected date  |
+| In Range  | primaryContainer             | onPrimaryContainer | Within range   |
+| Range End | primary                      | onPrimary          | Range endpoint |
+| Disabled  | transparent                  | onSurface 38%      | Not selectable |
 
 **Variants**:
+
 - **Single**: Single date selection
 - **Range**: Date range selection (start/end + interval highlight)
 - **Multi-month**: Side-by-side multi-month view
 
 **Accessibility**:
+
 - Cell touch target >= 48x48dp
 - Today/selected/range state semantic markers
 - Keyboard arrow key navigation, PageUp/Down to switch months
@@ -2458,23 +2580,23 @@ Calendar
 
 ### 9.1 Android vs Web
 
-| Feature | Android | Web |
-|---|---|---|
-| Navigation | Bottom Navigation / Navigation Drawer | Custom |
-| Back | System back gesture | Browser back |
-| Context menu | Long press | Right click |
-| Scroll indicator | Edge glow | Scrollbar |
-| Font | Roboto | Roboto / System font |
-| Dynamic color | Supported (Android 12+) | Optional support |
+| Feature          | Android                               | Web                  |
+| ---------------- | ------------------------------------- | -------------------- |
+| Navigation       | Bottom Navigation / Navigation Drawer | Custom               |
+| Back             | System back gesture                   | Browser back         |
+| Context menu     | Long press                            | Right click          |
+| Scroll indicator | Edge glow                             | Scrollbar            |
+| Font             | Roboto                                | Roboto / System font |
+| Dynamic color    | Supported (Android 12+)               | Optional support     |
 
 ### 9.2 Touch vs Keyboard/Mouse
 
-| Input Method | Touch | Keyboard/Mouse |
-|---|---|---|
-| Minimum target | 48x48dp | 32x32dp |
-| Hover effect | None | Available |
-| Ripple | Available | Optional |
-| Context menu | Long press | Right click |
+| Input Method   | Touch      | Keyboard/Mouse |
+| -------------- | ---------- | -------------- |
+| Minimum target | 48x48dp    | 32x32dp        |
+| Hover effect   | None       | Available      |
+| Ripple         | Available  | Optional       |
+| Context menu   | Long press | Right click    |
 
 ---
 
@@ -2482,79 +2604,79 @@ Calendar
 
 ### 10.1 Color Tokens
 
-| Token | Light | Dark |
-|---|---|---|
-| primary | `#6750A4` | `#D0BCFF` |
-| onPrimary | `#FFFFFF` | `#381E72` |
-| primaryContainer | `#EADDFF` | `#4F378B` |
-| secondary | `#625B71` | `#CCC2DC` |
-| secondaryContainer | `#E8DEF8` | `#4A4458` |
-| tertiary | `#7D5260` | `#EFB8C8` |
-| surface | `#FFFBFE` | `#1C1B1F` |
-| onSurface | `#1C1B1F` | `#E6E1E5` |
-| surfaceVariant | `#E7E0EC` | `#49454F` |
-| onSurfaceVariant | `#49454F` | `#CAC4D0` |
-| background | `#FFFBFE` | `#1C1B1F` |
-| error | `#B3261E` | `#F2B8B5` |
-| onError | `#FFFFFF` | `#601410` |
-| outline | `#79747E` | `#938F99` |
-| outlineVariant | `#CAC4D0` | `#49454F` |
-| surfaceContainerLow | `#F7F2FA` | `#1D1B20` |
-| surfaceContainer | `#F3EDF7` | `#211F26` |
+| Token                | Light     | Dark      |
+| -------------------- | --------- | --------- |
+| primary              | `#6750A4` | `#D0BCFF` |
+| onPrimary            | `#FFFFFF` | `#381E72` |
+| primaryContainer     | `#EADDFF` | `#4F378B` |
+| secondary            | `#625B71` | `#CCC2DC` |
+| secondaryContainer   | `#E8DEF8` | `#4A4458` |
+| tertiary             | `#7D5260` | `#EFB8C8` |
+| surface              | `#FFFBFE` | `#1C1B1F` |
+| onSurface            | `#1C1B1F` | `#E6E1E5` |
+| surfaceVariant       | `#E7E0EC` | `#49454F` |
+| onSurfaceVariant     | `#49454F` | `#CAC4D0` |
+| background           | `#FFFBFE` | `#1C1B1F` |
+| error                | `#B3261E` | `#F2B8B5` |
+| onError              | `#FFFFFF` | `#601410` |
+| outline              | `#79747E` | `#938F99` |
+| outlineVariant       | `#CAC4D0` | `#49454F` |
+| surfaceContainerLow  | `#F7F2FA` | `#1D1B20` |
+| surfaceContainer     | `#F3EDF7` | `#211F26` |
 | surfaceContainerHigh | `#ECE6F0` | `#2B2930` |
 
 ### 10.2 Font Tokens
 
-| Token | Size | Weight | Line Height |
-|---|---|---|---|
-| displayLarge | 57pt | Regular | 64pt |
-| displayMedium | 45pt | Regular | 52pt |
-| displaySmall | 36pt | Regular | 44pt |
-| headlineLarge | 32pt | Regular | 40pt |
-| headlineMedium | 28pt | Regular | 36pt |
-| headlineSmall | 24pt | Regular | 32pt |
-| titleLarge | 22pt | Regular | 28pt |
-| titleMedium | 16pt | Medium | 24pt |
-| titleSmall | 14pt | Medium | 20pt |
-| bodyLarge | 16pt | Regular | 24pt |
-| bodyMedium | 14pt | Regular | 20pt |
-| bodySmall | 12pt | Regular | 16pt |
-| labelLarge | 14pt | Medium | 20pt |
-| labelMedium | 12pt | Medium | 16pt |
-| labelSmall | 11pt | Medium | 16pt |
+| Token          | Size | Weight  | Line Height |
+| -------------- | ---- | ------- | ----------- |
+| displayLarge   | 57pt | Regular | 64pt        |
+| displayMedium  | 45pt | Regular | 52pt        |
+| displaySmall   | 36pt | Regular | 44pt        |
+| headlineLarge  | 32pt | Regular | 40pt        |
+| headlineMedium | 28pt | Regular | 36pt        |
+| headlineSmall  | 24pt | Regular | 32pt        |
+| titleLarge     | 22pt | Regular | 28pt        |
+| titleMedium    | 16pt | Medium  | 24pt        |
+| titleSmall     | 14pt | Medium  | 20pt        |
+| bodyLarge      | 16pt | Regular | 24pt        |
+| bodyMedium     | 14pt | Regular | 20pt        |
+| bodySmall      | 12pt | Regular | 16pt        |
+| labelLarge     | 14pt | Medium  | 20pt        |
+| labelMedium    | 12pt | Medium  | 16pt        |
+| labelSmall     | 11pt | Medium  | 16pt        |
 
 ### 10.3 Spacing Tokens
 
-| Token | Value |
-|---|---|
-| none | 0dp |
-| extraSmall | 4dp |
-| small | 8dp |
-| medium | 16dp |
-| large | 24dp |
-| extraLarge | 32dp |
-| extraExtraLarge | 48dp |
-| extraExtraExtraLarge | 64dp |
+| Token                | Value |
+| -------------------- | ----- |
+| none                 | 0dp   |
+| extraSmall           | 4dp   |
+| small                | 8dp   |
+| medium               | 16dp  |
+| large                | 24dp  |
+| extraLarge           | 32dp  |
+| extraExtraLarge      | 48dp  |
+| extraExtraExtraLarge | 64dp  |
 
 ### 10.4 Corner Radius Tokens
 
-| Token | Value |
-|---|---|
-| none | 0dp |
-| extraSmall | 4dp |
-| small | 8dp |
-| medium | 12dp |
-| large | 16dp |
-| extraLarge | 28dp |
-| full | 9999dp |
+| Token      | Value  |
+| ---------- | ------ |
+| none       | 0dp    |
+| extraSmall | 4dp    |
+| small      | 8dp    |
+| medium     | 12dp   |
+| large      | 16dp   |
+| extraLarge | 28dp   |
+| full       | 9999dp |
 
 ### 10.5 Elevation Tokens
 
-| Token | Value |
-|---|---|
-| level0 | 0dp |
-| level1 | 1dp |
-| level2 | 3dp |
-| level3 | 6dp |
-| level4 | 8dp |
-| level5 | 12dp |
+| Token  | Value |
+| ------ | ----- |
+| level0 | 0dp   |
+| level1 | 1dp   |
+| level2 | 3dp   |
+| level3 | 6dp   |
+| level4 | 8dp   |
+| level5 | 12dp  |
