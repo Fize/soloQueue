@@ -316,11 +316,17 @@ func (a *APIClient) ReplyMessage(ctx context.Context, msg QQMessage, msgType int
 // UploadFile uploads a file for rich media messaging.
 // targetType must be "user" or "group". targetID is the openid or group_openid.
 // fileType is one of FileTypeImage/Video/Voice/File.
-// url must be a publicly accessible URL to the file content.
-func (a *APIClient) UploadFile(ctx context.Context, targetType, targetID string, fileType int, url string) (*FileInfo, error) {
+// url is a publicly accessible URL to the file content (optional if base64Data is provided).
+// base64Data is the Base64-encoded file content (optional if url is provided).
+// If both are provided, url takes precedence.
+func (a *APIClient) UploadFile(ctx context.Context, targetType, targetID string, fileType int, url string, base64Data string) (*FileInfo, error) {
 	// targetType only supports "user" and "group"
 	if targetType != "user" && targetType != "group" {
 		return nil, fmt.Errorf("invalid targetType: %s (must be user or group)", targetType)
+	}
+
+	if url == "" && base64Data == "" {
+		return nil, fmt.Errorf("must provide either url or base64Data")
 	}
 
 	token, err := a.AccessToken(ctx)
@@ -330,7 +336,11 @@ func (a *APIClient) UploadFile(ctx context.Context, targetType, targetID string,
 
 	reqBody := map[string]any{
 		"file_type": fileType,
-		"url":       url,
+	}
+	if url != "" {
+		reqBody["url"] = url
+	} else {
+		reqBody["file_data"] = base64Data
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
