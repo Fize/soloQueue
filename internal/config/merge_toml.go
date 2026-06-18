@@ -46,7 +46,7 @@ func MergeTOML[T any](dst T, src []byte) (T, error) {
 		return zero, fmt.Errorf("MergeTOML: marshal merged: %w", err)
 	}
 
-	var result T
+	result := dst
 	if err := toml.Unmarshal(merged, &result); err != nil {
 		var zero T
 		return zero, fmt.Errorf("MergeTOML: unmarshal result: %w", err)
@@ -62,7 +62,11 @@ func MergeTOML[T any](dst T, src []byte) (T, error) {
 //   - Array fields in src completely replace corresponding dst fields
 //   - null values in src are skipped (preserve dst original values)
 //   - Other types (string/number/bool) are directly overwritten
+//   - If dst field is nil, directly overwrite it
 func mergeMapTOML(dst, src map[string]any) {
+	if dst == nil {
+		return
+	}
 	for k, srcVal := range src {
 		// null skip
 		if srcVal == nil {
@@ -72,9 +76,9 @@ func mergeMapTOML(dst, src map[string]any) {
 		srcObj, srcIsObj := srcVal.(map[string]any)
 		dstVal, exists := dst[k]
 
-		if srcIsObj && exists {
+		if srcIsObj && exists && dstVal != nil {
 			dstObj, dstIsObj := dstVal.(map[string]any)
-			if dstIsObj {
+			if dstIsObj && dstObj != nil {
 				// Both sides are objects: recursively merge
 				mergeMapTOML(dstObj, srcObj)
 				continue

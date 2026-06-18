@@ -91,7 +91,7 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 	}
 
 	ctx := context.Background()
-	fileSettings := s.Loader.Get()
+	defaultSettings := DefaultSettings()
 
 	// Check if providers are empty
 	var count int
@@ -102,21 +102,21 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 
 	if count == 0 {
 		// 1. Seed providers
-		for _, p := range fileSettings.Providers {
+		for _, p := range defaultSettings.Providers {
 			if err := SaveProvider(ctx, db, p); err != nil {
 				return fmt.Errorf("seed provider %s: %w", p.ID, err)
 			}
 		}
 
 		// 2. Seed models
-		for _, m := range fileSettings.Models {
+		for _, m := range defaultSettings.Models {
 			if err := SaveModel(ctx, db, m); err != nil {
 				return fmt.Errorf("seed model %s: %w", m.ID, err)
 			}
 		}
 
 		// 3. Seed default models config
-		if err := SaveDefaultModels(ctx, db, fileSettings.DefaultModels); err != nil {
+		if err := SaveDefaultModels(ctx, db, defaultSettings.DefaultModels); err != nil {
 			return fmt.Errorf("seed default models: %w", err)
 		}
 	}
@@ -138,32 +138,32 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 	}
 
 	if !hasSetting("tools") {
-		if err := SaveSystemSetting(ctx, db, "tools", fileSettings.Tools); err != nil {
+		if err := SaveSystemSetting(ctx, db, "tools", defaultSettings.Tools); err != nil {
 			return fmt.Errorf("seed tools: %w", err)
 		}
 	}
 	if !hasSetting("qqbot") {
-		if err := SaveSystemSetting(ctx, db, "qqbot", fileSettings.QQBot); err != nil {
+		if err := SaveSystemSetting(ctx, db, "qqbot", defaultSettings.QQBot); err != nil {
 			return fmt.Errorf("seed qqbot: %w", err)
 		}
 	}
 	if !hasSetting("lspmcp") {
-		if err := SaveSystemSetting(ctx, db, "lspmcp", fileSettings.LSPMCP); err != nil {
+		if err := SaveSystemSetting(ctx, db, "lspmcp", defaultSettings.LSPMCP); err != nil {
 			return fmt.Errorf("seed lspmcp: %w", err)
 		}
 	}
 	if !hasSetting("embedding") {
-		if err := SaveSystemSetting(ctx, db, "embedding", fileSettings.Embedding); err != nil {
+		if err := SaveSystemSetting(ctx, db, "embedding", defaultSettings.Embedding); err != nil {
 			return fmt.Errorf("seed embedding: %w", err)
 		}
 	}
 	if !hasSetting("session") {
-		if err := SaveSystemSetting(ctx, db, "session", fileSettings.Session); err != nil {
+		if err := SaveSystemSetting(ctx, db, "session", defaultSettings.Session); err != nil {
 			return fmt.Errorf("seed session: %w", err)
 		}
 	}
 	if !hasSetting("simulation") {
-		simCfg := fileSettings.Simulation
+		simCfg := defaultSettings.Simulation
 		if simCfg.DBPath == "" {
 			simCfg.DBPath = filepath.Join(s.workDir, "simulation.db")
 		}

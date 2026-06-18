@@ -764,9 +764,15 @@ export function ConfigTab() {
               <div className="space-y-8">
                 {/* ─── Default Model Roles ─── */}
                 <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
-                  <div className="flex items-center gap-2 border-b pb-3">
-                    <Settings className="h-4 w-4 text-primary" />
-                    <h3 className="font-semibold text-foreground">Default Model Mappings</h3>
+                  <div className="flex flex-col border-b pb-3">
+                    <div className="flex items-center gap-2">
+                      <Settings className="h-4 w-4 text-primary" />
+                      <h3 className="font-semibold text-foreground">Default Model Mappings</h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      默认模型角色映射：设置不同能力等级的代理在执行特定角色任务时使用的默认模型，如“专家
+                      (expert)”、“基础 (universal)”、“快速 (fast)”等。
+                    </p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {['expert', 'superior', 'universal', 'fast', 'fallback'].map((role) => {
@@ -803,22 +809,28 @@ export function ConfigTab() {
 
                 {/* ─── LLM Providers ─── */}
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">LLM Providers</h3>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">LLM Providers</h3>
+                      </div>
+                      {!isAddingProvider && !editingProvider && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1"
+                          onClick={startAddProvider}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Add Provider
+                        </Button>
+                      )}
                     </div>
-                    {!isAddingProvider && !editingProvider && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1"
-                        onClick={startAddProvider}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        Add Provider
-                      </Button>
-                    )}
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      模型服务商配置：管理连接到各大模型厂商的 API 接口信息，包括接口地址
+                      (BaseURL)、API Key 环境变量和连接重试参数等。
+                    </p>
                   </div>
 
                   {/* Provider Form (inline) */}
@@ -1170,22 +1182,28 @@ export function ConfigTab() {
 
                 {/* ─── LLM Models ─── */}
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-t pt-6">
-                    <div className="flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">LLM Models</h3>
+                  <div className="flex flex-col gap-1 border-t pt-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Settings className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">LLM Models</h3>
+                      </div>
+                      {!isAddingModel && !editingModel && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1"
+                          onClick={startAddModel}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Add Model
+                        </Button>
+                      )}
                     </div>
-                    {!isAddingModel && !editingModel && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1"
-                        onClick={startAddModel}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        Add Model
-                      </Button>
-                    )}
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      语言模型配置：管理具体可供调用的模型版本、上下文窗口大小、生成参数
+                      (如温度、最大 Token 数) 以及是否启用思维模式。
+                    </p>
                   </div>
 
                   {/* Model Form (inline) */}
@@ -1453,9 +1471,16 @@ export function ConfigTab() {
               {toolsConfig && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm space-y-6">
                   <div className="flex items-center justify-between border-b pb-3">
-                    <div className="flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">Tools Limit Configurations</h3>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Settings className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">
+                          Tools Limit Configurations
+                        </h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        工具限制配置：设置内置工具在运行过程中的安全限制与资源边界，包括文件系统的读写上限、网络请求许可范围、命令行执行的高危拦截规则和超时控制。
+                      </p>
                     </div>
                     <Button size="sm" onClick={handleSaveTools}>
                       Save Tools Settings
@@ -1747,9 +1772,15 @@ export function ConfigTab() {
               {qqbotConfig && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm space-y-6">
                   <div className="flex items-center justify-between border-b pb-3">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">QQ Bot WebSocket Config</h3>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">QQ Bot WebSocket Config</h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        QQ 机器人配置：通过官方 WebSocket 网关连接 QQ 开放平台，实现代理与 QQ
+                        群聊/私聊的实时交互并能执行定时任务。
+                      </p>
                     </div>
                     <Button size="sm" onClick={handleSaveQQBot}>
                       Save QQ Bot Settings
@@ -1822,11 +1853,17 @@ export function ConfigTab() {
               {lspmcpConfig && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm space-y-6">
                   <div className="flex items-center justify-between border-b pb-3">
-                    <div className="flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">
-                        Built-in LSP MCP Server Overrides
-                      </h3>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Settings className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">
+                          Built-in LSP MCP Server Overrides
+                        </h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        内置 LSP MCP 配置：配置内置的语言服务协议 (LSP)
+                        服务器，提供代码补全、跳转定义、接口诊断等 MCP 开发辅助工具。
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={handleAddLSPServer}>
@@ -1964,11 +2001,17 @@ export function ConfigTab() {
               {embeddingConfig && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm space-y-8">
                   <div className="flex items-center justify-between border-b pb-3">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">
-                        Embedding (Vector Store) Settings
-                      </h3>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">
+                          Embedding (Vector Store) Settings
+                        </h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        向量检索设置：配置用于记忆持久化与知识库检索的 Embedding
+                        服务，将长短期记忆文本转化为向量，辅助代理进行语义记忆关联。
+                      </p>
                     </div>
                     <Button size="sm" onClick={handleSaveEmbedding}>
                       Save Embedding Settings
@@ -2298,9 +2341,15 @@ export function ConfigTab() {
               {sessionConfig && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm space-y-6">
                   <div className="flex items-center justify-between border-b pb-3">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">Session / Timeline Config</h3>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">Session / Timeline Config</h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        会话与时间线配置：配置代理历史交互记录和事件日志的存储参数，包括单个
+                        Timeline 时间线日志文件的最大占用空间上限。
+                      </p>
                     </div>
                     <Button size="sm" onClick={handleSaveSession}>
                       Save Session Settings
@@ -2332,9 +2381,14 @@ export function ConfigTab() {
               {simulationConfig && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm space-y-6">
                   <div className="flex items-center justify-between border-b pb-3">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-primary" />
-                      <h3 className="font-semibold text-foreground">Simulation Config</h3>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-primary" />
+                        <h3 className="font-semibold text-foreground">Simulation Config</h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        仿真配置：为多代理仿真系统设定全局默认值，包括数据库存储路径、时间推移比例、系统步进时钟以及是否开启智能反思机制等。
+                      </p>
                     </div>
                     <Button size="sm" onClick={handleSaveSimulation}>
                       Save Simulation Settings
