@@ -18,6 +18,10 @@ type Session interface {
 	Idle() bool
 	QueueMessage(prompt string)
 	AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
+	// AskIsolated executes a prompt in a clean context (no conversation history,
+	// no writes to the session's ContextWindow or timeline). Used by the cron
+	// scheduler so that scheduled tasks never pollute the user's conversation.
+	AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
 }
 
 // SessionManager defines the interface required to retrieve the active session.
@@ -219,8 +223,11 @@ func (s *Scheduler) executeTask(t Task) {
 	}
 
 	start := time.Now()
-	// Trigger task execution via AskStream
-	ch, err := session.AskStream(iface.ContextWithBypassConfirm(context.Background()), t.Instruction)
+	// Use AskIsolated so the task runs in a clean context (no conversation history,
+	// no ContextWindow/timeline writes). This prevents stale history from
+	// confusing the agent (e.g. mistaking the instruction for a new schedule request)
+	// and avoids polluting the user's conversation with cron tool-call chains.
+	ch, err := session.AskIsolated(iface.ContextWithBypassConfirm(context.Background()), t.Instruction)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: task execution failed to start", "task_id", t.ID, "err", err)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
