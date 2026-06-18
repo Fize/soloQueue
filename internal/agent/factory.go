@@ -921,18 +921,65 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 
 // memoryEngineSection is injected into L2/L3 prompts when the memory engine is enabled.
 const memoryEngineSection = `
-# Long-Term Memory (Memory Engine)
-You have access to a memory engine with hybrid search (BM25 keyword + Knowledge Graph) through these tools:
+# Long-Term Memory Usage — MANDATORY WORKFLOW
 
-- **Remember**: Save information to long-term memory. When saving, you should also extract entities and their relationships (people, concepts, projects, tools) and include them in the "entities" field to build the knowledge graph.
-- **RecallMemory**: Search memories by text query. Supports keyword and semantic-style queries. Use this when the user refers to past conversations or asks about previously discussed topics.
-- **KGIndex**: Index extracted entities and their relationships into the knowledge graph. Entity types and relationship types are open — you define them.
-- **RecallEntity**: Traverse the knowledge graph from an entity to find all related memories. Use this to explore what the system knows about a specific person, project, or concept.
-- **ConnectEntities**: Find the shortest path between two entities. Use this to discover how concepts, people, or projects are connected.
-- **MemoryTimeline**: List memories chronologically within a date range. Use this to review what happened during a specific time period.
-- **ConsolidateMemories**: Run maintenance on the memory engine (edge decay, stale memory cleanup, community detection).
+You have access to a memory engine with hybrid search (BM25 keyword + Knowledge Graph).
+Memory usage is NOT optional — it is part of your core workflow. Follow this three-phase
+process for EVERY non-trivial task.
 
-Use RecallMemory for general searches. Use RecallEntity when you want to explore connections from a specific entity. Use ConnectEntities to find indirect relationships.
+## Phase 1 — RECALL: Before ANY analysis or action
+Before you start planning, analyzing, or delegating, you MUST:
+
+1. Call RecallMemory with the task description as the query to find relevant past experiences,
+   previous analyses, decisions, and results.
+
+2. If recalled results reference specific entities (stocks, projects, people, strategies),
+   call RecallEntity on each key entity to explore the knowledge graph and find all
+   related memories.
+
+3. If the task involves the same topic at a different time (e.g., "analyze stock X now"
+   when you previously analyzed it in Q1), call MemoryTimeline to see how understanding,
+   decisions, and context evolved over time.
+
+4. Only after reviewing the historical context, proceed with your analysis. Explicitly
+   reference and compare past findings with the current situation.
+
+CRITICAL: Do NOT skip this phase. The user expects you to leverage historical experience.
+A blind analysis without historical context is incomplete and will be rejected.
+
+## Phase 2 — ANALYZE: Compare past and present
+When performing analysis:
+
+- Explicitly reference what was known before vs. what is new now.
+- Note any contradictions or changes since the last analysis.
+- Use ConnectEntities(entity1, entity2) to discover hidden relationships between
+  different concepts, projects, or investment targets.
+- Consult the knowledge graph when you need to understand how entities relate.
+
+## Phase 3 — REMEMBER: After EVERY task completion
+After completing your task, you MUST call Remember to save:
+
+1. Your key findings and conclusions.
+2. All entities involved (stocks, projects, people, strategies, tools) with their
+   types and relationships in the "entities" field. This builds the knowledge graph
+   for future RecallEntity and ConnectEntities queries.
+3. Include an event_time matching the data or decision date so future time-travel
+   queries (MemoryTimeline) work correctly.
+
+Entity types and relationship types are open — you define them based on your domain.
+Examples: stock, project, strategy, person, metric, decision, risk, opportunity.
+
+## Maintenance
+Call ConsolidateMemories periodically to clean up stale edges and decayed memories.
+
+## Tool Reference
+- **RecallMemory(query, limit=10)**: Hybrid search by text query. ALWAYS call first.
+- **RecallEntity(entity, max_hops=2)**: Explore KG from a specific entity.
+- **ConnectEntities(source, target)**: Find paths between two entities.
+- **MemoryTimeline(from, to, limit=50)**: Chronological review over a date range.
+- **Remember(content, entities[], event_time)**: Save findings to long-term memory.
+- **KGIndex(entities[])**: Bulk-index entities and relationships into the KG.
+- **ConsolidateMemories()**: Run maintenance (edge decay, stale cleanup).
 `
 
 const l3EnforcedDirectives = `
