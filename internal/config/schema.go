@@ -261,7 +261,7 @@ func parseProviderModelID(s string) (providerID, modelID string, ok bool) {
 
 // ─── Image Model ─────────────────────────────────────────────────────────────
 
-// ImageModelConfig 图片生成模型配置
+// ImageModelConfig configures the image generation model.
 type ImageModelConfig struct {
 	ID           string `json:"id"           toml:"id,omitempty"`
 	Name         string `json:"name"         toml:"name,omitempty"`
@@ -315,27 +315,27 @@ func (s Settings) MarshalTOML() (interface{}, error) {
 // MarshalTOMLWithComments serializes Settings into a TOML byte slice with detailed comments explaining each option.
 func (s Settings) MarshalTOMLWithComments() ([]byte, error) {
 	var sb strings.Builder
-	sb.WriteString("# SoloQueue 配置文件\n")
-	sb.WriteString("# 本文件仅存储与底层进程、系统环境和本地授权相关的基础配置。\n")
-	sb.WriteString("# 所有已迁移的配置项（如：模型服务商、模型列表、工具限制、QQ 机器人、MCP 服务、Embedding 和仿真配置）\n")
-	sb.WriteString("# 现在均已迁移至 SQLite 数据库（entries.db）中进行持久化和动态管理，启动时不再从该文件中读取。\n\n")
+	sb.WriteString("# SoloQueue Configuration File\n")
+	sb.WriteString("# This file stores only base configurations related to the underlying process, system environment, and local authorization.\n")
+	sb.WriteString("# All migrated configuration items (such as LLM providers, models, tools limits, QQ Bot, LSP MCP, embedding, and simulation settings)\n")
+	sb.WriteString("# have been migrated to the SQLite database (entries.db) for persistence and dynamic management, and are no longer read from here at startup.\n\n")
 
 	sb.WriteString("[auth]\n")
-	sb.WriteString("# HTTP 基础身份验证的用户名。留空则表示不启用认证。\n")
+	sb.WriteString("# Username for HTTP Basic Authentication. If empty, authentication is disabled.\n")
 	sb.WriteString(fmt.Sprintf("user = %q\n", s.Auth.User))
-	sb.WriteString("# HTTP 基础身份验证的密码。\n")
+	sb.WriteString("# Password for HTTP Basic Authentication.\n")
 	sb.WriteString(fmt.Sprintf("password = %q\n\n", s.Auth.Password))
 
 	sb.WriteString("[log]\n")
-	sb.WriteString("# 日志输出等级：debug, info, warn, error。\n")
+	sb.WriteString("# Log level: debug, info, warn, error.\n")
 	sb.WriteString(fmt.Sprintf("level = %q\n", s.Log.Level))
-	sb.WriteString("# 是否将结构化日志实时输出到控制台/终端标准错误流。\n")
+	sb.WriteString("# Print structured logs to stderr/console.\n")
 	sb.WriteString(fmt.Sprintf("console = %t\n", s.Log.Console))
-	sb.WriteString("# 是否将结构化日志保存到本地文件（位于 ~/.soloqueue/logs/system/app-YYYY-MM-DD.json）。\n")
+	sb.WriteString("# Save structured logs to ~/.soloqueue/logs/system/app-YYYY-MM-DD.json.\n")
 	sb.WriteString(fmt.Sprintf("file = %t\n\n", s.Log.File))
 
 	sb.WriteString("[agent]\n")
-	sb.WriteString("# 内置 MCP 服务的加载白名单。缺省时加载所有内置服务；为 [] 时不加载任何服务；配置列表如 [\"builtin-lsp\"] 时仅加载列出的服务。\n")
+	sb.WriteString("# Whitelist of built-in MCP servers to load. If null (or omitted), all built-in servers are loaded. If [], no built-in servers are loaded. List like [\"builtin-lsp\"] to load only specified servers.\n")
 	if s.Agent.BuiltinMCPServers != nil {
 		bytes, err := json.Marshal(s.Agent.BuiltinMCPServers)
 		if err != nil {
@@ -345,7 +345,7 @@ func (s Settings) MarshalTOMLWithComments() ([]byte, error) {
 	} else {
 		sb.WriteString("# builtin_mcp_servers = [\"builtin-lsp\"]\n")
 	}
-	sb.WriteString("# 外部自定义 MCP 服务的加载白名单。规则同上。\n")
+	sb.WriteString("# Whitelist of external custom MCP servers to load. Rules are the same as above.\n")
 	if s.Agent.ExternalMCPServers != nil {
 		bytes, err := json.Marshal(s.Agent.ExternalMCPServers)
 		if err != nil {

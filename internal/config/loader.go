@@ -12,11 +12,10 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// Loader[T] 是可复用的泛型配置加载器
+// Loader[T] is a reusable generic configuration loader.
 //
-// 加载优先级（后者覆盖前者）：
-//
-//	defaults（硬编码） → paths[0]（主配置） → paths[1]（local 覆盖） → ...
+// Load priority (latter overrides former):
+//	defaults (hardcoded) → paths[0] (primary config) → paths[1] (local override) → ...
 type Loader[T any] struct {
 	paths    []string
 	defaults T
@@ -27,12 +26,12 @@ type Loader[T any] struct {
 	log *logger.Logger
 }
 
-// NewLoader 创建 Loader[T]，传入默认值和按优先级排列的文件路径（低→高）
+// NewLoader creates a Loader[T] with defaults and file paths sorted by priority (low → high)
 //
-// 校验：
-//   - 至少一条 path
-//   - 任一 path 不得为空字符串
-//   - paths 不得重复（按原始字符串比较，未展开）
+// Validation:
+//   - At least one path is required.
+//   - No path string can be empty.
+//   - Paths must not contain duplicates (compared by raw string before expansion).
 func NewLoader[T any](defaults T, paths ...string) (*Loader[T], error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("NewLoader: at least one path required")
@@ -56,13 +55,13 @@ func NewLoader[T any](defaults T, paths ...string) (*Loader[T], error) {
 	return l, nil
 }
 
-// Load 从文件加载配置，按优先级合并
+// Load loads configurations from files and merges them by priority.
 func (l *Loader[T]) Load() error {
 	return l.LoadContext(context.Background())
 }
 
-// LoadContext 带 context 的 Load：在每次文件 I/O 前检查 ctx.Err()
-// 注意：不会真正中断 syscall；仅在文件之间的 gap 响应取消
+// LoadContext runs Load with context, checking ctx.Err() before each file I/O.
+// Note: It does not interrupt active system calls, but only handles cancellations between files.
 func (l *Loader[T]) LoadContext(ctx context.Context) error {
 	start := time.Now()
 	result := l.defaults
@@ -91,7 +90,7 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 					"path", expanded,
 				)
 			}
-			continue // 文件不存在：跳过（不是错误）
+			continue // File does not exist: skip (not an error)
 		}
 		if err != nil {
 			if l.log != nil {
@@ -137,7 +136,7 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 	return nil
 }
 
-// ReadFromDisk 从文件系统重新读取并合并配置，不修改 Loader 内部状态。
+// ReadFromDisk reads and merges configurations from the filesystem without modifying the internal state of the Loader.
 func (l *Loader[T]) ReadFromDisk() (T, error) {
 	var zero T
 	result := l.defaults
@@ -163,19 +162,19 @@ func (l *Loader[T]) ReadFromDisk() (T, error) {
 	return result, nil
 }
 
-// Get 返回当前配置快照的副本（并发安全）
+// Get returns a copy of the current configuration snapshot (concurrency-safe).
 func (l *Loader[T]) Get() T {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.current
 }
 
-// Save 将当前 current 原子写入 paths[0]
+// Save atomically writes the current settings into paths[0].
 func (l *Loader[T]) Save() error {
 	return l.SaveContext(context.Background())
 }
 
-// SaveContext 带 context 的 Save
+// SaveContext saves the current settings using a context.
 func (l *Loader[T]) SaveContext(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -208,7 +207,7 @@ func (l *Loader[T]) primaryPath() (string, error) {
 	return expanded, nil
 }
 
-// saveTo 原子写：先写 .tmp，再 rename
+// saveTo performs an atomic write: writes to .tmp first, then renames.
 func (l *Loader[T]) saveTo(path string, value T) error {
 	if path == "" {
 		return fmt.Errorf("no primary path configured")
@@ -242,7 +241,7 @@ func (l *Loader[T]) saveTo(path string, value T) error {
 	return nil
 }
 
-// expandPath 展开 ~ 为用户主目录
+// expandPath expands ~ into the user's home directory.
 func expandPath(path string) (string, error) {
 	if len(path) == 0 {
 		return path, nil

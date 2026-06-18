@@ -770,8 +770,8 @@ export function ConfigTab() {
                       <h3 className="font-semibold text-foreground">Default Model Mappings</h3>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                      默认模型角色映射：设置不同能力等级的代理在执行特定角色任务时使用的默认模型，如“专家
-                      (expert)”、“基础 (universal)”、“快速 (fast)”等。
+                      Default Model Mappings: Configure default models used by agents for specific
+                      roles like "expert", "superior", "universal", "fast", or "fallback".
                     </p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -828,8 +828,9 @@ export function ConfigTab() {
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      模型服务商配置：管理连接到各大模型厂商的 API 接口信息，包括接口地址
-                      (BaseURL)、API Key 环境变量和连接重试参数等。
+                      LLM Providers: Manage API connection settings for Large Language Model
+                      providers, including Base URL, API Key env variable, timeout, and retry
+                      configurations.
                     </p>
                   </div>
 
@@ -1201,8 +1202,9 @@ export function ConfigTab() {
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      语言模型配置：管理具体可供调用的模型版本、上下文窗口大小、生成参数
-                      (如温度、最大 Token 数) 以及是否启用思维模式。
+                      LLM Models: Configure individual models, their context window sizes,
+                      generation settings (temperature, max tokens), and thinking/reasoning effort
+                      options.
                     </p>
                   </div>
 
@@ -1479,7 +1481,9 @@ export function ConfigTab() {
                         </h3>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                        工具限制配置：设置内置工具在运行过程中的安全限制与资源边界，包括文件系统的读写上限、网络请求许可范围、命令行执行的高危拦截规则和超时控制。
+                        Tools Limit Configurations: Configure performance and security boundaries
+                        for built-in agent tools, including file read/write limits, allowed network
+                        hosts, command confirmation patterns, and timeout thresholds.
                       </p>
                     </div>
                     <Button size="sm" onClick={handleSaveTools}>
@@ -1778,8 +1782,8 @@ export function ConfigTab() {
                         <h3 className="font-semibold text-foreground">QQ Bot WebSocket Config</h3>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                        QQ 机器人配置：通过官方 WebSocket 网关连接 QQ 开放平台，实现代理与 QQ
-                        群聊/私聊的实时交互并能执行定时任务。
+                        QQ Bot WebSocket Config: Connect to the QQ Open Platform WebSocket Gateway
+                        to allow agents to interact in QQ chats and run scheduled tasks.
                       </p>
                     </div>
                     <Button size="sm" onClick={handleSaveQQBot}>
@@ -1861,8 +1865,9 @@ export function ConfigTab() {
                         </h3>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                        内置 LSP MCP 配置：配置内置的语言服务协议 (LSP)
-                        服务器，提供代码补全、跳转定义、接口诊断等 MCP 开发辅助工具。
+                        Built-in LSP MCP Server Overrides: Configure language servers (LSP) that act
+                        as MCP tools, providing coding features like diagnostics, hover, definition
+                        lookup, and formatting.
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -2009,8 +2014,9 @@ export function ConfigTab() {
                         </h3>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                        向量检索设置：配置用于记忆持久化与知识库检索的 Embedding
-                        服务，将长短期记忆文本转化为向量，辅助代理进行语义记忆关联。
+                        Embedding Settings: Configure vector search models and providers for
+                        semantic memory indexing. If enabled, memory entries will be vectorized for
+                        retrieval.
                       </p>
                     </div>
                     <Button size="sm" onClick={handleSaveEmbedding}>
@@ -2347,8 +2353,8 @@ export function ConfigTab() {
                         <h3 className="font-semibold text-foreground">Session / Timeline Config</h3>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                        会话与时间线配置：配置代理历史交互记录和事件日志的存储参数，包括单个
-                        Timeline 时间线日志文件的最大占用空间上限。
+                        Session / Timeline Config: Configure session timeline log parameters,
+                        including the maximum log file size before rotation.
                       </p>
                     </div>
                     <Button size="sm" onClick={handleSaveSession}>
@@ -2387,7 +2393,9 @@ export function ConfigTab() {
                         <h3 className="font-semibold text-foreground">Simulation Config</h3>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                        仿真配置：为多代理仿真系统设定全局默认值，包括数据库存储路径、时间推移比例、系统步进时钟以及是否开启智能反思机制等。
+                        Simulation Config: Define default settings for multi-agent simulation
+                        environments, including database path, tick intervals, simulated timeline
+                        scale, and memory reflection options.
                       </p>
                     </div>
                     <Button size="sm" onClick={handleSaveSimulation}>
@@ -2398,7 +2406,7 @@ export function ConfigTab() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">
-                        Database Path / 数据库路径
+                        Database Path
                       </label>
                       <Input
                         type="text"
@@ -2412,13 +2420,14 @@ export function ConfigTab() {
                         }
                       />
                       <p className="text-[10px] text-muted-foreground leading-normal">
-                        仿真记录持久化的 SQLite 数据库路径。若为空将使用默认位置。
+                        SQLite database path for persisting simulation records. If empty, the
+                        default location is used.
                       </p>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">
-                        Default Model / 默认模型
+                        Default Model
                       </label>
                       <select
                         value={simulationConfig.defaultModelId || ''}
@@ -2438,13 +2447,14 @@ export function ConfigTab() {
                         ))}
                       </select>
                       <p className="text-[10px] text-muted-foreground leading-normal">
-                        新建仿真时，角色默认对话使用的语言大模型。
+                        Large language model used for character dialogue by default when creating a
+                        new simulation.
                       </p>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">
-                        Default Provider / 默认服务商
+                        Default Provider
                       </label>
                       <select
                         value={simulationConfig.defaultProviderId || ''}
@@ -2464,13 +2474,14 @@ export function ConfigTab() {
                         ))}
                       </select>
                       <p className="text-[10px] text-muted-foreground leading-normal">
-                        新建仿真时，默认使用的 LLM 接口服务商。
+                        Default LLM provider used when creating a new simulation.
                       </p>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">
-                        Simulated Hours / 默认模拟时长 ({simulationConfig.simulatedHours || 168}h)
+                        Simulated Hours / Default duration ({simulationConfig.simulatedHours || 168}
+                        h)
                       </label>
                       <input
                         type="range"
@@ -2490,13 +2501,13 @@ export function ConfigTab() {
                         className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                       />
                       <p className="text-[10px] text-muted-foreground leading-normal">
-                        新建仿真时，默认模拟世界内的时间跨度。
+                        Default time span simulated within the world when creating a new simulation.
                       </p>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">
-                        Max Clock / 默认超时时长 (
+                        Max Clock / Default timeout (
                         {simulationConfig.defaultMaxWallClockMs
                           ? Math.round(simulationConfig.defaultMaxWallClockMs / 60000)
                           : 18}
@@ -2520,13 +2531,13 @@ export function ConfigTab() {
                         className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                       />
                       <p className="text-[10px] text-muted-foreground leading-normal">
-                        仿真实际运行的物理时钟超时限制。
+                        Physical clock timeout limit during simulation runs.
                       </p>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-semibold text-muted-foreground">
-                        Reflection / 默认反思
+                        Reflection / Default reflection
                       </label>
                       <div className="flex items-center gap-2 mt-1">
                         <Switch
@@ -2543,7 +2554,8 @@ export function ConfigTab() {
                         </span>
                       </div>
                       <p className="text-[10px] text-muted-foreground leading-normal">
-                        新建仿真时，默认开启反思以生成高层次见解。
+                        Enable memory reflection by default when creating a new simulation to
+                        generate high-level insights.
                       </p>
                     </div>
                   </div>
