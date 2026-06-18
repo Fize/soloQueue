@@ -32,8 +32,9 @@ type delegatedTask struct {
 }
 
 type delegateResult struct {
-	content string
-	err     error
+	content  string
+	err      error
+	duration time.Duration
 }
 
 // ─── asyncTurnState ────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ type asyncTurnState struct {
 	// This pattern is safe per the Go memory model for non-overlapping
 	// writes to different indices of a fixed-size slice.
 	results   []string
+	durations []time.Duration
 	pending   atomic.Int32 // 还剩几个异步调用未完成
 	callerCtx context.Context
 
@@ -74,6 +76,31 @@ type asyncTurnState struct {
 	// — resumeTurn still needs it. Instead, the cancel is deferred here
 	// and invoked after the final streamLoop completes in resumeTurn.
 	cancelMerged context.CancelFunc
+}
+
+// setDuration assigns d to durations[index], growing the slice lazily if
+// necessary. It is a defensive helper for tests or manual turn construction
+// that forget to preallocate durations; production code preallocates the
+// slice to len(toolCalls), so no growth occurs on the hot path.
+func (t *asyncTurnState) setDuration(index int, d time.Duration) {
+	if index < 0 {
+		return
+	}
+	if index >= len(t.durations) {
+		needed := index + 1
+		if needed <= cap(t.durations) {
+			t.durations = t.durations[:needed]
+		} else {
+			newCap := needed
+			if newCap < len(t.toolCalls) {
+				newCap = len(t.toolCalls)
+			}
+			grown := make([]time.Duration, needed, newCap)
+			copy(grown, t.durations)
+			t.durations = grown
+		}
+	}
+	t.durations[index] = d
 }
 
 // ─── execTools 异步路径 ────────────────────────────────────────────────────
@@ -134,6 +161,7 @@ func (a *Agent) execToolsWithAsync(
 				iter:      iter,
 				toolCalls: calls,
 				results:   results,
+				durations: make([]time.Duration, len(calls)),
 				callerCtx: ctx,
 			}
 		}
@@ -263,6 +291,7 @@ func (a *Agent) execToolsWithAsync(
 			}()
 
 			// --- 用 AskStream + 手动消费替代 Ask ---
+			start := time.Now()
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
 				if delCtx.Err() == context.DeadlineExceeded {
@@ -348,7 +377,8 @@ func (a *Agent) execToolsWithAsync(
 				dn.OnDelegationDone()
 			}
 
-			replyCh <- delegateResult{content: content, err: finalErr}
+			dur := time.Since(start)
+			replyCh <- delegateResult{content: content, err: finalErr, duration: dur}
 		})
 
 		results[i] = "" // 占位
@@ -409,6 +439,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			a.RecordError(result.err)
 		}
 		task.turn.results[task.callIndex] = toolResult
+		task.turn.setDuration(task.callIndex, result.duration)
 
 		// 检查是否全部完成
 		if task.turn.pending.Add(-1) == 0 {
@@ -428,6 +459,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 				a.RecordError(result.err)
 			}
 			task.turn.results[task.callIndex] = toolResult
+			task.turn.setDuration(task.callIndex, result.duration)
 
 			if task.turn.pending.Add(-1) == 0 {
 				a.submitHighPriority(func(ctx context.Context) {
@@ -490,11 +522,16 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 		if i < len(turn.results) {
 			result = turn.results[i]
 		}
+		var dur time.Duration
+		if i < len(turn.durations) {
+			dur = turn.durations[i]
+		}
 		a.emit(turn.callerCtx, turn.out, ToolExecDoneEvent{
-			Iter:   turn.iter,
-			CallID: tc.ID,
-			Name:   tc.Function.Name,
-			Result: result,
+			Iter:     turn.iter,
+			CallID:   tc.ID,
+			Name:     tc.Function.Name,
+			Result:   result,
+			Duration: dur,
 		})
 	}
 
