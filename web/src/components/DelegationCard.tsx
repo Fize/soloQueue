@@ -10,6 +10,7 @@ export function DelegationCard({
   args,
   callId: _callId,
   done,
+  result,
   error,
   durationMs,
 }: {
@@ -17,6 +18,7 @@ export function DelegationCard({
   args: string
   callId: string
   done: boolean
+  result?: string
   error?: string
   durationMs?: number
 }) {
@@ -26,9 +28,9 @@ export function DelegationCard({
   const rawName = name.startsWith('delegate_') ? name.substring(9) : name
   const cleanName = rawName.replace(/_/g, ' ')
 
-  const namePart = rawName.toLowerCase().replace(/[\s_]/g, '')
+  const namePart = rawName.toLowerCase().replace(/[\s_-]/g, '')
   const matchedAgent = agentsData?.agents.find(
-    (a) => a.name.toLowerCase().replace(/[\s_]/g, '') === namePart
+    (a) => a.name.toLowerCase().replace(/[\s_-]/g, '') === namePart
   )
 
   const instanceId = matchedAgent?.instance_id || null
@@ -152,6 +154,22 @@ export function DelegationCard({
                       Instance: {instanceId}
                     </p>
                   )}
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        agentStream ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        'text-[10px] font-medium',
+                        agentStream ? 'text-emerald-600' : 'text-muted-foreground/60'
+                      )}
+                    >
+                      {agentStream ? 'Stream live' : 'Stream unavailable'}
+                    </span>
+                  </div>
                 </div>
               </div>
               <button
@@ -163,12 +181,47 @@ export function DelegationCard({
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 bg-card/20">
-              {agentStream ? (
+              {done && (result || error) ? (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-xs font-medium text-foreground/80">
+                      {agentStream
+                        ? 'Task result'
+                        : 'Task completed — agent stream no longer available'}
+                    </h4>
+                    {taskText && (
+                      <p className="text-[11px] text-muted-foreground mt-1">{taskText}</p>
+                    )}
+                  </div>
+                  {result && (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">Result</div>
+                      <pre className="whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-xs leading-relaxed max-h-96 overflow-y-auto">
+                        {result}
+                      </pre>
+                    </div>
+                  )}
+                  {error && (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-destructive">Error</div>
+                      <pre className="whitespace-pre-wrap break-all rounded bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
+                        {error}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ) : agentStream ? (
                 <AgentStreamView state={agentStream} />
-              ) : (
+              ) : running ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
                   <Bot className="h-8 w-8" />
                   <p className="text-xs">Waiting for agent stream...</p>
+                  {taskText && <p className="text-[11px] max-w-md text-center">{taskText}</p>}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-500/60" />
+                  <p className="text-xs">Task completed — no result available</p>
                   {taskText && <p className="text-[11px] max-w-md text-center">{taskText}</p>}
                 </div>
               )}

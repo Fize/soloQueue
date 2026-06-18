@@ -360,6 +360,7 @@ function SegmentView({
             args={segment.args}
             callId={segment.callId}
             done={segment.done}
+            result={segment.result}
             error={segment.error}
             durationMs={segment.durationMs}
           />
