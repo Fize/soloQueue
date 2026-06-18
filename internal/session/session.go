@@ -27,6 +27,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
@@ -138,9 +139,10 @@ type Session struct {
 	levelLocked     bool         // true when user explicitly locked level via /l0-/l3
 	lastRouteResult RouteResult  // cached route result for locked mode (model params preserved)
 
-	memoryHook    MemoryHook        // optional callback for short-term memory (nil = disabled)
-	memoryManager *memory.Manager   // for dedup cursor; set alongside memoryHook
-	cronHandler   CronHandler       // optional callback to execute /cron command
+	memoryHook    MemoryHook         // optional callback for short-term memory (nil = disabled)
+	memoryManager *memory.Manager    // for dedup cursor; set alongside memoryHook
+	memoryEngine  *memoryengine.Engine // for pre-query memory recall (nil = disabled)
+	cronHandler   CronHandler        // optional callback to execute /cron command
 
 	idleTimeout     time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int          // 0 = disabled; minimum CW tokens to trigger compact
@@ -196,18 +198,23 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	return s
 }
 
-// History 返回当前上下文的快照（兼容旧 API）
+// History returns a snapshot of the current context window for the REST API.
 //
-// 返回 []agent.LLMMessage 格式，供 REST /v1/sessions/{id}/history 使用。
+// <recalled_memories> blocks injected by the pre-load mechanism are stripped
+// from user messages so the web UI never exposes them.
 func (s *Session) History() []agent.LLMMessage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	payload := s.cw.BuildPayload()
 	out := make([]agent.LLMMessage, 0, len(payload))
 	for _, p := range payload {
+		content := p.Content
+		if p.Role == "user" {
+			content = stripRecalledMemories(content)
+		}
 		out = append(out, agent.LLMMessage{
 			Role:             p.Role,
-			Content:          p.Content,
+			Content:          content,
 			ReasoningContent: p.ReasoningContent,
 			Name:             p.Name,
 			ToolCallID:       p.ToolCallID,
@@ -215,6 +222,28 @@ func (s *Session) History() []agent.LLMMessage {
 		})
 	}
 	return out
+}
+
+// stripRecalledMemories removes the <recalled_memories>...</recalled_memories>
+// block from the beginning of a message if present.
+func stripRecalledMemories(s string) string {
+	const startTag = "<recalled_memories>"
+	const endTag = "</recalled_memories>"
+	start := strings.Index(s, startTag)
+	if start < 0 {
+		return s
+	}
+	end := strings.Index(s[start+len(startTag):], endTag)
+	if end < 0 {
+		return s
+	}
+	end = start + len(startTag) + end + len(endTag)
+	// After the end tag, expect "\n\n" separator, then the original prompt
+	remainder := strings.TrimLeft(s[end:], "\n ")
+	if remainder == "" {
+		return s
+	}
+	return remainder
 }
 
 // ContextWindow 返回底层 ContextWindow（供需要直接访问的场景）
@@ -292,6 +321,13 @@ func (s *Session) SetMemoryHook(hook MemoryHook) {
 // Must be set alongside SetMemoryHook for dedup to work.
 func (s *Session) SetMemoryManager(mm *memory.Manager) {
 	s.memoryManager = mm
+}
+
+// SetMemoryEngine sets the memory engine for pre-query memory recall.
+// When set, AskStream will automatically recall relevant memories before
+// each user message and inject them into the prompt. nil = disable.
+func (s *Session) SetMemoryEngine(e *memoryengine.Engine) {
+	s.memoryEngine = e
 }
 
 // Clear 执行软清除：追加 /clear 控制事件到 timeline，重置 ContextWindow
@@ -542,6 +578,12 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 
 	start := time.Now()
 
+	// Pre-load recalled memories (same as AskStream)
+	recalled := s.buildRecalledContext(ctx, prompt)
+	if recalled != "" {
+		prompt = recalled + "\n\n" + prompt
+	}
+
 	// Resize to default model's context window and push user prompt
 	effectiveCW := s.Agent.Def.ContextWindow
 	if effectiveCW <= 0 {
@@ -555,6 +597,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	s.logger.DebugContext(ctx, logger.CatApp, "ask: prompt pushed to context window",
 		"session_id", s.ID,
 		"prompt_len", len(prompt),
+		"recalled", recalled != "",
 	)
 
 	reply, reasoningContent, err := s.Agent.AskWithHistory(ctx, s.cw, prompt)
@@ -810,6 +853,20 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 	// ── Resize context window to match effective model ──
 
+	// ── Pre-load recalled memories ──
+	// Search the memory engine for context relevant to this prompt and inject
+	// it before the user message. This ensures the LLM has relevant long-term
+	// context without relying on it to proactively call RecallMemory.
+	recalled := s.buildRecalledContext(ctx, prompt)
+	if recalled != "" {
+		prompt = recalled + "\n\n" + prompt
+		s.logger.DebugContext(ctx, logger.CatApp, "askstream: recalled memories pre-loaded",
+			"session_id", s.ID,
+			"recalled_len", len(recalled),
+			"prompt_len", len(prompt),
+		)
+	}
+
 	// ── 创建可取消的 askCtx ──
 	askCtx, askCancel := context.WithTimeout(ctx, 20*time.Minute)
 
@@ -822,6 +879,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	s.logger.DebugContext(ctx, logger.CatApp, "askstream: prompt pushed to context window",
 		"session_id", s.ID,
 		"prompt_len", len(prompt),
+		"recalled", recalled != "",
 	)
 
 	// 存储取消函数（必须在启动 goroutine 之前，确保 CancelCurrent 可以立即工作）
@@ -1110,6 +1168,7 @@ type SessionManager struct {
 	routerFunc    TaskRouterFunc
 	memoryHook    MemoryHook
 	memoryManager *memory.Manager
+	memoryEngine  *memoryengine.Engine
 	cronHandler   CronHandler
 	logger        *logger.Logger
 
@@ -1152,6 +1211,13 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
 func (m *SessionManager) SetMemoryManager(mm *memory.Manager) {
 	m.memoryManager = mm
+}
+
+// SetMemoryEngine sets the memory engine for pre-query memory recall.
+// When set, each session will automatically recall relevant memories
+// before processing user messages. nil = disable.
+func (m *SessionManager) SetMemoryEngine(e *memoryengine.Engine) {
+	m.memoryEngine = e
 }
 
 // SetCronHandler sets the callback for /cron slash commands.
@@ -1217,6 +1283,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	}
 	if m.memoryManager != nil {
 		s.memoryManager = m.memoryManager
+	}
+	if m.memoryEngine != nil {
+		s.memoryEngine = m.memoryEngine
 	}
 	if m.cronHandler != nil {
 		s.cronHandler = m.cronHandler

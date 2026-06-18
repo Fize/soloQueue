@@ -72,7 +72,20 @@ Rules:
 - Preserve file paths, variable names, and other context clues needed for continuity
 - Omit intermediate reasoning, failed attempts, and redundant tool outputs
 - Keep the summary as compact as possible while retaining all essential information
-- Output only the summary, no meta-commentary`
+- Output only the summary, no meta-commentary
+
+At the end of your output, if the conversation contains important facts, decisions,
+user preferences, or solutions worth remembering, include a <memories> section:
+
+<memories>
+- User prefers HikariCP for connection pooling
+- Connection pool exhaustion: caused by unclosed connections in UserService
+- Project uses Spring Boot 3.2 with Java 21
+</memories>
+
+Each memory should be a concise, standalone statement. Only include genuinely
+important information, not casual talk. If nothing is worth saving, omit the
+entire <memories> section.`
 
 // CompactorOption is an optional configuration for LLMCompactor.
 type CompactorOption func(*LLMCompactor)

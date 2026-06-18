@@ -90,6 +90,7 @@ func ServeCmd(version string) *cobra.Command {
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 			mgr.SetMemoryManager(rt.MemoryManager)
+			mgr.SetMemoryEngine(rt.MemoryEngine)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
 
 			// Initialize Scheduled Tasks (Cron & Timers) system

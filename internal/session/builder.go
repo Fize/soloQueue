@@ -336,17 +336,29 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				continue
 			}
 
+			// Extract <memories> block from the summary and save separately
+			memories, cleanSummary := extractMemoriesFromSummary(seg.Summary)
+			for _, mem := range memories {
+				if b.RT.MemoryEngine != nil {
+					_, _, err := b.RT.MemoryEngine.Save(context.Background(), mem, seg.Date.Format("2006-01-02"), "auto-compact,memory", "")
+					if err != nil {
+						sessLog.Error(logger.CatActor, "memory extraction: save failed",
+							"err", err.Error())
+					}
+				}
+			}
+
 			if seg.Date.Before(cutoff) {
 				// >7 days old: write directly to permanent (long-term) memory
 				if b.RT.MemoryEngine != nil {
-					_, _, _ = b.RT.MemoryEngine.Save(context.Background(), seg.Summary, seg.Date.Format("2006-01-02"), "auto-compact", seg.Date.Format("2006-01-02")+"T00:00:00Z")
+					_, _, _ = b.RT.MemoryEngine.Save(context.Background(), cleanSummary, seg.Date.Format("2006-01-02"), "auto-compact", seg.Date.Format("2006-01-02")+"T00:00:00Z")
 				}
 			} else {
 				// ≤7 days: timeline control event + short-term memory
 				if err := tl.AppendControl(&timeline.ControlPayload{
 					Action:  "summary",
 					Reason:  "auto_compact",
-					Content: seg.Summary,
+					Content: cleanSummary,
 				}); err != nil {
 					sessLog.Error(logger.CatActor, "timeline summary append failed",
 						"err", err.Error(), "agent_id", agentID)
@@ -500,6 +512,48 @@ func parseClassificationLevel(level string) router.ClassificationLevel {
 	default:
 		return router.LevelUnknown
 	}
+}
+
+// extractMemoriesFromSummary parses a <memories> block from the compactor's
+// output and returns:
+//   - extracted: individual memory statements (each a concise fact worth saving)
+//   - cleaned:   the summary with the <memories> block removed
+//
+// If no <memories> block is found, returns nil and the original text unchanged.
+func extractMemoriesFromSummary(summary string) (extracted []string, cleaned string) {
+	startTag := "<memories>"
+	endTag := "</memories>"
+
+	start := strings.Index(summary, startTag)
+	if start < 0 {
+		return nil, summary
+	}
+	end := strings.Index(summary[start+len(startTag):], endTag)
+	if end < 0 {
+		return nil, summary
+	}
+	end = start + len(startTag) + end + len(endTag)
+
+	// Extract content between tags
+	block := summary[start+len(startTag) : end-len(endTag)]
+	lines := strings.Split(block, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Lines starting with "- " are memory items
+		if strings.HasPrefix(trimmed, "- ") {
+			item := strings.TrimSpace(trimmed[2:])
+			if item != "" {
+				extracted = append(extracted, item)
+			}
+		}
+	}
+
+	// Remove the <memories> block from the summary
+	cleaned = strings.TrimSpace(summary[:start] + summary[end:])
+	return extracted, cleaned
 }
 
 // FormatCtxwinMessages converts ctxwin messages to a plain-text representation
