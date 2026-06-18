@@ -833,7 +833,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					"call_id": tc.ID,
 					"name":    tc.Name,
 					"args":    tc.Arguments,
-					"done":    true,
+					"done":    false,
 				})
 				pendingToolCalls = append(pendingToolCalls, pendingToolCall{
 					callID: tc.ID,

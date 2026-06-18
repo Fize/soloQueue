@@ -151,11 +151,23 @@ export function ChatPage() {
   const l1AgentInstanceId = l1Agent?.instance_id || null
   const stream = useAgentStream(l1AgentInstanceId)
 
-  // Keep L1 session history in sync when L1 agent state changes
+  // Keep L1 session history in sync, but only after agent finishes processing.
+  // Reloading history while the agent is still processing creates a duplicate-render
+  // window: the history snapshot can already contain the user message + a partial
+  // assistant entry, while the virtualMessage stream also contains that same content.
+  const prevL1AgentState = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (isL1Session && l1AgentState) {
-      loadHistory('l1')
+      const wasProcessing = prevL1AgentState.current === 'processing'
+      const isDoneProcessing = l1AgentState !== 'processing'
+      if (wasProcessing && isDoneProcessing) {
+        loadHistory('l1')
+      } else if (!prevL1AgentState.current) {
+        // Initial load when we first get the agent state
+        loadHistory('l1')
+      }
     }
+    prevL1AgentState.current = l1AgentState
   }, [isL1Session, l1AgentState, loadHistory])
 
   const streamChatSegments = useMemo(() => {
@@ -184,13 +196,24 @@ export function ChatPage() {
       !streaming &&
       streamChatSegments.length > 0
     ) {
+      // Strip trailing assistant messages from the history snapshot to prevent
+      // duplicates: the history may already contain the user's last message and
+      // a partial assistant entry that overlaps with the live stream content.
+      let base = currentMessages
+      while (base.length > 0 && base[base.length - 1].role === 'assistant') {
+        base = base.slice(0, -1)
+      }
+      // Also strip the user message that was just sent if it is already present
+      // in the stream context (identified by being the last user message).
+      // The stream segments represent the current in-flight turn; the history
+      // snapshot may duplicate the triggering user turn.
       const virtualMessage = {
         id: `msg-virtual-stream`,
         role: 'assistant' as const,
         segments: streamChatSegments,
         timestamp: new Date().toISOString(),
       }
-      return [...currentMessages, virtualMessage]
+      return [...base, virtualMessage]
     }
     return currentMessages
   }, [currentMessages, isL1Session, l1AgentState, streaming, streamChatSegments])

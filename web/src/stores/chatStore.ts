@@ -257,16 +257,32 @@ export const useChatStore = create<ChatState>((set) => ({
     set((s) => {
       const sid = s.activeSessionId || ''
       const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
-      const segs = last.segments.map((seg) => {
-        if (seg.type === 'tool_call' && seg.callId === callId) {
-          return { ...seg, result, error, durationMs, done: true }
+
+      let found = false
+      const updated = [...msgs]
+      for (let i = updated.length - 1; i >= 0; i--) {
+        const msg = updated[i]
+        if (msg.role !== 'assistant') continue
+
+        let segFound = false
+        const segs = msg.segments.map((seg) => {
+          if (seg.type === 'tool_call' && seg.callId === callId) {
+            segFound = true
+            found = true
+            return { ...seg, result, error, durationMs, done: true }
+          }
+          return seg
+        })
+
+        if (segFound) {
+          updated[i] = { ...msg, segments: segs }
+          break
         }
-        return seg
-      })
+      }
+
+      if (!found) return s
       return {
-        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+        messages: { ...s.messages, [sid]: updated },
       }
     })
   },
