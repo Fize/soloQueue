@@ -470,7 +470,7 @@ func TestGlobalService_DefaultProvider(t *testing.T) {
 }
 
 func TestGlobalService_DefaultModelByRole_DefaultsIncludeProMax(t *testing.T) {
-	// 验证 DefaultSettings() 中包含 deepseek-v4-pro-max 模型
+	// Verify that DefaultSettings() contains the deepseek-v4-pro-max model
 	s := DefaultSettings()
 	found := false
 	for _, m := range s.Models {
@@ -488,7 +488,7 @@ func TestGlobalService_DefaultModelByRole_DefaultsIncludeProMax(t *testing.T) {
 		t.Error("DefaultSettings should include deepseek-v4-pro-max model")
 	}
 
-	// 验证 DefaultModels 默认值
+	// Verify DefaultModels default values
 	if s.DefaultModels.Expert != "deepseek:deepseek-v4-pro-max" {
 		t.Errorf("defaultModels.expert = %q, want deepseek:deepseek-v4-pro-max", s.DefaultModels.Expert)
 	}

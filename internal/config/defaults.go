@@ -1,7 +1,7 @@
 package config
 
-// DefaultSettings 返回系统硬编码的默认配置（最低优先级）
-// 对应 TypeScript 端 seeds.ts 中的 DEFAULT_CONFIGS 和 DEFAULT_LLM_CONFIGS
+// DefaultSettings returns hardcoded default configuration settings (lowest priority)
+// Corresponds to DEFAULT_CONFIGS and DEFAULT_LLM_CONFIGS in typescript seeds.ts
 func DefaultSettings() Settings {
 	return Settings{
 		Session: SessionConfig{
@@ -26,8 +26,8 @@ func DefaultSettings() Settings {
 			HTTPTimeoutMs:    600000,
 			HTTPBlockPrivate: true,
 
-			// ShellBlockRegexes 默认空 = 无黑名单限制
-			// ShellConfirmRegexes 默认包含常见危险命令
+			// ShellBlockRegexes defaults to empty = no blacklist restrictions
+			// ShellConfirmRegexes defaults to common dangerous commands
 			ShellConfirmRegexes: []string{
 				`^\s*rm\b`,
 				`^\s*dd\b`,

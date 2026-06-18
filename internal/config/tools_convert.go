@@ -6,7 +6,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ToToolsConfig 将 config.ToolsConfig 转换为 tools.Config。
+// ToToolsConfig converts config.ToolsConfig to tools.Config.
 func (tc ToolsConfig) ToToolsConfig() tools.Config {
 	return tools.Config{
 		MaxFileSize:        defaultInt64(tc.MaxFileSize, 1<<20),
