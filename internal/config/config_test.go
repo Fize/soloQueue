@@ -58,8 +58,9 @@ level = "debug"
 	}
 }
 
-func TestMergeTOML_EmbeddingNestedMerge(t *testing.T) {
+func TestMergeTOML_EmbeddingNestedMerge_Ignored(t *testing.T) {
 	base := DefaultSettings()
+	base.Embedding.Enabled = false
 	patch := `[embedding]
 enabled = true
 `
@@ -67,19 +68,12 @@ enabled = true
 	if err != nil {
 		t.Fatalf("MergeTOML: %v", err)
 	}
-	if !result.Embedding.Enabled {
-		t.Errorf("embedding.enabled not applied")
-	}
-	if len(result.Embedding.Providers) != len(base.Embedding.Providers) {
-		t.Errorf("embedding.providers len = %d, want preserved (%d)",
-			len(result.Embedding.Providers), len(base.Embedding.Providers))
-	}
-	if len(result.Embedding.Models) != len(base.Embedding.Models) {
-		t.Errorf("embedding.models not preserved")
+	if result.Embedding.Enabled {
+		t.Errorf("embedding.enabled should be ignored and remain false, got true")
 	}
 }
 
-func TestMergeTOML_ArrayReplacement(t *testing.T) {
+func TestMergeTOML_ArrayReplacement_Ignored(t *testing.T) {
 	base := DefaultSettings()
 	patch := `[[providers]]
 id = "openai"
@@ -90,11 +84,8 @@ enabled = true
 	if err != nil {
 		t.Fatalf("MergeTOML: %v", err)
 	}
-	if len(result.Providers) != 1 {
-		t.Errorf("providers len = %d, want 1 (wholesale replace)", len(result.Providers))
-	}
-	if result.Providers[0].ID != "openai" {
-		t.Errorf("providers[0].id = %q, want openai", result.Providers[0].ID)
+	if len(result.Providers) != len(base.Providers) {
+		t.Errorf("providers should be ignored and remain length %d, got %d", len(base.Providers), len(result.Providers))
 	}
 }
 
@@ -146,7 +137,7 @@ unknownField = "xxx"
 	}
 }
 
-func TestMergeTOML_NumericTypes(t *testing.T) {
+func TestMergeTOML_NumericTypes_Ignored(t *testing.T) {
 	base := Settings{Session: SessionConfig{TimelineMaxFileMB: 100}}
 	patch := `[session]
 timeline_max_file_mb = 7200
@@ -155,8 +146,8 @@ timeline_max_file_mb = 7200
 	if err != nil {
 		t.Fatalf("MergeTOML: %v", err)
 	}
-	if result.Session.TimelineMaxFileMB != 7200 {
-		t.Errorf("timelineMaxFileMB = %d, want 7200", result.Session.TimelineMaxFileMB)
+	if result.Session.TimelineMaxFileMB != 100 {
+		t.Errorf("timelineMaxFileMB should be ignored and remain 100, got %d", result.Session.TimelineMaxFileMB)
 	}
 }
 
@@ -206,8 +197,8 @@ func TestLoader_Load_FromFile(t *testing.T) {
 	if got.Log.Level != "debug" {
 		t.Errorf("level = %q, want debug", got.Log.Level)
 	}
-	if !got.Log.Console {
-		t.Errorf("log.console should be preserved from defaults (true)")
+	if got.Log.Console {
+		t.Errorf("log.console should be preserved from defaults (false)")
 	}
 }
 

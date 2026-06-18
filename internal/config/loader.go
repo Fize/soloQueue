@@ -218,7 +218,13 @@ func (l *Loader[T]) saveTo(path string, value T) error {
 		return fmt.Errorf("mkdirall %s: %w", filepath.Dir(path), err)
 	}
 
-	data, err := toml.Marshal(value)
+	var data []byte
+	var err error
+	if s, ok := any(value).(Settings); ok {
+		data, err = s.MarshalTOMLWithComments()
+	} else {
+		data, err = toml.Marshal(value)
+	}
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}

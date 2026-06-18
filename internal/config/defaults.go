@@ -9,7 +9,7 @@ func DefaultSettings() Settings {
 		},
 		Log: LogConfig{
 			Level:   "info",
-			Console: true,
+			Console: false,
 			File:    true,
 		},
 		Tools: ToolsConfig{
