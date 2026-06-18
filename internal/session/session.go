@@ -247,6 +247,30 @@ func (s *Session) CW() *ctxwin.ContextWindow {
 	return s.cw
 }
 
+// AskIsolated executes a prompt in a clean context: it calls the underlying
+// agent directly without pushing to the session's ContextWindow or timeline.
+// This is used by the cron scheduler so scheduled tasks run without polluting
+// the user's conversation history or being confused by stale context.
+// All system logs (actor/llm/tool) are still written normally.
+func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	if s.closed.Load() {
+		return nil, ErrSessionClosed
+	}
+	ch, err := s.Agent.AskStream(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	// Wrap AgentEvent channel to iface.AgentEvent channel (they are the same type via embedding)
+	out := make(chan iface.AgentEvent, 64)
+	go func() {
+		defer close(out)
+		for ev := range ch {
+			out <- ev
+		}
+	}()
+	return out, nil
+}
+
 // QueueMessage enqueues a user message into the pending queue without blocking.
 // The message will be injected into the agent's context window before the next
 // LLM API call, merged with any other pending messages into a single user turn.
