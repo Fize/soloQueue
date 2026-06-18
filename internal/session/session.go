@@ -142,6 +142,7 @@ type Session struct {
 	memoryHook    MemoryHook         // optional callback for short-term memory (nil = disabled)
 	memoryManager *memory.Manager    // for dedup cursor; set alongside memoryHook
 	memoryEngine  *memoryengine.Engine // for pre-query memory recall (nil = disabled)
+	recalledHashes map[string]struct{}  // hashes of recalled memories injected in this context window
 	cronHandler   CronHandler        // optional callback to execute /cron command
 
 	idleTimeout     time.Duration // 0 = disabled; auto-clear idle sessions
@@ -164,14 +165,15 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	}
 
 	s := &Session{
-		ID:      id,
-		TeamID:  teamID,
-		Agent:   a,
-		Created: time.Now(),
-		cw:      cw,
-		tl:      tl,
-		logger:  l,
-		pending: &PendingQueue{},
+		ID:             id,
+		TeamID:         teamID,
+		Agent:          a,
+		Created:        time.Now(),
+		cw:             cw,
+		tl:             tl,
+		logger:         l,
+		pending:        &PendingQueue{},
+		recalledHashes: make(map[string]struct{}),
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 
@@ -210,7 +212,7 @@ func (s *Session) History() []agent.LLMMessage {
 	for _, p := range payload {
 		content := p.Content
 		if p.Role == "user" {
-			content = stripRecalledMemories(content)
+			content = StripRecalledMemories(content)
 		}
 		out = append(out, agent.LLMMessage{
 			Role:             p.Role,
@@ -224,9 +226,9 @@ func (s *Session) History() []agent.LLMMessage {
 	return out
 }
 
-// stripRecalledMemories removes the <recalled_memories>...</recalled_memories>
+// StripRecalledMemories removes the <recalled_memories>...</recalled_memories>
 // block from the beginning of a message if present.
-func stripRecalledMemories(s string) string {
+func StripRecalledMemories(s string) string {
 	const startTag = "<recalled_memories>"
 	const endTag = "</recalled_memories>"
 	start := strings.Index(s, startTag)
@@ -365,6 +367,7 @@ func (s *Session) Clear() error {
 
 	// 重置 ContextWindow（保留 system prompt）
 	s.cw.Reset()
+	s.recalledHashes = make(map[string]struct{})
 	s.mu.Unlock()
 
 	// Call memory hook for each date group (outside lock)
@@ -444,6 +447,7 @@ func (s *Session) ClearSilent() error {
 
 	// Reset context window (preserves system prompt)
 	s.cw.Reset()
+	s.recalledHashes = make(map[string]struct{})
 	s.mu.Unlock()
 
 	// Call memory hook for each date group (outside lock)
@@ -544,6 +548,10 @@ func (s *Session) checkAutoClear() {
 			"err", err.Error())
 		return
 	}
+
+	s.mu.Lock()
+	s.recalledHashes = make(map[string]struct{})
+	s.mu.Unlock()
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "auto-clear: context compressed and replaced",
 		"summary_len", len(summary))

@@ -878,6 +878,7 @@ func (cw *ContextWindow) asyncCompact() {
 func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([]SummarySegment, string, error) {
 	// 1. Drop oversized tool messages (memory only needs "what tool was called")
 	filtered := filterOversizedToolMessages(msgs[1:]) // skip system prompt
+	filtered = stripRecalledMemoryBlocks(filtered)
 
 	// 2. Group by calendar date
 	byDate := groupMessagesByDate(filtered)
@@ -986,6 +987,28 @@ func (cw *ContextWindow) mergeSummaries(ctx context.Context, segments []SummaryS
 }
 
 // ─── Compaction Helpers ────────────────────────────────────────────────────
+
+func stripRecalledMemoryBlocks(msgs []Message) []Message {
+	const open = "<recalled_memories>"
+	const close = "</recalled_memories>"
+	out := make([]Message, len(msgs))
+	for i, m := range msgs {
+		if m.Role == RoleUser && strings.Contains(m.Content, open) {
+			start := strings.Index(m.Content, open)
+			end := strings.Index(m.Content, close)
+			if start >= 0 && end > start {
+				stripped := strings.TrimSpace(
+					m.Content[:start] + m.Content[end+len(close):])
+				cp := m
+				cp.Content = stripped
+				out[i] = cp
+				continue
+			}
+		}
+		out[i] = m
+	}
+	return out
+}
 
 // filterOversizedToolMessages drops tool messages whose content exceeds
 // maxToolContentLen runes.  Memory only needs to know "what tool was

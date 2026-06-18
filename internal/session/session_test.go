@@ -822,3 +822,42 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 	})
 }
 
+func TestStripRecalledMemories(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "normal text",
+			input:    "normal text",
+			expected: "normal text",
+		},
+		{
+			name:     "with recalled memories",
+			input:    "<recalled_memories>\n1. memory\n</recalled_memories>\n\nreal message",
+			expected: "real message",
+		},
+		{
+			name:     "with spaces after tag",
+			input:    "<recalled_memories>\n1. memory\n</recalled_memories>\n  \nreal message",
+			expected: "real message",
+		},
+		{
+			name:     "only tag",
+			input:    "<recalled_memories>\n1. memory\n</recalled_memories>",
+			expected: "<recalled_memories>\n1. memory\n</recalled_memories>",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StripRecalledMemories(tc.input)
+			if got != tc.expected {
+				t.Errorf("StripRecalledMemories(%q) = %q; want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+
