@@ -59,47 +59,122 @@ func (s *Session) buildRecalledContext(ctx context.Context, prompt string) strin
 		return ""
 	}
 
-	var b strings.Builder
-	b.WriteString("<recalled_memories>\n")
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	budget := maxRecallChars
-	used := 0
+	// Filter out results already seen in this session context window
+	var targets []memoryengine.SearchResult
+	for _, r := range results.Results {
+		if _, ok := s.recalledHashes[r.ContentHash]; !ok {
+			targets = append(targets, r)
+		}
+	}
 
-	for i, r := range results.Results {
-		// Format date for display
+	if len(targets) == 0 {
+		return ""
+	}
+
+	// Compute dates, age labels, and if any are stale
+	type processedEntry struct {
+		result   memoryengine.SearchResult
+		date     string
+		ageLabel string
+		isStale  bool
+	}
+
+	var processed []processedEntry
+	anyStale := false
+
+	now := time.Now()
+	todayStr := now.Format("2006-01-02")
+	today, _ := time.ParseInLocation("2006-01-02", todayStr, now.Location())
+
+	for _, r := range targets {
 		date := r.Date
 		if date == "" {
 			date = r.EventTime
-			// Trim time portion if present (ISO 8601 → date only)
 			if len(date) > 10 {
 				date = date[:10]
 			}
 		}
 
-		content := strings.TrimSpace(r.Content)
+		var ageLabel string
+		isStale := false
+		if date != "" {
+			memTime, err := time.ParseInLocation("2006-01-02", date, now.Location())
+			if err == nil {
+				days := int(today.Sub(memTime).Hours() / 24)
+				if days <= 0 {
+					ageLabel = "today"
+				} else if days == 1 {
+					ageLabel = "1d ago"
+				} else if days <= 7 {
+					ageLabel = fmt.Sprintf("%dd ago", days)
+				} else {
+					ageLabel = fmt.Sprintf("stale %dd", days)
+					isStale = true
+					anyStale = true
+				}
+			}
+		}
+
+		processed = append(processed, processedEntry{
+			result:   r,
+			date:     date,
+			ageLabel: ageLabel,
+			isStale:  isStale,
+		})
+	}
+
+	var b strings.Builder
+	b.WriteString("<recalled_memories>\n")
+
+	budget := maxRecallChars
+	used := len("<recalled_memories>\n</recalled_memories>")
+
+	const staleWarning = "⚠️ Memories marked [stale] are >7 days old and may be outdated — verify before presenting as fact.\n"
+	if anyStale {
+		b.WriteString(staleWarning)
+		used += len(staleWarning)
+	}
+
+	for i, p := range processed {
+		content := strings.TrimSpace(p.result.Content)
 		if len(content) > maxEntryLen {
 			content = content[:maxEntryLen] + "..."
 		}
 
-		line := fmt.Sprintf("%d. [%s] %s\n", i+1, date, content)
+		var line string
+		if p.ageLabel != "" {
+			line = fmt.Sprintf("%d. [%s, %s] %s\n", i+1, p.date, p.ageLabel, content)
+		} else {
+			line = fmt.Sprintf("%d. [%s] %s\n", i+1, p.date, content)
+		}
 		lineLen := len(line)
 
 		if used+lineLen > budget {
 			// Try to fit a truncated version of this line
 			remaining := budget - used
 			if remaining > 30 {
-				shortContent := r.Content
+				shortContent := p.result.Content
 				if len(shortContent) > remaining-30 {
 					shortContent = shortContent[:remaining-30] + "..."
 				}
-				shortLine := fmt.Sprintf("%d. [%s] %s\n", i+1, date, shortContent)
+				var shortLine string
+				if p.ageLabel != "" {
+					shortLine = fmt.Sprintf("%d. [%s, %s] %s\n", i+1, p.date, p.ageLabel, shortContent)
+				} else {
+					shortLine = fmt.Sprintf("%d. [%s] %s\n", i+1, p.date, shortContent)
+				}
 				b.WriteString(shortLine)
+				s.recalledHashes[p.result.ContentHash] = struct{}{}
 			}
 			break
 		}
 
 		b.WriteString(line)
 		used += lineLen
+		s.recalledHashes[p.result.ContentHash] = struct{}{}
 	}
 
 	b.WriteString("</recalled_memories>")

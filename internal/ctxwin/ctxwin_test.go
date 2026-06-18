@@ -444,10 +444,46 @@ func TestResize_SummaryTokens_Recalculation(t *testing.T) {
 }
 
 func TestResize_BufferTokens_AutoCalculate(t *testing.T) {
-	cw := newTestCW(1000, 100)
-	cw.Resize(500, 0, 0)
+	cw := newTestCW(100, 10) // buffer=10
+	cw.Resize(50, 0, 0)
 	_, _, buffer := cw.TokenUsage()
-	if buffer != 50 {
-		t.Errorf("auto bufferTokens = %d, want 50 (maxTokens/10)", buffer)
+	if buffer != 5 {
+		t.Errorf("auto bufferTokens = %d, want 5 (maxTokens/10)", buffer)
 	}
 }
+
+func TestStripRecalledMemoryBlocks(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    RoleUser,
+			Content: "<recalled_memories>\n1. memory\n</recalled_memories>\n\nreal message",
+		},
+		{
+			Role:    RoleSystem,
+			Content: "<recalled_memories>\n1. memory\n</recalled_memories>\n\nreal system message",
+		},
+		{
+			Role:    RoleUser,
+			Content: "plain user message",
+		},
+	}
+
+	stripped := stripRecalledMemoryBlocks(msgs)
+	if len(stripped) != 3 {
+		t.Fatalf("len = %d, want 3", len(stripped))
+	}
+
+	if stripped[0].Content != "real message" {
+		t.Errorf("stripped[0] content = %q, want %q", stripped[0].Content, "real message")
+	}
+
+	expectedSystem := "<recalled_memories>\n1. memory\n</recalled_memories>\n\nreal system message"
+	if stripped[1].Content != expectedSystem {
+		t.Errorf("stripped[1] content = %q, want %q", stripped[1].Content, expectedSystem)
+	}
+
+	if stripped[2].Content != "plain user message" {
+		t.Errorf("stripped[2] content = %q, want %q", stripped[2].Content, "plain user message")
+	}
+}
+

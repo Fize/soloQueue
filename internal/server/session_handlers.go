@@ -808,7 +808,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			if msg.Content != "" {
 				segments = append(segments, map[string]interface{}{
 					"type": "content",
-					"text": msg.Content,
+					"text": session.StripRecalledMemories(msg.Content),
 				})
 			}
 			msgs = append(msgs, historyMsg{
