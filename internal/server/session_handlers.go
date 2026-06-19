@@ -790,29 +790,17 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		switch msg.Role {
 		case "user":
 			// If this is a delegation result user message, match it back to the corresponding
-			// pending delegation tool call segment and mark it as completed.
+			// pending delegation tool call segment by CallID and mark it as completed.
 			if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
 				parsedResults := parseDelegationResults(msg.Content)
-				for taskText, resultText := range parsedResults {
-					for _, ptc := range pendingToolCalls {
-						if !strings.HasPrefix(ptc.name, "delegate_") {
-							continue
-						}
-						var d struct {
-							Task string `json:"task"`
-						}
-						_ = json.Unmarshal([]byte(ptc.args), &d)
-						ptcTask := d.Task
-						if ptcTask == "" {
-							ptcTask = ptc.args
-						}
-						if ptcTask == taskText {
-							if ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
-								msgs[ptc.msgIdx].Segments[ptc.segIdx]["result"] = resultText
-								msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = true
-							}
-							break
-						}
+				for _, ptc := range pendingToolCalls {
+					if !strings.HasPrefix(ptc.name, "delegate_") {
+						continue
+					}
+					resultText, ok := parsedResults[ptc.callID]
+					if ok && ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
+						msgs[ptc.msgIdx].Segments[ptc.segIdx]["result"] = resultText
+						msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = true
 					}
 				}
 				break // skip creating a separate user message bubble
@@ -935,33 +923,35 @@ func extractDelegationAgentName(content string) string {
 	return "Subagent"
 }
 
-// parseDelegationResults parses multiple task-result pairs from a "[Delegation Completed]" message content.
-// Returns a map of task -> result.
+// parseDelegationResults parses callID→result pairs from a "[Delegation Completed]" message content.
+// Returns a map of callID -> result.
 func parseDelegationResults(content string) map[string]string {
 	results := make(map[string]string)
 	lines := strings.Split(content, "\n")
 
-	var currentTask string
+	var currentCallID string
 	var resultLines []string
 	inResult := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "Task:") {
-			if currentTask != "" && inResult {
-				results[currentTask] = strings.TrimSpace(strings.Join(resultLines, "\n"))
+			if currentCallID != "" && inResult {
+				results[currentCallID] = strings.TrimSpace(strings.Join(resultLines, "\n"))
 			}
-			currentTask = strings.TrimSpace(strings.TrimPrefix(trimmed, "Task:"))
+			currentCallID = ""
 			resultLines = nil
 			inResult = false
+		} else if strings.HasPrefix(trimmed, "CallID:") {
+			currentCallID = strings.TrimSpace(strings.TrimPrefix(trimmed, "CallID:"))
 		} else if trimmed == "Result:" {
 			inResult = true
 		} else if inResult {
 			resultLines = append(resultLines, line)
 		}
 	}
-	if currentTask != "" && inResult {
-		results[currentTask] = strings.TrimSpace(strings.Join(resultLines, "\n"))
+	if currentCallID != "" && inResult {
+		results[currentCallID] = strings.TrimSpace(strings.Join(resultLines, "\n"))
 	}
 	return results
 }

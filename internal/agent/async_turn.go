@@ -639,7 +639,7 @@ func formatDelegationStarted(tc llm.ToolCall) string {
 //	[Delegation Completed]
 //
 //	Task: {task description}
-//	Assigned to: {agent ID}
+//	CallID: {tool call ID}
 //	Result:
 //	{result content}
 func formatDelegationCompleted(toolCalls []llm.ToolCall, results []string) string {
@@ -661,6 +661,7 @@ func formatDelegationCompleted(toolCalls []llm.ToolCall, results []string) strin
 			task = tc.Function.Arguments
 		}
 		sb.WriteString(fmt.Sprintf("Task: %s\n", task))
+		sb.WriteString(fmt.Sprintf("CallID: %s\n", tc.ID))
 		sb.WriteString("Result:\n")
 		sb.WriteString(result)
 		sb.WriteString("\n\n")
