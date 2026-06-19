@@ -72,6 +72,12 @@ func (m *Mux) allowedRoots() []string {
 	workspaceDir := filepath.Join(m.workDir, "workspace")
 	roots = append(roots, workspaceDir)
 
+	// Generated images from ImageGenerate and ImageEdit tools.
+	imagesDir := filepath.Join(m.workDir, "images")
+	roots = append(roots, imagesDir)
+	artifactsDir := filepath.Join(m.workDir, "artifacts")
+	roots = append(roots, artifactsDir)
+
 	if m.teamstore != nil {
 		projects, err := m.teamstore.ListProjects(context.Background())
 		if err == nil {
@@ -227,6 +233,20 @@ func (m *Mux) handleGetFileRoots(w http.ResponseWriter, r *http.Request) {
 	roots = append(roots, FileRoot{
 		Label: "Global Workspaces",
 		Path:  workspaceDir,
+		Group: "Global Plans",
+	})
+
+	imagesDir := filepath.Join(m.workDir, "images")
+	roots = append(roots, FileRoot{
+		Label: "Generated Images",
+		Path:  imagesDir,
+		Group: "Global Plans",
+	})
+
+	artifactsDir := filepath.Join(m.workDir, "artifacts")
+	roots = append(roots, FileRoot{
+		Label: "Image Artifacts",
+		Path:  artifactsDir,
 		Group: "Global Plans",
 	})
 

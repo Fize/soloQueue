@@ -367,6 +367,26 @@ function SegmentView({
           />
         )
       }
+      if (segment.name === 'request_team_help') {
+        let teamName = 'peer team'
+        try {
+          const args = JSON.parse(segment.args)
+          if (args.team_name) teamName = args.team_name
+        } catch {
+          // ignore parse errors
+        }
+        return (
+          <DelegationCard
+            name={teamName}
+            args={segment.args}
+            callId={segment.callId}
+            done={segment.done}
+            result={segment.result}
+            error={segment.error}
+            durationMs={segment.durationMs}
+          />
+        )
+      }
       return <ToolCallSegment segment={segment} isUser={isUser} />
     case 'tool_confirm':
       return <ToolConfirmSegment segment={segment} isUser={isUser} />
@@ -690,6 +710,17 @@ function ToolCallSegment({
               </pre>
             </div>
           )}
+          {!segment.error &&
+            segment.result &&
+            (segment.name === 'ImageGenerate' ||
+              segment.name === 'ImageEdit' ||
+              segment.name === 'SendFile') && (
+              <ImageResultPreviews
+                result={segment.result}
+                toolName={segment.name}
+                isUser={isUser}
+              />
+            )}
         </div>
       )}
     </div>
@@ -702,6 +733,67 @@ function tryPrettify(raw: string): string {
   } catch {
     return raw
   }
+}
+
+function extractImagePaths(result: string, toolName: string): string[] {
+  try {
+    const parsed = JSON.parse(result)
+    if (toolName === 'SendFile') {
+      // SendFile: use local path (served via /api/files/content?path=)
+      if (parsed.status === 'success' && parsed.file_type === 'image' && parsed.path) {
+        return [parsed.path]
+      }
+    } else {
+      // ImageGenerate / ImageEdit: use local_paths
+      if (
+        parsed.status === 'completed' &&
+        Array.isArray(parsed.local_paths) &&
+        parsed.local_paths.length > 0
+      ) {
+        return parsed.local_paths
+      }
+    }
+  } catch {
+    // Not valid JSON, no images to extract
+  }
+  return []
+}
+
+function ImageResultPreviews({
+  result,
+  toolName,
+  isUser,
+}: {
+  result: string
+  toolName: string
+  isUser?: boolean
+}) {
+  const paths = extractImagePaths(result, toolName)
+  if (paths.length === 0) return null
+  return (
+    <div>
+      <div
+        className={`text-[10px] font-semibold uppercase tracking-wider mb-2 ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/50'}`}
+      >
+        Generated Images
+      </div>
+      <div className="grid grid-cols-1 gap-2">
+        {paths.map((path, i) => {
+          const url = getFileUrl(path)
+          return (
+            <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block">
+              <img
+                src={url}
+                alt={`Generated image ${i + 1}`}
+                className="rounded-lg border border-border/50 max-h-64 object-contain bg-black/5"
+                loading="lazy"
+              />
+            </a>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function CopyButton({ text }: { text: string }) {
