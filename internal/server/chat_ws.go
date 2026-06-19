@@ -2,12 +2,17 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -47,10 +52,25 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	}
 
 	// Format prompt with uploaded files.
+	// Image files are base64-encoded and passed via context for multimodal models.
 	finalPrompt := msg.Prompt
+	var images []llm.ImageContent
 	if len(msg.Files) > 0 {
 		var blocks []string
 		for _, f := range msg.Files {
+			// Detect if this is an image file by reading and sniffing MIME type.
+			if fileContent, err := os.ReadFile(f.Path); err == nil {
+				mimeType := http.DetectContentType(fileContent)
+				if strings.HasPrefix(mimeType, "image/") {
+					b64 := base64.StdEncoding.EncodeToString(fileContent)
+					images = append(images, llm.ImageContent{
+						Data:     b64,
+						MimeType: mimeType,
+					})
+					blocks = append(blocks, fmt.Sprintf("- %s: %s (图片, 已通过视觉模型识别)", f.Name, f.Path))
+					continue
+				}
+			}
 			blocks = append(blocks, fmt.Sprintf("- %s: %s", f.Name, f.Path))
 		}
 		finalPrompt = fmt.Sprintf("%s\n\n[上传文件:\n%s\n]", msg.Prompt, strings.Join(blocks, "\n"))
@@ -58,6 +78,9 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 
 	// Create a derived context from client ctx so disconnect cancels this request.
 	reqCtx, reqCancel := context.WithCancel(client.ctx)
+	if len(images) > 0 {
+		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
+	}
 	client.addActiveRequest(msg.RequestID, reqCancel)
 
 	sess.SetIsQBot(false)

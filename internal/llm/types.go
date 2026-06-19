@@ -17,6 +17,17 @@ import (
 	"net/http"
 )
 
+// ─── Multimodal types ────────────────────────────────────────────────────────
+
+// ImageContent 表示一条图片内容（base64 编码）
+//
+// 用于多模态模型（Kimi K2.6 等），以 OpenAI 兼容的 image_url 格式发送。
+// Data 是不含 "data:image/...;base64," 前缀的纯 base64 字节。
+type ImageContent struct {
+	Data     string // base64-encoded image bytes
+	MimeType string // e.g., "image/png", "image/jpeg"
+}
+
 // ─── Tool-calling shared types ───────────────────────────────────────────────
 
 // ToolCall 是 assistant 消息里的一次工具调用请求。

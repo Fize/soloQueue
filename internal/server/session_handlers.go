@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
@@ -92,8 +95,11 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Format prompt with uploaded files if present
+	// Format prompt with uploaded files if present.
+	// Image files are base64-encoded and passed via context for multimodal models.
+	// Non-image files are injected as text path markers (existing behavior).
 	finalPrompt := trimmed
+	var images []llm.ImageContent
 	if len(req.Files) > 0 {
 		var fileBlocks []string
 		for _, f := range req.Files {
@@ -102,32 +108,57 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 				absPath = f.Path
 			}
 			size := int64(0)
-			isText := true
+			isImage := false
+			var fileContent []byte
 			fi, err := os.Stat(absPath)
 			if err == nil {
 				size = fi.Size()
-				fileContent, readErr := os.ReadFile(absPath)
-				if readErr == nil {
-					isText = !isBinary(fileContent)
+				fileContent, _ = os.ReadFile(absPath)
+			}
+
+			if len(fileContent) > 0 {
+				mimeType := http.DetectContentType(fileContent)
+				if strings.HasPrefix(mimeType, "image/") {
+					isImage = true
+					b64 := base64.StdEncoding.EncodeToString(fileContent)
+					images = append(images, llm.ImageContent{
+						Data:     b64,
+						MimeType: mimeType,
+					})
 				}
 			}
 
-			var block string
-			if isText {
-				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+			if isImage {
+				block := fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 图片 (已通过视觉模型识别)", f.Name, absPath, size)
+				fileBlocks = append(fileBlocks, block)
 			} else {
-				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+				isText := true
+				if len(fileContent) > 0 {
+					isText = !isBinary(fileContent)
+				}
+				var block string
+				if isText {
+					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+				} else {
+					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+				}
+				fileBlocks = append(fileBlocks, block)
 			}
-			fileBlocks = append(fileBlocks, block)
 		}
 		if len(fileBlocks) > 0 {
 			finalPrompt = fmt.Sprintf("%s\n\n[用户已上传文件，已保存至本地：\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
 		}
 	}
 
+	// Build context with image data for multimodal models.
+	askCtx := context.Background()
+	if len(images) > 0 {
+		askCtx = context.WithValue(askCtx, ctxwin.ImageContextKey, images)
+	}
+
 	sess.SetIsQBot(false)
 	// Trigger AskStream in a background context so it doesn't block HTTP response
-	ch, err := sess.AskStream(context.Background(), finalPrompt)
+	ch, err := sess.AskStream(askCtx, finalPrompt)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionBusy) {
 			m.writeJSON(w, http.StatusConflict, map[string]string{"error": "session is busy"})
@@ -181,8 +212,10 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Format prompt with uploaded files if present
+	// Format prompt with uploaded files if present.
+	// Image files are base64-encoded and passed via context for multimodal models.
 	finalPrompt := trimmed
+	var images []llm.ImageContent
 	if len(req.Files) > 0 {
 		var fileBlocks []string
 		for _, f := range req.Files {
@@ -191,23 +224,42 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 				absPath = f.Path
 			}
 			size := int64(0)
-			isText := true
+			isImage := false
+			var fileContent []byte
 			fi, err := os.Stat(absPath)
 			if err == nil {
 				size = fi.Size()
-				fileContent, readErr := os.ReadFile(absPath)
-				if readErr == nil {
-					isText = !isBinary(fileContent)
+				fileContent, _ = os.ReadFile(absPath)
+			}
+
+			if len(fileContent) > 0 {
+				mimeType := http.DetectContentType(fileContent)
+				if strings.HasPrefix(mimeType, "image/") {
+					isImage = true
+					b64 := base64.StdEncoding.EncodeToString(fileContent)
+					images = append(images, llm.ImageContent{
+						Data:     b64,
+						MimeType: mimeType,
+					})
 				}
 			}
 
-			var block string
-			if isText {
-				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+			if isImage {
+				block := fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 图片 (已通过视觉模型识别)", f.Name, absPath, size)
+				fileBlocks = append(fileBlocks, block)
 			} else {
-				block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+				isText := true
+				if len(fileContent) > 0 {
+					isText = !isBinary(fileContent)
+				}
+				var block string
+				if isText {
+					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+				} else {
+					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+				}
+				fileBlocks = append(fileBlocks, block)
 			}
-			fileBlocks = append(fileBlocks, block)
 		}
 		if len(fileBlocks) > 0 {
 			finalPrompt = fmt.Sprintf("%s\n\n[用户已上传文件，已保存至本地：\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
@@ -252,8 +304,13 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess.SetIsQBot(false)
+	// Build context with image data for multimodal models.
+	askCtx := r.Context()
+	if len(images) > 0 {
+		askCtx = context.WithValue(askCtx, ctxwin.ImageContextKey, images)
+	}
 	// Use request context: client disconnect cancels the agent task.
-	ch, err := sess.AskStream(r.Context(), finalPrompt)
+	ch, err := sess.AskStream(askCtx, finalPrompt)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionBusy) {
 			writeSSEEvent(w, flusher, "error", map[string]string{"error": "session is busy"})

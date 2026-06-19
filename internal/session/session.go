@@ -25,6 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
@@ -881,7 +882,13 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
-	s.cw.Push(ctxwin.RoleUser, prompt)
+	// Extract images from context if present (e.g., from qbot image uploads).
+	// Images are passed as []llm.ImageContent via context.WithValue.
+	var pushOpts []ctxwin.PushOption
+	if images, ok := ctx.Value(ctxwin.ImageContextKey).([]llm.ImageContent); ok && len(images) > 0 {
+		pushOpts = append(pushOpts, ctxwin.WithImages(images))
+	}
+	s.cw.Push(ctxwin.RoleUser, prompt, pushOpts...)
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "askstream: prompt pushed to context window",
