@@ -20,7 +20,7 @@ export function SettingsLayout() {
 
   return (
     <div className="h-full overflow-y-auto px-3 py-3 sm:px-6 sm:py-6 pb-20 md:pb-6">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto w-full max-w-6xl min-w-[320px]">
         {/* Mobile-only header for settings */}
         <div className="flex md:hidden flex-col gap-4 border-b border-border/40 pb-3 mb-5">
           <div className="flex items-center justify-between">

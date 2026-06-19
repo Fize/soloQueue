@@ -195,267 +195,269 @@ export function CronPage() {
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-6 min-h-0">
-        {error && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3.5 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span className="font-medium">{error}</span>
-          </div>
-        )}
+        <div className="mx-auto w-full max-w-6xl min-w-[320px] space-y-6">
+          {error && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3.5 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="font-medium">{error}</span>
+            </div>
+          )}
 
-        {loading && tasks.length === 0 ? (
-          <div className="flex h-72 items-center justify-center">
-            <div className="flex flex-col items-center gap-2.5">
-              <RefreshCw className="h-8 w-8 text-primary animate-spin" />
-              <p className="text-sm font-medium text-muted-foreground">Loading tasks...</p>
+          {loading && tasks.length === 0 ? (
+            <div className="flex h-72 items-center justify-center">
+              <div className="flex flex-col items-center gap-2.5">
+                <RefreshCw className="h-8 w-8 text-primary animate-spin" />
+                <p className="text-sm font-medium text-muted-foreground">Loading tasks...</p>
+              </div>
             </div>
-          </div>
-        ) : tasks.length === 0 ? (
-          <GlassCard
-            variant="ghost"
-            className="flex flex-col items-center justify-center py-16 text-center border-dashed"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-4 animate-pulse">
-              <Clock className="h-6 w-6" />
-            </div>
-            <h3 className="text-base font-semibold text-foreground">No scheduled tasks</h3>
-            <p className="max-w-md text-sm text-muted-foreground mt-1 mb-6">
-              Remind yourself or trigger automated commands. Try chatting with AI:{' '}
-              <span className="font-mono text-primary bg-primary/5 px-1 rounded">
-                "Reminder to daily check database at 9am"
-              </span>
-              .
-            </p>
-            <Button size="sm" onClick={handleOpenCreateDialog} className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              Create First Task
-            </Button>
-          </GlassCard>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-1">
-            {/* Desktop Table View */}
-            <div className="hidden lg:block overflow-hidden rounded-xl border border-border bg-card/30 backdrop-blur-md">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40 font-medium text-muted-foreground">
-                    <th className="p-4 w-[160px]">Task ID</th>
-                    <th className="p-4 w-[150px]">Schedule</th>
-                    <th className="p-4">Instruction Prompt</th>
-                    <th className="p-4 w-[110px]">Target</th>
-                    <th className="p-4 w-[100px]">Status</th>
-                    <th className="p-4 w-[180px]">Next Run</th>
-                    <th className="p-4 w-[120px] text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {tasks.map((task) => (
-                    <tr key={task.id} className="hover:bg-muted/20 transition-colors group">
-                      <td className="p-4 font-mono text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate max-w-[100px]">{task.id}</span>
-                          <button
-                            onClick={() => copyToClipboard(task.id)}
-                            className="text-muted-foreground/60 hover:text-foreground p-0.5 rounded transition-colors"
-                            title="Copy ID"
-                          >
-                            {copiedId === task.id ? (
-                              <Check className="h-3 w-3 text-[var(--success)]" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
-                          </button>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-foreground bg-primary/5 px-2 py-1 rounded w-fit border border-primary/10">
-                          <Clock className="h-3.5 w-3.5 text-primary" />
-                          {task.expression}
-                        </div>
-                      </td>
-                      <td className="p-4 font-medium text-foreground max-w-sm">
-                        <div className="flex items-start gap-2">
-                          <Terminal className="h-4 w-4 text-muted-foreground/75 mt-0.5 shrink-0" />
-                          <span className="line-clamp-2" title={task.instruction}>
-                            {task.instruction}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <Badge variant="outline" className="gap-1 bg-background/50">
-                          <Bot className="h-3 w-3 text-primary" />
-                          {task.target_agent || 'L1'}
-                        </Badge>
-                      </td>
-                      <td className="p-4">
-                        <span
-                          onClick={() => handleToggleStatus(task)}
-                          className={`inline-flex items-center gap-1.5 cursor-pointer rounded-full px-2.5 py-0.5 text-xs font-medium transition-all hover:opacity-85 ${
-                            task.status === 'active'
-                              ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
-                              : task.status === 'completed'
-                                ? 'bg-[var(--info)]/10 text-[var(--info)] border border-[var(--info)]/20'
-                                : 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20'
-                          }`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              task.status === 'active'
-                                ? 'bg-[var(--success)] animate-pulse'
-                                : task.status === 'completed'
-                                  ? 'bg-[var(--info)]'
-                                  : 'bg-muted-foreground'
-                            }`}
-                          />
-                          {task.status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-xs text-muted-foreground">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3.5 w-3.5" />
-                            <span>{formatTime(task.next_run_at)}</span>
-                          </div>
-                          {task.last_run_at && (
-                            <span className="text-[10px] text-muted-foreground/60 pl-4.5">
-                              Last: {formatTime(task.last_run_at)}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => handleToggleStatus(task)}
-                            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                            title={task.status === 'active' ? 'Pause' : 'Activate'}
-                          >
-                            {task.status === 'active' ? (
-                              <Pause className="h-4 w-4" />
-                            ) : (
-                              <Play className="h-4 w-4" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => handleOpenEditDialog(task)}
-                            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                            title="Edit"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTask(task.id)}
-                            className="p-1.5 rounded hover:bg-muted text-destructive hover:text-destructive/80 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
+          ) : tasks.length === 0 ? (
+            <GlassCard
+              variant="ghost"
+              className="flex flex-col items-center justify-center py-16 text-center border-dashed"
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-4 animate-pulse">
+                <Clock className="h-6 w-6" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground">No scheduled tasks</h3>
+              <p className="max-w-md text-sm text-muted-foreground mt-1 mb-6">
+                Remind yourself or trigger automated commands. Try chatting with AI:{' '}
+                <span className="font-mono text-primary bg-primary/5 px-1 rounded">
+                  "Reminder to daily check database at 9am"
+                </span>
+                .
+              </p>
+              <Button size="sm" onClick={handleOpenCreateDialog} className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                Create First Task
+              </Button>
+            </GlassCard>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-1">
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-hidden rounded-xl border border-border bg-card/30 backdrop-blur-md">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 font-medium text-muted-foreground">
+                      <th className="p-4 w-[160px]">Task ID</th>
+                      <th className="p-4 w-[150px]">Schedule</th>
+                      <th className="p-4">Instruction Prompt</th>
+                      <th className="p-4 w-[110px]">Target</th>
+                      <th className="p-4 w-[100px]">Status</th>
+                      <th className="p-4 w-[180px]">Next Run</th>
+                      <th className="p-4 w-[120px] text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {tasks.map((task) => (
+                      <tr key={task.id} className="hover:bg-muted/20 transition-colors group">
+                        <td className="p-4 font-mono text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate max-w-[100px]">{task.id}</span>
+                            <button
+                              onClick={() => copyToClipboard(task.id)}
+                              className="text-muted-foreground/60 hover:text-foreground p-0.5 rounded transition-colors"
+                              title="Copy ID"
+                            >
+                              {copiedId === task.id ? (
+                                <Check className="h-3 w-3 text-[var(--success)]" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-foreground bg-primary/5 px-2 py-1 rounded w-fit border border-primary/10">
+                            <Clock className="h-3.5 w-3.5 text-primary" />
+                            {task.expression}
+                          </div>
+                        </td>
+                        <td className="p-4 font-medium text-foreground max-w-sm">
+                          <div className="flex items-start gap-2">
+                            <Terminal className="h-4 w-4 text-muted-foreground/75 mt-0.5 shrink-0" />
+                            <span className="line-clamp-2" title={task.instruction}>
+                              {task.instruction}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Badge variant="outline" className="gap-1 bg-background/50">
+                            <Bot className="h-3 w-3 text-primary" />
+                            {task.target_agent || 'L1'}
+                          </Badge>
+                        </td>
+                        <td className="p-4">
+                          <span
+                            onClick={() => handleToggleStatus(task)}
+                            className={`inline-flex items-center gap-1.5 cursor-pointer rounded-full px-2.5 py-0.5 text-xs font-medium transition-all hover:opacity-85 ${
+                              task.status === 'active'
+                                ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
+                                : task.status === 'completed'
+                                  ? 'bg-[var(--info)]/10 text-[var(--info)] border border-[var(--info)]/20'
+                                  : 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20'
+                            }`}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                task.status === 'active'
+                                  ? 'bg-[var(--success)] animate-pulse'
+                                  : task.status === 'completed'
+                                    ? 'bg-[var(--info)]'
+                                    : 'bg-muted-foreground'
+                              }`}
+                            />
+                            {task.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-xs text-muted-foreground">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3.5 w-3.5" />
+                              <span>{formatTime(task.next_run_at)}</span>
+                            </div>
+                            {task.last_run_at && (
+                              <span className="text-[10px] text-muted-foreground/60 pl-4.5">
+                                Last: {formatTime(task.last_run_at)}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => handleToggleStatus(task)}
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              title={task.status === 'active' ? 'Pause' : 'Activate'}
+                            >
+                              {task.status === 'active' ? (
+                                <Pause className="h-4 w-4" />
+                              ) : (
+                                <Play className="h-4 w-4" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditDialog(task)}
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              title="Edit"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="p-1.5 rounded hover:bg-muted text-destructive hover:text-destructive/80 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-            {/* Mobile/Tablet Card View */}
-            <div className="grid gap-3.5 lg:hidden">
-              {tasks.map((task) => (
-                <GlassCard
-                  key={task.id}
-                  className="relative flex flex-col gap-3.5 border-border bg-card/30"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex items-center gap-1 font-mono text-[11px] font-semibold text-foreground bg-primary/5 px-2 py-0.5 rounded border border-primary/10">
-                          <Clock className="h-3 w-3 text-primary" />
-                          {task.expression}
+              {/* Mobile/Tablet Card View */}
+              <div className="grid gap-3.5 lg:hidden">
+                {tasks.map((task) => (
+                  <GlassCard
+                    key={task.id}
+                    className="relative flex flex-col gap-3.5 border-border bg-card/30"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1 font-mono text-[11px] font-semibold text-foreground bg-primary/5 px-2 py-0.5 rounded border border-primary/10">
+                            <Clock className="h-3 w-3 text-primary" />
+                            {task.expression}
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] py-0 px-1.5 bg-background/50"
+                          >
+                            {task.target_agent || 'L1'}
+                          </Badge>
                         </div>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] py-0 px-1.5 bg-background/50"
-                        >
-                          {task.target_agent || 'L1'}
-                        </Badge>
+                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                          {task.id}
+                        </span>
                       </div>
-                      <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                        {task.id}
+
+                      <span
+                        onClick={() => handleToggleStatus(task)}
+                        className={`inline-flex items-center gap-1.5 cursor-pointer rounded-full px-2 py-0.5 text-[10px] font-medium transition-all ${
+                          task.status === 'active'
+                            ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
+                            : task.status === 'completed'
+                              ? 'bg-[var(--info)]/10 text-[var(--info)] border border-[var(--info)]/20'
+                              : 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20'
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            task.status === 'active'
+                              ? 'bg-[var(--success)] animate-pulse'
+                              : task.status === 'completed'
+                                ? 'bg-[var(--info)]'
+                                : 'bg-muted-foreground'
+                          }`}
+                        />
+                        {task.status}
                       </span>
                     </div>
 
-                    <span
-                      onClick={() => handleToggleStatus(task)}
-                      className={`inline-flex items-center gap-1.5 cursor-pointer rounded-full px-2 py-0.5 text-[10px] font-medium transition-all ${
-                        task.status === 'active'
-                          ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
-                          : task.status === 'completed'
-                            ? 'bg-[var(--info)]/10 text-[var(--info)] border border-[var(--info)]/20'
-                            : 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/20'
-                      }`}
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          task.status === 'active'
-                            ? 'bg-[var(--success)] animate-pulse'
-                            : task.status === 'completed'
-                              ? 'bg-[var(--info)]'
-                              : 'bg-muted-foreground'
-                        }`}
-                      />
-                      {task.status}
-                    </span>
-                  </div>
-
-                  <div className="text-sm font-medium text-foreground bg-background/25 p-2.5 rounded-lg border border-border/30">
-                    <div className="flex items-start gap-2">
-                      <Terminal className="h-3.5 w-3.5 text-muted-foreground/75 mt-0.5 shrink-0" />
-                      <span className="font-mono text-xs">{task.instruction}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-t border-border/50 pt-3 text-[11px] text-muted-foreground">
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        <span>Next: {formatTime(task.next_run_at)}</span>
+                    <div className="text-sm font-medium text-foreground bg-background/25 p-2.5 rounded-lg border border-border/30">
+                      <div className="flex items-start gap-2">
+                        <Terminal className="h-3.5 w-3.5 text-muted-foreground/75 mt-0.5 shrink-0" />
+                        <span className="font-mono text-xs">{task.instruction}</span>
                       </div>
-                      {task.last_run_at && (
-                        <div className="flex items-center gap-1 opacity-70">
-                          <Check className="h-3 w-3 text-[var(--success)]" />
-                          <span>Last: {formatTime(task.last_run_at)}</span>
-                        </div>
-                      )}
                     </div>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleToggleStatus(task)}
-                        className="p-1.5 rounded bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {task.status === 'active' ? (
-                          <Pause className="h-3.5 w-3.5" />
-                        ) : (
-                          <Play className="h-3.5 w-3.5" />
+                    <div className="flex items-center justify-between border-t border-border/50 pt-3 text-[11px] text-muted-foreground">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          <span>Next: {formatTime(task.next_run_at)}</span>
+                        </div>
+                        {task.last_run_at && (
+                          <div className="flex items-center gap-1 opacity-70">
+                            <Check className="h-3 w-3 text-[var(--success)]" />
+                            <span>Last: {formatTime(task.last_run_at)}</span>
+                          </div>
                         )}
-                      </button>
-                      <button
-                        onClick={() => handleOpenEditDialog(task)}
-                        className="p-1.5 rounded bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <Edit className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="p-1.5 rounded bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleToggleStatus(task)}
+                          className="p-1.5 rounded bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {task.status === 'active' ? (
+                            <Pause className="h-3.5 w-3.5" />
+                          ) : (
+                            <Play className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditDialog(task)}
+                          className="p-1.5 rounded bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="p-1.5 rounded bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </GlassCard>
-              ))}
+                  </GlassCard>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Task Create/Edit Dialog Modal */}
