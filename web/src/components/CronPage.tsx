@@ -5,9 +5,11 @@ import { GlassCard } from '@/components/ui/glass-card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { toast } from 'sonner'
 import {
   Clock,
   Plus,
@@ -16,7 +18,6 @@ import {
   Play,
   Pause,
   RefreshCw,
-  AlertCircle,
   Copy,
   Check,
   Calendar,
@@ -33,7 +34,6 @@ const agentOptions = [
 export function CronPage() {
   const [tasks, setTasks] = useState<CronTask[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   // Dialog State
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -56,12 +56,11 @@ export function CronPage() {
 
   async function fetchTasks() {
     setLoading(true)
-    setError(null)
     try {
       const data = await listCronTasks()
       setTasks(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch scheduled tasks')
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch scheduled tasks')
     } finally {
       setLoading(false)
     }
@@ -125,7 +124,7 @@ export function CronPage() {
       await updateCronTask(task.id, { status: newStatus })
       fetchTasks()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to toggle task status')
+      toast.error(err instanceof Error ? err.message : 'Failed to toggle task status')
     }
   }
 
@@ -140,8 +139,9 @@ export function CronPage() {
       await deleteCronTask(deleteTarget.id)
       setDeleteTarget(null)
       fetchTasks()
+      toast.success('Task deleted')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete task')
+      toast.error(err instanceof Error ? err.message : 'Failed to delete task')
       setDeleteTarget(null)
     }
   }
@@ -196,13 +196,6 @@ export function CronPage() {
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-6 min-h-0">
         <div className="mx-auto w-full max-w-6xl min-w-[320px] space-y-6">
-          {error && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3.5 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span className="font-medium">{error}</span>
-            </div>
-          )}
-
           {loading && tasks.length === 0 ? (
             <div className="flex h-72 items-center justify-center">
               <div className="flex flex-col items-center gap-2.5">
@@ -484,15 +477,13 @@ export function CronPage() {
             </p>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Instruction Prompt *
-              </label>
-              <textarea
+              <Textarea
+                label="Instruction Prompt *"
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
                 placeholder="Type the prompt or reminder you want to send to the agent..."
                 rows={5}
-                className="w-full resize-y rounded-md border border-border bg-transparent px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 font-mono"
+                className="font-mono"
               />
             </div>
 

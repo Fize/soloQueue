@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { useState, useRef, useEffect } from 'react'
+import { toast } from 'sonner'
 import { confirmSessionTool, getFileUrl } from '@/lib/api'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
@@ -756,6 +757,7 @@ function ToolConfirmSegment({
       resolveToolConfirm(segment.callId, choice)
     } catch (err) {
       console.error('Failed to confirm tool:', err)
+      toast.error('Failed to confirm tool')
     } finally {
       setSubmitting(false)
     }

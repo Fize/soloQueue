@@ -21,14 +21,6 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
   Sparkles,
   BookOpen,
   Plus,
@@ -48,6 +40,8 @@ import {
 } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import { ImportSkillDialog } from './SkillsTab/ImportSkillDialog'
 
 // Depth indent helper for file listing
 function depthIndent(p: string): number {
@@ -80,9 +74,6 @@ export function SkillsTab() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeSubTab = (searchParams.get('subTab') as 'installed' | 'store') || 'installed'
   const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null)
-  const [snackbar, setSnackbar] = useState<{ message: string; type: 'success' | 'error' } | null>(
-    null
-  )
 
   const handleSubTabChange = (val: string) => {
     setSearchParams({ subTab: val })
@@ -103,11 +94,6 @@ export function SkillsTab() {
   // Interactive operation states
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [installingStoreId, setInstallingStoreId] = useState<string | null>(null)
-
-  const showSnackbar = (message: string, type: 'success' | 'error') => {
-    setSnackbar({ message, type })
-    setTimeout(() => setSnackbar(null), 4500)
-  }
 
   // Custom install fields
   const [customGitUrl, setCustomGitUrl] = useState('')
@@ -214,10 +200,10 @@ export function SkillsTab() {
       if (editId === deleteTarget.id) setEditId(null)
       setDeleteTarget(null)
       await fetchSkills()
-      showSnackbar(`Skill "${deleteTarget.id}" uninstalled`, 'success')
+      toast.success(`Skill "${deleteTarget.id}" uninstalled`)
     } catch (err) {
       setDeleteTarget(null)
-      showSnackbar(err instanceof Error ? err.message : 'Failed to uninstall skill', 'error')
+      toast.error(err instanceof Error ? err.message : 'Failed to uninstall skill')
     }
   }
 
@@ -318,9 +304,9 @@ export function SkillsTab() {
     try {
       await installSkill({ source: 'store', id })
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      showSnackbar('Skill installed from store', 'success')
+      toast.success('Skill installed from store')
     } catch (err) {
-      showSnackbar(err instanceof Error ? err.message : 'Failed to install skill', 'error')
+      toast.error(err instanceof Error ? err.message : 'Failed to install skill')
     } finally {
       setInstallingStoreId(null)
     }
@@ -335,7 +321,7 @@ export function SkillsTab() {
       await installSkill({ source: 'github', url: customGitUrl.trim() })
       setCustomGitUrl('')
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      showSnackbar('Skill installed successfully via Git cloning!', 'success')
+      toast.success('Skill installed successfully via Git cloning!')
     } catch (err) {
       setCustomInstallError(err instanceof Error ? err.message : 'Failed to clone git repository')
     } finally {
@@ -352,7 +338,7 @@ export function SkillsTab() {
       await installSkill({ source: 'local', path: customLocalPath.trim() })
       setCustomLocalPath('')
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      showSnackbar('Skill symlinked successfully from local path!', 'success')
+      toast.success('Skill symlinked successfully from local path!')
     } catch (err) {
       setCustomInstallError(err instanceof Error ? err.message : 'Failed to link local directory')
     } finally {
@@ -1098,91 +1084,21 @@ export function SkillsTab() {
       )}
 
       {/* ── Import/Creation Dialog ── */}
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="md:max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create Custom Skill</DialogTitle>
-            <DialogDescription>
-              Write details and instructions for a new AI skill. It will be stored inside your user
-              skills directory.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-2 text-left">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Input
-                  label="Skill ID / Folder name"
-                  value={importName}
-                  onChange={(e) => setImportName(e.target.value)}
-                  placeholder="e.g. search-web"
-                />
-                <span className="text-[10px] text-muted-foreground">
-                  Allowed characters: a-z, 0-9, dash, underscore.
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Textarea
-                  label="Description"
-                  value={importDesc}
-                  onChange={(e) => setImportDesc(e.target.value)}
-                  rows={2}
-                  className="flex w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/30 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
-                  placeholder="What is the purpose of this skill?"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Input
-                  label="Triggers (comma-separated)"
-                  value={importTriggers}
-                  onChange={(e) => setImportTriggers(e.target.value)}
-                  placeholder="search the web, query search"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 min-h-[220px]">
-              <Textarea
-                label="SKILL.md Markdown Body"
-                value={importBody}
-                onChange={(e) => setImportBody(e.target.value)}
-                className="flex-1 w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y"
-                placeholder="# Instructions for using this skill\n\n1. First do X\n2. Next do Y"
-                spellCheck={false}
-              />
-            </div>
-          </div>
-
-          {importError && (
-            <p className="text-xs text-destructive text-left flex items-center gap-1">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {importError}
-            </p>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setImportDialogOpen(false)}
-              disabled={importSaving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleCreateSkill} disabled={importSaving}>
-              {importSaving ? (
-                <>
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                'Create Skill'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ImportSkillDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        name={importName}
+        onNameChange={setImportName}
+        description={importDesc}
+        onDescriptionChange={setImportDesc}
+        triggers={importTriggers}
+        onTriggersChange={setImportTriggers}
+        body={importBody}
+        onBodyChange={setImportBody}
+        onSave={handleCreateSkill}
+        saving={importSaving}
+        error={importError}
+      />
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => {
@@ -1194,19 +1110,7 @@ export function SkillsTab() {
         onConfirm={confirmDeleteSkill}
         confirmLabel="Uninstall"
       />
-      {/* M3 Snackbar */}
-      {snackbar && (
-        <div
-          role="alert"
-          className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-full text-sm font-medium shadow-lg animate-reveal ${
-            snackbar.type === 'success'
-              ? 'bg-[var(--success)] text-[var(--success-foreground)]'
-              : 'bg-destructive text-destructive-foreground'
-          }`}
-        >
-          {snackbar.message}
-        </div>
-      )}
+      {/* Empty placeholder removed - using sonner toast instead */}
     </div>
   )
 }

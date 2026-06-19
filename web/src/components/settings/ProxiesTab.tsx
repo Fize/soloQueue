@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, Link as LinkIcon, Monitor, ExternalLink } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -82,7 +83,7 @@ export function ProxiesTab() {
       // trigger a sidebar update by firing an event
       window.dispatchEvent(new CustomEvent('proxy-updated'))
     } catch (err: any) {
-      window.alert('Error: ' + err.message)
+      toast.error(err.message || 'Failed to delete proxy')
     }
   }
 

@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import { Save, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import type { MCPServerConfig, MCPConfig } from '@/types'
 
@@ -36,7 +37,6 @@ export function MCPTab() {
   const fetchConfig = useMCPConfigStore((state) => state.fetch)
   const save = useMCPConfigStore((state) => state.save)
   const saving = useMCPConfigStore((state) => state.saving)
-  const error = useMCPConfigStore((state) => state.error)
   const [local, setLocal] = useState<MCPServerConfig[] | null>(null)
   const [expanded, setExpanded] = useState<Record<number, boolean>>({})
 
@@ -55,7 +55,12 @@ export function MCPTab() {
   }
 
   const handleSave = async () => {
-    await save(toWire(local))
+    try {
+      await save(toWire(local))
+      toast.success('MCP configuration saved')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save MCP config')
+    }
   }
 
   const toggleExpand = (i: number) => {
@@ -213,7 +218,6 @@ export function MCPTab() {
         <Button size="sm" onClick={handleSave} disabled={saving}>
           <Save className="mr-1 h-3 w-3" /> {saving ? 'Saving...' : 'Save'}
         </Button>
-        {error && <span className="text-[10px] text-destructive">{error}</span>}
       </div>
     </div>
   )

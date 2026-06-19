@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useRef, useEffect, useCallback, useState } from 'react'
+import { toast } from 'sonner'
 import { ArrowUp, StopCircle, X, Loader2 } from 'lucide-react'
 import { uploadFile } from '@/lib/api'
 
@@ -93,6 +94,7 @@ export function ChatInput({
           })
           .catch((err) => {
             console.error('Failed to upload pasted image:', err)
+            toast.error('Failed to upload image')
             setAttachments((prev) =>
               prev.map((att) =>
                 att.id === id

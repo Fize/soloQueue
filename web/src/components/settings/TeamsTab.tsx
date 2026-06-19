@@ -31,6 +31,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
+import { toast } from 'sonner'
 
 // ─── Team Dialog ────────────────────────────────────────────────────────────
 
@@ -593,7 +594,6 @@ export default function TeamsTab() {
   const [agents, setAgents] = useState<AgentResponse[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   // Filter agents by selected team
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
@@ -610,7 +610,6 @@ export default function TeamsTab() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    setError(null)
     try {
       const [teamsData, agentsData, projectsData] = await Promise.all([
         listTeams(),
@@ -621,7 +620,7 @@ export default function TeamsTab() {
       setAgents(agentsData)
       setProjects(projectsData)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
+      toast.error(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
       setLoading(false)
     }
@@ -656,8 +655,9 @@ export default function TeamsTab() {
       }
       setDeleteTeamTarget(null)
       await fetchData()
+      toast.success('Team deleted')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete team')
+      toast.error(err instanceof Error ? err.message : 'Failed to delete team')
       setDeleteTeamTarget(null)
     }
   }
@@ -688,8 +688,9 @@ export default function TeamsTab() {
       await deleteAgent(deleteAgentTarget.name)
       setDeleteAgentTarget(null)
       await fetchData()
+      toast.success('Agent deleted')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete agent')
+      toast.error(err instanceof Error ? err.message : 'Failed to delete agent')
       setDeleteAgentTarget(null)
     }
   }
@@ -713,13 +714,6 @@ export default function TeamsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Page-level error */}
-      {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-xs text-destructive">
-          {error}
-        </div>
-      )}
-
       {/* ── Teams Section ──────────────────────────────────────────────── */}
       <div className="border rounded-lg bg-card shadow-sm">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
