@@ -15,6 +15,14 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
+// ─── Context keys ───────────────────────────────────────────────────────────
+
+// contextKey is a typed string for context values to avoid collisions.
+type contextKey string
+
+// ImageContextKey is the context key for passing images ([]llm.ImageContent) between handlers.
+const ImageContextKey contextKey = "image_context"
+
 // ─── PayloadMessage ─────────────────────────────────────────────────────────
 
 // PayloadMessage 是 BuildPayload 的返回类型
@@ -87,6 +95,11 @@ func WithToolName(name string) PushOption {
 // WithToolCallID 设置工具调用 ID（role=tool 时使用）
 func WithToolCallID(id string) PushOption {
 	return func(m *Message) { m.ToolCallID = id }
+}
+
+// WithImages 设置多模态图片（仅 user 消息使用）
+func WithImages(images []llm.ImageContent) PushOption {
+	return func(m *Message) { m.Images = images }
 }
 
 // WithToolCalls 设置工具调用列表（role=assistant 时使用）

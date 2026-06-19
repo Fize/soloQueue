@@ -77,6 +77,7 @@ type RouteResult struct {
 	ReasoningEffort string // "high" | "max" | ""
 	Level           string // classification level label (e.g., "L1-SimpleSingleFile")
 	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
+	Vision          bool   // model supports multimodal image_url content
 }
 
 // TaskRouterFunc classifies a user prompt and returns model routing parameters.
@@ -848,6 +849,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				ReasoningEffort: result.ReasoningEffort,
 				Level:           result.Level,
 				ContextWindow:   result.ContextWindow,
+				Vision:          result.Vision,
 			})
 			s.lastLevelMu.Lock()
 			s.lastLevel = result.Level

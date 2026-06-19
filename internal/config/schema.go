@@ -201,6 +201,7 @@ type LLMModel struct {
 	Enabled       bool             `json:"enabled"       toml:"enabled,omitempty"`
 	Generation    GenerationParams `json:"generation"    toml:"generation,omitempty"`
 	Thinking      ThinkingConfig   `json:"thinking"      toml:"thinking,omitempty"`
+	Vision        bool             `json:"vision"        toml:"vision,omitempty"` // supports multimodal image_url content
 }
 
 // ─── Embedding ────────────────────────────────────────────────────────────────

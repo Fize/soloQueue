@@ -54,6 +54,10 @@ type LLMRequest struct {
 
 	// Streaming 选项（仅 ChatStream 生效）
 	IncludeUsage bool // 对应 stream_options.include_usage
+
+	// Vision 指示模型是否支持多模态 image_url 内容。
+	// 为 false 时，wire 层会丢弃图片数据并回退为纯文本。
+	Vision bool
 }
 
 // LLMResponse 是 LLMClient.Chat 的返回

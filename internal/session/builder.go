@@ -483,6 +483,7 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 			ReasoningEffort: decision.ReasoningEffort,
 			Level:           decision.Level.String(),
 			ContextWindow:   decision.ContextWindow,
+			Vision:          decision.Vision,
 		}, nil
 	}
 }

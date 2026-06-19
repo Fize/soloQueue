@@ -57,6 +57,9 @@ type Definition struct {
 	// BypassConfirm skips all tool confirmations for this agent.
 	// Set from agent template `permission: true` or global --bypass flag.
 	BypassConfirm bool
+
+	// Vision indicates the model supports multimodal image_url content parts.
+	Vision bool
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -159,6 +162,10 @@ type ModelParams struct {
 	// Used to resize the ContextWindow when the model changes.
 	// 0 means don't change (backward compatible).
 	ContextWindow int
+
+	// Vision indicates the model supports multimodal image_url content parts.
+	// When false, image content is dropped and replaced with text annotations.
+	Vision bool
 }
 
 // ─── Runtime observability ───────────────────────────────────────────────
