@@ -242,6 +242,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			Tools:           specs,
 			ReasoningEffort: a.Def.ReasoningEffort,
 			ThinkingEnabled: a.Def.ThinkingEnabled,
+			Vision:          a.Def.Vision,
 			IncludeUsage:    true,
 		}
 
@@ -255,6 +256,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			}
 			req.ThinkingEnabled = override.ThinkingEnabled
 			req.ReasoningEffort = override.ReasoningEffort
+			req.Vision = override.Vision
 		}
 
 		a.logInfo(ctx, logger.CatLLM, "llm chat start",

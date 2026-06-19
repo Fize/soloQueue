@@ -59,6 +59,9 @@ type ModelInfo struct {
 	// Thinking configuration
 	ThinkingEnabled bool
 	ReasoningEffort string
+
+	// Vision indicates the model supports multimodal image_url content.
+	Vision bool
 }
 
 // ModelResolver looks up a model ID in the settings registry.
@@ -353,6 +356,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		def.MaxTokens = info.MaxTokens
 		def.ThinkingEnabled = info.ThinkingEnabled
 		def.ReasoningEffort = info.ReasoningEffort
+		def.Vision = info.Vision
 	}
 
 	// 2. 构建内置 tools
@@ -373,6 +377,42 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 				return &LocatableAdapter{Agent: child}, nil
 			}
 			allTools = append(allTools, dt)
+		}
+
+		// 2c. L2 领导者：注入横向协作工具（list_peer_teams + request_team_help）
+		// 仅当存在其他团队时才注入，避免单团队场景下给 LLM 无意义的工具。
+		peerCatalog := f.peerTeamsCatalog(tmpl)
+		if len(peerCatalog) > 0 {
+			listTool := tools.NewListPeerTeamsTool(peerCatalog, tmpl.ID)
+			allTools = append(allTools, listTool)
+
+			// locateOrSpawn: 复用 LocateIdle 找空闲 peer leader，找不到则 spawn 新实例。
+			locateOrSpawn := func(ctx context.Context, teamName string) (iface.Locatable, bool, error) {
+				if loc, ok := f.registry.LocateIdle(teamName); ok {
+					return loc, false, nil
+				}
+				// 找不到空闲实例 → spawn 新的 peer leader
+				peerTmpl, ok := f.findLeaderTemplate(teamName)
+				if !ok {
+					return nil, false, fmt.Errorf("peer leader %q not found", teamName)
+				}
+				child, _, err := f.Create(ctx, peerTmpl, effectiveWorkDir)
+				if err != nil {
+					return nil, false, fmt.Errorf("spawn peer leader %q: %w", teamName, err)
+				}
+				// 新 spawn 的 peer leader 需要自己的 supervisor 来管理它的 L3 children
+				peerSv := NewSupervisor(child, f, f.log)
+				peerSv.WireSpawnFns(f.templatesSlice())
+				peerSv.SetGroup(peerTmpl.Group)
+				return NewSelfReapableAdapter(child, peerSv), true, nil
+			}
+			// reap: 对于 spawn 的新实例，OnDelegationDone 已经由 SelfReapableAdapter
+			// 处理；这里不需要额外 reap（DoneNotifier 路径已经覆盖）。
+			helpTool := tools.NewRequestTeamHelpTool(tmpl.ID, locateOrSpawn, nil, 25*time.Minute)
+			if f.log != nil {
+				helpTool.SetLogger(f.log)
+			}
+			allTools = append(allTools, helpTool)
 		}
 	}
 
@@ -637,6 +677,65 @@ func (f *DefaultFactory) visibleWorkers(tmpl AgentTemplate, projectAgents []Agen
 	return workers
 }
 
+// peerTeamsCatalog builds the read-only peer team catalog for an L2 leader.
+// Excludes the caller's own team. Returns teams that have a leader (is_leader)
+// template and belong to a different group.
+func (f *DefaultFactory) peerTeamsCatalog(selfTmpl AgentTemplate) []tools.PeerTeamInfo {
+	var catalog []tools.PeerTeamInfo
+	seen := make(map[string]bool) // dedup by leader ID
+
+	for _, t := range f.templates {
+		if !t.IsLeader || t.ID == selfTmpl.ID {
+			continue
+		}
+		if seen[t.ID] {
+			continue
+		}
+		seen[t.ID] = true
+
+		// Count workers in this leader's group
+		workerCount := 0
+		for _, w := range f.templates {
+			if !w.IsLeader && w.Group == t.Group && w.Group != "" {
+				workerCount++
+			}
+		}
+
+		desc := t.Description
+		if desc == "" {
+			desc = "no description"
+		}
+
+		catalog = append(catalog, tools.PeerTeamInfo{
+			Name:              t.ID,
+			Group:             t.Group,
+			LeaderDescription: desc,
+			WorkerCount:       workerCount,
+		})
+	}
+	return catalog
+}
+
+// findLeaderTemplate finds a leader template by ID (case-insensitive).
+func (f *DefaultFactory) findLeaderTemplate(id string) (AgentTemplate, bool) {
+	for _, t := range f.templates {
+		if t.IsLeader && strings.EqualFold(t.ID, id) {
+			return t, true
+		}
+	}
+	return AgentTemplate{}, false
+}
+
+// templatesSlice converts the internal template map to a slice for APIs
+// that accept []AgentTemplate (e.g., Supervisor.WireSpawnFns).
+func (f *DefaultFactory) templatesSlice() []AgentTemplate {
+	out := make([]AgentTemplate, 0, len(f.templates))
+	for _, t := range f.templates {
+		out = append(out, t)
+	}
+	return out
+}
+
 // ─── L2 System Prompt 三段式拼接 ─────────────────────────────────────────────
 
 // l2EnforcedDirectives 是 Segment 3 框架强制区常量。
@@ -886,6 +985,29 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 			fmt.Fprintf(&b, "- **%s**: %s\n", peer.Name, desc)
 		}
 		b.WriteString("\n")
+	}
+
+	// 2b-peer. Peer Teams (cross-team help)
+	// List other team leaders so the L2 knows who it can ask for help.
+	peerLeaderCount := 0
+	for _, t := range templates {
+		if t.IsLeader && t.ID != tmpl.ID {
+			peerLeaderCount++
+		}
+	}
+	if peerLeaderCount > 0 {
+		b.WriteString("# Peer Teams (Cross-Team Help)\n\n")
+		b.WriteString("You can request help from peer team leaders when your team lacks a capability.\n\n")
+		b.WriteString("## When to use peer help\n")
+		b.WriteString("- Call `list_peer_teams` first to see which teams exist and what they can do.\n")
+		b.WriteString("- Use `request_team_help(team_name, task, context)` to delegate a sub-task to a peer team.\n")
+		b.WriteString("- Only request help when your team genuinely cannot handle the sub-task.\n")
+		b.WriteString("- Provide clear, self-contained task descriptions and sufficient context.\n\n")
+		b.WriteString("## Rules\n")
+		b.WriteString("- Do NOT form delegation loops. The system will reject cyclic requests.\n")
+		b.WriteString("- If a peer team is unavailable or refuses, fall back to handling it yourself or report to the user.\n")
+		b.WriteString("- Peer help is for *sub-tasks* within your current task, not for replacing your own work.\n")
+		b.WriteString("- Delegation depth is limited to 2 hops. If you need deeper collaboration, the task is too complex for lateral help — escalate.\n\n")
 	}
 
 	// 2c. MCP Servers

@@ -239,6 +239,7 @@ func BuildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 			MaxTokens:       m.Generation.MaxTokens,
 			ThinkingEnabled: m.Thinking.Enabled,
 			ReasoningEffort: m.Thinking.ReasoningEffort,
+			Vision:          m.Vision,
 		}, nil
 	}
 }

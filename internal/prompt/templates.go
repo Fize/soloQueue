@@ -61,7 +61,7 @@ const DefaultRules = `## Orchestration Rules
     GOOD: Complex task → delegate → L2 creates plan, auto-approves, executes → done.
     GOOD: L2 returns PLAN_REVIEW_REQUIRED → present to user → user approves → delegate again with "Plan <path> approved. Proceed."
 
-14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader.`
+14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader. L2 Team Leaders may request help from peer L2 teams via their own ` + "`request_team_help`" + ` tool — this lateral collaboration is allowed and does not require your involvement, but you remain the sole gateway for user interaction and global orchestration.`
 
 // HardcodedL1Rules are appended programmatically after file-based rules.
 // These cannot be overridden by editing rules.md — they embed core behavioral guardrails.

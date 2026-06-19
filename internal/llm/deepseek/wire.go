@@ -172,7 +172,7 @@ type wireError struct {
 func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireRequest {
 	out := wireRequest{
 		Model:    req.Model,
-		Messages: buildWireMessages(req.Messages, req.ThinkingEnabled),
+		Messages: buildWireMessages(req.Messages, req.ThinkingEnabled, req.Vision),
 		Stream:   stream,
 	}
 	// Optional 采样参数：零值也是合法值（top_p=0 有意义），
@@ -231,28 +231,43 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	return out
 }
 
-func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled bool) []wireMessage {
+// buildWireMessages 把 agent.LLMMessage 列表转成 wire-level 消息列表
+//
+// 当 visionEnabled=false 时，多模态图片被剥离并以文本注释替代，
+// 避免不支持多模态的 API 返回 400 错误。
+func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled, visionEnabled bool) []wireMessage {
 	out := make([]wireMessage, 0, len(msgs))
 	for _, m := range msgs {
-		// Build Content: if Images present, use content array; otherwise plain string.
+		// Build Content: if Images present and vision is enabled, use content array;
+		// otherwise plain string. When vision is disabled, strip images and annotate.
 		var content any
 		if len(m.Images) > 0 && (m.Role == "user" || m.Role == "system") {
-			parts := make([]wireContentPart, 0, len(m.Images)+1)
-			if m.Content != "" {
-				parts = append(parts, wireContentPart{
-					Type: "text",
-					Text: m.Content,
-				})
+			if visionEnabled {
+				parts := make([]wireContentPart, 0, len(m.Images)+1)
+				if m.Content != "" {
+					parts = append(parts, wireContentPart{
+						Type: "text",
+						Text: m.Content,
+					})
+				}
+				for _, img := range m.Images {
+					parts = append(parts, wireContentPart{
+						Type: "image_url",
+						ImageURL: &wireImageURL{
+							URL: "data:" + img.MimeType + ";base64," + img.Data,
+						},
+					})
+				}
+				content = parts
+			} else {
+				// Vision not supported: strip images, add text annotation
+				text := m.Content
+				if text != "" {
+					text += "\n\n"
+				}
+				text += fmt.Sprintf("[用户附带了 %d 张图片，但当前模型不支持多模态识别，已忽略]", len(m.Images))
+				content = text
 			}
-			for _, img := range m.Images {
-				parts = append(parts, wireContentPart{
-					Type: "image_url",
-					ImageURL: &wireImageURL{
-						URL: "data:" + img.MimeType + ";base64," + img.Data,
-					},
-				})
-			}
-			content = parts
 		} else {
 			content = m.Content
 		}
