@@ -18,6 +18,7 @@ import { ProxiesTab } from '@/components/settings/ProxiesTab'
 import { IframePageView } from '@/components/IframePageView'
 import { ChatPage } from '@/components/ChatPage'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { Toaster } from 'sonner'
 import { wsManager } from '@/lib/websocket'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -49,6 +50,12 @@ function App() {
 
   return (
     <TooltipProvider>
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          className: 'text-sm font-medium',
+        }}
+      />
       <div className="flex h-screen bg-background overflow-hidden pb-14 md:pb-0 relative">
         {/* Desktop sidebar — always rendered for layout on md+ */}
         <div className="hidden md:block shrink-0 h-full border-r border-border bg-card">
