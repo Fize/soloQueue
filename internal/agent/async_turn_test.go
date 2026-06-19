@@ -1299,7 +1299,7 @@ func TestFormatDelegationCompleted(t *testing.T) {
 				},
 			},
 			results:  []string{"Code reviewed, all looks good"},
-			expected: "[Delegation Completed]\n\nTask: review the PR\nResult:\nCode reviewed, all looks good\n\n",
+			expected: "[Delegation Completed]\n\nTask: review the PR\nCallID: call_1\nResult:\nCode reviewed, all looks good\n\n",
 		},
 		{
 			name: "multiple delegate tasks",
@@ -1322,7 +1322,7 @@ func TestFormatDelegationCompleted(t *testing.T) {
 				},
 			},
 			results:  []string{"Looks good", "All tests pass"},
-			expected: "[Delegation Completed]\n\nTask: review code\nResult:\nLooks good\n\nTask: run tests\nResult:\nAll tests pass\n\n",
+			expected: "[Delegation Completed]\n\nTask: review code\nCallID: call_1\nResult:\nLooks good\n\nTask: run tests\nCallID: call_2\nResult:\nAll tests pass\n\n",
 		},
 		{
 			name: "mixed sync and async - only async included",
@@ -1345,7 +1345,7 @@ func TestFormatDelegationCompleted(t *testing.T) {
 				},
 			},
 			results:  []string{"file content", "Refactored successfully"},
-			expected: "[Delegation Completed]\n\nTask: refactor module\nResult:\nRefactored successfully\n\n",
+			expected: "[Delegation Completed]\n\nTask: refactor module\nCallID: call_2\nResult:\nRefactored successfully\n\n",
 		},
 		{
 			name: "no delegate tasks",
@@ -1375,7 +1375,7 @@ func TestFormatDelegationCompleted(t *testing.T) {
 				},
 			},
 			results:  []string{"error: delegation timed out"},
-			expected: "[Delegation Completed]\n\nTask: fix bug #42\nResult:\nerror: delegation timed out\n\n",
+			expected: "[Delegation Completed]\n\nTask: fix bug #42\nCallID: call_1\nResult:\nerror: delegation timed out\n\n",
 		},
 	}
 
