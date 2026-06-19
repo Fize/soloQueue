@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Play, Plus, Sparkles, Trash2, Calendar, Users, AlertCircle, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import type { SimulationState } from '@/types'
 
 export function SimulationListPage() {
@@ -56,6 +58,7 @@ export function SimulationListPage() {
       }
     } catch (err) {
       console.error('Failed to load LLM configs', err)
+      toast.error('Failed to load LLM configs')
     }
   }
 
@@ -149,6 +152,7 @@ export function SimulationListPage() {
         })
       } catch (err) {
         console.error('Failed to update simulation config before launch', err)
+        toast.error('Failed to update simulation config')
       }
 
       const res = await fetch('/api/simulations/from-seed', {
@@ -272,13 +276,13 @@ export function SimulationListPage() {
                         className="hidden"
                       />
                     </div>
-                    <textarea
+                    <Textarea
                       required
                       rows={6}
                       placeholder="Paste context, news article, or policy details here..."
                       value={seedText}
                       onChange={(e) => setSeedText(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all resize-none font-sans"
+                      className="resize-none font-sans"
                     />
                   </div>
 
@@ -303,43 +307,36 @@ export function SimulationListPage() {
                     {showAdvanced && (
                       <div className="mt-3 grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
-                            Provider
-                          </label>
-                          <select
+                          <Select
+                            label="Provider"
                             value={selectedProvider}
-                            onChange={(e) => {
-                              setSelectedProvider(e.target.value)
+                            onChange={(v) => {
+                              setSelectedProvider(v)
                               setSelectedModel('')
                             }}
-                            className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all cursor-pointer"
-                          >
-                            <option value="">(Default Fast Provider)</option>
-                            {providers.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
+                            placeholder="(Default Fast Provider)"
+                            options={[
+                              { value: '', label: '(Default Fast Provider)' },
+                              ...providers.map((p) => ({ value: p.id, label: p.name })),
+                            ]}
+                          />
                         </div>
                         <div>
-                          <label className="block text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1 font-mono">
-                            Model
-                          </label>
-                          <select
+                          <Select
+                            label="Model"
                             value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value)}
-                            className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all cursor-pointer"
-                          >
-                            <option value="">(Default Fast Model)</option>
-                            {models
-                              .filter((m) => !selectedProvider || m.providerId === selectedProvider)
-                              .map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name}
-                                </option>
-                              ))}
-                          </select>
+                            onChange={setSelectedModel}
+                            placeholder="(Default Fast Model)"
+                            options={[
+                              { value: '', label: '(Default Fast Model)' },
+                              ...models
+                                .filter((m) => !selectedProvider || m.providerId === selectedProvider)
+                                .map((m) => ({
+                                  value: m.id,
+                                  label: m.name,
+                                })),
+                            ]}
+                          />
                         </div>
                       </div>
                     )}

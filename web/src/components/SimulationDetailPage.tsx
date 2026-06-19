@@ -7,6 +7,7 @@ import { SimulationProgressPanel } from './SimulationProgressPanel'
 import { SimulationMonitor } from './SimulationMonitor'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import {
   Play,
   Square,
@@ -21,6 +22,8 @@ import {
   Settings,
   Edit,
   Save,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import type {
   SimulationState,
@@ -31,6 +34,9 @@ import type {
 } from '@/types'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -72,6 +78,8 @@ export function SimulationDetailPage() {
   const [editEnableReflection, setEditEnableReflection] = useState(true)
   const [editPersonas, setEditPersonas] = useState<any[]>([])
   const [savingConfig, setSavingConfig] = useState(false)
+  const [graphCollapsed, setGraphCollapsed] = useState(false)
+  const isMobile = useIsMobile()
 
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
   const [models, setModels] = useState<{ id: string; name: string; providerId: string }[]>([])
@@ -130,6 +138,7 @@ export function SimulationDetailPage() {
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.error('Failed to load LLM configs', err)
+          toast.error('Failed to load LLM configs')
         }
       }
     }
@@ -560,8 +569,9 @@ export function SimulationDetailPage() {
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Left Side: Messages + Graph + Agents (always visible) */}
         <div className="flex-[3] flex flex-col overflow-y-auto p-4 md:p-6 gap-4 border-r border-border min-w-[320px]">
-          {/* Compact Graph */}
-          <div className="h-[200px] shrink-0 rounded-xl border border-border/50 bg-card/20 overflow-hidden">
+          {/* Compact Graph — collapsible on mobile */}
+          {(!isMobile || !graphCollapsed) && (
+            <div className={`shrink-0 rounded-xl border border-border/50 bg-card/20 overflow-hidden ${isMobile ? '' : 'h-[200px]'}`}>
             <SimulationGraph
               personas={state.config.personas}
               edges={
@@ -583,6 +593,16 @@ export function SimulationDetailPage() {
               pulseVersion={pulseVersion}
             />
           </div>
+          )}
+          {isMobile && (
+            <button
+              onClick={() => setGraphCollapsed(!graphCollapsed)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {graphCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {graphCollapsed ? 'Show Agent Graph' : 'Hide Agent Graph'}
+            </button>
+          )}
 
           {/* Agent pills (compact) */}
           <div className="shrink-0 flex flex-wrap gap-2">
@@ -673,32 +693,23 @@ export function SimulationDetailPage() {
 
         {/* Right Side: Monitor / Activity (fixed tabs, stable across states) */}
         <div className="flex-[2] flex flex-col min-w-[280px] bg-muted/10 border-l border-border/45">
-          {/* Fixed tabs: always Monitor | Activity */}
-          <div className="flex border-b border-border">
-            <button
-              onClick={() => setProgressSidebarTab('progress')}
-              className={`flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors ${
-                progressSidebarTab === 'progress'
-                  ? 'border-b-2 border-primary text-primary bg-card/20'
-                  : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground'
-              }`}
-            >
-              MONITOR
-            </button>
-            <button
-              onClick={() => setProgressSidebarTab('activity')}
-              className={`flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors ${
-                progressSidebarTab === 'activity'
-                  ? 'border-b-2 border-primary text-primary bg-card/20'
-                  : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground'
-              }`}
-            >
-              ACTIVITY
-            </button>
-          </div>
+          <Tabs value={progressSidebarTab} onValueChange={(val) => setProgressSidebarTab(val as 'progress' | 'activity')}>
+            <TabsList className="flex border-b border-border w-full bg-transparent">
+              <TabsTrigger
+                value="progress"
+                className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+              >
+                MONITOR
+              </TabsTrigger>
+              <TabsTrigger
+                value="activity"
+                className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+              >
+                ACTIVITY
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Tab content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <TabsContent value={progressSidebarTab} className="flex-1 overflow-y-auto p-4 space-y-4">
             {state.status === 'running' || state.status === 'failed' ? (
               progress ? (
                 progressSidebarTab === 'progress' ? (
@@ -757,7 +768,8 @@ export function SimulationDetailPage() {
                 </p>
               </div>
             )}
-          </div>
+          </TabsContent>
+          </Tabs>
         </div>
       </div>
 
@@ -920,14 +932,11 @@ export function SimulationDetailPage() {
           <div className="space-y-5 py-2">
             {/* Topic */}
             <div className="space-y-1.5">
-              <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                Simulation Topic
-              </label>
-              <input
-                type="text"
+              <Input
+                label="Simulation Topic"
                 value={editTopic}
                 onChange={(e) => setEditTopic(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:border-primary focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all"
+                className="text-xs"
               />
             </div>
 
@@ -969,20 +978,18 @@ export function SimulationDetailPage() {
             {/* Time Scale & Reflection */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  Time Scale
-                </label>
-                <select
-                  value={editTimeScale}
-                  onChange={(e) => setEditTimeScale(parseInt(e.target.value))}
-                  className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all cursor-pointer"
-                >
-                  <option value={60}>1s = 1min</option>
-                  <option value={300}>1s = 5min</option>
-                  <option value={600}>1s = 10min</option>
-                  <option value={1800}>1s = 30min</option>
-                  <option value={3600}>1s = 1h</option>
-                </select>
+                <Select
+                  label="Time Scale"
+                  value={String(editTimeScale)}
+                  onChange={(v) => setEditTimeScale(parseInt(v))}
+                  options={[
+                    { value: '60', label: '1s = 1min' },
+                    { value: '300', label: '1s = 5min' },
+                    { value: '600', label: '1s = 10min' },
+                    { value: '1800', label: '1s = 30min' },
+                    { value: '3600', label: '1s = 1h' },
+                  ]}
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
@@ -1028,47 +1035,35 @@ export function SimulationDetailPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[8px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-1">
-                          Provider
-                        </label>
-                        <select
+                        <Select
+                          label="Provider"
                           value={persona.provider_id || ''}
-                          onChange={(e) => {
-                            handleUpdatePersonaOverride(idx, 'provider_id', e.target.value)
+                          onChange={(v) => {
+                            handleUpdatePersonaOverride(idx, 'provider_id', v)
                             handleUpdatePersonaOverride(idx, 'model_id', '')
                           }}
-                          className="w-full rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground focus:outline-none transition-all cursor-pointer"
-                        >
-                          <option value="">(Default Fast Provider)</option>
-                          {providers.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder="(Default Fast Provider)"
+                          options={[
+                            { value: '', label: '(Default Fast Provider)' },
+                            ...providers.map((p) => ({ value: p.id, label: p.name })),
+                          ]}
+                        />
                       </div>
                       <div>
-                        <label className="block text-[8px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-1">
-                          Model
-                        </label>
-                        <select
+                        <Select
+                          label="Model"
                           value={persona.model_id || ''}
-                          onChange={(e) =>
-                            handleUpdatePersonaOverride(idx, 'model_id', e.target.value)
-                          }
-                          className="w-full rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground focus:outline-none transition-all cursor-pointer"
-                        >
-                          <option value="">(Default Fast Model)</option>
-                          {models
-                            .filter(
-                              (m) => !persona.provider_id || m.providerId === persona.provider_id
-                            )
-                            .map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.name}
-                              </option>
-                            ))}
-                        </select>
+                          onChange={(v) => handleUpdatePersonaOverride(idx, 'model_id', v)}
+                          placeholder="(Default Fast Model)"
+                          options={[
+                            { value: '', label: '(Default Fast Model)' },
+                            ...models
+                              .filter(
+                                (m) => !persona.provider_id || m.providerId === persona.provider_id
+                              )
+                              .map((m) => ({ value: m.id, label: m.name })),
+                          ]}
+                        />
                       </div>
                     </div>
                   </div>

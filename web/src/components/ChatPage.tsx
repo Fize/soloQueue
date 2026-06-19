@@ -45,21 +45,26 @@ export function ChatPage() {
   const newSessionRef = useRef<HTMLDivElement>(null)
   const createL2Session = useChatStore((s) => s.createL2Session)
 
-  // Close dropdown on outside click (backdrop-filter breaks position:fixed overlay)
+  // Close dropdown on outside click and Escape key
   useEffect(() => {
     if (!showNewSessionMenu) return
-    const handleClick = (e: MouseEvent) => {
+    const handleOutside = (e: MouseEvent) => {
       if (newSessionRef.current && !newSessionRef.current.contains(e.target as Node)) {
         setShowNewSessionMenu(false)
       }
     }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowNewSessionMenu(false)
+    }
     // Delay to avoid the same click that opened it
     const timer = setTimeout(() => {
-      document.addEventListener('click', handleClick, { capture: true })
+      document.addEventListener('click', handleOutside, { capture: true })
+      document.addEventListener('keydown', handleKey)
     }, 0)
     return () => {
       clearTimeout(timer)
-      document.removeEventListener('click', handleClick, { capture: true })
+      document.removeEventListener('click', handleOutside, { capture: true })
+      document.removeEventListener('keydown', handleKey)
     }
   }, [showNewSessionMenu])
 
@@ -365,6 +370,8 @@ export function ChatPage() {
                   disabled={creatingGroup !== null}
                   className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-muted/40 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer disabled:opacity-50"
                   title="Create a new L2 session for team collaboration"
+                  aria-expanded={showNewSessionMenu}
+                  aria-haspopup="menu"
                 >
                   {creatingGroup ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -376,7 +383,10 @@ export function ChatPage() {
 
                 {/* Dropdown menu */}
                 {showNewSessionMenu && (
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-xl border border-border bg-card shadow-xl animate-in fade-in zoom-in-95 duration-150">
+                  <div
+                    className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-xl border border-border bg-card shadow-xl animate-in fade-in zoom-in-95 duration-150"
+                    role="menu"
+                  >
                     <div className="p-1.5">
                       <p className="px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                         Select a Team
@@ -391,6 +401,7 @@ export function ChatPage() {
                             key={group}
                             onClick={() => handleNewL2Session(group)}
                             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-foreground hover:bg-muted/60 transition-colors text-left cursor-pointer"
+                            role="menuitem"
                           >
                             <div className="h-5 w-5 rounded-md bg-violet-500/10 flex items-center justify-center">
                               <Plus className="h-3 w-3 text-violet-500" />

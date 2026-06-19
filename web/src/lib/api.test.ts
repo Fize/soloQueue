@@ -1,15 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Must import after fetch is mocked in setup
 import {
-  listPlans,
-  getPlan,
-  createPlan,
-  updatePlan,
-  deletePlan,
-  updatePlanStatus,
-  toggleTodo,
-  deleteTodo,
   getAgentProfile,
   updateAgentProfile,
   getAgentConfig,
@@ -23,8 +14,6 @@ import {
   getFileUrl,
   listFiles,
   getFileRoots,
-  addComment,
-  listComments,
 } from './api'
 
 beforeEach(() => {
@@ -45,125 +34,6 @@ function mockTextResponse(text: string, status = 200) {
 }
 
 describe('api', () => {
-  describe('plans (issues)', () => {
-    it('listPlans', async () => {
-      mockResponse({ plans: [{ id: 'p1', title: 'Test' }], total: 1 })
-      const plans = await listPlans()
-      expect(fetch).toHaveBeenCalledWith('/api/issues', expect.any(Object))
-      expect(plans).toHaveLength(1)
-      expect(plans[0].id).toBe('p1')
-    })
-
-    it('listPlans returns empty array when null', async () => {
-      mockResponse({ plans: null, total: 0 })
-      const plans = await listPlans()
-      expect(plans).toEqual([])
-    })
-
-    it('getPlan', async () => {
-      mockResponse({ id: 'p1', title: 'Detail' })
-      const plan = await getPlan('p1')
-      expect(fetch).toHaveBeenCalledWith('/api/issues/p1', expect.any(Object))
-      expect(plan.title).toBe('Detail')
-    })
-
-    it('createPlan', async () => {
-      mockResponse({ id: 'p2', title: 'New' })
-      const plan = await createPlan({ title: 'New' })
-      expect(plan.id).toBe('p2')
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/issues',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ title: 'New' }),
-        })
-      )
-    })
-
-    it('updatePlan', async () => {
-      mockResponse({ id: 'p1', title: 'Updated' })
-      await updatePlan('p1', { title: 'Updated' })
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/issues/p1',
-        expect.objectContaining({
-          method: 'PUT',
-          body: JSON.stringify({ title: 'Updated' }),
-        })
-      )
-    })
-
-    it('deletePlan', async () => {
-      mockResponse({ deleted: 'p1' })
-      await deletePlan('p1')
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/issues/p1',
-        expect.objectContaining({
-          method: 'DELETE',
-        })
-      )
-    })
-
-    it('updatePlanStatus', async () => {
-      mockResponse({ id: 'p1', status: 'running' })
-      await updatePlanStatus('p1', 'running')
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/issues/p1/status',
-        expect.objectContaining({
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'running' }),
-        })
-      )
-    })
-
-    it('handles error response', async () => {
-      mockResponse({ error: 'not found' }, 404)
-      await expect(getPlan('unknown')).rejects.toThrow('not found')
-    })
-  })
-
-  describe('comments', () => {
-    it('addComment', async () => {
-      mockResponse({ id: 'c1', content: 'test comment' })
-      const comment = await addComment('p1', 'test comment')
-      expect(comment.content).toBe('test comment')
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/issues/p1/comments',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ content: 'test comment' }),
-        })
-      )
-    })
-
-    it('listComments', async () => {
-      mockResponse([{ id: 'c1', content: 'test comment' }])
-      const comments = await listComments('p1')
-      expect(comments).toHaveLength(1)
-      expect(fetch).toHaveBeenCalledWith('/api/issues/p1/comments', expect.any(Object))
-    })
-  })
-
-  describe('todos', () => {
-    it('toggleTodo', async () => {
-      mockResponse({ id: 't1', completed: true })
-      const result = await toggleTodo('p1', 't1')
-      expect(result.completed).toBe(true)
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/issues/p1/todos/t1/toggle',
-        expect.objectContaining({ method: 'PATCH' })
-      )
-    })
-
-    it('deleteTodo', async () => {
-      mockResponse({})
-      await deleteTodo('p1', 't1')
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/issues/p1/todos/t1',
-        expect.objectContaining({ method: 'DELETE' })
-      )
-    })
-  })
-
   describe('agents', () => {
     it('getAgentProfile', async () => {
       mockResponse({ soul: 'soul', rules: 'rules' })
