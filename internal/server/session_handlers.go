@@ -762,6 +762,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		callID string
 		name   string
 		args   string
+		msgIdx int
 		segIdx int
 	}
 
@@ -779,7 +780,8 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		// Skip ephemeral non-tool messages (delegation result summaries) —
 		// only the final LLM reply should appear in visible conversation history.
 		// Tool results are kept so tool_call segments get their result content.
-		if msg.Role != "tool" && msg.IsEphemeral {
+		// We also keep delegation completed user messages to reconstruct completion state.
+		if msg.Role != "tool" && msg.IsEphemeral && !strings.HasPrefix(msg.Content, "[Delegation Completed]") {
 			continue
 		}
 
@@ -787,22 +789,33 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 
 		switch msg.Role {
 		case "user":
-			// If this is a delegation result user message, inject as delegation segment
-			// into the last assistant message instead of creating a separate user message.
-			// This handles both existing history (non-ephemeral) and edge cases.
+			// If this is a delegation result user message, match it back to the corresponding
+			// pending delegation tool call segment and mark it as completed.
 			if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
-				// Extract agent name from content
-				agentName := extractDelegationAgentName(msg.Content)
-				lastIdx := len(msgs) - 1
-				if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" {
-					msgs[lastIdx].Segments = append(msgs[lastIdx].Segments, map[string]interface{}{
-						"type":       "delegation",
-						"agent_name": agentName,
-						"status":     "completed",
-						"result":     msg.Content,
-					})
-					break // skip creating a separate user message
+				parsedResults := parseDelegationResults(msg.Content)
+				for taskText, resultText := range parsedResults {
+					for _, ptc := range pendingToolCalls {
+						if !strings.HasPrefix(ptc.name, "delegate_") {
+							continue
+						}
+						var d struct {
+							Task string `json:"task"`
+						}
+						_ = json.Unmarshal([]byte(ptc.args), &d)
+						ptcTask := d.Task
+						if ptcTask == "" {
+							ptcTask = ptc.args
+						}
+						if ptcTask == taskText {
+							if ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
+								msgs[ptc.msgIdx].Segments[ptc.segIdx]["result"] = resultText
+								msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = true
+							}
+							break
+						}
+					}
 				}
+				break // skip creating a separate user message bubble
 			}
 			segments := []map[string]interface{}{}
 			if msg.Content != "" {
@@ -826,6 +839,15 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					"text": msg.ReasoningContent,
 				})
 			}
+
+			lastIdx := len(msgs) - 1
+			var targetMsgIdx int
+			if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" {
+				targetMsgIdx = lastIdx
+			} else {
+				targetMsgIdx = len(msgs)
+			}
+
 			for _, tc := range msg.ToolCalls {
 				segIdx := len(segments)
 				segments = append(segments, map[string]interface{}{
@@ -839,6 +861,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					callID: tc.ID,
 					name:   tc.Name,
 					args:   tc.Arguments,
+					msgIdx: targetMsgIdx,
 					segIdx: segIdx,
 				})
 			}
@@ -851,7 +874,6 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			// Merge consecutive assistant messages to match streaming behavior.
 			// The streaming frontend creates ONE assistant message per turn.
 			// But the timeline may split assistant events across tool results.
-			lastIdx := len(msgs) - 1
 			if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" {
 				offset := len(msgs[lastIdx].Segments)
 				msgs[lastIdx].Segments = append(msgs[lastIdx].Segments, segments...)
@@ -871,8 +893,16 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		case "tool":
 			for _, ptc := range pendingToolCalls {
 				if ptc.callID == msg.ToolCallID {
-					msgs[len(msgs)-1].Segments[ptc.segIdx]["result"] = msg.Content
-					msgs[len(msgs)-1].Segments[ptc.segIdx]["done"] = true
+					if ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
+						if strings.HasPrefix(ptc.name, "delegate_") {
+							// For delegation tools, the initial tool event is just a startup placeholder.
+							// Keep it as not done.
+							msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = false
+						} else {
+							msgs[ptc.msgIdx].Segments[ptc.segIdx]["result"] = msg.Content
+							msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = true
+						}
+					}
 					break
 				}
 			}
@@ -904,6 +934,38 @@ func extractDelegationAgentName(content string) string {
 	}
 	return "Subagent"
 }
+
+// parseDelegationResults parses multiple task-result pairs from a "[Delegation Completed]" message content.
+// Returns a map of task -> result.
+func parseDelegationResults(content string) map[string]string {
+	results := make(map[string]string)
+	lines := strings.Split(content, "\n")
+
+	var currentTask string
+	var resultLines []string
+	inResult := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Task:") {
+			if currentTask != "" && inResult {
+				results[currentTask] = strings.TrimSpace(strings.Join(resultLines, "\n"))
+			}
+			currentTask = strings.TrimSpace(strings.TrimPrefix(trimmed, "Task:"))
+			resultLines = nil
+			inResult = false
+		} else if trimmed == "Result:" {
+			inResult = true
+		} else if inResult {
+			resultLines = append(resultLines, line)
+		}
+	}
+	if currentTask != "" && inResult {
+		results[currentTask] = strings.TrimSpace(strings.Join(resultLines, "\n"))
+	}
+	return results
+}
+
 
 func readAllTimelineEvents(dir string) ([]timeline.Event, error) {
 	files, err := timeline.ListTimelineFiles(dir, "timeline")
