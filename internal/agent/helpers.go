@@ -23,6 +23,7 @@ func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 		out = append(out, LLMMessage{
 			Role:             p.Role,
 			Content:          content,
+			Images:           p.Images,
 			ReasoningContent: p.ReasoningContent,
 			Name:             p.Name,
 			ToolCallID:       p.ToolCallID,

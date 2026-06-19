@@ -40,9 +40,24 @@ type wireRequest struct {
 	Thinking         *wireThinking   `json:"thinking,omitempty"`
 }
 
+// wireContentPart 表示 OpenAI 兼容的 content array 中的一个元素
+//
+// 仅用于多模态消息（有图片时），与 Content string 互斥。
+// 不对 caller 暴露。
+type wireContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *wireImageURL   `json:"image_url,omitempty"`
+}
+
+type wireImageURL struct {
+	URL    string `json:"url"`              // data:image/png;base64,... 或 http(s) URL
+	Detail string `json:"detail,omitempty"` // "auto" | "low" | "high"
+}
+
 type wireMessage struct {
 	Role             string         `json:"role"`
-	Content          string         `json:"content"`
+	Content          any            `json:"content"` // string | []wireContentPart
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
 	Name             string         `json:"name,omitempty"`
 	ToolCallID       string         `json:"tool_call_id,omitempty"`
@@ -219,9 +234,32 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled bool) []wireMessage {
 	out := make([]wireMessage, 0, len(msgs))
 	for _, m := range msgs {
+		// Build Content: if Images present, use content array; otherwise plain string.
+		var content any
+		if len(m.Images) > 0 && (m.Role == "user" || m.Role == "system") {
+			parts := make([]wireContentPart, 0, len(m.Images)+1)
+			if m.Content != "" {
+				parts = append(parts, wireContentPart{
+					Type: "text",
+					Text: m.Content,
+				})
+			}
+			for _, img := range m.Images {
+				parts = append(parts, wireContentPart{
+					Type: "image_url",
+					ImageURL: &wireImageURL{
+						URL: "data:" + img.MimeType + ";base64," + img.Data,
+					},
+				})
+			}
+			content = parts
+		} else {
+			content = m.Content
+		}
+
 		wm := wireMessage{
 			Role:       m.Role,
-			Content:    m.Content,
+			Content:    content,
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}

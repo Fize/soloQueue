@@ -2,6 +2,7 @@ package qqbot
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
@@ -192,8 +195,49 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		}
 	}
 
+	// Download and base64-encode image attachments for multimodal models.
+	// Images are passed through context so the session layer can attach them
+	// to the LLM request as image_url content parts.
+	if len(msg.ImageURLs) > 0 {
+		var images []llm.ImageContent
+		for i, url := range msg.ImageURLs {
+			b.log.InfoContext(ctx, logger.CatApp, "qqbot downloading image", "url", url, "index", i)
+			data, filename, err := downloadFile(ctx, url)
+			if err != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to download image", "url", url, "err", err.Error())
+				continue
+			}
+
+			// Determine MIME type: try Content-Type from download response first,
+			// then fall back to extension-based detection.
+			mimeType := detectMimeType(filename, data)
+
+			// Save image locally (same as file attachments).
+			if localPath, saveErr := b.sess.SaveUploadedFile(ctx, filename, data); saveErr != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to save image locally", "filename", filename, "err", saveErr.Error())
+			} else {
+				b.log.InfoContext(ctx, logger.CatApp, "qqbot saved image locally", "path", localPath, "size", len(data), "mime", mimeType)
+			}
+
+			b64 := base64.StdEncoding.EncodeToString(data)
+			images = append(images, llm.ImageContent{
+				Data:     b64,
+				MimeType: mimeType,
+			})
+			b.log.InfoContext(ctx, logger.CatApp, "qqbot image encoded", "index", i, "size", len(data), "base64_len", len(b64), "mime", mimeType)
+		}
+		if len(images) > 0 {
+			ctx = context.WithValue(ctx, ctxwin.ImageContextKey, images)
+			// Still note images in the prompt text so the LLM knows images are attached.
+			promptBuilder.WriteString("\n[用户已上传图片，已通过视觉识别]")
+		}
+	}
+
 	msg.Content = promptBuilder.String()
-	prompt := buildPrompt(msg)
+	prompt := msg.Content
+	// Note: buildPrompt previously appended image URLs as text markers.
+	// Now image data is passed via context as base64 for multimodal models,
+	// so the prompt text only needs the user's message + file/upload annotations.
 
 	// Use AskStream to capture the full response including reasoning content.
 	// Pass onIntermediate to send intermediate assistant responses (content
@@ -398,25 +442,6 @@ func (b *SessionBridge) sendIntermediate(ctx context.Context, msg QQMessage, tex
 	}
 }
 
-// ─── Prompt Building ──────────────────────────────────────────────────────────
-
-// buildPrompt constructs the full prompt from a QQ message, including any
-// attached image URLs so the LLM can reference them for image tools.
-func buildPrompt(msg QQMessage) string {
-	if len(msg.ImageURLs) == 0 {
-		return msg.Content
-	}
-	var b strings.Builder
-	b.WriteString(msg.Content)
-	b.WriteString("\n[user-uploaded images:")
-	for _, u := range msg.ImageURLs {
-		b.WriteString("\n- ")
-		b.WriteString(u)
-	}
-	b.WriteString("]\n")
-	return b.String()
-}
-
 // ─── Message Splitting ────────────────────────────────────────────────────────
 
 // splitMessage splits text into chunks of at most maxLen bytes,
@@ -583,4 +608,23 @@ func isBinary(data []byte) bool {
 		}
 	}
 	return false
+}
+
+// detectMimeType determines the MIME type of file data by sniffing the first
+// 512 bytes using http.DetectContentType. Falls back to extension-based
+// detection if the sniff result is generic (application/octet-stream).
+func detectMimeType(filename string, data []byte) string {
+	mimeType := http.DetectContentType(data)
+	if mimeType != "application/octet-stream" {
+		return mimeType
+	}
+	// Fallback: try extension-based detection
+	ext := filepath.Ext(filename)
+	if ext != "" {
+		if mt := mime.TypeByExtension(ext); mt != "" {
+			return mt
+		}
+	}
+	// Default to image/png if all detection fails
+	return "image/png"
 }

@@ -24,6 +24,7 @@ import (
 type PayloadMessage struct {
 	Role             string
 	Content          string
+	Images           []llm.ImageContent // 多模态图片（仅 user 消息使用）
 	ReasoningContent string
 	Name             string
 	ToolCallID       string
@@ -53,13 +54,14 @@ const (
 type Message struct {
 	Role             MessageRole
 	Content          string
-	Tokens           int            // 插入时估算；Calibrate 后不再保证 sum == currentTokens
-	IsEphemeral      bool           // 标记冗长工具输出（大段报错日志、文件读取结果）
-	ReasoningContent string         // DeepSeek reasoning；API roundtrip 需要
-	Name             string         // 工具名（role=tool）
-	ToolCallID       string         // 工具调用 ID（role=tool）
-	ToolCalls        []llm.ToolCall // role=assistant 时的 tool_calls
-	Timestamp        time.Time      // 消息 push 时的时间戳；replay 时从 timeline event 恢复
+	Images           []llm.ImageContent // 多模态图片（仅 user 消息使用）
+	Tokens           int                // 插入时估算；Calibrate 后不再保证 sum == currentTokens
+	IsEphemeral      bool               // 标记冗长工具输出（大段报错日志、文件读取结果）
+	ReasoningContent string             // DeepSeek reasoning；API roundtrip 需要
+	Name             string             // 工具名（role=tool）
+	ToolCallID       string             // 工具调用 ID（role=tool）
+	ToolCalls        []llm.ToolCall     // role=assistant 时的 tool_calls
+	Timestamp        time.Time          // 消息 push 时的时间戳；replay 时从 timeline event 恢复
 }
 
 // ─── PushOption ─────────────────────────────────────────────────────────────

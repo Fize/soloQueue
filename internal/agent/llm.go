@@ -11,16 +11,17 @@ import (
 // LLMMessage 是传给 LLM 的一条消息
 //
 // 支持 tool-calling 协议：
-//   - role="system" / "user"：填 Content
+//   - role="system" / "user"：填 Content；user 可选带 Images（多模态）
 //   - role="assistant"：Content + 可选 ToolCalls（允许 Content 为空，仅有 tool_calls）
 //   - role="tool"：ToolCallID + Content（工具执行结果）
 type LLMMessage struct {
 	Role             string
 	Content          string
-	ReasoningContent string // DeepSeek thinking mode；有 tool_calls 时必须回传
+	Images           []llm.ImageContent // 多模态图片（仅 user 消息使用）
+	ReasoningContent string             // DeepSeek thinking mode；有 tool_calls 时必须回传
 	Name             string
-	ToolCallID       string         // role="tool" 时必填
-	ToolCalls        []llm.ToolCall // role="assistant" 可选
+	ToolCallID       string             // role="tool" 时必填
+	ToolCalls        []llm.ToolCall      // role="assistant" 可选
 }
 
 // LLMRequest 是 LLMClient.Chat / ChatStream 的输入
