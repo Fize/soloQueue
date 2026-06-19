@@ -15,28 +15,28 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ─── Cursor Code Theme Tokens ────────────────────────────────────────── */
+/* ─── Linear Dark (Fluent Spec) Theme Tokens ────────────────────────── */
 @theme {
-  /* Brand Colors — Orange accent */
-  --color-primary: #f54e00;
+  /* Brand Colors — Tech Modern Indigo-violet accent */
+  --color-primary: #5e6ad2;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #62584e;
-  --color-secondary-foreground: #ffffff;
+  --color-secondary: #28282c;
+  --color-secondary-foreground: #f7f8f8;
 
   /* Backgrounds */
-  --color-background: #f2f1ed;
-  --color-foreground: #26251e;
-  --color-card: #ffffff;
-  --color-card-foreground: #26251e;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #26251e;
+  --color-background: #08090a;
+  --color-foreground: #f7f8f8;
+  --color-card: #191a1b;
+  --color-card-foreground: #f7f8f8;
+  --color-popover: #191a1b;
+  --color-popover-foreground: #f7f8f8;
 
   /* Muted */
-  --color-muted: #e8e7e2;
-  --color-muted-foreground: #75756d;
+  --color-muted: #1a1b1e;
+  --color-muted-foreground: #8a8f98;
 
-  /* Accent — same as primary for single-accent identity */
-  --color-accent: #f54e00;
+  /* Accent */
+  --color-accent: #5e6ad2;
   --color-accent-foreground: #ffffff;
 
   /* Destructive */
@@ -44,46 +44,47 @@
   --color-destructive-foreground: #ffffff;
 
   /* Border / Input / Ring */
-  --color-border: #c5c5be;
-  --color-border-light: #e0e0da;
-  --color-input: #c5c5be;
-  --color-ring: rgba(245, 78, 0, 0.25);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-light: rgba(255, 255, 255, 0.05);
+  --color-input: rgba(255, 255, 255, 0.08);
+  --color-ring: rgba(94, 106, 210, 0.4);
 
   /* Status Colors */
-  --color-status-plan: #e8e7e2;
-  --color-status-running: #fff0db;
-  --color-status-done: #dcfce7;
+  --color-status-plan: rgba(240, 246, 252, 0.08);
+  --color-status-running: rgba(94, 106, 210, 0.15);
+  --color-status-done: rgba(39, 166, 68, 0.15);
 
-  /* Semantic Colors — distinct, NOT shared with accent/primary */
-  --color-success: #16a34a;
+  /* Semantic Colors — distinct */
+  --color-success: #27a644;
   --color-success-foreground: #ffffff;
-  --color-warning: #d97706;
+  --color-warning: #eab308;
   --color-warning-foreground: #ffffff;
-  --color-info: #2563eb;
+  --color-info: #0099bc;
   --color-info-foreground: #ffffff;
   --color-error: #dc2626;
   --color-error-foreground: #ffffff;
 
   /* Chart */
-  --color-chart-1: #f54e00;
-  --color-chart-2: #16a34a;
-  --color-chart-3: #2563eb;
+  --color-chart-1: #5e6ad2;
+  --color-chart-2: #27a644;
+  --color-chart-3: #0099bc;
   --color-chart-4: #a78bfa;
   --color-chart-5: #dc2626;
 }
 
 @theme inline {
   --font-sans:
-    'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
   --font-mono:
-    'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, monospace;
 
   --radius: 8px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
-  --radius-xl: 16px;
+  --radius-xl: 12px;
   --radius-2xl: 16px;
 
   /* shadcn CSS variable bridge */
@@ -124,25 +125,25 @@
 /* ─── CSS Variables: Light Theme (default) ───────────────────────────── */
 :root {
   /* Surfaces */
-  --background: #f2f1ed;
-  --foreground: #26251e;
+  --background: #f7f8f8;
+  --foreground: #08090a;
   --card: #ffffff;
-  --card-foreground: #26251e;
+  --card-foreground: #08090a;
   --popover: #ffffff;
-  --popover-foreground: #26251e;
+  --popover-foreground: #08090a;
 
   /* Brand */
-  --primary: #f54e00;
+  --primary: #5e6ad2;
   --primary-foreground: #ffffff;
-  --secondary: #62584e;
-  --secondary-foreground: #ffffff;
+  --secondary: #f3f4f5;
+  --secondary-foreground: #08090a;
 
   /* Muted */
-  --muted: #e8e7e2;
-  --muted-foreground: #75756d;
+  --muted: #e5e7eb;
+  --muted-foreground: #8a8f98;
 
-  /* Accent (single-accent: = primary) */
-  --accent: #f54e00;
+  /* Accent */
+  --accent: #5e6ad2;
   --accent-foreground: #ffffff;
 
   /* Destructive */
@@ -150,18 +151,18 @@
   --destructive-foreground: #ffffff;
 
   /* Border / Input / Ring */
-  --border: #c5c5be;
-  --border-light: #e0e0da;
-  --input: #c5c5be;
-  --ring: rgba(245, 78, 0, 0.25);
+  --border: #d0d6e0;
+  --border-light: #e5e7eb;
+  --input: #d0d6e0;
+  --ring: rgba(94, 106, 210, 0.25);
   --radius: 8px;
 
-  /* M3 Elevation tokens */
-  --md-elevation-level1: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --md-elevation-level2: 0 1px 3px 0 rgb(0 0 0 / 0.08);
-  --md-elevation-level3: 0 2px 4px 0 rgb(0 0 0 / 0.09);
-  --md-elevation-level4: 0 4px 8px 0 rgb(0 0 0 / 0.12);
-  --md-elevation-level5: 0 8px 16px 0 rgb(0 0 0 / 0.15);
+  /* Elevation tokens */
+  --md-elevation-level1: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --md-elevation-level2: 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  --md-elevation-level3: 0 4px 8px 0 rgba(0, 0, 0, 0.08);
+  --md-elevation-level4: 0 8px 16px 0 rgba(0, 0, 0, 0.1);
+  --md-elevation-level5: 0 16px 24px 0 rgba(0, 0, 0, 0.12);
 
   /* Shadows */
   --shadow-sm: var(--md-elevation-level1);
@@ -169,16 +170,16 @@
   --shadow-lg: var(--md-elevation-level4);
 
   /* Status */
-  --status-plan: #e8e7e2;
-  --status-running: #fff0db;
-  --status-done: #dcfce7;
+  --status-plan: #e5e7eb;
+  --status-running: rgba(94, 106, 210, 0.1);
+  --status-done: rgba(39, 166, 68, 0.1);
 
-  /* Semantic — distinct, NOT shared with accent/primary */
-  --success: #16a34a;
+  /* Semantic */
+  --success: #27a644;
   --success-foreground: #ffffff;
-  --warning: #d97706;
+  --warning: #eab308;
   --warning-foreground: #ffffff;
-  --info: #2563eb;
+  --info: #0099bc;
   --info-foreground: #ffffff;
   --error: #dc2626;
   --error-foreground: #ffffff;
@@ -187,25 +188,25 @@
 /* ─── CSS Variables: Dark Theme ──────────────────────────────────────── */
 .dark {
   /* Surfaces */
-  --background: #1a1914;
-  --foreground: #f2f1ed;
-  --card: #26251e;
-  --card-foreground: #f2f1ed;
-  --popover: #26251e;
-  --popover-foreground: #f2f1ed;
+  --background: #08090a;
+  --foreground: #f7f8f8;
+  --card: #191a1b;
+  --card-foreground: #f7f8f8;
+  --popover: #191a1b;
+  --popover-foreground: #f7f8f8;
 
-  /* Brand — accent stays same orange for identity consistency */
-  --primary: #f54e00;
+  /* Brand */
+  --primary: #5e6ad2;
   --primary-foreground: #ffffff;
-  --secondary: #c7c1b6;
-  --secondary-foreground: #1a1914;
+  --secondary: #28282c;
+  --secondary-foreground: #f7f8f8;
 
   /* Muted */
-  --muted: #333228;
-  --muted-foreground: #8b8c84;
+  --muted: #1a1b1e;
+  --muted-foreground: #8a8f98;
 
   /* Accent */
-  --accent: #f54e00;
+  --accent: #5e6ad2;
   --accent-foreground: #ffffff;
 
   /* Destructive */
@@ -213,17 +214,17 @@
   --destructive-foreground: #fca5a5;
 
   /* Border / Input / Ring */
-  --border: #444339;
-  --border-light: #333228;
-  --input: #444339;
-  --ring: rgba(245, 78, 0, 0.4);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.05);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: rgba(94, 106, 210, 0.4);
 
-  /* M3 Elevation tokens (dark: heavier shadows) */
-  --md-elevation-level1: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --md-elevation-level2: 0 1px 3px 0 rgb(0 0 0 / 0.35);
-  --md-elevation-level3: 0 2px 4px 0 rgb(0 0 0 / 0.4);
-  --md-elevation-level4: 0 4px 8px 0 rgb(0 0 0 / 0.45);
-  --md-elevation-level5: 0 8px 16px 0 rgb(0 0 0 / 0.5);
+  /* Elevation tokens */
+  --md-elevation-level1: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --md-elevation-level2: 0 2px 4px 0 rgba(0, 0, 0, 0.35);
+  --md-elevation-level3: 0 4px 8px 0 rgba(0, 0, 0, 0.4);
+  --md-elevation-level4: 0 8px 16px 0 rgba(0, 0, 0, 0.45);
+  --md-elevation-level5: 0 16px 24px 0 rgba(0, 0, 0, 0.5);
 
   /* Shadows */
   --shadow-sm: var(--md-elevation-level1);
@@ -232,17 +233,17 @@
 
   /* Status */
   --status-plan: rgba(240, 246, 252, 0.08);
-  --status-running: rgba(245, 78, 0, 0.15);
-  --status-done: rgba(22, 163, 74, 0.15);
+  --status-running: rgba(94, 106, 210, 0.15);
+  --status-done: rgba(39, 166, 68, 0.15);
 
   /* Semantic */
-  --success: #4ade80;
+  --success: #27a644;
   --success-foreground: #052e16;
   --warning: #fbbf24;
   --warning-foreground: #431407;
   --info: #60a5fa;
   --info-foreground: #172554;
-  --error: #fca5a5;
+  --error: #ff5c5c;
   --error-foreground: #450a0a;
 }
 
@@ -256,14 +257,14 @@
     font-weight: 400;
     min-height: 100vh;
   }
-  /* Light theme: warm cream → canvas gradient */
+  /* Light theme: clean cold gray/slate canvas */
   body {
-    background-image: linear-gradient(180deg, #ffffff 0%, #f2f1ed 100%);
+    background-image: linear-gradient(180deg, #ffffff 0%, #f7f8f8 100%);
     background-repeat: no-repeat;
   }
   .dark body {
     background-image: none;
-    background-color: #1a1914;
+    background-color: #08090a;
   }
   html {
     @apply font-sans;
@@ -276,39 +277,39 @@
   }
 }
 
-/* ─── Glass Card Utilities ───────────────────────────────────────────── */
+/* ─── Glass Card Utilities (Fluent Acrylic Spec) ─────────────────────── */
 @layer components {
   /* Glassmorphism card: backdrop-blur, luminous thin border, subtle bg */
   .glass-card {
-    background: rgba(255, 255, 255, 0.8);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: var(--radius);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     box-shadow: var(--shadow-sm);
     transition:
-      transform 0.2s ease,
-      box-shadow 0.2s ease,
-      border-color 0.2s ease;
+      transform 0.15s cubic-bezier(0, 0, 0, 1),
+      box-shadow 0.15s cubic-bezier(0, 0, 0, 1),
+      border-color 0.15s cubic-bezier(0, 0, 0, 1);
   }
   .glass-card:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
-    border-color: rgba(0, 0, 0, 0.1);
+    border-color: rgba(0, 0, 0, 0.15);
   }
 
   .dark .glass-card {
-    background: rgba(38, 37, 30, 0.8);
-    border-color: rgba(68, 67, 57, 0.6);
+    background: rgba(25, 26, 27, 0.8);
+    border-color: rgba(255, 255, 255, 0.08);
   }
   .dark .glass-card:hover {
-    border-color: rgba(68, 67, 57, 0.85);
+    border-color: rgba(255, 255, 255, 0.2);
     box-shadow:
       var(--shadow-md),
-      0 0 0 1px rgba(245, 78, 0, 0.05);
+      0 0 0 1px rgba(94, 106, 210, 0.15);
   }
 
-  /* Active variant with orange left accent */
+  /* Active variant with primary left accent */
   .glass-card-active {
     border-left: 3px solid var(--primary);
   }
@@ -316,7 +317,7 @@
     border-left-color: var(--primary);
     box-shadow:
       var(--shadow-sm),
-      inset 3px 0 8px -3px rgba(245, 78, 0, 0.1);
+      inset 3px 0 8px -3px rgba(94, 106, 210, 0.15);
   }
 
   /* Ghost / placeholder variant */
@@ -328,7 +329,7 @@
     box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.15s cubic-bezier(0, 0, 0, 1);
   }
   .glass-card-ghost:hover {
     opacity: 0.8;
@@ -338,23 +339,23 @@
 
   /* Legacy saas-card alias → glass-card */
   .saas-card {
-    background: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.75);
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     transition:
-      transform 0.2s ease,
-      box-shadow 0.2s ease;
+      transform 0.15s cubic-bezier(0, 0, 0, 1),
+      box-shadow 0.15s cubic-bezier(0, 0, 0, 1);
   }
   .saas-card:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
   }
   .dark .saas-card {
-    background: rgba(38, 37, 30, 0.8);
-    border-color: rgba(68, 67, 57, 0.6);
+    background: rgba(25, 26, 27, 0.8);
+    border-color: rgba(255, 255, 255, 0.08);
   }
 }
 

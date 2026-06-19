@@ -679,7 +679,7 @@ export function ConfigTab() {
         </TabsContent>
         <TabsContent value="db" className="space-y-6 pb-10">
           {/* Sub-tab Switcher */}
-          <div className="flex flex-wrap gap-2 p-1 bg-muted rounded-lg w-max mb-6">
+          <div className="flex flex-wrap gap-2 p-1 bg-muted rounded-lg w-full mb-6">
             <button
               type="button"
               onClick={() => handleSubTabChange('llm')}

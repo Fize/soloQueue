@@ -142,17 +142,75 @@ export function Sidebar({ mobile, onClose }: { mobile?: boolean; onClose?: () =>
       {/* Logo */}
       <div
         className={cn(
-          'flex h-14 items-center border-b border-border shrink-0',
-          collapsed && !mobile ? 'justify-center px-2' : 'gap-2.5 px-4'
+          'relative flex h-14 items-center border-b border-border shrink-0',
+          collapsed && !mobile ? 'justify-center px-2' : 'justify-center px-4'
         )}
       >
         {mobile && (
-          <Button variant="ghost" size="icon" onClick={onClose} className="mr-1 shrink-0 h-8 w-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="absolute left-3 shrink-0 h-8 w-8"
+          >
             <X className="h-4 w-4" />
           </Button>
         )}
-        <Link to="/" className="flex items-center gap-2.5 min-w-0">
-          <img src="/logo.png" alt="SoloQueue" className="h-7 w-7 shrink-0" />
+        <Link
+          to="/"
+          className={cn(
+            'flex items-center gap-2.5 min-w-0',
+            collapsed && !mobile ? '' : 'justify-center w-full'
+          )}
+        >
+          <svg
+            viewBox="0 0 32 32"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-7 w-7 shrink-0 text-primary"
+          >
+            {/* Squircle container matching Fluent large radius rx=7 */}
+            <rect
+              x="3"
+              y="3"
+              width="26"
+              height="26"
+              rx="7"
+              stroke="url(#logo-gradient)"
+              strokeWidth="2.5"
+              fill="none"
+            />
+            {/* Connected S-Q Monogram */}
+            {/* S path */}
+            <path
+              d="M12 11C12 9.5 13.5 8.5 15.5 8.5C17.5 8.5 19 9.5 19 11C19 12.5 17 13 15 13.5C13 14 11 14.5 11 16.5C11 18.5 12.5 19.5 15 19.5"
+              stroke="url(#logo-gradient)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Q loop and tail */}
+            <circle cx="20.5" cy="15.5" r="4" stroke="url(#logo-gradient)" strokeWidth="2.5" />
+            <path
+              d="M22.5 18.5L25 21"
+              stroke="url(#logo-gradient)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
+            <defs>
+              <linearGradient
+                id="logo-gradient"
+                x1="3"
+                y1="3"
+                x2="29"
+                y2="29"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0%" stopColor="var(--primary)" />
+                <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.75" />
+              </linearGradient>
+            </defs>
+          </svg>
           {(!collapsed || mobile) && (
             <span className="text-base font-bold tracking-tight text-foreground truncate">
               SoloQueue
