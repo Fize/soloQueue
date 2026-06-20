@@ -22,12 +22,13 @@ type SuggestedAgent struct {
 
 // SeedExtraction holds the structured output from LLM seed analysis.
 type SeedExtraction struct {
-	Entities        []memoryengine.EntityExtraction `json:"entities"`
-	WorldState      map[string]any                  `json:"world_state"`
-	KeyTopics       []string                        `json:"key_topics"`
-	ConflictAreas   []string                        `json:"conflict_areas"`
-	SuggestedAgents []SuggestedAgent                `json:"suggested_agents,omitempty"`
-	LifecycleEvents []SeedLifecycleEvent            `json:"lifecycle_events,omitempty"`
+	Entities             []memoryengine.EntityExtraction `json:"entities"`
+	WorldState           map[string]any                  `json:"world_state"`
+	KeyTopics            []string                        `json:"key_topics"`
+	ConflictAreas        []string                        `json:"conflict_areas"`
+	SuggestedAgents      []SuggestedAgent                `json:"suggested_agents,omitempty"`
+	LifecycleEvents      []SeedLifecycleEvent            `json:"lifecycle_events,omitempty"`
+	InitialRelationships []InitialRelationship           `json:"initial_relationships,omitempty"`
 }
 
 // SeedExtractor extracts entities, world state, and topics from seed text.
@@ -239,6 +240,18 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 	}
 	a.SuggestedAgents = mergedAgents
 
+	// Merge InitialRelationships (dedup by subject+target)
+	relSeen := make(map[string]bool)
+	var mergedRels []InitialRelationship
+	for _, rel := range append(a.InitialRelationships, b.InitialRelationships...) {
+		key := rel.SubjectName + "->" + rel.TargetName + ":" + string(rel.Kind)
+		if !relSeen[key] {
+			relSeen[key] = true
+			mergedRels = append(mergedRels, rel)
+		}
+	}
+	a.InitialRelationships = mergedRels
+
 	return a
 }
 
@@ -307,7 +320,13 @@ func buildExtractionPrompt(text string) string {
 	b.WriteString("- `key_topics`: array of main topic strings (max 3), e.g. [\"AI regulation\", \"innovation vs safety\"]\n")
 	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3), e.g. [\"regulatory approach\", \"timeline\"]\n")
 	b.WriteString("- `suggested_agents`: array of objects representing specific individuals or characters in the text. Each object MUST have: `name` (string), `role` (string, e.g. advocate, skeptic, mediator), `description` (brief summary), `traits` (array of strings). If no specific characters exist, return [].\n")
-	b.WriteString("- `lifecycle_events`: array of scheduled events. Each object MUST have: `type` (\"agent_spawn\"|\"agent_death\"|\"simulation_end\"), `agent_name` (string), `agent_role` (string, for spawn), `trigger` (\"sim_time\"|\"wall_time\"|\"condition\"), `trigger_value` (string), `reason` (string). If no explicit timing/conditions in text, return [].\n\n")
+	b.WriteString("- `lifecycle_events`: array of scheduled events. Each object MUST have: `type` (\"agent_spawn\"|\"agent_death\"|\"simulation_end\"), `agent_name` (string), `agent_role` (string, for spawn), `trigger` (\"sim_time\"|\"wall_time\"|\"condition\"), `trigger_value` (string), `reason` (string). If no explicit timing/conditions in text, return [].\n")
+	b.WriteString("- `initial_relationships`: array of social relationships between characters (suggested_agents). Each object MUST have: `subject_name` (the observing character's name), `target_name` (the observed character's name), `kind` (relationship kind), and optionally `familiarity` (0.0-1.0) and `affinity` (-1.0 to 1.0).\n")
+	b.WriteString("  `kind` must be one of: parent, child, sibling, spouse, friend, rival, colleague, mentor, mentee, neighbor\n")
+	b.WriteString("  Extract from text clues: \"从小一起长大\" → kind=friend; \"兄弟\" → kind=sibling; \"邻居\" → kind=neighbor; \"同事\" → kind=colleague; \"对手\" → kind=rival; \"大学同学\" → kind=friend; \"夫妻\" → kind=spouse\n")
+	b.WriteString("  Directional kinds (parent, child, mentor, mentee): subject_name is the \"parent\"/\"mentor\", target_name is the \"child\"/\"mentee\"\n")
+	b.WriteString("  Non-directional kinds (sibling, spouse, friend, rival, colleague, neighbor): order does not matter\n")
+	b.WriteString("  If no explicit relationships exist between characters, return [].\n\n")
 	b.WriteString("Rules:\n")
 	b.WriteString("- All fields MUST use the exact JSON types specified. Do NOT use strings where objects are required, or vice versa.\n")
 	b.WriteString("- Only extract entities that are debatable: concepts, technologies, organizations, or people that agents could take different stances on.\n")
