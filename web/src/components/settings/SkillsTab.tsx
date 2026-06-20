@@ -9,6 +9,7 @@ import {
   fetchSkillDetail,
   fetchSkillFiles,
   toggleSkill,
+  toggleSkillAutoUpdate,
   type SkillFileEntry,
 } from '@/lib/api'
 import type { SkillInfo } from '@/types'
@@ -93,6 +94,7 @@ export function SkillsTab() {
 
   // Interactive operation states
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [togglingAutoUpdateId, setTogglingAutoUpdateId] = useState<string | null>(null)
   const [installingStoreId, setInstallingStoreId] = useState<string | null>(null)
 
   // Custom install fields
@@ -183,6 +185,26 @@ export function SkillsTab() {
       console.error('Failed to toggle skill:', err)
     } finally {
       setTogglingId(null)
+    }
+  }
+
+  // Toggling Auto Update
+  const handleToggleAutoUpdate = async (id: string, enabled: boolean) => {
+    setTogglingAutoUpdateId(id)
+    try {
+      await toggleSkillAutoUpdate(id, enabled)
+      setDetails((prev) => {
+        if (prev[id]) {
+          return { ...prev, [id]: { ...prev[id], auto_update: enabled } }
+        }
+        return prev
+      })
+      await fetchSkills()
+      toast.success(`Auto update ${enabled ? 'enabled' : 'disabled'} for skill "${id}"`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update auto update config')
+    } finally {
+      setTogglingAutoUpdateId(null)
     }
   }
 
@@ -690,10 +712,30 @@ export function SkillsTab() {
                           </div>
                         )}
 
+                        {/* Auto Update Toggle */}
+                        <div className="mt-4 p-3 rounded-md border border-border bg-card/50 space-y-2 flex items-center justify-between">
+                          <div className="space-y-0.5 text-left">
+                            <div className="text-xs font-bold text-foreground">Auto Update</div>
+                            <p className="text-[10px] text-muted-foreground leading-normal max-w-[155px]">
+                              Auto sync updates from local workspace or remote Git.
+                            </p>
+                          </div>
+                          {togglingAutoUpdateId === skill.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          ) : (
+                            <Switch
+                              checked={details[skill.id]?.auto_update ?? skill.auto_update ?? false}
+                              onCheckedChange={(checked) =>
+                                handleToggleAutoUpdate(skill.id, checked)
+                              }
+                            />
+                          )}
+                        </div>
+
                         {/* File path help */}
                         {skill.file_path && (
                           <p
-                            className="text-[10px] text-muted-foreground truncate"
+                            className="text-[10px] text-muted-foreground truncate mt-3"
                             title={skill.file_path}
                           >
                             Path: <span className="font-mono">{skill.file_path}</span>

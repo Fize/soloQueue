@@ -68,6 +68,7 @@ type Stack struct {
 	promptRebuildFuncs []func() error
 	promptRebuildMu    sync.Mutex
 	promptWatcherClose func()
+	skillsSyncCancel   func()
 }
 
 // ReloadFromTeamStore reloads groups, leaders, and templates from the DB-backed
@@ -92,6 +93,9 @@ func (s *Stack) ReloadFromTeamStore() error {
 func (s *Stack) Shutdown() {
 	if s.promptWatcherClose != nil {
 		s.promptWatcherClose()
+	}
+	if s.skillsSyncCancel != nil {
+		s.skillsSyncCancel()
 	}
 	for _, sv := range s.Supervisors {
 		_ = sv.ReapAll(5 * time.Second)

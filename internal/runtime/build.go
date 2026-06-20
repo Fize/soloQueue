@@ -435,6 +435,14 @@ func (bc *buildContext) registerHotReload(rt *Stack) {
 	groupsDir := filepath.Join(bc.workDir, "groups")
 	agentsDir := filepath.Join(bc.workDir, "agents")
 	registerPromptHotReload(rt, bc.log, groupsDir, agentsDir)
+
+	// Start remote skill sync loop in the background
+	if rt.SkillRegistry != nil && len(bc.skillDirs) > 0 {
+		ctx, cancel := context.WithCancel(context.Background())
+		rt.skillsSyncCancel = cancel
+		userSkillsDir := bc.skillDirs["user"]
+		skill.StartRemoteSkillsSyncLoop(ctx, bc.workDir, userSkillsDir, rt.SkillRegistry, bc.log, 1*time.Hour)
+	}
 }
 
 // registerPromptHotReload watches the roles, groups, and agents directories and rebuilds the system prompt when soul.md, rules.md or team/agent markdown files change.

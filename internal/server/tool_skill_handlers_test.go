@@ -317,4 +317,42 @@ Instructions for test catalog skill
 			t.Errorf("expected skill directory %s to be deleted, but it still exists", deletedDir)
 		}
 	}
+
+	// ── Test 9: POST /api/skills/{id}/auto-update (ToggleAutoUpdate) ──
+	{
+		autoUpdatePayload := map[string]any{
+			"enabled": true,
+		}
+		jsonBytes, _ := json.Marshal(autoUpdatePayload)
+		req, _ := http.NewRequest("POST", srv.URL+"/api/skills/new-imported-skill/auto-update", bytes.NewBuffer(jsonBytes))
+		setLoopbackHeaders(req)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("POST /api/skills/{id}/auto-update failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		var autoUpdateResp struct {
+			ID         string `json:"id"`
+			AutoUpdate bool   `json:"auto_update"`
+		}
+		if err := json.Unmarshal(body, &autoUpdateResp); err != nil {
+			t.Fatalf("failed to unmarshal JSON: %v, body: %s", err, body)
+		}
+
+		if autoUpdateResp.ID != "new-imported-skill" || !autoUpdateResp.AutoUpdate {
+			t.Errorf("unexpected auto-update response: %+v", autoUpdateResp)
+		}
+
+		// Verify state is persisted to skills_update.toml in tempDir
+		tomlPath := filepath.Join(tempDir, "skills_update.toml")
+		if _, err := os.Stat(tomlPath); err != nil {
+			t.Errorf("expected skills_update.toml to exist, got: %v", err)
+		}
+	}
 }
