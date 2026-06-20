@@ -364,8 +364,98 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	agentToolsCfg.WorkDir = effectiveWorkDir
 	allTools := tools.Build(agentToolsCfg)
 
+	// Filter out SendFile and schedule_task for L3 workers
+	if !tmpl.IsLeader {
+		var filtered []tools.Tool
+		for _, t := range allTools {
+			if t.Name() != "SendFile" && t.Name() != "schedule_task" {
+				filtered = append(filtered, t)
+			}
+		}
+		allTools = filtered
+	}
+
+	// 3. 加载 skills — 合并全局注册表 + project-level skills（项目级覆盖全局）
+	mergedSkillReg := skill.NewSkillRegistry()
+	if f.skillRegistry != nil {
+		for _, s := range f.skillRegistry.Skills() {
+			if !s.Disabled {
+				_ = mergedSkillReg.Register(s)
+			}
+		}
+	}
+	for _, s := range projRes.skills {
+		if !s.Disabled {
+			_ = mergedSkillReg.Register(s) // override if same ID
+		}
+	}
+
 	// 2b. L2 领导者：注入同组 L3 Worker + project-level agents 的 delegate 工具
 	if tmpl.IsLeader {
+		// Inject the generic delegate_agent tool for dynamic L3 delegation
+		dat := tools.NewDelegateAgentTool(f.log, func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
+			var childTmpl AgentTemplate
+			var ok bool
+
+			// 1. Try loading matching agent template from the skill's agents directory
+			if skillDir != "" {
+				childTmpl, ok = LoadSkillAgentTemplate(skillDir, name)
+				if !ok && baseAgentName != "" {
+					childTmpl, ok = LoadSkillAgentTemplate(skillDir, baseAgentName)
+				}
+			}
+
+			// 2. Fallback to global templates registry
+			if !ok && baseAgentName != "" {
+				if t, ok2 := f.templates[strings.ToLower(baseAgentName)]; ok2 {
+					childTmpl = t
+					ok = true
+				}
+			}
+			if !ok {
+				if t, ok2 := f.templates[strings.ToLower(name)]; ok2 {
+					childTmpl = t
+					ok = true
+				}
+			}
+
+			// Configure template fields
+			childTmpl.ID = strings.ToLower(name)
+			childTmpl.Name = name
+			childTmpl.IsLeader = false // All dynamically delegated agents are L3 workers
+
+			if ok {
+				// Combine base agent's system prompt with skill instructions / custom prompt
+				if systemPrompt != "" {
+					if childTmpl.SystemPrompt != "" {
+						childTmpl.SystemPrompt = childTmpl.SystemPrompt + "\n\n# Skill/Custom execution logic:\n" + systemPrompt
+					} else {
+						childTmpl.SystemPrompt = systemPrompt
+					}
+				}
+			} else {
+				childTmpl.Description = "Dynamic skill agent"
+				childTmpl.SystemPrompt = systemPrompt
+			}
+
+			if modelID != "" {
+				childTmpl.ModelID = modelID
+			}
+
+			child, _, err := f.Create(ctx, childTmpl, workDir)
+			if err != nil {
+				return nil, err
+			}
+			return &LocatableAdapter{Agent: child}, nil
+		})
+		dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
+			if s, ok := mergedSkillReg.GetSkill(skillID); ok {
+				return s.Instructions, s.Agent, s.Dir, true
+			}
+			return "", "", "", false
+		}
+		allTools = append(allTools, dat)
+
 		for _, peer := range f.visibleWorkers(tmpl, projRes.agents) {
 			peer := peer // capture loop variable
 			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log)
@@ -416,21 +506,6 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		}
 	}
 
-	// 3. 加载 skills — 合并全局注册表 + project-level skills（项目级覆盖全局）
-	mergedSkillReg := skill.NewSkillRegistry()
-	if f.skillRegistry != nil {
-		for _, s := range f.skillRegistry.Skills() {
-			if !s.Disabled {
-				_ = mergedSkillReg.Register(s)
-			}
-		}
-	}
-	for _, s := range projRes.skills {
-		if !s.Disabled {
-			_ = mergedSkillReg.Register(s) // override if same ID
-		}
-	}
-
 	var skillList []*skill.Skill
 	if len(tmpl.SkillIDs) > 0 {
 		sr := skill.NewSkillRegistry()
@@ -443,12 +518,40 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		if sr.Len() > 0 {
 			// Fork spawn: 创建临时子 agent 执行 fork 模式的 skill
 			forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
+				var basePrompt string
+				if s.Agent != "" {
+					// 1. Try loading base agent template from the skill's own agents/ directory
+					if baseTmpl, ok := LoadSkillAgentTemplate(s.Dir, s.Agent); ok {
+						basePrompt = baseTmpl.SystemPrompt
+					} else {
+						// 2. Fallback to global templates registry
+						if baseTmpl, ok := f.templates[strings.ToLower(s.Agent)]; ok {
+							basePrompt = baseTmpl.SystemPrompt
+						}
+					}
+				}
+
+				finalSystemPrompt := content
+				if basePrompt != "" {
+					finalSystemPrompt = basePrompt + "\n\n# Skill Execution Instructions\n" + content
+				}
+
 				forkDef := Definition{
 					ID:           fmt.Sprintf("skill-fork-%s", s.ID),
 					ModelID:      def.ModelID,
-					SystemPrompt: content,
+					SystemPrompt: finalSystemPrompt,
 				}
+
+				// Build tools and filter out SendFile/schedule_task because this is an L3 agent
 				forkTools := tools.Build(toolsCfg)
+				var filtered []tools.Tool
+				for _, t := range forkTools {
+					if t.Name() != "SendFile" && t.Name() != "schedule_task" {
+						filtered = append(filtered, t)
+					}
+				}
+				forkTools = filtered
+
 				if len(s.AllowedTools) > 0 {
 					forkTools = skill.FilterTools(forkTools, s.AllowedTools)
 				}
@@ -634,6 +737,25 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 
 	return templates, nil
 }
+
+// LoadSkillAgentTemplate attempts to load an agent template from a skill's agents/ subdirectory.
+func LoadSkillAgentTemplate(skillDir string, agentName string) (AgentTemplate, bool) {
+	if skillDir == "" || agentName == "" {
+		return AgentTemplate{}, false
+	}
+	agentsDir := filepath.Join(skillDir, "agents")
+	if fi, err := os.Stat(agentsDir); err == nil && fi.IsDir() {
+		if tmpls, err := LoadAgentTemplates(agentsDir); err == nil {
+			for _, t := range tmpls {
+				if strings.EqualFold(t.ID, agentName) || strings.EqualFold(t.Name, agentName) {
+					return t, true
+				}
+			}
+		}
+	}
+	return AgentTemplate{}, false
+}
+
 
 // workspacePaths 返回 group 配置中所有 workspace 的绝对路径。
 func workspacePaths(gf prompt.GroupFile) []string {

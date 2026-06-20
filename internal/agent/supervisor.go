@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Supervisor ────────────────────────────────────────────────────────────
@@ -262,6 +264,73 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 				supervisor:       s,
 			}, nil
 		})
+	}
+
+	// Wire the generic delegate_agent tool if it exists on the leader
+	if t, ok := l2.tools.Get("delegate_agent"); ok {
+		if dat, ok2 := t.(*tools.DelegateAgentTool); ok2 {
+			dat.SpawnFn = func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
+				var tmpl AgentTemplate
+				var ok bool
+
+				if skillDir != "" {
+					tmpl, ok = LoadSkillAgentTemplate(skillDir, name)
+					if !ok && baseAgentName != "" {
+						tmpl, ok = LoadSkillAgentTemplate(skillDir, baseAgentName)
+					}
+				}
+
+				if !ok && baseAgentName != "" {
+					for i := range allTemplates {
+						if strings.EqualFold(allTemplates[i].ID, baseAgentName) {
+							tmpl = allTemplates[i]
+							ok = true
+							break
+						}
+					}
+				}
+
+				if !ok {
+					for i := range allTemplates {
+						if strings.EqualFold(allTemplates[i].ID, name) {
+							tmpl = allTemplates[i]
+							ok = true
+							break
+						}
+					}
+				}
+
+				tmpl.ID = strings.ToLower(name)
+				tmpl.Name = name
+				tmpl.IsLeader = false // All dynamically delegated agents are L3 workers
+
+				if ok {
+					if systemPrompt != "" {
+						if tmpl.SystemPrompt != "" {
+							tmpl.SystemPrompt = tmpl.SystemPrompt + "\n\n# Skill/Custom execution logic:\n" + systemPrompt
+						} else {
+							tmpl.SystemPrompt = systemPrompt
+						}
+					}
+				} else {
+					tmpl.Description = "Dynamic skill agent"
+					tmpl.SystemPrompt = systemPrompt
+				}
+
+				if modelID != "" {
+					tmpl.ModelID = modelID
+				}
+
+				child, err := s.SpawnChild(ctx, tmpl, workDir)
+				if err != nil {
+					return nil, err
+				}
+				return &reapableAdapter{
+					LocatableAdapter: &LocatableAdapter{Agent: child},
+					supervisor:       s,
+				}, nil
+			}
+		}
 	}
 }
 

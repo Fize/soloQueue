@@ -200,12 +200,41 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if b.RT.SkillRegistry.Len() > 0 {
 		// Fork spawn function: creates a temporary child agent to execute a fork-mode skill
 		forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
+			var basePrompt string
+			if s.Agent != "" {
+				// 1. Try loading base agent template from the skill's own agents/ directory
+				if baseTmpl, ok := agent.LoadSkillAgentTemplate(s.Dir, s.Agent); ok {
+					basePrompt = baseTmpl.SystemPrompt
+				} else {
+					// 2. Fallback to templates stack
+					for i := range b.RT.AllTemplates {
+						if strings.EqualFold(b.RT.AllTemplates[i].ID, s.Agent) {
+							basePrompt = b.RT.AllTemplates[i].SystemPrompt
+							break
+						}
+					}
+				}
+			}
+
+			finalSystemPrompt := content
+			if basePrompt != "" {
+				finalSystemPrompt = basePrompt + "\n\n# Skill Execution Instructions\n" + content
+			}
+
 			forkDef := agent.Definition{
 				ID:           fmt.Sprintf("skill-fork-%s", s.ID),
 				ModelID:      def.ModelID,
-				SystemPrompt: content,
+				SystemPrompt: finalSystemPrompt,
 			}
 			forkTools := tools.Build(toolsCfg)
+			var filtered []tools.Tool
+			for _, t := range forkTools {
+				if t.Name() != "SendFile" && t.Name() != "schedule_task" {
+					filtered = append(filtered, t)
+				}
+			}
+			forkTools = filtered
+
 			if len(s.AllowedTools) > 0 {
 				forkTools = skill.FilterTools(forkTools, s.AllowedTools)
 			}
@@ -224,6 +253,77 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			skill.WithSkillLogger(sessLog))
 		allTools = append(allTools, skillTool)
 	}
+
+	// Inject the generic delegate_agent tool for L1 dynamic L3 delegation
+	dat := tools.NewDelegateAgentTool(sessLog, func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
+		var tmpl agent.AgentTemplate
+		var ok bool
+
+		if skillDir != "" {
+			tmpl, ok = agent.LoadSkillAgentTemplate(skillDir, name)
+			if !ok && baseAgentName != "" {
+				tmpl, ok = agent.LoadSkillAgentTemplate(skillDir, baseAgentName)
+			}
+		}
+
+		if !ok && baseAgentName != "" {
+			for i := range b.RT.AllTemplates {
+				if strings.EqualFold(b.RT.AllTemplates[i].ID, baseAgentName) {
+					tmpl = b.RT.AllTemplates[i]
+					ok = true
+					break
+				}
+			}
+		}
+
+		if !ok {
+			for i := range b.RT.AllTemplates {
+				if strings.EqualFold(b.RT.AllTemplates[i].ID, name) {
+					tmpl = b.RT.AllTemplates[i]
+					ok = true
+					break
+				}
+			}
+		}
+
+		tmpl.ID = strings.ToLower(name)
+		tmpl.Name = name
+		tmpl.IsLeader = false // All dynamically delegated agents are L3 workers
+
+		if ok {
+			if systemPrompt != "" {
+				if tmpl.SystemPrompt != "" {
+					tmpl.SystemPrompt = tmpl.SystemPrompt + "\n\n# Skill/Custom execution logic:\n" + systemPrompt
+				} else {
+					tmpl.SystemPrompt = systemPrompt
+				}
+			}
+		} else {
+			tmpl.Description = "Dynamic skill agent"
+			tmpl.SystemPrompt = systemPrompt
+		}
+
+		if modelID != "" {
+			tmpl.ModelID = modelID
+		}
+
+		child, _, err := b.RT.AgentFactory.Create(ctx, tmpl, workDir)
+		if err != nil {
+			return nil, err
+		}
+		sv := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
+		sv.WireSpawnFns(b.RT.AllTemplates)
+		b.RT.AddSupervisor(sv)
+
+		return agent.NewSelfReapableAdapter(child, sv), nil
+	})
+	dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
+		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {
+			return s.Instructions, s.Agent, s.Dir, true
+		}
+		return "", "", "", false
+	}
+	allTools = append(allTools, dat)
 
 	// MCP tools for L1: register tools from agent.mcpServers whitelist.
 	if b.RT.MCPManager != nil {
