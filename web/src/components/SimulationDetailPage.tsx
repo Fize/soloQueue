@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { wsManager } from '@/lib/websocket'
 import { SimulationGraph, type GraphEdgeInput } from './SimulationGraph'
 import { AgentActivityPanel } from './AgentActivityPanel'
+import { AgentDetailPanel } from './AgentDetailPanel'
 import { SimulationProgressPanel } from './SimulationProgressPanel'
 import { SimulationMonitor } from './SimulationMonitor'
 import ReactMarkdown from 'react-markdown'
@@ -22,8 +23,10 @@ import {
   Settings,
   Edit,
   Save,
+  Share2,
   ChevronDown,
   ChevronRight,
+  Users,
 } from 'lucide-react'
 import type {
   SimulationState,
@@ -31,6 +34,7 @@ import type {
   SimulationEvent,
   SimulationProgress,
   SimulationPersona,
+  RelationshipDTO,
 } from '@/types'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -79,6 +83,8 @@ export function SimulationDetailPage() {
   const [editPersonas, setEditPersonas] = useState<any[]>([])
   const [savingConfig, setSavingConfig] = useState(false)
   const [graphCollapsed, setGraphCollapsed] = useState(false)
+  const [relationships, setRelationships] = useState<RelationshipDTO[]>([])
+  const [graphLayer, setGraphLayer] = useState<'interaction' | 'relationship' | 'both'>('both')
   const isMobile = useIsMobile()
 
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
@@ -256,6 +262,40 @@ export function SimulationDetailPage() {
         ),
       }
       setState(mappedState)
+
+      // Populate relationships: prefer runtime snapshot, fallback to seed extraction for pre-simulation
+      const hasStarted =
+        data.started_at ||
+        data.status === 'running' ||
+        data.status === 'completed' ||
+        data.status === 'failed'
+      if (hasStarted && data.relationships) {
+        setRelationships(data.relationships)
+      } else if (data.config?.initial_relationships?.length > 0) {
+        const nameToId = new Map<string, string>()
+        for (const p of data.config.personas || []) {
+          if (p.name && p.id) nameToId.set(p.name, p.id)
+        }
+        const dtos: RelationshipDTO[] = data.config.initial_relationships
+          .map((rel: any) => {
+            const subjectId = nameToId.get(rel.subject_name)
+            const targetId = nameToId.get(rel.target_name)
+            if (!subjectId || !targetId) return null
+            return {
+              subject_id: subjectId,
+              subject_name: rel.subject_name,
+              target_id: targetId,
+              target_name: rel.target_name,
+              kind: rel.kind || 'stranger',
+              familiarity: rel.familiarity ?? 0.5,
+              affinity: rel.affinity ?? 0,
+              tags: rel.tags || [],
+            }
+          })
+          .filter(Boolean) as RelationshipDTO[]
+        setRelationships(dtos)
+      }
+
       setError(null)
     } catch (err: any) {
       setError(err.message || 'Failed to fetch details')
@@ -310,6 +350,29 @@ export function SimulationDetailPage() {
       } else if (ev.type === 'agent_spawn' && ev.data) {
         // A new agent was spawned — refetch to update personas and graph
         fetchState()
+      } else if (ev.type === 'relationship_update' && ev.data) {
+        const data = ev.data as any
+        setRelationships((prev) => {
+          const idx = prev.findIndex(
+            (r) => r.subject_id === data.subject_id && r.target_id === data.target_id
+          )
+          const newRel: RelationshipDTO = {
+            subject_id: data.subject_id,
+            subject_name: data.subject_name || '',
+            target_id: data.target_id,
+            target_name: data.target_name || '',
+            kind: data.kind || 'stranger',
+            familiarity: data.familiarity ?? 0.5,
+            affinity: data.affinity ?? 0,
+            tags: data.tags || [],
+          }
+          if (idx >= 0) {
+            const next = [...prev]
+            next[idx] = newRel
+            return next
+          }
+          return [...prev, newRel]
+        })
       } else if (ev.type === 'error') {
         setProgress((prev) => (prev ? { ...prev, phase: 'failed', progress_percent: 100 } : null))
         fetchState()
@@ -348,6 +411,33 @@ export function SimulationDetailPage() {
           if (!changed) return prev
           if (merged.length > MAX_GRAPH_EDGES) return merged.slice(merged.length - MAX_GRAPH_EDGES)
           return merged
+        })
+      }
+
+      // Sync relationship edges from progress
+      const progRels = p.relationship_edges
+      if (progRels && progRels.length > 0) {
+        setRelationships((prev) => {
+          const updated = [...prev]
+          let changed = false
+          for (const re of progRels) {
+            const idx = updated.findIndex(
+              (r) => r.subject_id === re.subject_id && r.target_id === re.target_id
+            )
+            if (idx >= 0) {
+              if (
+                updated[idx].familiarity !== re.familiarity ||
+                updated[idx].affinity !== re.affinity
+              ) {
+                updated[idx] = re
+                changed = true
+              }
+            } else {
+              updated.push(re)
+              changed = true
+            }
+          }
+          return changed ? updated : prev
         })
       }
     })
@@ -456,6 +546,21 @@ export function SimulationDetailPage() {
         return { ...prev, [chatAgentId]: capChatHistory(history) }
       })
     }
+  }
+
+  const handleAgentInterview = async (agentId: string, question: string): Promise<string> => {
+    if (!id) return 'Error: no simulation ID'
+    const res = await fetch(`/api/simulations/${id}/agents/${agentId}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    })
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}))
+      throw new Error(errData.error || 'Failed to query agent')
+    }
+    const data = await res.json()
+    return data.answer || 'No answer received.'
   }
 
   if (loading && !state) {
@@ -571,35 +676,78 @@ export function SimulationDetailPage() {
         <div className="flex-[3] flex flex-col overflow-y-auto p-4 md:p-6 gap-4 border-r border-border min-w-[320px]">
           {/* Compact Graph — collapsible on mobile */}
           {(!isMobile || !graphCollapsed) && (
-            <div className={`shrink-0 rounded-xl border border-border/50 bg-card/20 overflow-hidden ${isMobile ? '' : 'h-[200px]'}`}>
-            <SimulationGraph
-              personas={state.config.personas}
-              edges={
-                graphEdges.length > 0
-                  ? graphEdges
-                  : (state.graph?.edges || []).map((e) => ({
-                      source: e.source,
-                      target: e.target,
-                      type: e.type,
-                      weight: e.weight,
-                    }))
-              }
-              onSelectAgent={(agentId) => {
-                setSelectedAgentId((prev) => (prev === agentId ? null : agentId))
-                if (agentId) setProgressSidebarTab('activity')
-              }}
-              selectedAgentId={selectedAgentId}
-              pulseNodes={pulseNodesRef.current}
-              pulseVersion={pulseVersion}
-            />
-          </div>
+            <div
+              className={`shrink-0 rounded-xl border border-border/50 bg-card/20 overflow-hidden ${isMobile ? '' : 'h-[200px]'}`}
+            >
+              {/* Graph Layer Toggle */}
+              <div className="flex items-center gap-1 px-3 pt-2 pb-1 border-b border-border/30">
+                <button
+                  onClick={() => setGraphLayer('interaction')}
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
+                    graphLayer === 'interaction' || graphLayer === 'both'
+                      ? 'bg-primary/15 text-primary font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Interactions
+                </button>
+                <button
+                  onClick={() => setGraphLayer('relationship')}
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
+                    graphLayer === 'relationship' || graphLayer === 'both'
+                      ? 'bg-primary/15 text-primary font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Relationships
+                </button>
+                <button
+                  onClick={() => setGraphLayer(graphLayer === 'both' ? 'interaction' : 'both')}
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ml-auto ${
+                    graphLayer === 'both'
+                      ? 'bg-primary/15 text-primary font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Toggle overlay"
+                >
+                  <Share2 className="h-3 w-3 inline mr-1" />
+                  Overlay
+                </button>
+              </div>
+              <SimulationGraph
+                personas={state.config.personas}
+                edges={
+                  graphEdges.length > 0
+                    ? graphEdges
+                    : (state.graph?.edges || []).map((e) => ({
+                        source: e.source,
+                        target: e.target,
+                        type: e.type,
+                        weight: e.weight,
+                      }))
+                }
+                relationships={relationships}
+                graphLayer={graphLayer}
+                onSelectAgent={(agentId) => {
+                  setSelectedAgentId((prev) => (prev === agentId ? null : agentId))
+                  if (agentId) setProgressSidebarTab('activity')
+                }}
+                selectedAgentId={selectedAgentId}
+                pulseNodes={pulseNodesRef.current}
+                pulseVersion={pulseVersion}
+              />
+            </div>
           )}
           {isMobile && (
             <button
               onClick={() => setGraphCollapsed(!graphCollapsed)}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              {graphCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {graphCollapsed ? (
+                <ChevronRight className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
               {graphCollapsed ? 'Show Agent Graph' : 'Hide Agent Graph'}
             </button>
           )}
@@ -691,85 +839,112 @@ export function SimulationDetailPage() {
           </div>
         </div>
 
-        {/* Right Side: Monitor / Activity (fixed tabs, stable across states) */}
+        {/* Right Side: Agent Detail (when selected) or Monitor / Activity (when running) */}
         <div className="flex-[2] flex flex-col min-w-[280px] bg-muted/10 border-l border-border/45">
-          <Tabs value={progressSidebarTab} onValueChange={(val) => setProgressSidebarTab(val as 'progress' | 'activity')}>
-            <TabsList className="flex border-b border-border w-full bg-transparent">
-              <TabsTrigger
-                value="progress"
-                className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
-              >
-                MONITOR
-              </TabsTrigger>
-              <TabsTrigger
-                value="activity"
-                className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
-              >
-                ACTIVITY
-              </TabsTrigger>
-            </TabsList>
+          {(() => {
+            const selectedPersona = selectedAgentId
+              ? state.config.personas.find((p) => p.id === selectedAgentId)
+              : null
 
-            <TabsContent value={progressSidebarTab} className="flex-1 overflow-y-auto p-4 space-y-4">
-            {state.status === 'running' || state.status === 'failed' ? (
-              progress ? (
-                progressSidebarTab === 'progress' ? (
-                  <SimulationProgressPanel
-                    progress={progress}
-                    messages={state.messages}
-                    selectedAgentId={selectedAgentId}
-                    onSelectAgent={setSelectedAgentId}
-                  />
-                ) : selectedAgentId ? (
-                  <AgentActivityPanel
-                    agentId={selectedAgentId}
-                    agentName={
-                      state.config.personas.find((p) => p.id === selectedAgentId)?.name ||
-                      selectedAgentId
-                    }
-                    agentRole={
-                      state.config.personas.find((p) => p.id === selectedAgentId)?.role || ''
-                    }
-                    messages={state.messages}
-                    progress={progress}
-                  />
-                ) : (
-                  <SimulationMonitor logs={progress.recent_logs || []} />
-                )
-              ) : (
-                <div className="flex h-32 items-center justify-center text-center text-muted-foreground font-mono text-xs">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Starting simulation...
-                </div>
+            if (selectedPersona) {
+              return (
+                <AgentDetailPanel
+                  persona={selectedPersona}
+                  messages={state.messages}
+                  progress={progress}
+                  relationships={relationships}
+                  onClose={() => setSelectedAgentId(null)}
+                  onInterview={(question) => handleAgentInterview(selectedPersona.id, question)}
+                  status={state.status}
+                />
               )
-            ) : state.status === 'pending' ? (
-              <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground">
-                <Settings className="h-6 w-6 text-muted-foreground/40 mb-2" />
-                <p className="text-xs text-muted-foreground/60">
-                  Configure the simulation in the header bar.
+            }
+
+            if (state.status === 'running' || state.status === 'failed') {
+              return (
+                <Tabs
+                  value={progressSidebarTab}
+                  onValueChange={(val) => setProgressSidebarTab(val as 'progress' | 'activity')}
+                >
+                  <TabsList className="flex border-b border-border w-full bg-transparent">
+                    <TabsTrigger
+                      value="progress"
+                      className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+                    >
+                      MONITOR
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="activity"
+                      className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+                    >
+                      ACTIVITY
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent
+                    value={progressSidebarTab}
+                    className="flex-1 overflow-y-auto p-4 space-y-4"
+                  >
+                    {progress ? (
+                      progressSidebarTab === 'progress' ? (
+                        <SimulationProgressPanel
+                          progress={progress}
+                          messages={state.messages}
+                          selectedAgentId={selectedAgentId}
+                          onSelectAgent={setSelectedAgentId}
+                        />
+                      ) : selectedAgentId ? (
+                        <AgentActivityPanel
+                          agentId={selectedAgentId}
+                          agentName={
+                            state.config.personas.find((p) => p.id === selectedAgentId)?.name ||
+                            selectedAgentId
+                          }
+                          agentRole={
+                            state.config.personas.find((p) => p.id === selectedAgentId)?.role || ''
+                          }
+                          messages={state.messages}
+                          progress={progress}
+                        />
+                      ) : (
+                        <SimulationMonitor logs={progress.recent_logs || []} />
+                      )
+                    ) : (
+                      <div className="flex h-32 items-center justify-center text-center text-muted-foreground font-mono text-xs">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Starting simulation...
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              )
+            }
+
+            // Pre/post-simulation placeholder — no tabs, clean & focused
+            return (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                <Users className="h-8 w-8 text-muted-foreground/30 mb-3" />
+                <p className="text-sm font-medium text-foreground/70 mb-1">
+                  {state.status === 'pending'
+                    ? 'Ready to start'
+                    : state.status === 'completed'
+                      ? 'Simulation complete'
+                      : 'Waiting to start'}
                 </p>
-              </div>
-            ) : // Completed / idle: show agent activity if selected, or monitor summary
-            selectedAgentId ? (
-              <AgentActivityPanel
-                agentId={selectedAgentId}
-                agentName={
-                  state.config.personas.find((p) => p.id === selectedAgentId)?.name ||
-                  selectedAgentId
-                }
-                agentRole={state.config.personas.find((p) => p.id === selectedAgentId)?.role || ''}
-                messages={state.messages}
-                progress={progress}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground">
-                <MessageSquare className="h-6 w-6 text-muted-foreground/40 mb-2" />
-                <p className="text-xs text-muted-foreground/60">
-                  Click an agent above to view their activity.
+                <p className="text-xs text-muted-foreground/60 max-w-[240px] leading-relaxed">
+                  {state.status === 'pending'
+                    ? 'Configure parameters and click Start Simulation to begin.'
+                    : state.status === 'completed'
+                      ? 'Select an agent in the graph or list above to review their details, relationships, and activity.'
+                      : 'Click Start Simulation to begin. Select an agent to view their profile and relationships.'}
                 </p>
+                {state.status === 'completed' && state.report && (
+                  <p className="mt-3 text-[10px] text-muted-foreground/40 max-w-[240px]">
+                    The final report is available in the main panel.
+                  </p>
+                )}
               </div>
-            )}
-          </TabsContent>
-          </Tabs>
+            )
+          })()}
         </div>
       </div>
 

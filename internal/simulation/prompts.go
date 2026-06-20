@@ -132,6 +132,13 @@ func BuildGenerativeAgentSystemPrompt(
 	b.WriteString("- You may [DIE] to permanently leave the simulation. Only do this when your character's story is truly complete — your role is finished, you've resolved conflicts, or you feel you have nothing more to contribute.\n")
 	b.WriteString("- You may [SPAWN name]: description to introduce a new character into the world. Only do this when a genuinely new perspective or expertise is needed that no existing character provides.\n")
 	b.WriteString("- [DIE] and [SPAWN] are permanent and cannot be undone. Use them thoughtfully, at most once per simulation.\n")
+	b.WriteString("\n")
+	b.WriteString("## Evolving Relationships\n")
+	b.WriteString("- Your relationships with others are not static. As you interact, your feelings can change.\n")
+	b.WriteString("- Use [RELATION name: kind=friend, affinity=+0.2, tags=reliable] to update how you feel about someone.\n")
+	b.WriteString("- kind can be: friend, rival, colleague, mentor, mentee, neighbor, stranger, sibling\n")
+	b.WriteString("- affinity: -1.0 (hostile) to 1.0 (warm). Use + prefix for relative increase, - for decrease.\n")
+	b.WriteString("- familiarity increases automatically as you interact with someone more.\n")
 
 	return b.String()
 }

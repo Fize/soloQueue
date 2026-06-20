@@ -289,6 +289,110 @@ func TestMergeExtractions(t *testing.T) {
 	}
 }
 
+func TestParseExtraction_WithInitialRelationships(t *testing.T) {
+	raw := `{
+		"entities": [{"name": "5G", "type": "technology", "confidence": 0.9}],
+		"world_state": {},
+		"key_topics": ["5G debate"],
+		"conflict_areas": [],
+		"initial_relationships": [
+			{"subject_name": "陈镇长", "target_name": "张店主", "kind": "friend", "familiarity": 0.9, "affinity": 0.8},
+			{"subject_name": "陈镇长", "target_name": "王医生", "kind": "neighbor", "familiarity": 0.2}
+		]
+	}`
+	ext, err := parseExtraction(raw)
+	if err != nil {
+		t.Fatalf("parseExtraction error: %v", err)
+	}
+	if len(ext.InitialRelationships) != 2 {
+		t.Fatalf("expected 2 initial_relationships, got %d", len(ext.InitialRelationships))
+	}
+	r1 := ext.InitialRelationships[0]
+	if r1.SubjectName != "陈镇长" || r1.TargetName != "张店主" || r1.Kind != RelationFriend {
+		t.Errorf("first relationship: expected 陈镇长→张店主 friend, got %+v", r1)
+	}
+	if r1.Familiarity != 0.9 {
+		t.Errorf("expected familiarity 0.9, got %f", r1.Familiarity)
+	}
+	r2 := ext.InitialRelationships[1]
+	if r2.SubjectName != "陈镇长" || r2.TargetName != "王医生" || r2.Kind != RelationNeighbor {
+		t.Errorf("second relationship: expected 陈镇长→王医生 neighbor, got %+v", r2)
+	}
+}
+
+func TestParseExtraction_InitialRelationshipsEmpty(t *testing.T) {
+	raw := `{"entities":[],"world_state":{},"key_topics":["test"],"conflict_areas":[],"initial_relationships":[]}`
+	ext, err := parseExtraction(raw)
+	if err != nil {
+		t.Fatalf("parseExtraction error: %v", err)
+	}
+	if len(ext.InitialRelationships) != 0 {
+		t.Errorf("expected empty initial_relationships, got %d", len(ext.InitialRelationships))
+	}
+}
+
+func TestParseExtraction_InitialRelationshipsOmitted(t *testing.T) {
+	// When LLM omits initial_relationships entirely, it should still parse OK
+	raw := `{"entities":[],"world_state":{},"key_topics":["test"],"conflict_areas":[]}`
+	ext, err := parseExtraction(raw)
+	if err != nil {
+		t.Fatalf("parseExtraction error: %v", err)
+	}
+	if ext.InitialRelationships == nil {
+		// It's OK to be nil, not an error
+	}
+}
+
+func TestMergeExtractions_InitialRelationships(t *testing.T) {
+	a := &SeedExtraction{
+		Entities:    []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
+		WorldState:  map[string]any{"version": "1.22"},
+		KeyTopics:   []string{"Go"},
+		InitialRelationships: []InitialRelationship{
+			{SubjectName: "Alice", TargetName: "Bob", Kind: RelationFriend, Familiarity: 0.9},
+		},
+	}
+	b := &SeedExtraction{
+		Entities:    []memoryengine.EntityExtraction{{Name: "Rust", Type: "technology", Confidence: 0.9}},
+		WorldState:  map[string]any{"rust_version": "2024"},
+		KeyTopics:   []string{"Rust"},
+		InitialRelationships: []InitialRelationship{
+			{SubjectName: "Charlie", TargetName: "Dave", Kind: RelationColleague, Familiarity: 0.7},
+		},
+	}
+
+	merged := mergeExtractions(a, b)
+
+	if len(merged.InitialRelationships) != 2 {
+		t.Fatalf("expected 2 merged relationships, got %d: %+v", len(merged.InitialRelationships), merged.InitialRelationships)
+	}
+	if merged.InitialRelationships[0].Kind != RelationFriend {
+		t.Errorf("first relationship should be friend, got %q", merged.InitialRelationships[0].Kind)
+	}
+	if merged.InitialRelationships[1].Kind != RelationColleague {
+		t.Errorf("second relationship should be colleague, got %q", merged.InitialRelationships[1].Kind)
+	}
+}
+
+func TestMergeExtractions_InitialRelationshipsDedup(t *testing.T) {
+	a := &SeedExtraction{
+		InitialRelationships: []InitialRelationship{
+			{SubjectName: "Alice", TargetName: "Bob", Kind: RelationFriend, Familiarity: 0.9},
+		},
+	}
+	b := &SeedExtraction{
+		InitialRelationships: []InitialRelationship{
+			// Same subject+target+kind, should be deduped
+			{SubjectName: "Alice", TargetName: "Bob", Kind: RelationFriend, Familiarity: 0.8},
+		},
+	}
+
+	merged := mergeExtractions(a, b)
+	if len(merged.InitialRelationships) != 1 {
+		t.Errorf("expected 1 deduped relationship, got %d", len(merged.InitialRelationships))
+	}
+}
+
 func TestMergeExtractions_NilFirst(t *testing.T) {
 	b := &SeedExtraction{
 		Entities:      []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},

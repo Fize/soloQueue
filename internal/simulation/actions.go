@@ -276,5 +276,10 @@ Special life-changing actions (use sparingly):
 8. Leave the simulation permanently (your role is complete):
    [DIE]
 
-Important: [SPAWN] and [DIE] are permanent. Use [DIE] only when your character's story is truly complete. Use [SPAWN] only when a genuinely new perspective is needed.`
+Important: [SPAWN] and [DIE] are permanent. Use [DIE] only when your character's story is truly complete. Use [SPAWN] only when a genuinely new perspective is needed.
+
+You can also update how you feel about another person:
+   [RELATION name: kind=friend, affinity=+0.2, tags=reliable,trustworthy]
+   kind options: friend, rival, colleague, mentor, mentee, neighbor, sibling, stranger
+   affinity: -1.0 to 1.0 (use + or - prefix for relative change)`
 }

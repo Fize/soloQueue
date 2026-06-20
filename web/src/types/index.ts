@@ -172,6 +172,14 @@ export interface SimulationPersona {
   provider_id?: string
 }
 
+export interface InitialRelationship {
+  subject_name: string
+  target_name: string
+  kind: RelationKind
+  familiarity?: number
+  affinity?: number
+}
+
 export interface SimulationConfig {
   id?: string
   topic: string
@@ -181,6 +189,7 @@ export interface SimulationConfig {
   tick_interval_ms?: number
   time_scale?: number
   enable_reflection?: boolean
+  initial_relationships?: InitialRelationship[]
 }
 
 export interface SimulationMessage {
@@ -206,6 +215,34 @@ export interface SimulationRelationGraph {
   edges: SimulationRelationEdge[]
 }
 
+// ─── Relationship Types ───────────────────────────────────────────────────
+
+export type RelationKind =
+  | 'parent'
+  | 'child'
+  | 'sibling'
+  | 'spouse'
+  | 'friend'
+  | 'rival'
+  | 'colleague'
+  | 'mentor'
+  | 'mentee'
+  | 'neighbor'
+  | 'stranger'
+
+export interface RelationshipDTO {
+  subject_id: string
+  subject_name: string
+  target_id: string
+  target_name: string
+  kind: string
+  familiarity: number
+  affinity: number
+  tags?: string[]
+}
+
+// ─── Simulation State ─────────────────────────────────────────────────────
+
 export interface SimulationState {
   id: string
   status: 'pending' | 'idle' | 'running' | 'completed' | 'failed'
@@ -214,6 +251,7 @@ export interface SimulationState {
   messages: SimulationMessage[]
   report?: string
   graph?: SimulationRelationGraph
+  relationships?: RelationshipDTO[]
   started_at?: string
   completed_at?: string
   error?: string
@@ -254,6 +292,7 @@ export interface SimulationProgress {
   estimated_remaining_seconds: number
   agent_states: Record<string, AgentProgressState>
   graph_edges: GraphEdgeDTO[]
+  relationship_edges?: RelationshipDTO[]
   recent_logs: string[]
 }
 

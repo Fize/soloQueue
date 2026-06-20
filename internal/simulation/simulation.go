@@ -347,7 +347,12 @@ func (e *SimulationEngine) CreateFromSeed(
 			LifecycleEvents: extraction.LifecycleEvents,
 	}
 
-	// Step 3: Build initial graph edges from seed extraction entity relations
+	// Step 3a: Carry initial relationships from seed extraction
+	if extraction != nil && len(extraction.InitialRelationships) > 0 {
+		config.InitialRelationships = extraction.InitialRelationships
+	}
+
+	// Step 3b: Build initial graph edges from seed extraction entity relations
 	config.InitialEdges = buildInitialEdges(extraction, personas)
 
 	simID, err = e.Create(config)
@@ -779,6 +784,23 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	dialogueMgr := NewDialogueManager(bus)
 	relationshipMgr := NewRelationshipManager()
 
+	// Build name→ID mapping from personas (needed for BulkInit)
+	initNameByID := make(map[string]string, len(config.Personas))
+	for _, p := range config.Personas {
+		initNameByID[p.ID] = p.Name
+	}
+
+	// Initialize relationships from seed extraction, if any
+	if len(config.InitialRelationships) > 0 {
+		if e.log != nil {
+			e.log.InfoContext(ctx, logger.CatSimulation, "initializing seed relationships",
+				"count", len(config.InitialRelationships))
+		}
+		if err := relationshipMgr.BulkInit(config.InitialRelationships, initNameByID); err != nil && e.log != nil {
+			e.log.WarnContext(ctx, logger.CatSimulation, "failed to init relationships", "err", err.Error())
+		}
+	}
+
 	planGen := NewPlanGenerator(e.llm, e.resolveModelID(e.config.DefaultModelID), e.config.DefaultProviderID)
 
 	var reflectionEng *ReflectionEngine
@@ -1018,6 +1040,11 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 
 	// Index to KG
 	e.indexSimulationToKG(ctx, simID, config.Topic, simAgents, graph, state.WorldState, report)
+
+	// Export final relationships state
+	state.Lock()
+	state.Relationships = relationshipMgr.AllRelationships(nameByID)
+	state.Unlock()
 
 	e.emitProgress(events, simID, "completed", config.MaxWallClockMs, config.MaxWallClockMs)
 

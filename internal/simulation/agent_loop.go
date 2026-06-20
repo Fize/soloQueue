@@ -271,7 +271,19 @@ func (gal *GAAgentLoop) tick(ctx context.Context, timeEvt SimTimeEvent) {
 	// Update relationships from any RELATION directives
 	relUpdates := ParseRelationshipUpdate(personaID, content)
 	for _, ru := range relUpdates {
-		gal.relationshipMgr.Set(personaID, ru.TargetID, ru.Familiarity, ru.Affinity, ru.Tags)
+		gal.relationshipMgr.SetWithKind(personaID, ru.TargetID, ru.Kind, ru.Familiarity, ru.Affinity, ru.Tags)
+		gal.emit(SimulationEvent{
+			Type:  "relationship_update",
+			Round: seq,
+			Data: map[string]any{
+				"subject_id":   personaID,
+				"target_id":    ru.TargetID,
+				"kind":         string(ru.Kind),
+				"familiarity":  ru.Familiarity,
+				"affinity":     ru.Affinity,
+				"tags":         ru.Tags,
+			},
+		})
 	}
 
 	gal.lastActionTime = time.Now()

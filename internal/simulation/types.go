@@ -34,6 +34,72 @@ const (
 	ModeEventDriven InteractionMode = "event-driven"
 )
 
+// RelationKind defines the type of social relationship between two agents.
+type RelationKind string
+
+const (
+	RelationParent    RelationKind = "parent"
+	RelationChild     RelationKind = "child"
+	RelationSibling   RelationKind = "sibling"
+	RelationSpouse    RelationKind = "spouse"
+	RelationFriend    RelationKind = "friend"
+	RelationRival     RelationKind = "rival"
+	RelationColleague RelationKind = "colleague"
+	RelationMentor    RelationKind = "mentor"
+	RelationMentee    RelationKind = "mentee"
+	RelationNeighbor  RelationKind = "neighbor"
+	RelationStranger  RelationKind = "stranger"
+)
+
+// IsDirectional returns true if the relationship kind has direction
+// (parent→child, mentor→mentee are different from their inverse).
+func (k RelationKind) IsDirectional() bool {
+	switch k {
+	case RelationParent, RelationChild, RelationMentor, RelationMentee:
+		return true
+	default:
+		return false
+	}
+}
+
+// InverseKind returns the inverse kind for directional relationships.
+func (k RelationKind) InverseKind() RelationKind {
+	switch k {
+	case RelationParent:
+		return RelationChild
+	case RelationChild:
+		return RelationParent
+	case RelationMentor:
+		return RelationMentee
+	case RelationMentee:
+		return RelationMentor
+	default:
+		return k
+	}
+}
+
+// InitialRelationship defines a pre-existing relationship between two personas
+// extracted from seed text, used to initialize the RelationshipManager.
+type InitialRelationship struct {
+	SubjectName string      `json:"subject_name"`
+	TargetName  string      `json:"target_name"`
+	Kind        RelationKind `json:"kind"`
+	Familiarity float64     `json:"familiarity,omitempty"`
+	Affinity    float64     `json:"affinity,omitempty"`
+}
+
+// RelationshipDTO is a serializable relationship snapshot for API responses.
+type RelationshipDTO struct {
+	SubjectID   string   `json:"subject_id"`
+	SubjectName string   `json:"subject_name"`
+	TargetID    string   `json:"target_id"`
+	TargetName  string   `json:"target_name"`
+	Kind        string   `json:"kind"`
+	Familiarity float64  `json:"familiarity"`
+	Affinity    float64  `json:"affinity"`
+	Tags        []string `json:"tags,omitempty"`
+}
+
 // SimulationConfig is the complete simulation setup.
 type SimulationConfig struct {
 	ID              string         `json:"id,omitempty"`
@@ -42,7 +108,8 @@ type SimulationConfig struct {
 	Personas        []Persona      `json:"personas"`
 	WorldState      map[string]any `json:"initial_world_state,omitempty"`
 	MaxWallClockMs  int            `json:"max_wall_clock_ms,omitempty"`
-	InitialEdges    []EdgeDTO      `json:"-"` // populated from seed extraction, not persisted
+	InitialEdges         []EdgeDTO             `json:"-"` // populated from seed extraction, not persisted
+	InitialRelationships []InitialRelationship `json:"initial_relationships,omitempty"`
 
 	// Generative Agents extensions
 	SimulatedHours    int                  `json:"simulated_hours,omitempty"`
@@ -122,8 +189,9 @@ type SimulationState struct {
 	CompletedAt  *time.Time               `json:"completed_at,omitempty"`
 	Error        string                   `json:"error,omitempty"`
 	RunID        string                   `json:"run_id"`
-	Report       string                   `json:"report,omitempty"`
-	Graph        *SimulationRelationGraph `json:"graph,omitempty"`
+	Report        string                   `json:"report,omitempty"`
+	Graph         *SimulationRelationGraph `json:"graph,omitempty"`
+	Relationships []RelationshipDTO        `json:"relationships,omitempty"`
 	mu           sync.RWMutex
 }
 
@@ -221,6 +289,7 @@ type SimulationProgress struct {
 	EstimatedRemainingSec float64                         `json:"estimated_remaining_seconds"`
 	AgentStates           map[string]*AgentProgressState  `json:"agent_states,omitempty"`
 	GraphEdges            []EdgeDTO                       `json:"graph_edges,omitempty"`
+	RelationshipEdges     []RelationshipDTO               `json:"relationship_edges,omitempty"`
 	RecentLogs            []string                        `json:"recent_logs,omitempty"`
 }
 
@@ -278,12 +347,13 @@ type ReflectionRecord struct {
 
 // AgentRelationship captures one agent's internal model of another agent.
 type AgentRelationship struct {
-	SubjectID   string    `json:"subject_id"`   // the observing agent
-	TargetID    string    `json:"target_id"`    // the agent being observed
-	Familiarity float64   `json:"familiarity"`  // 0.0-1.0
-	Affinity    float64   `json:"affinity"`     // -1.0 (hate) to 1.0 (love)
-	Tags        []string  `json:"tags"`         // "reliable", "annoying", etc.
-	LastUpdated time.Time `json:"last_updated"`
+	SubjectID   string       `json:"subject_id"`   // the observing agent
+	TargetID    string       `json:"target_id"`    // the agent being observed
+	Kind        RelationKind `json:"kind"`          // parent/friend/rival...
+	Familiarity float64      `json:"familiarity"`  // 0.0-1.0
+	Affinity    float64      `json:"affinity"`     // -1.0 (hate) to 1.0 (love)
+	Tags        []string     `json:"tags"`         // "reliable", "annoying", etc.
+	LastUpdated time.Time    `json:"last_updated"`
 }
 
 // AgentMemory accumulates all rounds for a single agent. Append-only, thread-safe.
