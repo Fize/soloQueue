@@ -1,53 +1,32 @@
 ---
 name: git-flow
-description: Git workflow 工作流 covering 分支管理 branch management, 规范化提交 normalized commits, 远程同步 remote sync, with 分阶段操作流 staged operation flows. Supports git commit 提交, git push 推送, git pull 拉取, git branch 分支, smart commit splitting 智能提交拆分, AI author tagging AI作者标记, safe branch operations 安全分支操作. Use for /git-flow, git 工作流, commit, 提交, push, 推送, pull, 拉取, branch, 分支, 暂存, staged, 拆分, split
+description: >-
+  Git workflow covering branch management, normalized commits, remote sync,
+  with staged operation flows. Supports git commit, push, pull, branch,
+  smart commit splitting, AI author tagging, safe branch operations.
+when_to_use: >-
+  When user needs git operations: commit, push, pull, branch management.
+  Also invoked by fullstack-dev during Implementation and DevOps phases.
+allowed-tools:
+  - Bash(git:*)
+triggers:
+  - /git-flow
+  - git 工作流
+  - commit
+  - 提交
+  - push
+  - 推送
+  - pull
+  - 拉取
+  - branch
+  - 分支
+  - 暂存
+  - staged
+  - 拆分
+  - split
 ---
 
 # Git Flow Skill
-
-## 🔴 CRITICAL - MANDATORY REQUIREMENTS (Cannot be ignored under any circumstances)
-
-### ⚠️ AI AUTHOR TAGGING - ABSOLUTE REQUIREMENT
-
-**🚨 THIS IS NON-NEGOTIABLE - YOU MUST FOLLOW THIS 🚨**
-
-Every commit created using this skill **MUST** include the following line in the commit message:
-
-```
-Co-Authored-By: AI Agent
-```
-
-### Enforcement Rules
-
-1. **Before creating ANY commit, you MUST**:
-   - Add `Co-Authored-By: AI Agent` to the commit message
-   - Verify the tag is present by reading the commit message back
-   - **DO NOT SKIP THIS STEP UNDER ANY CIRCUMSTANCE**
-
-2. **After creating ANY commit, you MUST**:
-   - Run `git log -1 --pretty=full` to verify the commit
-   - Check that `Co-Authored-By: AI Agent` is present
-   - If not present, **AMEND THE COMMIT IMMEDIATELY**
-
-3. **If you forget to add the tag**:
-   - You have **FAILED** to follow this skill's requirements
-   - You must **APOLOGIZE** to the user and **FIX IT IMMEDIATELY**
-   - Use `git commit --amend` to add the missing tag
-
-4. **Self-Check (MANDATORY)**:
-   Before marking any task as completed, ask yourself:
-
-   ```
-   ✅ Did I add "Co-Authored-By: AI Agent" to EVERY commit?
-   ✅ Did I verify the tag is present in `git log`?
-   ✅ If I forgot, did I amend the commit to add it?
-   ```
-
-5. **Penalty for Non-Compliance**:
-   If you create a commit without this tag, you have **NOT FULFILLED** your duty.
-   This is not a suggestion - it is a **REQUIREMENT**.
-
----
 
 ## Quick Start
 
@@ -172,15 +151,11 @@ AI:  Syncing with remote...
   - Chinese: ≤ 25 characters
 - Body is optional, only added for complex changes (≤ 72 chars/line, max 3 lines)
 
-#### 4.2 🔴 AI Author Tagging (MANDATORY - See TOP of this file)
+#### 4.2 AI Author Tagging (MANDATORY)
 
-**🚨 THIS IS NOT OPTIONAL - YOU MUST DO THIS 🚨**
+**Every commit created using this skill MUST include `Co-Authored-By: AI Agent` in the commit message body.** This is non-negotiable.
 
-- **EVERY** commit created using this skill **MUST** include AI author tag
-- **Implementation**: Add `Co-Authored-By: AI Agent` in commit message body
-- **Requirement**: Commit message body must be short (≤ 72 chars/line, max 3 lines)
-
-**Step-by-Step (You MUST follow)**:
+**Step-by-Step**:
 
 1. **Before commit**:
 
@@ -235,13 +210,6 @@ Add OAuth2 login with Google and Facebook support.
 Includes token refresh and user info fetching.
 
 Co-Authored-By: AI Agent
-```
-
-**❌ WRONG - Missing AI Tag**:
-
-```
-feat(auth): add OAuth2 login support
-# ❌ ERROR: Missing "Co-Authored-By: AI Agent"
 ```
 
 #### 4.3 Commit Types
@@ -382,7 +350,6 @@ AI:  Analyzing staged changes...
      ✅ AI author tag added and verified
 
      ✅ All commits created successfully
-     ✅ Verification: All commits have "Co-Authored-By: AI Agent" tag
 ```
 
 ### Example 3: Push Code to Remote
@@ -417,21 +384,58 @@ AI:  Fetching from remote...
 
 ---
 
-## 🔴 FINAL VALIDATION CHECKLIST (MUST Complete Before Finishing)
+## FINAL VALIDATION CHECKLIST (MUST Complete Before Finishing)
 
 **BEFORE you mark ANY task as completed, you MUST verify:**
 
-- [ ] **EVERY commit created has `Co-Authored-By: AI Agent` tag**
+- [ ] **EVERY commit created has `Co-Authored-By: AI Agent` tag** (see §4.2 for procedure)
 - [ ] I have run `git log --pretty=full` to verify the tag is present
 - [ ] If any commit is missing the tag, I have amended it
-- [ ] I have NOT skipped adding the AI author tag under any circumstance
 
 **If you cannot check ALL boxes above, YOU ARE NOT DONE.**
-
-**This is not a suggestion. This is a REQUIREMENT.**
 
 ---
 
 ## References
 
 - [Git Workflow Specification](./references/git-workflow.md): Detailed Git workflow specification document
+
+---
+
+## Error Recovery
+
+### Merge/Rebase Conflict Cannot Be Resolved
+
+If conflicts are too complex to resolve with suggestions alone:
+
+1. **Abort the operation**:
+   - During rebase: `git rebase --abort`
+   - During merge: `git merge --abort`
+2. **Inform the user**: "The conflicts are too complex for automated suggestions. I've aborted the [rebase/merge] to return to a clean state."
+3. **Provide options**:
+   - Resolve conflicts manually, then retry
+   - Use `git mergetool` for visual conflict resolution
+   - Create a new branch and cherry-pick specific commits
+
+### Detached HEAD State
+
+If git operations result in a detached HEAD:
+
+1. **Do NOT panic** — no work is lost.
+2. **Check state**: `git log --oneline -5` to see where you are.
+3. **Recovery**:
+   - If work was committed on detached HEAD: `git branch <name>` to save it, then `git checkout <branch>`
+   - If work was NOT committed: `git stash`, then `git checkout <branch>`, then `git stash pop`
+
+### Accidental Commit on Wrong Branch
+
+1. **Do NOT push**.
+2. **Recovery**:
+   ```bash
+   git log --oneline -3  # identify the commit to move
+   git checkout <correct-branch>
+   git cherry-pick <commit-hash>
+   git checkout <wrong-branch>
+   git reset --hard HEAD~1  # remove from wrong branch
+   ```
+3. **Verify**: `git log --oneline -3` on both branches.
