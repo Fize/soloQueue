@@ -360,19 +360,22 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	}
 
 	// 2. 构建内置 tools
-	agentToolsCfg := toolsCfg
-	agentToolsCfg.WorkDir = effectiveWorkDir
-	allTools := tools.Build(agentToolsCfg)
+	var allTools []tools.Tool
+	if !strings.HasPrefix(tmpl.ID, "sim-") {
+		agentToolsCfg := toolsCfg
+		agentToolsCfg.WorkDir = effectiveWorkDir
+		allTools = tools.Build(agentToolsCfg)
 
-	// Filter out SendFile and schedule_task for L3 workers
-	if !tmpl.IsLeader {
-		var filtered []tools.Tool
-		for _, t := range allTools {
-			if t.Name() != "SendFile" && t.Name() != "schedule_task" {
-				filtered = append(filtered, t)
+		// Filter out SendFile and schedule_task for L3 workers
+		if !tmpl.IsLeader {
+			var filtered []tools.Tool
+			for _, t := range allTools {
+				if t.Name() != "SendFile" && t.Name() != "schedule_task" {
+					filtered = append(filtered, t)
+				}
 			}
+			allTools = filtered
 		}
-		allTools = filtered
 	}
 
 	// 3. 加载 skills — 合并全局注册表 + project-level skills（项目级覆盖全局）
@@ -507,7 +510,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	}
 
 	var skillList []*skill.Skill
-	if len(tmpl.SkillIDs) > 0 {
+	if !strings.HasPrefix(tmpl.ID, "sim-") && len(tmpl.SkillIDs) > 0 {
 		sr := skill.NewSkillRegistry()
 		for _, id := range tmpl.SkillIDs {
 			if s, ok := mergedSkillReg.GetSkill(id); ok {
@@ -573,7 +576,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 
 	// 3d. Register MCP tools for servers listed in the agent template.
 	// Project-level MCP config overrides global config for the same server name.
-	if f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
+	if !strings.HasPrefix(tmpl.ID, "sim-") && f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
 		for _, serverName := range tmpl.MCPServers {
 			mcpTools := f.mcpManager.GetToolsWithOverride(ctx, serverName, projRes.mcpCfg)
 			if mcpTools == nil {
