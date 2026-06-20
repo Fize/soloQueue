@@ -1,15 +1,85 @@
 ---
 name: fullstack-dev
 description: >-
-  Fullstack development scenario-flow methodology integrated with Git workflow guidelines. Triggers when user requests involve writing/modifying/designing/deploying code, or git/branch/commit actions.
-  Greenfield: 想做、从零、新项目、做一个、帮我搭个、写个App、创建服务、初始化、脚手架、new project、scaffold、greenfield、build from scratch.
-  Feature: 加功能、新增、迭代、实现、添加、支持、接入、集成、add feature、implement、integrate、enhancement.
-  Bug fix: 报错、bug、不工作、崩溃、异常、出错、失败、返回500、空指针、panic、error、crash、fix、hotfix、debug、troubleshoot.
-  Refactor: 重构、优化、太慢、太乱、清理、改进、性能、拆分、refactor、optimize、perf、cleanup、restructure.
-  Deploy: 部署、上线、发版、容器化、发布、deploy、release、CI/CD、Docker、K8s、helm、rollout、ship.
-  Git flow: /git-flow, git 工作流, commit 提交, push 推送, pull 拉取, branch 分支, 暂存 staged, 拆分 split, git-flow, Git Flow.
-  Implicit triggers: pasting build errors, PRD → implementation, design DB/API, write tests.
-  Explicit override: @phase:requirement|architecture|backend|frontend|devops
+  Fullstack development scenario-flow methodology. Routes to the correct scenario
+  based on user intent and executes phase-by-phase with mandatory checklists.
+when_to_use: >-
+  When user requests involve writing/modifying/designing/deploying code.
+  Greenfield, feature iteration, bug fix, refactor, or deploy scenarios.
+triggers:
+  - 想做
+  - 从零
+  - 新项目
+  - 做一个
+  - 帮我搭个
+  - 写个App
+  - 创建服务
+  - 初始化
+  - 脚手架
+  - new project
+  - scaffold
+  - greenfield
+  - build from scratch
+  - 加功能
+  - 新增
+  - 迭代
+  - 实现
+  - 添加
+  - 支持
+  - 接入
+  - 集成
+  - add feature
+  - implement
+  - integrate
+  - enhancement
+  - 报错
+  - bug
+  - 不工作
+  - 崩溃
+  - 异常
+  - 出错
+  - 失败
+  - 返回500
+  - 空指针
+  - panic
+  - error
+  - crash
+  - fix
+  - hotfix
+  - debug
+  - troubleshoot
+  - 重构
+  - 优化
+  - 太慢
+  - 太乱
+  - 清理
+  - 改进
+  - 性能
+  - 拆分
+  - refactor
+  - optimize
+  - perf
+  - cleanup
+  - restructure
+  - 部署
+  - 上线
+  - 发版
+  - 容器化
+  - 发布
+  - deploy
+  - release
+  - CI/CD
+  - Docker
+  - K8s
+  - helm
+  - rollout
+  - ship
+  - /git-flow
+  - git 工作流
+  - commit 提交
+  - push 推送
+  - pull 拉取
+  - branch 分支
 ---
 
 # Fullstack Development Skill
@@ -28,6 +98,11 @@ You are NOT a general-purpose assistant while this skill is active.
 > I will invoke `/dev-method` at Implementation phases to select the appropriate development method.
 > I will DELEGATE version control to the `git-flow` skill. I will invoke `/git-flow branch` right before starting any Implementation phase, `/git-flow commit` iteratively during Implementation, and `/git-flow push` only after full Verification. I will NOT use git-flow during Requirement or Architecture phases.
 
+<delegates-to>
+- `/dev-method` → selects TDD / BDD / API-First / Security-First / Direct Implementation
+- `/git-flow` → branch, commit, push, pull operations
+</delegates-to>
+
 **These are not suggestions. Breaking any of them means you are not using this skill — you are ignoring it.**
 
 ---
@@ -44,11 +119,11 @@ Match the user's intent to a scenario flow, then execute step by step. You MUST 
 
 **Flow**:
 
-1. Requirement scoping → output MVP definition (MUST reference Requirement Checklist)
-2. Tech stack + DB design → output DDL + API contract (MUST reference Architecture Checklist)
-3. Core API implementation → invoke `/dev-method` to select method, then implement (MUST reference Backend Checklist)
-4. Page implementation → invoke `/dev-method` to select method, then implement (MUST reference Frontend Checklist)
-5. Deploy config → output deploy commands + health check (MUST reference DevOps Checklist)
+1. Requirement scoping → output MVP definition (MUST reference [Requirement Checklist](references/checklists.md#requirement-phase))
+2. Tech stack + DB design → output DDL + API contract (MUST reference [Architecture Checklist](references/checklists.md#architecture-phase))
+3. Core API implementation → invoke `/dev-method` to select method, then implement (MUST reference [Backend Checklist](references/checklists.md#backend-phase))
+4. Page implementation → invoke `/dev-method` to select method, then implement (MUST reference [Frontend Checklist](references/checklists.md#frontend-phase))
+5. Deploy config → output deploy commands + health check (MUST reference [DevOps Checklist](references/checklists.md#devops-phase))
 
 **Hard Constraints**:
 
@@ -126,77 +201,41 @@ Match the user's intent to a scenario flow, then execute step by step. You MUST 
 
 ---
 
-## Phase Checklists (reference as needed)
+## Phase Checklists
 
-### Requirement Phase
-
-- [ ] Project name (one sentence)
-- [ ] Core user stories (≤5, "As a... I want... So that...")
-- [ ] MVP feature list (P0/P1/P2 labeled)
-- [ ] Explicitly out-of-scope items (prevent scope creep)
-- [ ] Non-functional requirements summary
-- [ ] MVP validation method
-
-### Architecture Phase
-
-- [ ] Entity relationship description (natural language) → DDL
-- [ ] Table/column names: snake_case singular, MUST include created_at, updated_at
-- [ ] API contract: RESTful, unified response format `{"data": ..., "error": ...}`
-- [ ] Pagination strategy (cursor or offset/limit) + rationale
-- [ ] Tech stack selection + rationale (prefer boring/reliable, what the team knows)
-
-### Backend Phase
-
-- [ ] ALL input validated and sanitized. SQL concatenation is FORBIDDEN.
-- [ ] Sensitive operations MUST have auth checks
-- [ ] Functions: single responsibility, error handling complete
-- [ ] Structured logging at key points (NEVER inside loops)
-- [ ] Comments explain WHY, never WHAT
-- [ ] NEVER output secrets/passwords — use env var placeholders
-- [ ] Curl test command provided
-- [ ] Formal method: invoke `/dev-method` (auto-selects TDD/BDD/API-First/Security-First), or `/dev-method tdd` to force TDD
-- [ ] Version Control: invoke `/git-flow commit` to save verified checkpoints
-
-### Frontend Phase
-
-- [ ] Async requests: MUST handle all 3 states — Loading / Data / Error
-- [ ] User actions: immediate feedback, form validation on frontend
-- [ ] Empty data: placeholder UI, NEVER blank screen
-- [ ] Props types MUST be defined
-- [ ] Split files ONLY when >200 lines
-- [ ] Extra state management library ONLY when multiple components share complex state
-- [ ] Browser verification steps provided
-- [ ] Formal method: invoke `/dev-method` (auto-selects TDD/BDD/API-First/Security-First), or `/dev-method tdd` to force TDD
-- [ ] Version Control: invoke `/git-flow commit` to save verified checkpoints
-
-### DevOps Phase
-
-- [ ] Environment isolation — NEVER detect environment in code
-- [ ] Test pyramid: critical business paths MUST have integration tests
-- [ ] Test data: NEVER use production data
-- [ ] DB migrations MUST support rollback
-- [ ] CI minimum: Lint → Unit tests → Build → Deploy to staging
-- [ ] Health check verification command
-- [ ] First deployment: monitoring recommendations
-- [ ] Version Control: invoke `/git-flow pull` to sync before deployment, and `/git-flow push` when complete
+→ See [references/checklists.md](references/checklists.md) for all phase checklists (Requirement, Architecture, Backend, Frontend, DevOps).
 
 ---
 
 ## Pitfalls
 
-- **Skipping think-then-code**: The most common mistake under vague requirements. You MUST write down your understanding and approach BEFORE writing any code. No exceptions.
-- **Over-engineering**: Introducing abstraction layers when there's only one implementation. Violates Simplicity. It increases maintenance cost, not reduces it.
-- **Drive-by refactoring**: "While I'm here" refactoring during a bug fix or feature. Violates Surgical Changes. It introduces uncontrolled risk.
-- **No verification instructions**: Ending a task after writing code. Violates Goal-Driven. The user CANNOT confirm the fix works.
-- **Hardcoded env config**: Embedding config values or paths in code. It WILL break in deployment. ALWAYS use env vars.
+→ See [references/pitfalls.md](references/pitfalls.md) for common anti-patterns and the verification protocol.
 
 ---
 
-## Verification
+## Error Recovery
 
-After completing any scenario flow, you MUST output ALL of the following:
+### Scenario Switch Protocol
 
-1. **Change Summary**: which files changed, what changed in each
-2. **Verification Commands**: concrete curl / test / browser steps that the user can run
-3. **Rollback Plan**: how to revert (git revert command or DB rollback SQL)
-4. **Context Summary** (complex tasks only): key decisions, dependencies, follow-up items
+If the user's intent changes mid-flow (e.g., Feature Iteration → Bug Fix):
+
+1. **Acknowledge the switch**: "I see the situation has changed from [current scenario] to [new scenario]."
+2. **Save checkpoint**: Note the current phase and what was completed.
+3. **Reset to new scenario**: Start the new scenario flow from Step 1.
+4. **Do NOT carry over assumptions** from the previous scenario.
+
+### Dev-Method Delegation Failure
+
+If `/dev-method` fails to load (e.g., method file missing or corrupted):
+
+1. **Fallback to Direct Implementation**: Use the [Direct Implementation](../dev-method/references/direct-implementation.md) rules as a minimal safety net.
+2. **Inform the user**: "The selected method file could not be loaded. Falling back to Direct Implementation with basic checks."
+3. **Continue the current scenario flow** — do NOT restart.
+
+### Git-Flow Delegation Failure
+
+If `/git-flow` is unavailable during Implementation:
+
+1. **Continue implementation** without git operations.
+2. **Queue git operations**: Note which commits should have been created.
+3. **Inform the user**: "Git operations are unavailable. I will proceed with implementation and batch git operations when available."
