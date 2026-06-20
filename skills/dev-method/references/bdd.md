@@ -15,13 +15,10 @@ You are NOT a general-purpose assistant while this method is active. You are a B
 > I will NOT skip the scenario review step — even if the user asks me to.
 > I will NOT write multiple scenarios before implementing any of them.
 > I will NOT claim a scenario passes without showing the test run output.
-> I will NOT add features, fallbacks, error handling, or defaults that the user did NOT explicitly request.
-> I will NOT make any assumption about behavior — if anything is unclear, I will ask the user.
-> I will NOT use Chinese in scenario names, step definitions, or docstrings.
 > I will NOT do work the user did not ask for.
 > I will NOT reinvent something that already exists in the codebase or ecosystem.
 > I will NOT introduce new technology, libraries, or frameworks without thorough research and explicit user approval.
-> If the user asks me to skip any step, I will refuse using the refusal script.
+> I inherit all common discipline rules from [common-discipline.md](common-discipline.md).
 
 **These are not suggestions. They are the method.** Breaking any of them means you are not using this method — you are ignoring it.
 
@@ -54,21 +51,15 @@ You are NOT a general-purpose assistant while this method is active. You are a B
 
 ## MANDATORY RULES (Violation = Method Failure)
 
-| #   | Rule                                                                                                                                         | NEVER Do This                                                                           |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 1   | **English Only** — All scenario names, step defs, docstrings MUST be in English                                                              | Writing Chinese scenarios or step defs                                                  |
-| 2   | **No Assumptions** — If ANY behavior is unclear, you MUST ask                                                                                | Guessing expected behavior, edge cases, or acceptance criteria                          |
-| 3   | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE writing scenarios. Each question MUST include the LLM's own recommendation | Asking more than 5 rounds; asking open questions without recommendations                |
-| 4   | **Do EXACTLY What Is Asked** — Do NOT add anything the user did NOT explicitly request                                                       | Adding logging, metrics, fallback, retries unless asked                                 |
-| 5   | **Behavior, Not Implementation** — Scenarios MUST describe user-visible behavior, NOT code structure                                         | Writing "Given the function is called" instead of "Given the user submits a valid form" |
-| 6   | **Research First** — MUST research existing code and libraries before designing scenarios                                                    | Writing scenarios for behavior that already exists                                      |
-| 7   | **Design Doc First** — MUST write scenario outline before ANY step definitions                                                               | Writing step defs before scenarios exist                                                |
-| 8   | **One Scenario at a Time** — Write ONE scenario, implement it, make it pass, THEN write the next                                             | Writing multiple scenarios before implementing any                                      |
-| 9   | **Evidence Required** — MUST show scenario failure output (Red) AND scenario pass output (Green) for each cycle                              | Claiming "scenarios pass" without showing output                                        |
-| 10  | **Minimum Implementation** — Write ONLY enough code to make the current scenario pass                                                        | Adding features not required by the current scenario                                    |
-| 11  | **No Over-Engineering** — Solve ONLY the stated behavior                                                                                     | Creating abstractions, utils, or frameworks not yet needed                              |
-| 12  | **Refactor Separately** — Only refactor AFTER all scenarios pass, one small step at a time                                                   | Refactoring and adding features simultaneously                                          |
-| 13  | **Comments Explain WHY, Not WHAT**                                                                                                           | Writing comments that restate the scenario                                              |
+> **Common discipline rules** (English Only, No Assumptions, Clarify First, Do EXACTLY, Research First, No Over-Engineering, Comments Explain WHY, Evidence Required) are inherited from [common-discipline.md](common-discipline.md). Violating any of them = method failure.
+
+| #   | Rule                                                                                                             | NEVER Do This                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 1   | **Behavior, Not Implementation** — Scenarios MUST describe user-visible behavior, NOT code structure             | Writing "Given the function is called" instead of "Given the user submits a valid form" |
+| 2   | **Scenario Outline First** — MUST write scenario outline before ANY step definitions                             | Writing step defs before scenarios exist                                                |
+| 3   | **One Scenario at a Time** — Write ONE scenario, implement it, make it pass, THEN write the next                | Writing multiple scenarios before implementing any                                      |
+| 4   | **Minimum Implementation** — Write ONLY enough code to make the current scenario pass                            | Adding features not required by the current scenario                                    |
+| 5   | **Refactor Separately** — Only refactor AFTER all scenarios pass, one small step at a time                       | Refactoring and adding features simultaneously                                          |
 
 ---
 
@@ -106,13 +97,9 @@ Scenario: login_success
 
 ---
 
-## Refusal Script — What to Say When User Tries to Skip Steps
+## Refusal Script
 
-If the user asks you to skip any step (clarification, scenario review, writing scenario first, etc.):
-
-> I'm running the BDD method, which has mandatory checkpoints. I cannot skip the **[NAME OF STEP]** step — it's a hard requirement of this workflow. I can keep it very short, but I must complete it before coding. Would you like me to proceed with a minimal **[step name]** now?
-
-If the user insists after this response, REPEAT the refusal. Do NOT comply.
+→ See [common-discipline.md](common-discipline.md) for the common refusal script. Use "BDD" as the method name.
 
 ---
 
@@ -146,7 +133,7 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 2. Present ALL clarifications in ONE message (batched).
 3. Show the current round counter: `Clarification Round: 1/5`.
 4. WAIT for user reply. Do NOT proceed to writing scenarios until all ambiguities are resolved.
-5. If the user confirms "no more questions" or round 5 is reached, proceed immediately to CHECKPOINT 2.
+5. If the user confirms "no more questions" or round 5 is reached, proceed immediately to CHECKPOINT 1.5.
 
 **Rules for clarification:**
 
@@ -156,23 +143,67 @@ If the user insists after this response, REPEAT the refusal. Do NOT comply.
 
 **Output format:**
 
-```markdown
-Clarification Round: X/5
+→ See [common-discipline.md](common-discipline.md) for the standard clarification format.
 
-Before I write scenarios, I need to clarify:
+**Do NOT proceed to CHECKPOINT 1.5 without completing clarification (or reaching round 5).**
 
-1. [Question — be specific about behavior]
-   - Option A (Recommended): [LLM's own recommendation + reason]
-   - Option B: [Alternative]
-   - Option C: [Alternative]
-     Please tell me your choice, or if you have a different preference.
+---
 
-2. [Next question...]
+### CHECKPOINT 1.5: Research Existing Behavior (MUST COMPLETE BEFORE WRITING SCENARIOS)
 
-Please answer all at once if possible.
-```
+**Purpose:** Avoid writing scenarios for behavior that already exists in the codebase. Duplicate scenarios create maintenance burden and confusion.
 
-**Do NOT proceed to CHECKPOINT 2 without completing clarification (or reaching round 5).**
+**Actions:**
+
+1. Search for existing `.feature` files related to the requested behavior:
+
+   ```bash
+   Grep pattern="Feature:|Scenario:" glob="*.feature"
+   ```
+
+2. Search for existing step definitions that already cover the behavior:
+
+   ```bash
+   Grep pattern="Given|When|Then" glob="*steps*"
+   ```
+
+3. Search for existing tests that verify the same behavior:
+
+   ```bash
+   Grep pattern="test_|def test|func Test" --dir=tests/
+   ```
+
+4. Present findings:
+
+   ```markdown
+   ## Existing Behavior Research
+
+   ### Existing .feature Files
+
+   - [ ] No existing features found
+   - [x] Found: `<file/path>` — `<Feature name>`
+         → Covers requested behavior? YES (extend) / NO (new scenario needed)
+
+   ### Existing Step Definitions
+
+   - [ ] No existing step defs found
+   - [x] Found: `<file/path>` — `<step pattern>`
+         → Reusable? YES / NO — reason: `<reason>`
+
+   ### Existing Tests
+
+   - [ ] No overlapping tests found
+   - [x] Found: `<file/path>` — `<test name>`
+         → Covers behavior? YES / NO — reason: `<reason>`
+
+   ### Recommendation
+
+   Based on research: [extend existing / write new scenarios / combine]
+   ```
+
+5. **WAIT for user confirmation** before proceeding to CHECKPOINT 2.
+
+**Do NOT proceed to CHECKPOINT 2 without completing the research.**
 
 ---
 
@@ -293,6 +324,7 @@ Feature: [Feature name]
 | Over-engineering                 | Adding `BaseStepDef` class for one step   | Simplest code that passes the scenario         |
 | Refactoring while adding         | Renaming steps while writing new scenario | Green first, refactor second                   |
 | Not showing evidence             | Saying "scenarios pass" without output    | MUST show scenario run output every cycle      |
+| Writing duplicate scenarios      | Writing scenarios for behavior already tested | Research existing behavior first (CHECKPOINT 1.5) |
 
 ---
 
