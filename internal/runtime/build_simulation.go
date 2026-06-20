@@ -52,9 +52,5 @@ func (bc *buildContext) buildSimulationEngine() error {
 		bc.simEngine.WithModelResolver(bc.modelResolver)
 	}
 
-	if bc.memoryEngine != nil {
-		bc.simEngine.SetMemoryEngine(bc.memoryEngine)
-	}
-
 	return nil
 }

@@ -1751,4 +1751,39 @@ func TestBuildL2SystemPrompt_NilProjectAgents(t *testing.T) {
 	}
 }
 
+func TestDefaultFactory_Create_SimulationAgentNoTools(t *testing.T) {
+	globalWorkDir := t.TempDir()
+
+	log, err := logger.System(globalWorkDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	registry := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
+		WithWorkDir(globalWorkDir),
+	)
+
+	// Simulation agent ID prefixed with "sim-"
+	simTmpl := AgentTemplate{
+		ID:           "sim-alice",
+		Name:         "Alice",
+		SystemPrompt: "You are simulated Alice.",
+	}
+
+	simAgent, _, err := factory.Create(context.Background(), simTmpl, "")
+	if err != nil {
+		t.Fatalf("failed to create simulation agent: %v", err)
+	}
+	defer simAgent.Stop(time.Second)
+
+	// Verify that the simulation agent has NO tools
+	if specs := simAgent.ToolSpecs(); len(specs) > 0 {
+		t.Errorf("expected simulation agent to have no tools, but got %d tools: %v", len(specs), specs)
+	}
+}
+
 
