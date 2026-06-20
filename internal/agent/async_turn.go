@@ -188,6 +188,11 @@ func (a *Agent) execToolsWithAsync(
 			results[i] = "error: " + err.Error()
 			continue
 		}
+		if action == nil {
+			// ExecuteAsync returns nil, indicating fallback to synchronous execution
+			results[i] = a.execToolStream(ctx, iter, tc, out)
+			continue
+		}
 
 		results[i] = formatDelegationStarted(tc)
 
