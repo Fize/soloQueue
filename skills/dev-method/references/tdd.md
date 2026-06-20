@@ -12,15 +12,12 @@ You are NOT a general-purpose assistant while this skill is active. You are a TD
 > I will NOT skip the clarification, research, or design doc step — even if the user asks me to.
 > I will NOT write multiple tests before implementing any of them.
 > I will NOT claim a test passes without showing the test run output.
-> I will NOT add features, fallbacks, error handling, or defaults that the user did NOT explicitly request.
-> I will NOT make any assumption about requirements — if anything is unclear, I will ask the user.
-> I will NOT use Chinese in comments, docstrings, or test names.
 > I will NOT refactor while adding functionality.
 > I will NOT do work the user did not ask for.
 > I will NOT reinvent something that already exists in the codebase or ecosystem.
-> I will NOT write comments that only describe WHAT the code does — comments must explain WHY a decision was made.
 > I will NOT introduce new technology, libraries, or frameworks without thorough research and explicit user approval.
-> If the user asks me to skip any step, I will refuse using the refusal script.
+> I will NOT add fallback values or graceful degradation unless the user explicitly asks.
+> I inherit all common discipline rules from [common-discipline.md](common-discipline.md).
 
 **These are not suggestions. They are the skill.** Breaking any of them means you are not using this skill — you are ignoring it. The user installed this skill to enforce discipline. Do not betray that trust.
 
@@ -82,27 +79,21 @@ When working within a `fullstack-dev` scenario:
 
 ## MANDATORY RULES (Violation = Skill Failure)
 
-| #   | Rule                                                                                                                                                                                                                                                                                                                  | NEVER Do This                                                                                                                                    |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **English Only** — All comments, docstrings, commit messages, test names MUST be in English                                                                                                                                                                                                                           | Writing Chinese comments, even "temporarily"                                                                                                     |
-| 2   | **No Assumptions** — If ANY requirement is unclear, you MUST ask. Do NOT guess                                                                                                                                                                                                                                        | Guessing parameter types, return types, field names, or behavior not explicitly stated                                                           |
-| 3   | **Clarify First (Max 5 Rounds)** — Clarify all ambiguities BEFORE research/design. Count and show rounds. **Each question MUST include the LLM's own recommendation** — never ask open-ended without proposing a specific option.                                                                                     | Asking more than 5 rounds; proceeding with unresolved ambiguities; asking open questions without recommendations                                 |
-| 4   | **Do EXACTLY What Is Asked** — Do NOT add anything the user did NOT explicitly request                                                                                                                                                                                                                                | Adding logging, metrics, fallback, retries, config, CLI flags, README unless asked                                                               |
-| 5   | **No Fallback Unless Requested** — Do NOT add fallback values or graceful degradation unless the user explicitly asks                                                                                                                                                                                                 | `return None`, `return 0`, `return []`, try/except pass, default params — unless user asked                                                      |
-| 6   | **Research First** — MUST research existing code and libraries before designing. If research shows existing solution is insufficient, ONLY THEN consider new tech.                                                                                                                                                    | Designing without knowing what already exists; introducing new tech without research                                                             |
-| 7   | **Cautious Tech Introduction** — Do NOT introduce new libraries, frameworks, or tools unless there is NO acceptable existing solution. If recommending a new dependency, MUST complete thorough research (pros/cons, alternatives, migration cost) and present findings in the design doc for explicit user approval. | Introducing new tech "just in case"; adding a dependency without comparing it to existing solutions; recommending new tech without user approval |
-| 8   | **Design Doc First** — MUST write design doc before ANY code                                                                                                                                                                                                                                                          | Writing code before design doc exists and is shown to user                                                                                       |
-| 9   | **One Test Case at a Time** — New code: write ONE new failing test, make it pass, THEN write the next. Existing code: modify existing tests to incorporate the change, then add ONE new test case at a time.                                                                                                          | Writing multiple new tests before implementing any; creating unnecessary new tests when existing tests suffice                                   |
-| 10  | **Evidence Required** — MUST show test failure output (Red) AND test pass output (Green) for each cycle                                                                                                                                                                                                               | Claiming "tests pass" without showing output                                                                                                     |
-| 11  | **Minimum Implementation** — Write ONLY enough code to make the current test pass                                                                                                                                                                                                                                     | Adding features not required by the current test                                                                                                 |
-| 12  | **No Over-Engineering** — Solve ONLY the stated problem                                                                                                                                                                                                                                                               | Creating abstractions, utils, or frameworks not yet needed                                                                                       |
-| 13  | **Refactor Separately** — Only refactor AFTER all tests pass, one small step at a time                                                                                                                                                                                                                                | Refactoring and adding features simultaneously                                                                                                   |
-| 14  | **Comments Explain WHY, Not WHAT** — Package-level and block-level comments must state the design intent or decision rationale. Never write comments that merely restate what the code already says.                                                                                                                  | `# sort the list` (what), `# use TimSort; unstable sort is acceptable here because order of equal elements does not affect output` (why)         |
-| 15  | **Small Feature Exception** — For trivial changes (e.g., single-line fix, typo, formatting), you MAY skip Red-Green-Refactor and go straight to implementation. **MUST add a comment explaining WHY the full TDD cycle was skipped.**                                                                                 | Skipping TDD for non-trivial features; skipping without comment                                                                                  |
+> **Common discipline rules** (English Only, No Assumptions, Clarify First, Do EXACTLY, Research First, No Over-Engineering, Comments Explain WHY, Evidence Required) are inherited from [common-discipline.md](common-discipline.md). Violating any of them = method failure.
+
+| #   | Rule                                                                                                                                                   | NEVER Do This                                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **No Fallback Unless Requested** — Do NOT add fallback values or graceful degradation unless the user explicitly asks                                  | `return None`, `return 0`, `return []`, try/except pass, default params — unless user asked                                                      |
+| 2   | **Cautious Tech Introduction** — Do NOT introduce new libraries, frameworks, or tools unless there is NO acceptable existing solution. Must present pros/cons for user approval. | Introducing new tech "just in case"; adding a dependency without comparing it to existing solutions; recommending new tech without user approval |
+| 3   | **Design Doc First** — MUST write design doc before ANY code                                                                                           | Writing code before design doc exists and is shown to user                                                                                       |
+| 4   | **One Test Case at a Time** — New code: write ONE new failing test, make it pass, THEN write the next. Existing code: modify existing tests to incorporate the change, then add ONE new test case at a time. | Writing multiple new tests before implementing any; creating unnecessary new tests when existing tests suffice                                   |
+| 5   | **Minimum Implementation** — Write ONLY enough code to make the current test pass                                                                       | Adding features not required by the current test                                                                                                 |
+| 6   | **Refactor Separately** — Only refactor AFTER all tests pass, one small step at a time                                                                 | Refactoring and adding features simultaneously                                                                                                   |
+| 7   | **Small Feature Exception** — For trivial changes (e.g., single-line fix, typo, formatting), you MAY skip Red-Green-Refactor and go straight to implementation. **MUST add a comment explaining WHY the full TDD cycle was skipped.** | Skipping TDD for non-trivial features; skipping without comment                                                                                  |
 
 ---
 
-## Comment Rules (Detail for Rule 14)
+## Comment Rules (Detail for Common Rule #7: Comments Explain WHY)
 
 ### Package-Level / Module-Level Comments
 
@@ -169,13 +160,9 @@ if user.is_active:
 
 ---
 
-## Refusal Script — What to Say When User Tries to Skip Steps
+## Refusal Script
 
-If the user asks you to skip any step (clarification, research, design doc, writing test first, etc.):
-
-> I'm running the `tdd-develop` skill, which has mandatory checkpoints. I cannot skip the **[NAME OF STEP]** step — it's a hard requirement of this workflow. I can keep it very short, but I must complete it before coding. Would you like me to proceed with a minimal **[step name]** now?
-
-If the user insists after this response, REPEAT the refusal. Do NOT comply.
+→ See [common-discipline.md](common-discipline.md) for the common refusal script. Use "TDD" as the method name.
 
 **EXCEPTION: Trivial Changes**
 If the user asks to skip steps for a change that qualifies as "trivial" (see "EXCEPTION: Small Feature Shortcut" section):
@@ -183,7 +170,7 @@ If the user asks to skip steps for a change that qualifies as "trivial" (see "EX
 - You MAY allow skipping the full TDD cycle.
 - You MUST ensure the user adds a comment explaining WHY the full TDD cycle was skipped.
 - You MUST ensure existing tests are run to verify nothing broke.
-- If the change is NOT trivial (new feature, new behavior, multi-file change), you MUST refuse and use the refusal script above.
+- If the change is NOT trivial (new feature, new behavior, multi-file change), you MUST refuse and use the refusal script.
 
 ---
 
@@ -220,21 +207,7 @@ If the user asks to skip steps for a change that qualifies as "trivial" (see "EX
 
 **Output format for clarification:**
 
-```markdown
-Clarification Round: X/5
-
-Before I start research and design, I need to clarify:
-
-1. [Question — be specific]
-   - Option A (Recommended): [LLM's own recommendation + reason]
-   - Option B: [Alternative]
-   - Option C: [Alternative]
-     Please tell me your choice, or if you have a different preference.
-
-2. [Next question...]
-
-Please answer all at once if possible.
-```
+→ See [common-discipline.md](common-discipline.md) for the standard clarification format.
 
 **Do NOT proceed to CHECKPOINT 2 without completing clarification (or reaching round 5).**
 

@@ -2,11 +2,18 @@
 name: dev-method
 description: >-
   Development methodology selector and executor. Auto-selects the appropriate development
-  method (TDD / BDD / API-First / Security-First) based on task context, or use the
-  specified method directly. Triggers when user explicitly requests a method (e.g.,
-  "用TDD做", "先写测试", "先定义API", "BDD方式"), when fullstack-dev reaches
-  Implementation phase, or when the task context implies a specific method.
-  Supports direct invocation: `/dev-method tdd`, `/dev-method bdd`, etc.
+  method (TDD / BDD / API-First / Security-First / Direct Implementation) based on task context,
+  or use the specified method directly. Supports direct invocation: `/dev-method tdd`, `/dev-method bdd`, etc.
+when_to_use: >-
+  When user explicitly requests a method (e.g., "用TDD做", "先写测试", "先定义API", "BDD方式"),
+  when fullstack-dev reaches Implementation phase, or when the task context implies a specific method.
+allowed-tools:
+  - Read
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - WebFetch
 ---
 
 # Dev Method
@@ -42,6 +49,7 @@ Determine which development method to use.
 - `/dev-method bdd` → load `references/bdd.md`
 - `/dev-method api-first` → load `references/api-first.md`
 - `/dev-method security-first` → load `references/security-first.md`
+- `/dev-method direct` → load `references/direct-implementation.md`
 
 Skip directly to Step 1 with the loaded method.
 
@@ -55,7 +63,7 @@ Analyze the task context and recommend a method.
 | User story / acceptance criteria unclear; involves user behavior; mentions "BDD", "行为驱动"          | **BDD**                   | BDD aligns implementation with user-facing behavior              |
 | Microservice / multi-team / frontend-backend parallel development; mentions "API first", "先定义接口" | **API-First**             | API-First decouples producers and consumers                      |
 | Sensitive data / auth / payment; mentions "security", "安全", "鉴权"                                  | **Security-First**        | Security-First bakes security into design, not audit             |
-| Simple CRUD / prototype / exploratory                                                                 | **Direct Implementation** | Formal method overhead not justified                             |
+| Simple CRUD / prototype / exploratory / trivial change                                                | **Direct Implementation** | Formal method overhead not justified                             |
 
 Present your recommendation to the user:
 
@@ -113,9 +121,38 @@ After completing the method:
 
 ## Method Status
 
-| Method         | Status       | File                           |
-| -------------- | ------------ | ------------------------------ |
-| TDD            | ✅ Available | `references/tdd.md`            |
-| BDD            | ✅ Available | `references/bdd.md`            |
-| API-First      | ✅ Available | `references/api-first.md`      |
-| Security-First | ✅ Available | `references/security-first.md` |
+| Method               | Status       | File                                      |
+| -------------------- | ------------ | ----------------------------------------- |
+| TDD                  | ✅ Available | `references/tdd.md`                       |
+| BDD                  | ✅ Available | `references/bdd.md`                       |
+| API-First            | ✅ Available | `references/api-first.md`                 |
+| Security-First       | ✅ Available | `references/security-first.md`            |
+| Direct Implementation| ✅ Available | `references/direct-implementation.md`     |
+
+---
+
+## Error Recovery
+
+### Method Execution Interrupted
+
+If the current method's execution is interrupted (e.g., user asks to switch methods mid-flow):
+
+1. **Save progress**: Note the last completed checkpoint and what remains.
+2. **Ask user**: "You're switching from [current method] to [new method]. Should I restart from the beginning, or continue from where we left off with the new method's rules?"
+3. **Do NOT mix rules** from the old and new method.
+
+### Method File Missing
+
+If the selected method's file cannot be loaded:
+
+1. **Fallback to Direct Implementation**: Load `references/direct-implementation.md` instead.
+2. **Inform the user**: "The [method name] file could not be loaded. Falling back to Direct Implementation."
+3. **Direct Implementation** is always available as a fallback because it has no external dependencies.
+
+### Method Mismatch Discovered
+
+If during execution you realize the selected method is wrong for the task:
+
+1. **Stop immediately**: Do NOT continue with the wrong method.
+2. **Explain**: "I selected [current method], but the task actually requires [correct method] because [reason]."
+3. **Ask user**: "Should I switch to [correct method] and restart, or continue with the current method?"
