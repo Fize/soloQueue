@@ -939,7 +939,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			for _, ptc := range pendingToolCalls {
 				if ptc.callID == msg.ToolCallID {
 					if ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
-						if strings.HasPrefix(ptc.name, "delegate_") {
+						if strings.HasPrefix(ptc.name, "delegate_") && (msg.Content == "" || strings.HasPrefix(msg.Content, "Delegation started:")) {
 							// For delegation tools, the initial tool event is just a startup placeholder.
 							// Keep it as not done.
 							msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = false

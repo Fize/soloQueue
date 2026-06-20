@@ -321,3 +321,80 @@ func TestHTTP_SessionHistory_Delegation_MultilineTask(t *testing.T) {
 		t.Errorf("Expected tool_call segment 'delegate_fixer' not found in history")
 	}
 }
+
+func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+
+	events := []string{
+		`{"ts":"2026-06-20T11:44:55.315425+08:00","type":"message","msg":{"role":"user","content":"执行一个简单的算数任务"}}`,
+		`{"ts":"2026-06-20T11:45:03.704948+08:00","type":"message","msg":{"role":"assistant","content":"","tool_calls":[{"id":"call_00_inbtvPNrbk6b2fdC2Bq77560","type":"function","name":"delegate_agent","arguments":"{\"name\": \"arithmetic-agent\", \"task\": \"Calculate: (37 × 24) + (156 ÷ 12) − 89\", \"work_dir\": \"/Users/xiaobaitu/.soloqueue\"}"}]}}`,
+		`{"ts":"2026-06-20T11:45:03.70509+08:00","type":"message","msg":{"role":"tool","content":"**Calculation**: (37 × 24) = 888, (156 ÷ 12) = 13, 888 + 13 = 901, 901 − 89 = 812  \n**Result**: 812","name":"delegate_agent","tool_call_id":"call_00_inbtvPNrbk6b2fdC2Bq77560","ephemeral":true}}`,
+	}
+
+	f, err := os.Create(timelinePath)
+	if err != nil {
+		t.Fatalf("Create timeline file: %v", err)
+	}
+	for _, ev := range events {
+		_, _ = f.WriteString(ev + "\n")
+	}
+	f.Close()
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+
+	req := httptest.NewRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Role     string `json:"role"`
+			Segments []struct {
+				Type   string `json:"type"`
+				Name   string `json:"name"`
+				Done   bool   `json:"done"`
+				Result string `json:"result"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	foundToolCall := false
+	for _, msg := range resp.Messages {
+		if msg.Role == "assistant" {
+			for _, seg := range msg.Segments {
+				if seg.Type == "tool_call" && seg.Name == "delegate_agent" {
+					foundToolCall = true
+					if !seg.Done {
+						t.Errorf("Expected tool_call 'delegate_agent' (synchronous) to be Done = true, but got false")
+					}
+					expectedResult := "**Calculation**: (37 × 24) = 888, (156 ÷ 12) = 13, 888 + 13 = 901, 901 − 89 = 812  \n**Result**: 812"
+					if seg.Result != expectedResult {
+						t.Errorf("Expected result %q, got %q", expectedResult, seg.Result)
+					}
+				}
+			}
+		}
+	}
+
+	if !foundToolCall {
+		t.Errorf("Expected tool_call segment 'delegate_agent' not found in history")
+	}
+}
