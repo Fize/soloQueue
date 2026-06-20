@@ -41,9 +41,9 @@
 | ---------------- | ----------------------------------------------------------------------------- |
 | 项目红线         | `<project>/novel-project.md`                                                  |
 | 世界观总纲       | `<project>/核心世界观总纲.md`（项目可覆盖文件名）                             |
-| 体系文档         | `<project>/{体系名}.md`（直接放项目根，命名由项目定）                         |
-| 总大纲           | `outlines/总大纲.md`（名称可由项目覆盖）                                      |
-| 卷大纲           | `outlines/volume-{N}-outline.md`                                              |
+| 体系文档         | `<project>/{体系名}.md`（直接放项目根，包含力量体系（按 `references/power-system-template.md` 模板）、地理势力（按 `references/world-setting-template.md` 模板）、道具/法宝（按 `references/item-spec-template.md` 模板）等） |
+| 总大纲           | `outlines/总大纲.md`（按 `references/master-outline-template.md` 模板生成） |
+| 卷大纲           | `outlines/volume-{N}-outline.md`（按 `references/volume-outline-template.md` 模板生成） |
 | 章节蓝图         | `blueprints/volume-{N}/chapter-{X}-blueprint.md`                              |
 | 章节正文         | `contents/volume-{N}/chapter-{X}.txt`                                         |
 | 活跃钩子         | `plots/active-hooks/hook-{名称}.md`                                           |
@@ -83,9 +83,10 @@
 1. 载入项目红线外挂文件（见 [project-override-spec.md](project-override-spec.md)）
 2. 读取**最新里程碑**：`plots/milestones/` 下时间戳最新的一份
 3. 扫描**所有活跃钩子**：`plots/active-hooks/*.md`，识别本章需要推进 / 回收的
-4. 读取**本卷大纲**：`outlines/volume-{N}-outline.md`，确认本章所属 Arc
+4. 读取**本卷大纲**：`outlines/volume-{N}-outline.md`，确认本章所属 Arc 以及设定的静态依赖声明
 5. 读取**本章蓝图**：`blueprints/volume-{N}/chapter-{X}-blueprint.md`；若不存在 → 先生成蓝图
-6. 读取**相关体系文档**：根据蓝图中"体系文档引用清单"按需读取
+6. **渐进式按需读取设定文档**：根据蓝图 M8 列出的核心设定/百科引用清单，只读取磁盘上对应的设定文件（如 `力量体系.md`）
+7. **渐进式按需读取出场人物**：根据蓝图 M2 列出的出场角色清单，只读取对应的 `人物体系/{姓名}.md` 档案（严禁全量加载无关人物或未声明设定）
 
 **任一失败**：立即停止，告知用户缺失项，提供补齐建议。不得假设并继续。
 
