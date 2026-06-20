@@ -21,6 +21,15 @@ func (bc *buildContext) buildSkills() {
 	skillDirs := map[string]string{
 		"user": filepath.Join(bc.workDir, "skills"),
 	}
+
+	// Auto-update local self-created skills at startup
+	localCatalogs := []string{
+		"skills",
+		"../skills",
+		filepath.Join(bc.workDir, "store", "skills"),
+	}
+	skill.AutoUpdateLocalSkills(bc.workDir, skillDirs["user"], localCatalogs)
+
 	if skills, err := skill.LoadSkillsFromDirs(skillDirs); err == nil {
 		for _, s := range skills {
 			_ = skillReg.Register(s)

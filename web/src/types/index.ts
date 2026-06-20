@@ -591,6 +591,7 @@ export interface SkillInfo {
   allowed_tools: string[]
   triggers?: string[]
   enabled?: boolean
+  auto_update?: boolean
   body?: string
   required_env?: string[]
 }

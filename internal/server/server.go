@@ -461,6 +461,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Delete("/", m.handleDeleteSkill)
 			r.Get("/files", m.handleGetSkillFiles)
 			r.Post("/toggle", m.handleToggleSkill)
+			r.Post("/auto-update", m.handleToggleSkillAutoUpdate)
 		})
 	})
 

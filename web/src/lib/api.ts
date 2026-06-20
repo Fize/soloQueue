@@ -395,6 +395,19 @@ export async function toggleSkill(id: string): Promise<{ id: string; enabled: bo
   })
 }
 
+export async function toggleSkillAutoUpdate(
+  id: string,
+  enabled: boolean
+): Promise<{ id: string; auto_update: boolean }> {
+  return request<{ id: string; auto_update: boolean }>(
+    `/skills/${encodeURIComponent(id)}/auto-update`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }
+  )
+}
+
 export async function importSkill(data: {
   name: string
   description: string

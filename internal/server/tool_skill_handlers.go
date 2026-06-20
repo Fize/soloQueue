@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -48,6 +49,7 @@ type SkillInfoResponse struct {
 	AllowedTools           []string      `json:"allowed_tools"`
 	Triggers               []string      `json:"triggers"`
 	Enabled                bool          `json:"enabled"`
+	AutoUpdate             bool          `json:"auto_update"`
 	Body                   string        `json:"body,omitempty"`
 	RequiredEnv            []string      `json:"required_env,omitempty"`
 }
@@ -107,8 +109,15 @@ func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 
 	allSkills := tmpReg.Skills()
 
+	updateCfg, _ := skill.LoadSkillsUpdateConfig(m.workDir)
+	hasUpdateCfg := updateCfg != nil
+
 	skillInfos := make([]SkillInfoResponse, 0, len(allSkills))
 	for _, s := range allSkills {
+		autoUpdate := false
+		if hasUpdateCfg {
+			autoUpdate = updateCfg.AutoUpdate[s.ID]
+		}
 		skillInfos = append(skillInfos, SkillInfoResponse{
 			ID:                     s.ID,
 			Name:                   s.Name,
@@ -123,6 +132,7 @@ func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 			AllowedTools:           s.AllowedTools,
 			Triggers:               s.Triggers,
 			Enabled:                !s.Disabled,
+			AutoUpdate:             autoUpdate,
 			RequiredEnv:            s.RequiredEnv,
 		})
 	}
@@ -328,6 +338,12 @@ func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	updateCfg, _ := skill.LoadSkillsUpdateConfig(m.workDir)
+	autoUpdate := false
+	if updateCfg != nil {
+		autoUpdate = updateCfg.AutoUpdate[s.ID]
+	}
+
 	m.writeJSON(w, http.StatusOK, SkillInfoResponse{
 		ID:                     s.ID,
 		Name:                   s.Name,
@@ -342,6 +358,7 @@ func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
 		AllowedTools:           s.AllowedTools,
 		Triggers:               s.Triggers,
 		Enabled:                !s.Disabled,
+		AutoUpdate:             autoUpdate,
 		Body:                   s.Instructions,
 		RequiredEnv:            s.RequiredEnv,
 	})
@@ -541,4 +558,41 @@ func (m *Mux) handleImportSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusCreated, map[string]string{"status": "imported", "id": req.Name})
+}
+
+// handleToggleSkillAutoUpdate sets the auto-update status of a skill.
+// POST /api/skills/{id}/auto-update
+func (m *Mux) handleToggleSkillAutoUpdate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	updateCfg, err := skill.LoadSkillsUpdateConfig(m.workDir)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	updateCfg.AutoUpdate[id] = req.Enabled
+
+	// Save back to toml
+	path := filepath.Join(m.workDir, "skills_update.toml")
+	data, err := toml.Marshal(updateCfg)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to marshal config: " + err.Error()})
+		return
+	}
+
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save config: " + err.Error()})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]any{"id": id, "auto_update": req.Enabled})
 }
