@@ -9,26 +9,26 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// grepTool 在目录下按 Go 正则搜索
+// grepTool searches a directory using Go regular expressions.
 //
 // Schema:
 //
 //	{
 //	  "pattern":"...",           // Go regexp
-//	  "dir":"...",               // 搜索根目录
-//	  "glob":"**/*.go"           // 可选文件名过滤（doublestar）
+//	  "dir":"...",               // search root directory
+//	  "glob":"**/*.go"           // optional filename filter (doublestar)
 //	}
 //
-// 行为：
-//   - Walk dir；对每个 regular file 逐行 scan；命中 Pattern 记一条
-//   - 单行超 MaxLineLen 时内容截断（尾部追加 "…"）
-//   - 累计匹配超 MaxMatches 时提前返回，truncated=true
-//   - 每 256 次循环检查 ctx.Err()；长目录下也能及时响应 cancel
-//   - 二进制文件跳过（前 512 字节含 NUL 即视为 binary）
+// Behavior:
+//   - Walks the directory and scans each regular file line by line, recording one match per hit.
+//   - If a single line exceeds MaxLineLen, the content is truncated and ends with "…".
+//   - If the cumulative match count exceeds MaxMatches, execution stops early and truncated=true is returned.
+//   - Checks ctx.Err() every 256 iterations so long directory walks can respond promptly to cancellation.
+//   - Binary files are skipped (the first 512 bytes containing NUL is treated as binary).
 //
-// 限制：
-//   - 不支持 -C/-B 上下文（LLM 通常可用同 tool 再读文件拿上下文）
-//   - 仅匹配 UTF-8 文本；非 UTF-8 文件按字节跑正则（可能乱但不崩）
+// Constraints:
+//   - Does not support -C/-B context lines (the LLM can usually read the file again with the same tool to get context).
+//   - Only matches UTF-8 text; non-UTF-8 files are scanned as bytes (which may be noisy but will not crash).
 type grepTool struct {
 	cfg    Config
 	logger *logger.Logger

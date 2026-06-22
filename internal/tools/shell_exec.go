@@ -30,27 +30,27 @@ func IsRTKEnabled() bool {
 	return useRTK
 }
 
-// shellExecTool 执行 shell 命令（黑名单/确认名单校验）
+// shellExecTool executes shell commands with blocklist and confirmation checks.
 //
 // Schema:
 //
 //	{"command":"ls -la", "stdin":"optional stdin text", "confirmed":false}
 //
-// 安全：
-//   - Command 命中 ShellBlockRegexes → 直接拒绝
-//   - Command 命中 ShellConfirmRegexes + confirmed=false → 需要用户确认
-//   - /bin/sh -c <command>
-//   - 超时由上游 context（DefaultToolTimeout）控制，子进程收到 SIGKILL
-//   - stdout/stderr 各自限 ShellMaxOutput 字节（超出截断，truncated=true）
-//   - 用户可选 Stdin（string）→ 写入 cmd stdin
+// Security:
+//   - Commands matching ShellBlockRegexes are rejected immediately.
+//   - Commands matching ShellConfirmRegexes with confirmed=false require user confirmation.
+//   - Uses /bin/sh -c <command>.
+//   - Timeout is controlled by the parent context (DefaultToolTimeout), and the subprocess receives SIGKILL.
+//   - stdout/stderr each have a ShellMaxOutput byte cap; overflow truncates and sets truncated=true.
+//   - An optional Stdin string may be written to the subprocess stdin.
 //
-// 返回：{"exit_code":0,"stdout":"...","stderr":"...","truncated":false}
+// Returns: {"exit_code":0,"stdout":"...","stderr":"...","truncated":false}
 type shellExecTool struct {
 	cfg            Config
 	logger         *logger.Logger
 	blockRegexes   []*regexp.Regexp
 	confirmRegexes []*regexp.Regexp
-	regErr         error // 编译失败时的错误（Execute 时返回）
+	regErr         error // compilation error returned during Execute
 }
 
 func newShellExecTool(cfg Config) *shellExecTool {
@@ -115,11 +115,11 @@ type shellExecResult struct {
 	Truncated bool   `json:"truncated"`
 }
 
-// CheckConfirmation 实现 Confirmable。
-// 黑名单命中 → 不确认（让 Execute 直接拒绝）；
-// 已 confirmed → 不确认；
-// 确认名单命中 → 需要确认；
-// 其他 → 不确认。
+// CheckConfirmation implements Confirmable.
+// Blocklist hit → no confirmation needed (Execute rejects directly);
+// already confirmed → no confirmation needed;
+// confirmation regex hit → confirmation required;
+// otherwise → no confirmation needed.
 func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
 	var a shellExecArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -128,18 +128,18 @@ func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
 	if a.Confirmed {
 		return false, ""
 	}
-	// 黑名单由 Execute 处理；这里只需判断是否命中确认名单
+	// The blocklist is handled by Execute; here we only need to check whether the confirmation regexes match
 	if matchesAny(a.Command, t.confirmRegexes) {
 		return true, fmt.Sprintf("The command %q may be dangerous. Do you want to execute it?", a.Command)
 	}
 	return false, ""
 }
 
-// ConfirmationOptions 实现 Confirmable。
-// Bash 使用二元确认，返回 nil。
+// ConfirmationOptions implements Confirmable.
+// Bash uses binary confirmation and returns nil.
 func (shellExecTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 Confirmable：choice == ChoiceApprove 时注入 confirmed=true。
+// ConfirmArgs implements Confirmable: when choice == ChoiceApprove, inject confirmed=true.
 func (shellExecTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 	if choice != ChoiceApprove {
 		return original
@@ -153,8 +153,8 @@ func (shellExecTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 	return string(b)
 }
 
-// SupportsSessionWhitelist 实现 Confirmable。
-// Bash 支持 allow-in-session。
+// SupportsSessionWhitelist implements Confirmable.
+// Bash supports allow-in-session.
 func (shellExecTool) SupportsSessionWhitelist() bool { return true }
 
 func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error) {
@@ -173,7 +173,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", err
 	}
 
-	// 黑名单检查
+	// Blocklist check
 	if matchesAny(a.Command, t.blockRegexes) {
 		if t.logger != nil {
 			t.logger.WarnContext(ctx, logger.CatTool, "shell: command blocked",

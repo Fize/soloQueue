@@ -10,10 +10,9 @@ import (
 
 // ─── Binary detection ───────────────────────────────────────────────────
 
-// looksBinary 检查前 N 字节内是否含 NUL；返回 true 说明很可能是二进制
+// looksBinary checks whether the first N bytes contain a NUL byte; returning true suggests the content is likely binary.
 //
-// 简单启发式（同 git / grep 的近似逻辑）：UTF-8 文本不含 U+0000，
-// 因此首 512 字节里的 NUL 是强信号。
+// This is a simple heuristic similar to git/grep: UTF-8 text does not contain U+0000, so a NUL byte in the first 512 bytes is a strong signal.
 func looksBinary(data []byte) bool {
 	n := len(data)
 	if n > 512 {
@@ -29,9 +28,9 @@ func looksBinary(data []byte) bool {
 
 // ─── Context helper ──────────────────────────────────────────────────────
 
-// ctxErrOrNil 便利函数：ctx 已取消时返回 ctx.Err()，否则 nil
+// ctxErrOrNil is a convenience helper that returns ctx.Err() when the context is canceled, or nil otherwise.
 //
-// 用在工具循环里（grep walk、glob 迭代）每 N 项做一次检查。
+// It is used inside tool loops (such as grep walks or glob iteration) to check every N items.
 func ctxErrOrNil(ctx context.Context) error {
 	if ctx == nil {
 		return nil
@@ -39,7 +38,7 @@ func ctxErrOrNil(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// validateNotZeroLen 验证 s 至少非空（统一报 ErrInvalidArgs）
+// validateNotZeroLen ensures s is non-empty and returns ErrInvalidArgs otherwise.
 func validateNotZeroLen(field, s string) error {
 	if s == "" {
 		return fmt.Errorf("%w: %s is empty", ErrInvalidArgs, field)
@@ -67,7 +66,7 @@ func validateOldString(oldStr, newStr string, idx int) error {
 
 // ─── String truncation ──────────────────────────────────────────────────
 
-// truncateString 截断字符串用于展示（含省略号，rune-safe）
+// truncateString truncates a string for display purposes, appending an ellipsis and staying rune-safe.
 func truncateString(s string, max int) string {
 	if utf8.RuneCountInString(s) <= max {
 		return s
@@ -78,7 +77,7 @@ func truncateString(s string, max int) string {
 
 // ─── Shell helpers ──────────────────────────────────────────────────────
 
-// matchesAny 检查 s 是否命中 regexes 中任一正则
+// matchesAny checks whether s matches any of the provided regexes.
 func matchesAny(s string, regexes []*regexp.Regexp) bool {
 	for _, re := range regexes {
 		if re.MatchString(s) {

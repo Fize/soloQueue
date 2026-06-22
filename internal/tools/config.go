@@ -1,16 +1,19 @@
-// Package tools 汇集 agent 可用的内置业务工具
+// Package tools collects the built-in business tools available to an agent.
 //
-// 设计原则：
-//   - 所有工具都是 "配置驱动的值对象"：main.go 在启动时构造一个 Config
-//     并调用 Build(cfg)，返回可直接传给 agent.WithTools 的 []Tool。
-//   - 工具扁平布局（每个 .go 文件一个工具 + 一个 *_test.go）；不做子包。
-//     当 tool 数量超过 ~30 或按域划分更有意义时，再做 refactor。
-//   - 共享的配置 / helper（sandbox 检查、atomic write）分别在
-//     exec.go / helpers.go 集中管理。
-//   - 工具 Execute 总返回 JSON 字符串（便于 LLM 解析）或结构化错误；
-//     错误由 agent 层格式化为 "error: ..." 喂回 LLM，不中断循环。
+// Design principles:
+//   - All tools are "configuration-driven value objects": main.go creates a Config
+//     at startup and calls Build(cfg), returning a []Tool that can be passed directly
+//     to agent.WithTools.
+//   - The tools use a flat layout (one .go file per tool plus a *_test.go file); no subpackages.
+//     If the tool count exceeds ~30 or a domain-based split becomes more meaningful,
+//     a refactor can be done then.
+//   - Shared configuration and helpers (sandbox checks, atomic write) are centralized in
+//     exec.go and helpers.go.
+//   - Tool Execute always returns a JSON string (easy for the LLM to parse) or a structured error;
+//     the agent layer formats errors as "error: ..." and sends them back to the LLM without
+//     interrupting the loop.
 //
-// 典型用法：
+// Typical usage:
 //
 //	cfg := tools.Config{
 //	    MaxFileSize:  1 << 20,
@@ -30,78 +33,79 @@ import (
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-// Config 是所有内置工具的共享配置
+// Config is the shared configuration for all built-in tools.
 //
-// 零值语义：所有字段留零值时，Build 仍可调用，但与文件系统 / 网络相关的
-// 工具会在 Execute 时按"最严格"处理。生产代码应在 main.go 显式填充。
+// Zero-value semantics: Build can still be called when all fields are left at zero value, but
+// filesystem/network-related tools will be handled with the strictest behavior during Execute.
+// Production code should populate this explicitly in main.go.
 type Config struct {
-	// ── 读限制 ────────────────────────────────────────────────────
+	// ── Read limits ────────────────────────────────────────────────────
 
-	// MaxFileSize Read 单文件上限（字节）
+	// MaxFileSize is the maximum size of a single file for Read (in bytes).
 	MaxFileSize int64
 
-	// MaxMatches grep 匹配数量上限（超过截断并返回 truncated=true）
+	// MaxMatches is the maximum number of grep matches; exceeding it truncates and returns truncated=true.
 	MaxMatches int
 
-	// MaxLineLen grep 单行字符上限（超过截断）
+	// MaxLineLen is the maximum line length for grep; exceeding it truncates the line.
 	MaxLineLen int
 
-	// MaxGlobItems glob 匹配文件数上限
+	// MaxGlobItems is the maximum number of glob matches to return.
 	MaxGlobItems int
 
-	// ── 写限制 ────────────────────────────────────────────────────
+	// ── Write limits ───────────────────────────────────────────────────
 
-	// MaxWriteSize Write / Edit / MultiEdit 单次写入上限
+	// MaxWriteSize is the maximum size of a single write for Write / Edit / MultiEdit.
 	MaxWriteSize int64
 
-	// MaxMultiWriteBytes MultiWrite 所有 Content 之和上限
+	// MaxMultiWriteBytes is the maximum total size of all Content values for MultiWrite.
 	MaxMultiWriteBytes int64
 
-	// MaxMultiWriteFiles MultiWrite 单次最多文件数
+	// MaxMultiWriteFiles is the maximum number of files in a single MultiWrite call.
 	MaxMultiWriteFiles int
 
-	// MaxReplaceEdits MultiEdit 单次最多 edit 数
+	// MaxReplaceEdits is the maximum number of edits in a single MultiEdit call.
 	MaxReplaceEdits int
 
-	// ── WebFetch ────────────────────────────────────────────────
+	// ── WebFetch ─────────────────────────────────────────────────────
 
-	// HTTPAllowedHosts 若非空，只允许 URL host 命中其中之一
+	// HTTPAllowedHosts, if non-empty, only allows URLs whose host matches one of them.
 	HTTPAllowedHosts []string
 
-	// HTTPMaxBody 响应体上限（字节）
+	// HTTPMaxBody is the maximum response body size (in bytes).
 	HTTPMaxBody int64
 
-	// HTTPTimeout HTTP 请求超时
+	// HTTPTimeout is the HTTP request timeout.
 	HTTPTimeout time.Duration
 
-	// HTTPBlockPrivate 是否拦截私有 / 环回 / 链路本地地址（默认建议 true）
+	// HTTPBlockPrivate controls whether to block private, loopback, or link-local addresses (recommended true by default).
 	HTTPBlockPrivate bool
 
-	// ── Bash ──────────────────────────────────────────────────
+	// ── Bash ─────────────────────────────────────────────────────────
 
-	// ShellBlockRegexes 命令黑名单正则（命中即拒绝）
+	// ShellBlockRegexes are command blocklist regexes; any match is rejected.
 	ShellBlockRegexes []string
 
-	// ShellConfirmRegexes 命令确认名单正则（命中后需用户确认）
+	// ShellConfirmRegexes are command confirmation regexes; any match requires user confirmation.
 	ShellConfirmRegexes []string
 
-	// ShellMaxOutput shell 输出最大字节数（stdout/stderr 各自截断）
+	// ShellMaxOutput is the maximum output size for shell execution; stdout/stderr are truncated independently.
 	ShellMaxOutput int64
 
 	// ── WebSearch ─────────────────────────────────────────────
-	// WebSearchTimeout 搜索请求超时
+	// WebSearchTimeout is the web search request timeout.
 	WebSearchTimeout time.Duration
 
-	// ── 日志 ──────────────────────────────────────────────────
-	// Logger 可选日志实例（nil = 静默，不输出日志）
+	// ── Logging ──────────────────────────────────────────────────
+	// Logger is an optional logger instance (nil disables logging).
 	Logger *logger.Logger
 
-	// ── 沙盒执行器 ──────────────────────────────────────────────
-	// Sandbox 是所有工具的执行底座，所有宿主机交互必须通过它。
-	// nil 时 Build 会自动注入 NewSandbox（保障测试和本地开发场景）。
+	// ── Sandbox executor ──────────────────────────────────────────────
+	// Sandbox is the execution backend for all tools; it handles all host-system interactions.
+	// If nil, Build automatically injects NewSandbox (useful for tests and local development).
 	Sandbox *Sandbox
 
-	// ── Work Directory ────────────────────────────────────────────
+	// ── Work directory ────────────────────────────────────────────
 	// WorkDir is the agent's working directory for tool execution.
 	// When non-empty, tools like Bash use this as the default working
 	// directory for commands. Set by the factory during agent creation.
@@ -114,20 +118,20 @@ type Config struct {
 	// Set by main.go via config.PlanDir().
 	PlanDir string
 
-	// ── 长期记忆 ──────────────────────────────────────────────
-	// MemoryEngine 为长期记忆引擎（nil = 未启用）。
-	// Remember / RecallMemory 等记忆工具仅在非 nil 时生效。
+	// ── Long-term memory ──────────────────────────────────────────────
+	// MemoryEngine is the long-term memory engine (nil means disabled).
+	// Remember / RecallMemory and related memory tools only take effect when non-nil.
 	MemoryEngine *memoryengine.Engine
-	// ── Cron 定时任务 ─────────────────────────────────────────
+	// ── Cron tasks ───────────────────────────────────────────────────
 	CronStore     *cron.DBStore
 	CronScheduler *cron.Scheduler
 
-	// ── Image Generation ─────────────────────────────────────
-	// ImageModels 图片生成模型列表。只要有一个 Enabled 的模型就注册 ImageGenerate 工具。
+	// ── Image generation ─────────────────────────────────────
+	// ImageModels lists image generation models. If any model has Enabled set, the ImageGenerate tool is registered.
 	ImageModels []ImgModelCfg
 }
 
-// ImgModelCfg 运行时图片模型配置
+// ImgModelCfg contains runtime image model configuration.
 type ImgModelCfg struct {
 	ID           string
 	Name         string
@@ -146,17 +150,17 @@ type ImgModelCfg struct {
 
 // ─── Build ────────────────────────────────────────────────────────────────
 
-// ensureSandbox 保证 cfg.Sandbox 不为 nil，否则注入默认实现。
+// ensureSandbox ensures cfg.Sandbox is never nil by injecting the default implementation.
 func ensureSandbox(cfg *Config) {
 	if cfg.Sandbox == nil {
 		cfg.Sandbox = NewSandbox()
 	}
 }
 
-// Build 返回当前 Config 下启用的所有工具
+// Build returns all tools enabled for the current Config.
 //
-// 返回切片顺序保持与声明顺序一致（便于 debug）。
-// 如果 cfg.Sandbox 为 nil，自动注入默认实现。
+// The returned slice preserves declaration order (useful for debugging).
+// If cfg.Sandbox is nil, it is injected automatically.
 func Build(cfg Config) []Tool {
 	ensureSandbox(&cfg)
 	tools := []Tool{
@@ -201,9 +205,9 @@ func Build(cfg Config) []Tool {
 
 // ─── Default Config ─────────────────────────────────────────────────────
 
-// DefaultConfig 返回一组推荐的默认值（main.go 可在其基础上覆盖）
+// DefaultConfig returns a set of recommended defaults that main.go can override.
 //
-// 数值来自 plan §5.3；对大部分 local-dev 场景安全。
+// The values come from plan §5.3 and are safe for most local-development scenarios.
 func DefaultConfig() Config {
 	return Config{
 		MaxFileSize:  1 << 20,

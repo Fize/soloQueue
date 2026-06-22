@@ -20,19 +20,19 @@ import (
 
 // ─── RunCommand ─────────────────────────────────────────────────────────────
 
-// RunCommandOptions 命令执行选项。
+// RunCommandOptions contains command execution options.
 type RunCommandOptions struct {
-	// Timeout 执行超时。0 表示不限制。
+	// Timeout is the execution timeout. 0 means no limit.
 	Timeout time.Duration
-	// Stdin 可选的标准输入。
+	// Stdin is optional standard input.
 	Stdin string
-	// MaxOutput stdout/stderr 各自的最大字节数。0 表示不限制。
+	// MaxOutput is the maximum output size for stdout/stderr. 0 means no limit.
 	MaxOutput int64
 	// WorkingDirectory optional working directory for command execution; empty = default
 	WorkingDirectory string
 }
 
-// RunCommandResult 命令执行结果。
+// RunCommandResult contains the result of a command execution.
 type RunCommandResult struct {
 	ExitCode  int
 	Stdout    []byte
@@ -42,36 +42,36 @@ type RunCommandResult struct {
 
 // ─── ReadFile ───────────────────────────────────────────────────────────────
 
-// ReadFileOptions 文件读取选项。
+// ReadFileOptions contains file read options.
 type ReadFileOptions struct {
-	// MaxSize 文件大小上限。0 表示不限制。
+	// MaxSize is the maximum file size. 0 means no limit.
 	MaxSize int64
 }
 
-// ReadFileResult 文件读取结果。
+// ReadFileResult contains the file read result.
 type ReadFileResult struct {
 	Data []byte
 }
 
 // ─── WriteFile ──────────────────────────────────────────────────────────────
 
-// WriteFileOptions 文件写入选项。
+// WriteFileOptions contains file write options.
 type WriteFileOptions struct {
-	// Overwrite 是否覆盖已存在的文件。false 时若文件已存在则返回错误。
+	// Overwrite controls whether an existing file is overwritten. If false and the file exists, an error is returned.
 	Overwrite bool
-	// MaxSize 单次写入大小上限。0 表示不限制。
+	// MaxSize is the maximum single write size. 0 means no limit.
 	MaxSize int64
 }
 
-// WriteFileResult 文件写入结果。
+// WriteFileResult contains the result of a file write.
 type WriteFileResult struct {
-	// Created 表示目标路径之前不存在（新创建）。
+	// Created indicates that the target path did not previously exist (it was created).
 	Created bool
 }
 
 // ─── Stat ───────────────────────────────────────────────────────────────────
 
-// FileInfo 文件元信息。
+// FileInfo contains file metadata.
 type FileInfo struct {
 	Size  int64
 	IsDir bool
@@ -79,27 +79,27 @@ type FileInfo struct {
 
 // ─── Glob ───────────────────────────────────────────────────────────────────
 
-// GlobOptions glob 匹配选项。
+// GlobOptions contains glob matching options.
 type GlobOptions struct {
-	// MaxItems 返回结果数量上限。0 表示不限制。
+	// MaxItems is the maximum number of results to return. 0 means no limit.
 	MaxItems int
-	// Timeout 单次 glob 执行超时。0 表示使用父 context 的 deadline。
+	// Timeout is the timeout for a single glob operation. 0 means use the parent context deadline.
 	Timeout time.Duration
 }
 
 // ─── Grep ───────────────────────────────────────────────────────────────────
 
-// GrepOptions 搜索选项。
+// GrepOptions contains search options.
 type GrepOptions struct {
-	// MaxMatches 匹配数量上限。0 表示不限制。
+	// MaxMatches is the maximum number of matches to return. 0 means no limit.
 	MaxMatches int
-	// MaxLineLen 单行截断长度。0 表示不截断。
+	// MaxLineLen is the maximum line length before truncation. 0 means no truncation.
 	MaxLineLen int
-	// GlobPattern 可选的文件名过滤模式（如 "*.go"）。
+	// GlobPattern is an optional filename filter pattern such as "*.go".
 	GlobPattern string
 }
 
-// GrepMatch 单行匹配结果。
+// GrepMatch represents a single-line match result.
 type GrepMatch struct {
 	File    string
 	Line    int
@@ -108,21 +108,21 @@ type GrepMatch struct {
 
 // ─── HTTP ───────────────────────────────────────────────────────────────────
 
-// HTTPOptions HTTP 请求选项。
+// HTTPOptions contains HTTP request options.
 type HTTPOptions struct {
-	// Timeout 请求超时。0 表示不限制。
+	// Timeout is the request timeout. 0 means no limit.
 	Timeout time.Duration
-	// MaxBody 响应体大小上限。0 表示不限制。
+	// MaxBody is the maximum response body size. 0 means no limit.
 	MaxBody int64
-	// Headers 自定义请求头。
+	// Headers contains custom request headers.
 	Headers map[string]string
-	// ContentType POST 请求的 Content-Type。
+	// ContentType is the Content-Type for POST requests.
 	ContentType string
-	// BlockPrivate 是否拦截私有/环回地址。
+	// BlockPrivate controls whether private or loopback addresses are blocked.
 	BlockPrivate bool
 }
 
-// HTTPResponse HTTP 响应结果。
+// HTTPResponse contains the HTTP response result.
 type HTTPResponse struct {
 	StatusCode int
 	Body       []byte
@@ -137,12 +137,12 @@ type Sandbox struct {
 	log *logger.Logger
 }
 
-// NewSandbox 创建本地执行器。
+// NewSandbox creates the local executor.
 func NewSandbox() *Sandbox {
 	return &Sandbox{}
 }
 
-// SetLogger 设置 logger，nil 表示不记录日志。
+// SetLogger sets the logger; nil disables logging.
 func (s *Sandbox) SetLogger(l *logger.Logger) {
 	s.log = l
 }
@@ -548,7 +548,7 @@ func (s *Sandbox) HTTPPost(ctx context.Context, rawURL string, body string, opts
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-// limitedWriterExec 截断写入器
+// limitedWriterExec is a truncating writer.
 type limitedWriterExec struct {
 	w         io.Writer
 	cap       int64
@@ -573,7 +573,7 @@ func (lw *limitedWriterExec) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// isBinaryExec 检查数据是否包含 NUL 字节（二进制检测）。
+// isBinaryExec checks whether the data contains a NUL byte (a binary detection heuristic).
 func isBinaryExec(data []byte) bool {
 	n := len(data)
 	if n > 512 {
@@ -586,4 +586,3 @@ func isBinaryExec(data []byte) bool {
 	}
 	return false
 }
-

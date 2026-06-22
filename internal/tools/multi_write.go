@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-// multiWriteTool 批量写多个文件（尽力而为，非全原子）
+// multiWriteTool writes multiple files in a best-effort, non-atomic manner.
 //
 // Schema:
 //
@@ -18,14 +18,14 @@ import (
 //	  ]
 //	}
 //
-// 语义：
-//   - 整体预检：
-//   - len(files) == 0       → ErrEmptyInput
+// Semantics:
+//   - Overall preflight checks:
+//   - len(files) == 0 → ErrEmptyInput
 //   - len(files) > MaxMultiWriteFiles → ErrTooManyFiles
 //   - Σ len(content) > MaxMultiWriteBytes → ErrTotalBytesTooLarge
-//   - 预检通过后**串行**逐文件调 writeFileImpl；
-//     单文件失败只影响该条目（status=error），其他继续写。
-//   - 返回 {files:[{path,status,size,created,err}], summary:{total,ok,error}}
+//   - After preflight passes, each file is written serially via writeFileImpl;
+//     a single-file failure only affects that entry (status=error), and the others continue.
+//   - Returns {files:[{path,status,size,created,err}], summary:{total,ok,error}}
 type multiWriteTool struct {
 	cfg Config
 }
@@ -123,7 +123,7 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 		return "", fmt.Errorf("%w: %d > %d", ErrTotalBytesTooLarge, total, maxBytes)
 	}
 
-	// 通过预检后，逐文件独立写
+	// After preflight checks, each file is written independently
 	res := multiWriteResult{
 		Files: make([]multiWriteEntry, len(a.Files)),
 	}
@@ -146,9 +146,9 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 			continue
 		}
 		var parsed writeFileResult
-		// out 是 JSON string；不敏感于解析失败（fallback 用原始字段）
+		// out is a JSON string; parsing failure is tolerated (the original fields are used as a fallback)
 		if uerr := json.Unmarshal([]byte(out), &parsed); uerr != nil {
-			// 理论上 writeFileImpl 返回自己序列化的合法 JSON；防御性处理
+			// In theory writeFileImpl returns its own serialized valid JSON; this is a defensive fallback
 			res.Files[i] = multiWriteEntry{
 				Path:   f.Path,
 				Status: "error",
@@ -171,7 +171,7 @@ func (t *multiWriteTool) Execute(ctx context.Context, raw string) (string, error
 	return string(b), nil
 }
 
-// CheckConfirmation 实现 Confirmable：批量写文件始终需要确认。
+// CheckConfirmation implements Confirmable: multi-file writes always require confirmation.
 func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 	var a multiWriteArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -188,10 +188,10 @@ func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Write %d file(s). Allow?", n)
 }
 
-// ConfirmationOptions 实现 Confirmable：二元确认。
+// ConfirmationOptions implements Confirmable: binary confirmation.
 func (t *multiWriteTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 Confirmable：无需修改 args。
+// ConfirmArgs implements Confirmable: no args modification needed.
 func (t *multiWriteTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 	if choice != ChoiceApprove {
 		return original
@@ -199,7 +199,7 @@ func (t *multiWriteTool) ConfirmArgs(original string, choice ConfirmChoice) stri
 	return original
 }
 
-// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
 func (t *multiWriteTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks

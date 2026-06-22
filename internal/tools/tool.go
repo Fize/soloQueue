@@ -1,14 +1,14 @@
-// Package tools 定义 Tool 接口和内置工具实现
+// Package tools defines the Tool interface and built-in implementations.
 //
-// 核心概念：
-//   - Tool：最小粒度的可调用单元，1:1 映射 LLM function calling
-//   - Confirmable：可选接口，支持"执行前需用户确认"流程
-//   - ToolRegistry：name → Tool 的并发安全映射（定义在 registry.go）
+// Core concepts:
+//   - Tool: the smallest callable unit, mapped 1:1 to LLM function calling.
+//   - Confirmable: an optional interface that supports a "require user confirmation before execution" flow.
+//   - ToolRegistry: a concurrent-safe name → Tool mapping (defined in registry.go).
 //
-// 依赖方向：
+// Dependency direction:
 //
-//	tools 不依赖任何人（定义 Tool 接口）
-//	skill → tools（SkillRegistry 组合 ToolRegistry）
+//	tools does not depend on others (it defines the Tool interface)
+//	skill → tools (SkillRegistry composes ToolRegistry)
 //	agent → skill + tools
 package tools
 
@@ -22,75 +22,75 @@ import (
 
 // ─── Tool interface ──────────────────────────────────────────────────────────
 
-// Tool 是可被 Agent 调用的工具
+// Tool is an executable unit that can be called by an Agent.
 //
-// Name / Description / Parameters 三个方法在 Agent 构造 LLMRequest 时读取，
-// 应视为只读常量（每次 Agent 调用 LLM 前都会读一次，但返回值不应变化）。
-// Execute 在 Agent run goroutine 中串行调用（同一 Agent 同一时刻只有一个
-// 工具在跑），但不同 Agent 可能并发调用同一个 Tool 实例 —— 因此 Execute
-// 实现必须是并发安全的。
+// The Name / Description / Parameters methods are read when the Agent builds an LLMRequest,
+// and should be treated as read-only constants (they are read before each LLM call, but their
+// return values should not change). Execute is invoked serially by the Agent run goroutine
+// (only one tool runs at a time for a single Agent), but different Agents may concurrently call
+// the same Tool instance, so Execute implementations must be concurrency-safe.
 type Tool interface {
-	// Name 返回工具名；必须非空、在同一 Agent 内唯一
+	// Name returns the tool name; it must be non-empty and unique within a single Agent.
 	Name() string
 
-	// Description 给 LLM 看的自然语言描述；空串被允许但不推荐
+	// Description provides the natural-language description shown to the LLM; an empty string is allowed but not recommended.
 	Description() string
 
-	// Parameters 返回 JSON Schema（object 类型）描述参数；允许返回 nil
-	// 表示"无参数"（对应 OpenAI function 声明 parameters 省略）
+	// Parameters returns a JSON Schema (object type) describing the parameters; nil may be returned
+	// to mean "no parameters" (corresponding to omitting the OpenAI function declaration parameters).
 	Parameters() json.RawMessage
 
-	// Execute 执行工具
+	// Execute runs the tool.
 	//
-	// args 是 LLM 发来的原始 JSON 字符串（如 `""`、`"{}"`、`{"path":"foo"}`）。
-	// 工具自己负责 Unmarshal 到具体结构体。
+	// args is the raw JSON string sent by the LLM (for example `""`, `"{}"`, or `{"path":"foo"}`).
+	// The tool itself is responsible for unmarshaling it into a concrete struct.
 	//
-	// 返回值：
-	//   - result：给 LLM 的 tool-role 消息内容（建议短 + 结构化，文本/JSON 均可）
-	//   - err   ：执行错误；Agent 会把 "error: "+err.Error() 喂回 LLM，不中断循环
+	// Return values:
+	//   - result: content for the LLM tool-role message (recommended to be short and structured, text or JSON)
+	//   - err: execution error; the Agent will feed "error: "+err.Error() back to the LLM without interrupting the loop.
 	//
-	// ctx 的取消应尽快响应；若 Execute 实现不响应 ctx，Agent 只能靠外层超时。
+	// ctx cancellation should be honored promptly; if an Execute implementation does not respond to ctx, the Agent can only rely on the outer timeout.
 	Execute(ctx context.Context, args string) (result string, err error)
 }
 
-// Confirmable 是可选接口；工具可实现它以支持"执行前需用户确认"流程。
+// Confirmable is an optional interface that tools may implement to support a "require user confirmation before execution" flow.
 //
-// 不实现该接口的工具保持原行为（直接 Execute）。
-// 实现该接口的工具在 CheckConfirmation 返回 true 时，Agent 会：
-//  1. 发送 ToolNeedsConfirmEvent（含 Options）
-//  2. 阻塞等待外部调用 Agent.Confirm(callID, choice)
-//  3. choice != "" 时：调用 ConfirmArgs 修改 args，然后 Execute
-//  4. choice == ""（取消/拒绝）时：返回 "error: user denied execution"
+// Tools that do not implement this interface keep the default behavior (direct Execute).
+// When a tool implementing this interface returns true from CheckConfirmation, the Agent will:
+//  1. emit a ToolNeedsConfirmEvent (with options)
+//  2. block until the caller invokes Agent.Confirm(callID, choice)
+//  3. if choice != "", call ConfirmArgs to modify args and then Execute
+//  4. if choice == "" (cancel/deny), return "error: user denied execution"
 type Confirmable interface {
 	Tool
-	// CheckConfirmation 检查给定 args 是否需要用户确认。
-	// 返回 (needsConfirm bool, prompt string)：prompt 用于展示给用户。
+	// CheckConfirmation checks whether the given args require user confirmation.
+	// It returns (needsConfirm bool, prompt string), where prompt is shown to the user.
 	CheckConfirmation(args string) (needsConfirm bool, prompt string)
-	// ConfirmationOptions 返回可选操作列表。
-	// 返回 nil 或空切片表示二元确认（确认/拒绝），UI 可用 "yes"/"" 表示。
-	// 非空时，UI 应展示选项供用户选择，choice 为用户选中的选项值。
+	// ConfirmationOptions returns a list of available choices.
+	// Returning nil or an empty slice indicates binary confirmation (approve/deny), which the UI may represent as "yes"/"".
+	// If non-empty, the UI should present the options and pass the selected choice value back.
 	ConfirmationOptions(args string) []string
-	// ConfirmArgs 在用户做出选择后修改原始 args。
-	// choice 为用户选择的选项值；二元确认时 ChoiceApprove 表示确认，ChoiceDeny 表示拒绝。
-	// 修改后的 args 将传入 Execute。
+	// ConfirmArgs modifies the original args after the user makes a choice.
+	// choice is the user's selected option value; for binary confirmation, ChoiceApprove means approve and ChoiceDeny means deny.
+	// The modified args are passed to Execute.
 	ConfirmArgs(originalArgs string, choice ConfirmChoice) string
-	// SupportsSessionWhitelist 返回该工具是否支持 "allow-in-session" 选项。
-	// 返回 false 时，UI 不应展示"本次全部允许"按钮。
+	// SupportsSessionWhitelist returns whether the tool supports the "allow-in-session" option.
+	// If false, the UI should not show the "allow for this session" button.
 	SupportsSessionWhitelist() bool
 }
 
-// ConfirmChoice 是用户在确认对话框中做出的选择。
+// ConfirmChoice is the user's choice in the confirmation dialog.
 type ConfirmChoice string
 
 const (
-	// ChoiceDeny 表示拒绝/取消执行。
+	// ChoiceDeny means deny/cancel execution.
 	ChoiceDeny ConfirmChoice = ""
 
-	// ChoiceApprove 表示仅确认本次执行（不加白名单）。
+	// ChoiceApprove means approve this execution only (without adding a whitelist entry).
 	ChoiceApprove ConfirmChoice = "yes"
 
-	// ChoiceAllowInSession 表示确认本次执行，并将该工具加入当前会话白名单，
-	// 后续同会话内调用不再触发确认。
+	// ChoiceAllowInSession means approve this execution and add the tool to the current session allowlist,
+	// so future calls in the same session will not trigger confirmation.
 	ChoiceAllowInSession ConfirmChoice = "allow-in-session"
 )
 
@@ -114,20 +114,20 @@ func (a *AsyncAction) TargetID() string {
 	return ""
 }
 
-// AsyncTool 可选接口；工具可实现它以声明异步执行意图。
+// AsyncTool is an optional interface that tools may implement to declare an asynchronous execution intent.
 //
-// 不实现该接口的工具走普通 Execute 路径。
-// 实现该接口的工具由 Agent 的 execTools 统一调度：
+// Tools that do not implement this interface use the normal Execute path.
+// Tools that implement it are scheduled uniformly by the Agent's execTools:
 //
-//   - execTools 在启动 goroutine 前完成所有上下文拼装（asyncTurnState）
-//   - 彻底消灭两阶段注册的竞态风险
-//   - Tool 不启动 goroutine，只返回意图；框架负责 go + 注册 + 回收
+//   - execTools assembles all context (asyncTurnState) before starting the goroutine
+//   - it eliminates two-phase registration races entirely
+//   - the Tool does not start a goroutine; it only returns an intent, and the framework handles go + registration + cleanup
 //
-// 模式与 Confirmable 一致：在 execTools 中通过 type assertion 检测。
+// The pattern is the same as Confirmable: detection happens in execTools via type assertion.
 type AsyncTool interface {
 	Tool
-	// ExecuteAsync 返回异步执行意图，不启动 goroutine。
-	// 框架负责：组装 asyncTurnState → 注册到 Agent → 启动 goroutine → 监听结果。
+	// ExecuteAsync returns an asynchronous execution intent without starting a goroutine.
+	// The framework is responsible for assembling asyncTurnState → registering with the Agent → starting the goroutine → listening for results.
 	ExecuteAsync(ctx context.Context, args string) (*AsyncAction, error)
 }
 

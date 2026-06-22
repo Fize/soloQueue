@@ -9,7 +9,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// multiReplaceTool 对同一文件按顺序应用多段替换，原子落盘
+// multiReplaceTool applies multiple sequential replacements to a single file and writes atomically.
 //
 // Schema:
 //
@@ -21,12 +21,12 @@ import (
 //	  ]
 //	}
 //
-// 语义：
-//   - 所有 edit 在内存 string 上按顺序生效（第 N 个 edit 在第 N-1 的结果上执行）
-//   - 任一 edit 失败（0 匹配 / 歧义匹配 / old==new / old 空）→ 整体失败、文件不变
-//   - 通过所有 edit 后，一次性 atomicWrite 落盘
-//   - edits 数 > MaxReplaceEdits → ErrTooManyEdits
-//   - edits 为空 → ErrEmptyInput
+// Semantics:
+//   - All edits are applied in order to an in-memory string (the Nth edit runs on the result of the previous one).
+//   - Any failed edit (0 matches / ambiguous match / old==new / empty old string) aborts the whole operation and leaves the file unchanged.
+//   - After all edits succeed, the result is written once via atomicWrite.
+//   - edits count > MaxReplaceEdits → ErrTooManyEdits
+//   - edits empty → ErrEmptyInput
 type multiReplaceTool struct {
 	cfg    Config
 	logger *logger.Logger
@@ -166,7 +166,7 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 	return string(b), nil
 }
 
-// CheckConfirmation 实现 Confirmable：多段替换始终需要确认。
+// CheckConfirmation implements Confirmable: multi-edit replacements always require confirmation.
 func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
 	var a multiReplaceArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -175,10 +175,10 @@ func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Apply %d edit(s) to %q. Allow?", len(a.Edits), a.Path)
 }
 
-// ConfirmationOptions 实现 Confirmable：二元确认。
+// ConfirmationOptions implements Confirmable: binary confirmation.
 func (t *multiReplaceTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 Confirmable：无需修改 args。
+// ConfirmArgs implements Confirmable: no args modification needed.
 func (t *multiReplaceTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 	if choice != ChoiceApprove {
 		return original
@@ -186,7 +186,7 @@ func (t *multiReplaceTool) ConfirmArgs(original string, choice ConfirmChoice) st
 	return original
 }
 
-// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
 func (t *multiReplaceTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks

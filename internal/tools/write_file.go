@@ -11,20 +11,20 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// writeFileTool 原子写入单个文件
+// writeFileTool atomically writes a single file.
 //
 // Schema:
 //
 //	{
 //	  "path":"...",
 //	  "content":"...",
-//	  "overwrite":true   // 默认 true；false 时目标存在 → ErrFileExists
+//	  "overwrite":true   // default true; when false and the target exists → ErrFileExists
 //	}
 //
-// 安全：
-//   - 大小：len(content) > MaxWriteSize → ErrContentTooLarge
-//   - 父目录必须已存在（不自动 MkdirAll；避免 LLM 误造目录树）
-//   - 原子性：atomicWrite(tmp + rename)；失败无残留 tmp
+// Safety:
+//   - Size: len(content) > MaxWriteSize → ErrContentTooLarge
+//   - The parent directory must already exist (no automatic MkdirAll to avoid the LLM accidentally creating directory trees)
+//   - Atomicity: atomicWrite(tmp + rename); failures leave no temporary file behind.
 type writeFileTool struct {
 	cfg    Config
 	logger *logger.Logger
@@ -58,7 +58,7 @@ func (writeFileTool) Parameters() json.RawMessage {
 type writeFileArgs struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
-	// Overwrite 用指针以区分 "字段缺失（默认 true）" vs "显式传 false"
+	// Overwrite is a pointer so we can distinguish "field missing (default true)" from "explicit false"
 	Overwrite *bool `json:"overwrite,omitempty"`
 }
 
@@ -98,7 +98,7 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 	return result, nil
 }
 
-// writeFileImpl 是内部实现；multi_write 直接调用以保证语义一致
+// writeFileImpl is the internal implementation; multi_write calls it directly to keep semantics consistent.
 func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwrite bool) (string, error) {
 	abs, err := absPath(path)
 	if err != nil {
@@ -109,7 +109,7 @@ func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwr
 		return "", fmt.Errorf("%w: %d bytes > %d", ErrContentTooLarge, len(content), cfg.MaxWriteSize)
 	}
 
-	// 检查父目录是否存在
+	// Check whether the parent directory exists
 	dir := filepath.Dir(abs)
 	fi, err := cfg.Sandbox.Stat(ctx, dir)
 	if err != nil || !fi.IsDir {
@@ -145,7 +145,7 @@ func ensureDir(dir string) error {
 	return os.MkdirAll(dir, 0o755)
 }
 
-// CheckConfirmation 实现 Confirmable：写文件始终需要确认。
+// CheckConfirmation implements Confirmable: writing files always requires confirmation.
 func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 	var a writeFileArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -160,7 +160,7 @@ func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 				"raw_preview", preview,
 			)
 		}
-		// 尝试从 raw 中至少提取 path（JSON 前半截通常包含 path 字段）
+		// Try to extract at least the path from raw (the first half of the JSON usually contains it)
 		var partial struct {
 			Path string `json:"path"`
 		}
@@ -179,10 +179,10 @@ func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Write %s to %q. Allow?", sizeStr, a.Path)
 }
 
-// ConfirmationOptions 实现 Confirmable：二元确认。
+// ConfirmationOptions implements Confirmable: binary confirmation.
 func (t *writeFileTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 Confirmable：无需修改 args。
+// ConfirmArgs implements Confirmable: no args modification needed.
 func (t *writeFileTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 	if choice != ChoiceApprove {
 		return original
@@ -190,7 +190,7 @@ func (t *writeFileTool) ConfirmArgs(original string, choice ConfirmChoice) strin
 	return original
 }
 
-// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
 func (t *writeFileTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks

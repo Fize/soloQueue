@@ -10,16 +10,16 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// globTool 在目录下按 doublestar pattern 找文件
+// globTool finds files under a directory using a doublestar pattern.
 //
 // Schema:
 //
 //	{"pattern":"**/*.go", "dir":"..."}
 //
-// 行为：
-//   - 使用 doublestar.Glob(os.DirFS(dir), pattern)；支持 **、{}、? 等
-//   - 匹配数 > MaxGlobItems 时截断并返回 truncated=true
-//   - 返回路径**相对 dir**（用 "/" 分隔，跨平台一致）
+// Behavior:
+//   - Uses doublestar.Glob(os.DirFS(dir), pattern) and supports **, {}, and ? patterns.
+//   - If the match count exceeds MaxGlobItems, the result is truncated and truncated=true is returned.
+//   - Returns paths relative to dir (using "/" separators for cross-platform consistency).
 type globTool struct {
 	cfg    Config
 	logger *logger.Logger

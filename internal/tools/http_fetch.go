@@ -12,23 +12,22 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// httpFetchTool 对外发 HTTP GET；含 SSRF 防护
+// httpFetchTool performs outbound HTTP GET requests with SSRF protection.
 //
 // Schema:
 //
 //	{
 //	  "url":"https://example.com/...",
-//	  "headers":{"Accept":"application/json"}   // 可选
+//	  "headers":{"Accept":"application/json"}   // optional
 //	}
 //
-// 安全：
-//   - scheme 仅 http / https；其余 → ErrSchemeNotAllowed
-//   - URL 含 userinfo@（credentials）→ 拒绝
-//   - 若 HTTPAllowedHosts 非空，host 必须命中之一（否则 ErrHostNotAllowed）
-//   - HTTPBlockPrivate=true 时：DNS 查 host；若任一 IP 是私有/环回/链路本地
-//     → ErrPrivateAddress（DNS rebinding 简化防护：仅检查一次）
-//   - body size 用 http.MaxBytesReader 限 HTTPMaxBody
-//   - 超时：HTTPTimeout（优先）或 ctx deadline
+// Security behavior:
+//   - Only http/https schemes are allowed; others return ErrSchemeNotAllowed.
+//   - URLs containing userinfo@ credentials are rejected.
+//   - If HTTPAllowedHosts is non-empty, the host must match one of them or ErrHostNotAllowed is returned.
+//   - When HTTPBlockPrivate=true, the host is resolved via DNS and any IP that is private, loopback, or link-local returns ErrPrivateAddress (a simplified DNS rebinding protection check).
+//   - Body size is limited via http.MaxBytesReader using HTTPMaxBody.
+//   - Timeout uses HTTPTimeout first, or the context deadline if present.
 type httpFetchTool struct {
 	cfg    Config
 	logger *logger.Logger
@@ -202,10 +201,10 @@ func (t *httpFetchTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("HTTP GET %q. Allow?", a.URL)
 }
 
-// ConfirmationOptions 实现 Confirmable：二元确认。
+// ConfirmationOptions implements Confirmable: binary confirmation.
 func (t *httpFetchTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 Confirmable：无需修改 args。
+// ConfirmArgs implements Confirmable: no args modification needed.
 func (t *httpFetchTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 	if choice != ChoiceApprove {
 		return original
@@ -213,7 +212,7 @@ func (t *httpFetchTool) ConfirmArgs(original string, choice ConfirmChoice) strin
 	return original
 }
 
-// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
 func (t *httpFetchTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
