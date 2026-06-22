@@ -29,9 +29,12 @@ export function SimulationListPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [simHours, setSimHours] = useState(168)
+  const [simHours, setSimHours] = useState(48)
   const [enableReflection, setEnableReflection] = useState(true)
-  const [dbPath, setDbPath] = useState('')
+  const [timeScale, setTimeScale] = useState(600)
+  const [tickIntervalMs, setTickIntervalMs] = useState(500)
+  const [language, setLanguage] = useState('zh')
+  const [maxWallClockMs, setMaxWallClockMs] = useState(18 * 60 * 1000)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -50,11 +53,15 @@ export function SimulationListPage() {
       const simRes = await fetch('/api/config/simulation')
       if (simRes.ok) {
         const simData = await simRes.json()
-        if (simData.dbPath !== undefined) setDbPath(simData.dbPath)
         if (simData.enableReflection !== undefined) setEnableReflection(simData.enableReflection)
         if (simData.simulatedHours !== undefined) setSimHours(simData.simulatedHours)
         if (simData.defaultModelId !== undefined) setSelectedModel(simData.defaultModelId)
         if (simData.defaultProviderId !== undefined) setSelectedProvider(simData.defaultProviderId)
+        if (simData.timeScale !== undefined) setTimeScale(simData.timeScale)
+        if (simData.tickIntervalMs !== undefined) setTickIntervalMs(simData.tickIntervalMs)
+        if (simData.language !== undefined) setLanguage(simData.language)
+        if (simData.defaultMaxWallClockMs !== undefined)
+          setMaxWallClockMs(simData.defaultMaxWallClockMs)
       }
     } catch (err) {
       console.error('Failed to load LLM configs', err)
@@ -136,25 +143,6 @@ export function SimulationListPage() {
       setCreating(true)
       setCreateError(null)
 
-      // Save global simulation settings first (model/provider + other defaults)
-      try {
-        await fetch('/api/config/simulation', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dbPath: dbPath,
-            enableReflection: enableReflection,
-            simulatedHours: simHours,
-            defaultMaxWallClockMs: 18 * 60 * 1000,
-            defaultModelId: selectedModel || undefined,
-            defaultProviderId: selectedProvider || undefined,
-          }),
-        })
-      } catch (err) {
-        console.error('Failed to update simulation config before launch', err)
-        toast.error('Failed to update simulation config')
-      }
-
       const res = await fetch('/api/simulations/from-seed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,11 +152,12 @@ export function SimulationListPage() {
           persona_count: 0, // auto-detect
           model_id: selectedModel || undefined,
           provider_id: selectedProvider || undefined,
-          max_wall_clock_ms: 18 * 60 * 1000,
-          simulated_hours: simHours || undefined,
-          time_scale: 600,
-          tick_interval_ms: 500,
+          max_wall_clock_ms: maxWallClockMs > 0 ? maxWallClockMs : undefined,
+          simulated_hours: simHours > 0 ? simHours : undefined,
+          time_scale: timeScale,
+          tick_interval_ms: tickIntervalMs,
           enable_reflection: enableReflection || undefined,
+          language: language,
         }),
       })
 
@@ -330,7 +319,9 @@ export function SimulationListPage() {
                             options={[
                               { value: '', label: '(Default Fast Model)' },
                               ...models
-                                .filter((m) => !selectedProvider || m.providerId === selectedProvider)
+                                .filter(
+                                  (m) => !selectedProvider || m.providerId === selectedProvider
+                                )
                                 .map((m) => ({
                                   value: m.id,
                                   label: m.name,

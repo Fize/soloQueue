@@ -131,10 +131,10 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
             {/* Iteration + Task Level — only shown during active processing or locked */}
             {activeAgent &&
               (activeAgent.iteration !== undefined || activeAgent.task_level || isLocked) && (
-                <div className="pt-3 border-t border-border/20 grid grid-cols-2 gap-4">
+                <div className="pt-3 border-t border-border/20 flex flex-wrap items-start gap-x-6 gap-y-3">
                   {activeAgent.iteration !== undefined && (
                     <div className="space-y-1">
-                      <span className="text-[10px] font-semibold text-muted-foreground/60">
+                      <span className="text-[10px] font-semibold text-muted-foreground/60 block">
                         Iteration
                       </span>
                       <div className="font-mono text-xs font-semibold text-violet-500 bg-violet-500/10 px-2.5 py-1 rounded-lg border border-violet-500/20 w-fit min-w-[50px] text-center">
@@ -143,13 +143,18 @@ export function L2SessionStatusPanel({ session, activeAgent }: L2SessionStatusPa
                     </div>
                   )}
                   {(activeAgent.task_level || isLocked) && (
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-semibold text-muted-foreground/60">
+                    <div className="space-y-1 min-w-0">
+                      <span className="text-[10px] font-semibold text-muted-foreground/60 block">
                         Task Level
                       </span>
-                      <div className="font-mono text-xs font-semibold text-foreground bg-muted/40 px-2.5 py-1 rounded-lg border border-border/10 w-fit capitalize flex items-center gap-1.5">
-                        {isLocked && <Lock className="h-3 w-3 text-amber-400" />}
-                        {activeAgent.task_level || activeAgent.last_level || '—'}
+                      <div className="font-mono text-xs font-semibold text-foreground bg-muted/40 px-2.5 py-1 rounded-lg border border-border/10 w-fit max-w-full capitalize flex items-center gap-1.5">
+                        {isLocked && <Lock className="h-3 w-3 text-amber-400 shrink-0" />}
+                        <span
+                          className="truncate"
+                          title={activeAgent.task_level || activeAgent.last_level || undefined}
+                        >
+                          {activeAgent.task_level || activeAgent.last_level || '—'}
+                        </span>
                       </div>
                     </div>
                   )}

@@ -40,6 +40,7 @@ type SimulationConfig struct {
 	SimulatedHours         int   `json:"simulatedHours" toml:"simulated_hours,omitempty"`
 	TickIntervalMs         int   `json:"tickIntervalMs" toml:"tick_interval_ms,omitempty"`
 	TimeScale              int   `json:"timeScale" toml:"time_scale,omitempty"`
+	Language               string `json:"language" toml:"language,omitempty"`
 }
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────

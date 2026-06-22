@@ -196,7 +196,7 @@ func TestSyncRemoteSkills_NoUpdates(t *testing.T) {
 	userDir := filepath.Join(workDir, "user-skills")
 	_ = os.MkdirAll(userDir, 0o755)
 
-	err := SyncRemoteSkills(context.Background(), workDir, userDir, nil, nil)
+	err := SyncRemoteSkills(context.Background(), workDir, userDir, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("SyncRemoteSkills with no remote skills failed: %v", err)
 	}

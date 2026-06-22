@@ -29,9 +29,10 @@ func (pg *PlanGenerator) GenerateDailyPlan(
 	persona *Persona,
 	env *Environment,
 	clock *SimClock,
+	language string,
 ) (*DailyPlan, error) {
 	now := clock.Now()
-	prompt := buildPlanGenerationPrompt(persona, env, now)
+	prompt := buildPlanGenerationPrompt(persona, env, now, language)
 
 	resp, err := pg.llm.Chat(ctx, agent.LLMRequest{
 		Model:        pg.model,
@@ -59,9 +60,10 @@ func (pg *PlanGenerator) RevisePlan(
 	currentPlan *DailyPlan,
 	observations []Observation,
 	clock *SimClock,
+	language string,
 ) (*DailyPlan, error) {
 	now := clock.Now()
-	prompt := buildPlanRevisionPrompt(persona, currentPlan, observations, now)
+	prompt := buildPlanRevisionPrompt(persona, currentPlan, observations, now, language)
 
 	resp, err := pg.llm.Chat(ctx, agent.LLMRequest{
 		Model:        pg.model,
@@ -124,17 +126,34 @@ func (dp *DailyPlan) NextPendingActivity(now time.Time) *PlanItem {
 }
 
 // FormatForPrompt renders the plan as markdown for system prompt injection.
-func (dp *DailyPlan) FormatForPrompt(now time.Time) string {
+func (dp *DailyPlan) FormatForPrompt(now time.Time, language string) string {
 	var b strings.Builder
-	b.WriteString("## Your Daily Schedule\n\n")
-	b.WriteString("| Time | Activity | Location | Status |\n")
-	b.WriteString("|------|----------|----------|--------|\n")
+	if language == "zh" {
+		b.WriteString("## 你的每日日程\n\n")
+		b.WriteString("| 时间 | 活动 | 地点 | 状态 |\n")
+		b.WriteString("|------|------|------|------|\n")
+	} else {
+		b.WriteString("## Your Daily Schedule\n\n")
+		b.WriteString("| Time | Activity | Location | Status |\n")
+		b.WriteString("|------|----------|----------|--------|\n")
+	}
 
 	for _, item := range dp.Schedule {
 		timeRange := fmt.Sprintf("%s-%s", item.StartTime.Format("15:04"), item.EndTime.Format("15:04"))
 		if item.Status == "pending" && !item.StartTime.After(now) && now.Before(item.EndTime) {
 			item.Status = "in_progress"
 		}
+		
+		statusStr := item.Status
+		if language == "zh" {
+			statusStr = map[string]string{
+				"pending":     "等待中",
+				"in_progress": "进行中",
+				"completed":   "已完成",
+				"cancelled":   "已取消",
+			}[item.Status]
+		}
+		
 		statusIcon := map[string]string{
 			"pending":    "⏳",
 			"in_progress": "▶️",
@@ -144,17 +163,21 @@ func (dp *DailyPlan) FormatForPrompt(now time.Time) string {
 		if statusIcon == "" {
 			statusIcon = item.Status
 		}
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", timeRange, item.Activity, item.Location, statusIcon))
+		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s %s |\n", timeRange, item.Activity, item.Location, statusIcon, statusStr))
 	}
 
 	if current := dp.GetCurrentActivity(now); current != nil {
-		b.WriteString(fmt.Sprintf("\n**Current activity**: %s at %s. %s\n", current.Activity, current.Location, current.Description))
+		if language == "zh" {
+			b.WriteString(fmt.Sprintf("\n**当前活动**: %s，在 %s。%s\n", current.Activity, current.Location, current.Description))
+		} else {
+			b.WriteString(fmt.Sprintf("\n**Current activity**: %s at %s. %s\n", current.Activity, current.Location, current.Description))
+		}
 	}
 
 	return b.String()
 }
 
-func buildPlanGenerationPrompt(persona *Persona, env *Environment, now time.Time) string {
+func buildPlanGenerationPrompt(persona *Persona, env *Environment, now time.Time, language string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Generate a daily schedule for the following person.\n\n"))
 
@@ -190,18 +213,22 @@ func buildPlanGenerationPrompt(persona *Persona, env *Environment, now time.Time
 	b.WriteString("- Place yourself in locations where you might encounter others\n")
 	b.WriteString("- Allow time for spontaneous interactions\n")
 
+	if language == "zh" {
+		b.WriteString("\nIMPORTANT: Since the simulation language is Chinese, you MUST generate the daily schedule using Chinese. All activities and descriptions must be in Chinese. The location must match the exact available zone names provided.\n")
+	}
+
 	b.WriteString("\nOutput ONLY valid JSON:\n")
 	b.WriteString(`{"schedule": [{"start_time": "07:00", "end_time": "07:30", "activity": "Morning routine", "location": "home", "description": "Wake up and get ready."}]}`)
 
 	return b.String()
 }
 
-func buildPlanRevisionPrompt(persona *Persona, plan *DailyPlan, observations []Observation, now time.Time) string {
+func buildPlanRevisionPrompt(persona *Persona, plan *DailyPlan, observations []Observation, now time.Time, language string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("You are %s. Your current plan was disrupted or needs adjustment.\n\n", persona.Name))
 
 	b.WriteString("Current plan:\n")
-	b.WriteString(plan.FormatForPrompt(now))
+	b.WriteString(plan.FormatForPrompt(now, language))
 	b.WriteString("\n")
 
 	b.WriteString("Recent observations:\n")
@@ -211,6 +238,9 @@ func buildPlanRevisionPrompt(persona *Persona, plan *DailyPlan, observations []O
 	b.WriteString("\n")
 
 	b.WriteString(fmt.Sprintf("Current time: %s. Revise your remaining schedule (keep completed items).\n", now.Format("15:04")))
+	if language == "zh" {
+		b.WriteString("IMPORTANT: Since the simulation language is Chinese, you MUST generate the revised schedule using Chinese.\n")
+	}
 	b.WriteString("Output ONLY valid JSON with the revised schedule.\n")
 
 	return b.String()

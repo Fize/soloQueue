@@ -283,3 +283,47 @@ You can also update how you feel about another person:
    kind options: friend, rival, colleague, mentor, mentee, neighbor, sibling, stranger
    affinity: -1.0 to 1.0 (use + or - prefix for relative change)`
 }
+
+// FormatActionsForPromptInLanguage generates the action syntax documentation in the target language.
+func FormatActionsForPromptInLanguage(lang string) string {
+	if lang == "zh" {
+		return `## 可用动作
+在每次回复中，你只能选择执行以下**一个**动作：
+
+1. 发言（对你当前区域内的所有人广播）：
+   [SAY]: 发言内容。
+
+2. 与特定的人说话（私聊）：
+   [SAY @agent_name]: 私聊发言内容。
+
+3. 移动到另一个区域：
+   [MOVE zone_name]
+
+4. 与物体互动：
+   [INTERACT object_name]: 互动动作描述
+
+5. 等待一段时间：
+   [WAIT 30m]
+
+6. 本轮不采取任何行动：
+   [PASS]
+
+你也可以向共享的世界状态（world state）提议变更：
+   [PROPOSE key]: value
+
+特殊的生命周期动作（极其谨慎使用）：
+7. 在世界中生成（召唤）一个新角色：
+   [SPAWN character_name]: 简要描述他们是谁以及为什么需要他们
+
+8. 永久离开仿真（你的角色故事已完成）：
+   [DIE]
+
+重要提示：[SPAWN] 和 [DIE] 是永久性的，无法撤销。只有在你的角色故事真正完整、或者你觉得无法再做出贡献时才使用 [DIE]。只有在确实需要一个没有的、全新视角的专业角色时才使用 [SPAWN]。
+
+你还可以更新对其他人的关系态度：
+   [RELATION name: kind=friend, affinity=+0.2, tags=reliable,trustworthy]
+   kind 选项: friend, rival, colleague, mentor, mentee, neighbor, sibling, stranger
+   affinity: -1.0 到 1.0 (使用 + 或 - 前缀表示相对变化)`
+	}
+	return FormatActionsForPrompt()
+}

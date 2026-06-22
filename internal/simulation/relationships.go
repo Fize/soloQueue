@@ -321,7 +321,7 @@ func ParseRelationshipUpdate(agentID, content string) []struct {
 
 // FormatForPrompt generates a relationship summary for prompt injection,
 // grouped by relationship kind for more natural reading.
-func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID map[string]string) string {
+func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID map[string]string, language string) string {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
 
@@ -351,11 +351,18 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 	}
 
 	if len(groups) == 0 && len(noKind) == 0 {
+		if language == "zh" {
+			return "## 我的社会关系\n（你目前还没有与任何人建立关系。）\n"
+		}
 		return "## My Relationships\n(You haven't formed relationships with anyone yet.)\n"
 	}
 
 	var b strings.Builder
-	b.WriteString("## My Relationships\n\n")
+	if language == "zh" {
+		b.WriteString("## 我的社会关系\n\n")
+	} else {
+		b.WriteString("## My Relationships\n\n")
+	}
 
 	// Family section
 	var familyRels []groupedRel
@@ -363,10 +370,14 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 		familyRels = append(familyRels, groups[kind]...)
 	}
 	if len(familyRels) > 0 {
-		b.WriteString("### Family\n")
+		if language == "zh" {
+			b.WriteString("### 家人\n")
+		} else {
+			b.WriteString("### Family\n")
+		}
 		for _, gr := range familyRels {
 			rel := gr.rel
-			desc := describeRelationship(rel)
+			desc := describeRelationshipInLanguage(rel, language)
 			b.WriteString(fmt.Sprintf("- %s: %s\n", gr.name, desc))
 		}
 		b.WriteString("\n")
@@ -374,10 +385,14 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 
 	// Friends
 	if friends := groups[RelationFriend]; len(friends) > 0 {
-		b.WriteString("### Friends\n")
+		if language == "zh" {
+			b.WriteString("### 朋友\n")
+		} else {
+			b.WriteString("### Friends\n")
+		}
 		for _, gr := range friends {
 			rel := gr.rel
-			desc := describeRelationship(rel)
+			desc := describeRelationshipInLanguage(rel, language)
 			b.WriteString(fmt.Sprintf("- %s: %s\n", gr.name, desc))
 		}
 		b.WriteString("\n")
@@ -385,10 +400,14 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 
 	// Rivals
 	if rivals := groups[RelationRival]; len(rivals) > 0 {
-		b.WriteString("### Rivals\n")
+		if language == "zh" {
+			b.WriteString("### 对手\n")
+		} else {
+			b.WriteString("### Rivals\n")
+		}
 		for _, gr := range rivals {
 			rel := gr.rel
-			desc := describeRelationship(rel)
+			desc := describeRelationshipInLanguage(rel, language)
 			b.WriteString(fmt.Sprintf("- %s: %s\n", gr.name, desc))
 		}
 		b.WriteString("\n")
@@ -400,10 +419,14 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 		profRels = append(profRels, groups[kind]...)
 	}
 	if len(profRels) > 0 {
-		b.WriteString("### Professional\n")
+		if language == "zh" {
+			b.WriteString("### 职业关系\n")
+		} else {
+			b.WriteString("### Professional\n")
+		}
 		for _, gr := range profRels {
 			rel := gr.rel
-			desc := describeRelationship(rel)
+			desc := describeRelationshipInLanguage(rel, language)
 			b.WriteString(fmt.Sprintf("- %s: %s\n", gr.name, desc))
 		}
 		b.WriteString("\n")
@@ -411,10 +434,14 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 
 	// Neighbors
 	if neighbors := groups[RelationNeighbor]; len(neighbors) > 0 {
-		b.WriteString("### Neighbors\n")
+		if language == "zh" {
+			b.WriteString("### 邻居\n")
+		} else {
+			b.WriteString("### Neighbors\n")
+		}
 		for _, gr := range neighbors {
 			rel := gr.rel
-			desc := describeRelationship(rel)
+			desc := describeRelationshipInLanguage(rel, language)
 			b.WriteString(fmt.Sprintf("- %s: %s\n", gr.name, desc))
 		}
 		b.WriteString("\n")
@@ -422,12 +449,20 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 
 	// Acquaintances (no kind / stranger)
 	if len(noKind) > 0 {
-		b.WriteString("### Acquaintances\n")
+		if language == "zh" {
+			b.WriteString("### 熟人\n")
+		} else {
+			b.WriteString("### Acquaintances\n")
+		}
 		for _, gr := range noKind {
 			rel := gr.rel
 			b.WriteString(fmt.Sprintf("- %s", gr.name))
 			if rel.Familiarity > 0 {
-				b.WriteString(fmt.Sprintf(" (familiarity: %.0f%%)", rel.Familiarity*100))
+				if language == "zh" {
+					b.WriteString(fmt.Sprintf(" (熟悉度: %.0f%%)", rel.Familiarity*100))
+				} else {
+					b.WriteString(fmt.Sprintf(" (familiarity: %.0f%%)", rel.Familiarity*100))
+				}
 			}
 			b.WriteString("\n")
 		}
@@ -435,6 +470,57 @@ func (rm *RelationshipManager) FormatForPrompt(agentID string, personaNameByID m
 	}
 
 	return b.String()
+}
+
+func describeRelationshipInLanguage(rel *AgentRelationship, lang string) string {
+	if lang != "zh" {
+		return describeRelationship(rel)
+	}
+
+	var parts []string
+
+	if rel.Familiarity >= 0.8 {
+		parts = append(parts, "亲密")
+	} else if rel.Familiarity >= 0.5 {
+		parts = append(parts, "熟悉")
+	} else if rel.Familiarity <= 0.2 {
+		parts = append(parts, "疏远")
+	}
+
+	if rel.Affinity >= 0.5 {
+		parts = append(parts, "热情")
+	} else if rel.Affinity <= -0.3 {
+		parts = append(parts, "冷淡")
+	}
+
+	// Add kind-specific descriptors
+	switch rel.Kind {
+	case RelationSibling:
+		if len(parts) == 0 {
+			parts = append(parts, "兄弟姐妹")
+		}
+	case RelationSpouse:
+		if len(parts) == 0 {
+			parts = append(parts, "配偶")
+		}
+	}
+
+	// Add custom tags (excluding the kind tag)
+	var customTags []string
+	kindStr := string(rel.Kind)
+	for _, t := range rel.Tags {
+		if t != kindStr {
+			customTags = append(customTags, t)
+		}
+	}
+	if len(customTags) > 0 {
+		parts = append(parts, strings.Join(customTags, ", "))
+	}
+
+	if len(parts) == 0 {
+		return "熟人"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // describeRelationship creates a human-readable description of a relationship.

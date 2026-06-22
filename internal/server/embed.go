@@ -15,3 +15,8 @@ func distFS() fs.FS {
 	}
 	return f
 }
+
+// DistFS returns the embedded filesystem containing web assets and skills.
+func DistFS() fs.FS {
+	return distFS()
+}

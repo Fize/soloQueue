@@ -303,7 +303,7 @@ func (h *Hub) resolveSession(sessionID string) (*session.Session, error) {
 func (c *Client) sendJSON(msg WSMessage) (ok bool) {
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return true
+		return false
 	}
 	defer func() {
 		if recover() != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -219,7 +220,8 @@ func AutoUpdateLocalSkills(workDir, userSkillsDir string, catalogDirs []string) 
 }
 
 // SyncRemoteSkills performs remote sync for Git-linked stub skills.
-func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *SkillRegistry, log *logger.Logger) error {
+// It checks both local installed skills and embedded skills for upstream information.
+func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *SkillRegistry, log *logger.Logger, embeddedFS fs.FS) error {
 	if userSkillsDir == "" {
 		return nil
 	}
@@ -234,10 +236,39 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 		return fmt.Errorf("failed to load installed skills: %w", err)
 	}
 
+	// Load embedded skills to get upstream information
+	embeddedSkills := make(map[string]*Skill)
+	if embeddedFS != nil {
+		if embedded, err := LoadSkillsFromFS(embeddedFS, "skills"); err == nil {
+			for _, s := range embedded {
+				embeddedSkills[s.ID] = s
+			}
+		}
+	}
+
 	var toSync []*Skill
 	for _, s := range installed {
-		if s.Upstream != "" && cfg.AutoUpdate[s.ID] {
-			toSync = append(toSync, s)
+		// Check if local skill has upstream, or if embedded version has upstream
+		upstream := s.Upstream
+		branch := s.Branch
+		subPath := s.SubPath
+		
+		if upstream == "" {
+			// Try to get upstream from embedded skill
+			if embedded, ok := embeddedSkills[s.ID]; ok && embedded.Upstream != "" {
+				upstream = embedded.Upstream
+				branch = embedded.Branch
+				subPath = embedded.SubPath
+			}
+		}
+
+		if upstream != "" && cfg.AutoUpdate[s.ID] {
+			// Create a copy with the correct upstream info
+			syncSkill := *s
+			syncSkill.Upstream = upstream
+			syncSkill.Branch = branch
+			syncSkill.SubPath = subPath
+			toSync = append(toSync, &syncSkill)
 		}
 	}
 
@@ -368,7 +399,7 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 }
 
 // StartRemoteSkillsSyncLoop starts a background loop to sync remote skills periodically.
-func StartRemoteSkillsSyncLoop(ctx context.Context, workDir, userSkillsDir string, reg *SkillRegistry, log *logger.Logger, interval time.Duration) {
+func StartRemoteSkillsSyncLoop(ctx context.Context, workDir, userSkillsDir string, reg *SkillRegistry, log *logger.Logger, interval time.Duration, embeddedFS fs.FS) {
 	// Sync immediately on start
 	go func() {
 		select {
@@ -377,7 +408,7 @@ func StartRemoteSkillsSyncLoop(ctx context.Context, workDir, userSkillsDir strin
 		case <-time.After(5 * time.Second):
 		}
 
-		if err := SyncRemoteSkills(ctx, workDir, userSkillsDir, reg, log); err != nil {
+		if err := SyncRemoteSkills(ctx, workDir, userSkillsDir, reg, log, embeddedFS); err != nil {
 			log.Warn(logger.CatApp, "initial remote skill sync failed", "err", err.Error())
 		}
 	}()
@@ -390,7 +421,7 @@ func StartRemoteSkillsSyncLoop(ctx context.Context, workDir, userSkillsDir strin
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := SyncRemoteSkills(ctx, workDir, userSkillsDir, reg, log); err != nil {
+				if err := SyncRemoteSkills(ctx, workDir, userSkillsDir, reg, log, embeddedFS); err != nil {
 					log.Warn(logger.CatApp, "remote skill sync failed", "err", err.Error())
 				}
 			}

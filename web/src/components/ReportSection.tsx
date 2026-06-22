@@ -12,9 +12,7 @@ interface ReportSectionProps {
 export function ReportSection({ report, topic, onInterview }: ReportSectionProps) {
   const [showInterview, setShowInterview] = useState(false)
   const [question, setQuestion] = useState('')
-  const [chatHistory, setChatHistory] = useState<
-    { q: string; a: string; loading?: boolean }[]
-  >([])
+  const [chatHistory, setChatHistory] = useState<{ q: string; a: string; loading?: boolean }[]>([])
   const [interviewing, setInterviewing] = useState(false)
 
   const handleSend = async (e: React.FormEvent) => {
@@ -102,9 +100,7 @@ export function ReportSection({ report, topic, onInterview }: ReportSectionProps
                           </div>
                         ) : (
                           <div className="prose prose-sm dark:prose-invert max-w-none">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {chat.a}
-                            </ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{chat.a}</ReactMarkdown>
                           </div>
                         )}
                       </div>

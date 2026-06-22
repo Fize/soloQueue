@@ -170,7 +170,10 @@ func DefaultSettings() Settings {
 		Simulation: SimulationConfig{
 			DefaultMaxWallClockMs: 1080000,
 			EnableReflection:      true,
-			SimulatedHours:        168,
+			SimulatedHours:        48,
+			TickIntervalMs:        500,
+			TimeScale:             600,
+			Language:              "zh",
 		},
 	}
 }

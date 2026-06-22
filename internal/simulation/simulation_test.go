@@ -381,7 +381,7 @@ func TestBuildReportPrompt(t *testing.T) {
 	memories := map[string]*AgentMemory{"alice": mem1, "bob": mem2}
 	graph := NewRelationGraph()
 	graph.AddEdge("alice", "bob", RelRebuttal, 1, "I disagree")
-	prompt := BuildReportPrompt("Test", memories, graph, ws, "")
+	prompt := BuildReportPrompt("Test", memories, graph, ws, "", "en")
 
 	if !strings.Contains(prompt, "alice") {
 		t.Error("should contain agent id")
@@ -678,7 +678,7 @@ func TestBuildReplayPrompt(t *testing.T) {
 		{Round: 2, Role: "assistant", Content: "But safety matters more."},
 	}
 
-	prompt := BuildReplayPrompt(persona, "Rust vs Go", records, "What do you think now?")
+	prompt := BuildReplayPrompt(persona, "Rust vs Go", records, "What do you think now?", "en")
 	if !strings.Contains(prompt, "Alice") {
 		t.Error("expected prompt to contain persona name")
 	}
@@ -1034,6 +1034,7 @@ func TestReplayAsk_ReportAgent(t *testing.T) {
 		ID:       simID,
 		Topic:    "Topic A",
 		Personas: []Persona{{ID: "alice", Name: "Alice"}, {ID: "bob", Name: "Bob"}},
+		Language: "en",
 	})
 	if err != nil {
 		t.Fatalf("failed to create sim state: %v", err)

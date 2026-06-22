@@ -190,6 +190,7 @@ export interface SimulationConfig {
   time_scale?: number
   enable_reflection?: boolean
   initial_relationships?: InitialRelationship[]
+  language?: string
 }
 
 export interface SimulationMessage {

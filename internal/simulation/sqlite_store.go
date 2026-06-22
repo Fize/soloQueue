@@ -99,6 +99,7 @@ func (s *SQLiteStore) migrate() error {
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN time_scale INTEGER NOT NULL DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN enable_reflection INTEGER NOT NULL DEFAULT 0")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN graph_json TEXT NOT NULL DEFAULT '{}'")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN language TEXT NOT NULL DEFAULT 'zh'")
 
 	return nil
 }
@@ -137,9 +138,9 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 	gj, _ := json.Marshal(initialGraph)
 
 	s.mu.Lock()
-	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json)
-		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxWallClockMs, config.SimulatedHours, config.TickIntervalMs, config.TimeScale, boolToInt(config.EnableReflection), string(gj))
+	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json, language)
+		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxWallClockMs, config.SimulatedHours, config.TickIntervalMs, config.TimeScale, boolToInt(config.EnableReflection), string(gj), config.Language)
 	s.mu.Unlock()
 
 	if err != nil {
@@ -150,17 +151,17 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 
 func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 	var (
-		topic, desc, mode, pj, wsj, report, errMsg, status, graphJSON string
+		topic, desc, mode, pj, wsj, report, errMsg, status, graphJSON, language string
 		currentRound, totalActions, maxWallClockMs, simulatedHours, tickIntervalMs, timeScale, enableReflection int
 		startedAt, completedAt, createdAt                    sql.NullString
 	)
 	err := s.db.QueryRow(`SELECT topic, description, mode, personas_json, world_state_json,
 		status, report, error_msg, current_round, total_actions,
-		started_at, completed_at, created_at, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json
+		started_at, completed_at, created_at, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json, language
 		FROM simulations WHERE id = ?`, id).
 		Scan(&topic, &desc, &mode, &pj, &wsj, &status, &report, &errMsg,
 			&currentRound, &totalActions, &startedAt, &completedAt, &createdAt,
-			&maxWallClockMs, &simulatedHours, &tickIntervalMs, &timeScale, &enableReflection, &graphJSON)
+			&maxWallClockMs, &simulatedHours, &tickIntervalMs, &timeScale, &enableReflection, &graphJSON, &language)
 	if err == sql.ErrNoRows {
 		return nil, ErrSimNotFound
 	}
@@ -190,6 +191,7 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 			TickIntervalMs:  tickIntervalMs,
 			TimeScale:       timeScale,
 			EnableReflection: enableReflection != 0,
+			Language:        language,
 		},
 		Status:       SimulationStatus(status),
 		CurrentRound: currentRound,
@@ -287,10 +289,10 @@ func (s *SQLiteStore) Update(id string, state *SimulationState) error {
 
 	_, err := s.db.Exec(`UPDATE simulations SET status=?, world_state_json=?, report=?, error_msg=?,
 		current_round=?, started_at=?, completed_at=?, topic=?, description=?, personas_json=?,
-		max_wall_clock_ms=?, simulated_hours=?, tick_interval_ms=?, time_scale=?, enable_reflection=?, graph_json=? WHERE id=?`,
+		max_wall_clock_ms=?, simulated_hours=?, tick_interval_ms=?, time_scale=?, enable_reflection=?, graph_json=?, language=? WHERE id=?`,
 		string(state.Status), string(wsj), state.Report, state.Error,
 		state.CurrentRound, startedAt, completedAt, state.Config.Topic, state.Config.Description, string(pj),
-		state.Config.MaxWallClockMs, state.Config.SimulatedHours, state.Config.TickIntervalMs, state.Config.TimeScale, boolToInt(state.Config.EnableReflection), graphJSON, id)
+		state.Config.MaxWallClockMs, state.Config.SimulatedHours, state.Config.TickIntervalMs, state.Config.TimeScale, boolToInt(state.Config.EnableReflection), graphJSON, state.Config.Language, id)
 	return err
 }
 

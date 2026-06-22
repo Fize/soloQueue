@@ -32,6 +32,9 @@ type SimulationEngine struct {
 
 	subscribers   map[chan SimulationEvent]struct{}
 	subscribersMu sync.RWMutex
+
+	cancels   map[string]context.CancelFunc
+	cancelsMu sync.Mutex
 }
 
 // SimulationConfigFile mirrors the TOML config section.
@@ -40,6 +43,11 @@ type SimulationConfigFile struct {
 	DefaultProviderID     string `toml:"default_provider_id"`
 	DBPath                string `toml:"db_path,omitempty"`
 	DefaultMaxWallClockMs int    `toml:"default_max_wall_clock_ms"`
+	EnableReflection      bool   `toml:"enable_reflection"`
+	SimulatedHours        int    `toml:"simulated_hours"`
+	TickIntervalMs        int    `toml:"tick_interval_ms"`
+	TimeScale             int    `toml:"time_scale"`
+	Language              string `toml:"language"`
 }
 
 // NewSimulationEngine creates a new engine.
@@ -70,6 +78,7 @@ func NewSimulationEngine(
 		log:         log,
 		config:      cfg,
 		subscribers: make(map[chan SimulationEvent]struct{}),
+		cancels:     make(map[string]context.CancelFunc),
 	}
 }
 
@@ -109,6 +118,14 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 
 	events := make(chan SimulationEvent, 64)
 
+	simCtx, simCancel := context.WithCancel(ctx)
+	e.cancelsMu.Lock()
+	if e.cancels == nil {
+		e.cancels = make(map[string]context.CancelFunc)
+	}
+	e.cancels[simID] = simCancel
+	e.cancelsMu.Unlock()
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -134,7 +151,7 @@ func (e *SimulationEngine) Start(ctx context.Context, simID string) (<-chan Simu
 			close(events)
 		}()
 
-		e.runSimulation(ctx, state, events)
+		e.runSimulation(simCtx, state, events)
 		// Ensure fan-in goroutines have drained before closing events.
 		time.Sleep(200 * time.Millisecond)
 	}()
@@ -154,6 +171,14 @@ func (e *SimulationEngine) Stop(simID string) error {
 	}
 	state.Status = StatusCancelled
 	state.Unlock()
+
+	e.cancelsMu.Lock()
+	if cancel, exists := e.cancels[simID]; exists {
+		cancel()
+		delete(e.cancels, simID)
+	}
+	e.cancelsMu.Unlock()
+
 	if err := e.store.Update(simID, state); err != nil && e.log != nil {
 		e.log.Warn(logger.CatSimulation, "failed to persist cancelled status", "err", err.Error())
 	}
@@ -209,13 +234,14 @@ func (e *SimulationEngine) resolveModelID(modelID string) string {
 
 // CreateFromSeedOptions defines configuration overrides during seed-based simulation generation.
 type CreateFromSeedOptions struct {
-	ModelID         string `json:"model_id,omitempty"`
-	ProviderID      string `json:"provider_id,omitempty"`
-	MaxWallClockMs  int    `json:"max_wall_clock_ms,omitempty"`
-	SimulatedHours  int    `json:"simulated_hours,omitempty"`
-	TickIntervalMs  int    `json:"tick_interval_ms,omitempty"`
-	TimeScale       int    `json:"time_scale,omitempty"`
-	EnableReflection bool  `json:"enable_reflection,omitempty"`
+	ModelID          string `json:"model_id,omitempty"`
+	ProviderID       string `json:"provider_id,omitempty"`
+	MaxWallClockMs   int    `json:"max_wall_clock_ms,omitempty"`
+	SimulatedHours   int    `json:"simulated_hours,omitempty"`
+	TickIntervalMs   int    `json:"tick_interval_ms,omitempty"`
+	TimeScale        int    `json:"time_scale,omitempty"`
+	EnableReflection bool   `json:"enable_reflection,omitempty"`
+	Language         string `json:"language,omitempty"`
 }
 
 // CreateFromSeed extracts entities and generates personas from seed text,
@@ -296,12 +322,36 @@ func (e *SimulationEngine) CreateFromSeed(
 		genProvider = opts.ProviderID
 	}
 
+	// Resolve max_tokens from the model's generation config (DB-backed via ModelResolver)
+	modelCfgID := e.config.DefaultModelID
+	if opts.ModelID != "" {
+		modelCfgID = opts.ModelID
+	}
+	var maxTokens int
+	if e.resolveModel != nil {
+		info, err := e.resolveModel(modelCfgID)
+		if err == nil {
+			maxTokens = info.MaxTokens
+		}
+	}
+
+	lang := opts.Language
+	if lang == "" {
+		lang = e.config.Language
+	}
+	if lang == "" {
+		lang = "zh"
+	}
+
 	gen := NewPersonaGenerator(e.llm, genModel, genProvider, e.memoryEngine)
 	gen.SetLogger(e.log)
+	if maxTokens > 0 {
+		gen.SetMaxTokens(maxTokens)
+	}
 	if e.log != nil {
 		e.log.InfoContext(ctx, logger.CatSimulation, "create from seed: generating personas", "count", personaCount, "extracted_entities", len(extraction.Entities))
 	}
-	personas, err = gen.Generate(ctx, extraction, topic, personaCount)
+	personas, err = gen.Generate(ctx, extraction, topic, personaCount, lang)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("persona generation: %w", err)
 	}
@@ -321,30 +371,39 @@ func (e *SimulationEngine) CreateFromSeed(
 		maxWallClockMs = opts.MaxWallClockMs
 	}
 
-	simulatedHours := 168
+	simulatedHours := 48
 	if opts.SimulatedHours > 0 {
 		simulatedHours = opts.SimulatedHours
+	} else if e.config.SimulatedHours > 0 {
+		simulatedHours = e.config.SimulatedHours
 	}
+
 	tickIntervalMs := 500
 	if opts.TickIntervalMs > 0 {
 		tickIntervalMs = opts.TickIntervalMs
+	} else if e.config.TickIntervalMs > 0 {
+		tickIntervalMs = e.config.TickIntervalMs
 	}
+
 	timeScale := 600
 	if opts.TimeScale > 0 {
 		timeScale = opts.TimeScale
+	} else if e.config.TimeScale > 0 {
+		timeScale = e.config.TimeScale
 	}
 
 	// Step 3: Create the simulation
 	config := SimulationConfig{
-		Topic:           topic,
-		Personas:        personas,
-		WorldState:      extraction.WorldState,
-		MaxWallClockMs:  maxWallClockMs,
-		SimulatedHours:  simulatedHours,
-		TickIntervalMs:  tickIntervalMs,
-		TimeScale:       timeScale,
+		Topic:            topic,
+		Personas:         personas,
+		WorldState:       extraction.WorldState,
+		MaxWallClockMs:   maxWallClockMs,
+		SimulatedHours:   simulatedHours,
+		TickIntervalMs:   tickIntervalMs,
+		TimeScale:        timeScale,
 		EnableReflection: opts.EnableReflection,
-			LifecycleEvents: extraction.LifecycleEvents,
+		LifecycleEvents:  extraction.LifecycleEvents,
+		Language:         lang,
 	}
 
 	// Step 3a: Carry initial relationships from seed extraction
@@ -489,7 +548,7 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 		if report == "" {
 			return "", fmt.Errorf("no report found for simulation %s", simID)
 		}
-		prompt := BuildReportAnalystPrompt(state.Config.Topic, report, question)
+		prompt := BuildReportAnalystPrompt(state.Config.Topic, report, question, state.Config.Language)
 		if e.llm == nil {
 			return "", fmt.Errorf("no LLM client configured for replay")
 		}
@@ -526,13 +585,13 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 	}
 
 	// Build follow-up prompt
-	prompt := BuildReplayPrompt(persona, state.Config.Topic, records, question)
+	prompt := BuildReplayPrompt(persona, state.Config.Topic, records, question, state.Config.Language)
 
 	if e.llm == nil {
 		return "", fmt.Errorf("no LLM client configured for replay")
 	}
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
-		Model:      e.config.DefaultModelID,
+		Model:      e.resolveModelID(e.config.DefaultModelID),
 		ProviderID: e.config.DefaultProviderID,
 		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
 	})
@@ -745,6 +804,11 @@ func (e *SimulationEngine) emit(events chan SimulationEvent, ev SimulationEvent)
 // runSimulation executes the Generative-Agents simulation.
 func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationState, events chan SimulationEvent) {
 	simID := state.RunID
+	defer func() {
+		e.cancelsMu.Lock()
+		delete(e.cancels, simID)
+		e.cancelsMu.Unlock()
+	}()
 	config := state.Config
 
 	if e.llm == nil {
@@ -843,7 +907,7 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	agentPlans := make(map[string]*DailyPlan)
 	for _, sa := range simAgents {
 		persona := sa.Persona()
-		plan, err := planGen.GenerateDailyPlan(ctx, persona, env, clock)
+		plan, err := planGen.GenerateDailyPlan(ctx, persona, env, clock, config.Language)
 		if err != nil && e.log != nil {
 			e.log.WarnContext(ctx, logger.CatSimulation, "plan generation failed, using default",
 				"agent_id", persona.ID, "err", err.Error())
@@ -860,7 +924,7 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	for _, sa := range simAgents {
 		persona := sa.Persona()
 		plan := agentPlans[persona.ID]
-		systemPrompt := BuildGenerativeAgentSystemPrompt(*persona, config.Personas, env, plan, relationshipMgr, nil, nameByID, clock)
+		systemPrompt := BuildGenerativeAgentSystemPrompt(config.Language, *persona, config.Personas, env, plan, relationshipMgr, nil, nameByID, clock)
 		sa.ClearCW(systemPrompt)
 	}
 
@@ -878,6 +942,7 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 			sa, env, bus, clock, planGen, relationshipMgr,
 			e.memoryEngine, reflectionEng, dialogueMgr,
 			state.WorldState, nameByID, config.Personas, e.log,
+			config.Language,
 		)
 		loop.plan = agentPlans[persona.ID]
 		lifecycleMgr.registerLoop(persona.ID, loop)
@@ -999,6 +1064,7 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 
 	select {
 	case <-ctx.Done():
+	case <-loopCtx.Done():
 	case <-time.After(timeout):
 	}
 	close(simHoursDone)
@@ -1041,6 +1107,9 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	// Index to KG
 	e.indexSimulationToKG(ctx, simID, config.Topic, simAgents, graph, state.WorldState, report)
 
+	// Persist agent memories
+	e.persistAgentMemories(simID, simAgents)
+
 	// Export final relationships state
 	state.Lock()
 	state.Relationships = relationshipMgr.AllRelationships(nameByID)
@@ -1061,6 +1130,9 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	now := time.Now()
 	state.CompletedAt = &now
 	state.Unlock()
+
+	// Persist final simulation rounds and results
+	e.maybePersist(state)
 
 	if err := e.store.Update(simID, state); err != nil && e.log != nil {
 		e.log.Warn(logger.CatSimulation, "failed to persist final simulation state", "err", err.Error())
@@ -1293,7 +1365,7 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 
 	kgContext := e.buildKGReportContext(ctx)
 
-	prompt := BuildReportPrompt(config.Topic, memories, graph, ws, kgContext)
+	prompt := BuildReportPrompt(config.Topic, memories, graph, ws, kgContext, config.Language)
 
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
 		Model:      e.resolveModelID(e.config.DefaultModelID),

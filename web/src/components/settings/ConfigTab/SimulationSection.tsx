@@ -20,6 +20,13 @@ export function SimulationSection({
   providers,
   models,
 }: SimulationSectionProps) {
+  const currentHours = config.simulatedHours || 48
+  const currentScale = config.timeScale || 600
+  const currentMaxMs = config.defaultMaxWallClockMs || 18 * 60 * 1000
+  const currentMaxMin = currentMaxMs / 60000
+  const theoryMin = (currentHours * 60) / currentScale
+  const multiplier = theoryMin > 0 ? currentMaxMin / theoryMin : 3.75
+
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm space-y-6">
       <div className="flex items-center justify-between border-b pb-3">
@@ -94,9 +101,16 @@ export function SimulationSection({
             max={168}
             step={6}
             value={config.simulatedHours || 48}
-            onChange={(e) =>
-              onChange({ ...config, simulatedHours: parseInt(e.target.value) || 48 })
-            }
+            onChange={(e) => {
+              const newHours = parseInt(e.target.value) || 48
+              const newTheoryMin = (newHours * 60) / currentScale
+              const newMaxMin = Math.max(1, Math.min(1440, Math.round(multiplier * newTheoryMin)))
+              onChange({
+                ...config,
+                simulatedHours: newHours,
+                defaultMaxWallClockMs: newMaxMin * 60 * 1000,
+              })
+            }}
             className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
@@ -104,28 +118,93 @@ export function SimulationSection({
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">
-            Max Clock / Default timeout (
-            {config.defaultMaxWallClockMs ? Math.round(config.defaultMaxWallClockMs / 60000) : 18}
-            min)
+          <label className="text-xs font-semibold text-muted-foreground flex justify-between items-center">
+            <span>Max Clock / Default timeout</span>
+            <span className="text-primary font-mono font-bold">
+              {config.defaultMaxWallClockMs ? Math.round(config.defaultMaxWallClockMs / 60000) : 18}{' '}
+              min
+              {config.defaultMaxWallClockMs && config.defaultMaxWallClockMs >= 3600000
+                ? ` (${(config.defaultMaxWallClockMs / 3600000).toFixed(1)} hours)`
+                : ''}
+            </span>
           </label>
-          <input
-            type="range"
-            min={1}
-            max={30}
-            value={
-              config.defaultMaxWallClockMs ? Math.round(config.defaultMaxWallClockMs / 60000) : 18
-            }
-            onChange={(e) =>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={1}
+              max={180}
+              value={
+                config.defaultMaxWallClockMs
+                  ? Math.min(Math.round(config.defaultMaxWallClockMs / 60000), 180)
+                  : 18
+              }
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  defaultMaxWallClockMs: parseInt(e.target.value) * 60 * 1000,
+                })
+              }
+              className="flex-1 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+            />
+            <Input
+              type="number"
+              min={1}
+              max={1440}
+              value={
+                config.defaultMaxWallClockMs ? Math.round(config.defaultMaxWallClockMs / 60000) : 18
+              }
+              onChange={(e) => {
+                const val = Math.max(1, Math.min(1440, parseInt(e.target.value) || 1))
+                onChange({
+                  ...config,
+                  defaultMaxWallClockMs: val * 60 * 1000,
+                })
+              }}
+              className="w-20 text-center text-xs h-8 py-1 px-2 shrink-0"
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-normal">
+            Physical clock timeout limit during simulation runs (1 minute to 24 hours).
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-muted-foreground">Time Scale</label>
+          <Select
+            value={String(config.timeScale || 600)}
+            onChange={(v) => {
+              const newScale = parseInt(v) || 600
+              const newTheoryMin = (currentHours * 60) / newScale
+              const newMaxMin = Math.max(1, Math.min(1440, Math.round(multiplier * newTheoryMin)))
               onChange({
                 ...config,
-                defaultMaxWallClockMs: parseInt(e.target.value) * 60 * 1000,
+                timeScale: newScale,
+                defaultMaxWallClockMs: newMaxMin * 60 * 1000,
               })
-            }
-            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+            }}
+            options={[
+              { value: '60', label: '1s = 1min' },
+              { value: '300', label: '1s = 5min' },
+              { value: '600', label: '1s = 10min' },
+              { value: '1800', label: '1s = 30min' },
+              { value: '3600', label: '1s = 1h' },
+            ]}
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Physical clock timeout limit during simulation runs.
+            Ratio of physical clock time to simulated world time.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-muted-foreground">Default Language</label>
+          <Select
+            value={config.language || 'zh'}
+            onChange={(v) => onChange({ ...config, language: v })}
+            options={[
+              { value: 'zh', label: '中文 (Chinese)' },
+              { value: 'en', label: 'English' },
+            ]}
+          />
+          <p className="text-[10px] text-muted-foreground leading-normal">
+            Default language for generated agents, dialogue process, and reports.
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
