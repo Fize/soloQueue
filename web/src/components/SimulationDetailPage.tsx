@@ -2,13 +2,9 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { wsManager } from '@/lib/websocket'
 import { SimulationGraph, type GraphEdgeInput } from './SimulationGraph'
-import { AgentActivityPanel } from './AgentActivityPanel'
 import { AgentDetailPanel } from './AgentDetailPanel'
-import { SimulationProgressPanel } from './SimulationProgressPanel'
-import { SimulationMonitor } from './SimulationMonitor'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useIsMobile } from '@/hooks/useMediaQuery'
 import {
   Play,
   Square,
@@ -23,10 +19,6 @@ import {
   Settings,
   Edit,
   Save,
-  Share2,
-  ChevronDown,
-  ChevronRight,
-  Users,
 } from 'lucide-react'
 import type {
   SimulationState,
@@ -82,16 +74,15 @@ export function SimulationDetailPage() {
   const [editEnableReflection, setEditEnableReflection] = useState(true)
   const [editPersonas, setEditPersonas] = useState<any[]>([])
   const [savingConfig, setSavingConfig] = useState(false)
-  const [graphCollapsed, setGraphCollapsed] = useState(false)
   const [relationships, setRelationships] = useState<RelationshipDTO[]>([])
   const [graphLayer, setGraphLayer] = useState<'interaction' | 'relationship' | 'both'>('both')
-  const isMobile = useIsMobile()
 
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([])
   const [models, setModels] = useState<{ id: string; name: string; providerId: string }[]>([])
 
   // Filtering & Interaction
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
   const [viewingPersona, setViewingPersona] = useState<SimulationPersona | null>(null)
   const [chatAgentId, setChatAgentId] = useState<string | null>(null)
   const [chatQuestion, setChatQuestion] = useState('')
@@ -102,9 +93,6 @@ export function SimulationDetailPage() {
   // Progress display state
   const [progress, setProgress] = useState<SimulationProgress | null>(null)
   const [graphEdges, setGraphEdges] = useState<GraphEdgeInput[]>([])
-  const [progressSidebarTab, setProgressSidebarTab] = useState<'progress' | 'monitor' | 'activity'>(
-    'progress'
-  )
   // Use ref for pulse nodes to avoid render storms (#5). The graph reads via ref,
   // triggered by a lightweight counter state (avoids Set recreation).
   const pulseNodesRef = useRef<Set<string>>(new Set())
@@ -604,6 +592,47 @@ export function SimulationDetailPage() {
     }
   }
 
+  const renderMessageList = (messagesList: SimulationMessage[]) => {
+    return (
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+        {messagesList.length === 0 ? (
+          <div className="flex h-32 flex-col items-center justify-center text-center text-muted-foreground font-mono text-xs">
+            <Clock className="mb-2 h-5 w-5 text-muted-foreground/60 animate-pulse" />
+            <span>Waiting for discussion to begin...</span>
+          </div>
+        ) : (
+          messagesList.map((msg, idx) => (
+            <div
+              key={idx}
+              className="flex flex-col gap-1 rounded-xl bg-card/30 border border-border/80 p-4"
+            >
+              <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
+                <span className="font-semibold text-primary text-xs">{msg.agent_name}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[8px] font-mono text-muted-foreground">
+                  R{msg.round} • {msg.type}
+                </span>
+              </div>
+              <p className="text-xs text-foreground/95 leading-relaxed mt-1 whitespace-pre-wrap font-sans">
+                {msg.content}
+              </p>
+              {msg.reasoning && (
+                <details className="mt-2.5">
+                  <summary className="text-[10px] text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                    View Agent Reasoning
+                  </summary>
+                  <p className="mt-1 text-[10px] text-muted-foreground/80 italic bg-background/50 p-2.5 rounded border border-border/40 leading-normal">
+                    {msg.reasoning}
+                  </p>
+                </details>
+              )}
+            </div>
+          ))
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col bg-background text-foreground overflow-hidden">
       {/* Top Header Controls */}
@@ -635,6 +664,25 @@ export function SimulationDetailPage() {
               )}
             </div>
           </div>
+          {/* Progress Overlay inside header */}
+          {progress && state.status === 'running' && (
+            <div className="hidden md:flex items-center gap-3 bg-muted/40 px-3 py-1 rounded-lg border border-border/40 text-[10px] font-mono">
+              <span className="font-semibold text-foreground">
+                {progress.progress_percent.toFixed(1)}%
+              </span>
+              <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="bg-primary h-full transition-all duration-300"
+                  style={{ width: `${Math.min(progress.progress_percent, 100)}%` }}
+                />
+              </div>
+              {progress.estimated_remaining_seconds > 0 && (
+                <span className="text-muted-foreground">
+                  ETA {Math.floor(progress.estimated_remaining_seconds)}s
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Start / Stop Controls */}
@@ -671,280 +719,139 @@ export function SimulationDetailPage() {
       </header>
 
       {/* Main Workspace (Grid layout) — stable 2-column layout */}
-      <div className="flex flex-1 overflow-hidden min-h-0">
-        {/* Left Side: Messages + Graph + Agents (always visible) */}
-        <div className="flex-[3] flex flex-col overflow-y-auto p-4 md:p-6 gap-4 border-r border-border min-w-[320px]">
-          {/* Compact Graph — collapsible on mobile */}
-          {(!isMobile || !graphCollapsed) && (
-            <div
-              className={`shrink-0 rounded-xl border border-border/50 bg-card/20 overflow-hidden ${isMobile ? '' : 'h-[200px]'}`}
-            >
-              {/* Graph Layer Toggle */}
-              <div className="flex items-center gap-1 px-3 pt-2 pb-1 border-b border-border/30">
-                <button
-                  onClick={() => setGraphLayer('interaction')}
-                  className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
-                    graphLayer === 'interaction' || graphLayer === 'both'
-                      ? 'bg-primary/15 text-primary font-semibold'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Interactions
-                </button>
-                <button
-                  onClick={() => setGraphLayer('relationship')}
-                  className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ${
-                    graphLayer === 'relationship' || graphLayer === 'both'
-                      ? 'bg-primary/15 text-primary font-semibold'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Relationships
-                </button>
-                <button
-                  onClick={() => setGraphLayer(graphLayer === 'both' ? 'interaction' : 'both')}
-                  className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors ml-auto ${
-                    graphLayer === 'both'
-                      ? 'bg-primary/15 text-primary font-semibold'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                  title="Toggle overlay"
-                >
-                  <Share2 className="h-3 w-3 inline mr-1" />
-                  Overlay
-                </button>
-              </div>
-              <SimulationGraph
-                personas={state.config.personas}
-                edges={
-                  graphEdges.length > 0
-                    ? graphEdges
-                    : (state.graph?.edges || []).map((e) => ({
-                        source: e.source,
-                        target: e.target,
-                        type: e.type,
-                        weight: e.weight,
-                      }))
-                }
-                relationships={relationships}
-                graphLayer={graphLayer}
-                onSelectAgent={(agentId) => {
-                  setSelectedAgentId((prev) => (prev === agentId ? null : agentId))
-                  if (agentId) setProgressSidebarTab('activity')
-                }}
-                selectedAgentId={selectedAgentId}
-                pulseNodes={pulseNodesRef.current}
-                pulseVersion={pulseVersion}
-              />
+      <div className="flex flex-1 overflow-hidden min-h-0 relative">
+        {/* Left Side: Simulation Graph area (completely unscrollable, fits page height) */}
+        <div className="flex-1 flex flex-col relative overflow-hidden bg-background">
+          {/* Graph Title/Controls overlay (floating) */}
+          <div className="absolute top-4 right-4 z-10 flex gap-2">
+            {/* Graph Layer Toggle */}
+            <div className="flex items-center gap-1 bg-card/85 backdrop-blur-md p-1 rounded-lg border border-border/60 shadow-sm">
+              <button
+                onClick={() => setGraphLayer('interaction')}
+                className={`text-[9px] font-mono px-2 py-1 rounded transition-colors ${
+                  graphLayer === 'interaction'
+                    ? 'bg-primary/20 text-primary font-bold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Interactions
+              </button>
+              <button
+                onClick={() => setGraphLayer('relationship')}
+                className={`text-[9px] font-mono px-2 py-1 rounded transition-colors ${
+                  graphLayer === 'relationship'
+                    ? 'bg-primary/20 text-primary font-bold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Relationships
+              </button>
+              <button
+                onClick={() => setGraphLayer('both')}
+                className={`text-[9px] font-mono px-2 py-1 rounded transition-colors ${
+                  graphLayer === 'both'
+                    ? 'bg-primary/20 text-primary font-bold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Both Layers
+              </button>
             </div>
-          )}
-          {isMobile && (
-            <button
-              onClick={() => setGraphCollapsed(!graphCollapsed)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {graphCollapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
-              {graphCollapsed ? 'Show Agent Graph' : 'Hide Agent Graph'}
-            </button>
-          )}
+          </div>
 
-          {/* Agent pills (compact) */}
-          <div className="shrink-0 flex flex-wrap gap-2">
-            {state.config.personas.map((persona) => {
-              const isSelected = selectedAgentId === persona.id
-              return (
-                <button
-                  key={persona.id}
-                  onClick={() => setSelectedAgentId(isSelected ? null : persona.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-primary/50 bg-primary/5 text-foreground'
-                      : 'border-border bg-card/25 text-muted-foreground hover:text-foreground hover:border-border/80'
-                  }`}
-                >
-                  <span className="font-semibold">{persona.name}</span>
-                  <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
-                    {persona.role}
-                  </span>
-                </button>
-              )
-            })}
+          {/* D3 Graph itself */}
+          <div className="flex-1 w-full h-full relative">
+            <SimulationGraph
+              personas={state.config.personas}
+              edges={
+                graphEdges.length > 0
+                  ? graphEdges
+                  : (state.graph?.edges || []).map((e) => ({
+                      source: e.source,
+                      target: e.target,
+                      type: e.type,
+                      weight: e.weight,
+                    }))
+              }
+              relationships={relationships}
+              graphLayer={graphLayer}
+              onSelectAgent={(agentId) => {
+                setSelectedAgentId(agentId)
+              }}
+              selectedAgentId={selectedAgentId}
+              pulseNodes={pulseNodesRef.current}
+              pulseVersion={pulseVersion}
+              onOpenDetails={(agentId) => {
+                setSelectedAgentId(agentId)
+                setIsModalOpen(true)
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Right Side: Message Stream sidebar (updates from top to bottom) */}
+        <div className="w-[420px] shrink-0 h-full border-l border-border bg-card/20 flex flex-col overflow-hidden">
+          {/* Right sidebar tab header */}
+          <div className="shrink-0 flex items-center justify-between border-b border-border bg-card/30 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Message Stream</h2>
+              {state.messages && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                  {state.messages.length}
+                </span>
+              )}
+            </div>
+
             {state.status === 'completed' && state.report && (
               <button
                 onClick={() => setChatAgentId('report')}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-primary font-semibold cursor-pointer hover:border-primary/50 transition-all"
+                className="inline-flex items-center gap-1 rounded bg-primary/10 text-primary border border-primary/20 px-2 py-1 text-[10px] font-semibold cursor-pointer hover:bg-primary/20 transition-all"
               >
-                <Cpu className="h-3.5 w-3.5" />
+                <Cpu className="h-3 w-3" />
                 Ask Report Analyst
               </button>
             )}
           </div>
 
-          {/* Messages (always visible) */}
-          <div className="flex-1 min-h-0 space-y-4">
-            {/* Report banner */}
-            {state.report && !selectedAgentId && (
-              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 backdrop-blur-sm">
+          {/* Right sidebar tabs if final report is available */}
+          {state.report ? (
+            <Tabs defaultValue="stream" className="flex-1 flex flex-col min-h-0">
+              <TabsList className="flex border-b border-border w-full bg-transparent shrink-0">
+                <TabsTrigger
+                  value="stream"
+                  className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+                >
+                  MESSAGES
+                </TabsTrigger>
+                <TabsTrigger
+                  value="report"
+                  className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+                >
+                  FINAL REPORT
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="stream" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                {renderMessageList(filteredMessages)}
+              </TabsContent>
+              <TabsContent
+                value="report"
+                className="flex-1 overflow-y-auto p-5 prose prose-sm dark:prose-invert max-w-none text-foreground/90 bg-card/5"
+              >
                 <div className="mb-2 flex items-center gap-2 border-b border-primary/10 pb-2">
                   <FileText className="h-4 w-4 text-primary" />
                   <h3 className="font-bold text-primary text-xs tracking-wider uppercase font-mono">
                     Simulation Final Report
                   </h3>
                 </div>
-                <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{state.report}</ReactMarkdown>
-                </div>
-              </div>
-            )}
-
-            {/* Message list */}
-            {filteredMessages.length === 0 ? (
-              <div className="flex h-32 flex-col items-center justify-center text-center text-muted-foreground font-mono text-xs">
-                <Clock className="mb-2 h-5 w-5 text-muted-foreground/60 animate-pulse" />
-                <span>Waiting for discussion to begin...</span>
-              </div>
-            ) : (
-              filteredMessages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className="flex flex-col gap-1 rounded-xl bg-card/30 border border-border/80 p-4"
-                >
-                  <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                    <span className="font-semibold text-primary text-xs">{msg.agent_name}</span>
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[8px] font-mono text-muted-foreground">
-                      R{msg.round} • {msg.type}
-                    </span>
-                  </div>
-                  <p className="text-xs text-foreground/95 leading-relaxed mt-1 whitespace-pre-wrap font-sans">
-                    {msg.content}
-                  </p>
-                  {msg.reasoning && (
-                    <details className="mt-2.5">
-                      <summary className="text-[10px] text-muted-foreground cursor-pointer select-none hover:text-foreground">
-                        View Agent Reasoning
-                      </summary>
-                      <p className="mt-1 text-[10px] text-muted-foreground/80 italic bg-background/50 p-2.5 rounded border border-border/40 leading-normal">
-                        {msg.reasoning}
-                      </p>
-                    </details>
-                  )}
-                </div>
-              ))
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        {/* Right Side: Agent Detail (when selected) or Monitor / Activity (when running) */}
-        <div className="flex-[2] flex flex-col min-w-[280px] bg-muted/10 border-l border-border/45">
-          {(() => {
-            const selectedPersona = selectedAgentId
-              ? state.config.personas.find((p) => p.id === selectedAgentId)
-              : null
-
-            if (selectedPersona) {
-              return (
-                <AgentDetailPanel
-                  persona={selectedPersona}
-                  messages={state.messages}
-                  progress={progress}
-                  relationships={relationships}
-                  onClose={() => setSelectedAgentId(null)}
-                  onInterview={(question) => handleAgentInterview(selectedPersona.id, question)}
-                  status={state.status}
-                />
-              )
-            }
-
-            if (state.status === 'running' || state.status === 'failed') {
-              return (
-                <Tabs
-                  value={progressSidebarTab}
-                  onValueChange={(val) => setProgressSidebarTab(val as 'progress' | 'activity')}
-                >
-                  <TabsList className="flex border-b border-border w-full bg-transparent">
-                    <TabsTrigger
-                      value="progress"
-                      className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
-                    >
-                      MONITOR
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="activity"
-                      className="flex-1 py-3 text-center text-xs font-semibold font-mono transition-colors border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
-                    >
-                      ACTIVITY
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent
-                    value={progressSidebarTab}
-                    className="flex-1 overflow-y-auto p-4 space-y-4"
-                  >
-                    {progress ? (
-                      progressSidebarTab === 'progress' ? (
-                        <SimulationProgressPanel
-                          progress={progress}
-                          messages={state.messages}
-                          selectedAgentId={selectedAgentId}
-                          onSelectAgent={setSelectedAgentId}
-                        />
-                      ) : selectedAgentId ? (
-                        <AgentActivityPanel
-                          agentId={selectedAgentId}
-                          agentName={
-                            state.config.personas.find((p) => p.id === selectedAgentId)?.name ||
-                            selectedAgentId
-                          }
-                          agentRole={
-                            state.config.personas.find((p) => p.id === selectedAgentId)?.role || ''
-                          }
-                          messages={state.messages}
-                          progress={progress}
-                        />
-                      ) : (
-                        <SimulationMonitor logs={progress.recent_logs || []} />
-                      )
-                    ) : (
-                      <div className="flex h-32 items-center justify-center text-center text-muted-foreground font-mono text-xs">
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Starting simulation...
-                      </div>
-                    )}
-                  </TabsContent>
-                </Tabs>
-              )
-            }
-
-            // Pre/post-simulation placeholder — no tabs, clean & focused
-            return (
-              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                <Users className="h-8 w-8 text-muted-foreground/30 mb-3" />
-                <p className="text-sm font-medium text-foreground/70 mb-1">
-                  {state.status === 'pending'
-                    ? 'Ready to start'
-                    : state.status === 'completed'
-                      ? 'Simulation complete'
-                      : 'Waiting to start'}
-                </p>
-                <p className="text-xs text-muted-foreground/60 max-w-[240px] leading-relaxed">
-                  {state.status === 'pending'
-                    ? 'Configure parameters and click Start Simulation to begin.'
-                    : state.status === 'completed'
-                      ? 'Select an agent in the graph or list above to review their details, relationships, and activity.'
-                      : 'Click Start Simulation to begin. Select an agent to view their profile and relationships.'}
-                </p>
-                {state.status === 'completed' && state.report && (
-                  <p className="mt-3 text-[10px] text-muted-foreground/40 max-w-[240px]">
-                    The final report is available in the main panel.
-                  </p>
-                )}
-              </div>
-            )
-          })()}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{state.report}</ReactMarkdown>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {renderMessageList(filteredMessages)}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1024,6 +931,36 @@ export function SimulationDetailPage() {
               <Send className="h-4 w-4" />
             </button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Agent Detail & Chat Dialog */}
+      <Dialog
+        open={isModalOpen}
+        onOpenChange={(open) => {
+          setIsModalOpen(open)
+          if (!open) {
+            setSelectedAgentId(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-[700px] h-[80vh] flex flex-col p-0 overflow-hidden bg-card/95 backdrop-blur-md border border-border">
+          {(() => {
+            const selectedPersona = selectedAgentId
+              ? state.config.personas.find((p) => p.id === selectedAgentId)
+              : null
+            return selectedPersona ? (
+              <AgentDetailPanel
+                persona={selectedPersona}
+                messages={state.messages}
+                progress={progress}
+                relationships={relationships}
+                onClose={() => setIsModalOpen(false)}
+                onInterview={(question) => handleAgentInterview(selectedPersona.id, question)}
+                status={state.status}
+              />
+            ) : null
+          })()}
         </DialogContent>
       </Dialog>
 
