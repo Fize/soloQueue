@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -19,6 +20,7 @@ func BuildGenerativeAgentSystemPrompt(
 	reflections []ReflectionRecord,
 	personaNameByID map[string]string,
 	clock *SimClock,
+	worldState map[string]any,
 ) string {
 	var b strings.Builder
 
@@ -167,7 +169,48 @@ func BuildGenerativeAgentSystemPrompt(
 		b.WriteString("\n")
 	}
 
-	// 7. Action syntax
+	// 7. World context (seed-derived world rules, locations, premise)
+	if worldState != nil && len(worldState) > 0 {
+		if language == "zh" {
+			b.WriteString("## 你所在的世界\n\n")
+		} else {
+			b.WriteString("## The World You Live In\n\n")
+		}
+		// Separate seed metadata from display content
+		displayKeys := make([]string, 0, len(worldState))
+		for k := range worldState {
+			if !strings.HasPrefix(k, "_seed_") {
+				displayKeys = append(displayKeys, k)
+			}
+		}
+		sort.Strings(displayKeys)
+		for _, k := range displayKeys {
+			v := worldState[k]
+			b.WriteString(fmt.Sprintf("- **%s**: %v\n", k, formatValue(v)))
+		}
+		// Show seed locations if available
+		if locsRaw, ok := worldState["_seed_locations"]; ok {
+			b.WriteString("\n### 已知地点\n")
+			if locs, ok := locsRaw.([]any); ok {
+				for _, l := range locs {
+					if lm, ok := l.(map[string]any); ok {
+						b.WriteString(fmt.Sprintf("- **%s**: %s\n", lm["name"], lm["desc"]))
+					}
+				}
+			}
+		}
+		// Show seed topic as world premise
+		if topic, ok := worldState["_seed_topic"]; ok {
+			if language == "zh" {
+				b.WriteString(fmt.Sprintf("\n### 当前故事前提\n%s\n", topic))
+			} else {
+				b.WriteString(fmt.Sprintf("\n### Current Story Premise\n%s\n", topic))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	// 8. Action syntax
 	b.WriteString(FormatActionsForPromptInLanguage(language))
 	b.WriteString("\n")
 
@@ -499,7 +542,7 @@ func truncateStr(s string, maxLen int) string {
 
 // BuildSimulationSystemPrompt is a compatibility wrapper.
 func BuildSimulationSystemPrompt(persona Persona, topic string, allPersonas []Persona) string {
-	ga := BuildGenerativeAgentSystemPrompt("en", persona, allPersonas, nil, nil, nil, nil, nil, nil)
+	ga := BuildGenerativeAgentSystemPrompt("en", persona, allPersonas, nil, nil, nil, nil, nil, nil, nil)
 
 	var b strings.Builder
 	b.WriteString(ga)

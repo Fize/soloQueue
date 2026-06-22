@@ -396,14 +396,20 @@ func TestBuildReportPrompt(t *testing.T) {
 func TestCreateFromSeed(t *testing.T) {
 	fakeLLM := &agent.FakeLLM{
 		Responses: []string{
-			// First call: seed extraction
+			// First call: seed extraction (Phase 1 - basic)
 			`{
 				"entities": [{"name": "Rust", "type": "technology", "confidence": 0.9, "relations": [{"target_name": "Go", "rel_type": "rebuttal", "weight": 0.8}]}, {"name": "Go", "type": "technology", "confidence": 0.9}],
 				"world_state": {"era": "2025", "context": "systems programming"},
 				"key_topics": ["Rust vs Go for systems programming"],
 				"conflict_areas": ["memory safety vs simplicity"]
 			}`,
-			// Second call: persona generation
+			// Second call: seed extraction (Phase 2 - characters/relationships)
+			`{
+				"suggested_agents": [],
+				"lifecycle_events": [],
+				"initial_relationships": []
+			}`,
+			// Third call: persona generation
 			`{
 				"personas": [
 					{"id": "rust-advocate", "name": "Alice", "role": "Rust advocate", "goals": ["Promote Rust"], "traits": {"technical": "expert"}, "stance_per_entity": {"Rust": "pro", "Go": "con"}},
@@ -460,12 +466,15 @@ func TestCreateFromSeed(t *testing.T) {
 func TestCreateFromSeedWithSuggestedAgents(t *testing.T) {
 	fakeLLM := &agent.FakeLLM{
 		Responses: []string{
-			// First call: seed extraction with suggested agents
+			// First call: seed extraction Phase 1 (basic — no suggested_agents)
 			`{
 				"entities": [{"name": "Rust", "type": "technology", "confidence": 0.9}],
 				"world_state": {"context": "systems programming"},
 				"key_topics": ["Rust vs Go"],
-				"conflict_areas": ["simplicity"],
+				"conflict_areas": ["simplicity"]
+			}`,
+			// Second call: seed extraction Phase 2 (characters/relationships)
+			`{
 				"suggested_agents": [
 					{
 						"name": "Alice",
@@ -479,9 +488,11 @@ func TestCreateFromSeedWithSuggestedAgents(t *testing.T) {
 						"description": "Prefers simplicity",
 						"traits": ["practical"]
 					}
-				]
+				],
+				"lifecycle_events": [],
+				"initial_relationships": []
 			}`,
-			// Second call: persona generation
+			// Third call: persona generation
 			`{
 				"personas": [
 					{

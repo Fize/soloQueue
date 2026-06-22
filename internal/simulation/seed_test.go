@@ -25,7 +25,7 @@ func TestSeedExtractor_BasicExtraction(t *testing.T) {
 	}
 
 	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
-	ext, err := extractor.Extract(context.Background(), "Rust focuses on memory safety while Go prioritizes simplicity and fast compilation.")
+	ext, err := extractor.Extract(context.Background(), "Rust focuses on memory safety while Go prioritizes simplicity and fast compilation.", 48)
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSeedExtractor_BasicExtraction(t *testing.T) {
 
 func TestSeedExtractor_EmptyText(t *testing.T) {
 	extractor := NewSeedExtractor(&agent.FakeLLM{}, "", "", nil)
-	_, err := extractor.Extract(context.Background(), "  ")
+	_, err := extractor.Extract(context.Background(), "  ", 48)
 	if err == nil {
 		t.Fatal("expected error for empty text")
 	}
@@ -61,7 +61,7 @@ func TestSeedExtractor_MalformedJSON(t *testing.T) {
 	}
 
 	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
-	_, err := extractor.Extract(context.Background(), "some text")
+	_, err := extractor.Extract(context.Background(), "some text", 48)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
 	}
@@ -73,7 +73,7 @@ func TestSeedExtractor_MarkdownCodeFence(t *testing.T) {
 	}
 
 	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
-	ext, err := extractor.Extract(context.Background(), "test text")
+	ext, err := extractor.Extract(context.Background(), "test text", 48)
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestSeedExtractor_Chunking(t *testing.T) {
 	}
 
 	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
-	ext, err := extractor.Extract(context.Background(), longText)
+	ext, err := extractor.Extract(context.Background(), longText, 48)
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestSeedExtractor_WithMemoryEngine(t *testing.T) {
 	}
 
 	extractor := NewSeedExtractor(fakeLLM, "", "", nil)
-	_, err := extractor.Extract(context.Background(), "Rust text")
+	_, err := extractor.Extract(context.Background(), "Rust text", 48)
 	if err != nil {
 		t.Fatalf("Extract() error: %v", err)
 	}

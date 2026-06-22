@@ -160,7 +160,7 @@ func (gal *GAAgentLoop) tick(ctx context.Context, timeEvt SimTimeEvent) {
 		}
 		gal.sa.cw.Reset()
 		// Re-push system prompt
-		systemPrompt := BuildGenerativeAgentSystemPrompt(gal.language, *persona, gal.allPersonas, gal.env, gal.plan, gal.relationshipMgr, gal.reflections, gal.nameByID, gal.clock)
+		systemPrompt := BuildGenerativeAgentSystemPrompt(gal.language, *persona, gal.allPersonas, gal.env, gal.plan, gal.relationshipMgr, gal.reflections, gal.nameByID, gal.clock, gal.worldState.Snapshot())
 		gal.sa.cw.Push(ctxwin.RoleSystem, systemPrompt)
 	}
 

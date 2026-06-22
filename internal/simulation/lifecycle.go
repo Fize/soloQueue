@@ -342,7 +342,7 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 	// Build system prompt
 	systemPrompt := BuildGenerativeAgentSystemPrompt(
 		lm.config.Language, persona, lm.allPersonas, lm.env, plan,
-		lm.relationshipMgr, nil, lm.nameByID, lm.clock,
+		lm.relationshipMgr, nil, lm.nameByID, lm.clock, lm.config.WorldState,
 	)
 	sa.ClearCW(systemPrompt)
 

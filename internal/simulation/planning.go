@@ -15,11 +15,20 @@ type PlanGenerator struct {
 	llm        agent.LLMClient
 	model      string
 	providerID string
+	maxTokens  int // 0 = use sensible default per call
 }
 
 // NewPlanGenerator creates a plan generator.
 func NewPlanGenerator(llm agent.LLMClient, model, providerID string) *PlanGenerator {
 	return &PlanGenerator{llm: llm, model: model, providerID: providerID}
+}
+
+// SetMaxTokens overrides max_tokens for LLM calls. If 0 or not called, uses
+// a per-call default (2048 generation, 1024 revision).
+func (pg *PlanGenerator) SetMaxTokens(n int) {
+	if n > 0 {
+		pg.maxTokens = n
+	}
 }
 
 // GenerateDailyPlan creates a full day schedule for an agent.
@@ -34,11 +43,19 @@ func (pg *PlanGenerator) GenerateDailyPlan(
 	now := clock.Now()
 	prompt := buildPlanGenerationPrompt(persona, env, now, language)
 
+	mt := pg.maxTokens
+	if mt <= 0 {
+		mt = 16384
+	}
+	planTokens := mt / 8
+	if planTokens < 1024 {
+		planTokens = 1024
+	}
 	resp, err := pg.llm.Chat(ctx, agent.LLMRequest{
 		Model:        pg.model,
 		ProviderID:   pg.providerID,
 		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    2048,
+		MaxTokens:    planTokens,
 		ResponseJSON: true,
 	})
 	if err != nil {
@@ -65,11 +82,18 @@ func (pg *PlanGenerator) RevisePlan(
 	now := clock.Now()
 	prompt := buildPlanRevisionPrompt(persona, currentPlan, observations, now, language)
 
+	reviseTokens := pg.maxTokens / 16
+	if reviseTokens < 512 {
+		reviseTokens = 512
+	}
+	if pg.maxTokens <= 0 {
+		reviseTokens = 1024
+	}
 	resp, err := pg.llm.Chat(ctx, agent.LLMRequest{
 		Model:        pg.model,
 		ProviderID:   pg.providerID,
 		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    1024,
+		MaxTokens:    reviseTokens,
 		ResponseJSON: true,
 	})
 	if err != nil {

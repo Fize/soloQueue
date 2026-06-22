@@ -146,8 +146,10 @@ func TestSafePersonaName(t *testing.T) {
 func TestGAAgentLoop_Integration(t *testing.T) {
 	fakeLLM := &agent.FakeLLM{
 		Responses: []string{
-			// Seed extraction
+			// Seed extraction Phase 1 (basic)
 			`{"entities":[{"name":"AI","type":"technology","confidence":0.9}],"world_state":{},"key_topics":["AI safety"],"conflict_areas":["regulation"]}`,
+			// Seed extraction Phase 2 (characters — empty)
+			`{"suggested_agents":[],"lifecycle_events":[],"initial_relationships":[]}`,
 			// Persona generation
 			`{"personas":[{"id":"alice","name":"Alice","role":"Researcher","goals":["Study AI"],"traits":{"curious":"high"},"stance_per_entity":{"AI":"pro"}},{"id":"bob","name":"Bob","role":"Ethicist","goals":["Ensure safety"],"traits":{"cautious":"high"},"stance_per_entity":{"AI":"con"}}]}`,
 		},
