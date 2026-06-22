@@ -4,6 +4,7 @@ import { drag } from 'd3-drag'
 import { select } from 'd3-selection'
 import { zoom, zoomIdentity, type ZoomTransform } from 'd3-zoom'
 import type { SimulationPersona, RelationshipDTO } from '@/types'
+import { X, MessageSquare } from 'lucide-react'
 
 interface GraphNode extends d3force.SimulationNodeDatum {
   id: string
@@ -33,14 +34,15 @@ export interface GraphEdgeInput {
 interface SimulationGraphProps {
   personas: SimulationPersona[]
   edges: GraphEdgeInput[]
-  relationships?: RelationshipDTO[]  // NEW
-  graphLayer?: 'interaction' | 'relationship' | 'both'  // NEW
-  onSelectAgent?: (agentId: string) => void
+  relationships?: RelationshipDTO[] // NEW
+  graphLayer?: 'interaction' | 'relationship' | 'both' // NEW
+  onSelectAgent?: (agentId: string | null) => void
   selectedAgentId?: string | null
   pulseNodes?: Set<string>
   pulseVersion?: number
   activeAgentIds?: Set<string>
-  onPulseRelationship?: (subjectId: string, targetId: string) => void  // NEW
+  onPulseRelationship?: (subjectId: string, targetId: string) => void // NEW
+  onOpenDetails?: (agentId: string) => void // NEW
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -55,18 +57,21 @@ const ROLE_COLORS: Record<string, string> = {
 const MAX_GRAPH_LINKS = 200
 
 // ─── Relationship Edge Styles ─────────────────────────────────────────────
-const RELATION_STYLES: Record<string, { color: string; dash: number[]; width: number; label: string; arrow: boolean }> = {
-  parent:    { color: '#e91e63', dash: [],       width: 2.5, label: 'Parent',    arrow: true },
-  child:     { color: '#e91e63', dash: [4, 4],   width: 2,   label: 'Child',     arrow: true },
-  sibling:   { color: '#9c27b0', dash: [],       width: 2,   label: 'Sibling',   arrow: false },
-  spouse:    { color: '#e91e63', dash: [2, 6],   width: 2,   label: 'Spouse',    arrow: false },
-  friend:    { color: '#4caf50', dash: [],       width: 2,   label: 'Friend',    arrow: false },
-  rival:     { color: '#f44336', dash: [6, 3],   width: 2.5, label: 'Rival',     arrow: false },
-  colleague: { color: '#2196f3', dash: [],       width: 1.5, label: 'Colleague', arrow: false },
-  mentor:    { color: '#ff9800', dash: [3, 3],   width: 2,   label: 'Mentor',    arrow: true },
-  mentee:    { color: '#ff9800', dash: [6, 3],   width: 2,   label: 'Mentee',    arrow: true },
-  neighbor:  { color: '#607d8b', dash: [2, 4],   width: 1.5, label: 'Neighbor',  arrow: false },
-  stranger:  { color: '#9e9e9e', dash: [1, 6],   width: 0.5, label: 'Stranger',  arrow: false },
+const RELATION_STYLES: Record<
+  string,
+  { color: string; dash: number[]; width: number; label: string; arrow: boolean }
+> = {
+  parent: { color: '#e91e63', dash: [], width: 2.5, label: 'Parent', arrow: true },
+  child: { color: '#e91e63', dash: [4, 4], width: 2, label: 'Child', arrow: true },
+  sibling: { color: '#9c27b0', dash: [], width: 2, label: 'Sibling', arrow: false },
+  spouse: { color: '#e91e63', dash: [2, 6], width: 2, label: 'Spouse', arrow: false },
+  friend: { color: '#4caf50', dash: [], width: 2, label: 'Friend', arrow: false },
+  rival: { color: '#f44336', dash: [6, 3], width: 2.5, label: 'Rival', arrow: false },
+  colleague: { color: '#2196f3', dash: [], width: 1.5, label: 'Colleague', arrow: false },
+  mentor: { color: '#ff9800', dash: [3, 3], width: 2, label: 'Mentor', arrow: true },
+  mentee: { color: '#ff9800', dash: [6, 3], width: 2, label: 'Mentee', arrow: true },
+  neighbor: { color: '#607d8b', dash: [2, 4], width: 1.5, label: 'Neighbor', arrow: false },
+  stranger: { color: '#9e9e9e', dash: [1, 6], width: 0.5, label: 'Stranger', arrow: false },
 }
 
 export function SimulationGraph({
@@ -80,9 +85,11 @@ export function SimulationGraph({
   pulseVersion: _pulseVersion,
   activeAgentIds,
   onPulseRelationship,
+  onOpenDetails,
 }: SimulationGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
   const simRef = useRef<d3force.Simulation<GraphNode, GraphLink> | null>(null)
   const linksRef = useRef<GraphLink[]>([])
   const nodesRef = useRef<GraphNode[]>([])
@@ -103,12 +110,24 @@ export function SimulationGraph({
   const graphLayerRef = useRef(graphLayer)
   const relationshipsRef = useRef(relationships)
   // Sync refs with props
-  useEffect(() => { selectRef.current = onSelectAgent }, [onSelectAgent])
-  useEffect(() => { selectedIdRef.current = selectedAgentId }, [selectedAgentId])
-  useEffect(() => { pulseRef.current = pulseNodes }, [pulseNodes])
-  useEffect(() => { activeRef.current = activeAgentIds }, [activeAgentIds])
-  useEffect(() => { graphLayerRef.current = graphLayer }, [graphLayer])
-  useEffect(() => { relationshipsRef.current = relationships }, [relationships])
+  useEffect(() => {
+    selectRef.current = onSelectAgent
+  }, [onSelectAgent])
+  useEffect(() => {
+    selectedIdRef.current = selectedAgentId
+  }, [selectedAgentId])
+  useEffect(() => {
+    pulseRef.current = pulseNodes
+  }, [pulseNodes])
+  useEffect(() => {
+    activeRef.current = activeAgentIds
+  }, [activeAgentIds])
+  useEffect(() => {
+    graphLayerRef.current = graphLayer
+  }, [graphLayer])
+  useEffect(() => {
+    relationshipsRef.current = relationships
+  }, [relationships])
 
   useEffect(() => {
     if (!onPulseRelationship) return
@@ -124,6 +143,7 @@ export function SimulationGraph({
       color: ROLE_COLORS[p.role?.toLowerCase()] || ROLE_COLORS.neutral,
       isActive: true,
     }))
+    nodesRef.current = nodes
 
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -140,7 +160,8 @@ export function SimulationGraph({
     // Detect dark mode
     themeRef.current.isDark = document.documentElement.classList.contains('dark')
 
-    const simulation = d3force.forceSimulation<GraphNode>(nodes)
+    const simulation = d3force
+      .forceSimulation<GraphNode>(nodes)
       .force('center', d3force.forceCenter(rect.width / 2, rect.height / 2))
       .force('charge', d3force.forceManyBody().strength(-300))
       .force('link', d3force.forceLink<GraphNode, GraphLink>([]).distance(120).strength(0.3))
@@ -152,30 +173,52 @@ export function SimulationGraph({
         const t = transformRef.current
         const x = (event.x - t.x) / t.k
         const y = (event.y - t.y) / t.k
-        return nodesRef.current.find((node) => {
+        const found = nodesRef.current.find((node) => {
           const dx = node.x! - x
           const dy = node.y! - y
           return dx * dx + dy * dy < 900
         })
+        if (found) {
+          // Return custom subject wrapper to keep event.x/y as raw DOM coordinates
+          return {
+            node: found,
+            startX: event.x,
+            startY: event.y,
+            initialNodeX: found.x!,
+            initialNodeY: found.y!,
+          }
+        }
+        return undefined
       })
       .on('start', (event) => {
         if (!event.active) simulation.alphaTarget(0.3).restart()
-        event.subject.fx = event.subject.x
-        event.subject.fy = event.subject.y
+        const sub = event.subject as any
+        if (sub && sub.node) {
+          sub.node.fx = sub.initialNodeX
+          sub.node.fy = sub.initialNodeY
+        }
       })
       .on('drag', (event) => {
         const t = transformRef.current
-        event.subject.fx = (event.x - t.x) / t.k
-        event.subject.fy = (event.y - t.y) / t.k
+        const sub = event.subject as any
+        if (sub && sub.node) {
+          const dx = (event.x - sub.startX) / t.k
+          const dy = (event.y - sub.startY) / t.k
+          sub.node.fx = sub.initialNodeX + dx
+          sub.node.fy = sub.initialNodeY + dy
+        }
       })
       .on('end', (event) => {
         if (!event.active) simulation.alphaTarget(0)
-        event.subject.fx = null
-        event.subject.fy = null
-        const dx = event.x - event.subject.x
-        const dy = event.y - event.subject.y
-        if (dx * dx + dy * dy < 25) {
-          selectRef.current?.(event.subject.id)
+        const sub = event.subject as any
+        if (sub && sub.node) {
+          sub.node.fx = null
+          sub.node.fy = null
+          const dx = event.x - sub.startX
+          const dy = event.y - sub.startY
+          if (dx * dx + dy * dy < 25) {
+            selectRef.current?.(sub.node.id)
+          }
         }
       })
 
@@ -188,6 +231,24 @@ export function SimulationGraph({
     const selection = select(canvas)
     selection.call(dragBehavior as any)
     selection.call(zoomBehavior as any)
+
+    const handleCanvasClick = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const clickX = e.clientX - rect.left
+      const clickY = e.clientY - rect.top
+      const t = transformRef.current
+      const x = (clickX - t.x) / t.k
+      const y = (clickY - t.y) / t.k
+      const clickedNode = nodesRef.current.find((node) => {
+        const dx = node.x! - x
+        const dy = node.y! - y
+        return dx * dx + dy * dy < 900
+      })
+      if (!clickedNode) {
+        selectRef.current?.(null)
+      }
+    }
+    canvas.addEventListener('click', handleCanvasClick)
 
     const preventScroll = (e: WheelEvent) => {
       if (container.contains(e.target as Node)) {
@@ -213,7 +274,8 @@ export function SimulationGraph({
       const rels = relationshipsRef.current
 
       c.save()
-      c.clearRect(0, 0, w, h)
+      c.clearRect(0, 0, canvas.width, canvas.height)
+      c.scale(dpr, dpr)
 
       // Apply zoom/pan transform
       c.translate(transform.x, transform.y)
@@ -225,8 +287,8 @@ export function SimulationGraph({
         const gridAlpha = Math.min(1, (transform.k - 0.4) / 0.6) * 0.03
         c.strokeStyle = t.isDark ? `rgba(255,255,255,${gridAlpha})` : `rgba(0,0,0,${gridAlpha})`
         c.lineWidth = 1 / transform.k
-        const offsetX = ((transform.x % (gridSpacing * transform.k)) / transform.k)
-        const offsetY = ((transform.y % (gridSpacing * transform.k)) / transform.k)
+        const offsetX = (transform.x % (gridSpacing * transform.k)) / transform.k
+        const offsetY = (transform.y % (gridSpacing * transform.k)) / transform.k
         for (let x = -gridSpacing + offsetX; x < w / transform.k + gridSpacing; x += gridSpacing) {
           c.beginPath()
           c.moveTo(x, -gridSpacing)
@@ -248,7 +310,7 @@ export function SimulationGraph({
       // Accumulate relationship edges from RelationshipDTOs
       const relEdges: GraphLink[] = []
       if (showRelationship && rels.length > 0) {
-        const nodeMap = new Map(nodesRef.current.map(n => [n.id, n]))
+        const nodeMap = new Map(nodesRef.current.map((n) => [n.id, n]))
         for (const rel of rels) {
           const src = nodeMap.get(rel.subject_id)
           const tgt = nodeMap.get(rel.target_id)
@@ -288,7 +350,11 @@ export function SimulationGraph({
           const linkType = link.type.toLowerCase()
           if (linkType.includes('agree') || linkType.includes('support')) {
             c.strokeStyle = 'rgba(22,163,74,0.4)'
-          } else if (linkType.includes('rebut') || linkType.includes('disagree') || linkType.includes('oppose')) {
+          } else if (
+            linkType.includes('rebut') ||
+            linkType.includes('disagree') ||
+            linkType.includes('oppose')
+          ) {
             c.strokeStyle = 'rgba(220,38,38,0.4)'
           } else {
             c.strokeStyle = t.primaryColor + '44'
@@ -384,6 +450,20 @@ export function SimulationGraph({
         c.fillText('Gray = inactive agents', w - 12, h - 12)
       }
 
+      // If we have a tooltip element, update its position
+      const selectedNode = selectedIdRef.current
+        ? nodesRef.current.find((n) => n.id === selectedIdRef.current)
+        : null
+      if (tooltipRef.current && selectedNode) {
+        const tx = selectedNode.x! * transform.k + transform.x
+        const ty = selectedNode.y! * transform.k + transform.y
+        tooltipRef.current.style.left = `${tx}px`
+        tooltipRef.current.style.top = `${ty}px`
+        tooltipRef.current.style.display = 'block'
+      } else if (tooltipRef.current) {
+        tooltipRef.current.style.display = 'none'
+      }
+
       c.restore()
 
       animFrameRef.current = requestAnimationFrame(draw)
@@ -399,17 +479,17 @@ export function SimulationGraph({
       selection.on('.drag', null)
       selection.on('.zoom', null)
       container.removeEventListener('wheel', preventScroll)
+      canvas.removeEventListener('click', handleCanvasClick)
       simRef.current = null
     }
-  }, [personas, graphLayer]) // re-init when layer changes
+  }, [personas])
 
-  // Incrementally update links when edges change
+  // Rebuild or update links when edges or personas change
   useEffect(() => {
     if (!simRef.current) return
     const nodes = nodesRef.current
     if (nodes.length === 0) return
 
-    const existing = linksRef.current
     const newLinks: GraphLink[] = []
 
     for (const e of edges) {
@@ -417,33 +497,20 @@ export function SimulationGraph({
       const tgt = nodes.find((n) => n.id === e.target || n.name === e.target)
       if (!src || !tgt) continue
 
-      const existingLink = existing.find(
-        (l) => (l.source as GraphNode).id === src.id && (l.target as GraphNode).id === tgt.id
-      )
-      if (existingLink) {
-        existingLink.weight = e.weight
-        existingLink.type = e.type
-      } else {
-        newLinks.push({ source: src, target: tgt, type: e.type, weight: e.weight })
-      }
+      newLinks.push({ source: src, target: tgt, type: e.type, weight: e.weight })
     }
 
-    if (newLinks.length > 0) {
-      existing.push(...newLinks)
-    }
-    if (existing.length > MAX_GRAPH_LINKS) {
-      existing.splice(0, existing.length - MAX_GRAPH_LINKS)
-    }
+    linksRef.current = newLinks.slice(-MAX_GRAPH_LINKS)
 
-    const linkForce = simRef.current.force('link') as d3force.ForceLink<GraphNode, GraphLink> | undefined
+    const linkForce = simRef.current.force('link') as
+      | d3force.ForceLink<GraphNode, GraphLink>
+      | undefined
     if (linkForce) {
-      linkForce.links(existing)
+      linkForce.links(linksRef.current)
     }
 
-    if (newLinks.length > 0 || existing.length > 0) {
-      simRef.current.alpha(0.3).restart()
-    }
-  }, [edges])
+    simRef.current.alpha(0.3).restart()
+  }, [edges, personas])
 
   // Sync relationships to trigger redraw
   useEffect(() => {
@@ -462,6 +529,79 @@ export function SimulationGraph({
       className="relative w-full h-full min-h-[400px] overflow-hidden bg-card/30 rounded-xl border border-border"
     >
       <canvas ref={canvasRef} className="absolute inset-0 cursor-grab active:cursor-grabbing" />
+      {/* Tooltip */}
+      {selectedAgentId && (
+        <div
+          ref={tooltipRef}
+          className="absolute z-20 bg-card/95 backdrop-blur-md border border-border p-4 rounded-xl shadow-xl font-sans text-xs w-64 -translate-x-1/2 mt-8 pointer-events-auto flex flex-col gap-2"
+          style={{ display: 'none' }}
+        >
+          {(() => {
+            const selectedPersona = personas.find((p) => p.id === selectedAgentId)
+            if (!selectedPersona) return null
+
+            return (
+              <>
+                {/* Header with Close Button */}
+                <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                      {selectedPersona.name.charAt(0)}
+                    </div>
+                    <span className="font-semibold text-foreground truncate">{selectedPersona.name}</span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelectAgent?.(null)
+                    }}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Body Details */}
+                <div className="space-y-1.5 text-[11px] text-muted-foreground">
+                  <div>
+                    <span className="font-mono text-muted-foreground/70 mr-1">Role:</span>
+                    <span className="text-foreground font-medium">{selectedPersona.role}</span>
+                  </div>
+                  {selectedPersona.profession && (
+                    <div className="truncate">
+                      <span className="font-mono text-muted-foreground/70 mr-1">Profession:</span>
+                      <span className="text-foreground">{selectedPersona.profession}</span>
+                    </div>
+                  )}
+                  {selectedPersona.mbti && (
+                    <div>
+                      <span className="font-mono text-muted-foreground/70 mr-1">MBTI:</span>
+                      <span className="text-foreground font-semibold">{selectedPersona.mbti}</span>
+                    </div>
+                  )}
+                  {selectedPersona.bio && (
+                    <div className="text-[10px] italic text-muted-foreground/80 line-clamp-2 border-t border-border/20 pt-1.5 mt-1.5">
+                      "{selectedPersona.bio}"
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenDetails?.(selectedPersona.id)
+                  }}
+                  className="mt-2 w-full py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold rounded-lg text-center transition-colors text-[11px] cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <MessageSquare className="h-3 w-3" />
+                  View Details & Chat
+                </button>
+              </>
+            )
+          })()}
+        </div>
+      )}
       {/* Legend - Interaction layer */}
       <div className="absolute top-3 left-3 bg-card/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-border text-[10px] text-muted-foreground font-mono shadow-sm z-10">
         <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -488,7 +628,8 @@ export function SimulationGraph({
                       className="inline-block w-3 h-0.5 rounded-full"
                       style={{
                         backgroundColor: style.color,
-                        borderTop: style.dash.length > 0 ? `${style.width}px dashed ${style.color}` : 'none',
+                        borderTop:
+                          style.dash.length > 0 ? `${style.width}px dashed ${style.color}` : 'none',
                       }}
                     />
                     <span className="text-[9px]">{style.label}</span>
@@ -512,7 +653,7 @@ export function SimulationGraph({
 function drawRelationshipEdge(
   c: CanvasRenderingContext2D,
   link: GraphLink,
-  transform: ZoomTransform,
+  transform: ZoomTransform
 ) {
   const source = link.source as GraphNode
   const target = link.target as GraphNode
@@ -528,8 +669,12 @@ function drawRelationshipEdge(
   const alpha = Math.min(0.9, 0.3 + familiarity * 0.6)
 
   // Dashed line
-  c.setLineDash(style.dash.map(d => d / k))
-  c.strokeStyle = style.color + Math.round(alpha * 255).toString(16).padStart(2, '0')
+  c.setLineDash(style.dash.map((d) => d / k))
+  c.strokeStyle =
+    style.color +
+    Math.round(alpha * 255)
+      .toString(16)
+      .padStart(2, '0')
   c.lineWidth = (style.width * (0.5 + familiarity * 0.5)) / k
   c.lineCap = 'round'
 
@@ -551,11 +696,11 @@ function drawRelationshipEdge(
     c.moveTo(endX, endY)
     c.lineTo(
       endX - headLen * Math.cos(angle - Math.PI / 6),
-      endY - headLen * Math.sin(angle - Math.PI / 6),
+      endY - headLen * Math.sin(angle - Math.PI / 6)
     )
     c.lineTo(
       endX - headLen * Math.cos(angle + Math.PI / 6),
-      endY - headLen * Math.sin(angle + Math.PI / 6),
+      endY - headLen * Math.sin(angle + Math.PI / 6)
     )
     c.closePath()
     c.fillStyle = style.color
@@ -576,10 +721,17 @@ function getActiveRelationKinds(relationships: RelationshipDTO[]): string[] {
   }
   // Sort: family first, then social, then professional
   const order: Record<string, number> = {
-    parent: 0, child: 1, sibling: 2, spouse: 3,
-    friend: 4, rival: 5,
-    colleague: 6, mentor: 7, mentee: 8,
-    neighbor: 9, stranger: 10,
+    parent: 0,
+    child: 1,
+    sibling: 2,
+    spouse: 3,
+    friend: 4,
+    rival: 5,
+    colleague: 6,
+    mentor: 7,
+    mentee: 8,
+    neighbor: 9,
+    stranger: 10,
   }
   return Array.from(kinds).sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99))
 }
