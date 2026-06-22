@@ -13,19 +13,19 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// webSearchTool 通过 DuckDuckGo Lite 搜索网页
+// webSearchTool searches the web through DuckDuckGo Lite.
 //
 // Schema:
 //
 //	{
 //	  "query":"golang errgroup",
-//	  "max_results":5     // 默认 5；上限 20
+//	  "max_results":5     // default 5; max 20
 //	}
 //
-// 无需 API Key，始终注册。
-// 请求 POST https://lite.duckduckgo.com/lite/，解析 HTML 提取结果。
+// No API key is required; it is always registered.
+// It sends POST https://lite.duckduckgo.com/lite/ and parses the HTML to extract results.
 //
-// 返回（面向 LLM）：
+// Returns (for the LLM):
 //
 //	{"results":[{"title","url","content"}]}
 type webSearchTool struct {
@@ -133,7 +133,7 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	return string(b), nil
 }
 
-// parseDDGResults 从 DuckDuckGo Lite HTML 中提取搜索结果
+// parseDDGResults extracts search results from DuckDuckGo Lite HTML.
 func parseDDGResults(htmlData []byte, maxResults int) []ddgResult {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(htmlData)))
 	if err != nil {
@@ -149,13 +149,13 @@ func parseDDGResults(htmlData []byte, maxResults int) []ddgResult {
 		title := strings.TrimSpace(s.Text())
 		href, _ := s.Attr("href")
 
-		// DDG Lite 的 href 可能是直接 URL 或跳转链接
+		// DDG Lite href may be a direct URL or a redirect link
 		realURL := resolveDDGURL(href)
 		if realURL == "" {
 			realURL = href
 		}
 
-		// 摘要在下一个 <tr> 的 td.result-snippet 中
+		// The snippet is in the next <tr> under td.result-snippet
 		snippet := ""
 		row := s.Closest("tr")
 		if row.Length() > 0 {
@@ -180,15 +180,15 @@ func parseDDGResults(htmlData []byte, maxResults int) []ddgResult {
 	return results
 }
 
-// resolveDDGURL 从 DDG 跳转链接中提取真实 URL
-// DDG Lite 格式: //duckduckgo.com/l/?uddg=<encoded_url>&rut=...
-// 或直接是 https://... URL
+// resolveDDGURL extracts the real URL from a DDG redirect link.
+// DDG Lite format: //duckduckgo.com/l/?uddg=<encoded_url>&rut=...
+// or a direct https://... URL.
 func resolveDDGURL(href string) string {
 	if href == "" {
 		return ""
 	}
 
-	// 补全协议
+	// Add the scheme if missing
 	if strings.HasPrefix(href, "//") {
 		href = "https:" + href
 	}
@@ -198,7 +198,7 @@ func resolveDDGURL(href string) string {
 		return href
 	}
 
-	// 如果是 DDG 跳转链接，提取 uddg 参数
+	// If this is a DDG redirect link, extract the uddg parameter
 	if strings.Contains(u.Host, "duckduckgo.com") && u.Path == "/l/" {
 		if uddg := u.Query().Get("uddg"); uddg != "" {
 			decoded, err := url.QueryUnescape(uddg)

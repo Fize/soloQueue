@@ -143,7 +143,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	return string(b), nil
 }
 
-// CheckConfirmation 实现 Confirmable：替换操作始终需要确认。
+// CheckConfirmation implements Confirmable: replacement operations always require confirmation.
 func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 	var a replaceArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
@@ -154,10 +154,10 @@ func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 	return true, fmt.Sprintf("Replace in %q: %q → %q. Allow?", a.Path, oldPreview, newPreview)
 }
 
-// ConfirmationOptions 实现 Confirmable：二元确认。
+// ConfirmationOptions implements Confirmable: binary confirmation.
 func (t *replaceTool) ConfirmationOptions(_ string) []string { return nil }
 
-// ConfirmArgs 实现 Confirmable：无需修改 args。
+// ConfirmArgs implements Confirmable: no args modification needed.
 func (t *replaceTool) ConfirmArgs(original string, choice ConfirmChoice) string {
 	if choice != ChoiceApprove {
 		return original
@@ -165,7 +165,7 @@ func (t *replaceTool) ConfirmArgs(original string, choice ConfirmChoice) string 
 	return original
 }
 
-// SupportsSessionWhitelist 实现 Confirmable：支持 allow-in-session。
+// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
 func (t *replaceTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks

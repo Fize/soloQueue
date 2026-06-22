@@ -17,7 +17,7 @@ const (
 	ReadDefaultMaxTokens = 25000
 )
 
-// fileReadTool 读取单个文件并返回 JSON payload
+// fileReadTool reads a single file and returns a JSON payload.
 //
 // Schema:
 //
@@ -27,8 +27,8 @@ const (
 //	  "limit": 25000  // optional max tokens (default 25000)
 //	}
 //
-// 限制：MaxFileSize（超出返回 ErrFileTooLarge）；含 NUL 字节返回 ErrBinaryContent。
-// 单次返回内容不超过 ReadDefaultMaxTokens token；超过时返回截断内容 + 分页提示。
+// Constraints: MaxFileSize is enforced and returns ErrFileTooLarge when exceeded; NUL bytes return ErrBinaryContent.
+// A single read returns at most ReadDefaultMaxTokens tokens; if exceeded, the content is truncated and a paging hint is returned.
 type fileReadTool struct {
 	cfg    Config
 	logger *logger.Logger
