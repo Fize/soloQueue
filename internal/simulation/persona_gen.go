@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
@@ -40,6 +41,7 @@ type PersonaGenerator struct {
 	model        string
 	providerID   string
 	memoryEngine *memoryengine.Engine // nil = skip KG enhancement
+	maxTokens    int                  // 0 = use API default
 	log          *logger.Logger
 }
 
@@ -50,21 +52,36 @@ func NewPersonaGenerator(llm agent.LLMClient, model, providerID string, mem *mem
 
 func (g *PersonaGenerator) SetLogger(log *logger.Logger) { g.log = log }
 
+// SetMaxTokens overrides the default max_tokens for LLM calls.
+// If n > 0, it is used directly. If n <= 0 or not called, defaults to 16384
+// (matching the compiled default) instead of relying on the LLM API default,
+// which may be too low for multilingual persona generation.
+func (g *PersonaGenerator) SetMaxTokens(n int) {
+	if n > 0 {
+		g.maxTokens = n
+	}
+}
+
+const defaultPersonaGenMaxTokens = 16384
+
+// personaGenBatchSize is the maximum number of personas to generate per LLM
+// call. Generating too many personas in a single call causes two problems:
+// 1. Response truncation (finish=length) when output exceeds max_tokens
+// 2. JSON structural errors (the LLM makes mistakes in long, complex output)
+// Batching keeps each call small enough to avoid both issues.
+const personaGenBatchSize = 5
+
 // Generate creates persona definitions from KG entities when available,
 // falling back to extraction-based generation when memory engine is nil.
-func (g *PersonaGenerator) Generate(ctx context.Context, extraction *SeedExtraction, topic string, count int) ([]Persona, error) {
+func (g *PersonaGenerator) Generate(ctx context.Context, extraction *SeedExtraction, topic string, count int, language string) ([]Persona, error) {
 	if g.memoryEngine != nil {
-		return g.generateFromKG(ctx, extraction, topic, count)
+		return g.generateFromKG(ctx, extraction, topic, count, language)
 	}
-	return g.generateLegacy(ctx, extraction, topic, count)
+	return g.generateLegacy(ctx, extraction, topic, count, language)
 }
 
 // generateFromKG creates personas directly from knowledge graph entity nodes.
-//
-// Each entity node becomes a persona candidate grounded in actual data rather
-// than LLM imagination. The LLM enriches each entity with a detailed character
-// profile (bio, persona, age, gender, MBTI, profession, country).
-func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedExtraction, topic string, count int) ([]Persona, error) {
+func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedExtraction, topic string, count int, language string) ([]Persona, error) {
 	if count < 2 {
 		count = 2
 	}
@@ -111,16 +128,20 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: entity context built",
 				"name", entity.Name, "ctx_len", len(entityCtx))
 		}
-		prompt := buildEntityPersonaPrompt(entity, entityCtx, topic, extraction)
+		prompt := buildEntityPersonaPrompt(entity, entityCtx, topic, extraction, language)
 
 		if g.log != nil {
 			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: calling LLM for entity", "name", entity.Name)
+		}
+		maxTokens := g.maxTokens
+		if maxTokens <= 0 {
+			maxTokens = defaultPersonaGenMaxTokens
 		}
 		resp, err := g.llm.Chat(ctx, agent.LLMRequest{
 			Model:        g.model,
 			ProviderID:   g.providerID,
 			Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-			MaxTokens:    2048,
+			MaxTokens:    maxTokens,
 			ResponseJSON: true,
 		})
 		if err != nil {
@@ -129,10 +150,15 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 		if g.log != nil {
 			g.log.InfoContext(ctx, logger.CatSimulation, "generateFromKG: LLM done for entity", "name", entity.Name, "resp_len", len(resp.Content))
 		}
+		if resp.FinishReason == llm.FinishLength {
+			g.log.WarnContext(ctx, logger.CatSimulation, "generateFromKG: LLM response truncated (max_tokens)",
+				"entity", entity.Name, "content_len", len(resp.Content), "usage", resp.Usage)
+		}
 
 		entry, err := parseSinglePersonaEntry(resp.Content)
 		if err != nil {
-			return nil, fmt.Errorf("parse persona for entity %q: %w", entity.Name, err)
+			return nil, fmt.Errorf("parse persona for entity %q (finish=%s, content_len=%d): %w",
+				entity.Name, resp.FinishReason, len(resp.Content), err)
 		}
 		if entry.ID == "" {
 			entry.ID = sanitizeID(entity.Name)
@@ -155,7 +181,11 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 			Goals:      entry.Goals,
 		}
 		if len(p.Goals) == 0 {
-			p.Goals = []string{"Discuss the topic from your perspective"}
+			if language == "zh" {
+				p.Goals = []string{"从你的角度讨论该话题"}
+			} else {
+				p.Goals = []string{"Discuss the topic from your perspective"}
+			}
 		}
 		if p.Traits == nil {
 			p.Traits = make(map[string]string)
@@ -177,10 +207,14 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 	}
 
 	for i := range personas {
-		personas[i].SystemPrompt = BuildGenerativeAgentSystemPrompt(personas[i], personas, nil, nil, nil, nil, nil, nil)
+		personas[i].SystemPrompt = BuildGenerativeAgentSystemPrompt(language, personas[i], personas, nil, nil, nil, nil, nil, nil)
 		// Append topic context for backward compatibility with topic-based simulations
 		if topic != "" {
-			personas[i].SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
+			if language == "zh" {
+				personas[i].SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)
+			} else {
+				personas[i].SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
+			}
 		}
 	}
 
@@ -193,7 +227,7 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 
 // generateLegacy is the pre-KG persona generation path, kept for backward
 // compatibility when no memory engine is available.
-func (g *PersonaGenerator) generateLegacy(ctx context.Context, extraction *SeedExtraction, topic string, count int) ([]Persona, error) {
+func (g *PersonaGenerator) generateLegacy(ctx context.Context, extraction *SeedExtraction, topic string, count int, language string) ([]Persona, error) {
 	isDeduced := extraction != nil && len(extraction.SuggestedAgents) > 0
 	if count < 2 {
 		count = 2
@@ -212,31 +246,132 @@ func (g *PersonaGenerator) generateLegacy(ctx context.Context, extraction *SeedE
 		return nil, fmt.Errorf("extraction is nil")
 	}
 
-	kgContext := g.buildKGContext(ctx, extraction)
-	prompt := buildPersonaGenPrompt(extraction, topic, count, kgContext)
+	// Batch generation when count exceeds batch size to prevent LLM response
+	// truncation (finish=length) and JSON structural errors in long output.
+	if count > personaGenBatchSize {
+		return g.generateLegacyBatched(ctx, extraction, topic, count, language)
+	}
 
+	kgContext := g.buildKGContext(ctx, extraction)
+	prompt := buildPersonaGenPrompt(extraction, topic, count, kgContext, language)
+
+	maxTokens := g.maxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultPersonaGenMaxTokens
+	}
 	resp, err := g.llm.Chat(ctx, agent.LLMRequest{
 		Model:        g.model,
 		ProviderID:   g.providerID,
 		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    3072,
+		MaxTokens:    maxTokens,
 		ResponseJSON: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}
+	if resp.FinishReason == llm.FinishLength {
+		g.log.WarnContext(ctx, logger.CatSimulation, "generateLegacy: LLM response truncated (max_tokens)",
+			"content_len", len(resp.Content), "usage", resp.Usage)
+	}
 
 	result, err := parsePersonaGenResult(resp.Content)
 	if err != nil {
-		return nil, fmt.Errorf("parse persona gen: %w", err)
+		return nil, fmt.Errorf("parse persona gen (finish=%s, content_len=%d): %w",
+			resp.FinishReason, len(resp.Content), err)
 	}
 
-	personas, err := g.buildPersonas(result, extraction, topic)
+	personas, err := g.buildPersonas(result, extraction, topic, language)
 	if err != nil {
 		return nil, fmt.Errorf("build personas: %w", err)
 	}
 
 	return personas, nil
+}
+
+// generateLegacyBatched splits persona generation into multiple LLM calls,
+// each producing at most personaGenBatchSize personas. This prevents response
+// truncation and JSON structural errors that occur when generating many
+// personas in a single call. After all batches complete, a second pass
+// rebuilds system prompts so each persona knows about all other personas.
+func (g *PersonaGenerator) generateLegacyBatched(ctx context.Context, extraction *SeedExtraction, topic string, count int, language string) ([]Persona, error) {
+	isDeduced := len(extraction.SuggestedAgents) > 0
+
+	var allPersonas []Persona
+
+	for i := 0; i < count; i += personaGenBatchSize {
+		end := i + personaGenBatchSize
+		if end > count {
+			end = count
+		}
+		batchSize := end - i
+
+		// Create a modified extraction with only this batch's suggested agents
+		batchExtraction := *extraction
+		if isDeduced {
+			batchExtraction.SuggestedAgents = extraction.SuggestedAgents[i:end]
+		}
+
+		kgContext := g.buildKGContext(ctx, &batchExtraction)
+		prompt := buildPersonaGenPrompt(&batchExtraction, topic, batchSize, kgContext, language)
+
+		maxTokens := g.maxTokens
+		if maxTokens <= 0 {
+			maxTokens = defaultPersonaGenMaxTokens
+		}
+
+		if g.log != nil {
+			g.log.InfoContext(ctx, logger.CatSimulation, "generateLegacy: batch persona generation",
+				"batch", fmt.Sprintf("%d-%d/%d", i+1, end, count), "batch_size", batchSize)
+		}
+
+		resp, err := g.llm.Chat(ctx, agent.LLMRequest{
+			Model:        g.model,
+			ProviderID:   g.providerID,
+			Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
+			MaxTokens:    maxTokens,
+			ResponseJSON: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("llm chat batch %d-%d: %w", i+1, end, err)
+		}
+		if resp.FinishReason == llm.FinishLength {
+			g.log.WarnContext(ctx, logger.CatSimulation, "generateLegacy: batch response truncated (max_tokens)",
+				"batch", fmt.Sprintf("%d-%d", i+1, end), "content_len", len(resp.Content), "usage", resp.Usage)
+		}
+
+		result, err := parsePersonaGenResult(resp.Content)
+		if err != nil {
+			return nil, fmt.Errorf("parse persona gen batch %d-%d (finish=%s, content_len=%d): %w",
+				i+1, end, resp.FinishReason, len(resp.Content), err)
+		}
+
+		personas, err := g.buildPersonas(result, &batchExtraction, topic, language)
+		if err != nil {
+			return nil, fmt.Errorf("build personas batch %d-%d: %w", i+1, end, err)
+		}
+
+		allPersonas = append(allPersonas, personas...)
+	}
+
+	if len(allPersonas) == 0 {
+		return nil, fmt.Errorf("no personas generated from any batch")
+	}
+
+	// Second pass: rebuild system prompts with the full persona list so each
+	// persona knows about all other personas, not just those in its batch.
+	for i := range allPersonas {
+		allPersonas[i].SystemPrompt = BuildGenerativeAgentSystemPrompt(
+			language, allPersonas[i], allPersonas, nil, nil, nil, nil, nil, nil)
+		if topic != "" {
+			if language == "zh" {
+				allPersonas[i].SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)
+			} else {
+				allPersonas[i].SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
+			}
+		}
+	}
+
+	return allPersonas, nil
 }
 
 // selectPersonaEntities filters KG entities to those suitable as personas.
@@ -377,7 +512,7 @@ func (g *PersonaGenerator) buildKGContext(ctx context.Context, extraction *SeedE
 
 // buildEntityPersonaPrompt creates a detailed persona generation prompt for a
 // single KG entity, modeled after MiroFish's OasisProfileGenerator approach.
-func buildEntityPersonaPrompt(entity memoryengine.GraphNode, entityCtx, topic string, extraction *SeedExtraction) string {
+func buildEntityPersonaPrompt(entity memoryengine.GraphNode, entityCtx, topic string, extraction *SeedExtraction, language string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Generate a detailed persona profile for the following entity to serve as a social simulation agent.\n\n"))
 	b.WriteString(fmt.Sprintf("Entity name: %s\n", entity.Name))
@@ -420,7 +555,11 @@ func buildEntityPersonaPrompt(entity memoryengine.GraphNode, entityCtx, topic st
 	b.WriteString("- For individuals (person, expert, official etc.): create a realistic personal profile.\n")
 	b.WriteString("- For organizations/institutions (company, university, agency etc.): create a representative account profile. Use gender \"other\".\n")
 	b.WriteString("- The persona field must be a single coherent text, 1500+ characters.\n")
-	b.WriteString("- All fields must have values. age must be an integer. gender must be one of: male, female, other.\n\n")
+	b.WriteString("- All fields must have values. age must be an integer. gender must be one of: male, female, other.\n")
+	if language == "zh" {
+		b.WriteString("- IMPORTANT: All generated textual fields (name, role, bio, persona, goals, traits values, etc.) MUST be written in Chinese, because the simulation language is set to Chinese. Maintain IDs in lowercase English/underscores.\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString("Output ONLY valid JSON, no markdown fences:\n")
 	b.WriteString(`{
@@ -494,7 +633,7 @@ func sanitizeID(name string) string {
 }
 
 // buildPersonas converts LLM output into simulation Persona structs.
-func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *SeedExtraction, topic string) ([]Persona, error) {
+func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *SeedExtraction, topic string, language string) ([]Persona, error) {
 	if len(result.Personas) == 0 {
 		return nil, fmt.Errorf("no personas in LLM result")
 	}
@@ -540,16 +679,23 @@ func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *S
 		// Goals
 		p.Goals = entry.Goals
 		if len(p.Goals) == 0 {
-			p.Goals = []string{"Discuss the topic from your perspective"}
+			if language == "zh" {
+				p.Goals = []string{"从你的角度讨论该话题"}
+			} else {
+				p.Goals = []string{"Discuss the topic from your perspective"}
+			}
 		}
-
 		// Generate system prompt using existing builder
 		// We need personas for the prompt builder; since we're building all at once,
 		// create a partial list for cross-references
 		allPersonas := buildPartialPersonaList(result.Personas)
-		p.SystemPrompt = BuildGenerativeAgentSystemPrompt(p, allPersonas, nil, nil, nil, nil, nil, nil)
+		p.SystemPrompt = BuildGenerativeAgentSystemPrompt(language, p, allPersonas, nil, nil, nil, nil, nil, nil)
 		if topic != "" {
-			p.SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
+			if language == "zh" {
+				p.SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)
+			} else {
+				p.SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
+			}
 		}
 
 		personas = append(personas, p)
@@ -597,7 +743,7 @@ func parsePersonaGenResult(content string) (*PersonaGenResult, error) {
 
 // --- prompt ---
 
-func buildPersonaGenPrompt(extraction *SeedExtraction, topic string, count int, kgContext string) string {
+func buildPersonaGenPrompt(extraction *SeedExtraction, topic string, count int, kgContext string, language string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Generate %d distinct personas for a multi-agent simulation.\n\n", count))
 	b.WriteString("Topic: ")
@@ -651,7 +797,11 @@ func buildPersonaGenPrompt(extraction *SeedExtraction, topic string, count int, 
 	}
 	b.WriteString("- Each persona gets a unique stance (pro/con/neutral) toward each entity\n")
 	b.WriteString("- Personas should cover diverse perspectives\n")
-	b.WriteString("- Assign each persona a 4-letter MBTI type (e.g. INTP, ENFJ, ISTJ) that matches their role and traits\n\n")
+	b.WriteString("- Assign each persona a 4-letter MBTI type (e.g. INTP, ENFJ, ISTJ) that matches their role and traits\n")
+	if language == "zh" {
+		b.WriteString("- IMPORTANT: All generated textual fields (name, role, bio, persona, goals, traits values, etc.) MUST be written in Chinese, because the simulation language is set to Chinese. Maintain IDs in lowercase English/underscores.\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString("Output valid JSON with the following structure:\n")
 	b.WriteString(`{
