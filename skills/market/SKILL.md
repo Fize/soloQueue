@@ -2,15 +2,7 @@
 name: market
 description: |
   Query A-share market overview, rankings, limit-up pools, concept/industry fund flows, individual stock profile (realtime, kline with multi-period, cyq cost distribution, institution comments, individual fund flow, financials), individual stock news, and save market reviews. A股市场行情查询与深度分析工具，支持大盘、个股走势、涨停板及资金流向。
-triggers:
-  - "行情"
-  - "大盘"
-  - "涨停"
-  - "资金流向"
-  - "个股分析"
-  - "A股"
-  - "market overview"
-  - "stock profile"
+when_to_use: "Trigger when the user mentions: 行情, 大盘, 涨停, 资金流向, 个股分析, A股, market overview, stock profile"
 upstream: https://github.com/Fize/mmtickerlab
 branch: master
 subpath: skills/market

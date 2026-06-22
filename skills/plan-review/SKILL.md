@@ -4,20 +4,7 @@ description: |
   Standardized pre-market preparation, noon review, and evening review workflows plus trading journal management.
   三段式交易操作系统：盘前准备→午间复盘→晚间复盘，配合交易日志工具记录每一天。
   核心原则：脚本取数据，AI 做分析，交易者负责最终决策。
-triggers:
-  - "盘前准备"
-  - "午间复盘"
-  - "晚间复盘"
-  - "交易计划"
-  - "复盘"
-  - "写日志"
-  - "交易日志"
-  - "今日计划"
-  - "纪律打分"
-  - "plan review"
-  - "trading journal"
-  - "pre-market"
-  - "evening review"
+when_to_use: "Trigger when the user mentions: 盘前准备, 午间复盘, 晚间复盘, 交易计划, 复盘, 写日志, 交易日志, 今日计划, 纪律打分, plan review, trading journal, pre-market, evening review"
 upstream: https://github.com/Fize/mmtickerlab
 branch: master
 subpath: skills/plan-review

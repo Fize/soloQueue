@@ -2,15 +2,7 @@
 name: sim-trade
 description: |
   A-share simulation trading tool. Support resetting the portfolio, checking holdings/P&L, buying stocks, selling stocks, and querying transaction history under strict A-share trading rules (T+1, lot size, commissions, stamp tax, trading hours). A股模拟交易工具，支持账户初始化、持仓及盈亏查询、买入、卖出及交易历史查询。
-triggers:
-  - "模拟交易"
-  - "买入"
-  - "卖出"
-  - "持仓"
-  - "模拟盘"
-  - "simulation trading"
-  - "paper trading"
-  - "sim-trade"
+when_to_use: "Trigger when the user mentions: 模拟交易, 买入, 卖出, 持仓, 模拟盘, simulation trading, paper trading, sim-trade"
 upstream: https://github.com/Fize/mmtickerlab
 branch: master
 subpath: skills/sim-trade

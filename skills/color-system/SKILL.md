@@ -6,13 +6,7 @@ description: |
   Cursor Code, Lovable Pop) or generate a custom palette from a base color.
   Output is a ready-to-paste tokens.css block with semantic variables,
   automatic dark-mode switching, and WCAG AA contrast validation.
-triggers:
-  - "color system"
-  - "dark mode palette"
-  - "light mode palette"
-  - "color tokens"
-  - "accessible colors"
-  - "generate tokens.css"
+when_to_use: "Trigger when the user mentions: color system, dark mode palette, light mode palette, color tokens, accessible colors, generate tokens.css"
   - "配色方案"
   - "深色模式"
   - "浅色模式"
