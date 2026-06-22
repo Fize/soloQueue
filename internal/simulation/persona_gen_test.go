@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -43,7 +44,7 @@ func TestPersonaGenerator_Basic(t *testing.T) {
 	}
 
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
-	personas, err := gen.Generate(context.Background(), extraction, "Rust vs Go", 2)
+	personas, err := gen.Generate(context.Background(), extraction, "Rust vs Go", 2, "zh")
 	if err != nil {
 		t.Fatalf("Generate() error: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestPersonaGenerator_ContrarianConstraint(t *testing.T) {
 	}
 
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
-	personas, err := gen.Generate(context.Background(), extraction, "Topic X", 3)
+	personas, err := gen.Generate(context.Background(), extraction, "Topic X", 3, "zh")
 	if err != nil {
 		t.Fatalf("Generate() error: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestPersonaGenerator_CountBounds(t *testing.T) {
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
 
 	// count = 1 should be clamped to 2
-	p1, err := gen.Generate(context.Background(), extraction, "test", 1)
+	p1, err := gen.Generate(context.Background(), extraction, "test", 1, "zh")
 	if err != nil {
 		t.Fatalf("Generate(1) error: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestPersonaGenerator_CountBounds(t *testing.T) {
 	}
 
 	// count = 10 should be clamped to 5
-	p2, err := gen.Generate(context.Background(), extraction, "test", 10)
+	p2, err := gen.Generate(context.Background(), extraction, "test", 10, "zh")
 	if err != nil {
 		t.Fatalf("Generate(10) error: %v", err)
 	}
@@ -144,7 +145,7 @@ func TestPersonaGenerator_CountBounds(t *testing.T) {
 
 func TestPersonaGenerator_NilExtraction(t *testing.T) {
 	gen := NewPersonaGenerator(&agent.FakeLLM{}, "", "", nil)
-	_, err := gen.Generate(context.Background(), nil, "test", 2)
+	_, err := gen.Generate(context.Background(), nil, "test", 2, "zh")
 	if err == nil {
 		t.Fatal("expected error for nil extraction")
 	}
@@ -157,7 +158,7 @@ func TestPersonaGenerator_MalformedJSON(t *testing.T) {
 
 	extraction := &SeedExtraction{Entities: []memoryengine.EntityExtraction{{Name: "Test", Type: "concept"}}}
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
-	_, err := gen.Generate(context.Background(), extraction, "test", 2)
+	_, err := gen.Generate(context.Background(), extraction, "test", 2, "zh")
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
 	}
@@ -182,5 +183,135 @@ func TestParsePersonaGenResult_MarkdownFence(t *testing.T) {
 	}
 	if len(result.Personas) != 1 {
 		t.Errorf("expected 1 persona, got %d", len(result.Personas))
+	}
+}
+
+func TestPersonaGenerator_BatchedGeneration(t *testing.T) {
+	// Create 12 suggested agents to trigger batching (12 > personaGenBatchSize=5).
+	// Expected batches: [0-5), [5-10), [10-12) = 3 batches of 5, 5, 2.
+	const totalAgents = 12
+	suggestedAgents := make([]SuggestedAgent, totalAgents)
+	for i := 0; i < totalAgents; i++ {
+		suggestedAgents[i] = SuggestedAgent{
+			Name:        fmt.Sprintf("Agent%d", i+1),
+			Role:        "protagonist",
+			Description: fmt.Sprintf("Description for agent %d", i+1),
+			Traits:      []string{"brave"},
+		}
+	}
+
+	// Track LLM calls to verify batching
+	var llmPrompts []string
+
+	// Build 3 LLM responses, one per batch
+	var responses []string
+	for batchStart := 0; batchStart < totalAgents; batchStart += personaGenBatchSize {
+		batchEnd := batchStart + personaGenBatchSize
+		if batchEnd > totalAgents {
+			batchEnd = totalAgents
+		}
+		var entries []string
+		for j := batchStart; j < batchEnd; j++ {
+			entries = append(entries, fmt.Sprintf(
+				`{"id":"agent-%d","name":"Agent%d","role":"neutral","goals":["goal"],"traits":{},"stance_per_entity":{}}`,
+				j+1, j+1))
+		}
+		responses = append(responses, `{"personas":[`+strings.Join(entries, ",")+`]}`)
+	}
+
+	fakeLLM := &agent.FakeLLM{
+		Responses: responses,
+		Hook: func(req agent.LLMRequest) {
+			llmPrompts = append(llmPrompts, req.Messages[0].Content)
+		},
+	}
+
+	extraction := &SeedExtraction{
+		Entities:        []memoryengine.EntityExtraction{{Name: "Topic", Type: "concept", Confidence: 0.8}},
+		SuggestedAgents: suggestedAgents,
+	}
+
+	gen := NewPersonaGenerator(fakeLLM, "test-model", "test-provider", nil)
+	personas, err := gen.Generate(context.Background(), extraction, "Test Topic", totalAgents, "zh")
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+
+	// Should have made 3 LLM calls (batches: 5, 5, 2)
+	if len(llmPrompts) != 3 {
+		t.Errorf("expected 3 LLM calls (batches), got %d", len(llmPrompts))
+	}
+
+	// Should have 12 personas total
+	if len(personas) != totalAgents {
+		t.Fatalf("expected %d personas, got %d", totalAgents, len(personas))
+	}
+
+	// Verify persona names
+	for i, p := range personas {
+		expectedName := fmt.Sprintf("Agent%d", i+1)
+		if p.Name != expectedName {
+			t.Errorf("persona[%d] name: expected %q, got %q", i, expectedName, p.Name)
+		}
+	}
+
+	// Cross-reference check: persona 0 (batch 0) system prompt should mention
+	// persona 6 (batch 1) — proving the second pass updated system prompts.
+	if len(personas) > 6 {
+		prompt := personas[0].SystemPrompt
+		if !strings.Contains(prompt, "Agent6") {
+			t.Error("persona[0] system prompt should reference Agent6 from batch 1 (second pass cross-reference)")
+		}
+	}
+
+	// Each batch prompt should only mention its own suggested agents, not all 12
+	// Batch 0 prompt should mention "Agent1" but NOT "Agent6"
+	if len(llmPrompts) > 0 {
+		if !strings.Contains(llmPrompts[0], "Agent1") {
+			t.Error("batch 0 prompt should mention Agent1")
+		}
+		if strings.Contains(llmPrompts[0], "Agent6") {
+			t.Error("batch 0 prompt should NOT mention Agent6 (that's in batch 1)")
+		}
+	}
+}
+
+func TestPersonaGenerator_BatchSplitsCorrectly(t *testing.T) {
+	// Test with 7 agents → batches: [0-5), [5-7) = 2 batches of 5, 2
+	const totalAgents = 7
+	suggestedAgents := make([]SuggestedAgent, totalAgents)
+	for i := 0; i < totalAgents; i++ {
+		suggestedAgents[i] = SuggestedAgent{
+			Name: fmt.Sprintf("P%d", i+1),
+			Role: "neutral",
+		}
+	}
+
+	var llmCalls int
+	responses := []string{
+		`{"personas":[{"id":"p1","name":"P1","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p2","name":"P2","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p3","name":"P3","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p4","name":"P4","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p5","name":"P5","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}}]}`,
+		`{"personas":[{"id":"p6","name":"P6","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p7","name":"P7","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}}]}`,
+	}
+	fakeLLM := &agent.FakeLLM{
+		Responses: responses,
+		Hook: func(req agent.LLMRequest) {
+			llmCalls++
+		},
+	}
+
+	extraction := &SeedExtraction{
+		Entities:        []memoryengine.EntityExtraction{{Name: "T", Type: "concept"}},
+		SuggestedAgents: suggestedAgents,
+	}
+	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
+	personas, err := gen.Generate(context.Background(), extraction, "topic", totalAgents, "en")
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+	if llmCalls != 2 {
+		t.Errorf("expected 2 LLM calls for 7 agents (batches: 5+2), got %d", llmCalls)
+	}
+	if len(personas) != totalAgents {
+		t.Errorf("expected %d personas, got %d", totalAgents, len(personas))
 	}
 }

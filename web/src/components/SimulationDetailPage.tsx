@@ -69,10 +69,11 @@ export function SimulationDetailPage() {
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false)
   const [editTopic, setEditTopic] = useState('')
   const [editMaxWallClockMin, setEditMaxWallClockMin] = useState(18)
-  const [editSimHours, setEditSimHours] = useState(168)
+  const [editSimHours, setEditSimHours] = useState(48)
   const [editTimeScale, setEditTimeScale] = useState(600)
   const [editEnableReflection, setEditEnableReflection] = useState(true)
   const [editPersonas, setEditPersonas] = useState<any[]>([])
+  const [editLanguage, setEditLanguage] = useState('zh')
   const [savingConfig, setSavingConfig] = useState(false)
   const [relationships, setRelationships] = useState<RelationshipDTO[]>([])
   const [graphLayer, setGraphLayer] = useState<'interaction' | 'relationship' | 'both'>('both')
@@ -146,12 +147,13 @@ export function SimulationDetailPage() {
       setEditMaxWallClockMin(
         state.config.max_wall_clock_ms ? Math.round(state.config.max_wall_clock_ms / 60000) : 18
       )
-      setEditSimHours(state.config.simulated_hours || 168)
+      setEditSimHours(state.config.simulated_hours || 48)
       setEditTimeScale(state.config.time_scale || 600)
       setEditEnableReflection(
         state.config.enable_reflection !== undefined ? state.config.enable_reflection : true
       )
       setEditPersonas(state.config.personas || [])
+      setEditLanguage(state.config.language || 'zh')
     }
   }, [state, isEditing])
 
@@ -170,6 +172,7 @@ export function SimulationDetailPage() {
           time_scale: editTimeScale,
           enable_reflection: editEnableReflection,
           personas: editPersonas,
+          language: editLanguage,
         }),
       })
 
@@ -321,6 +324,7 @@ export function SimulationDetailPage() {
       } else if (ev.type === 'round_start') {
         setState((prev) => (prev ? { ...prev, round: ev.round } : null))
       } else if (ev.type === 'simulation_end') {
+        setState((prev) => (prev ? { ...prev, status: 'completed' } : null))
         setProgress((prev) =>
           prev
             ? {
@@ -374,6 +378,14 @@ export function SimulationDetailPage() {
     const unsubProgress = wsManager.subscribe('simulation_progress', (p: SimulationProgress) => {
       if (p.simulation_id !== id) return
       setProgress(p)
+
+      // When the server reports completion or failure via progress, also
+      // update the local status so the UI stops showing "Stop Simulation".
+      if (p.phase === 'completed' || p.phase === 'failed') {
+        setState((prev) =>
+          prev ? { ...prev, status: p.phase === 'completed' ? 'completed' : 'failed' } : null
+        )
+      }
 
       if (p.graph_edges && p.graph_edges.length > 0) {
         setGraphEdges((prev) => {
@@ -612,9 +624,9 @@ export function SimulationDetailPage() {
                   R{msg.round} • {msg.type}
                 </span>
               </div>
-              <p className="text-xs text-foreground/95 leading-relaxed mt-1 whitespace-pre-wrap font-sans">
-                {msg.content}
-              </p>
+              <div className="text-xs text-foreground/95 leading-relaxed mt-1 font-sans prose prose-sm dark:prose-invert max-w-none select-text">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+              </div>
               {msg.reasoning && (
                 <details className="mt-2.5">
                   <summary className="text-[10px] text-muted-foreground cursor-pointer select-none hover:text-foreground">
@@ -897,14 +909,16 @@ export function SimulationDetailPage() {
                     </div>
                   </div>
                   <div className="flex justify-start">
-                    <div className="rounded-lg bg-muted/70 border border-border px-3 py-2 text-xs text-foreground max-w-[85%]">
+                    <div className="rounded-lg bg-muted/70 border border-border px-3 py-2 text-xs text-foreground max-w-[85%] select-text">
                       {chat.loading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           Thinking...
                         </div>
                       ) : (
-                        chat.a
+                        <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{chat.a}</ReactMarkdown>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -944,7 +958,10 @@ export function SimulationDetailPage() {
           }
         }}
       >
-        <DialogContent className="max-w-[700px] h-[80vh] flex flex-col p-0 overflow-hidden bg-card/95 backdrop-blur-md border border-border">
+        <DialogContent
+          showCloseButton={false}
+          className="max-w-[700px] h-[80vh] flex flex-col p-0 overflow-hidden bg-card/95 backdrop-blur-md border border-border"
+        >
           {(() => {
             const selectedPersona = selectedAgentId
               ? state.config.personas.find((p) => p.id === selectedAgentId)
@@ -1053,19 +1070,38 @@ export function SimulationDetailPage() {
             </div>
 
             {/* Wall Clock & Simulated Hours */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  Max Time: {editMaxWallClockMin}m
+                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono flex justify-between items-center">
+                  <span>Max Time (min)</span>
+                  <span className="text-primary font-bold">
+                    {editMaxWallClockMin}m
+                    {editMaxWallClockMin >= 60
+                      ? ` (${(editMaxWallClockMin / 60).toFixed(1)}h)`
+                      : ''}
+                  </span>
                 </label>
-                <input
-                  type="range"
-                  min={1}
-                  max={30}
-                  value={editMaxWallClockMin}
-                  onChange={(e) => setEditMaxWallClockMin(parseInt(e.target.value) || 5)}
-                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={1}
+                    max={180}
+                    value={Math.min(editMaxWallClockMin, 180)}
+                    onChange={(e) => setEditMaxWallClockMin(parseInt(e.target.value) || 5)}
+                    className="flex-1 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={editMaxWallClockMin}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(1440, parseInt(e.target.value) || 1))
+                      setEditMaxWallClockMin(val)
+                    }}
+                    className="w-16 text-center text-xs h-7 py-1 px-1.5 shrink-0"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
@@ -1079,8 +1115,16 @@ export function SimulationDetailPage() {
                   value={editSimHours}
                   onChange={(e) => {
                     const val = parseInt(e.target.value) || 48
+                    const currentTheoryMin = (editSimHours * 60) / editTimeScale
+                    const multiplier =
+                      currentTheoryMin > 0 ? editMaxWallClockMin / currentTheoryMin : 3.75
+                    const newTheoryMin = (val * 60) / editTimeScale
+                    const newMaxMin = Math.max(
+                      1,
+                      Math.min(1440, Math.round(multiplier * newTheoryMin))
+                    )
                     setEditSimHours(val)
-                    setEditMaxWallClockMin(Math.round((val * 5) / 48))
+                    setEditMaxWallClockMin(newMaxMin)
                   }}
                   className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                 />
@@ -1093,7 +1137,19 @@ export function SimulationDetailPage() {
                 <Select
                   label="Time Scale"
                   value={String(editTimeScale)}
-                  onChange={(v) => setEditTimeScale(parseInt(v))}
+                  onChange={(v) => {
+                    const newScale = parseInt(v) || 600
+                    const currentTheoryMin = (editSimHours * 60) / editTimeScale
+                    const multiplier =
+                      currentTheoryMin > 0 ? editMaxWallClockMin / currentTheoryMin : 3.75
+                    const newTheoryMin = (editSimHours * 60) / newScale
+                    const newMaxMin = Math.max(
+                      1,
+                      Math.min(1440, Math.round(multiplier * newTheoryMin))
+                    )
+                    setEditTimeScale(newScale)
+                    setEditMaxWallClockMin(newMaxMin)
+                  }}
                   options={[
                     { value: '60', label: '1s = 1min' },
                     { value: '300', label: '1s = 5min' },
@@ -1125,6 +1181,21 @@ export function SimulationDetailPage() {
                     {editEnableReflection ? 'On' : 'Off'}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Language */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Select
+                  label="Language"
+                  value={editLanguage}
+                  onChange={(v) => setEditLanguage(v)}
+                  options={[
+                    { value: 'zh', label: '中文 (Chinese)' },
+                    { value: 'en', label: 'English' },
+                  ]}
+                />
               </div>
             </div>
 

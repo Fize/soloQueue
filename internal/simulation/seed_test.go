@@ -405,3 +405,99 @@ func TestMergeExtractions_NilFirst(t *testing.T) {
 		t.Error("merge with nil first should return second")
 	}
 }
+
+func TestParseExtraction_RawNewlineInString(t *testing.T) {
+	// Reproduces the real-world bug: LLM generates JSON with raw newline
+	// characters inside string values (e.g. in "description" or "reason" fields).
+	// The JSON spec requires control chars to be escaped as \n, but some LLMs
+	// emit literal newlines. Go's json.Unmarshal rejects these with
+	// "invalid character '\n' in string literal".
+	//
+	// The raw content below contains literal \n bytes (not escaped) inside
+	// the "description" field of suggested_agents, matching the actual
+	// error from the logs.
+	raw := "{\n  \"entities\": [\n    {\"name\": \"杨凡\", \"type\": \"person\", \"confidence\": 1.0}\n  ],\n  \"suggested_agents\": [\n    {\"name\": \"杨凡\", \"role\": \"protagonist\", \"description\": \"杨凡是一个\n年轻的剑客\n他追求力量\", \"traits\": [\"勇敢\", \"执着\"]}\n  ],\n  \"key_topics\": [\"修炼\"],\n  \"conflict_areas\": [],\n  \"world_state\": {}\n}"
+
+	ext, err := parseExtraction(raw)
+	if err != nil {
+		t.Fatalf("parseExtraction should handle raw newlines in strings, got: %v", err)
+	}
+	if len(ext.Entities) != 1 || ext.Entities[0].Name != "杨凡" {
+		t.Errorf("expected 1 entity '杨凡', got %+v", ext.Entities)
+	}
+	if len(ext.SuggestedAgents) != 1 {
+		t.Fatalf("expected 1 suggested agent, got %d", len(ext.SuggestedAgents))
+	}
+	// The description should contain the text with newlines (now properly escaped)
+	if !strings.Contains(ext.SuggestedAgents[0].Description, "年轻的剑客") {
+		t.Errorf("description should contain '年轻的剑客', got: %q", ext.SuggestedAgents[0].Description)
+	}
+}
+
+func TestEscapeControlCharsInStrings(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "no strings",
+			input: `[1, 2, 3]`,
+			want:  `[1, 2, 3]`,
+		},
+		{
+			name:  "normal string",
+			input: `"hello world"`,
+			want:  `"hello world"`,
+		},
+		{
+			name:  "raw newline in string",
+			input: "\"line1\nline2\"",
+			want:  `"line1\nline2"`,
+		},
+		{
+			name:  "raw tab in string",
+			input: "\"col1\tcol2\"",
+			want:  `"col1\tcol2"`,
+		},
+		{
+			name:  "raw carriage return in string",
+			input: "\"line1\rline2\"",
+			want:  `"line1\rline2"`,
+		},
+		{
+			name:  "escaped newline stays as-is",
+			input: `"line1\nline2"`,
+			want:  `"line1\nline2"`,
+		},
+		{
+			name:  "escaped quote stays as-is",
+			input: `"he said \"hello\""`,
+			want:  `"he said \"hello\""`,
+		},
+		{
+			name:  "backslash at end of string",
+			input: `"path\\"`,
+			want:  `"path\\"`,
+		},
+		{
+			name:  "newlines outside strings (whitespace) untouched",
+			input: "{\n  \"key\": \"value\"\n}",
+			want:  "{\n  \"key\": \"value\"\n}",
+		},
+		{
+			name:  "multiple strings with mixed control chars",
+			input: "{\"a\": \"x\ny\", \"b\": \"z\tw\"}",
+			want:  `{"a": "x\ny", "b": "z\tw"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := escapeControlCharsInStrings(tt.input)
+			if got != tt.want {
+				t.Errorf("escapeControlCharsInStrings(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
