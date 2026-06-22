@@ -38,6 +38,7 @@ type SeedExtractor struct {
 	model        string
 	providerID   string
 	memoryEngine *memoryengine.Engine // nil = skip KG writes
+	maxTokens    int                  // 0 = use sensible default per phase
 	log          *logger.Logger
 }
 
@@ -48,8 +49,20 @@ func NewSeedExtractor(llm agent.LLMClient, model, providerID string, mem *memory
 
 func (s *SeedExtractor) SetLogger(log *logger.Logger) { s.log = log }
 
+// SetMaxTokens overrides the default max_tokens for LLM calls.
+// If 0 or not called, uses a per-phase sensible default.
+func (s *SeedExtractor) SetMaxTokens(n int) {
+	if n > 0 {
+		s.maxTokens = n
+	}
+}
+
+const defaultSeedMaxTokens = 16384
+
 // Extract parses seed text and returns structured extraction.
-func (s *SeedExtractor) Extract(ctx context.Context, seedText string) (*SeedExtraction, error) {
+// simulatedHours is the total simulation duration; passed to Phase 2 so the LLM
+// can map narrative timeline events to simulation clock offsets.
+func (s *SeedExtractor) Extract(ctx context.Context, seedText string, simulatedHours int) (*SeedExtraction, error) {
 	if strings.TrimSpace(seedText) == "" {
 		return nil, fmt.Errorf("seed text is empty")
 	}
@@ -62,6 +75,7 @@ func (s *SeedExtractor) Extract(ctx context.Context, seedText string) (*SeedExtr
 		s.log.InfoContext(ctx, logger.CatSimulation, "extraction: text chunked", "chunks", len(chunks))
 	}
 
+	// Phase 1: Per-chunk basic extraction (entities, world_state, key_topics, conflict_areas)
 	var merged *SeedExtraction
 	for _, chunk := range chunks {
 		ext, err := s.extractChunk(ctx, chunk)
@@ -71,22 +85,47 @@ func (s *SeedExtractor) Extract(ctx context.Context, seedText string) (*SeedExtr
 		merged = mergeExtractions(merged, ext)
 	}
 
+	// Phase 2: Character extraction from merged context (suggested_agents, lifecycle_events, initial_relationships)
+	// Uses full token budget to avoid truncation of the last fields.
+	if merged != nil && len(merged.Entities) > 0 {
+		charExt, err := s.extractCharacters(ctx, seedText, merged, simulatedHours)
+		if err != nil {
+			// Non-fatal: continue without character data
+			if s.log != nil {
+				s.log.WarnContext(ctx, logger.CatSimulation, "extractCharacters failed, continuing without character data", "err", err.Error())
+			}
+		} else if charExt != nil {
+			merged = mergeExtractions(merged, charExt)
+		}
+	}
+
 	return merged, nil
 }
 
-// extractChunk calls LLM on a single chunk and optionally writes to KG.
+// extractChunk calls LLM on a single chunk for basic extraction (Phase 1).
+// Extracts entities, world_state, key_topics, and conflict_areas only.
 func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedExtraction, error) {
 	if s.log != nil {
 		s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: calling LLM", "chunk_len", len(chunk))
 	}
 
-	prompt := buildExtractionPrompt(chunk)
+	prompt := buildBasicExtractionPrompt(chunk)
+
+	mt := s.maxTokens
+	if mt <= 0 {
+		mt = defaultSeedMaxTokens
+	}
+	// Phase 1 uses a fraction of the budget; output is small
+	phase1Tokens := mt / 8
+	if phase1Tokens < 1024 {
+		phase1Tokens = 1024
+	}
 
 	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
 		Model:        s.model,
 		ProviderID:   s.providerID,
 		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    2048,
+		MaxTokens:    phase1Tokens,
 		ResponseJSON: true,
 	})
 	if err != nil {
@@ -97,7 +136,7 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 		s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: LLM response received", "content_len", len(resp.Content))
 	}
 
-	ext, err := parseExtraction(resp.Content)
+	ext, err := parseBasicExtraction(resp.Content)
 	if err != nil {
 		return nil, fmt.Errorf("parse extraction: %w", err)
 	}
@@ -116,6 +155,55 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 		if err != nil {
 			return nil, fmt.Errorf("save to memory engine: %w", err)
 		}
+	}
+
+	return ext, nil
+}
+
+// extractCharacters calls LLM with merged entity context to extract character-level data (Phase 2).
+// Extracts suggested_agents, lifecycle_events, and initial_relationships.
+// Uses the full token budget to avoid truncation.
+func (s *SeedExtractor) extractCharacters(ctx context.Context, seedText string, merged *SeedExtraction, simulatedHours int) (*SeedExtraction, error) {
+	if s.log != nil {
+		s.log.InfoContext(ctx, logger.CatSimulation, "extractCharacters: calling LLM with merged context",
+			"entities", len(merged.Entities), "topics", len(merged.KeyTopics))
+	}
+
+	prompt := buildCharacterExtractionPrompt(seedText, merged, simulatedHours)
+
+	mt := s.maxTokens
+	if mt <= 0 {
+		mt = defaultSeedMaxTokens
+	}
+	// Phase 2 uses the majority of the budget for character + relationship data
+	phase2Tokens := mt * 3 / 4
+	if phase2Tokens < 4096 {
+		phase2Tokens = 4096
+	}
+
+	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
+		Model:        s.model,
+		ProviderID:   s.providerID,
+		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
+		MaxTokens:    phase2Tokens,
+		ResponseJSON: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("llm chat: %w", err)
+	}
+
+	if s.log != nil {
+		s.log.DebugContext(ctx, logger.CatSimulation, "extractCharacters: LLM response received", "content_len", len(resp.Content))
+	}
+
+	ext, err := parseCharacterExtraction(resp.Content)
+	if err != nil {
+		return nil, fmt.Errorf("parse character extraction: %w", err)
+	}
+
+	if s.log != nil {
+		s.log.InfoContext(ctx, logger.CatSimulation, "extractCharacters: parsed OK",
+			"agents", len(ext.SuggestedAgents), "lifecycle", len(ext.LifecycleEvents), "relationships", len(ext.InitialRelationships))
 	}
 
 	return ext, nil
@@ -277,6 +365,16 @@ func parseExtraction(content string) (*SeedExtraction, error) {
 	return &ext, nil
 }
 
+// parseBasicExtraction parses Phase 1 output (entities, world_state, key_topics, conflict_areas).
+func parseBasicExtraction(content string) (*SeedExtraction, error) {
+	return parseExtraction(content)
+}
+
+// parseCharacterExtraction parses Phase 2 output (suggested_agents, lifecycle_events, initial_relationships).
+func parseCharacterExtraction(content string) (*SeedExtraction, error) {
+	return parseExtraction(content)
+}
+
 // validateExtractionJSON checks for common LLM JSON mistakes like returning
 // a string where an object is required. Returns a descriptive error for the user.
 func validateExtractionJSON(raw string) error {
@@ -309,33 +407,92 @@ func validateExtractionJSON(raw string) error {
 
 // --- prompts ---
 
-func buildExtractionPrompt(text string) string {
+// buildBasicExtractionPrompt creates the Phase 1 prompt for entities + world state + topics + conflicts.
+func buildBasicExtractionPrompt(text string) string {
 	var b strings.Builder
 	b.WriteString("Analyze the following text and extract structured information.\n\n")
 	b.WriteString("Output valid JSON with these fields:\n")
 	b.WriteString("- `entities`: array of {name, type, confidence, relations[{target_name, rel_type, weight}]}\n")
-	b.WriteString("  Type must be one of: technology, person, concept, organization, product\n")
+	b.WriteString("  Type must be one of: person, location, faction, concept, organization, technology, product\n")
+	b.WriteString("  Include all locations (cities, mountains, valleys, realms, sects) as type \"location\".\n")
+	b.WriteString("  Include all factions, sects, alliances as type \"faction\".\n")
 	b.WriteString("  rel_type must be one of: mention, agree, rebuttal, propose\n")
-	b.WriteString("- `world_state`: MUST be a JSON object (NOT a string). Flat key-value pairs, e.g. {\"era\": \"2025\", \"location\": \"Beijing\"}. If no world state to extract, return {}.\n")
-	b.WriteString("- `key_topics`: array of main topic strings (max 3), e.g. [\"AI regulation\", \"innovation vs safety\"]\n")
-	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3), e.g. [\"regulatory approach\", \"timeline\"]\n")
-	b.WriteString("- `suggested_agents`: array of objects representing specific individuals or characters in the text. Each object MUST have: `name` (string), `role` (string, e.g. advocate, skeptic, mediator), `description` (brief summary), `traits` (array of strings). If no specific characters exist, return [].\n")
-	b.WriteString("- `lifecycle_events`: array of scheduled events. Each object MUST have: `type` (\"agent_spawn\"|\"agent_death\"|\"simulation_end\"), `agent_name` (string), `agent_role` (string, for spawn), `trigger` (\"sim_time\"|\"wall_time\"|\"condition\"), `trigger_value` (string), `reason` (string). If no explicit timing/conditions in text, return [].\n")
-	b.WriteString("- `initial_relationships`: array of social relationships between characters (suggested_agents). Each object MUST have: `subject_name` (the observing character's name), `target_name` (the observed character's name), `kind` (relationship kind), and optionally `familiarity` (0.0-1.0) and `affinity` (-1.0 to 1.0).\n")
-	b.WriteString("  `kind` must be one of: parent, child, sibling, spouse, friend, rival, colleague, mentor, mentee, neighbor\n")
-	b.WriteString("  Extract from text clues: \"从小一起长大\" → kind=friend; \"兄弟\" → kind=sibling; \"邻居\" → kind=neighbor; \"同事\" → kind=colleague; \"对手\" → kind=rival; \"大学同学\" → kind=friend; \"夫妻\" → kind=spouse\n")
-	b.WriteString("  Directional kinds (parent, child, mentor, mentee): subject_name is the \"parent\"/\"mentor\", target_name is the \"child\"/\"mentee\"\n")
-	b.WriteString("  Non-directional kinds (sibling, spouse, friend, rival, colleague, neighbor): order does not matter\n")
-	b.WriteString("  If no explicit relationships exist between characters, return [].\n\n")
+	b.WriteString("- `world_state`: MUST be a JSON object (NOT a string). Flat key-value pairs describing the world setting, e.g. {\"era\": \"玄黄纪元\", \"location\": \"永宁城\"}. If no world state, return {}.\n")
+	b.WriteString("- `key_topics`: array of main topic strings (max 3)\n")
+	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3)\n\n")
 	b.WriteString("Rules:\n")
-	b.WriteString("- All fields MUST use the exact JSON types specified. Do NOT use strings where objects are required, or vice versa.\n")
-	b.WriteString("- Only extract entities that are debatable: concepts, technologies, organizations, or people that agents could take different stances on.\n")
-	b.WriteString("- `world_state` MUST be a JSON object {} with key-value pairs. Use {} if nothing to extract. NEVER use a string.\n")
-	b.WriteString("- Keep key_topics specific enough to generate focused discussion.\n")
-	b.WriteString("- If the text features actual characters (e.g. characters in a novel, meeting attendees, or historical figures in a debate), you MUST extract them into `suggested_agents` so they can be simulated directly.\n")
-	b.WriteString("- For lifecycle_events: only extract events explicitly stated in the text. Use sim_time triggers for relative durations (\"3h\"), absolute clock times (\"14:30\"), wall_time triggers for real-time constraints (\"300s\"), and condition triggers for world-state-dependent events (\"consensus_reached\").\n\n")
+	b.WriteString("- Extract ALL entities that are meaningful to the world, not just debatable ones.\n")
+	b.WriteString("- `world_state` MUST be a JSON object {} with key-value pairs. NEVER use a string.\n")
+	b.WriteString("- Keep key_topics specific enough to capture the story premise.\n\n")
 	b.WriteString("Text:\n")
 	b.WriteString(text)
+
+	return b.String()
+}
+
+// buildCharacterExtractionPrompt creates the Phase 2 prompt for characters + relationships.
+// It receives the merged basic extraction as context so the LLM knows all entities.
+func buildCharacterExtractionPrompt(seedText string, merged *SeedExtraction, simulatedHours int) string {
+	var b strings.Builder
+	b.WriteString("You previously extracted the following entities and world context from a story seed.\n\n")
+
+	b.WriteString("## Extracted Entities\n")
+	for _, e := range merged.Entities {
+		relations := ""
+		if len(e.Relations) > 0 {
+			var rels []string
+			for _, r := range e.Relations {
+				rels = append(rels, fmt.Sprintf("%s(%s)", r.TargetName, r.RelType))
+			}
+			relations = " [→ " + strings.Join(rels, ", ") + "]"
+		}
+		b.WriteString(fmt.Sprintf("- %s (type: %s, confidence: %.1f)%s\n", e.Name, e.Type, e.Confidence, relations))
+	}
+
+	b.WriteString("\n## World State\n")
+	for k, v := range merged.WorldState {
+		b.WriteString(fmt.Sprintf("- %s: %v\n", k, v))
+	}
+
+	b.WriteString("\n## Key Topics\n")
+	for _, t := range merged.KeyTopics {
+		b.WriteString(fmt.Sprintf("- %s\n", t))
+	}
+
+	// Tell the LLM the total simulation duration so it can map narrative
+	// timeline events ("卷二登场" etc.) to simulation clock offsets.
+	if simulatedHours > 0 {
+		b.WriteString(fmt.Sprintf("\n## Simulation Duration\n"))
+		b.WriteString(fmt.Sprintf("The total simulation will run for **%d hours** (approximately %.1f days).\n", simulatedHours, float64(simulatedHours)/24.0))
+		b.WriteString("When extracting lifecycle_events, map narrative timeline markers to sim_time triggers:\n")
+		b.WriteString("- Events at the very start of the story → trigger \"0h\" or omit (start as agent)\n")
+		b.WriteString(fmt.Sprintf("- Events in the first quarter of the narrative → trigger \"%dh\"\n", simulatedHours/4))
+		b.WriteString(fmt.Sprintf("- Events at the midpoint → trigger \"%dh\"\n", simulatedHours/2))
+		b.WriteString(fmt.Sprintf("- Events in the final quarter → trigger \"%dh\"\n", simulatedHours*3/4))
+		b.WriteString("- Use sim_time trigger values like \"1h\", \"24h\", \"48h\" etc.\n")
+		b.WriteString("- For conditional events (e.g. \"when two characters meet\"), use trigger \"condition\" with a descriptive value.\n\n")
+	}
+
+	// Include a compressed version of the seed text for context
+	compressed := seedText
+	if len(seedText) > 3000 {
+		compressed = seedText[:3000] + "\n...[truncated]..."
+	}
+	b.WriteString("\n## Original Seed Text (for reference)\n")
+	b.WriteString(compressed)
+	b.WriteString("\n\n")
+
+	b.WriteString("Based on the above, extract character-level information. Output valid JSON with ONLY these fields:\n\n")
+	b.WriteString("- `suggested_agents`: array of objects representing specific characters. Each MUST have: `name`, `role`, `description`, `traits` (array of strings). Extract ALL named characters.\n")
+	b.WriteString("- `lifecycle_events`: array of scheduled events. Each MUST have: `type` (\"agent_spawn\"|\"agent_death\"|\"simulation_end\"), `agent_name`, `agent_role` (for spawn), `trigger` (\"sim_time\"|\"wall_time\"|\"condition\"), `trigger_value`, `reason`. Only extract if explicitly stated in text.\n")
+	b.WriteString("- `initial_relationships`: array of social relationships between characters. Each MUST have: `subject_name`, `target_name`, `kind` (one of: parent, child, sibling, spouse, friend, rival, colleague, mentor, mentee, neighbor), and optionally `familiarity` (0.0-1.0) and `affinity` (-1.0 to 1.0).\n")
+	b.WriteString("  Directional kinds (parent, child, mentor, mentee): subject_name IS the parent/mentor, target_name IS the child/mentee.\n")
+	b.WriteString("  Extract from text clues: \"父子\" → kind=parent (subject=father), \"兄弟\" → kind=sibling, \"师徒\" → kind=mentor (subject=master), \"仇敌\" → kind=rival, \"夫妻\" → kind=spouse.\n\n")
+	b.WriteString("IMPORTANT:\n")
+	b.WriteString("- Use the EXACT character names from the entities above. Do not invent new names.\n")
+	b.WriteString("- Extract ALL relationships explicitly stated or implied in the seed text.\n")
+	b.WriteString("- For directional relationships, set subject_name correctly (e.g. for \"杨烨是杨凡的父亲\", use subject_name=\"杨烨\", target_name=\"杨凡\", kind=\"parent\").\n\n")
+	b.WriteString("Output ONLY valid JSON, no markdown fences.")
 
 	return b.String()
 }

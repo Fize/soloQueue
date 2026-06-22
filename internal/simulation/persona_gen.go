@@ -207,7 +207,7 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 	}
 
 	for i := range personas {
-		personas[i].SystemPrompt = BuildGenerativeAgentSystemPrompt(language, personas[i], personas, nil, nil, nil, nil, nil, nil)
+		personas[i].SystemPrompt = BuildGenerativeAgentSystemPrompt(language, personas[i], personas, nil, nil, nil, nil, nil, nil, nil)
 		// Append topic context for backward compatibility with topic-based simulations
 		if topic != "" {
 			if language == "zh" {
@@ -361,7 +361,7 @@ func (g *PersonaGenerator) generateLegacyBatched(ctx context.Context, extraction
 	// persona knows about all other personas, not just those in its batch.
 	for i := range allPersonas {
 		allPersonas[i].SystemPrompt = BuildGenerativeAgentSystemPrompt(
-			language, allPersonas[i], allPersonas, nil, nil, nil, nil, nil, nil)
+			language, allPersonas[i], allPersonas, nil, nil, nil, nil, nil, nil, nil)
 		if topic != "" {
 			if language == "zh" {
 				allPersonas[i].SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)
@@ -689,7 +689,7 @@ func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *S
 		// We need personas for the prompt builder; since we're building all at once,
 		// create a partial list for cross-references
 		allPersonas := buildPartialPersonaList(result.Personas)
-		p.SystemPrompt = BuildGenerativeAgentSystemPrompt(language, p, allPersonas, nil, nil, nil, nil, nil, nil)
+		p.SystemPrompt = BuildGenerativeAgentSystemPrompt(language, p, allPersonas, nil, nil, nil, nil, nil, nil, nil)
 		if topic != "" {
 			if language == "zh" {
 				p.SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)

@@ -18,6 +18,7 @@ type ReflectionEngine struct {
 	providerID    string
 	log           *logger.Logger
 	intervalTicks int // how many ticks between reflection cycles
+	maxTokens     int // 0 = use default (1024)
 }
 
 // NewReflectionEngine creates a reflection engine.
@@ -30,6 +31,13 @@ func NewReflectionEngine(llm agent.LLMClient, model, providerID string, interval
 		model:         model,
 		providerID:    providerID,
 		intervalTicks: intervalTicks,
+	}
+}
+
+// SetMaxTokens overrides max_tokens for LLM calls.
+func (re *ReflectionEngine) SetMaxTokens(n int) {
+	if n > 0 {
+		re.maxTokens = n
 	}
 }
 
@@ -71,11 +79,19 @@ func (re *ReflectionEngine) Reflect(
 			"agent_id", persona.ID, "memory_count", len(recent))
 	}
 
+	mt := re.maxTokens
+	if mt <= 0 {
+		mt = 16384
+	}
+	reflectionTokens := mt / 8
+	if reflectionTokens < 1024 {
+		reflectionTokens = 1024
+	}
 	resp, err := re.llm.Chat(ctx, agent.LLMRequest{
 		Model:      re.model,
 		ProviderID: re.providerID,
 		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:  1024,
+		MaxTokens:  reflectionTokens,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("reflection LLM: %w", err)

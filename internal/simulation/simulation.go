@@ -254,22 +254,46 @@ func (e *SimulationEngine) CreateFromSeed(
 	opts CreateFromSeedOptions,
 ) (simID string, extraction *SeedExtraction, personas []Persona, err error) {
 
-	// Step 1: Extract entities, world state, topics
-	extractorModel := e.resolveModelID(e.config.DefaultModelID)
+	// Step 1: Resolve model, provider, max_tokens, and simulated_hours (shared by extractor + persona gen)
+	modelID := e.config.DefaultModelID
 	if opts.ModelID != "" {
-		extractorModel = e.resolveModelID(opts.ModelID)
+		modelID = opts.ModelID
 	}
-	extractorProvider := e.config.DefaultProviderID
+	resolvedModel := e.resolveModelID(modelID)
+
+	providerID := e.config.DefaultProviderID
 	if opts.ProviderID != "" {
-		extractorProvider = opts.ProviderID
+		providerID = opts.ProviderID
 	}
 
-	extractor := NewSeedExtractor(e.llm, extractorModel, extractorProvider, e.memoryEngine)
-	extractor.SetLogger(e.log)
-	if e.log != nil {
-		e.log.InfoContext(ctx, logger.CatSimulation, "create from seed: starting extraction")
+	var maxTokens int
+	if e.resolveModel != nil {
+		info, err := e.resolveModel(modelID)
+		if err == nil {
+			maxTokens = info.MaxTokens
+		}
 	}
-	extraction, err = extractor.Extract(ctx, seedText)
+
+	// Resolve simulated_hours early so Phase 2 extraction can map narrative
+	// timeline events (e.g. "卷二登场") to simulation clock offsets.
+	simulatedHours := 48
+	if opts.SimulatedHours > 0 {
+		simulatedHours = opts.SimulatedHours
+	} else if e.config.SimulatedHours > 0 {
+		simulatedHours = e.config.SimulatedHours
+	}
+
+	// Step 2: Extract entities, world state, topics
+	extractor := NewSeedExtractor(e.llm, resolvedModel, providerID, e.memoryEngine)
+	extractor.SetLogger(e.log)
+	if maxTokens > 0 {
+		extractor.SetMaxTokens(maxTokens)
+	}
+	if e.log != nil {
+		e.log.InfoContext(ctx, logger.CatSimulation, "create from seed: starting extraction",
+			"simulated_hours", simulatedHours)
+	}
+	extraction, err = extractor.Extract(ctx, seedText, simulatedHours)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("seed extract: %w", err)
 	}
@@ -303,38 +327,59 @@ func (e *SimulationEngine) CreateFromSeed(
 		}
 	}
 
-	// Use first key topic as topic if not provided
+	// Use first key topic as topic if not provided, but prefer story premise over debate topic.
+	// For narrative seeds, the first entity name or world_state location is more meaningful.
 	if topic == "" {
 		if len(extraction.KeyTopics) > 0 {
 			topic = extraction.KeyTopics[0]
 		} else {
-			topic = "General discussion"
+			// Fall back to first line of seed text as topic
+			topic = "世界模拟"
 		}
 	}
 
-	// Step 2: Generate personas
-	genModel := e.resolveModelID(e.config.DefaultModelID)
-	if opts.ModelID != "" {
-		genModel = e.resolveModelID(opts.ModelID)
+	// Step 2a: Populate seed-derived locations into world_state for zone building.
+	// Location-type entities become zones; also scan world_state for location-like keys.
+	if extraction.WorldState == nil {
+		extraction.WorldState = make(map[string]any)
 	}
-	genProvider := e.config.DefaultProviderID
-	if opts.ProviderID != "" {
-		genProvider = opts.ProviderID
-	}
-
-	// Resolve max_tokens from the model's generation config (DB-backed via ModelResolver)
-	modelCfgID := e.config.DefaultModelID
-	if opts.ModelID != "" {
-		modelCfgID = opts.ModelID
-	}
-	var maxTokens int
-	if e.resolveModel != nil {
-		info, err := e.resolveModel(modelCfgID)
-		if err == nil {
-			maxTokens = info.MaxTokens
+	// Build a list of location names from entities typed "location" plus world_state values
+	// that look like place names, and store under "_seed_locations" for runSimulation.
+	// Use []any (not a named struct slice) so the type assertion in buildZonesFromConfig
+	// works for both in-memory and SQLite-backed stores.
+	var seedLocs []any
+	seenLoc := make(map[string]bool)
+	for _, entity := range extraction.Entities {
+		if entity.Type == "location" || entity.Type == "place" || entity.Type == "region" || entity.Type == "faction" {
+			if !seenLoc[entity.Name] {
+				seenLoc[entity.Name] = true
+				desc := entity.Name
+				if entity.Confidence > 0 {
+					desc = fmt.Sprintf("%s — %s区域", entity.Name, entity.Type)
+				}
+				seedLocs = append(seedLocs, map[string]any{"name": entity.Name, "desc": desc})
+			}
 		}
 	}
+	// Also scan world_state for location-like values
+	for k, v := range extraction.WorldState {
+		kl := strings.ToLower(k)
+		if strings.Contains(kl, "location") || strings.Contains(kl, "place") || strings.Contains(kl, "region") {
+			if s, ok := v.(string); ok && !seenLoc[s] {
+				seenLoc[s] = true
+				seedLocs = append(seedLocs, map[string]any{"name": s, "desc": s})
+			}
+		}
+	}
+	if len(seedLocs) > 0 {
+		extraction.WorldState["_seed_locations"] = seedLocs
+	}
+	// Also store the real topic for agent system prompts
+	if topic != "" {
+		extraction.WorldState["_seed_topic"] = topic
+	}
 
+	// Step 3: Generate personas
 	lang := opts.Language
 	if lang == "" {
 		lang = e.config.Language
@@ -343,7 +388,7 @@ func (e *SimulationEngine) CreateFromSeed(
 		lang = "zh"
 	}
 
-	gen := NewPersonaGenerator(e.llm, genModel, genProvider, e.memoryEngine)
+	gen := NewPersonaGenerator(e.llm, resolvedModel, providerID, e.memoryEngine)
 	gen.SetLogger(e.log)
 	if maxTokens > 0 {
 		gen.SetMaxTokens(maxTokens)
@@ -369,13 +414,6 @@ func (e *SimulationEngine) CreateFromSeed(
 	maxWallClockMs := e.config.DefaultMaxWallClockMs
 	if opts.MaxWallClockMs > 0 {
 		maxWallClockMs = opts.MaxWallClockMs
-	}
-
-	simulatedHours := 48
-	if opts.SimulatedHours > 0 {
-		simulatedHours = opts.SimulatedHours
-	} else if e.config.SimulatedHours > 0 {
-		simulatedHours = e.config.SimulatedHours
 	}
 
 	tickIntervalMs := 500
@@ -842,11 +880,20 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	clock := NewSimClock(clockCfg)
 
 	env := NewEnvironment(clock)
-	setupDefaultZones(env, config.Personas)
+	buildZonesFromConfig(env, config)
 
 	bus := NewMessageBus(64)
 	dialogueMgr := NewDialogueManager(bus)
 	relationshipMgr := NewRelationshipManager()
+
+	// Resolve max_tokens for planning, reflection, and report generation
+	var simMaxTokens int
+	if e.resolveModel != nil {
+		info, err := e.resolveModel(e.config.DefaultModelID)
+		if err == nil {
+			simMaxTokens = info.MaxTokens
+		}
+	}
 
 	// Build name→ID mapping from personas (needed for BulkInit)
 	initNameByID := make(map[string]string, len(config.Personas))
@@ -866,10 +913,16 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	}
 
 	planGen := NewPlanGenerator(e.llm, e.resolveModelID(e.config.DefaultModelID), e.config.DefaultProviderID)
+	if simMaxTokens > 0 {
+		planGen.SetMaxTokens(simMaxTokens)
+	}
 
 	var reflectionEng *ReflectionEngine
 	if config.EnableReflection {
 		reflectionEng = NewReflectionEngine(e.llm, e.resolveModelID(e.config.DefaultModelID), e.config.DefaultProviderID, 50)
+		if simMaxTokens > 0 {
+			reflectionEng.SetMaxTokens(simMaxTokens)
+		}
 		if e.log != nil {
 			reflectionEng.SetLogger(e.log)
 		}
@@ -924,7 +977,7 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	for _, sa := range simAgents {
 		persona := sa.Persona()
 		plan := agentPlans[persona.ID]
-		systemPrompt := BuildGenerativeAgentSystemPrompt(config.Language, *persona, config.Personas, env, plan, relationshipMgr, nil, nameByID, clock)
+		systemPrompt := BuildGenerativeAgentSystemPrompt(config.Language, *persona, config.Personas, env, plan, relationshipMgr, nil, nameByID, clock, config.WorldState)
 		sa.ClearCW(systemPrompt)
 	}
 
@@ -1137,6 +1190,49 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	if err := e.store.Update(simID, state); err != nil && e.log != nil {
 		e.log.Warn(logger.CatSimulation, "failed to persist final simulation state", "err", err.Error())
 	}
+}
+
+// buildZonesFromConfig builds environment zones from seed-derived location data
+// stored in config.WorldState["_seed_locations"]. Falls back to default modern
+// zones if no seed locations exist.
+func buildZonesFromConfig(env *Environment, config SimulationConfig) {
+	// Try seed-derived locations first
+	if config.WorldState != nil {
+		if locsRaw, ok := config.WorldState["_seed_locations"]; ok {
+			if locs, ok := locsRaw.([]any); ok && len(locs) > 0 {
+				for _, l := range locs {
+					if lm, ok := l.(map[string]any); ok {
+						name, _ := lm["name"].(string)
+						desc, _ := lm["desc"].(string)
+						if name == "" {
+							continue
+						}
+						if desc == "" {
+							desc = name
+						}
+						env.AddZone(name, desc, 50)
+					}
+				}
+				// Add a default gathering zone for initial placement
+				if len(locs) > 0 {
+					if lm, ok := locs[0].(map[string]any); ok {
+						if name, ok := lm["name"].(string); ok {
+							env.AddObject(name, &EnvObject{
+								ID:           name + "_marker",
+								Name:         name + "标记",
+								Description:  "这个地点的标志性特征。",
+								IsInteractive: true,
+								State:        map[string]any{},
+							})
+						}
+					}
+				}
+				return
+			}
+		}
+	}
+	// Fall back to default modern zones
+	setupDefaultZones(env, nil)
 }
 
 // SetupDefaultZones creates a standard set of zones if none are pre-configured.
@@ -1367,11 +1463,23 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 
 	prompt := BuildReportPrompt(config.Topic, memories, graph, ws, kgContext, config.Language)
 
+	// Resolve max_tokens from model config
+	reportMaxTokens := 16384
+	if e.resolveModel != nil {
+		info, err := e.resolveModel(e.config.DefaultModelID)
+		if err == nil && info.MaxTokens > 0 {
+			reportMaxTokens = info.MaxTokens
+		}
+	}
+	reportTokens := reportMaxTokens / 2
+	if reportTokens < 2048 {
+		reportTokens = 2048
+	}
 	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
 		Model:      e.resolveModelID(e.config.DefaultModelID),
 		ProviderID: e.config.DefaultProviderID,
 		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:  2048,
+		MaxTokens:  reportTokens,
 	})
 	if err != nil {
 		return "", err
