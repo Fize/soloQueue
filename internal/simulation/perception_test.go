@@ -156,7 +156,7 @@ func TestFormatObservations(t *testing.T) {
 		{Type: "agent_speak", Content: "bob: Hello everyone!"},
 	}
 
-	result := FormatObservations(obs)
+	result := FormatObservations(obs, "en")
 
 	if !strings.Contains(result, "Time") {
 		t.Error("should contain Time section")
@@ -170,7 +170,7 @@ func TestFormatObservations(t *testing.T) {
 }
 
 func TestFormatObservationsEmpty(t *testing.T) {
-	result := FormatObservations(nil)
+	result := FormatObservations(nil, "en")
 	if !strings.Contains(result, "no new observations") {
 		t.Error("should indicate no observations")
 	}

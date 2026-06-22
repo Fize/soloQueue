@@ -117,10 +117,17 @@ type SimulationConfig struct {
 	TimeScale         int                  `json:"time_scale,omitempty"`
 	EnableReflection  bool                 `json:"enable_reflection,omitempty"`
 	LifecycleEvents   []SeedLifecycleEvent `json:"lifecycle_events,omitempty"`
+	Language          string               `json:"language,omitempty"` // "zh" or "en", defaults to "zh"
 }
 
 // Validate checks the config and applies defaults.
 func (c *SimulationConfig) Validate() error {
+	if c.Language == "" {
+		c.Language = "zh"
+	}
+	if c.Language != "zh" && c.Language != "en" {
+		c.Language = "zh"
+	}
 	if c.Topic == "" {
 		return ErrEmptyTopic
 	}
@@ -141,7 +148,7 @@ func (c *SimulationConfig) Validate() error {
 		seen[p.ID] = true
 	}
 	if c.SimulatedHours <= 0 {
-		c.SimulatedHours = 168
+		c.SimulatedHours = 48
 	}
 	if c.MaxWallClockMs <= 0 {
 		mins := int(float64(c.SimulatedHours)*5.0/48.0 + 0.5)

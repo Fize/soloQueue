@@ -109,6 +109,7 @@ type fromSeedRequest struct {
 	TickIntervalMs  int    `json:"tick_interval_ms,omitempty"`
 	TimeScale       int    `json:"time_scale,omitempty"`
 	EnableReflection bool  `json:"enable_reflection,omitempty"`
+	Language        string `json:"language,omitempty"`
 }
 
 type fromSeedResponse struct {
@@ -146,6 +147,7 @@ func (m *Mux) handleCreateFromSeed(w http.ResponseWriter, r *http.Request) {
 		TickIntervalMs:  req.TickIntervalMs,
 		TimeScale:       req.TimeScale,
 		EnableReflection: req.EnableReflection,
+		Language:         req.Language,
 	}
 
 	m.log.InfoContext(r.Context(), logger.CatSimulation, "create from seed: request received", "seed_text_len", len(req.SeedText))

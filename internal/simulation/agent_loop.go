@@ -33,6 +33,7 @@ type GAAgentLoop struct {
 	nameByID        map[string]string
 	allPersonas     []Persona
 	log             *logger.Logger
+	language        string
 
 	// Runtime state
 	actionSeq         atomic.Int64
@@ -63,6 +64,7 @@ func NewGAAgentLoop(
 	nameByID map[string]string,
 	allPersonas []Persona,
 	log *logger.Logger,
+	language string,
 ) *GAAgentLoop {
 	return &GAAgentLoop{
 		sa:                sa,
@@ -78,6 +80,7 @@ func NewGAAgentLoop(
 		nameByID:          nameByID,
 		allPersonas:       allPersonas,
 		log:               log,
+		language:          language,
 		stopCh:            make(chan struct{}),
 		events:            make(chan SimulationEvent, 64),
 	}
@@ -157,7 +160,7 @@ func (gal *GAAgentLoop) tick(ctx context.Context, timeEvt SimTimeEvent) {
 		}
 		gal.sa.cw.Reset()
 		// Re-push system prompt
-		systemPrompt := BuildGenerativeAgentSystemPrompt(*persona, gal.allPersonas, gal.env, gal.plan, gal.relationshipMgr, gal.reflections, gal.nameByID, gal.clock)
+		systemPrompt := BuildGenerativeAgentSystemPrompt(gal.language, *persona, gal.allPersonas, gal.env, gal.plan, gal.relationshipMgr, gal.reflections, gal.nameByID, gal.clock)
 		gal.sa.cw.Push(ctxwin.RoleSystem, systemPrompt)
 	}
 
@@ -224,7 +227,7 @@ func (gal *GAAgentLoop) tick(ctx context.Context, timeEvt SimTimeEvent) {
 
 	// ─── 3. DECIDE (Ask LLM) ─────────────────────────────────────────
 	cw := gal.sa.cw
-	userMsg := BuildTickUserMessage(seq, observations, gal.worldState, retrievedMemories, gal.plan, gal.clock)
+	userMsg := BuildTickUserMessage(seq, observations, gal.worldState, retrievedMemories, gal.plan, gal.clock, gal.language)
 
 	cw.Push(ctxwin.RoleUser, userMsg)
 

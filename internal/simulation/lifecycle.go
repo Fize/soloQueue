@@ -334,14 +334,14 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 	sa := NewSimAgent(agt, &persona, cw, lm.bus, lm.log, perAgentTimeout)
 
 	// Generate daily plan
-	plan, err := lm.planGen.GenerateDailyPlan(ctx, &persona, lm.env, lm.clock)
+	plan, err := lm.planGen.GenerateDailyPlan(ctx, &persona, lm.env, lm.clock, lm.config.Language)
 	if err != nil {
 		plan = defaultDailyPlan(personaID, lm.clock.Now(), lm.env.ZoneNames())
 	}
 
 	// Build system prompt
 	systemPrompt := BuildGenerativeAgentSystemPrompt(
-		persona, lm.allPersonas, lm.env, plan,
+		lm.config.Language, persona, lm.allPersonas, lm.env, plan,
 		lm.relationshipMgr, nil, lm.nameByID, lm.clock,
 	)
 	sa.ClearCW(systemPrompt)
@@ -357,6 +357,7 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 		sa, lm.env, lm.bus, lm.clock, lm.planGen, lm.relationshipMgr,
 		lm.engine.memoryEngine, lm.reflectionEng, lm.dialogueMgr,
 		lm.worldState, lm.nameByID, lm.allPersonas, lm.log,
+		lm.config.Language,
 	)
 	loop.plan = plan
 
@@ -413,13 +414,28 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 
 // generatePersonaForSpawn calls the LLM to create a full persona from spawn info.
 func (lm *lifecycleManager) generatePersonaForSpawn(ctx context.Context, info SpawnInfo) (*Persona, error) {
+	modelCfgID := lm.engine.config.DefaultModelID
+	genModel := lm.engine.resolveModelID(modelCfgID)
+
+	// Resolve max_tokens from the model's generation config (DB-backed via ModelResolver)
+	var maxTokens int
+	if lm.engine.resolveModel != nil {
+		info, err := lm.engine.resolveModel(modelCfgID)
+		if err == nil {
+			maxTokens = info.MaxTokens
+		}
+	}
+
 	gen := NewPersonaGenerator(
 		lm.engine.llm,
-		lm.engine.resolveModelID(lm.engine.config.DefaultModelID),
+		genModel,
 		lm.engine.config.DefaultProviderID,
 		lm.engine.memoryEngine,
 	)
 	gen.SetLogger(lm.log)
+	if maxTokens > 0 {
+		gen.SetMaxTokens(maxTokens)
+	}
 
 	extraction := &SeedExtraction{
 		WorldState: lm.worldState.Snapshot(),
@@ -429,7 +445,7 @@ func (lm *lifecycleManager) generatePersonaForSpawn(ctx context.Context, info Sp
 		},
 	}
 
-	personas, err := gen.Generate(ctx, extraction, lm.config.Topic, 1)
+	personas, err := gen.Generate(ctx, extraction, lm.config.Topic, 1, lm.config.Language)
 	if err != nil || len(personas) == 0 {
 		return nil, err
 	}

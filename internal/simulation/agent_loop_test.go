@@ -41,6 +41,7 @@ func TestGAAgentLoop_New(t *testing.T) {
 		map[string]string{"alice": "Alice"},
 		[]Persona{*persona},
 		nil,
+		"zh",
 	)
 
 	if loop == nil {
@@ -81,6 +82,7 @@ func TestGAAgentLoop_Stop(t *testing.T) {
 		map[string]string{},
 		[]Persona{},
 		nil,
+		"zh",
 	)
 
 	// Stop should not panic even if loop isn't running
@@ -119,6 +121,7 @@ func TestGAAgentLoop_Events(t *testing.T) {
 		map[string]string{},
 		[]Persona{},
 		nil,
+		"zh",
 	)
 
 	events := loop.Events()

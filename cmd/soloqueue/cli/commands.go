@@ -78,7 +78,7 @@ func ServeCmd(version string) *cobra.Command {
 				return cfg.WriteSoul(prompt.DefaultProfileAnswers())
 			}
 
-			rt, err := runtime.Build(workDir, cfg, log, profileSetup, bypass)
+			rt, err := runtime.Build(workDir, cfg, log, profileSetup, bypass, server.DistFS())
 			if err != nil {
 				return err
 			}

@@ -402,7 +402,7 @@ func TestFormatForPrompt_WithKinds(t *testing.T) {
 	rm.SetWithKind("alice", "bob", RelationFriend, 0.9, 0.8, []string{"close"})
 	rm.SetWithKind("alice", "charlie", RelationRival, 0.3, -0.5, []string{"competitive"})
 
-	prompt := rm.FormatForPrompt("alice", nameByID)
+	prompt := rm.FormatForPrompt("alice", nameByID, "en")
 	if prompt == "" {
 		t.Fatal("expected non-empty prompt")
 	}
@@ -424,7 +424,7 @@ func TestFormatForPrompt_WithKinds(t *testing.T) {
 
 func TestFormatForPrompt_Empty(t *testing.T) {
 	rm := NewRelationshipManager()
-	prompt := rm.FormatForPrompt("alice", map[string]string{"alice": "Alice"})
+	prompt := rm.FormatForPrompt("alice", map[string]string{"alice": "Alice"}, "en")
 	if !strings.Contains(prompt, "haven't formed") {
 		t.Error("expected empty relationship message")
 	}
@@ -436,7 +436,7 @@ func TestFormatForPrompt_FamilySection(t *testing.T) {
 
 	rm.SetWithKind("alice", "bob", RelationSibling, 0.95, 0.9, nil)
 
-	prompt := rm.FormatForPrompt("alice", nameByID)
+	prompt := rm.FormatForPrompt("alice", nameByID, "en")
 	if !strings.Contains(prompt, "Family") {
 		t.Error("prompt should contain 'Family' section for sibling")
 	}
@@ -542,7 +542,7 @@ func TestRelationshipManager_FormatForPrompt(t *testing.T) {
 	rm := NewRelationshipManager()
 	rm.Set("alice", "bob", 0.5, 0.8, []string{"reliable"})
 
-	prompt := rm.FormatForPrompt("alice", map[string]string{"bob": "Bob"})
+	prompt := rm.FormatForPrompt("alice", map[string]string{"bob": "Bob"}, "en")
 	if prompt == "" {
 		t.Error("prompt should not be empty")
 	}

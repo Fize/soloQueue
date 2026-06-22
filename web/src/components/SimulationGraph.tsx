@@ -533,7 +533,7 @@ export function SimulationGraph({
       {selectedAgentId && (
         <div
           ref={tooltipRef}
-          className="absolute z-20 bg-card/95 backdrop-blur-md border border-border p-4 rounded-xl shadow-xl font-sans text-xs w-64 -translate-x-1/2 mt-8 pointer-events-auto flex flex-col gap-2"
+          className="absolute z-20 bg-card/95 backdrop-blur-md border border-border p-4 rounded-xl shadow-xl font-sans text-xs w-80 -translate-x-1/2 mt-8 pointer-events-auto flex flex-col gap-2"
           style={{ display: 'none' }}
         >
           {(() => {
@@ -548,7 +548,9 @@ export function SimulationGraph({
                     <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
                       {selectedPersona.name.charAt(0)}
                     </div>
-                    <span className="font-semibold text-foreground truncate">{selectedPersona.name}</span>
+                    <span className="font-semibold text-foreground truncate">
+                      {selectedPersona.name}
+                    </span>
                   </div>
                   <button
                     onClick={(e) => {
@@ -562,7 +564,34 @@ export function SimulationGraph({
                 </div>
 
                 {/* Body Details */}
-                <div className="space-y-1.5 text-[11px] text-muted-foreground">
+                <div className="space-y-2 text-[11px] text-muted-foreground">
+                  <div className="flex flex-wrap gap-1 text-[9px] font-mono">
+                    {selectedPersona.age && (
+                      <span className="px-1.5 py-0.5 rounded bg-muted text-foreground">
+                        {selectedPersona.age} yrs
+                      </span>
+                    )}
+                    {selectedPersona.gender && (
+                      <span className="px-1.5 py-0.5 rounded bg-muted text-foreground uppercase">
+                        {selectedPersona.gender === 'male'
+                          ? 'Male'
+                          : selectedPersona.gender === 'female'
+                            ? 'Female'
+                            : selectedPersona.gender}
+                      </span>
+                    )}
+                    {selectedPersona.mbti && (
+                      <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-bold">
+                        {selectedPersona.mbti}
+                      </span>
+                    )}
+                    {selectedPersona.country && (
+                      <span className="px-1.5 py-0.5 rounded bg-muted text-foreground">
+                        📍 {selectedPersona.country}
+                      </span>
+                    )}
+                  </div>
+
                   <div>
                     <span className="font-mono text-muted-foreground/70 mr-1">Role:</span>
                     <span className="text-foreground font-medium">{selectedPersona.role}</span>
@@ -573,15 +602,59 @@ export function SimulationGraph({
                       <span className="text-foreground">{selectedPersona.profession}</span>
                     </div>
                   )}
-                  {selectedPersona.mbti && (
-                    <div>
-                      <span className="font-mono text-muted-foreground/70 mr-1">MBTI:</span>
-                      <span className="text-foreground font-semibold">{selectedPersona.mbti}</span>
+
+                  {selectedPersona.bio && (
+                    <div className="text-[10px] italic text-muted-foreground/80 border-t border-border/20 pt-1.5 mt-1.5">
+                      &ldquo;{selectedPersona.bio}&rdquo;
                     </div>
                   )}
-                  {selectedPersona.bio && (
-                    <div className="text-[10px] italic text-muted-foreground/80 line-clamp-2 border-t border-border/20 pt-1.5 mt-1.5">
-                      "{selectedPersona.bio}"
+
+                  {selectedPersona.system_prompt && (
+                    <div className="border-t border-border/20 pt-1.5 mt-1.5">
+                      <span className="font-mono text-[9px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
+                        System Prompt:
+                      </span>
+                      <div className="rounded border border-border bg-muted/25 p-2 font-mono text-[10px] whitespace-pre-wrap leading-relaxed text-foreground select-text max-h-24 overflow-y-auto">
+                        {selectedPersona.system_prompt}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Goals */}
+                  {selectedPersona.goals && selectedPersona.goals.length > 0 && (
+                    <div className="border-t border-border/20 pt-1.5">
+                      <span className="font-mono text-[9px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
+                        Goals:
+                      </span>
+                      <ul className="list-disc list-inside space-y-0.5 text-[10px] text-foreground/90 pl-1">
+                        {selectedPersona.goals.slice(0, 3).map((g, i) => (
+                          <li key={i} className="truncate select-none">
+                            {g}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Traits */}
+                  {selectedPersona.traits && Object.keys(selectedPersona.traits).length > 0 && (
+                    <div className="border-t border-border/20 pt-1.5">
+                      <span className="font-mono text-[9px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
+                        Traits:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(selectedPersona.traits)
+                          .filter(([k]) => k !== 'role_type' && !k.startsWith('stance:'))
+                          .slice(0, 4)
+                          .map(([k, v]) => (
+                            <span
+                              key={k}
+                              className="px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-[9px] font-mono text-foreground/80"
+                            >
+                              {k}={v}
+                            </span>
+                          ))}
+                      </div>
                     </div>
                   )}
                 </div>

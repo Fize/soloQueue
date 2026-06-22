@@ -490,6 +490,19 @@ func (m *Mux) handleUpdateSimulationConfig(w http.ResponseWriter, r *http.Reques
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	// Normalize zero values to sensible defaults
+	if cfg.SimulatedHours <= 0 {
+		cfg.SimulatedHours = 48
+	}
+	if cfg.TickIntervalMs <= 0 {
+		cfg.TickIntervalMs = 500
+	}
+	if cfg.TimeScale <= 0 {
+		cfg.TimeScale = 600
+	}
+	if cfg.Language == "" {
+		cfg.Language = "zh"
+	}
 	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "simulation", cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

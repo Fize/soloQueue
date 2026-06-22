@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,7 @@ func Build(
 	log *logger.Logger,
 	profileSetup ProfileSetupFn,
 	bypassConfirm bool,
+	embeddedFS fs.FS,
 ) (*Stack, error) {
 	buildStart := time.Now()
 	settings := cfg.Get()
@@ -60,6 +62,7 @@ func Build(
 		log:           log,
 		profileSetup:  profileSetup,
 		bypassConfirm: bypassConfirm,
+		embeddedFS:    embeddedFS,
 	}
 
 	// Phase 1: Shared DB + TeamStore (must happen first so config layer is DB-backed)
@@ -279,6 +282,7 @@ type buildContext struct {
 	log           *logger.Logger
 	profileSetup  ProfileSetupFn
 	bypassConfirm bool
+	embeddedFS    fs.FS
 
 	// Resolved config
 	provider            *config.LLMProvider
@@ -441,7 +445,7 @@ func (bc *buildContext) registerHotReload(rt *Stack) {
 		ctx, cancel := context.WithCancel(context.Background())
 		rt.skillsSyncCancel = cancel
 		userSkillsDir := bc.skillDirs["user"]
-		skill.StartRemoteSkillsSyncLoop(ctx, bc.workDir, userSkillsDir, rt.SkillRegistry, bc.log, 1*time.Hour)
+		skill.StartRemoteSkillsSyncLoop(ctx, bc.workDir, userSkillsDir, rt.SkillRegistry, bc.log, 1*time.Hour, bc.embeddedFS)
 	}
 }
 
