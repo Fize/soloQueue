@@ -533,7 +533,7 @@ export function SimulationGraph({
       {selectedAgentId && (
         <div
           ref={tooltipRef}
-          className="absolute z-20 bg-card/95 backdrop-blur-md border border-border p-4 rounded-xl shadow-xl font-sans text-xs w-80 -translate-x-1/2 mt-8 pointer-events-auto flex flex-col gap-2"
+          className="absolute z-20 bg-card/95 backdrop-blur-md border border-border p-4 rounded-xl shadow-xl font-sans text-sm w-[22rem] -translate-x-1/2 mt-8 pointer-events-auto flex flex-col gap-2"
           style={{ display: 'none' }}
         >
           {(() => {
@@ -545,7 +545,7 @@ export function SimulationGraph({
                 {/* Header with Close Button */}
                 <div className="flex items-center justify-between border-b border-border/40 pb-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0">
                       {selectedPersona.name.charAt(0)}
                     </div>
                     <span className="font-semibold text-foreground truncate">
@@ -559,13 +559,13 @@ export function SimulationGraph({
                     }}
                     className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted cursor-pointer"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
 
                 {/* Body Details */}
-                <div className="space-y-2 text-[11px] text-muted-foreground">
-                  <div className="flex flex-wrap gap-1 text-[9px] font-mono">
+                <div className="space-y-2 text-[13px] text-muted-foreground">
+                  <div className="flex flex-wrap gap-1 text-[11px] font-mono">
                     {selectedPersona.age && (
                       <span className="px-1.5 py-0.5 rounded bg-muted text-foreground">
                         {selectedPersona.age} yrs
@@ -604,17 +604,17 @@ export function SimulationGraph({
                   )}
 
                   {selectedPersona.bio && (
-                    <div className="text-[10px] italic text-muted-foreground/80 border-t border-border/20 pt-1.5 mt-1.5">
+                    <div className="text-xs italic text-muted-foreground/80 border-t border-border/20 pt-1.5 mt-1.5">
                       &ldquo;{selectedPersona.bio}&rdquo;
                     </div>
                   )}
 
                   {selectedPersona.system_prompt && (
                     <div className="border-t border-border/20 pt-1.5 mt-1.5">
-                      <span className="font-mono text-[9px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
+                      <span className="font-mono text-[11px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
                         System Prompt:
                       </span>
-                      <div className="rounded border border-border bg-muted/25 p-2 font-mono text-[10px] whitespace-pre-wrap leading-relaxed text-foreground select-text max-h-24 overflow-y-auto">
+                      <div className="rounded border border-border bg-muted/25 p-2 font-mono text-xs whitespace-pre-wrap leading-relaxed text-foreground select-text max-h-32 overflow-y-auto">
                         {selectedPersona.system_prompt}
                       </div>
                     </div>
@@ -623,10 +623,10 @@ export function SimulationGraph({
                   {/* Goals */}
                   {selectedPersona.goals && selectedPersona.goals.length > 0 && (
                     <div className="border-t border-border/20 pt-1.5">
-                      <span className="font-mono text-[9px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
+                      <span className="font-mono text-[11px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
                         Goals:
                       </span>
-                      <ul className="list-disc list-inside space-y-0.5 text-[10px] text-foreground/90 pl-1">
+                      <ul className="list-disc list-inside space-y-0.5 text-xs text-foreground/90 pl-1">
                         {selectedPersona.goals.slice(0, 3).map((g, i) => (
                           <li key={i} className="truncate select-none">
                             {g}
@@ -639,7 +639,7 @@ export function SimulationGraph({
                   {/* Traits */}
                   {selectedPersona.traits && Object.keys(selectedPersona.traits).length > 0 && (
                     <div className="border-t border-border/20 pt-1.5">
-                      <span className="font-mono text-[9px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
+                      <span className="font-mono text-[11px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
                         Traits:
                       </span>
                       <div className="flex flex-wrap gap-1">
@@ -649,7 +649,7 @@ export function SimulationGraph({
                           .map(([k, v]) => (
                             <span
                               key={k}
-                              className="px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-[9px] font-mono text-foreground/80"
+                              className="px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-[11px] font-mono text-foreground/80"
                             >
                               {k}={v}
                             </span>
@@ -665,9 +665,9 @@ export function SimulationGraph({
                     e.stopPropagation()
                     onOpenDetails?.(selectedPersona.id)
                   }}
-                  className="mt-2 w-full py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold rounded-lg text-center transition-colors text-[11px] cursor-pointer flex items-center justify-center gap-1.5"
+                  className="mt-2 w-full py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold rounded-lg text-center transition-colors text-sm cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  <MessageSquare className="h-3 w-3" />
+                  <MessageSquare className="h-4 w-4" />
                   View Details & Chat
                 </button>
               </>

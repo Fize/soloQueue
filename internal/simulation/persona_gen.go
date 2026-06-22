@@ -62,6 +62,58 @@ func (g *PersonaGenerator) SetMaxTokens(n int) {
 	}
 }
 
+// chatWithJSONRetry calls the LLM and, if JSON parsing fails, retries once with
+// a fix instruction. Returns the raw content on success (caller still parses).
+func (g *PersonaGenerator) chatWithJSONRetry(ctx context.Context, prompt string, maxTokens int) (string, error) {
+	resp, err := g.llm.Chat(ctx, agent.LLMRequest{
+		Model:        g.model,
+		ProviderID:   g.providerID,
+		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
+		MaxTokens:    maxTokens,
+		ResponseJSON: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp.FinishReason == llm.FinishLength {
+		if g.log != nil {
+			g.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: LLM response truncated (max_tokens)",
+				"content_len", len(resp.Content), "usage", resp.Usage)
+		}
+	}
+
+	// Try parsing; on failure, retry once with a fix instruction
+	_, parseErr := parsePersonaGenResult(resp.Content)
+	if parseErr == nil {
+		return resp.Content, nil
+	}
+
+	if g.log != nil {
+		g.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: first parse failed, retrying",
+			"err", parseErr.Error())
+	}
+
+	retryPrompt := prompt + fmt.Sprintf("\n\n[SYSTEM] Your previous JSON response was invalid: %s\nPlease fix the JSON syntax and output ONLY valid JSON. Common issues to check:\n- Every object key-value pair must be separated by a comma\n- No trailing commas before closing ] or }\n- All strings must be properly quoted with double quotes\n- All brackets and braces must be balanced\n", parseErr.Error())
+
+	retryResp, retryErr := g.llm.Chat(ctx, agent.LLMRequest{
+		Model:        g.model,
+		ProviderID:   g.providerID,
+		Messages:     []agent.LLMMessage{{Role: "user", Content: retryPrompt}},
+		MaxTokens:    maxTokens,
+		ResponseJSON: true,
+	})
+	if retryErr != nil {
+		return "", fmt.Errorf("retry after parse error: %w (original: %w)", retryErr, parseErr)
+	}
+	if retryResp.FinishReason == llm.FinishLength {
+		if g.log != nil {
+			g.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: retry response truncated",
+				"content_len", len(retryResp.Content))
+		}
+	}
+	return retryResp.Content, nil
+}
+
 const defaultPersonaGenMaxTokens = 16384
 
 // personaGenBatchSize is the maximum number of personas to generate per LLM
@@ -259,25 +311,15 @@ func (g *PersonaGenerator) generateLegacy(ctx context.Context, extraction *SeedE
 	if maxTokens <= 0 {
 		maxTokens = defaultPersonaGenMaxTokens
 	}
-	resp, err := g.llm.Chat(ctx, agent.LLMRequest{
-		Model:        g.model,
-		ProviderID:   g.providerID,
-		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    maxTokens,
-		ResponseJSON: true,
-	})
+	content, err := g.chatWithJSONRetry(ctx, prompt, maxTokens)
 	if err != nil {
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}
-	if resp.FinishReason == llm.FinishLength {
-		g.log.WarnContext(ctx, logger.CatSimulation, "generateLegacy: LLM response truncated (max_tokens)",
-			"content_len", len(resp.Content), "usage", resp.Usage)
-	}
 
-	result, err := parsePersonaGenResult(resp.Content)
+	result, err := parsePersonaGenResult(content)
 	if err != nil {
-		return nil, fmt.Errorf("parse persona gen (finish=%s, content_len=%d): %w",
-			resp.FinishReason, len(resp.Content), err)
+		return nil, fmt.Errorf("parse persona gen (content_len=%d): %w",
+			len(content), err)
 	}
 
 	personas, err := g.buildPersonas(result, extraction, topic, language)
@@ -324,25 +366,15 @@ func (g *PersonaGenerator) generateLegacyBatched(ctx context.Context, extraction
 				"batch", fmt.Sprintf("%d-%d/%d", i+1, end, count), "batch_size", batchSize)
 		}
 
-		resp, err := g.llm.Chat(ctx, agent.LLMRequest{
-			Model:        g.model,
-			ProviderID:   g.providerID,
-			Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-			MaxTokens:    maxTokens,
-			ResponseJSON: true,
-		})
+		content, err := g.chatWithJSONRetry(ctx, prompt, maxTokens)
 		if err != nil {
 			return nil, fmt.Errorf("llm chat batch %d-%d: %w", i+1, end, err)
 		}
-		if resp.FinishReason == llm.FinishLength {
-			g.log.WarnContext(ctx, logger.CatSimulation, "generateLegacy: batch response truncated (max_tokens)",
-				"batch", fmt.Sprintf("%d-%d", i+1, end), "content_len", len(resp.Content), "usage", resp.Usage)
-		}
 
-		result, err := parsePersonaGenResult(resp.Content)
+		result, err := parsePersonaGenResult(content)
 		if err != nil {
-			return nil, fmt.Errorf("parse persona gen batch %d-%d (finish=%s, content_len=%d): %w",
-				i+1, end, resp.FinishReason, len(resp.Content), err)
+			return nil, fmt.Errorf("parse persona gen batch %d-%d (content_len=%d): %w",
+				i+1, end, len(content), err)
 		}
 
 		personas, err := g.buildPersonas(result, &batchExtraction, topic, language)

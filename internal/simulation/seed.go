@@ -57,6 +57,46 @@ func (s *SeedExtractor) SetMaxTokens(n int) {
 	}
 }
 
+// chatWithJSONRetry calls the LLM and, if JSON parsing fails, retries once with
+// a fix instruction.
+func (s *SeedExtractor) chatWithJSONRetry(ctx context.Context, prompt string, maxTokens int) (string, error) {
+	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
+		Model:        s.model,
+		ProviderID:   s.providerID,
+		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
+		MaxTokens:    maxTokens,
+		ResponseJSON: true,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	// Try parsing; on failure, retry once
+	_, parseErr := parseExtraction(resp.Content)
+	if parseErr == nil {
+		return resp.Content, nil
+	}
+
+	if s.log != nil {
+		s.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: first parse failed, retrying",
+			"err", parseErr.Error())
+	}
+
+	retryPrompt := prompt + fmt.Sprintf("\n\n[SYSTEM] Your previous JSON response was invalid: %s\nPlease fix the JSON syntax and output ONLY valid JSON. Check for missing commas, unbalanced brackets, and unescaped characters.\n", parseErr.Error())
+
+	retryResp, retryErr := s.llm.Chat(ctx, agent.LLMRequest{
+		Model:        s.model,
+		ProviderID:   s.providerID,
+		Messages:     []agent.LLMMessage{{Role: "user", Content: retryPrompt}},
+		MaxTokens:    maxTokens,
+		ResponseJSON: true,
+	})
+	if retryErr != nil {
+		return "", fmt.Errorf("retry after parse error: %w (original: %w)", retryErr, parseErr)
+	}
+	return retryResp.Content, nil
+}
+
 const defaultSeedMaxTokens = 16384
 
 // Extract parses seed text and returns structured extraction.
@@ -121,22 +161,16 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 		phase1Tokens = 1024
 	}
 
-	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
-		Model:        s.model,
-		ProviderID:   s.providerID,
-		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    phase1Tokens,
-		ResponseJSON: true,
-	})
+	content, err := s.chatWithJSONRetry(ctx, prompt, phase1Tokens)
 	if err != nil {
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}
 
 	if s.log != nil {
-		s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: LLM response received", "content_len", len(resp.Content))
+		s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: LLM response received", "content_len", len(content))
 	}
 
-	ext, err := parseBasicExtraction(resp.Content)
+	ext, err := parseBasicExtraction(content)
 	if err != nil {
 		return nil, fmt.Errorf("parse extraction: %w", err)
 	}
@@ -181,22 +215,16 @@ func (s *SeedExtractor) extractCharacters(ctx context.Context, seedText string, 
 		phase2Tokens = 4096
 	}
 
-	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
-		Model:        s.model,
-		ProviderID:   s.providerID,
-		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    phase2Tokens,
-		ResponseJSON: true,
-	})
+	content, err := s.chatWithJSONRetry(ctx, prompt, phase2Tokens)
 	if err != nil {
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}
 
 	if s.log != nil {
-		s.log.DebugContext(ctx, logger.CatSimulation, "extractCharacters: LLM response received", "content_len", len(resp.Content))
+		s.log.DebugContext(ctx, logger.CatSimulation, "extractCharacters: LLM response received", "content_len", len(content))
 	}
 
-	ext, err := parseCharacterExtraction(resp.Content)
+	ext, err := parseCharacterExtraction(content)
 	if err != nil {
 		return nil, fmt.Errorf("parse character extraction: %w", err)
 	}
