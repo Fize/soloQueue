@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,9 +40,10 @@ func (pg *PlanGenerator) GenerateDailyPlan(
 	env *Environment,
 	clock *SimClock,
 	language string,
+	worldState map[string]any,
 ) (*DailyPlan, error) {
 	now := clock.Now()
-	prompt := buildPlanGenerationPrompt(persona, env, now, language)
+	prompt := buildPlanGenerationPrompt(persona, env, now, language, worldState)
 
 	mt := pg.maxTokens
 	if mt <= 0 {
@@ -201,7 +203,7 @@ func (dp *DailyPlan) FormatForPrompt(now time.Time, language string) string {
 	return b.String()
 }
 
-func buildPlanGenerationPrompt(persona *Persona, env *Environment, now time.Time, language string) string {
+func buildPlanGenerationPrompt(persona *Persona, env *Environment, now time.Time, language string, worldState map[string]any) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Generate a daily schedule for the following person.\n\n"))
 
@@ -223,6 +225,24 @@ func buildPlanGenerationPrompt(persona *Persona, env *Environment, now time.Time
 	b.WriteString("Available locations:\n")
 	for _, name := range env.ZoneNames() {
 		b.WriteString(fmt.Sprintf("- %s\n", name))
+	}
+
+	// World context from seed (key topics, conflict areas, setting)
+	if worldState != nil {
+		keys := make([]string, 0, len(worldState))
+		for k := range worldState {
+			if !strings.HasPrefix(k, "_seed_") {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) > 0 {
+			sort.Strings(keys)
+			b.WriteString("\nWorld setting:\n")
+			for _, k := range keys {
+				v := worldState[k]
+				b.WriteString(fmt.Sprintf("- %s: %s\n", k, formatValue(v)))
+			}
+		}
 	}
 
 	b.WriteString("\nGenerate a JSON schedule with 6-12 items. Each item must include:\n")
@@ -333,4 +353,121 @@ func parseTimeString(s string, baseDay time.Time) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return time.Date(baseDay.Year(), baseDay.Month(), baseDay.Day(), h, m, 0, 0, baseDay.Location()), nil
+}
+
+// ─── Activity Classification & Dynamic Step Size ────────────────────────────
+
+// ActivityDensity classifies how "dense" an agent's current activity is.
+// Used by the barrier loop to dynamically adjust the SimClock step size.
+type ActivityDensity int
+
+const (
+	DensitySleep       ActivityDensity = iota // rest/sleep → 60-120min ticks
+	DensitySolo                                // solo routine work → 20-30min ticks
+	DensitySocial                              // social/public areas → 10-15min ticks
+	DensityInteractive                         // active interaction → 5-10min ticks
+	DensityConflict                            // conflict/chase → 2-5min ticks
+)
+
+// ClassifyActivity categorizes a PlanItem by its activity and location
+// using keyword matching. Returns a density level that informs step size.
+func ClassifyActivity(item *PlanItem) ActivityDensity {
+	if item == nil {
+		return DensitySolo
+	}
+
+	act := strings.ToLower(item.Activity)
+	loc := strings.ToLower(item.Location)
+	combined := act + " " + loc
+
+	// Sleep/rest keywords → lowest density
+	sleepKeys := []string{"睡觉", "休息", "睡眠", "打坐", "冥想", "sleep", "rest", "nap", "寝", "休憩"}
+	for _, kw := range sleepKeys {
+		if strings.Contains(combined, kw) {
+			return DensitySleep
+		}
+	}
+
+	// Conflict/fight keywords → highest density
+	conflictKeys := []string{"冲突", "打架", "战斗", "追杀", "追逐", "conflict", "fight", "battle", "chase", "对决", "围攻"}
+	for _, kw := range conflictKeys {
+		if strings.Contains(combined, kw) {
+			return DensityConflict
+		}
+	}
+
+	// Interactive/collaborative keywords → high density
+	interactKeys := []string{"讨论", "商量", "对质", "合作", "协作", "discuss", "collaborate", "negotiate", "plan", "商议", "密谋"}
+	for _, kw := range interactKeys {
+		if strings.Contains(combined, kw) {
+			return DensityInteractive
+		}
+	}
+
+	// Social/public area keywords → medium density
+	socialKeys := []string{"聊天", "吃饭", "逛街", "聚会", "cafe", "market", "restaurant", "pub", "social", "chat", "lunch", "dinner", "咖啡", "市场", "餐厅", "酒馆"}
+	for _, kw := range socialKeys {
+		if strings.Contains(combined, kw) {
+			return DensitySocial
+		}
+	}
+
+	// Default: solo routine work
+	return DensitySolo
+}
+
+// densityStepMax maps each density level to its maximum recommended step size.
+var densityStepMax = map[ActivityDensity]time.Duration{
+	DensitySleep:       120 * time.Minute,
+	DensitySolo:        30 * time.Minute,
+	DensitySocial:      15 * time.Minute,
+	DensityInteractive: 10 * time.Minute,
+	DensityConflict:    5 * time.Minute,
+}
+
+// ResolveNextStepSize examines all agents' current plan activities and returns
+// the minimum required step size across all agents. Called by the barrier loop
+// to dynamically adjust the SimClock's step size.
+//
+// The rule: take the most conservative (smallest) step across all agents,
+// because if anyone needs fine granularity, everyone should get it.
+func ResolveNextStepSize(plans []*DailyPlan, clock *SimClock) time.Duration {
+	if len(plans) == 0 {
+		return 30 * time.Minute
+	}
+
+	minStep := 120 * time.Minute // start with largest
+	now := clock.Now()
+
+	for _, plan := range plans {
+		if plan == nil {
+			minStep = minDuration(minStep, 15*time.Minute) // no plan → finer granularity
+			continue
+		}
+		current := plan.GetCurrentActivity(now)
+		if current == nil {
+			minStep = minDuration(minStep, 15*time.Minute) // between activities → finer
+			continue
+		}
+		density := ClassifyActivity(current)
+		maxStep := densityStepMax[density]
+		minStep = minDuration(minStep, maxStep)
+	}
+
+	// Clamp to sane bounds
+	if minStep < 2*time.Minute {
+		minStep = 2 * time.Minute
+	}
+	if minStep > 120*time.Minute {
+		minStep = 120 * time.Minute
+	}
+
+	return minStep
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }

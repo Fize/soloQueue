@@ -188,7 +188,11 @@ func Build(cfg Config) []Tool {
 		)
 	}
 	if cfg.CronStore != nil && cfg.CronScheduler != nil {
-		tools = append(tools, newScheduleTaskTool(cfg))
+		tools = append(tools,
+			newScheduleTaskTool(cfg),
+			newModifyScheduledTaskTool(cfg),
+			newDeleteScheduledTaskTool(cfg),
+		)
 	}
 	hasImgModel := false
 	for _, m := range cfg.ImageModels {

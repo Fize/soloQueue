@@ -381,13 +381,35 @@ func TestBuildReportPrompt(t *testing.T) {
 	memories := map[string]*AgentMemory{"alice": mem1, "bob": mem2}
 	graph := NewRelationGraph()
 	graph.AddEdge("alice", "bob", RelRebuttal, 1, "I disagree")
-	prompt := BuildReportPrompt("Test", memories, graph, ws, "", "en")
+	prompt := BuildReportPrompt("Test", memories, graph, ws, "", "en", nil, "")
 
 	if !strings.Contains(prompt, "alice") {
 		t.Error("should contain agent id")
 	}
 	if !strings.Contains(prompt, "Stance evolution") {
 		t.Error("should contain instructions")
+	}
+}
+
+func TestBuildOutlinePrompt(t *testing.T) {
+	mem1 := NewAgentMemory("alice")
+	mem1.Record(MemoryRecord{Round: 1, Role: "assistant", Content: "Rust is better"})
+	mem2 := NewAgentMemory("bob")
+	mem2.Record(MemoryRecord{Round: 1, Role: "assistant", Content: "Go is simpler"})
+	memories := map[string]*AgentMemory{"alice": mem1, "bob": mem2}
+	names := map[string]string{"alice": "Alice", "bob": "Bob"}
+
+	ws := NewWorldState(map[string]any{"consensus": "leaning-go"})
+	prompt := BuildOutlinePrompt("Test", memories, ws, names, "zh")
+
+	if !strings.Contains(prompt, "Alice") {
+		t.Error("should contain agent name")
+	}
+	if !strings.Contains(prompt, "4-6") {
+		t.Error("should specify section count range")
+	}
+	if !strings.Contains(prompt, "大纲") {
+		t.Error("should contain 大纲 in zh mode")
 	}
 }
 

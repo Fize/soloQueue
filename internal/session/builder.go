@@ -229,7 +229,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			forkTools := tools.Build(toolsCfg)
 			var filtered []tools.Tool
 			for _, t := range forkTools {
-				if t.Name() != "SendFile" && t.Name() != "schedule_task" {
+				if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
 					filtered = append(filtered, t)
 				}
 			}

@@ -111,6 +111,18 @@ func (mb *MessageBus) notify(id string, nch chan struct{}) {
 	}
 }
 
+// HasMessages returns true if the agent has any pending messages
+// without draining them (unlike DrainAll). Safe for concurrent use.
+func (mb *MessageBus) HasMessages(agentID string) bool {
+	mb.mu.RLock()
+	defer mb.mu.RUnlock()
+	ch, ok := mb.subscribers[agentID]
+	if !ok {
+		return false
+	}
+	return len(ch) > 0
+}
+
 // DrainAll collects all pending messages and drains the notification channel.
 func (mb *MessageBus) DrainAll(personaID string) []Message {
 	mb.mu.RLock()

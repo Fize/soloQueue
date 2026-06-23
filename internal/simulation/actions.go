@@ -16,6 +16,8 @@ const (
 	ActionPass     ActionType = "pass"
 	ActionSpawn    ActionType = "spawn"
 	ActionDie      ActionType = "die"
+	ActionConflict ActionType = "conflict"
+	ActionHide     ActionType = "hide"
 )
 
 // proposal represents a [PROPOSE key: value] directive for WorldState updates.
@@ -52,6 +54,10 @@ func (a Action) String() string {
 		return fmt.Sprintf("[SPAWN %s]: %s", a.Target, a.Content)
 	case ActionDie:
 		return "[DIE]"
+	case ActionConflict:
+		return fmt.Sprintf("[CONFLICT @%s]: %s", a.Target, a.Content)
+	case ActionHide:
+		return "[HIDE]"
 	default:
 		return fmt.Sprintf("[UNKNOWN %s]", a.Type)
 	}
@@ -207,6 +213,30 @@ func ParseActions(content string) (actions []Action, proposals []proposal) {
 			continue
 		}
 
+		// [CONFLICT @name]: ... (conflict/provocation)
+		if strings.HasPrefix(trimmed, "[CONFLICT @") {
+			atIdx := strings.Index(trimmed, "@")
+			colonIdx := strings.Index(trimmed[atIdx:], "]:")
+			if colonIdx != -1 {
+				target := strings.TrimSpace(trimmed[atIdx+1 : atIdx+colonIdx])
+				content := strings.TrimSpace(trimmed[atIdx+colonIdx+2:])
+				if content != "" {
+					actions = append(actions, Action{
+						Type:    ActionConflict,
+						Target:  target,
+						Content: content,
+					})
+				}
+			}
+			continue
+		}
+
+		// [HIDE] (stealth/hide)
+		if trimmed == "[HIDE]" {
+			actions = append(actions, Action{Type: ActionHide})
+			continue
+		}
+
 		// Legacy [PROPOSE key: value]
 		if strings.HasPrefix(trimmed, "[PROPOSE ") && strings.HasSuffix(trimmed, "]") {
 			inner := strings.TrimPrefix(trimmed, "[PROPOSE ")
@@ -239,7 +269,8 @@ func isActionLine(line string) bool {
 	return strings.HasPrefix(trimmed, "[SAY]") || strings.HasPrefix(trimmed, "[SAY @") ||
 		strings.HasPrefix(trimmed, "[MOVE ") || strings.HasPrefix(trimmed, "[INTERACT ") ||
 		strings.HasPrefix(trimmed, "[WAIT ") || trimmed == "[PASS]" ||
-		strings.HasPrefix(trimmed, "[PROPOSE ") ||
+		strings.HasPrefix(trimmed, "[PROPOSE ") || strings.HasPrefix(trimmed, "[CONFLICT ") ||
+		trimmed == "[HIDE]" ||
 		strings.HasPrefix(trimmed, "[SPAWN ") || trimmed == "[DIE]" || trimmed == "[EXIT]"
 }
 
@@ -266,15 +297,24 @@ You may take ONE of the following actions per response:
 6. Do nothing this turn:
    [PASS]
 
+7. Initiate conflict or fight back against someone (physical or verbal conflict):
+   [CONFLICT @agent_name]: details of the conflict (e.g. provoke, attack, grab item)
+   *Constraints*: Assess your faction's total strength (including present allies) vs their faction's total strength first. Hide attacks grant surprise combat bonuses.
+
+8. Hide yourself in your current zone (stealth):
+   [HIDE]
+   *Constraints*: Puts you in hidden state. You become invisible to others unless their perception beats your stealth. Moving automatically unhides you. Sneak attacks from hiding grant +30 combat strength.
+
 You may also propose changes to the shared world state:
    [PROPOSE key]: value
 
 Special life-changing actions (use sparingly):
-7. Spawn a new character into the world:
-   [SPAWN character_name]: brief description of who they are and why they are needed
+9. Spawn a new character into the world:
+   [SPAWN character_name]: brief description of who they are and their relationship to you.
+   *Constraints*: The spawned agent must be someone you already know (e.g., mentor, disciple, family, rival in your bio). You are ONLY allowed to have a fortuitous encounter (奇遇) with a stranger if the World State has "adventure": true or "奇遇": true.
 
-8. Leave the simulation permanently (your role is complete):
-   [DIE]
+10. Leave the simulation permanently (your role is complete or you were killed):
+    [DIE]
 
 Important: [SPAWN] and [DIE] are permanent. Use [DIE] only when your character's story is truly complete. Use [SPAWN] only when a genuinely new perspective is needed.
 
@@ -308,17 +348,26 @@ func FormatActionsForPromptInLanguage(lang string) string {
 6. 本轮不采取任何行动：
    [PASS]
 
+7. 对特定人发起冲突或反击（包括口头挑衅、肢体冲突、抢夺等）：
+   [CONFLICT @agent_name]: 冲突详情
+   *注意*: 发起或应对冲突前，必须评估你在场的所有盟友与对方所有盟友的总体实力对比。从隐藏状态下发动冲突将被视为偷袭，获得额外的战斗力加成。
+
+8. 隐藏自己（在当前区域内进行潜行/隐藏）：
+   [HIDE]
+   *注意*: 隐藏会使你对当前区域的其他 Agent 隐形，除非对方的感知力高于你的隐藏力。移动会自动使你显形。隐藏状态下发起冲突可获得 +30 的偷袭战斗力加成。
+
 你也可以向共享的世界状态（world state）提议变更：
    [PROPOSE key]: value
 
 特殊的生命周期动作（极其谨慎使用）：
-7. 在世界中生成（召唤）一个新角色：
-   [SPAWN character_name]: 简要描述他们是谁以及为什么需要他们
+9. 在世界中生成（召唤）一个新角色：
+   [SPAWN character_name]: 简要描述他们是谁以及与你的关系。
+   *约束*: 该角色必须是**你本来就认识的**人物（如你生平背景中的师友/亲人/仇敌）。只有在世界状态包含 "adventure": true 或 "奇遇": true 时，你才被允许通过**奇遇**引入完全陌生的世外高人。
 
-8. 永久离开仿真（你的角色故事已完成）：
-   [DIE]
+10. 永久离开仿真（你的角色故事已完成，或你在冲突中被打死）：
+    [DIE]
 
-重要提示：[SPAWN] 和 [DIE] 是永久性的，无法撤销。只有在你的角色故事真正完整、或者你觉得无法再做出贡献时才使用 [DIE]。只有在确实需要一个没有的、全新视角的专业角色时才使用 [SPAWN]。
+重要提示：[SPAWN] 和 [DIE] 是永久性的，无法撤销。只有在你的角色故事真正完整、或者你觉得无法再贡献时才使用 [DIE]。
 
 你还可以更新对其他人的关系态度：
    [RELATION name: kind=friend, affinity=+0.2, tags=reliable,trustworthy]

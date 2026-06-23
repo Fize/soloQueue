@@ -29,11 +29,13 @@ type Zone struct {
 // Environment is the spatial context for the simulation.
 // Agents exist in zones, can move between them, and observe their surroundings.
 type Environment struct {
-	zones    map[string]*Zone
-	agentLoc map[string]string // agentID → zoneName
-	clock    *SimClock
-	history  []EnvironmentEvent
-	mu       sync.RWMutex
+	zones           map[string]*Zone
+	agentLoc        map[string]string // agentID → zoneName
+	clock           *SimClock
+	history         []EnvironmentEvent
+	activeConflicts map[string]string // targetAgentID -> initiatorAgentID
+	hiddenAgents    map[string]bool   // agentID -> isHidden
+	mu              sync.RWMutex
 }
 
 // EnvironmentEvent records a change in the environment.
@@ -49,9 +51,11 @@ type EnvironmentEvent struct {
 // NewEnvironment creates a simulation environment with predefined zones.
 func NewEnvironment(clock *SimClock) *Environment {
 	return &Environment{
-		zones:     make(map[string]*Zone),
-		agentLoc:  make(map[string]string),
-		clock:     clock,
+		zones:           make(map[string]*Zone),
+		agentLoc:        make(map[string]string),
+		clock:           clock,
+		activeConflicts: make(map[string]string),
+		hiddenAgents:    make(map[string]bool),
 	}
 }
 
@@ -113,6 +117,7 @@ func (env *Environment) MoveAgent(agentID, targetZone string) ([]Observation, er
 	if z, ok2 := env.zones[currentZone]; ok2 {
 		delete(z.PresentAgents, agentID)
 	}
+	delete(env.hiddenAgents, agentID) // unhide when moving
 
 	// Enter target zone
 	target.PresentAgents[agentID] = true
@@ -207,6 +212,9 @@ func (env *Environment) GetObservations(agentID string, personaName string) []Ob
 	// Other agents present
 	for otherID := range zone.PresentAgents {
 		if otherID == agentID {
+			continue
+		}
+		if env.hiddenAgents[otherID] {
 			continue
 		}
 		obs = append(obs, Observation{
@@ -336,4 +344,57 @@ func (env *Environment) AgentPositions() map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func (env *Environment) HideAgent(agentID string) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	if env.hiddenAgents == nil {
+		env.hiddenAgents = make(map[string]bool)
+	}
+	env.hiddenAgents[agentID] = true
+}
+
+func (env *Environment) UnhideAgent(agentID string) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	if env.hiddenAgents != nil {
+		delete(env.hiddenAgents, agentID)
+	}
+}
+
+func (env *Environment) IsAgentHidden(agentID string) bool {
+	env.mu.RLock()
+	defer env.mu.RUnlock()
+	if env.hiddenAgents == nil {
+		return false
+	}
+	return env.hiddenAgents[agentID]
+}
+
+func (env *Environment) InitiateConflict(initiator, target string) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	if env.activeConflicts == nil {
+		env.activeConflicts = make(map[string]string)
+	}
+	env.activeConflicts[target] = initiator
+}
+
+func (env *Environment) GetConflictInitiator(target string) (string, bool) {
+	env.mu.RLock()
+	defer env.mu.RUnlock()
+	if env.activeConflicts == nil {
+		return "", false
+	}
+	initiator, ok := env.activeConflicts[target]
+	return initiator, ok
+}
+
+func (env *Environment) ClearConflict(target string) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	if env.activeConflicts != nil {
+		delete(env.activeConflicts, target)
+	}
 }

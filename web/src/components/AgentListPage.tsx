@@ -57,13 +57,11 @@ export function AgentListPage() {
   const { l1Agent, teamNodes } = useMemo(() => {
     if (!data) return { l1Agent: null as AgentInfo | null, teamNodes: [] as TeamNode[] }
 
-    const { agents, supervisors } = data
-    const l2Ids = new Set(supervisors.map((sv) => sv.leader_id).filter(Boolean))
-    const l3Ids = new Set(supervisors.flatMap((sv) => sv.children_ids))
+    const { agents } = data
 
-    // L1 is the agent not supervised by anyone
-    const l1Agent =
-      agents.find((a) => !l2Ids.has(a.instance_id) && !l3Ids.has(a.instance_id)) || null
+    // L1 agent is identified by its known ID (not subtraction heuristic —
+    // simulation agents and other non-supervised agents would match that).
+    const l1Agent = agents.find((a) => a.id === 'l1-agent') || null
 
     const nodes: TeamNode[] = []
     const sortedTeams = teamsData

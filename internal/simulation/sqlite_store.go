@@ -102,6 +102,14 @@ func (s *SQLiteStore) migrate() error {
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN language TEXT NOT NULL DEFAULT 'zh'")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN initial_relationships_json TEXT NOT NULL DEFAULT '[]'")
 	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN relationships_json TEXT NOT NULL DEFAULT '[]'")
+	_, _ = s.db.Exec("ALTER TABLE simulations ADD COLUMN pacing_interval_ms INTEGER NOT NULL DEFAULT 0")
+
+	// Add missing agent_memories extension columns
+	_, _ = s.db.Exec("ALTER TABLE agent_memories ADD COLUMN record_type TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE agent_memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.0")
+	_, _ = s.db.Exec("ALTER TABLE agent_memories ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE agent_memories ADD COLUMN location TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE agent_memories ADD COLUMN simulated_time TEXT NOT NULL DEFAULT ''")
 
 	return nil
 }
@@ -146,9 +154,9 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 	irj, _ := json.Marshal(ir)
 
 	s.mu.Lock()
-	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json, language, initial_relationships_json)
-		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxWallClockMs, config.SimulatedHours, config.TickIntervalMs, config.TimeScale, boolToInt(config.EnableReflection), string(gj), config.Language, string(irj))
+	_, err := s.db.Exec(`INSERT INTO simulations (id, topic, description, mode, personas_json, world_state_json, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json, language, initial_relationships_json, pacing_interval_ms)
+		VALUES (?, ?, ?, 'event-driven', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, config.Topic, config.Description, string(pj), string(wsj), config.MaxWallClockMs, config.SimulatedHours, config.TickIntervalMs, config.TimeScale, boolToInt(config.EnableReflection), string(gj), config.Language, string(irj), config.PacingIntervalMs)
 	s.mu.Unlock()
 
 	if err != nil {
@@ -161,17 +169,17 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 	var (
 		topic, desc, mode, pj, wsj, report, errMsg, status, graphJSON, language string
 		initialRelsJSON, relationshipsJSON                                        string
-		currentRound, totalActions, maxWallClockMs, simulatedHours, tickIntervalMs, timeScale, enableReflection int
+		currentRound, totalActions, maxWallClockMs, simulatedHours, tickIntervalMs, timeScale, enableReflection, pacingIntervalMs int
 		startedAt, completedAt, createdAt                    sql.NullString
 	)
 	err := s.db.QueryRow(`SELECT topic, description, mode, personas_json, world_state_json,
 		status, report, error_msg, current_round, total_actions,
-		started_at, completed_at, created_at, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json, language, initial_relationships_json, relationships_json
+		started_at, completed_at, created_at, max_wall_clock_ms, simulated_hours, tick_interval_ms, time_scale, enable_reflection, graph_json, language, initial_relationships_json, relationships_json, pacing_interval_ms
 		FROM simulations WHERE id = ?`, id).
 		Scan(&topic, &desc, &mode, &pj, &wsj, &status, &report, &errMsg,
 			&currentRound, &totalActions, &startedAt, &completedAt, &createdAt,
 			&maxWallClockMs, &simulatedHours, &tickIntervalMs, &timeScale, &enableReflection, &graphJSON, &language,
-			&initialRelsJSON, &relationshipsJSON)
+			&initialRelsJSON, &relationshipsJSON, &pacingIntervalMs)
 	if err == sql.ErrNoRows {
 		return nil, ErrSimNotFound
 	}
@@ -208,6 +216,7 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 			EnableReflection:   enableReflection != 0,
 			Language:           language,
 			InitialRelationships: initialRels,
+			PacingIntervalMs:   pacingIntervalMs,
 		},
 		Status:       SimulationStatus(status),
 		CurrentRound: currentRound,
@@ -327,22 +336,43 @@ func (s *SQLiteStore) Update(id string, state *SimulationState) error {
 
 	_, err := s.db.Exec(`UPDATE simulations SET status=?, world_state_json=?, report=?, error_msg=?,
 		current_round=?, started_at=?, completed_at=?, topic=?, description=?, personas_json=?,
-		max_wall_clock_ms=?, simulated_hours=?, tick_interval_ms=?, time_scale=?, enable_reflection=?, graph_json=?, language=?, initial_relationships_json=?, relationships_json=? WHERE id=?`,
+		max_wall_clock_ms=?, simulated_hours=?, tick_interval_ms=?, time_scale=?, enable_reflection=?, graph_json=?, language=?, initial_relationships_json=?, relationships_json=?, pacing_interval_ms=? WHERE id=?`,
 		string(state.Status), string(wsj), state.Report, state.Error,
 		state.CurrentRound, startedAt, completedAt, state.Config.Topic, state.Config.Description, string(pj),
 		state.Config.MaxWallClockMs, state.Config.SimulatedHours, state.Config.TickIntervalMs, state.Config.TimeScale, boolToInt(state.Config.EnableReflection), graphJSON, state.Config.Language,
-		irJSON, relsJSON, id)
+		irJSON, relsJSON, state.Config.PacingIntervalMs, id)
 	return err
 }
 
 func (s *SQLiteStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM simulations WHERE id = ?`, id)
+
+	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("sqlite store: delete: %w", err)
+		return fmt.Errorf("sqlite store: delete tx: %w", err)
 	}
-	return nil
+	defer tx.Rollback()
+
+	// 1. Manually delete related agent memories
+	_, err = tx.Exec(`DELETE FROM agent_memories WHERE simulation_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("sqlite store: delete agent_memories: %w", err)
+	}
+
+	// 2. Manually delete related simulation rounds
+	_, err = tx.Exec(`DELETE FROM simulation_rounds WHERE simulation_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("sqlite store: delete simulation_rounds: %w", err)
+	}
+
+	// 3. Manually delete the simulation itself
+	_, err = tx.Exec(`DELETE FROM simulations WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("sqlite store: delete simulation: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // SaveResults persists round results after simulation completes.
@@ -391,8 +421,8 @@ func (s *SQLiteStore) SaveAgentMemories(simID string, personaID string, records 
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`INSERT INTO agent_memories (simulation_id, persona_id, round, role, content, world_state_json, received_msgs_json, timestamp)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO agent_memories (simulation_id, persona_id, round, role, content, world_state_json, received_msgs_json, timestamp, record_type, importance, source, location, simulated_time)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -401,7 +431,7 @@ func (s *SQLiteStore) SaveAgentMemories(simID string, personaID string, records 
 	for _, rec := range records {
 		wsj, _ := json.Marshal(rec.WorldState)
 		rmj, _ := json.Marshal(rec.ReceivedMsgs)
-		_, err := stmt.Exec(simID, personaID, rec.Round, rec.Role, rec.Content, string(wsj), string(rmj), rec.Timestamp.Format(timeFormat))
+		_, err := stmt.Exec(simID, personaID, rec.Round, rec.Role, rec.Content, string(wsj), string(rmj), rec.Timestamp.Format(timeFormat), rec.RecordType, rec.Importance, rec.Source, rec.Location, rec.SimulatedTime.Format(timeFormat))
 		if err != nil {
 			return err
 		}
@@ -412,7 +442,7 @@ func (s *SQLiteStore) SaveAgentMemories(simID string, personaID string, records 
 
 // GetAgentMemories retrieves agent memory records from the SQLite database.
 func (s *SQLiteStore) GetAgentMemories(simID string, personaID string) ([]MemoryRecord, error) {
-	rows, err := s.db.Query(`SELECT round, role, content, world_state_json, received_msgs_json, timestamp
+	rows, err := s.db.Query(`SELECT round, role, content, world_state_json, received_msgs_json, timestamp, record_type, importance, source, location, simulated_time
 		FROM agent_memories WHERE simulation_id = ? AND persona_id = ? ORDER BY round, timestamp`, simID, personaID)
 	if err != nil {
 		return nil, err
@@ -422,23 +452,33 @@ func (s *SQLiteStore) GetAgentMemories(simID string, personaID string) ([]Memory
 	var records []MemoryRecord
 	for rows.Next() {
 		var (
-			round    int
-			role     string
-			content  string
-			wsj, rmj string
-			ts       string
+			round      int
+			role       string
+			content    string
+			wsj, rmj   string
+			ts         string
+			recordType string
+			importance float64
+			source     string
+			location   string
+			simTime    string
 		)
-		if err := rows.Scan(&round, &role, &content, &wsj, &rmj, &ts); err != nil {
+		if err := rows.Scan(&round, &role, &content, &wsj, &rmj, &ts, &recordType, &importance, &source, &location, &simTime); err != nil {
 			continue
 		}
 		rec := MemoryRecord{
-			Round:   round,
-			Role:    role,
-			Content: content,
+			Round:      round,
+			Role:       role,
+			Content:    content,
+			RecordType: recordType,
+			Importance: importance,
+			Source:     source,
+			Location:   location,
 		}
 		json.Unmarshal([]byte(wsj), &rec.WorldState)
 		json.Unmarshal([]byte(rmj), &rec.ReceivedMsgs)
 		rec.Timestamp, _ = parseTime(ts)
+		rec.SimulatedTime, _ = parseTime(simTime)
 		records = append(records, rec)
 	}
 

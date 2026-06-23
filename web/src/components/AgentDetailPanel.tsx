@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -12,12 +13,15 @@ import {
   Info,
   Award,
   User,
+  Clock,
 } from 'lucide-react'
 import type {
   SimulationPersona,
   SimulationMessage,
   SimulationProgress,
   RelationshipDTO,
+  PlanItem,
+  MemoryRecord,
 } from '@/types'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -29,26 +33,26 @@ interface AgentDetailPanelProps {
   relationships?: RelationshipDTO[]
   onClose: () => void
   onInterview: (question: string) => Promise<string>
-  status: 'running' | 'completed' | 'idle' | 'pending' | 'failed'
+  status: 'running' | 'completed' | 'idle' | 'pending' | 'failed' | 'paused' | 'cancelled'
 }
 
 // ─── Relationship style mapping (matches SimulationGraph) ────────────────
-
+// Keep in sync with SimulationGraph.tsx RELATION_STYLES
 const RELATION_STYLES: Record<string, { color: string; label: string }> = {
-  parent: { color: '#e91e63', label: 'Parent' },
-  child: { color: '#e91e63', label: 'Child' },
-  sibling: { color: '#9c27b0', label: 'Sibling' },
-  spouse: { color: '#e91e63', label: 'Spouse' },
-  friend: { color: '#4caf50', label: 'Friend' },
-  rival: { color: '#f44336', label: 'Rival' },
-  colleague: { color: '#2196f3', label: 'Colleague' },
-  mentor: { color: '#ff9800', label: 'Mentor' },
-  mentee: { color: '#ff9800', label: 'Mentee' },
-  neighbor: { color: '#607d8b', label: 'Neighbor' },
-  stranger: { color: '#9e9e9e', label: 'Stranger' },
+  parent: { color: '#ec4899', label: '父母' },
+  child: { color: '#ec4899', label: '子女' },
+  sibling: { color: '#a855f7', label: '兄弟姐妹' },
+  spouse: { color: '#ec4899', label: '配偶' },
+  friend: { color: '#14b8a6', label: '朋友' },
+  rival: { color: '#9a3412', label: '竞争对手' },
+  colleague: { color: '#64748b', label: '同事' },
+  mentor: { color: '#d97706', label: '导师' },
+  mentee: { color: '#d97706', label: '徒弟' },
+  neighbor: { color: '#94a3b8', label: '邻居' },
+  stranger: { color: '#cbd5e1', label: '陌生人' },
 }
 
-const DEFAULT_STYLE = { color: '#9e9e9e', label: 'Acquaintance' }
+const DEFAULT_STYLE = { color: '#9e9e9e', label: '熟人' }
 
 export function AgentDetailPanel({
   persona,
@@ -63,13 +67,387 @@ export function AgentDetailPanel({
   const [chatHistory, setChatHistory] = useState<{ q: string; a: string; loading?: boolean }[]>([])
   const [interviewing, setInterviewing] = useState(false)
 
+  const { id: simId } = useParams<{ id: string }>()
+
+  const [plan, setPlan] = useState<{ schedule: PlanItem[] } | null>(null)
+  const [memories, setMemories] = useState<MemoryRecord[] | null>(null)
+  const [reflections, setReflections] = useState<MemoryRecord[] | null>(null)
+
+  const [planLoading, setPlanLoading] = useState(false)
+  const [memoriesLoading, setMemoriesLoading] = useState(false)
+  const [reflectionsLoading, setReflectionsLoading] = useState(false)
+
+  const [planError, setPlanError] = useState<string | null>(null)
+  const [memoriesError, setMemoriesError] = useState<string | null>(null)
+  const [reflectionsError, setReflectionsError] = useState<string | null>(null)
+
+  // Search & filters
+  const [memorySearch, setMemorySearch] = useState('')
+  const [memoryTypeFilter, setMemoryTypeFilter] = useState('all')
+
+  useEffect(() => {
+    if (!simId || !persona.id) return
+
+    setPlan(null)
+    setMemories(null)
+    setReflections(null)
+    setPlanError(null)
+    setMemoriesError(null)
+    setReflectionsError(null)
+
+    const loadPlan = async () => {
+      setPlanLoading(true)
+      try {
+        const res = await fetch(`/api/simulations/${simId}/agents/${persona.id}/plan`)
+        if (res.ok) {
+          const data = await res.json()
+          setPlan(data.plan || null)
+        } else {
+          setPlanError('加载日程计划失败')
+        }
+      } catch (err) {
+        setPlanError('网络错误')
+      } finally {
+        setPlanLoading(false)
+      }
+    }
+
+    const loadMemories = async () => {
+      setMemoriesLoading(true)
+      try {
+        const res = await fetch(`/api/simulations/${simId}/agents/${persona.id}/memory`)
+        if (res.ok) {
+          const data = await res.json()
+          setMemories(data.memories || [])
+        } else {
+          setMemoriesError('加载记忆失败')
+        }
+      } catch (err) {
+        setMemoriesError('网络错误')
+      } finally {
+        setMemoriesLoading(false)
+      }
+    }
+
+    const loadReflections = async () => {
+      setReflectionsLoading(true)
+      try {
+        const res = await fetch(`/api/simulations/${simId}/agents/${persona.id}/reflections`)
+        if (res.ok) {
+          const data = await res.json()
+          setReflections(data.reflections || [])
+        } else {
+          setReflectionsError('加载高阶反思失败')
+        }
+      } catch (err) {
+        setReflectionsError('网络错误')
+      } finally {
+        setReflectionsLoading(false)
+      }
+    }
+
+    loadPlan()
+    loadMemories()
+    loadReflections()
+  }, [simId, persona.id])
+
+  const renderPlanTab = () => {
+    if (planLoading) {
+      return (
+        <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> 正在加载每日计划...
+        </div>
+      )
+    }
+    if (planError) {
+      return <div className="text-center text-xs font-mono text-rose-500 py-6">{planError}</div>
+    }
+    if (!plan || !plan.schedule || plan.schedule.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed border-border/80 rounded-xl bg-card/5">
+          <Info className="h-6 w-6 opacity-30" />
+          <span className="text-xs">未找到每日日程计划。计划将在仿真启动时生成。</span>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-4">
+        <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
+          <Clock className="h-3.5 w-3.5" />
+          今日日程
+        </h4>
+        <div className="relative border-l border-border/80 ml-2.5 pl-5 space-y-5">
+          {plan.schedule.map((item: any, idx: number) => {
+            const startStr = new Date(item.start_time).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            })
+            const endStr = new Date(item.end_time).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            })
+
+            let statusColor = 'bg-muted-foreground/30 border-muted-foreground/40'
+            if (item.status === 'in_progress') {
+              statusColor = 'bg-primary border-primary animate-pulse'
+            } else if (item.status === 'completed') {
+              statusColor = 'bg-success border-success'
+            } else if (item.status === 'cancelled') {
+              statusColor = 'bg-rose-500 border-rose-500'
+            }
+
+            const PLAN_STATUS_LABELS: Record<string, string> = {
+              pending: '等待中',
+              in_progress: '进行中',
+              completed: '已完成',
+              cancelled: '已取消',
+            }
+
+            return (
+              <div key={idx} className="relative group">
+                {/* Timeline Dot */}
+                <span
+                  className={`absolute left-[-26px] top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-background transition-colors ${statusColor}`}
+                />
+
+                <div className="flex flex-col gap-1 rounded-xl bg-card/25 border border-border/60 p-3.5 hover:border-primary/40 transition-colors">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+                    <span className="font-semibold text-primary/95 bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5">
+                      {startStr} - {endStr}
+                    </span>
+                    <span className="capitalize">
+                      {PLAN_STATUS_LABELS[item.status] || item.status}
+                    </span>
+                  </div>
+                  <div className="text-xs font-semibold text-foreground/90 mt-1">
+                    {item.activity}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/90 font-mono mt-0.5">
+                    📍 {item.location}
+                  </div>
+                  {item.description && (
+                    <div className="text-[10px] text-muted-foreground/80 leading-normal border-t border-border/20 pt-1.5 mt-1.5 italic">
+                      {item.description}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  const renderMemoryTab = () => {
+    if (memoriesLoading) {
+      return (
+        <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> 正在加载记忆...
+        </div>
+      )
+    }
+    if (memoriesError) {
+      return <div className="text-center text-xs font-mono text-rose-500 py-6">{memoriesError}</div>
+    }
+    if (!memories || memories.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed border-border/80 rounded-xl bg-card/5">
+          <Info className="h-6 w-6 opacity-30" />
+          <span className="text-xs">暂无记忆记录。</span>
+        </div>
+      )
+    }
+
+    const filtered = memories
+      .filter((m) => {
+        const matchSearch =
+          m.content.toLowerCase().includes(memorySearch.toLowerCase()) ||
+          (m.location && m.location.toLowerCase().includes(memorySearch.toLowerCase()))
+        const matchType = memoryTypeFilter === 'all' || m.record_type === memoryTypeFilter
+        return matchSearch && matchType
+      })
+      .reverse() // Show latest memories first
+
+    return (
+      <div className="space-y-4">
+        {/* Filters */}
+        <div className="flex gap-2 shrink-0">
+          <input
+            type="text"
+            placeholder="搜索记忆..."
+            value={memorySearch}
+            onChange={(e) => setMemorySearch(e.target.value)}
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none transition-all"
+          />
+          <select
+            value={memoryTypeFilter}
+            onChange={(e) => setMemoryTypeFilter(e.target.value)}
+            className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all font-mono"
+          >
+            <option value="all">所有类型</option>
+            <option value="observation">观察 (Observation)</option>
+            <option value="action">行动 (Action)</option>
+            <option value="dialogue">对话 (Dialogue)</option>
+            <option value="reflection">反思 (Reflection)</option>
+            <option value="plan">计划 (Plan)</option>
+          </select>
+        </div>
+
+        <div className="space-y-3">
+          {filtered.length === 0 ? (
+            <div className="text-center text-xs font-mono text-muted-foreground py-6">
+              没有符合当前过滤器条件的记忆。
+            </div>
+          ) : (
+            filtered.map((m, idx) => {
+              const importanceColor =
+                m.importance && m.importance >= 7
+                  ? 'bg-amber-500/10 text-amber-500 border-amber-500/25'
+                  : m.importance && m.importance >= 4
+                    ? 'bg-primary/10 text-primary border-primary/25'
+                    : 'bg-muted text-muted-foreground'
+
+              const timeStr = m.simulated_time
+                ? new Date(m.simulated_time).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  })
+                : ''
+
+              const RECORD_TYPE_LABELS: Record<string, string> = {
+                observation: '观察',
+                action: '行动',
+                dialogue: '对话',
+                reflection: '反思',
+                plan: '计划',
+              }
+
+              return (
+                <div
+                  key={idx}
+                  className="rounded-xl border border-border bg-card/20 p-4 space-y-2 text-xs hover:border-primary/30 transition-colors"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-border/30 pb-1.5 text-[9px] font-mono text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-foreground font-semibold">
+                        R{m.round}
+                      </span>
+                      {m.record_type && (
+                        <span className="rounded bg-primary/10 border border-primary/25 text-primary font-bold px-1.5 py-0.5 uppercase tracking-wide">
+                          {RECORD_TYPE_LABELS[m.record_type] || m.record_type}
+                        </span>
+                      )}
+                      {timeStr && <span>🕒 {timeStr}</span>}
+                      {m.location && <span>📍 {m.location}</span>}
+                    </div>
+                    {m.importance && (
+                      <span
+                        className={`px-1.5 py-0.5 rounded border font-semibold ${importanceColor}`}
+                      >
+                        重要度: {m.importance.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 select-text font-sans leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const renderReflectionsTab = () => {
+    if (reflectionsLoading) {
+      return (
+        <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> 正在加载高阶反思...
+        </div>
+      )
+    }
+    if (reflectionsError) {
+      return (
+        <div className="text-center text-xs font-mono text-rose-500 py-6">{reflectionsError}</div>
+      )
+    }
+    if (!reflections || reflections.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed border-border/80 rounded-xl bg-card/5">
+          <Info className="h-6 w-6 opacity-30" />
+          <span className="text-xs">暂无已生成的反思。反思会在仿真运行中周期性触发。</span>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-4">
+        <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
+          <Award className="h-3.5 w-3.5" />
+          智能体反思与洞察
+        </h4>
+        <div className="space-y-3">
+          {reflections.map((r, idx) => {
+            const timeStr = r.simulated_time
+              ? new Date(r.simulated_time).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                })
+              : ''
+            return (
+              <div
+                key={idx}
+                className="rounded-xl border border-border/50 bg-card/30 p-4 space-y-2 text-xs"
+              >
+                <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground border-b border-border/20 pb-1 mt-0.5">
+                  <span>
+                    轮次 {r.round} {timeStr && `• 🕒 ${timeStr}`}
+                  </span>
+                  {r.importance && (
+                    <span className="bg-amber-500/10 text-amber-500 font-bold px-1.5 py-0.2 rounded border border-amber-500/20">
+                      重要度: {r.importance.toFixed(1)}
+                    </span>
+                  )}
+                </div>
+                <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 select-text italic leading-relaxed">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{r.content}</ReactMarkdown>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   const agentMessages = messages.filter((m) => m.agent_id === persona.id).reverse()
   const isCompleted = status === 'completed'
   const isRunning = status === 'running'
 
-  // Filter relationships for this agent (as subject or target)
-  const agentRels = relationships.filter(
-    (r) => r.subject_id === persona.id || r.target_id === persona.id
+  // Filter relationships for this agent, dedup by the other person.
+  // Relationships are stored bidirectionally (A→B and B→A), so we group
+  // by the other person's ID and keep only the subject-side entry (what
+  // this agent thinks), falling back to target-side if no subject entry exists.
+  const agentRels = Array.from(
+    relationships
+      .filter((r) => r.subject_id === persona.id || r.target_id === persona.id)
+      .reduce((map, r) => {
+        const otherId = r.subject_id === persona.id ? r.target_id : r.subject_id
+        // Prefer subject-side entry (this agent's perspective)
+        if (!map.has(otherId) || r.subject_id === persona.id) {
+          map.set(otherId, r)
+        }
+        return map
+      }, new Map<string, RelationshipDTO>())
+      .values()
   )
 
   const handleSend = async (e: React.FormEvent) => {
@@ -86,7 +464,7 @@ export function AgentDetailPanel({
       setChatHistory((prev) => {
         const copy = [...prev]
         const idx = copy.findIndex((h) => h.q === q && h.loading)
-        if (idx >= 0) copy[idx] = { q, a: answer || 'No response.' }
+        if (idx >= 0) copy[idx] = { q, a: answer || '无回复。' }
         return copy
       })
     } catch (err: any) {
@@ -129,15 +507,33 @@ export function AgentDetailPanel({
         <TabsList className="flex border-b border-border w-full bg-transparent shrink-0">
           <TabsTrigger
             value="profile"
-            className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+            className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
           >
-            PROFILE
+            智能体画像
+          </TabsTrigger>
+          <TabsTrigger
+            value="plan"
+            className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+          >
+            今日计划
+          </TabsTrigger>
+          <TabsTrigger
+            value="memory"
+            className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+          >
+            记忆数据库
+          </TabsTrigger>
+          <TabsTrigger
+            value="reflections"
+            className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+          >
+            高阶反思
           </TabsTrigger>
           <TabsTrigger
             value="logs"
-            className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+            className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
           >
-            ACTIVE LOGS
+            原始日志
           </TabsTrigger>
         </TabsList>
 
@@ -148,14 +544,14 @@ export function AgentDetailPanel({
           {/* Metadata badges: Age, Gender, MBTI, Country, Profession */}
           <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
             {persona.age && (
-              <span className="px-2 py-1 rounded bg-muted text-foreground">{persona.age} yrs</span>
+              <span className="px-2 py-1 rounded bg-muted text-foreground">{persona.age} 岁</span>
             )}
             {persona.gender && (
               <span className="px-2 py-1 rounded bg-muted text-foreground uppercase">
                 {persona.gender === 'male'
-                  ? 'Male'
+                  ? '男'
                   : persona.gender === 'female'
-                    ? 'Female'
+                    ? '女'
                     : persona.gender}
               </span>
             )}
@@ -181,7 +577,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <User className="h-3.5 w-3.5" />
-                Biography
+                背景故事
               </h4>
               <p className="text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40 italic">
                 &ldquo;{persona.bio}&rdquo;
@@ -194,7 +590,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <Bot className="h-3.5 w-3.5" />
-                Detailed Persona
+                详细画像
               </h4>
               <div className="rounded-xl border border-border bg-muted/10 p-4 prose prose-sm dark:prose-invert max-w-none text-xs text-foreground/90 max-h-48 overflow-y-auto">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{persona.persona}</ReactMarkdown>
@@ -207,7 +603,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <Award className="h-3.5 w-3.5" />
-                Goals
+                智能体目标
               </h4>
               <ul className="list-disc list-inside space-y-1 text-xs text-foreground/90 pl-1">
                 {persona.goals.map((g, i) => (
@@ -224,7 +620,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <Info className="h-3.5 w-3.5" />
-                Traits
+                特质属性
               </h4>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(persona.traits)
@@ -245,12 +641,10 @@ export function AgentDetailPanel({
           <div className="space-y-4">
             <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
               <Users className="h-3.5 w-3.5" />
-              Relationships
+              社会关系
             </h4>
             {agentRels.length === 0 ? (
-              <div className="text-xs text-muted-foreground italic pl-1">
-                No relationships formed.
-              </div>
+              <div className="text-xs text-muted-foreground italic pl-1">暂无社会关系。</div>
             ) : (
               <TooltipProvider>
                 <div className="flex flex-wrap gap-2">
@@ -276,17 +670,17 @@ export function AgentDetailPanel({
                         >
                           <div className="font-semibold text-foreground text-xs">{otherName}</div>
                           <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-                            <span>Kind:</span>
+                            <span>类型:</span>
                             <span className="font-semibold text-foreground px-1 py-0.2 rounded bg-muted border border-border/30">
                               {style.label}
                             </span>
                             <span className="text-[9px] font-mono text-muted-foreground">
-                              {isSubject ? '(outgoing)' : '(incoming)'}
+                              {isSubject ? '(主动)' : '(被动)'}
                             </span>
                           </div>
                           <div className="space-y-1">
                             <div className="flex justify-between text-[9px] font-mono text-muted-foreground">
-                              <span>Familiarity</span>
+                              <span>熟悉度</span>
                               <span>{(rel.familiarity * 100).toFixed(0)}%</span>
                             </div>
                             <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
@@ -301,7 +695,7 @@ export function AgentDetailPanel({
                           </div>
                           <div className="space-y-1">
                             <div className="flex justify-between text-[9px] font-mono text-muted-foreground">
-                              <span>Affinity</span>
+                              <span>好感度</span>
                               <span
                                 className={
                                   rel.affinity > 0
@@ -321,6 +715,7 @@ export function AgentDetailPanel({
                                 style={{
                                   left: `${affinityToPercent(rel.affinity)}%`,
                                   transform: 'translateX(-50%)',
+                                  // Wait, is affinityToPercent defined? Yes, we saw it's at line 491: const affinityToPercent = (affinity: number) => ((affinity + 1) / 2) * 100
                                 }}
                               />
                             </div>
@@ -351,6 +746,27 @@ export function AgentDetailPanel({
         </TabsContent>
 
         <TabsContent
+          value="plan"
+          className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 focus-visible:outline-none"
+        >
+          {renderPlanTab()}
+        </TabsContent>
+
+        <TabsContent
+          value="memory"
+          className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 focus-visible:outline-none"
+        >
+          {renderMemoryTab()}
+        </TabsContent>
+
+        <TabsContent
+          value="reflections"
+          className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 focus-visible:outline-none"
+        >
+          {renderReflectionsTab()}
+        </TabsContent>
+
+        <TabsContent
           value="logs"
           className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0 focus-visible:outline-none"
         >
@@ -358,12 +774,12 @@ export function AgentDetailPanel({
           <div className="space-y-4">
             <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
               <Activity className="h-3.5 w-3.5" />
-              Activity Log
+              活动日志
             </h4>
             {agentMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed rounded-xl">
                 <Activity className="h-6 w-6 opacity-30" />
-                <span className="text-xs">No activity logged in this simulation.</span>
+                <span className="text-xs">该智能体在此仿真中暂无活动日志。</span>
               </div>
             ) : (
               <div className="space-y-3">
@@ -386,7 +802,7 @@ export function AgentDetailPanel({
                     {msg.reasoning && (
                       <details className="mt-2">
                         <summary className="text-[9px] text-muted-foreground cursor-pointer hover:text-foreground font-mono transition-colors">
-                          Reasoning
+                          思考过程
                         </summary>
                         <div className="mt-2 pl-3 border-l-2 border-border prose prose-sm dark:prose-invert max-w-none text-muted-foreground/80 leading-relaxed italic select-text">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.reasoning}</ReactMarkdown>
@@ -408,11 +824,11 @@ export function AgentDetailPanel({
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
               <span className="text-xs font-bold font-mono tracking-wide uppercase text-foreground">
-                In-Character Interview
+                智能体访谈 (In-Character)
               </span>
             </div>
             <span className="text-[10px] text-muted-foreground">
-              Ask agent about their stance or thoughts
+              可提问智能体关于辩论的立场或想法
             </span>
           </div>
 
@@ -422,7 +838,7 @@ export function AgentDetailPanel({
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
                 <MessageSquare className="h-8 w-8 opacity-20" />
                 <div className="text-xs text-center max-w-[320px] leading-relaxed">
-                  Start an interview thread with {persona.name} regarding the simulation events.
+                  与 {persona.name} 启动一场关于仿真事件的角色访谈。
                 </div>
               </div>
             ) : (
@@ -440,7 +856,7 @@ export function AgentDetailPanel({
                       {chat.loading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Thinking...
+                          思考中...
                         </div>
                       ) : (
                         <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-foreground select-text">
@@ -462,7 +878,7 @@ export function AgentDetailPanel({
             <input
               type="text"
               required
-              placeholder={`Ask ${persona.name} a question...`}
+              placeholder={`向 ${persona.name} 提问...`}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all"
@@ -479,7 +895,7 @@ export function AgentDetailPanel({
       ) : (
         <div className="h-[120px] border-t border-border shrink-0 flex flex-col bg-card/25 items-center justify-center p-4">
           <span className="text-xs text-muted-foreground text-center">
-            Interviewing is only available while the simulation is running or completed.
+            角色访谈功能仅在仿真运行中或已完成时可用。
           </span>
         </div>
       )}
