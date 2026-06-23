@@ -117,3 +117,10 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 }
 
 var _ Tool = (*scheduleTaskTool)(nil)
+
+// IsCronTool reports whether the given tool name belongs to the scheduled-task
+// tool family (schedule_task, modify_scheduled_task, delete_scheduled_task).
+// These tools are only available to L1 orchestrators.
+func IsCronTool(name string) bool {
+	return name == "schedule_task" || name == "modify_scheduled_task" || name == "delete_scheduled_task"
+}

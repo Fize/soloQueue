@@ -20,8 +20,8 @@ export function SimulationSection({
   providers,
   models,
 }: SimulationSectionProps) {
-  const currentHours = config.simulatedHours || 48
-  const currentScale = config.timeScale || 600
+  const currentHours = config.simulatedHours || 168
+  const currentScale = config.timeScale || 300
   const currentMaxMs = config.defaultMaxWallClockMs || 18 * 60 * 1000
   const currentMaxMin = currentMaxMs / 60000
   const theoryMin = (currentHours * 60) / currentScale
@@ -87,22 +87,25 @@ export function SimulationSection({
           <label className="text-xs font-semibold text-muted-foreground">Tick Interval (ms)</label>
           <Input
             type="number"
-            value={config.tickIntervalMs || 500}
+            value={config.tickIntervalMs || 1000}
             onChange={(e) => onChange({ ...config, tickIntervalMs: Number(e.target.value) })}
           />
+          <p className="text-[10px] text-muted-foreground leading-normal">
+            Base interval in ms per simulated tick. With plan-follower + dynamic stepping, this is the initial value; actual step adapts to agent activities (2-120 min simulated per tick).
+          </p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Simulated Hours ({config.simulatedHours || 48}h)
+            Simulated Hours ({config.simulatedHours || 168}h)
           </label>
           <input
             type="range"
             min={6}
             max={168}
             step={6}
-            value={config.simulatedHours || 48}
+            value={config.simulatedHours || 168}
             onChange={(e) => {
-              const newHours = parseInt(e.target.value) || 48
+              const newHours = parseInt(e.target.value) || 168
               const newTheoryMin = (newHours * 60) / currentScale
               const newMaxMin = Math.max(1, Math.min(1440, Math.round(multiplier * newTheoryMin)))
               onChange({
@@ -114,7 +117,7 @@ export function SimulationSection({
             className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Default time span simulated within the world when creating a new simulation.
+            Total simulated time span. With plan-follower + dynamic stepping, 7 days of gameplay requires ~5 min wall time.
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
@@ -170,9 +173,9 @@ export function SimulationSection({
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">Time Scale</label>
           <Select
-            value={String(config.timeScale || 600)}
+            value={String(config.timeScale || 300)}
             onChange={(v) => {
-              const newScale = parseInt(v) || 600
+              const newScale = parseInt(v) || 300
               const newTheoryMin = (currentHours * 60) / newScale
               const newMaxMin = Math.max(1, Math.min(1440, Math.round(multiplier * newTheoryMin)))
               onChange({
@@ -190,7 +193,7 @@ export function SimulationSection({
             ]}
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Ratio of physical clock time to simulated world time.
+            Base ratio of physical clock time to simulated world time. Actual step is dynamically adjusted based on agent plan activities.
           </p>
         </div>
         <div className="flex flex-col gap-1.5">

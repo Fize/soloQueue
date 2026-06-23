@@ -10,7 +10,6 @@ import {
   Square,
   ArrowLeft,
   MessageSquare,
-  Cpu,
   Send,
   Loader2,
   FileText,
@@ -19,6 +18,19 @@ import {
   Settings,
   Edit,
   Save,
+  Pause,
+  GitFork,
+  Trash2,
+  SkipForward,
+  X,
+  MessageCircle,
+  MapPin,
+  Lightbulb,
+  Lock,
+  AlertTriangle,
+  LogOut,
+  Skull,
+  CheckCircle2,
 } from 'lucide-react'
 import type {
   SimulationState,
@@ -55,6 +67,18 @@ function capMessages<T>(msgs: T[]): T[] {
   return msgs.slice(msgs.length - MAX_MESSAGES)
 }
 
+const WORLD_STATE_KEYS_ZH: Record<string, string> = {
+  _seed_locations: '种子地点',
+  _seed_topic: '种子主题',
+  conflict: '核心冲突',
+  era: '时代背景',
+  faction: '主要势力',
+  factions: '势力阵营',
+  location: '主要地点',
+  time: '时间阶段',
+  world: '世界观/背景',
+}
+
 export function SimulationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -64,13 +88,39 @@ export function SimulationDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [controlLoading, setControlLoading] = useState(false)
 
+  // Delete action confirm state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+
+  // Fork action parameters states
+  const [forkDialogOpen, setForkDialogOpen] = useState(false)
+  const [forkTopic, setForkTopic] = useState('')
+  const [forkMaxWallClockMin, setForkMaxWallClockMin] = useState(18)
+  const [forking, setForking] = useState(false)
+
+  // World state variables snapshot
+  const [worldState, setWorldState] = useState<Record<string, any> | null>(null)
+  const [worldSearch, setWorldSearch] = useState('')
+
+  const fetchEnvironment = useCallback(async () => {
+    if (!id) return
+    try {
+      const res = await fetch(`/api/simulations/${id}/environment`)
+      if (res.ok) {
+        const data = await res.json()
+        setWorldState(data.world_state || null)
+      }
+    } catch (err) {
+      console.error('Failed to fetch environment state', err)
+    }
+  }, [id])
+
   // Configuration Edit States
   const [isEditing, setIsEditing] = useState(false)
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false)
   const [editTopic, setEditTopic] = useState('')
   const [editMaxWallClockMin, setEditMaxWallClockMin] = useState(18)
-  const [editSimHours, setEditSimHours] = useState(48)
-  const [editTimeScale, setEditTimeScale] = useState(600)
+  const [editSimHours, setEditSimHours] = useState(168)
+  const [editTimeScale, setEditTimeScale] = useState(300)
   const [editEnableReflection, setEditEnableReflection] = useState(true)
   const [editPersonas, setEditPersonas] = useState<any[]>([])
   const [editLanguage, setEditLanguage] = useState('zh')
@@ -90,6 +140,9 @@ export function SimulationDetailPage() {
   const [chatHistory, setChatHistory] = useState<
     Record<string, { q: string; a: string; loading?: boolean }[]>
   >({})
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
+  const [reportQuestion, setReportQuestion] = useState('')
+  const [reportInterviewing, setReportInterviewing] = useState(false)
 
   // Progress display state
   const [progress, setProgress] = useState<SimulationProgress | null>(null)
@@ -101,6 +154,7 @@ export function SimulationDetailPage() {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const pulseTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const completionPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const pulseAgent = (agentId: string) => {
     pulseNodesRef.current.add(agentId)
@@ -132,8 +186,8 @@ export function SimulationDetailPage() {
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
-          console.error('Failed to load LLM configs', err)
-          toast.error('Failed to load LLM configs')
+          console.error('加载 LLM 配置失败', err)
+          toast.error('加载 LLM 配置失败')
         }
       }
     }
@@ -147,7 +201,7 @@ export function SimulationDetailPage() {
       setEditMaxWallClockMin(
         state.config.max_wall_clock_ms ? Math.round(state.config.max_wall_clock_ms / 60000) : 18
       )
-      setEditSimHours(state.config.simulated_hours || 48)
+      setEditSimHours(state.config.simulated_hours || 168)
       setEditTimeScale(state.config.time_scale || 600)
       setEditEnableReflection(
         state.config.enable_reflection !== undefined ? state.config.enable_reflection : true
@@ -178,7 +232,7 @@ export function SimulationDetailPage() {
 
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || 'Failed to update configuration')
+        throw new Error(errData.error || '更新配置失败')
       }
 
       const data = await res.json()
@@ -204,7 +258,7 @@ export function SimulationDetailPage() {
       setState(mappedState)
       setIsEditing(false)
     } catch (err: any) {
-      toast.error(err.message || 'Failed to save configuration')
+      toast.error(err.message || '保存配置失败')
     } finally {
       setSavingConfig(false)
     }
@@ -288,12 +342,13 @@ export function SimulationDetailPage() {
       }
 
       setError(null)
+      fetchEnvironment()
     } catch (err: any) {
       setError(err.message || 'Failed to fetch details')
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [id, fetchEnvironment])
 
   useEffect(() => {
     if (!id) return
@@ -323,6 +378,12 @@ export function SimulationDetailPage() {
         if (refData.agent_id) pulseAgent(refData.agent_id)
       } else if (ev.type === 'round_start') {
         setState((prev) => (prev ? { ...prev, round: ev.round } : null))
+        fetchEnvironment()
+      } else if (ev.type === 'paused') {
+        setState((prev) => (prev ? { ...prev, status: 'paused' } : null))
+        fetchEnvironment()
+      } else if (ev.type === 'resumed') {
+        setState((prev) => (prev ? { ...prev, status: 'running' } : null))
       } else if (ev.type === 'simulation_end') {
         setState((prev) => (prev ? { ...prev, status: 'completed' } : null))
         setProgress((prev) =>
@@ -334,6 +395,7 @@ export function SimulationDetailPage() {
               }
             : null
         )
+        fetchEnvironment()
       } else if (ev.type === 'agent_death' && ev.data) {
         const deathData = ev.data as { agent_id: string; agent_name: string }
         if (deathData.agent_id) pulseAgent(deathData.agent_id)
@@ -370,6 +432,12 @@ export function SimulationDetailPage() {
         fetchState()
       } else if (ev.type === 'finished') {
         setGraphEdges([])
+        // Immediate fallback: set status before fetchState() completes
+        setState((prev) => (prev ? { ...prev, status: 'completed' } : null))
+        if (completionPollRef.current) {
+          clearInterval(completionPollRef.current)
+          completionPollRef.current = null
+        }
         fetchState()
       }
     })
@@ -385,6 +453,42 @@ export function SimulationDetailPage() {
         setState((prev) =>
           prev ? { ...prev, status: p.phase === 'completed' ? 'completed' : 'failed' } : null
         )
+        fetchEnvironment()
+        // Stop polling if active
+        if (completionPollRef.current) {
+          clearInterval(completionPollRef.current)
+          completionPollRef.current = null
+        }
+      } else if (p.phase === 'paused') {
+        setState((prev) => (prev ? { ...prev, status: 'paused' } : null))
+        fetchEnvironment()
+      } else if (p.phase === 'running') {
+        setState((prev) => (prev ? { ...prev, status: 'running' } : null))
+      } else if (p.phase === 'generating_report') {
+        // Report generation takes time (LLM calls). If the WebSocket drops
+        // during this period, the 'completed'/'finished' events will be lost.
+        // Poll the REST API as a fallback.
+        if (!completionPollRef.current) {
+          completionPollRef.current = setInterval(async () => {
+            if (!id) return
+            try {
+              const res = await fetch(`/api/simulations/${id}`)
+              if (!res.ok) return
+              const data = await res.json()
+              if (data.status === 'completed' || data.status === 'failed') {
+                setState((prev) =>
+                  prev ? { ...prev, status: data.status, report: data.report || prev.report } : null
+                )
+                if (completionPollRef.current) {
+                  clearInterval(completionPollRef.current)
+                  completionPollRef.current = null
+                }
+              }
+            } catch {
+              // Ignore polling errors — will retry on next interval
+            }
+          }, 3000)
+        }
       }
 
       if (p.graph_edges && p.graph_edges.length > 0) {
@@ -448,13 +552,89 @@ export function SimulationDetailPage() {
       // Clear all pulse timers (#3)
       pulseTimersRef.current.forEach((t) => clearTimeout(t))
       pulseTimersRef.current.clear()
+      // Clear completion polling
+      if (completionPollRef.current) {
+        clearInterval(completionPollRef.current)
+        completionPollRef.current = null
+      }
     }
-  }, [id, fetchState])
+  }, [id, fetchState, fetchEnvironment])
 
   // Scroll to bottom of message list on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [state?.messages])
+
+  const handlePause = async () => {
+    if (!id) return
+    try {
+      setControlLoading(true)
+      const res = await fetch(`/api/simulations/${id}/pause`, { method: 'POST' })
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || '暂停仿真失败')
+      }
+      setState((prev) => (prev ? { ...prev, status: 'paused' } : null))
+      toast.success('仿真已暂停')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setControlLoading(false)
+    }
+  }
+
+  const handleResume = async () => {
+    if (!id) return
+    try {
+      setControlLoading(true)
+      const res = await fetch(`/api/simulations/${id}/resume`, { method: 'POST' })
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || '恢复仿真失败')
+      }
+      setState((prev) => (prev ? { ...prev, status: 'running' } : null))
+      toast.success('仿真已恢复')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setControlLoading(false)
+    }
+  }
+
+  const handleStep = async () => {
+    if (!id) return
+    try {
+      setControlLoading(true)
+      const res = await fetch(`/api/simulations/${id}/step`, { method: 'POST' })
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || '单步运行失败')
+      }
+      toast.success('仿真单步运行了一轮')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setControlLoading(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!id) return
+    try {
+      setControlLoading(true)
+      const res = await fetch(`/api/simulations/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || '删除仿真失败')
+      }
+      toast.success('仿真已删除')
+      navigate('/simulations')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setControlLoading(false)
+    }
+  }
 
   const handleStart = async () => {
     if (!id) return
@@ -463,7 +643,7 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}/start`, { method: 'POST' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || 'Failed to start simulation')
+        throw new Error(errData.error || '启动仿真失败')
       }
       // Instantly update local status
       setState((prev) => (prev ? { ...prev, status: 'running' } : null))
@@ -486,14 +666,49 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}/stop`, { method: 'POST' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || 'Failed to stop simulation')
+        throw new Error(errData.error || '停止仿真失败')
       }
       setState((prev) => (prev ? { ...prev, status: 'completed' } : null))
-      toast.success('Simulation stopped')
+      toast.success('仿真已停止')
     } catch (err: any) {
       toast.error(err.message)
     } finally {
       setControlLoading(false)
+    }
+  }
+
+  const handleReportAsk = async (question: string) => {
+    if (!id || !question.trim() || reportInterviewing) return
+
+    setReportInterviewing(true)
+    setChatHistory((prev) => ({
+      ...prev,
+      report: capChatHistory([...(prev['report'] || []), { q: question, a: '', loading: true }]),
+    }))
+
+    try {
+      const res = await fetch(`/api/simulations/${id}/agents/report/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      })
+      if (!res.ok) throw new Error('Failed to query report expert')
+      const data = await res.json()
+      setChatHistory((prev) => {
+        const history = [...(prev['report'] || [])]
+        const idx = history.findIndex((h) => h.q === question && h.loading)
+        if (idx !== -1) history[idx] = { q: question, a: data.answer || 'No answer received.' }
+        return { ...prev, report: capChatHistory(history) }
+      })
+    } catch (err: any) {
+      setChatHistory((prev) => {
+        const history = [...(prev['report'] || [])]
+        const idx = history.findIndex((h) => h.q === question && h.loading)
+        if (idx !== -1) history[idx] = { q: question, a: `Error: ${err.message || '请求失败'}` }
+        return { ...prev, report: capChatHistory(history) }
+      })
+    } finally {
+      setReportInterviewing(false)
     }
   }
 
@@ -604,43 +819,509 @@ export function SimulationDetailPage() {
     }
   }
 
+  // ── Message type visual configuration ──────────────────────────────────
+  const MESSAGE_TYPE_CONFIG: Record<string, {
+    icon: React.ElementType
+    borderColor: string   // left border class
+    badgeBg: string
+    badgeText: string
+    label: string
+  }> = {
+    speak: {
+      icon: MessageCircle,
+      borderColor: 'border-l-blue-500/50',
+      badgeBg: 'bg-blue-500/10',
+      badgeText: 'text-blue-600 dark:text-blue-400',
+      label: '对话',
+    },
+    private_speak: {
+      icon: Lock,
+      borderColor: 'border-l-violet-500/50',
+      badgeBg: 'bg-violet-500/10',
+      badgeText: 'text-violet-600 dark:text-violet-400',
+      label: '私语',
+    },
+    agent_move: {
+      icon: MapPin,
+      borderColor: 'border-l-amber-500/50',
+      badgeBg: 'bg-amber-500/10',
+      badgeText: 'text-amber-600 dark:text-amber-400',
+      label: '移动',
+    },
+    reflection: {
+      icon: Lightbulb,
+      borderColor: 'border-l-emerald-500/50',
+      badgeBg: 'bg-emerald-500/10',
+      badgeText: 'text-emerald-600 dark:text-emerald-400',
+      label: '反思',
+    },
+    conflict: {
+      icon: AlertTriangle,
+      borderColor: 'border-l-rose-500/50',
+      badgeBg: 'bg-rose-500/10',
+      badgeText: 'text-rose-600 dark:text-rose-400',
+      label: '冲突',
+    },
+    rebuttal: {
+      icon: AlertCircle,
+      borderColor: 'border-l-rose-400/50',
+      badgeBg: 'bg-rose-400/10',
+      badgeText: 'text-rose-500 dark:text-rose-400',
+      label: '反驳',
+    },
+    question: {
+      icon: MessageCircle,
+      borderColor: 'border-l-cyan-500/50',
+      badgeBg: 'bg-cyan-500/10',
+      badgeText: 'text-cyan-600 dark:text-cyan-400',
+      label: '提问',
+    },
+    auto_pass: {
+      icon: SkipForward,
+      borderColor: 'border-l-gray-400/30 border-dashed',
+      badgeBg: 'bg-gray-400/10',
+      badgeText: 'text-gray-500 dark:text-gray-400',
+      label: '例行',
+    },
+    agent_exit: {
+      icon: LogOut,
+      borderColor: 'border-l-gray-500/40',
+      badgeBg: 'bg-gray-500/10',
+      badgeText: 'text-gray-600 dark:text-gray-400',
+      label: '退场',
+    },
+    agent_death_announcement: {
+      icon: Skull,
+      borderColor: 'border-l-red-600/50',
+      badgeBg: 'bg-red-600/10',
+      badgeText: 'text-red-600 dark:text-red-400',
+      label: '死亡',
+    },
+  }
+
+  function getTypeConfig(type: string) {
+    return MESSAGE_TYPE_CONFIG[type] || {
+      icon: MessageSquare,
+      borderColor: 'border-l-muted-foreground/30',
+      badgeBg: 'bg-muted',
+      badgeText: 'text-muted-foreground',
+      label: type,
+    }
+  }
+
+  function formatRound(round: number): string {
+    if (round === 0) return '初始化'
+    return `第 ${round} 轮`
+  }
+
+  function getAgentStatus(agentId: string): 'thinking' | 'spoke' | 'idle' | undefined {
+    return progress?.agent_states?.[agentId]?.status
+  }
+
+  function getPhaseDisplay(simProgress: typeof progress): { icon: React.ReactNode; label: string; detail: string } | null {
+    if (!simProgress) return null
+    const p = simProgress
+    switch (p.phase) {
+      case 'initializing':
+        return { icon: <Loader2 className="h-5 w-5 animate-spin text-primary" />, label: '正在准备仿真环境...', detail: '初始化基础设施' }
+      case 'generating_plans':
+        return {
+          icon: <Loader2 className="h-5 w-5 animate-spin text-primary" />,
+          label: p.max_actions > 0
+            ? `正在为角色生成计划 (${Math.min(p.current_actions, p.max_actions)}/${p.max_actions})...`
+            : '正在生成角色计划...',
+          detail: p.recent_logs?.[0] || '正在生成每日计划',
+        }
+      case 'building_prompts':
+        return { icon: <Settings className="h-5 w-5 animate-spin text-primary" />, label: '正在构建系统提示...', detail: '构建 Agent 系统提示词' }
+      case 'generating_report':
+        return { icon: <FileText className="h-5 w-5 animate-spin text-primary" />, label: '正在生成报告...', detail: 'LLM 汇总报告生成中' }
+      case 'completed':
+        return { icon: <CheckCircle2 className="h-6 w-6 text-success" />, label: '仿真已完成', detail: '所有流程已结束' }
+      case 'failed':
+        return { icon: <AlertCircle className="h-6 w-6 text-destructive" />, label: '仿真失败', detail: p.recent_logs?.[0] || '运行时发生错误' }
+      case 'paused':
+        return { icon: <Pause className="h-5 w-5 text-amber-500" />, label: '仿真已暂停', detail: '' }
+      default:
+        return null
+    }
+  }
+
   const renderMessageList = (messagesList: SimulationMessage[]) => {
+    const emptyPhaseDisplay = progress?.phase
+      ? getPhaseDisplay(progress)
+      : null
     return (
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
         {messagesList.length === 0 ? (
-          <div className="flex h-32 flex-col items-center justify-center text-center text-muted-foreground font-mono text-xs">
-            <Clock className="mb-2 h-5 w-5 text-muted-foreground/60 animate-pulse" />
-            <span>Waiting for discussion to begin...</span>
+          <div className="flex h-full min-h-[160px] flex-col items-center justify-center text-center text-muted-foreground font-mono text-xs gap-3">
+            {emptyPhaseDisplay ? (
+              <>
+                {emptyPhaseDisplay.icon}
+                <div className="flex flex-col gap-1">
+                  <span className="text-foreground font-semibold text-sm">{emptyPhaseDisplay.label}</span>
+                  {emptyPhaseDisplay.detail && (
+                    <span className="text-muted-foreground/60">{emptyPhaseDisplay.detail}</span>
+                  )}
+                </div>
+                {/* Per-agent mini progress bar during plan generation */}
+                {progress?.phase === 'generating_plans' && progress.max_actions > 0 && (
+                  <div className="w-48 space-y-1">
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${Math.min((progress.current_actions / progress.max_actions) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[9px] text-muted-foreground/60">
+                      {Math.round(Math.min((progress.current_actions / progress.max_actions) * 100, 100))}%
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <Clock className="mb-2 h-5 w-5 text-muted-foreground/60 animate-pulse" />
+                <span>等待仿真开始...</span>
+              </>
+            )}
           </div>
         ) : (
-          messagesList.map((msg, idx) => (
+          <>
+            {messagesList.map((msg, idx) => {
+            const cfg = getTypeConfig(msg.type)
+            const Icon = cfg.icon
+            const agentStatus = getAgentStatus(msg.agent_id)
+            return (
+              <div
+                key={idx}
+                className={`flex flex-col gap-1 rounded-lg bg-card/40 border border-border/70 ${cfg.borderColor} border-l-[3px] pl-3 pr-3 py-2.5 transition-colors hover:bg-card/60`}
+              >
+                {/* Header: agent name + type badge + round */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {/* Agent status dot */}
+                    {agentStatus === 'thinking' ? (
+                      <span className="relative flex h-2 w-2 shrink-0">
+                        <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-60" />
+                        <span className="absolute inset-0.5 rounded-full bg-primary" />
+                      </span>
+                    ) : agentStatus === 'spoke' ? (
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                    ) : (
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/30" />
+                    )}
+                    <span className="font-semibold text-foreground text-xs truncate">
+                      {msg.agent_name}
+                    </span>
+                    {agentStatus === 'thinking' && (
+                      <span className="text-[9px] text-primary/70 font-mono animate-pulse hidden sm:inline">
+                        思考中...
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Type badge */}
+                    <span
+                      className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold font-mono leading-none ${cfg.badgeBg} ${cfg.badgeText}`}
+                    >
+                      <Icon className="h-2.5 w-2.5" />
+                      {cfg.label}
+                    </span>
+                    {/* Round badge */}
+                    {msg.round > 0 && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[8px] font-mono text-muted-foreground/70 leading-none">
+                        {formatRound(msg.round)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="text-xs text-foreground/90 leading-relaxed font-sans prose prose-sm dark:prose-invert max-w-none select-text">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                </div>
+
+                {/* Reasoning */}
+                {msg.reasoning && (
+                  <details className="mt-1 group">
+                    <summary className="text-[9px] text-muted-foreground/60 cursor-pointer select-none hover:text-foreground font-mono tracking-wide flex items-center gap-1">
+                      <span className="inline-block w-0 h-0 border-l-4 border-l-transparent border-t-4 border-t-current border-r-4 border-r-transparent group-open:rotate-90 transition-transform" />
+                      LLM 推理过程
+                    </summary>
+                    <p className="mt-1 text-[9px] text-muted-foreground/70 italic bg-background/40 p-2.5 rounded border border-border/30 leading-relaxed whitespace-pre-wrap">
+                      {msg.reasoning}
+                    </p>
+                  </details>
+                )}
+              </div>
+            )
+          })}
+          {progress?.phase && ['completed', 'failed', 'paused', 'generating_report'].includes(progress.phase) && (
             <div
-              key={idx}
-              className="flex flex-col gap-1 rounded-xl bg-card/30 border border-border/80 p-4"
+              className={`flex items-center gap-2 rounded-lg border p-3 text-xs ${
+                progress.phase === 'completed'
+                  ? 'border-success/30 bg-success/5 text-success-foreground'
+                  : progress.phase === 'failed'
+                    ? 'border-destructive/30 bg-destructive/5 text-destructive-foreground'
+                    : progress.phase === 'paused'
+                      ? 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300'
+                      : 'border-primary/30 bg-primary/5 text-primary'
+              }`}
             >
-              <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                <span className="font-semibold text-primary text-xs">{msg.agent_name}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[8px] font-mono text-muted-foreground">
-                  R{msg.round} • {msg.type}
-                </span>
-              </div>
-              <div className="text-xs text-foreground/95 leading-relaxed mt-1 font-sans prose prose-sm dark:prose-invert max-w-none select-text">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-              </div>
-              {msg.reasoning && (
-                <details className="mt-2.5">
-                  <summary className="text-[10px] text-muted-foreground cursor-pointer select-none hover:text-foreground">
-                    View Agent Reasoning
-                  </summary>
-                  <p className="mt-1 text-[10px] text-muted-foreground/80 italic bg-background/50 p-2.5 rounded border border-border/40 leading-normal">
-                    {msg.reasoning}
-                  </p>
-                </details>
+              {progress.phase === 'completed' ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+              ) : progress.phase === 'failed' ? (
+                <AlertCircle className="h-4 w-4 shrink-0" />
+              ) : progress.phase === 'paused' ? (
+                <Pause className="h-4 w-4 shrink-0" />
+              ) : (
+                <FileText className="h-4 w-4 shrink-0 animate-pulse" />
+              )}
+              <span className="font-semibold">
+                {progress.phase === 'completed'
+                  ? '仿真流程已结束'
+                  : progress.phase === 'failed'
+                    ? '仿真运行失败'
+                    : progress.phase === 'paused'
+                      ? '仿真已暂停'
+                      : '报告生成中...'}
+              </span>
+              {progress.phase === 'generating_report' && (
+                <Loader2 className="h-3 w-3 animate-spin ml-auto" />
               )}
             </div>
-          ))
+          )}
+          </>
         )}
         <div ref={messagesEndRef} />
+      </div>
+    )
+  }
+
+  const renderWorldStateValue = (key: string, val: any) => {
+    if (val === null || val === undefined)
+      return <span className="text-muted-foreground/60">无</span>
+
+    let parsedVal = val
+    if (typeof val === 'string') {
+      const trimmed = val.trim()
+      if (
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('{') && trimmed.endsWith('}'))
+      ) {
+        try {
+          parsedVal = JSON.parse(trimmed)
+        } catch (e) {
+          // Not a valid JSON, keep as is
+        }
+      }
+    }
+
+    // 针对地点或种子地点进行精美格式化
+    if (key === '_seed_locations' || key === 'locations') {
+      if (Array.isArray(parsedVal)) {
+        return (
+          <div className="flex flex-wrap gap-2.5 py-1.5 select-text">
+            {parsedVal.map((loc: any, idx: number) => {
+              if (typeof loc === 'string') {
+                return (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-primary font-semibold text-[11px] hover:bg-primary/15 transition-all shadow-sm"
+                  >
+                    📍 {loc}
+                  </span>
+                )
+              } else if (typeof loc === 'object' && loc !== null) {
+                const name = loc.name || loc.Name || `地点 ${idx + 1}`
+                const desc = loc.desc || loc.desc || loc.description || loc.Description || ''
+                return (
+                  <div
+                    key={idx}
+                    className="flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-card border border-border/60 hover:border-primary/40 shadow-sm transition-all min-w-[125px] max-w-[200px]"
+                  >
+                    <div className="flex items-center gap-1 font-bold text-foreground text-xs">
+                      <span className="text-primary text-[11px]">📍</span>
+                      <span>{name}</span>
+                    </div>
+                    {desc && desc !== name && (
+                      <div
+                        className="text-[10px] text-muted-foreground leading-normal truncate"
+                        title={desc}
+                      >
+                        {desc}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+              return <div key={idx}>{JSON.stringify(loc)}</div>
+            })}
+          </div>
+        )
+      } else if (typeof parsedVal === 'object' && parsedVal !== null) {
+        return (
+          <div className="flex flex-wrap gap-2.5 py-1.5 select-text">
+            {Object.entries(parsedVal).map(([name, desc], idx) => {
+              const description = typeof desc === 'string' ? desc : JSON.stringify(desc)
+              return (
+                <div
+                  key={idx}
+                  className="flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-card border border-border/60 hover:border-primary/40 shadow-sm transition-all min-w-[125px] max-w-[200px]"
+                >
+                  <div className="flex items-center gap-1 font-bold text-foreground text-xs">
+                    <span className="text-primary text-[11px]">📍</span>
+                    <span>{name}</span>
+                  </div>
+                  {description && description !== name && (
+                    <div
+                      className="text-[10px] text-muted-foreground leading-normal truncate"
+                      title={description}
+                    >
+                      {description}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
+      } else if (typeof parsedVal === 'string') {
+        const parts = parsedVal
+          .split(/[,，;\s]+/)
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+        if (parts.length > 0) {
+          return (
+            <div className="flex flex-wrap gap-1.5 py-1">
+              {parts.map((loc, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-primary font-semibold text-[11px] hover:bg-primary/15 transition-all shadow-sm"
+                >
+                  📍 {loc}
+                </span>
+              ))}
+            </div>
+          )
+        }
+      }
+    }
+
+    if (Array.isArray(parsedVal)) {
+      if (parsedVal.every((item) => typeof item === 'string' || typeof item === 'number')) {
+        return (
+          <div className="flex flex-wrap gap-1.5 py-1">
+            {parsedVal.map((item, idx) => (
+              <span
+                key={idx}
+                className="px-1.5 py-0.5 rounded bg-muted text-foreground/80 border border-border/30 text-[10px] font-mono"
+              >
+                {String(item)}
+              </span>
+            ))}
+          </div>
+        )
+      }
+      return (
+        <pre className="text-[10px] bg-muted/10 p-2 rounded border border-border/40 max-h-48 overflow-y-auto font-mono whitespace-pre select-text">
+          {JSON.stringify(parsedVal, null, 2)}
+        </pre>
+      )
+    }
+
+    if (typeof parsedVal === 'object' && parsedVal !== null) {
+      const entries = Object.entries(parsedVal)
+      if (entries.every(([_, v]) => typeof v !== 'object' || v === null)) {
+        return (
+          <div className="grid grid-cols-1 gap-1 py-1 text-[10px] select-text">
+            {entries.map(([k, v]) => (
+              <div key={k} className="flex gap-2">
+                <span className="text-muted-foreground font-medium shrink-0">{k}:</span>
+                <span className="text-foreground/90 font-mono break-all">{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        )
+      }
+      return (
+        <pre className="text-[10px] bg-muted/10 p-2 rounded border border-border/40 max-h-48 overflow-y-auto font-mono whitespace-pre select-text">
+          {JSON.stringify(parsedVal, null, 2)}
+        </pre>
+      )
+    }
+
+    return <span className="font-mono">{String(parsedVal)}</span>
+  }
+
+  const renderWorldState = () => {
+    if (!worldState || Object.keys(worldState).length === 0) {
+      return (
+        <div className="flex h-32 flex-col items-center justify-center text-center text-muted-foreground font-mono text-xs p-6">
+          <AlertCircle className="mb-2 h-5 w-5 text-muted-foreground/60" />
+          <span>未发现环境状态变量。</span>
+        </div>
+      )
+    }
+
+    const filteredKeys = Object.keys(worldState)
+      .filter((k) => k.toLowerCase().includes(worldSearch.toLowerCase()))
+      .sort()
+
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-4 space-y-3">
+        <input
+          type="text"
+          placeholder="过滤变量..."
+          value={worldSearch}
+          onChange={(e) => setWorldSearch(e.target.value)}
+          className="w-full shrink-0 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none transition-all"
+        />
+        <div className="flex-1 overflow-y-auto min-h-0 border border-border/50 rounded-lg bg-card/10">
+          {filteredKeys.length === 0 ? (
+            <div className="text-center text-xs font-mono text-muted-foreground py-6">
+              没有匹配当前搜索的变量。
+            </div>
+          ) : (
+            <table className="w-full text-xs font-sans border-collapse select-text">
+              <thead>
+                <tr className="border-b border-border/80 bg-muted/40 text-left text-muted-foreground">
+                  <th className="p-3 py-2 font-semibold">变量名</th>
+                  <th className="p-3 py-2 font-semibold">变量值</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredKeys.map((key) => {
+                  const val = worldState[key]
+                  const displayName = WORLD_STATE_KEYS_ZH[key] || key
+                  const hasAlias = !!WORLD_STATE_KEYS_ZH[key]
+                  return (
+                    <tr
+                      key={key}
+                      className="border-b border-border/40 hover:bg-muted/10 transition-colors"
+                    >
+                      <td className="p-3 py-2.5 align-top max-w-[150px] shrink-0">
+                        <div className="text-primary font-semibold text-xs leading-normal">
+                          {displayName}
+                        </div>
+                        {hasAlias && (
+                          <div className="text-[10px] text-muted-foreground/60 font-mono font-normal mt-0.5">
+                            {key}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 py-2.5 text-foreground/90 break-all whitespace-pre-wrap align-top font-sans leading-normal">
+                        {renderWorldStateValue(key, val)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     )
   }
@@ -664,14 +1345,28 @@ export function SimulationDetailPage() {
               <span
                 className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${getStatusBadgeClass(state.status)}`}
               >
-                {state.status}
+                {state.status === 'idle'
+                  ? '空闲'
+                  : state.status === 'pending'
+                    ? '等待中'
+                    : state.status === 'running'
+                      ? '运行中'
+                      : state.status === 'paused'
+                        ? '已暂停'
+                        : state.status === 'completed'
+                          ? '已完成'
+                          : state.status === 'failed'
+                            ? '已失败'
+                            : state.status === 'cancelled'
+                              ? '已取消'
+                              : state.status}
               </span>
               {state.status === 'running' && (
                 <>
                   <span>•</span>
-                  <span className="text-primary animate-pulse font-bold">
-                    Round {state.current_round}
-                  </span>
+                   <span className="text-primary animate-pulse font-bold">
+                     {state.current_round === 0 ? '初始化中...' : `第 ${state.current_round} 轮`}
+                   </span>
                 </>
               )}
             </div>
@@ -690,14 +1385,14 @@ export function SimulationDetailPage() {
               </div>
               {progress.estimated_remaining_seconds > 0 && (
                 <span className="text-muted-foreground">
-                  ETA {Math.floor(progress.estimated_remaining_seconds)}s
+                  预计剩余 {Math.floor(progress.estimated_remaining_seconds)}秒
                 </span>
               )}
             </div>
           )}
         </div>
 
-        {/* Start / Stop Controls */}
+        {/* Start / Stop / Pause / Resume / Step / Fork / Delete Controls */}
         <div className="flex items-center gap-3">
           {(state.status === 'idle' || state.status === 'pending') && (
             <>
@@ -706,26 +1401,88 @@ export function SimulationDetailPage() {
                 className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
               >
                 <Edit className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Edit Config</span>
+                <span className="hidden sm:inline">编辑配置</span>
               </button>
               <button
                 onClick={handleStart}
                 disabled={controlLoading}
                 className="flex items-center gap-2 rounded-lg bg-success hover:bg-success/90 disabled:bg-success/50 px-4 py-2 text-sm font-semibold text-success-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Play className="h-4 w-4" /> Start Simulation
+                <Play className="h-4 w-4" /> 启动仿真
               </button>
             </>
           )}
           {state.status === 'running' && (
+            <>
+              <button
+                onClick={handlePause}
+                disabled={controlLoading}
+                className="flex items-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition-colors cursor-pointer"
+              >
+                <Pause className="h-4 w-4" /> 暂停
+              </button>
+              <button
+                onClick={handleStopClick}
+                disabled={controlLoading}
+                className="flex items-center gap-2 rounded-lg bg-destructive hover:bg-destructive/90 disabled:bg-destructive/50 px-4 py-2 text-sm font-semibold text-destructive-foreground transition-colors cursor-pointer"
+              >
+                <Square className="h-4 w-4" /> 停止仿真
+              </button>
+            </>
+          )}
+          {state.status === 'paused' && (
+            <>
+              <button
+                onClick={handleResume}
+                disabled={controlLoading}
+                className="flex items-center gap-2 rounded-lg bg-success hover:bg-success/90 px-4 py-2 text-sm font-semibold text-success-foreground transition-colors cursor-pointer"
+              >
+                <Play className="h-4 w-4" /> 恢复
+              </button>
+              <button
+                onClick={handleStep}
+                disabled={controlLoading}
+                className="flex items-center gap-2 rounded-lg bg-primary hover:bg-primary/95 px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors cursor-pointer"
+              >
+                <SkipForward className="h-4 w-4" /> 单步运行
+              </button>
+              <button
+                onClick={handleStopClick}
+                disabled={controlLoading}
+                className="flex items-center gap-2 rounded-lg bg-destructive hover:bg-destructive/90 px-4 py-2 text-sm font-semibold text-destructive-foreground transition-colors cursor-pointer"
+              >
+                <Square className="h-4 w-4" /> 停止仿真
+              </button>
+            </>
+          )}
+          {(state.status === 'completed' ||
+            state.status === 'failed' ||
+            state.status === 'cancelled') && (
             <button
-              onClick={handleStopClick}
+              onClick={() => {
+                setForkTopic(state.config.topic + ' (Forked)')
+                setForkMaxWallClockMin(
+                  state.config.max_wall_clock_ms
+                    ? Math.round(state.config.max_wall_clock_ms / 60000)
+                    : 18
+                )
+                setForkDialogOpen(true)
+              }}
               disabled={controlLoading}
-              className="flex items-center gap-2 rounded-lg bg-destructive hover:bg-destructive/90 disabled:bg-destructive/50 px-4 py-2 text-sm font-semibold text-destructive-foreground transition-colors cursor-pointer"
+              className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition-colors cursor-pointer"
             >
-              <Square className="h-4 w-4" /> Stop Simulation
+              <GitFork className="h-4 w-4" /> 分叉仿真
             </button>
           )}
+          <button
+            onClick={() => setDeleteConfirmOpen(true)}
+            disabled={controlLoading}
+            className="flex items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/5 px-3 py-2 text-xs font-medium text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 transition-colors cursor-pointer"
+            title="删除仿真"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">删除</span>
+          </button>
           {controlLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         </div>
       </header>
@@ -746,7 +1503,7 @@ export function SimulationDetailPage() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Interactions
+                动态交互
               </button>
               <button
                 onClick={() => setGraphLayer('relationship')}
@@ -756,7 +1513,7 @@ export function SimulationDetailPage() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Relationships
+                社会关系
               </button>
               <button
                 onClick={() => setGraphLayer('both')}
@@ -766,7 +1523,7 @@ export function SimulationDetailPage() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Both Layers
+                双层显示
               </button>
             </div>
           </div>
@@ -807,7 +1564,7 @@ export function SimulationDetailPage() {
           <div className="shrink-0 flex items-center justify-between border-b border-border bg-card/30 px-4 py-3">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Message Stream</h2>
+              <h2 className="text-sm font-semibold text-foreground">仿真遥测数据</h2>
               {state.messages && (
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
                   {state.messages.length}
@@ -817,53 +1574,38 @@ export function SimulationDetailPage() {
 
             {state.status === 'completed' && state.report && (
               <button
-                onClick={() => setChatAgentId('report')}
+                onClick={() => setIsReportModalOpen(true)}
                 className="inline-flex items-center gap-1 rounded bg-primary/10 text-primary border border-primary/20 px-2 py-1 text-[10px] font-semibold cursor-pointer hover:bg-primary/20 transition-all"
               >
-                <Cpu className="h-3 w-3" />
-                Ask Report Analyst
+                <FileText className="h-3 w-3" />
+                查看最终报告
               </button>
             )}
           </div>
 
-          {/* Right sidebar tabs if final report is available */}
-          {state.report ? (
-            <Tabs defaultValue="stream" className="flex-1 flex flex-col min-h-0">
-              <TabsList className="flex border-b border-border w-full bg-transparent shrink-0">
-                <TabsTrigger
-                  value="stream"
-                  className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
-                >
-                  MESSAGES
-                </TabsTrigger>
-                <TabsTrigger
-                  value="report"
-                  className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
-                >
-                  FINAL REPORT
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="stream" className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                {renderMessageList(filteredMessages)}
-              </TabsContent>
-              <TabsContent
-                value="report"
-                className="flex-1 overflow-y-auto p-5 prose prose-sm dark:prose-invert max-w-none text-foreground/90 bg-card/5"
+          {/* Right sidebar tabs (Messages and World State) */}
+          <Tabs defaultValue="stream" className="flex-1 flex flex-col min-h-0">
+            <TabsList className="flex border-b border-border w-full bg-transparent shrink-0">
+              <TabsTrigger
+                value="stream"
+                className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
               >
-                <div className="mb-2 flex items-center gap-2 border-b border-primary/10 pb-2">
-                  <FileText className="h-4 w-4 text-primary" />
-                  <h3 className="font-bold text-primary text-xs tracking-wider uppercase font-mono">
-                    Simulation Final Report
-                  </h3>
-                </div>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{state.report}</ReactMarkdown>
-              </TabsContent>
-            </Tabs>
-          ) : (
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                实时消息
+              </TabsTrigger>
+              <TabsTrigger
+                value="world"
+                className="flex-1 py-2 text-center text-xs font-semibold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+              >
+                世界状态
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="stream" className="flex-1 flex flex-col min-h-0 overflow-hidden">
               {renderMessageList(filteredMessages)}
-            </div>
-          )}
+            </TabsContent>
+            <TabsContent value="world" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {renderWorldState()}
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 
@@ -880,23 +1622,22 @@ export function SimulationDetailPage() {
         <DialogContent className="max-w-lg max-h-[80vh] flex flex-col p-0 overflow-hidden gap-0">
           <DialogHeader className="shrink-0 px-5 py-4 border-b border-border/50">
             <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              Chat with{' '}
+              <MessageSquare className="h-4 w-4 text-primary" />与{' '}
               {chatAgentId === 'report'
-                ? 'Report Analyst'
+                ? '报告分析专家'
                 : chatAgentId
                   ? state.config.personas.find((p) => p.id === chatAgentId)?.name
-                  : ''}
+                  : ''}{' '}
+              对话
             </DialogTitle>
             <p className="text-[10px] text-muted-foreground font-normal">
-              Interview agent in-character regarding the simulation.
+              扮演角色对智能体进行仿真相关问题的访谈。
             </p>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto p-5 space-y-4 min-h-0">
             <div className="rounded-lg bg-background/40 border border-border p-3 text-[10px] text-muted-foreground leading-relaxed">
-              You can query the agent about their stance during the debate, their interactions, or
-              the resulting report details.
+              您可以向智能体询问他们在辩论中的立场、他们与其他角色的互动、或是最终报告的细节。
             </div>
 
             {/* Local chat thread history */}
@@ -913,7 +1654,7 @@ export function SimulationDetailPage() {
                       {chat.loading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Thinking...
+                          思考中...
                         </div>
                       ) : (
                         <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed">
@@ -933,7 +1674,7 @@ export function SimulationDetailPage() {
             <input
               type="text"
               required
-              placeholder="Ask a question..."
+              placeholder="输入提问问题..."
               value={chatQuestion}
               onChange={(e) => setChatQuestion(e.target.value)}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all"
@@ -960,7 +1701,7 @@ export function SimulationDetailPage() {
       >
         <DialogContent
           showCloseButton={false}
-          className="max-w-[700px] h-[80vh] flex flex-col p-0 overflow-hidden bg-card/95 backdrop-blur-md border border-border"
+          className="max-w-[1100px] w-[85vw] h-[85vh] flex flex-col p-0 overflow-hidden bg-card/95 backdrop-blur-md border border-border"
         >
           {(() => {
             const selectedPersona = selectedAgentId
@@ -981,6 +1722,133 @@ export function SimulationDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Report Modal — full report + chat with analysis expert */}
+      <Dialog
+        open={isReportModalOpen}
+        onOpenChange={(open) => {
+          setIsReportModalOpen(open)
+          if (!open) setReportQuestion('')
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="max-w-[1100px] w-[85vw] h-[85vh] flex flex-col p-0 overflow-hidden bg-card/95 backdrop-blur-md border border-border"
+        >
+          <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-border/50">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-primary" />
+                <h2 className="text-base font-bold text-foreground">仿真最终分析报告</h2>
+                {state?.config?.topic && (
+                  <span className="text-xs text-muted-foreground font-mono truncate max-w-[300px]">
+                    {state.config.topic}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setIsReportModalOpen(false)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Tabs: Report Content + Interview */}
+            <Tabs defaultValue="report" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <TabsList className="flex border-b border-border w-full bg-transparent shrink-0">
+                <TabsTrigger
+                  value="report"
+                  className="flex-1 py-3 text-center text-xs font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+                >
+                  <FileText className="h-3.5 w-3.5 inline mr-1.5" />
+                  报告全文
+                </TabsTrigger>
+                <TabsTrigger
+                  value="interview"
+                  className="flex-1 py-3 text-center text-xs font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
+                >
+                  <MessageSquare className="h-3.5 w-3.5 inline mr-1.5" />
+                  报告访谈
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Report Content Tab */}
+              <TabsContent
+                value="report"
+                className="flex-1 overflow-y-auto p-8 min-h-0 focus-visible:outline-none"
+              >
+                <div className="max-w-3xl mx-auto">
+                  <div className="prose prose-base dark:prose-invert max-w-none text-foreground/90">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{state?.report || ''}</ReactMarkdown>
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* Interview Tab */}
+              <TabsContent
+                value="interview"
+                className="flex-1 flex flex-col min-h-0 focus-visible:outline-none"
+              >
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0">
+                  <div className="rounded-lg bg-primary/5 border border-primary/20 p-4 text-xs text-muted-foreground leading-relaxed">
+                    您可以向报告分析专家提问，了解仿真中的关键事件、角色行为模式、争议焦点等。
+                  </div>
+                  {(chatHistory['report'] || []).map((chat, idx) => (
+                    <div key={idx} className="space-y-3">
+                      <div className="flex justify-end">
+                        <div className="rounded-xl bg-primary px-4 py-2 text-sm text-primary-foreground max-w-[75%] font-medium">
+                          {chat.q}
+                        </div>
+                      </div>
+                      <div className="flex justify-start">
+                        <div className="rounded-xl bg-muted/70 border border-border px-4 py-2 text-sm text-foreground max-w-[85%] select-text">
+                          {chat.loading ? (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              思考中...
+                            </div>
+                          ) : (
+                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{chat.a}</ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    handleReportAsk(reportQuestion)
+                    setReportQuestion('')
+                  }}
+                  className="shrink-0 border-t border-border/50 p-5 bg-card/30 flex gap-3"
+                >
+                  <input
+                    type="text"
+                    required
+                    placeholder="向报告分析专家提问..."
+                    value={reportQuestion}
+                    onChange={(e) => setReportQuestion(e.target.value)}
+                    className="flex-1 rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all"
+                  />
+                  <button
+                    type="submit"
+                    disabled={reportInterviewing || !reportQuestion.trim()}
+                    className="rounded-lg bg-primary hover:bg-primary/90 disabled:bg-primary/50 p-2.5 text-primary-foreground transition-colors cursor-pointer shrink-0 disabled:cursor-not-allowed"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </form>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* View Agent Prompt Dialog */}
       <Dialog open={!!viewingPersona} onOpenChange={(v) => !v && setViewingPersona(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6 overflow-hidden">
@@ -996,17 +1864,17 @@ export function SimulationDetailPage() {
           <div className="flex-1 overflow-y-auto mt-4 pr-1 space-y-4">
             <div>
               <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                System Prompt
+                系统提示词 (System Prompt)
               </h5>
               <div className="rounded-xl border border-border bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap leading-relaxed text-foreground select-text overflow-x-auto max-h-[40vh]">
-                {viewingPersona?.system_prompt || 'No system prompt configured.'}
+                {viewingPersona?.system_prompt || '未配置系统提示词。'}
               </div>
             </div>
 
             {viewingPersona?.bio && (
               <div>
                 <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                  Biography
+                  人物背景
                 </h5>
                 <p className="text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40">
                   {viewingPersona.bio}
@@ -1017,7 +1885,7 @@ export function SimulationDetailPage() {
             {viewingPersona?.goals && viewingPersona.goals.length > 0 && (
               <div>
                 <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                  Goals
+                  智能体目标
                 </h5>
                 <ul className="list-disc list-inside space-y-1 text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40">
                   {viewingPersona.goals.map((goal, idx) => (
@@ -1030,7 +1898,7 @@ export function SimulationDetailPage() {
             {viewingPersona?.traits && Object.keys(viewingPersona.traits).length > 0 && (
               <div>
                 <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                  Traits
+                  特质属性
                 </h5>
                 <div className="grid grid-cols-2 gap-2 bg-muted/10 p-3 rounded-lg border border-border/40">
                   {Object.entries(viewingPersona.traits).map(([k, v]) => (
@@ -1054,7 +1922,7 @@ export function SimulationDetailPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Settings className="h-4.5 w-4.5 text-primary" />
-              Edit Simulation Parameters
+              修改仿真参数
             </DialogTitle>
           </DialogHeader>
 
@@ -1062,7 +1930,7 @@ export function SimulationDetailPage() {
             {/* Topic */}
             <div className="space-y-1.5">
               <Input
-                label="Simulation Topic"
+                label="仿真主题"
                 value={editTopic}
                 onChange={(e) => setEditTopic(e.target.value)}
                 className="text-xs"
@@ -1073,7 +1941,7 @@ export function SimulationDetailPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono flex justify-between items-center">
-                  <span>Max Time (min)</span>
+                  <span>最大运行时间 (分钟)</span>
                   <span className="text-primary font-bold">
                     {editMaxWallClockMin}m
                     {editMaxWallClockMin >= 60
@@ -1105,7 +1973,7 @@ export function SimulationDetailPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  Sim Hours: {editSimHours}h
+                  虚拟仿真时间: {editSimHours}小时
                 </label>
                 <input
                   type="range"
@@ -1114,7 +1982,7 @@ export function SimulationDetailPage() {
                   step={6}
                   value={editSimHours}
                   onChange={(e) => {
-                    const val = parseInt(e.target.value) || 48
+                    const val = parseInt(e.target.value) || 168
                     const currentTheoryMin = (editSimHours * 60) / editTimeScale
                     const multiplier =
                       currentTheoryMin > 0 ? editMaxWallClockMin / currentTheoryMin : 3.75
@@ -1135,10 +2003,10 @@ export function SimulationDetailPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Select
-                  label="Time Scale"
+                  label="时间流速比例 (Time Scale)"
                   value={String(editTimeScale)}
                   onChange={(v) => {
-                    const newScale = parseInt(v) || 600
+                    const newScale = parseInt(v) || 300
                     const currentTheoryMin = (editSimHours * 60) / editTimeScale
                     const multiplier =
                       currentTheoryMin > 0 ? editMaxWallClockMin / currentTheoryMin : 3.75
@@ -1151,17 +2019,17 @@ export function SimulationDetailPage() {
                     setEditMaxWallClockMin(newMaxMin)
                   }}
                   options={[
-                    { value: '60', label: '1s = 1min' },
-                    { value: '300', label: '1s = 5min' },
-                    { value: '600', label: '1s = 10min' },
-                    { value: '1800', label: '1s = 30min' },
-                    { value: '3600', label: '1s = 1h' },
+                    { value: '60', label: '1秒 = 1分钟' },
+                    { value: '300', label: '1秒 = 5分钟' },
+                    { value: '600', label: '1秒 = 10分钟' },
+                    { value: '1800', label: '1秒 = 30分钟' },
+                    { value: '3600', label: '1秒 = 1小时' },
                   ]}
                 />
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  Reflection
+                  高阶反思 (Reflection)
                 </label>
                 <div className="flex items-center gap-2 pt-1">
                   <button
@@ -1178,7 +2046,7 @@ export function SimulationDetailPage() {
                     />
                   </button>
                   <span className="text-[10px] text-muted-foreground">
-                    {editEnableReflection ? 'On' : 'Off'}
+                    {editEnableReflection ? '开启' : '关闭'}
                   </span>
                 </div>
               </div>
@@ -1188,7 +2056,7 @@ export function SimulationDetailPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Select
-                  label="Language"
+                  label="仿真语言"
                   value={editLanguage}
                   onChange={(v) => setEditLanguage(v)}
                   options={[
@@ -1202,7 +2070,7 @@ export function SimulationDetailPage() {
             {/* Agent Specific Models */}
             <div className="space-y-3 pt-2">
               <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono border-t border-border/40 pt-3">
-                Agent Specific Models
+                特定智能体的大模型配置
               </label>
               <div className="space-y-2.5">
                 {editPersonas.map((persona, idx) => (
@@ -1219,27 +2087,27 @@ export function SimulationDetailPage() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Select
-                          label="Provider"
+                          label="大模型服务商 (Provider)"
                           value={persona.provider_id || ''}
                           onChange={(v) => {
                             handleUpdatePersonaOverride(idx, 'provider_id', v)
                             handleUpdatePersonaOverride(idx, 'model_id', '')
                           }}
-                          placeholder="(Default Fast Provider)"
+                          placeholder="(默认快速服务商)"
                           options={[
-                            { value: '', label: '(Default Fast Provider)' },
+                            { value: '', label: '(默认快速服务商)' },
                             ...providers.map((p) => ({ value: p.id, label: p.name })),
                           ]}
                         />
                       </div>
                       <div>
                         <Select
-                          label="Model"
+                          label="大模型 (Model)"
                           value={persona.model_id || ''}
                           onChange={(v) => handleUpdatePersonaOverride(idx, 'model_id', v)}
-                          placeholder="(Default Fast Model)"
+                          placeholder="(默认快速模型)"
                           options={[
-                            { value: '', label: '(Default Fast Model)' },
+                            { value: '', label: '(默认快速模型)' },
                             ...models
                               .filter(
                                 (m) => !persona.provider_id || m.providerId === persona.provider_id
@@ -1262,7 +2130,7 @@ export function SimulationDetailPage() {
               disabled={savingConfig}
               className="rounded-lg bg-muted hover:bg-muted/80 px-4 py-2 text-xs font-semibold text-foreground transition-colors cursor-pointer"
             >
-              Cancel
+              取消
             </button>
             <button
               type="button"
@@ -1272,11 +2140,11 @@ export function SimulationDetailPage() {
             >
               {savingConfig ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving...
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 保存中...
                 </>
               ) : (
                 <>
-                  <Save className="h-3.5 w-3.5" /> Save Config
+                  <Save className="h-3.5 w-3.5" /> 保存配置
                 </>
               )}
             </button>
@@ -1287,11 +2155,130 @@ export function SimulationDetailPage() {
       <ConfirmDialog
         open={stopConfirmOpen}
         onOpenChange={setStopConfirmOpen}
-        title="Stop Simulation"
-        message="Are you sure you want to stop this simulation? The current state will be saved, but any in-progress agent actions will be interrupted."
+        title="停止仿真"
+        message="您确定要停止此仿真吗？当前状态将被保存，但任何进行中的智能体动作都将被中断。"
         destructive
         onConfirm={confirmStop}
-        confirmLabel="Stop Simulation"
+        confirmLabel="停止仿真"
+        loading={controlLoading}
+      />
+
+      {/* Fork Simulation Dialog */}
+      <Dialog open={forkDialogOpen} onOpenChange={setForkDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitFork className="h-4.5 w-4.5 text-primary" />
+              分叉仿真
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg bg-background/40 border border-border p-3 text-[10px] text-muted-foreground leading-relaxed">
+              分叉操作将克隆当前仿真的配置（包括所有智能体画像、初始社会关系与运行参数）到一个新的空闲仿真中。您可以通过调整参数来运行对照性情景分析。
+            </div>
+
+            <div className="space-y-1.5">
+              <Input
+                label="新主题 / 立场"
+                value={forkTopic}
+                onChange={(e) => setForkTopic(e.target.value)}
+                required
+                className="text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono flex justify-between items-center">
+                <span>最大运行时间 (分钟)</span>
+                <span className="text-primary font-bold">{forkMaxWallClockMin}分钟</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={1}
+                  max={180}
+                  value={Math.min(forkMaxWallClockMin, 180)}
+                  onChange={(e) => setForkMaxWallClockMin(parseInt(e.target.value) || 5)}
+                  className="flex-1 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={forkMaxWallClockMin}
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.min(1440, parseInt(e.target.value) || 1))
+                    setForkMaxWallClockMin(val)
+                  }}
+                  className="w-16 text-center text-xs h-7 py-1 px-1.5 shrink-0"
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter showCloseButton={false}>
+            <button
+              type="button"
+              onClick={() => setForkDialogOpen(false)}
+              disabled={forking}
+              className="rounded-lg bg-muted hover:bg-muted/80 px-4 py-2 text-xs font-semibold text-foreground transition-colors cursor-pointer"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!id) return
+                try {
+                  setForking(true)
+                  const res = await fetch(`/api/simulations/${id}/fork`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      new_topic: forkTopic,
+                      new_max_wall_clock_ms: forkMaxWallClockMin * 60 * 1000,
+                    }),
+                  })
+                  if (!res.ok) {
+                    const errData = await res.json()
+                    throw new Error(errData.error || '分叉仿真失败')
+                  }
+                  const data = await res.json()
+                  toast.success('仿真分叉成功！')
+                  setForkDialogOpen(false)
+                  navigate(`/simulations/${data.new_simulation_id}`)
+                } catch (err: any) {
+                  toast.error(err.message)
+                } finally {
+                  setForking(false)
+                }
+              }}
+              disabled={forking || !forkTopic.trim()}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-primary hover:bg-primary/95 disabled:bg-primary/50 px-4 py-2 text-xs font-semibold text-primary-foreground transition-all cursor-pointer shadow-md shadow-primary/5 disabled:cursor-not-allowed"
+            >
+              {forking ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 分叉中...
+                </>
+              ) : (
+                <>
+                  <GitFork className="h-3.5 w-3.5" /> 分叉仿真
+                </>
+              )}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="删除仿真"
+        message="您确定要永久删除此仿真及其所有智能体记忆记录吗？此操作无法撤销。"
+        destructive
+        onConfirm={handleDelete}
+        confirmLabel="永久删除"
         loading={controlLoading}
       />
     </div>

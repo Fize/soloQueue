@@ -242,11 +242,34 @@ export interface RelationshipDTO {
   tags?: string[]
 }
 
+export interface PlanItem {
+  start_time: string
+  end_time: string
+  activity: string
+  location: string
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled'
+}
+
+export interface MemoryRecord {
+  round: number
+  role: string
+  content: string
+  world_state?: Record<string, any>
+  received_msgs?: any[]
+  timestamp: string
+  record_type?: string // 'observation', 'action', 'reflection', 'plan', 'dialogue'
+  importance?: number
+  source?: string
+  location?: string
+  simulated_time?: string
+}
+
 // ─── Simulation State ─────────────────────────────────────────────────────
 
 export interface SimulationState {
   id: string
-  status: 'pending' | 'idle' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'idle' | 'running' | 'completed' | 'failed' | 'paused' | 'cancelled'
   config: SimulationConfig
   current_round: number
   messages: SimulationMessage[]
@@ -286,9 +309,10 @@ export interface GraphEdgeDTO {
 
 export interface SimulationProgress {
   simulation_id: string
-  phase: 'initializing' | 'running' | 'generating_report' | 'completed' | 'failed'
+  phase: 'initializing' | 'generating_plans' | 'building_prompts' | 'running' | 'generating_report' | 'completed' | 'failed' | 'paused'
   progress_percent: number
   current_actions: number
+  max_actions: number
   elapsed_seconds: number
   estimated_remaining_seconds: number
   agent_states: Record<string, AgentProgressState>

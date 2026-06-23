@@ -29,10 +29,10 @@ export function SimulationListPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [simHours, setSimHours] = useState(48)
+  const [simHours, setSimHours] = useState(168)
   const [enableReflection, setEnableReflection] = useState(true)
-  const [timeScale, setTimeScale] = useState(600)
-  const [tickIntervalMs, setTickIntervalMs] = useState(500)
+  const [timeScale, setTimeScale] = useState(300)
+  const [tickIntervalMs, setTickIntervalMs] = useState(1000)
   const [language, setLanguage] = useState('zh')
   const [maxWallClockMs, setMaxWallClockMs] = useState(18 * 60 * 1000)
 
@@ -117,8 +117,8 @@ export function SimulationListPage() {
         id: sim.config?.id || sim.run_id || sim.id,
         personas: sim.config?.personas || [],
         round: sim.current_round || 0,
-        simulated_hours: sim.config?.simulated_hours || 48,
-        time_scale: sim.config?.time_scale || 600,
+        simulated_hours: sim.config?.simulated_hours || 168,
+        time_scale: sim.config?.time_scale || 300,
         enable_reflection: sim.config?.enable_reflection || false,
       }))
       setSimulations(mapped)
@@ -397,48 +397,43 @@ export function SimulationListPage() {
                   </p>
                 </div>
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
                   {simulations.map((sim) => (
                     <div
                       key={sim.id}
                       onClick={() => navigate(`/simulations/${sim.id}`)}
-                      className="group relative flex flex-col justify-between rounded-xl border border-border bg-card/25 p-5 hover:bg-card/45 hover:border-border/80 transition-all cursor-pointer shadow-sm hover:shadow-md"
+                      className="group flex items-center gap-3 rounded-lg border border-border bg-card/20 hover:bg-card/40 hover:border-border/80 transition-all cursor-pointer px-4 py-3"
                     >
-                      <div className="mb-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <span
-                            className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${getStatusBadgeClass(sim.status)}`}
-                          >
-                            {sim.status}
-                          </span>
-                          <button
-                            onClick={(e) => handleDelete(sim.id, e)}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-opacity p-1"
-                            title="Delete simulation"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                      <span
+                        className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase ${getStatusBadgeClass(sim.status)}`}
+                      >
+                        {sim.status}
+                      </span>
 
-                        <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-1">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">
                           {sim.config.topic}
                         </h3>
-                        <p className="mt-1.5 text-xs text-muted-foreground font-mono text-[10px]">
-                          ID: {sim.id.slice(0, 8)}...
-                        </p>
                       </div>
 
-                      <div className="flex items-center justify-between border-t border-border/60 pt-3 text-[11px] text-muted-foreground font-mono">
-                        <div className="flex items-center gap-1.5">
+                      <div className="flex shrink-0 items-center gap-4 text-[11px] text-muted-foreground font-mono">
+                        <span className="flex items-center gap-1">
                           <Users className="h-3.5 w-3.5" />
-                          <span>{sim.config?.personas?.length || 0} Agents</span>
-                        </div>
+                          {sim.config?.personas?.length || 0}
+                        </span>
                         {sim.started_at && (
-                          <div className="flex items-center gap-1.5">
+                          <span className="flex items-center gap-1">
                             <Calendar className="h-3.5 w-3.5" />
-                            <span>{new Date(sim.started_at).toLocaleDateString()}</span>
-                          </div>
+                            {new Date(sim.started_at).toLocaleDateString()}
+                          </span>
                         )}
+                        <button
+                          onClick={(e) => handleDelete(sim.id, e)}
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-opacity p-1"
+                          title="Delete simulation"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
                   ))}

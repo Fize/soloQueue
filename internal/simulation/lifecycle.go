@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,6 +18,9 @@ import (
 // It processes events from two sources:
 //  1. Seed-driven scheduled events (sim_time, wall_time, condition triggers)
 //  2. LLM-driven events from agent loops ([SPAWN] and [DIE] directives)
+//
+// In the barrier architecture, lifecycle events from agent loops are handled
+// synchronously by the main loop's event drain, not via a separate goroutine.
 type lifecycleManager struct {
 	engine          *SimulationEngine
 	config          SimulationConfig
@@ -44,9 +48,8 @@ type lifecycleManager struct {
 	lastSpawnTick   int
 	lastSpawnTickMu sync.Mutex
 
-	// Lifecycle event channels
-	lifecycleCh chan SimulationEvent
-	stopCh      chan struct{}
+	// Scheduler stop signal
+	stopCh chan struct{}
 }
 
 func newLifecycleManager(
@@ -89,7 +92,6 @@ func newLifecycleManager(
 		state:           state,
 		gaLoops:         make(map[string]*GAAgentLoop),
 		maxSpawnTotal:   maxSpawn,
-		lifecycleCh:     make(chan SimulationEvent, 32),
 		stopCh:          make(chan struct{}),
 	}
 }
@@ -118,6 +120,8 @@ func (lm *lifecycleManager) activeLoopCount() int {
 // ScheduleEvent is called by the lifecycle scheduler goroutine when a seed-driven event fires.
 func (lm *lifecycleManager) ScheduleEvent(ctx context.Context, ev SeedLifecycleEvent) {
 	switch ev.Type {
+	case "goal_transition":
+		lm.handleGoalTransition(ctx, ev)
 	case "agent_death":
 		lm.handleSeedDeath(ctx, ev)
 	case "agent_spawn":
@@ -152,6 +156,54 @@ func (lm *lifecycleManager) handleSeedDeath(ctx context.Context, ev SeedLifecycl
 	lm.handleAgentDeath(ctx, personaID, ev.Reason)
 }
 
+// handleGoalTransition updates an agent's goals mid-simulation.
+// This is the mechanism for staged narrative progression: when a character
+// reaches a new phase in their arc, their goals are replaced with the next
+// phase's objectives extracted from the seed text.
+func (lm *lifecycleManager) handleGoalTransition(ctx context.Context, ev SeedLifecycleEvent) {
+	if len(ev.NewGoals) == 0 {
+		return
+	}
+
+	// Find personaID by name
+	var personaID string
+	for id, name := range lm.nameByID {
+		if strings.EqualFold(name, ev.AgentName) {
+			personaID = id
+			break
+		}
+	}
+	if personaID == "" {
+		if lm.log != nil {
+			lm.log.WarnContext(ctx, logger.CatSimulation, "lifecycle: goal_transition target not found",
+				"agent_name", ev.AgentName)
+		}
+		return
+	}
+
+	if lm.log != nil {
+		lm.log.InfoContext(ctx, logger.CatSimulation, "lifecycle: goal transition",
+			"agent_id", personaID, "agent_name", ev.AgentName,
+			"new_goals", ev.NewGoals, "reason", ev.Reason)
+	}
+
+	// 1. Update the SimAgent's persona pointer — this is what the agent reads
+	//    each tick when building its system prompt.
+	if loop, ok := lm.gaLoops[personaID]; ok {
+		if p := loop.sa.Persona(); p != nil {
+			p.Goals = ev.NewGoals
+		}
+	}
+
+	// 2. Update lm.allPersonas so mid-simulation spawns copy the correct goals.
+	for i := range lm.allPersonas {
+		if lm.allPersonas[i].ID == personaID {
+			lm.allPersonas[i].Goals = ev.NewGoals
+			break
+		}
+	}
+}
+
 // handleSeedSpawn processes a seed-driven agent spawn.
 func (lm *lifecycleManager) handleSeedSpawn(ctx context.Context, ev SeedLifecycleEvent) {
 	if int(lm.spawnCount.Load()) >= lm.maxSpawnTotal {
@@ -166,50 +218,12 @@ func (lm *lifecycleManager) handleSeedSpawn(ctx context.Context, ev SeedLifecycl
 	lm.handleAgentSpawn(ctx, spawnInfo)
 }
 
-// LifecycleEvents returns the channel for receiving lifecycle events from agent loops.
-func (lm *lifecycleManager) LifecycleEvents() chan<- SimulationEvent {
-	return lm.lifecycleCh
-}
-
-// Run starts the lifecycle event loop. Should be called in a goroutine.
-func (lm *lifecycleManager) Run(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-lm.stopCh:
-			return
-		case ev := <-lm.lifecycleCh:
-			lm.processEvent(ctx, ev)
-		}
-	}
-}
-
-// Stop signals the lifecycle manager to stop.
+// Stop signals the lifecycle scheduler to stop.
 func (lm *lifecycleManager) Stop() {
 	select {
 	case <-lm.stopCh:
 	default:
 		close(lm.stopCh)
-	}
-}
-
-func (lm *lifecycleManager) processEvent(ctx context.Context, ev SimulationEvent) {
-	switch ev.Type {
-	case "agent_death":
-		data, ok := ev.Data.(map[string]string)
-		if !ok {
-			return
-		}
-		personaID := data["agent_id"]
-		lm.handleAgentDeath(ctx, personaID, "agent chose to exit")
-
-	case "agent_spawn":
-		spawnInfo, ok := ev.Data.(*SpawnInfo)
-		if !ok {
-			return
-		}
-		lm.handleAgentSpawn(ctx, *spawnInfo)
 	}
 }
 
@@ -334,9 +348,21 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 	sa := NewSimAgent(agt, &persona, cw, lm.bus, lm.log, perAgentTimeout)
 
 	// Generate daily plan
-	plan, err := lm.planGen.GenerateDailyPlan(ctx, &persona, lm.env, lm.clock, lm.config.Language)
+	plan, err := lm.planGen.GenerateDailyPlan(ctx, &persona, lm.env, lm.clock, lm.config.Language, lm.worldState.Snapshot())
 	if err != nil {
 		plan = defaultDailyPlan(personaID, lm.clock.Now(), lm.env.ZoneNames())
+	}
+
+	// Record the plan in agent memory
+	if planJSON, err := json.Marshal(plan); err == nil {
+		sa.Memory().Record(MemoryRecord{
+			Round:         lm.state.CurrentRound,
+			Role:          "system",
+			Content:       string(planJSON),
+			RecordType:    "plan",
+			Timestamp:     time.Now(),
+			SimulatedTime: lm.clock.Now(),
+		})
 	}
 
 	// Build system prompt
@@ -357,27 +383,14 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 		sa, lm.env, lm.bus, lm.clock, lm.planGen, lm.relationshipMgr,
 		lm.engine.memoryEngine, lm.reflectionEng, lm.dialogueMgr,
 		lm.worldState, lm.nameByID, lm.allPersonas, lm.log,
-		lm.config.Language,
+		lm.config.Language, lm.graph,
 	)
 	loop.plan = plan
 
 	lm.registerLoop(personaID, loop)
 
-	// Fan-in this new agent's events
-	go func(ch <-chan SimulationEvent) {
-		for ev := range ch {
-			ev.SimulationID = lm.state.RunID
-			lm.engine.emitViaSubscribers(ev)
-			if ev.Type == "agent_death" || ev.Type == "agent_spawn" {
-				select {
-				case lm.lifecycleCh <- ev:
-				default:
-				}
-			}
-		}
-	}(loop.Events())
-
-	go loop.Run(ctx)
+	// No fan-in goroutine needed — the barrier loop drains all agent
+	// events (including spawned agents) synchronously after each round.
 
 	// Update tracking
 	lm.spawnCount.Add(1)

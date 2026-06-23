@@ -1593,12 +1593,14 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 	}
 }
 
-// TestFactoryL3ToolFiltering verifies that L3 agents do not have SendFile or schedule_task tools,
-// while L2 leaders do.
-func TestFactoryL3ToolFiltering(t *testing.T) {
+// TestFactoryCronToolFiltering verifies that L2 and L3 agents do not have cron/scheduled-task tools,
+// and that L3 additionally does not have SendFile.
+func TestFactoryCronToolFiltering(t *testing.T) {
 	// Create a default factory
 	reg := NewRegistry(newTestLogger(t))
 	f := NewDefaultFactory(reg, &FakeLLM{}, tools.Config{}, newTestLogger(t))
+
+	cronToolNames := []string{"schedule_task", "modify_scheduled_task", "delete_scheduled_task"}
 
 	// L3 worker template
 	l3Tmpl := AgentTemplate{
@@ -1612,8 +1614,8 @@ func TestFactoryL3ToolFiltering(t *testing.T) {
 	}
 	defer child.Stop(time.Second)
 
-	// Verify L3 worker tools do not contain SendFile or schedule_task
-	for _, toolName := range []string{"SendFile", "schedule_task"} {
+	// Verify L3 worker tools do not contain SendFile or any cron tools
+	for _, toolName := range append([]string{"SendFile"}, cronToolNames...) {
 		if _, ok := child.tools.Get(toolName); ok {
 			t.Errorf("L3 worker should not have tool %q", toolName)
 		}
@@ -1634,6 +1636,13 @@ func TestFactoryL3ToolFiltering(t *testing.T) {
 	// Verify L2 leader tools contain SendFile (since it's a default built-in tool)
 	if _, ok := leader.tools.Get("SendFile"); !ok {
 		t.Error("L2 leader should have tool 'SendFile'")
+	}
+
+	// Verify L2 leader tools do NOT contain any cron tools (only L1 may operate on scheduled tasks)
+	for _, toolName := range cronToolNames {
+		if _, ok := leader.tools.Get(toolName); ok {
+			t.Errorf("L2 leader should not have cron tool %q (only L1 may operate on scheduled tasks)", toolName)
+		}
 	}
 }
 
@@ -1731,7 +1740,7 @@ This is the analyzer system prompt.`
 	}
 
 	// Verify tools: should not have SendFile or schedule_task
-	for _, toolName := range []string{"SendFile", "schedule_task"} {
+	for _, toolName := range []string{"SendFile", "schedule_task", "modify_scheduled_task", "delete_scheduled_task"} {
 		if _, ok := spawnedAgent.tools.Get(toolName); ok {
 			t.Errorf("spawned L3 agent should not have tool %q", toolName)
 		}

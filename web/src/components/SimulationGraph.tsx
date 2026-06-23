@@ -4,7 +4,6 @@ import { drag } from 'd3-drag'
 import { select } from 'd3-selection'
 import { zoom, zoomIdentity, type ZoomTransform } from 'd3-zoom'
 import type { SimulationPersona, RelationshipDTO } from '@/types'
-import { X, MessageSquare } from 'lucide-react'
 
 interface GraphNode extends d3force.SimulationNodeDatum {
   id: string
@@ -46,32 +45,33 @@ interface SimulationGraphProps {
 }
 
 const ROLE_COLORS: Record<string, string> = {
-  moderator: '#f54e00',
-  mediator: '#f54e00',
-  host: '#f54e00',
-  pro: '#16a34a',
-  con: '#dc2626',
-  neutral: '#2563eb',
+  moderator: '#ff6b00',
+  mediator: '#ff6b00',
+  host: '#ff6b00',
+  pro: '#10b981',
+  con: '#f43f5e',
+  neutral: '#3b82f6',
 }
 
 const MAX_GRAPH_LINKS = 200
+const NODE_RADIUS = 24
 
 // ─── Relationship Edge Styles ─────────────────────────────────────────────
 const RELATION_STYLES: Record<
   string,
   { color: string; dash: number[]; width: number; label: string; arrow: boolean }
 > = {
-  parent: { color: '#e91e63', dash: [], width: 2.5, label: 'Parent', arrow: true },
-  child: { color: '#e91e63', dash: [4, 4], width: 2, label: 'Child', arrow: true },
-  sibling: { color: '#9c27b0', dash: [], width: 2, label: 'Sibling', arrow: false },
-  spouse: { color: '#e91e63', dash: [2, 6], width: 2, label: 'Spouse', arrow: false },
-  friend: { color: '#4caf50', dash: [], width: 2, label: 'Friend', arrow: false },
-  rival: { color: '#f44336', dash: [6, 3], width: 2.5, label: 'Rival', arrow: false },
-  colleague: { color: '#2196f3', dash: [], width: 1.5, label: 'Colleague', arrow: false },
-  mentor: { color: '#ff9800', dash: [3, 3], width: 2, label: 'Mentor', arrow: true },
-  mentee: { color: '#ff9800', dash: [6, 3], width: 2, label: 'Mentee', arrow: true },
-  neighbor: { color: '#607d8b', dash: [2, 4], width: 1.5, label: 'Neighbor', arrow: false },
-  stranger: { color: '#9e9e9e', dash: [1, 6], width: 0.5, label: 'Stranger', arrow: false },
+  parent: { color: '#ec4899', dash: [], width: 2.5, label: '父母', arrow: true },
+  child: { color: '#ec4899', dash: [4, 4], width: 2, label: '子女', arrow: true },
+  sibling: { color: '#a855f7', dash: [], width: 2, label: '兄弟姐妹', arrow: false },
+  spouse: { color: '#ec4899', dash: [2, 6], width: 2, label: '配偶', arrow: false },
+  friend: { color: '#14b8a6', dash: [], width: 2, label: '朋友', arrow: false },
+  rival: { color: '#9a3412', dash: [6, 3], width: 2.5, label: '竞争对手', arrow: false },
+  colleague: { color: '#64748b', dash: [], width: 1.5, label: '同事', arrow: false },
+  mentor: { color: '#d97706', dash: [3, 3], width: 2, label: '导师', arrow: true },
+  mentee: { color: '#d97706', dash: [6, 3], width: 2, label: '徒弟', arrow: true },
+  neighbor: { color: '#94a3b8', dash: [2, 4], width: 1.5, label: '邻居', arrow: false },
+  stranger: { color: '#cbd5e1', dash: [1, 6], width: 0.5, label: '陌生人', arrow: false },
 }
 
 export function SimulationGraph({
@@ -89,7 +89,6 @@ export function SimulationGraph({
 }: SimulationGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const tooltipRef = useRef<HTMLDivElement | null>(null)
   const simRef = useRef<d3force.Simulation<GraphNode, GraphLink> | null>(null)
   const linksRef = useRef<GraphLink[]>([])
   const nodesRef = useRef<GraphNode[]>([])
@@ -99,7 +98,7 @@ export function SimulationGraph({
   const activeRef = useRef(activeAgentIds)
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
   const themeRef = useRef({
-    primaryColor: '#f54e00',
+    primaryColor: '#5e6ad2',
     cardColor: '#fff',
     fgColor: '#000',
     mutedFgColor: '#666',
@@ -109,10 +108,14 @@ export function SimulationGraph({
   const animFrameRef = useRef<number>(0)
   const graphLayerRef = useRef(graphLayer)
   const relationshipsRef = useRef(relationships)
+  const onOpenDetailsRef = useRef(onOpenDetails)
   // Sync refs with props
   useEffect(() => {
     selectRef.current = onSelectAgent
   }, [onSelectAgent])
+  useEffect(() => {
+    onOpenDetailsRef.current = onOpenDetails
+  }, [onOpenDetails])
   useEffect(() => {
     selectedIdRef.current = selectedAgentId
   }, [selectedAgentId])
@@ -128,11 +131,6 @@ export function SimulationGraph({
   useEffect(() => {
     relationshipsRef.current = relationships
   }, [relationships])
-
-  useEffect(() => {
-    if (!onPulseRelationship) return
-    selectRef.current = onSelectAgent
-  }, [onSelectAgent, onPulseRelationship])
 
   // Build nodes from personas
   useEffect(() => {
@@ -217,7 +215,7 @@ export function SimulationGraph({
           const dx = event.x - sub.startX
           const dy = event.y - sub.startY
           if (dx * dx + dy * dy < 25) {
-            selectRef.current?.(sub.node.id)
+            onOpenDetailsRef.current?.(sub.node.id)
           }
         }
       })
@@ -344,32 +342,83 @@ export function SimulationGraph({
           const target = link.target as GraphNode
           if (!source || !target) continue
 
-          c.beginPath()
-          c.moveTo(source.x!, source.y!)
-          c.lineTo(target.x!, target.y!)
           const linkType = link.type.toLowerCase()
+          let edgeColor: string
           if (linkType.includes('agree') || linkType.includes('support')) {
-            c.strokeStyle = 'rgba(22,163,74,0.4)'
+            edgeColor = 'rgba(16, 185, 129, 0.4)'
           } else if (
             linkType.includes('rebut') ||
             linkType.includes('disagree') ||
             linkType.includes('oppose')
           ) {
-            c.strokeStyle = 'rgba(220,38,38,0.4)'
+            edgeColor = 'rgba(244, 63, 94, 0.4)'
           } else {
-            c.strokeStyle = t.primaryColor + '44'
+            edgeColor = 'rgba(94, 106, 210, 0.25)'
           }
+          c.strokeStyle = edgeColor
           c.lineWidth = Math.min(1.5 + link.weight * 0.5, 5) / transform.k
-          c.stroke()
+          c.setLineDash([])
 
-          // Animated dot along interaction edges only
+          const bp = computeBorderPoint(
+            source,
+            target,
+            NODE_RADIUS / transform.k,
+            NODE_RADIUS / transform.k
+          )
           const dotT = (Date.now() / 2000) % 1
-          const dotX = source.x! + (target.x! - source.x!) * dotT
-          const dotY = source.y! + (target.y! - source.y!) * dotT
+          let dotX: number, dotY: number
+
+          if (layer === 'both') {
+            // Curve interaction edges opposite to relationship edges for visual separation
+            const dx = target.x! - source.x!
+            const dy = target.y! - source.y!
+            const len = Math.sqrt(dx * dx + dy * dy) || 1
+            const px = -dy / len
+            const py = dx / len
+            const cx = (source.x! + target.x!) / 2 + px * (-25 / transform.k)
+            const cy = (source.y! + target.y!) / 2 + py * (-25 / transform.k)
+
+            c.beginPath()
+            c.moveTo(bp.startX, bp.startY)
+            c.quadraticCurveTo(cx, cy, bp.endX, bp.endY)
+            c.stroke()
+
+            // Animated dot along curve
+            const mt = 1 - dotT
+            dotX = mt * mt * bp.startX + 2 * mt * dotT * cx + dotT * dotT * bp.endX
+            dotY = mt * mt * bp.startY + 2 * mt * dotT * cy + dotT * dotT * bp.endY
+
+            // Arrow at end of curved edge (tangent to curve at t=1)
+            if (transform.k > 0.6) {
+              drawArrowHead(
+                c,
+                bp.endX,
+                bp.endY,
+                Math.atan2(bp.endY - cy, bp.endX - cx),
+                transform.k,
+                edgeColor
+              )
+            }
+          } else {
+            c.beginPath()
+            c.moveTo(bp.startX, bp.startY)
+            c.lineTo(bp.endX, bp.endY)
+            c.stroke()
+
+            dotX = bp.startX + (bp.endX - bp.startX) * dotT
+            dotY = bp.startY + (bp.endY - bp.startY) * dotT
+
+            if (transform.k > 0.6) {
+              const angle = Math.atan2(target.y! - source.y!, target.x! - source.x!)
+              drawArrowHead(c, bp.endX, bp.endY, angle, transform.k, edgeColor)
+            }
+          }
+
+          // Animated dot (shared for both curved and straight)
           const dotRadius = Math.max(2, 3 / transform.k)
           c.beginPath()
           c.arc(dotX, dotY, dotRadius, 0, 2 * Math.PI)
-          c.fillStyle = c.strokeStyle
+          c.fillStyle = edgeColor
           c.fill()
         }
       }
@@ -450,20 +499,6 @@ export function SimulationGraph({
         c.fillText('Gray = inactive agents', w - 12, h - 12)
       }
 
-      // If we have a tooltip element, update its position
-      const selectedNode = selectedIdRef.current
-        ? nodesRef.current.find((n) => n.id === selectedIdRef.current)
-        : null
-      if (tooltipRef.current && selectedNode) {
-        const tx = selectedNode.x! * transform.k + transform.x
-        const ty = selectedNode.y! * transform.k + transform.y
-        tooltipRef.current.style.left = `${tx}px`
-        tooltipRef.current.style.top = `${ty}px`
-        tooltipRef.current.style.display = 'block'
-      } else if (tooltipRef.current) {
-        tooltipRef.current.style.display = 'none'
-      }
-
       c.restore()
 
       animFrameRef.current = requestAnimationFrame(draw)
@@ -529,182 +564,59 @@ export function SimulationGraph({
       className="relative w-full h-full min-h-[400px] overflow-hidden bg-card/30 rounded-xl border border-border"
     >
       <canvas ref={canvasRef} className="absolute inset-0 cursor-grab active:cursor-grabbing" />
-      {/* Tooltip */}
-      {selectedAgentId && (
-        <div
-          ref={tooltipRef}
-          className="absolute z-20 bg-card/95 backdrop-blur-md border border-border p-4 rounded-xl shadow-xl font-sans text-sm w-[22rem] -translate-x-1/2 mt-8 pointer-events-auto flex flex-col gap-2"
-          style={{ display: 'none' }}
-        >
-          {(() => {
-            const selectedPersona = personas.find((p) => p.id === selectedAgentId)
-            if (!selectedPersona) return null
-
-            return (
-              <>
-                {/* Header with Close Button */}
-                <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0">
-                      {selectedPersona.name.charAt(0)}
-                    </div>
-                    <span className="font-semibold text-foreground truncate">
-                      {selectedPersona.name}
-                    </span>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onSelectAgent?.(null)
-                    }}
-                    className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted cursor-pointer"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {/* Body Details */}
-                <div className="space-y-2 text-[13px] text-muted-foreground">
-                  <div className="flex flex-wrap gap-1 text-[11px] font-mono">
-                    {selectedPersona.age && (
-                      <span className="px-1.5 py-0.5 rounded bg-muted text-foreground">
-                        {selectedPersona.age} yrs
-                      </span>
-                    )}
-                    {selectedPersona.gender && (
-                      <span className="px-1.5 py-0.5 rounded bg-muted text-foreground uppercase">
-                        {selectedPersona.gender === 'male'
-                          ? 'Male'
-                          : selectedPersona.gender === 'female'
-                            ? 'Female'
-                            : selectedPersona.gender}
-                      </span>
-                    )}
-                    {selectedPersona.mbti && (
-                      <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-bold">
-                        {selectedPersona.mbti}
-                      </span>
-                    )}
-                    {selectedPersona.country && (
-                      <span className="px-1.5 py-0.5 rounded bg-muted text-foreground">
-                        📍 {selectedPersona.country}
-                      </span>
-                    )}
-                  </div>
-
-                  <div>
-                    <span className="font-mono text-muted-foreground/70 mr-1">Role:</span>
-                    <span className="text-foreground font-medium">{selectedPersona.role}</span>
-                  </div>
-                  {selectedPersona.profession && (
-                    <div className="truncate">
-                      <span className="font-mono text-muted-foreground/70 mr-1">Profession:</span>
-                      <span className="text-foreground">{selectedPersona.profession}</span>
-                    </div>
-                  )}
-
-                  {selectedPersona.bio && (
-                    <div className="text-xs italic text-muted-foreground/80 border-t border-border/20 pt-1.5 mt-1.5">
-                      &ldquo;{selectedPersona.bio}&rdquo;
-                    </div>
-                  )}
-
-                  {selectedPersona.system_prompt && (
-                    <div className="border-t border-border/20 pt-1.5 mt-1.5">
-                      <span className="font-mono text-[11px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
-                        System Prompt:
-                      </span>
-                      <div className="rounded border border-border bg-muted/25 p-2 font-mono text-xs whitespace-pre-wrap leading-relaxed text-foreground select-text max-h-32 overflow-y-auto">
-                        {selectedPersona.system_prompt}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Goals */}
-                  {selectedPersona.goals && selectedPersona.goals.length > 0 && (
-                    <div className="border-t border-border/20 pt-1.5">
-                      <span className="font-mono text-[11px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
-                        Goals:
-                      </span>
-                      <ul className="list-disc list-inside space-y-0.5 text-xs text-foreground/90 pl-1">
-                        {selectedPersona.goals.slice(0, 3).map((g, i) => (
-                          <li key={i} className="truncate select-none">
-                            {g}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Traits */}
-                  {selectedPersona.traits && Object.keys(selectedPersona.traits).length > 0 && (
-                    <div className="border-t border-border/20 pt-1.5">
-                      <span className="font-mono text-[11px] text-muted-foreground/60 uppercase tracking-wider block mb-1">
-                        Traits:
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(selectedPersona.traits)
-                          .filter(([k]) => k !== 'role_type' && !k.startsWith('stance:'))
-                          .slice(0, 4)
-                          .map(([k, v]) => (
-                            <span
-                              key={k}
-                              className="px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-[11px] font-mono text-foreground/80"
-                            >
-                              {k}={v}
-                            </span>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Action Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onOpenDetails?.(selectedPersona.id)
-                  }}
-                  className="mt-2 w-full py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold rounded-lg text-center transition-colors text-sm cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  View Details & Chat
-                </button>
-              </>
-            )
-          })()}
-        </div>
-      )}
       {/* Legend - Interaction layer */}
       <div className="absolute top-3 left-3 bg-card/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-border text-[10px] text-muted-foreground font-mono shadow-sm z-10">
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-primary block" /> Host/Moderator
+            <span
+              className="w-2.5 h-2.5 rounded-full block"
+              style={{ backgroundColor: ROLE_COLORS.host }}
+            />{' '}
+            主持/调解人
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-success block" /> Pro
+            <span
+              className="w-2.5 h-2.5 rounded-full block"
+              style={{ backgroundColor: ROLE_COLORS.pro }}
+            />{' '}
+            支持 (正方)
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-error block" /> Con
+            <span
+              className="w-2.5 h-2.5 rounded-full block"
+              style={{ backgroundColor: ROLE_COLORS.con }}
+            />{' '}
+            反对 (反方)
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="w-2.5 h-2.5 rounded-full block"
+              style={{ backgroundColor: ROLE_COLORS.neutral }}
+            />{' '}
+            中立
           </span>
         </div>
         {/* Relationship legend */}
         {relationships.length > 0 && (graphLayer === 'relationship' || graphLayer === 'both') && (
           <div className="mt-1.5 pt-1.5 border-t border-border/40">
-            <div className="text-[9px] text-muted-foreground mb-1">Relationships:</div>
+            <div className="text-[9px] text-muted-foreground mb-1">社会关系:</div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
               {getActiveRelationKinds(relationships).map((kind) => {
                 const style = RELATION_STYLES[kind] || RELATION_STYLES.stranger
                 return (
                   <span key={kind} className="flex items-center gap-1">
-                    <span
-                      className="inline-block w-3 h-0.5 rounded-full"
-                      style={{
-                        backgroundColor: style.color,
-                        borderTop:
-                          style.dash.length > 0 ? `${style.width}px dashed ${style.color}` : 'none',
-                      }}
-                    />
+                    <svg width="14" height="4" className="overflow-visible shrink-0">
+                      <line
+                        x1="0"
+                        y1="2"
+                        x2="14"
+                        y2="2"
+                        stroke={style.color}
+                        strokeWidth={style.width}
+                        strokeDasharray={style.dash.length > 0 ? style.dash.join(',') : 'none'}
+                        strokeLinecap="round"
+                      />
+                    </svg>
                     <span className="text-[9px]">{style.label}</span>
                   </span>
                 )
@@ -715,7 +627,7 @@ export function SimulationGraph({
       </div>
       {/* Controls hint */}
       <div className="absolute bottom-3 right-3 text-[10px] text-muted-foreground/60 font-mono select-none z-10 bg-card/60 backdrop-blur-sm px-2 py-1 rounded border border-border/40">
-        Scroll to zoom • Drag to pan • Click to select
+        滚轮缩放 • 拖动平移 • 点击选择智能体
       </div>
     </div>
   )
@@ -751,35 +663,80 @@ function drawRelationshipEdge(
   c.lineWidth = (style.width * (0.5 + familiarity * 0.5)) / k
   c.lineCap = 'round'
 
+  // Compute node border points (edges stop at circle boundary, not center)
+  const x1 = source.x!
+  const y1 = source.y!
+  const x2 = target.x!
+  const y2 = target.y!
+  const bp = computeBorderPoint(source, target, NODE_RADIUS / k, NODE_RADIUS / k)
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len = Math.sqrt(dx * dx + dy * dy) || 1
+  const px = -dy / len
+  const py = dx / len
+
+  const curveOffset = 25 / k
+  const cx = (x1 + x2) / 2 + px * curveOffset
+  const cy = (y1 + y2) / 2 + py * curveOffset
+
   c.beginPath()
-  c.moveTo(source.x!, source.y!)
-  c.lineTo(target.x!, target.y!)
+  c.moveTo(bp.startX, bp.startY)
+  c.quadraticCurveTo(cx, cy, bp.endX, bp.endY)
   c.stroke()
 
   // Arrow for directional relationships
   if (style.arrow) {
-    const angle = Math.atan2(target.y! - source.y!, target.x! - source.x!)
-    const headLen = 10 / k
-    const offset = 24 / k
-    const endX = target.x! - Math.cos(angle) * offset
-    const endY = target.y! - Math.sin(angle) * offset
-
-    c.setLineDash([])
-    c.beginPath()
-    c.moveTo(endX, endY)
-    c.lineTo(
-      endX - headLen * Math.cos(angle - Math.PI / 6),
-      endY - headLen * Math.sin(angle - Math.PI / 6)
-    )
-    c.lineTo(
-      endX - headLen * Math.cos(angle + Math.PI / 6),
-      endY - headLen * Math.sin(angle + Math.PI / 6)
-    )
-    c.closePath()
-    c.fillStyle = style.color
-    c.fill()
+    const angle = Math.atan2(bp.endY - cy, bp.endX - cx)
+    drawArrowHead(c, bp.endX, bp.endY, angle, k, style.color)
   }
 
+  c.restore()
+}
+
+// ─── Edge Utilities ────────────────────────────────────────────────────
+
+function computeBorderPoint(
+  source: GraphNode,
+  target: GraphNode,
+  sourceRadius: number,
+  targetRadius: number
+): { startX: number; startY: number; endX: number; endY: number } {
+  const dx = target.x! - source.x!
+  const dy = target.y! - source.y!
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  if (dist < 1) return { startX: source.x!, startY: source.y!, endX: target.x!, endY: target.y! }
+  return {
+    startX: source.x! + (dx / dist) * sourceRadius,
+    startY: source.y! + (dy / dist) * sourceRadius,
+    endX: target.x! - (dx / dist) * targetRadius,
+    endY: target.y! - (dy / dist) * targetRadius,
+  }
+}
+
+function drawArrowHead(
+  c: CanvasRenderingContext2D,
+  tipX: number,
+  tipY: number,
+  angle: number,
+  k: number,
+  color: string
+) {
+  const headLen = 8 / k
+  c.save()
+  c.setLineDash([])
+  c.beginPath()
+  c.moveTo(tipX, tipY)
+  c.lineTo(
+    tipX - headLen * Math.cos(angle - Math.PI / 6),
+    tipY - headLen * Math.sin(angle - Math.PI / 6)
+  )
+  c.lineTo(
+    tipX - headLen * Math.cos(angle + Math.PI / 6),
+    tipY - headLen * Math.sin(angle + Math.PI / 6)
+  )
+  c.closePath()
+  c.fillStyle = color
+  c.fill()
   c.restore()
 }
 

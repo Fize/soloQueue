@@ -81,6 +81,7 @@ internal/router/        L0-L3 task classification & model routing
 internal/runtime/       shared dependency container (Stack, built once)
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)
+internal/simulation/    Generative Agents simulation engine (seed→persona→agent loop)
 internal/skill/         Claude Code-compatible skill system
 internal/sqlitedb/      shared SQLite wrapper + schema migrations
 internal/team/          team group reload
@@ -88,6 +89,51 @@ internal/timeline/      append-only JSONL event sourcing
 internal/tools/         Tool implementations + Sandbox execution backend
 web/                    React web UI (Vite dev server)
 ```
+
+## Simulation Engine (internal/simulation/)
+
+Generative Agents-style multi-agent simulation. Seed text → LLM extraction → persona generation → autonomous agent loop.
+
+### Pipeline
+
+```
+seed text → Phase 1 LLM (entities, world_state, key_topics, conflict_areas)
+         → Phase 2 LLM (suggested_agents, lifecycle_events, initial_relationships)
+         → PersonaGeneration LLM (personas with goals, traits, system prompts)
+         → GA agent loop (Perceive→Retrieve→Decide→Execute→Reflect per tick)
+```
+
+### Goal system (critical for narrative simulations)
+
+- **`SuggestedAgent.Goals`** is extracted by Phase 2 from the seed text. These are character-specific immediate objectives (e.g., "找到落霞谷的入口"), NOT abstract topic positions.
+- In `buildPersonas`, when deduction mode is active (seed has `SuggestedAgents`), seed-extracted `Goals` **override** the persona-gen LLM's goals. The LLM is also instructed to use provided goals directly rather than inventing new ones.
+- **Goal transitions**: `SeedLifecycleEvent` with `type: "goal_transition"` carries `NewGoals []string`. When triggered at sim_time, `handleGoalTransition` updates `sa.persona.Goals` (the SimAgent's pointer — read each tick during system prompt rebuild) and `lm.allPersonas` (for mid-simulation spawns).
+- `allPersonas` is passed by **value** to each `GAAgentLoop`. Other agents don't see each other's goals in their system prompts — only name/role/bio. So goal transitions only need to update the SimAgent pointer and `lm.allPersonas`, not each loop's local copy.
+
+### Lifecycle events
+
+Scheduled via `SeedLifecycleEvent` with `Trigger`/`TriggerValue`. Types:
+- `agent_spawn` — mid-simulation agent creation
+- `agent_death` — removes agent
+- `goal_transition` — replaces agent's `Goals` with `NewGoals`
+- `simulation_end` — terminates the simulation
+
+Scheduler runs every 2 seconds, checks `sim_time`/`wall_time`/`condition` triggers.
+
+### Key types
+
+| Type | Purpose |
+|------|---------|
+| `SeedExtraction` | Phase 1+2 merged output (entities, world_state, key_topics, suggested_agents, lifecycle_events) |
+| `SuggestedAgent` | Per-character extraction: name, role, description, traits, **goals** |
+| `Persona` | Final agent definition: ID, name, role, bio, **goals**, traits, system_prompt, MBTI |
+| `SeedLifecycleEvent` | Timed event: type, agent_name, trigger, trigger_value, **new_goals** |
+
+### Test approach
+
+- `FakeLLM` (from `internal/agent/llm.go`) used in simulation tests to avoid real API calls.
+- No `TestMain` or shared fixtures — self-contained per package.
+- `seed_test.go` and `persona_gen_test.go` test extraction and generation independently.
 
 ## Memory Engine (internal/memoryengine/)
 

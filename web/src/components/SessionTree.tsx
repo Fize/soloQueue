@@ -89,13 +89,11 @@ export function SessionTree() {
   const l1Session = sessions.find((s) => s.type === 'l1')
   const l2Sessions = sessions.filter((s) => s.type === 'l2')
 
-  // Find L1 agent from list
+  // Find L1 agent by its known ID (not subtraction heuristic —
+  // simulation agents and other non-supervised agents would match that).
   const l1Agent = useMemo(() => {
     if (!agentsData) return null
-    const { agents, supervisors } = agentsData
-    const l2Ids = new Set(supervisors.map((sv) => sv.leader_id).filter(Boolean))
-    const l3Ids = new Set(supervisors.flatMap((sv) => sv.children_ids))
-    return agents.find((a) => !l2Ids.has(a.instance_id) && !l3Ids.has(a.instance_id)) || null
+    return agentsData.agents.find((a) => a.id === 'l1-agent') || null
   }, [agentsData])
 
   // Build tree: sessions nested under their parent (group or project).

@@ -366,11 +366,23 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		agentToolsCfg.WorkDir = effectiveWorkDir
 		allTools = tools.Build(agentToolsCfg)
 
-		// Filter out SendFile and schedule_task for L3 workers
+		// Filter out cron/scheduled task tools from L2/L3 agents.
+		// Only L1 (session builder) may operate on scheduled tasks.
+		{
+			var filtered []tools.Tool
+			for _, t := range allTools {
+				if !tools.IsCronTool(t.Name()) {
+					filtered = append(filtered, t)
+				}
+			}
+			allTools = filtered
+		}
+
+		// Additionally filter SendFile for L3 workers only
 		if !tmpl.IsLeader {
 			var filtered []tools.Tool
 			for _, t := range allTools {
-				if t.Name() != "SendFile" && t.Name() != "schedule_task" {
+				if t.Name() != "SendFile" {
 					filtered = append(filtered, t)
 				}
 			}
@@ -545,11 +557,11 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 					SystemPrompt: finalSystemPrompt,
 				}
 
-				// Build tools and filter out SendFile/schedule_task because this is an L3 agent
+				// Build tools and filter out cron tools + SendFile because this is an L3 agent
 				forkTools := tools.Build(toolsCfg)
 				var filtered []tools.Tool
 				for _, t := range forkTools {
-					if t.Name() != "SendFile" && t.Name() != "schedule_task" {
+					if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
 						filtered = append(filtered, t)
 					}
 				}

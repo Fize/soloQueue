@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"runtime"
@@ -35,6 +36,10 @@ type SimulationEngine struct {
 
 	cancels   map[string]context.CancelFunc
 	cancelsMu sync.Mutex
+
+	pauseChs   map[string]chan struct{}
+	stepChs    map[string]chan struct{}
+	pausesMu   sync.Mutex
 }
 
 // SimulationConfigFile mirrors the TOML config section.
@@ -79,6 +84,8 @@ func NewSimulationEngine(
 		config:      cfg,
 		subscribers: make(map[chan SimulationEvent]struct{}),
 		cancels:     make(map[string]context.CancelFunc),
+		pauseChs:    make(map[string]chan struct{}),
+		stepChs:     make(map[string]chan struct{}),
 	}
 }
 
@@ -276,7 +283,7 @@ func (e *SimulationEngine) CreateFromSeed(
 
 	// Resolve simulated_hours early so Phase 2 extraction can map narrative
 	// timeline events (e.g. "卷二登场") to simulation clock offsets.
-	simulatedHours := 48
+	simulatedHours := 168
 	if opts.SimulatedHours > 0 {
 		simulatedHours = opts.SimulatedHours
 	} else if e.config.SimulatedHours > 0 {
@@ -416,14 +423,14 @@ func (e *SimulationEngine) CreateFromSeed(
 		maxWallClockMs = opts.MaxWallClockMs
 	}
 
-	tickIntervalMs := 500
+	tickIntervalMs := 1000
 	if opts.TickIntervalMs > 0 {
 		tickIntervalMs = opts.TickIntervalMs
 	} else if e.config.TickIntervalMs > 0 {
 		tickIntervalMs = e.config.TickIntervalMs
 	}
 
-	timeScale := 600
+	timeScale := 300
 	if opts.TimeScale > 0 {
 		timeScale = opts.TimeScale
 	} else if e.config.TimeScale > 0 {
@@ -431,6 +438,18 @@ func (e *SimulationEngine) CreateFromSeed(
 	}
 
 	// Step 3: Create the simulation
+	// Inject seed narrative context into world state for plan generation
+	// and system prompts. This allows daily plans to be grounded in the
+	// story's actual themes and tensions rather than generic activities.
+	if extraction.WorldState == nil {
+		extraction.WorldState = make(map[string]any)
+	}
+	if len(extraction.KeyTopics) > 0 {
+		extraction.WorldState["key_topics"] = extraction.KeyTopics
+	}
+	if len(extraction.ConflictAreas) > 0 {
+		extraction.WorldState["conflict_areas"] = extraction.ConflictAreas
+	}
 	config := SimulationConfig{
 		Topic:            topic,
 		Personas:         personas,
@@ -740,6 +759,90 @@ func (e *SimulationEngine) Delete(simID string) error {
 	return e.store.Delete(simID)
 }
 
+func (e *SimulationEngine) Pause(simID string) error {
+	state, err := e.store.Get(simID)
+	if err != nil {
+		return err
+	}
+	state.Lock()
+	if state.Status != StatusRunning {
+		state.Unlock()
+		return fmt.Errorf("only running simulations can be paused, current status: %s", state.Status)
+	}
+	state.Status = StatusPaused
+	state.Unlock()
+
+	if err := e.store.Update(simID, state); err != nil {
+		return err
+	}
+
+	e.emitViaSubscribers(SimulationEvent{
+		Type:         "paused",
+		SimulationID: simID,
+		Timestamp:    time.Now(),
+	})
+	return nil
+}
+
+func (e *SimulationEngine) Resume(simID string) error {
+	state, err := e.store.Get(simID)
+	if err != nil {
+		return err
+	}
+	state.Lock()
+	if state.Status != StatusPaused {
+		state.Unlock()
+		return fmt.Errorf("only paused simulations can be resumed, current status: %s", state.Status)
+	}
+	state.Status = StatusRunning
+	state.Unlock()
+
+	if err := e.store.Update(simID, state); err != nil {
+		return err
+	}
+
+	e.emitViaSubscribers(SimulationEvent{
+		Type:         "resumed",
+		SimulationID: simID,
+		Timestamp:    time.Now(),
+	})
+
+	e.pausesMu.Lock()
+	if ch, ok := e.pauseChs[simID]; ok {
+		close(ch)
+		delete(e.pauseChs, simID)
+	}
+	e.pausesMu.Unlock()
+	return nil
+}
+
+func (e *SimulationEngine) Step(simID string) error {
+	state, err := e.store.Get(simID)
+	if err != nil {
+		return err
+	}
+	state.Lock()
+	if state.Status != StatusPaused {
+		state.Unlock()
+		return fmt.Errorf("only paused simulations can be stepped, current status: %s", state.Status)
+	}
+	state.Unlock()
+
+	e.pausesMu.Lock()
+	ch, ok := e.stepChs[simID]
+	e.pausesMu.Unlock()
+
+	if ok {
+		select {
+		case ch <- struct{}{}:
+			return nil
+		default:
+			return nil
+		}
+	}
+	return fmt.Errorf("stepping channel not initialized or simulation loop finished")
+}
+
 // ─── pprof heap profiling helpers ───────────────────────────────────────────
 
 func dumpHeapProfile(label string) {
@@ -809,6 +912,72 @@ func (e *SimulationEngine) emitProgress(events chan SimulationEvent, simID, phas
 	})
 }
 
+func (e *SimulationEngine) emitDetailedProgress(events chan SimulationEvent, state *SimulationState, lifecycleMgr *lifecycleManager, phase string, currentRound, maxRounds int) {
+	progress := &SimulationProgress{
+		SimulationID:    state.RunID,
+		Phase:           phase,
+		ProgressPercent: float64(currentRound) / float64(maxRounds) * 100,
+		CurrentActions:  currentRound,
+		MaxActions:      maxRounds,
+		RecentLogs:      []string{},
+		AgentStates:     make(map[string]*AgentProgressState),
+	}
+
+	lifecycleMgr.gaLoopsMu.RLock()
+	for id, loop := range lifecycleMgr.gaLoops {
+		p := loop.sa.Persona()
+		var lastActionType string
+		var lastActionTime string
+		records := loop.sa.Memory().Records()
+		if len(records) > 0 {
+			lastRec := records[len(records)-1]
+			lastActionType = lastRec.RecordType
+			lastActionTime = lastRec.Timestamp.Format("15:04:05")
+		}
+
+		status := "idle"
+		if loop.activeDirective != "" && loop.activeDirective != "PASS" {
+			status = "spoke"
+		} else if loop.activeDirective == "" {
+			status = "thinking"
+		}
+
+		var currentActivity *PlanItem
+		if loop.plan != nil {
+			currentActivity = loop.plan.GetCurrentActivity(loop.clock.Now())
+		}
+
+		progress.AgentStates[id] = &AgentProgressState{
+			PersonaID:       id,
+			Name:            p.Name,
+			Role:            p.Role,
+			MessageCount:    int(loop.actionSeq),
+			LastActionType:  lastActionType,
+			LastActionTime:  lastActionTime,
+			Status:          status,
+			CurrentPlanItem: currentActivity,
+			ActiveIntention: loop.activeIntention,
+			ActiveDirective: loop.activeDirective,
+		}
+	}
+	lifecycleMgr.gaLoopsMu.RUnlock()
+
+	state.Lock()
+	progress.RelationshipEdges = state.Relationships
+	state.Unlock()
+
+	// Populate interaction graph edges from the graph
+	if lifecycleMgr.graph != nil {
+		progress.GraphEdges = lifecycleMgr.graph.ToEdgeDTOs()
+	}
+
+	e.emit(events, SimulationEvent{
+		Type:         "progress",
+		SimulationID: state.RunID,
+		Data:         progress,
+	})
+}
+
 // emitViaSubscribers sends an event to all subscribers without requiring a specific events channel.
 // Used by lifecycle manager for events originating outside the main event loop.
 func (e *SimulationEngine) emitViaSubscribers(ev SimulationEvent) {
@@ -865,17 +1034,16 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 	dumpHeapProfile("01_baseline")
 
 	// ─── Setup GA infrastructure ───────────────────────────────────────
-	timeScale := float64(config.TimeScale)
-	if timeScale <= 0 {
-		timeScale = 600
-	}
-	tickDur := time.Duration(config.TickIntervalMs) * time.Millisecond
-	if tickDur <= 0 {
-		tickDur = 500 * time.Millisecond
+	// Compute step size from config: real-time-independent in barrier mode.
+	// Each Advance() call advances simulated time by this amount.
+	stepSize := time.Duration(config.TickIntervalMs) * time.Millisecond * time.Duration(config.TimeScale)
+	if stepSize <= 0 {
+		stepSize = 5 * time.Minute
 	}
 	clockCfg := ClockConfig{
-		TimeScale: timeScale,
-		TickDur:   tickDur,
+		StartHour:   7,
+		StartMinute: 0,
+		StepSize:    stepSize,
 	}
 	clock := NewSimClock(clockCfg)
 
@@ -954,19 +1122,46 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 		nameByID[p.ID] = p.Name
 	}
 
-	e.emitProgress(events, simID, "generating_plans", 0, config.MaxWallClockMs)
+	e.emitProgress(events, simID, "generating_plans", 0, len(simAgents))
 
 	// ─── Generate daily plans & system prompts for each agent ──────────
 	agentPlans := make(map[string]*DailyPlan)
-	for _, sa := range simAgents {
+	for i, sa := range simAgents {
 		persona := sa.Persona()
-		plan, err := planGen.GenerateDailyPlan(ctx, persona, env, clock, config.Language)
+
+		// Emit per-agent progress so the frontend can show "3/5" during plan generation
+		e.emit(events, SimulationEvent{
+			Type:         "progress",
+			SimulationID: simID,
+			Data: &SimulationProgress{
+				SimulationID:    simID,
+				Phase:           "generating_plans",
+				ProgressPercent: float64(i) / float64(len(simAgents)) * 100,
+				CurrentActions:  i + 1,
+				MaxActions:      len(simAgents),
+				RecentLogs:      []string{fmt.Sprintf("正在为 %s 生成计划... (%d/%d)", persona.Name, i+1, len(simAgents))},
+				AgentStates:     map[string]*AgentProgressState{},
+				GraphEdges:      []EdgeDTO{},
+			},
+		})
+
+		plan, err := planGen.GenerateDailyPlan(ctx, persona, env, clock, config.Language, config.WorldState)
 		if err != nil && e.log != nil {
 			e.log.WarnContext(ctx, logger.CatSimulation, "plan generation failed, using default",
 				"agent_id", persona.ID, "err", err.Error())
 			plan = defaultDailyPlan(persona.ID, clock.Now(), env.ZoneNames())
 		}
 		agentPlans[persona.ID] = plan
+		if planJSON, err := json.Marshal(plan); err == nil {
+			sa.Memory().Record(MemoryRecord{
+				Round:         0,
+				Role:          "system",
+				Content:       string(planJSON),
+				RecordType:    "plan",
+				Timestamp:     time.Now(),
+				SimulatedTime: clock.Now(),
+			})
+		}
 	}
 	logMemStats(e.log, "after_plan_generation")
 	dumpHeapProfile("03_after_plans")
@@ -995,84 +1190,48 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 			sa, env, bus, clock, planGen, relationshipMgr,
 			e.memoryEngine, reflectionEng, dialogueMgr,
 			state.WorldState, nameByID, config.Personas, e.log,
-			config.Language,
+			config.Language, graph,
 		)
 		loop.plan = agentPlans[persona.ID]
 		lifecycleMgr.registerLoop(persona.ID, loop)
+		graph.AddNode(persona.ID)
 	}
+	e.persistAgentMemoriesByRound(state.RunID, simAgents, 0)
 	logMemStats(e.log, "after_create_loops")
 	dumpHeapProfile("04_after_loops")
 
-	// ─── Fan-in all agent event channels ──────────────────────────────
-	lifecycleEvts := lifecycleMgr.LifecycleEvents()
-	for _, sa := range simAgents {
-		go func(sa *SimAgent) {
-			ch := lifecycleMgr.gaLoops[sa.PersonaID()].Events()
-			for ev := range ch {
-				ev.SimulationID = simID
-				e.emit(events, ev)
-				if ev.Type == "agent_message" {
-					if rm, ok := ev.Data.(*RoundMessage); ok {
-						state.Lock()
-						state.Rounds = append(state.Rounds, RoundResult{
-							RoundNumber: ev.Round,
-							Messages:    []RoundMessage{*rm},
-							CompletedAt: time.Now(),
-						})
-						state.Unlock()
-					}
-				}
-				// Forward lifecycle events to the manager
-				if ev.Type == "agent_death" || ev.Type == "agent_spawn" {
-					select {
-					case lifecycleEvts <- ev:
-					default:
-					}
-				}
-			}
-		}(sa)
+	// ─── Compute end time & estimated rounds for the barrier loop ──
+	// With dynamic step sizing, the exact number of rounds is unknown;
+	// we terminate by comparing simulated time against simEndTime.
+	simEndTime := clock.Now().Add(time.Duration(config.SimulatedHours) * time.Hour)
+
+	// Estimated rounds (for progress display only) based on initial step
+	estimatedRounds := int(time.Duration(config.SimulatedHours) * time.Hour / stepSize)
+	if estimatedRounds < 1 {
+		estimatedRounds = 1
 	}
 
-	// Start clock in background
-	go clock.Start()
-	defer clock.Stop()
-
-	// Start lifecycle manager and scheduler
-	loopCtx, loopCancel := context.WithCancel(ctx)
-	defer loopCancel()
-
-	simStart := time.Now()
-	seedEndCh := lifecycleMgr.StartLifecycleScheduler(loopCtx, simStart)
-	go lifecycleMgr.Run(loopCtx)
-	defer lifecycleMgr.Stop()
-
-	// Start all agent loops
-	lifecycleMgr.gaLoopsMu.RLock()
-	for _, loop := range lifecycleMgr.gaLoops {
-		go loop.Run(loopCtx)
-	}
-	lifecycleMgr.gaLoopsMu.RUnlock()
-
-	// Periodic runtime stats monitor
-	statsDone := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		defer close(statsDone)
-		for {
-			select {
-			case <-ticker.C:
-				logMemStats(e.log, "periodic")
-			case <-loopCtx.Done():
-				return
+	// Initial step size adjustment based on what agents are doing right now.
+	// This sets a sensible step before the first Advance() call.
+	if len(simAgents) > 0 {
+		initPlans := make([]*DailyPlan, 0, len(simAgents))
+		for _, sa := range simAgents {
+			if plan, ok := agentPlans[sa.PersonaID()]; ok {
+				initPlans = append(initPlans, plan)
 			}
 		}
-	}()
-	// [pprof] snapshot after 15s of simulation running
-	time.AfterFunc(15*time.Second, func() {
-		logMemStats(e.log, "after_15s_running")
-		dumpHeapProfile("05_after_15s")
-	})
+		startStep := ResolveNextStepSize(initPlans, clock)
+		clock.SetStepSize(startStep)
+	}
+
+	if e.log != nil {
+		e.log.InfoContext(ctx, logger.CatSimulation, "barrier loop starting",
+			"estimated_rounds", estimatedRounds,
+			"step_size", clock.StepSize().String(),
+			"sim_end_time", simEndTime.Format("15:04"),
+			"simulated_hours", config.SimulatedHours,
+			"num_agents", len(simAgents))
+	}
 
 	// ─── Place agents in initial zones ────────────────────────────────
 	for _, sa := range simAgents {
@@ -1084,69 +1243,231 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 		}
 	}
 
-	// Wait for max wall clock timeout OR simulated hours limit.
-	timeout := time.Duration(config.MaxWallClockMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 5 * time.Minute
-	}
-
-	// Monitor simulated hours: cancel if we exceed the configured limit.
-	simHoursDone := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if clock.ElapsedHours() >= float64(config.SimulatedHours) {
-					if e.log != nil {
-						e.log.InfoContext(ctx, logger.CatSimulation, "simulated hours limit reached",
-							"elapsed_hours", clock.ElapsedHours(),
-							"configured_hours", config.SimulatedHours)
-					}
-					loopCancel()
-					return
-				}
-			case <-simHoursDone:
-				return
-			case <-loopCtx.Done():
-				return
-			}
+	// Start lifecycle scheduler (seed-driven events: spawn/death/goal_transition)
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	defer loopCancel()
+	simStart := time.Now()
+	seedEndCh := lifecycleMgr.StartLifecycleScheduler(loopCtx, simStart)
+	defer func() {
+		select {
+		case <-seedEndCh:
+		default:
 		}
+		lifecycleMgr.Stop()
 	}()
 
-	select {
-	case <-ctx.Done():
-	case <-loopCtx.Done():
-	case <-time.After(timeout):
+	// ─── Barrier loop: all agents process each round in parallel ──────
+	// The loop terminates when simulated time reaches simEndTime, or when
+	// wall clock exceeds MaxWallClockMs, or all agents have exited.
+	var lastRound int
+	for round := 0; ; round++ {
+		lastRound = round
+		// Pause/Step check
+		for {
+			state.RLock()
+			status := state.Status
+			state.RUnlock()
+
+			if status != StatusPaused {
+				break
+			}
+
+			e.pausesMu.Lock()
+			pauseCh, existsPause := e.pauseChs[simID]
+			if !existsPause {
+				pauseCh = make(chan struct{})
+				e.pauseChs[simID] = pauseCh
+			}
+			stepCh, existsStep := e.stepChs[simID]
+			if !existsStep {
+				stepCh = make(chan struct{})
+				e.stepChs[simID] = stepCh
+			}
+			e.pausesMu.Unlock()
+
+			select {
+			case <-ctx.Done():
+				goto done
+			case <-loopCtx.Done():
+				goto done
+			case <-pauseCh:
+				// Resumed
+			case <-stepCh:
+				goto runRound
+			}
+		}
+	runRound:
+
+		// Check for external cancellation
+		select {
+		case <-ctx.Done():
+			if e.log != nil {
+				e.log.InfoContext(ctx, logger.CatSimulation, "barrier: context cancelled")
+			}
+			goto done
+		case <-loopCtx.Done():
+			if e.log != nil {
+				e.log.InfoContext(ctx, logger.CatSimulation, "barrier: loop context cancelled")
+			}
+			goto done
+		default:
+		}
+
+		// Wall clock safety net (only as last resort against hangs)
+		if config.MaxWallClockMs > 0 && time.Since(simStart) > time.Duration(config.MaxWallClockMs)*time.Millisecond {
+			if e.log != nil {
+				e.log.InfoContext(ctx, logger.CatSimulation, "barrier: wall clock safety timeout",
+					"elapsed", time.Since(simStart), "round", round)
+			}
+			break
+		}
+
+		// Simulated time termination check (replaces fixed numRounds)
+		if !clock.Now().Before(simEndTime) {
+			if e.log != nil {
+				e.log.InfoContext(ctx, logger.CatSimulation, "barrier: sim time reached",
+					"sim_time", clock.Now().Format("15:04"), "day", clock.Day(), "round", round)
+			}
+			break
+		}
+
+		// Dynamic step size adjustment (every 3 rounds)
+		if round%3 == 0 {
+			plans := make([]*DailyPlan, 0, len(lifecycleMgr.gaLoops))
+			lifecycleMgr.gaLoopsMu.RLock()
+			for _, loop := range lifecycleMgr.gaLoops {
+				if loop.plan != nil {
+					plans = append(plans, loop.plan)
+				}
+			}
+			lifecycleMgr.gaLoopsMu.RUnlock()
+			newStep := ResolveNextStepSize(plans, clock)
+			clock.SetStepSize(newStep)
+		}
+
+		// Advance simulated time
+		timeEvt := clock.Advance()
+
+		// Barrier: run all active agents in parallel, batching to 50 concurrent requests
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 50)
+		lifecycleMgr.gaLoopsMu.RLock()
+		for _, loop := range lifecycleMgr.gaLoops {
+			wg.Add(1)
+			go func(l *GAAgentLoop) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				l.ProcessRound(ctx, round, timeEvt)
+			}(loop)
+		}
+		numActive := len(lifecycleMgr.gaLoops)
+		lifecycleMgr.gaLoopsMu.RUnlock()
+		wg.Wait()
+
+		// Drain all agent events synchronously (no fan-in goroutines needed)
+		if numActive > 0 {
+			lifecycleMgr.gaLoopsMu.RLock()
+			for _, loop := range lifecycleMgr.gaLoops {
+			drainLoop:
+				for {
+					select {
+					case ev := <-loop.Events():
+						ev.SimulationID = simID
+						e.emit(events, ev)
+						if ev.Type == "agent_message" {
+							if rm, ok := ev.Data.(*RoundMessage); ok {
+								state.Lock()
+								state.Rounds = append(state.Rounds, RoundResult{
+									RoundNumber: ev.Round,
+									Messages:    []RoundMessage{*rm},
+									CompletedAt: time.Now(),
+								})
+								state.Unlock()
+							}
+						}
+						// Handle lifecycle events synchronously
+						if ev.Type == "agent_death" {
+							if data, ok := ev.Data.(map[string]string); ok {
+								reason := data["reason"]
+								if reason == "" {
+									reason = "agent chose to exit"
+								}
+								lifecycleMgr.handleAgentDeath(ctx, data["agent_id"], reason)
+							}
+						} else if ev.Type == "agent_spawn" {
+							if info, ok := ev.Data.(*SpawnInfo); ok {
+								lifecycleMgr.handleAgentSpawn(ctx, *info)
+							}
+						}
+					default:
+						break drainLoop
+					}
+				}
+			}
+			lifecycleMgr.gaLoopsMu.RUnlock()
+		}
+
+		// Check if all agents have died
+		if lifecycleMgr.activeLoopCount() == 0 {
+			if e.log != nil {
+				e.log.InfoContext(ctx, logger.CatSimulation, "barrier: all agents have exited")
+			}
+			break
+		}
+
+		// Update CurrentRound
+		state.Lock()
+		state.CurrentRound = round
+		state.Unlock()
+		if err := e.store.Update(simID, state); err != nil && e.log != nil {
+			e.log.WarnContext(ctx, logger.CatSimulation, "failed to update simulation current round", "err", err.Error())
+		}
+
+		// Incremental round memory saving
+		e.persistAgentMemoriesByRound(simID, simAgents, round)
+
+		// Pacing delay
+		if config.PacingIntervalMs > 0 {
+			select {
+			case <-ctx.Done():
+				goto done
+			case <-loopCtx.Done():
+				goto done
+			case <-time.After(time.Duration(config.PacingIntervalMs) * time.Millisecond):
+			}
+		}
+
+		// Progress event every round for high-fidelity real-time visualization
+		e.emitDetailedProgress(events, state, lifecycleMgr, "running", round+1, estimatedRounds)
 	}
-	close(simHoursDone)
 
-	// [pprof] simulation just ended
-	logMemStats(e.log, "after_simulation_run")
-	dumpHeapProfile("06_after_run")
-	dumpGoroutineProfile("after_run")
+done:
+	// Flush remaining agent memories from the last round.
+	// Memory records use seq = actionSeq (1-indexed), but persist uses the
+	// barrier loop's round (0-indexed). persist(round=N) saves records
+	// created during ProcessRound(N-1), so the last round's records need
+	// an explicit flush with round+1.
+	e.persistAgentMemoriesByRound(simID, simAgents, lastRound+1)
 
-	// Stop lifecycle manager and all loops
+	// Stop all agent loops (any remaining)
 	lifecycleMgr.gaLoopsMu.RLock()
 	for _, loop := range lifecycleMgr.gaLoops {
 		loop.Stop()
 	}
 	lifecycleMgr.gaLoopsMu.RUnlock()
-	lifecycleMgr.Stop()
-	loopCancel()
-	// Drain seed end channel
-	select {
-	case <-seedEndCh:
-	default:
+
+	if e.log != nil {
+		e.log.InfoContext(ctx, logger.CatSimulation, "barrier loop completed",
+			"rounds_completed", clock.StepCount(),
+			"elapsed_wall", time.Since(simStart).Round(time.Millisecond).String())
 	}
+
+	logMemStats(e.log, "after_simulation_run")
+	dumpHeapProfile("06_after_run")
 
 	// ─── Generate report ──────────────────────────────────────────────
 	e.emitProgress(events, simID, "generating_report", config.MaxWallClockMs, config.MaxWallClockMs)
-
-	for _, sa := range simAgents {
-		graph.AddNode(sa.PersonaID())
-	}
 
 	report, err := e.generateReport(ctx, config, simAgents, graph, state.WorldState)
 	if err == nil && report != "" {
@@ -1159,9 +1480,6 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 
 	// Index to KG
 	e.indexSimulationToKG(ctx, simID, config.Topic, simAgents, graph, state.WorldState, report)
-
-	// Persist agent memories
-	e.persistAgentMemories(simID, simAgents)
 
 	// Export final relationships state
 	state.Lock()
@@ -1281,18 +1599,32 @@ func (e *SimulationEngine) maybePersist(state *SimulationState) {
 }
 
 // persistAgentMemories saves all agent memories to the store for replay.
-func (e *SimulationEngine) persistAgentMemories(simID string, simAgents []*SimAgent) {
-	for _, sa := range simAgents {
-		records := sa.Memory().Records()
-		if len(records) == 0 {
-			continue
-		}
-		if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
-			e.log.Warn(logger.CatSimulation, "failed to persist agent memories",
-				"persona_id", sa.PersonaID(), "err", err.Error())
+	// (Kept for compatibility, but round-by-round persistence is now preferred)
+	func (e *SimulationEngine) persistAgentMemories(simID string, simAgents []*SimAgent) {
+		for _, sa := range simAgents {
+			records := sa.Memory().Records()
+			if len(records) == 0 {
+				continue
+			}
+			if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
+				e.log.Warn(logger.CatSimulation, "failed to persist agent memories",
+					"persona_id", sa.PersonaID(), "err", err.Error())
+			}
 		}
 	}
-}
+
+	func (e *SimulationEngine) persistAgentMemoriesByRound(simID string, simAgents []*SimAgent, round int) {
+		for _, sa := range simAgents {
+			records := sa.Memory().ByRound(round)
+			if len(records) == 0 {
+				continue
+			}
+			if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
+				e.log.Warn(logger.CatSimulation, "failed to persist agent memories incrementally",
+					"persona_id", sa.PersonaID(), "round", round, "err", err.Error())
+			}
+		}
+	}
 
 // indexSimulationToKG indexes simulation results into the MemoryEngine KG.
 // Converts the RelationGraph into entity extractions and persists the report.
@@ -1449,19 +1781,49 @@ func (e *SimulationEngine) createSimAgents(ctx context.Context, config Simulatio
 }
 
 // generateReport produces a final analysis using the LLM.
+// Uses a two-pass approach: first generates an outline, then writes the full report
+// guided by the outline. Followed by an optional self-review pass.
 func (e *SimulationEngine) generateReport(ctx context.Context, config SimulationConfig, simAgents []*SimAgent, graph *RelationGraph, ws *WorldState) (string, error) {
 	if e.llm == nil {
 		return "", nil
 	}
 
 	memories := make(map[string]*AgentMemory, len(simAgents))
+	personaNameByID := make(map[string]string, len(simAgents))
 	for _, sa := range simAgents {
 		memories[sa.PersonaID()] = sa.Memory()
+		p := sa.Persona()
+		if p != nil && p.Name != "" {
+			personaNameByID[sa.PersonaID()] = p.Name
+		}
 	}
 
 	kgContext := e.buildKGReportContext(ctx)
 
-	prompt := BuildReportPrompt(config.Topic, memories, graph, ws, kgContext, config.Language)
+	// ── Pass 1: Generate outline (lightweight, no full agent memories) ──
+	outline := ""
+	if len(simAgents) > 1 { // outline only useful with 2+ agents
+		outlinePrompt := BuildOutlinePrompt(config.Topic, memories, ws, personaNameByID, config.Language)
+		resolveModelID := e.resolveModelID(e.config.DefaultModelID)
+		resp, err := e.llm.Chat(ctx, agent.LLMRequest{
+			Model:      resolveModelID,
+			ProviderID: e.config.DefaultProviderID,
+			Messages:   []agent.LLMMessage{{Role: "user", Content: outlinePrompt}},
+			MaxTokens:  2048,
+		})
+		if err != nil {
+			// Outline failure is non-fatal; continue with direct full report
+			if e.log != nil {
+				e.log.WarnContext(ctx, logger.CatSimulation, "report: outline generation failed, continuing without outline",
+					"err", err.Error())
+			}
+		} else if resp != nil && resp.Content != "" {
+			outline = resp.Content
+		}
+	}
+
+	// ── Pass 2: Generate full report with outline guidance ──
+	prompt := BuildReportPrompt(config.Topic, memories, graph, ws, kgContext, config.Language, personaNameByID, outline)
 
 	// Resolve max_tokens from model config
 	reportMaxTokens := 16384
@@ -1480,6 +1842,65 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 		ProviderID: e.config.DefaultProviderID,
 		Messages:   []agent.LLMMessage{{Role: "user", Content: prompt}},
 		MaxTokens:  reportTokens,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	report := resp.Content
+
+	// ── Pass 3: Self-review (detect gaps, don't overwrite) ──
+	review, reviewErr := e.selfReviewReport(ctx, config, report)
+	if reviewErr == nil && review != "" {
+		report += "\n\n---\n## 质量审查意见\n" + review
+	} else if reviewErr != nil && e.log != nil {
+		e.log.WarnContext(ctx, logger.CatSimulation, "report: self-review failed",
+			"err", reviewErr.Error())
+	}
+
+	return report, nil
+}
+
+// selfReviewReport asks the LLM to review the generated report for gaps,
+// unsupported claims, and format issues. The review is appended to the report
+// rather than used for regeneration (to keep costs predictable).
+func (e *SimulationEngine) selfReviewReport(ctx context.Context, config SimulationConfig, report string) (string, error) {
+	if e.llm == nil || report == "" {
+		return "", nil
+	}
+
+	var b strings.Builder
+	if config.Language == "zh" {
+		b.WriteString("你是报告质量审查员。审查以下仿真分析报告，回答三个问题：\n\n")
+		b.WriteString("1. **无据论断**：报告中是否有任何论断没有数据支撑？列出具体句子和原因。\n")
+		b.WriteString("2. **遗漏分析**：报告中是否遗漏了重要角色或关键事件？列出被遗漏的内容。\n")
+		b.WriteString("3. **引用格式**：报告的引用格式是否符合规范（引用独立成段、标注角色和轮次）？\n\n")
+		b.WriteString("只输出审查结果，不要输出修改后的报告。如果发现问题，用简洁的语言指出；如果报告质量良好，明确说明\"审查通过\"。\n\n")
+		b.WriteString(fmt.Sprintf("主题: %s\n\n", config.Topic))
+		b.WriteString("## 待审查报告\n\n")
+	} else {
+		b.WriteString("You are a report quality reviewer. Review the simulation analysis report below and answer three questions:\n\n")
+		b.WriteString("1. **Unsupported claims**: Are there any claims without data support? List specific sentences and why.\n")
+		b.WriteString("2. **Missing analysis**: Are any important agents or key events omitted? List what's missing.\n")
+		b.WriteString("3. **Citation format**: Do citations follow the format (standalone paragraphs, agent name + round number)?\n\n")
+		b.WriteString("Output only the review findings, not a corrected report. If the report is good, state \"Review passed\".\n\n")
+		b.WriteString(fmt.Sprintf("Topic: %s\n\n", config.Topic))
+		b.WriteString("## Report to Review\n\n")
+	}
+
+	// Truncate report if too long (keep last ~8000 chars which has the most content)
+	if len(report) > 12000 {
+		b.WriteString("(报告较长，以下为后半部分)\n\n")
+		b.WriteString(report[len(report)-8000:])
+	} else {
+		b.WriteString(report)
+	}
+
+	resp, err := e.llm.Chat(ctx, agent.LLMRequest{
+		Model:      e.resolveModelID(e.config.DefaultModelID),
+		ProviderID: e.config.DefaultProviderID,
+		Messages:   []agent.LLMMessage{{Role: "user", Content: b.String()}},
+		MaxTokens:  1024,
 	})
 	if err != nil {
 		return "", err

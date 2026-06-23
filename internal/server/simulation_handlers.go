@@ -134,8 +134,8 @@ func (m *Mux) handleCreateFromSeed(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "seed_text is required"})
 		return
 	}
-	if req.PersonaCount != 0 && (req.PersonaCount < 2 || req.PersonaCount > 50) {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "persona_count must be 0 (auto-detect) or between 2 and 50"})
+	if req.PersonaCount != 0 && (req.PersonaCount < 2 || req.PersonaCount > 1000) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "persona_count must be 0 (auto-detect) or between 2 and 1000"})
 		return
 	}
 
@@ -297,6 +297,30 @@ func (m *Mux) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
 func (m *Mux) handleGetAgentPlan(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	personaID := chi.URLParam(r, "personaId")
+
+	records, err := m.simEngine.GetAgentMemories(id, personaID)
+	if err == nil {
+		var planRecord *simulation.MemoryRecord
+		// Find the latest plan record
+		for i := len(records) - 1; i >= 0; i-- {
+			if records[i].RecordType == "plan" {
+				planRecord = &records[i]
+				break
+			}
+		}
+		if planRecord != nil {
+			var plan simulation.DailyPlan
+			if err := json.Unmarshal([]byte(planRecord.Content), &plan); err == nil {
+				m.writeJSON(w, http.StatusOK, map[string]any{
+					"simulation_id": id,
+					"persona_id":    personaID,
+					"plan":          plan,
+				})
+				return
+			}
+		}
+	}
+
 	state, err := m.simEngine.Get(id)
 	if err != nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -351,4 +375,46 @@ func (m *Mux) handleGetAgentReflections(w http.ResponseWriter, r *http.Request) 
 		"reflections":   reflections,
 		"count":         len(reflections),
 	})
+}
+
+// handlePauseSimulation pauses a running simulation.
+func (m *Mux) handlePauseSimulation(w http.ResponseWriter, r *http.Request) {
+	if m.simEngine == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "simulation engine not configured"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if err := m.simEngine.Pause(id); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "paused", "id": id})
+}
+
+// handleResumeSimulation resumes a paused simulation.
+func (m *Mux) handleResumeSimulation(w http.ResponseWriter, r *http.Request) {
+	if m.simEngine == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "simulation engine not configured"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if err := m.simEngine.Resume(id); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "resumed", "id": id})
+}
+
+// handleStepSimulation steps a paused simulation by one round.
+func (m *Mux) handleStepSimulation(w http.ResponseWriter, r *http.Request) {
+	if m.simEngine == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "simulation engine not configured"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if err := m.simEngine.Step(id); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "stepped", "id": id})
 }

@@ -708,8 +708,18 @@ func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *S
 			p.Traits["role_type"] = "contrarian"
 		}
 
-		// Goals
+		// Goals — prefer seed-extracted goals over LLM-invented ones
 		p.Goals = entry.Goals
+		// When in deduction mode, override with goals from the seed extraction,
+		// which are character-specific and grounded in the narrative state.
+		if extraction != nil {
+			for _, sa := range extraction.SuggestedAgents {
+				if strings.EqualFold(sa.Name, entry.Name) && len(sa.Goals) > 0 {
+					p.Goals = sa.Goals
+					break
+				}
+			}
+		}
 		if len(p.Goals) == 0 {
 			if language == "zh" {
 				p.Goals = []string{"从你的角度讨论该话题"}
@@ -815,13 +825,19 @@ func buildPersonaGenPrompt(extraction *SeedExtraction, topic string, count int, 
 		b.WriteString("\nSuggested Agents (Deduction Mode):\n")
 		b.WriteString("You MUST generate exactly the following personas based on these characters/participants:\n")
 		for _, sa := range extraction.SuggestedAgents {
-			b.WriteString(fmt.Sprintf("- Name: %s\n  Role: %s\n  Description: %s\n  Traits: %s\n\n", sa.Name, sa.Role, sa.Description, strings.Join(sa.Traits, ", ")))
+			b.WriteString(fmt.Sprintf("- Name: %s\n  Role: %s\n  Description: %s\n  Traits: %s\n", sa.Name, sa.Role, sa.Description, strings.Join(sa.Traits, ", ")))
+			if len(sa.Goals) > 0 {
+				b.WriteString(fmt.Sprintf("  Goals: %s\n", strings.Join(sa.Goals, "; ")))
+			}
+			b.WriteString("\n")
 		}
 	}
 
 	b.WriteString("\nConstraints:\n")
 	if len(extraction.SuggestedAgents) > 0 {
-		b.WriteString(fmt.Sprintf("- Output exactly the %d personas listed under 'Suggested Agents' above, matching their names, roles, descriptions, and traits as the base. You should map their list of traits into key-value pairs in the 'traits' map (e.g. including key-values for personality traits) and complete their goals.\n", count))
+		b.WriteString(fmt.Sprintf("- Output exactly the %d personas listed under 'Suggested Agents' above, matching their names, roles, descriptions, and traits as the base.\n", count))
+		b.WriteString("- Use each suggested agent's provided Goals directly as the persona's goals. DO NOT invent new goals based on the topic. The goals above are grounded in the narrative — preserve them.\n")
+		b.WriteString("- Map the suggested agent's list of traits into key-value pairs in the 'traits' map (e.g. including key-values for personality traits).\n")
 	} else {
 		b.WriteString(fmt.Sprintf("- Output exactly %d personas\n", count))
 		b.WriteString("- At least one persona must be a contrarian/skeptic\n")

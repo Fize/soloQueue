@@ -98,6 +98,7 @@ type RelationshipDTO struct {
 	Familiarity float64  `json:"familiarity"`
 	Affinity    float64  `json:"affinity"`
 	Tags        []string `json:"tags,omitempty"`
+	ChangeReason string   `json:"change_reason,omitempty"`
 }
 
 // SimulationConfig is the complete simulation setup.
@@ -118,6 +119,7 @@ type SimulationConfig struct {
 	EnableReflection  bool                 `json:"enable_reflection,omitempty"`
 	LifecycleEvents   []SeedLifecycleEvent `json:"lifecycle_events,omitempty"`
 	Language          string               `json:"language,omitempty"` // "zh" or "en", defaults to "zh"
+	PacingIntervalMs  int                  `json:"pacing_interval_ms,omitempty"`
 }
 
 // Validate checks the config and applies defaults.
@@ -134,7 +136,7 @@ func (c *SimulationConfig) Validate() error {
 	if len(c.Personas) < 2 {
 		return ErrTooFewPersonas
 	}
-	if len(c.Personas) > 50 {
+	if len(c.Personas) > 1000 {
 		return ErrTooManyPersonas
 	}
 	seen := make(map[string]bool)
@@ -148,20 +150,18 @@ func (c *SimulationConfig) Validate() error {
 		seen[p.ID] = true
 	}
 	if c.SimulatedHours <= 0 {
-		c.SimulatedHours = 48
+		c.SimulatedHours = 168 // Default: 7 days (with plan-follower + dynamic stepping)
 	}
 	if c.MaxWallClockMs <= 0 {
-		mins := int(float64(c.SimulatedHours)*5.0/48.0 + 0.5)
-		if mins < 1 {
-			mins = 1
-		}
-		c.MaxWallClockMs = mins * 60 * 1000
+		// With plan-follower and dynamic stepping, average ~2s per sim hour.
+		// Use 2x safety margin: ~4s per sim hour + 60s base overhead.
+		c.MaxWallClockMs = 60000 + c.SimulatedHours*4000
 	}
 	if c.TickIntervalMs <= 0 {
-		c.TickIntervalMs = 500
+		c.TickIntervalMs = 1000 // 1s base interval (coarser since step is dynamic)
 	}
 	if c.TimeScale <= 0 {
-		c.TimeScale = 600 // 1s real = 10min simulated
+		c.TimeScale = 300 // 1s real = 5min simulated (base, step is adjusted dynamically)
 	}
 	return nil
 }
@@ -175,6 +175,7 @@ const (
 	StatusCompleted SimulationStatus = "completed"
 	StatusFailed    SimulationStatus = "failed"
 	StatusCancelled SimulationStatus = "cancelled"
+	StatusPaused    SimulationStatus = "paused"
 )
 
 // SimulationRelationGraph represents the interaction graph schema returned to the UI.
@@ -228,15 +229,16 @@ type RoundMessage struct {
 	SeqNum    int    `json:"seq_num"`
 }
 
-// SeedLifecycleEvent represents a scheduled spawn/death event extracted from seed text.
+// SeedLifecycleEvent represents a scheduled spawn/death/goal-transition event extracted from seed text.
 type SeedLifecycleEvent struct {
-	Type         string `json:"type"`          // "agent_spawn" | "agent_death" | "simulation_end"
-	AgentName    string `json:"agent_name"`     // target agent name (death) or new agent name (spawn)
-	AgentRole    string `json:"agent_role"`     // role description for spawned agent
-	Trigger      string `json:"trigger"`        // "sim_time" | "wall_time" | "condition"
-	TriggerValue string `json:"trigger_value"`  // "3h" | "14:30" | "consensus_reached"
-	Reason       string `json:"reason"`         // human-readable reason
-	Triggered    bool   `json:"-"`              // internal: already fired
+	Type         string   `json:"type"`                    // "agent_spawn" | "agent_death" | "goal_transition" | "simulation_end"
+	AgentName    string   `json:"agent_name"`              // target agent name
+	AgentRole    string   `json:"agent_role,omitempty"`    // role description for spawned agent
+	Trigger      string   `json:"trigger"`                 // "sim_time" | "wall_time" | "condition"
+	TriggerValue string   `json:"trigger_value"`           // "3h" | "14:30" | "consensus_reached"
+	Reason       string   `json:"reason"`                  // human-readable reason
+	NewGoals     []string `json:"new_goals,omitempty"`     // for goal_transition: replacement goals
+	Triggered    bool     `json:"-"`                       // internal: already fired
 }
 
 // SpawnInfo carries the data needed to create a new agent mid-simulation.
@@ -283,6 +285,9 @@ type AgentProgressState struct {
 	LastActionType string `json:"last_action_type"`
 	LastActionTime string `json:"last_action_time"`
 	Status         string `json:"status"` // "thinking" | "spoke" | "idle"
+	CurrentPlanItem *PlanItem `json:"current_plan_item,omitempty"`
+	ActiveIntention string    `json:"active_intention,omitempty"`
+	ActiveDirective string    `json:"active_directive,omitempty"`
 }
 
 // SimulationProgress is broadcast periodically via WebSocket during simulation.

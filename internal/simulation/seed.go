@@ -18,6 +18,7 @@ type SuggestedAgent struct {
 	Role        string   `json:"role"`
 	Description string   `json:"description"`
 	Traits      []string `json:"traits"`
+	Goals       []string `json:"goals,omitempty"`
 }
 
 // SeedExtraction holds the structured output from LLM seed analysis.
@@ -155,10 +156,10 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 	if mt <= 0 {
 		mt = defaultSeedMaxTokens
 	}
-	// Phase 1 uses a fraction of the budget; output is small
-	phase1Tokens := mt / 8
-	if phase1Tokens < 1024 {
-		phase1Tokens = 1024
+	// Phase 1 uses a fraction of the budget; must be generous enough to avoid JSON truncation
+	phase1Tokens := mt / 4
+	if phase1Tokens < 2048 {
+		phase1Tokens = 2048
 	}
 
 	content, err := s.chatWithJSONRetry(ctx, prompt, phase1Tokens)
@@ -373,6 +374,74 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 
 // --- parsing ---
 
+// repairTruncatedJSON attempts to fix JSON truncated by LLM token limits.
+// It closes unclosed strings, braces, and brackets so json.Unmarshal can succeed.
+// Returns the repaired JSON string, or the original if no repair was needed.
+func repairTruncatedJSON(raw string) string {
+	type frame struct{ isArray bool }
+
+	walk := func(s string) (stack []frame, inString bool) {
+		escaped := false
+		for i := 0; i < len(s); i++ {
+			ch := s[i]
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' && inString {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			switch ch {
+			case '{':
+				stack = append(stack, frame{false})
+			case '[':
+				stack = append(stack, frame{true})
+			case '}':
+				if len(stack) > 0 && !stack[len(stack)-1].isArray {
+					stack = stack[:len(stack)-1]
+				}
+			case ']':
+				if len(stack) > 0 && stack[len(stack)-1].isArray {
+					stack = stack[:len(stack)-1]
+				}
+			}
+		}
+		return
+	}
+
+	stack, inString := walk(raw)
+	if len(stack) == 0 && !inString {
+		return raw
+	}
+
+	result := raw
+
+	// Close unclosed string, then re-walk to rebuild stack
+	if inString {
+		result += "\""
+		stack, _ = walk(result)
+	}
+
+	// Close remaining open delimiters in reverse order
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i].isArray {
+			result += "]"
+		} else {
+			result += "}"
+		}
+	}
+
+	return result
+}
+
 func parseExtraction(content string) (*SeedExtraction, error) {
 	cleaned := cleanJSONResponse(content)
 
@@ -383,6 +452,15 @@ func parseExtraction(content string) (*SeedExtraction, error) {
 
 	var ext SeedExtraction
 	if err := json.Unmarshal([]byte(cleaned), &ext); err != nil {
+		// Attempt to repair truncated JSON (LLM hit token limit mid-response)
+		if strings.Contains(err.Error(), "unexpected end of JSON input") || strings.Contains(err.Error(), "unexpected EOF") {
+			repaired := repairTruncatedJSON(cleaned)
+			if repaired != cleaned {
+				if err2 := json.Unmarshal([]byte(repaired), &ext); err2 == nil {
+					return &ext, nil
+				}
+			}
+		}
 		return nil, fmt.Errorf("json unmarshal: %w\nraw: %s", err, truncateStr(content, 200))
 	}
 
@@ -511,8 +589,10 @@ func buildCharacterExtractionPrompt(seedText string, merged *SeedExtraction, sim
 	b.WriteString("\n\n")
 
 	b.WriteString("Based on the above, extract character-level information. Output valid JSON with ONLY these fields:\n\n")
-	b.WriteString("- `suggested_agents`: array of objects representing specific characters. Each MUST have: `name`, `role`, `description`, `traits` (array of strings). Extract ALL named characters.\n")
-	b.WriteString("- `lifecycle_events`: array of scheduled events. Each MUST have: `type` (\"agent_spawn\"|\"agent_death\"|\"simulation_end\"), `agent_name`, `agent_role` (for spawn), `trigger` (\"sim_time\"|\"wall_time\"|\"condition\"), `trigger_value`, `reason`. Only extract if explicitly stated in text.\n")
+	b.WriteString("- `suggested_agents`: array of objects representing specific characters. Each MUST have: `name`, `role`, `description`, `traits` (array of strings), `goals` (array of strings). Extract ALL named characters.\n")
+	b.WriteString("  IMPORTANT for goals: Extract what each character is actively trying to accomplish RIGHT NOW at the current point in the narrative. These must be concrete and actionable — specific immediate objectives grounded in their situation. NOT abstract philosophical positions about the topic. Think: what is their immediate next step? What do they urgently want?\n")
+	b.WriteString("- `lifecycle_events`: array of scheduled events. Each MUST have: `type` (\"agent_spawn\"|\"agent_death\"|\"goal_transition\"|\"simulation_end\"), `agent_name`, `agent_role` (for spawn), `trigger` (\"sim_time\"|\"wall_time\"|\"condition\"), `trigger_value`, `reason`. For goal_transition type, also include `new_goals` (array of strings). Only extract if explicitly stated in text.\n")
+	b.WriteString("  IMPORTANT for goal_transition: When the seed describes staged character arcs with different objectives at different points, create goal_transition events with sim_time triggers. Map narrative phases to appropriate sim_time values (early story → low hours, midpoint → mid hours, late story → high hours). The new_goals should reflect what the character wants at that new phase.\n")
 	b.WriteString("- `initial_relationships`: array of social relationships between characters. Each MUST have: `subject_name`, `target_name`, `kind` (one of: parent, child, sibling, spouse, friend, rival, colleague, mentor, mentee, neighbor), and optionally `familiarity` (0.0-1.0) and `affinity` (-1.0 to 1.0).\n")
 	b.WriteString("  Directional kinds (parent, child, mentor, mentee): subject_name IS the parent/mentor, target_name IS the child/mentee.\n")
 	b.WriteString("  Extract from text clues: \"父子\" → kind=parent (subject=father), \"兄弟\" → kind=sibling, \"师徒\" → kind=mentor (subject=master), \"仇敌\" → kind=rival, \"夫妻\" → kind=spouse.\n\n")

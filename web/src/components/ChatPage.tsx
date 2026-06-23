@@ -135,13 +135,12 @@ export function ChatPage() {
 
   const groupAgents = useMemo(() => {
     if (isL1Session) {
-      // Find L1 agent in live agents
+      // Find L1 agent by its known ID. Using explicit ID match instead of
+      // subtraction heuristic because simulation agents and other non-supervised
+      // agents are also in the registry and would erroneously match the old filter.
       let l1 = null
       if (agentsData) {
-        const { agents, supervisors } = agentsData
-        const l2Ids = new Set(supervisors.map((sv) => sv.leader_id).filter(Boolean))
-        const l3Ids = new Set(supervisors.flatMap((sv) => sv.children_ids))
-        l1 = agents.find((a) => !l2Ids.has(a.instance_id) && !l3Ids.has(a.instance_id))
+        l1 = agentsData.agents.find((a) => a.id === 'l1-agent')
       }
 
       const fallback: AgentInfo = {

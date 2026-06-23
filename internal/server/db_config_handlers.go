@@ -492,13 +492,13 @@ func (m *Mux) handleUpdateSimulationConfig(w http.ResponseWriter, r *http.Reques
 	}
 	// Normalize zero values to sensible defaults
 	if cfg.SimulatedHours <= 0 {
-		cfg.SimulatedHours = 48
+		cfg.SimulatedHours = 168
 	}
 	if cfg.TickIntervalMs <= 0 {
-		cfg.TickIntervalMs = 500
+		cfg.TickIntervalMs = 1000
 	}
 	if cfg.TimeScale <= 0 {
-		cfg.TimeScale = 600
+		cfg.TimeScale = 300
 	}
 	if cfg.Language == "" {
 		cfg.Language = "zh"

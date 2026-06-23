@@ -76,14 +76,11 @@ export function AgentDetailPage() {
   // L1 Coordinator detection
   const isL1 = useMemo(() => {
     if (id === 'main' || id === 'l1-agent') return true
+    // L1 is identified by known ID, not subtraction heuristic.
     if (!data) return false
-    const { supervisors } = data
-    const l2Ids = new Set(supervisors.map((sv) => sv.leader_id).filter(Boolean))
-    const l3Ids = new Set(supervisors.flatMap((sv) => sv.children_ids))
-    const resolvedL1 = data.agents.find(
-      (a) => !l2Ids.has(a.instance_id) && !l3Ids.has(a.instance_id)
-    )
-    return resolvedL1 ? resolvedL1.instance_id === id || resolvedL1.id === id : false
+    const l1 = data.agents.find((a) => a.id === 'l1-agent')
+    if (!l1) return false
+    return l1.instance_id === id || l1.id === id
   }, [data, id])
 
   // Find template name if no active agent instance
