@@ -1,0 +1,198 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-pixel: 'Press Start 2P', monospace;
+  --font-retro: 'VT323', monospace;
+  
+  --color-parchment: #f6ebd3;
+  --color-parchment-dark: #e3d3b4;
+  --color-wood-oak: #b86a34;
+  --color-wood-pine: #5a2800;
+  --color-crop-green: #4eb036;
+  --color-pumpkin-orange: #e28a2b;
+  --color-berry-red: #d83838;
+  --color-charcoal-brown: #381a04;
+  --color-grey-brown: #8c7662;
+  --color-sun-gold: #f3b72b;
+}
+
+@layer utilities {
+  /* Titlebar drag utility for Electron borderless windows */
+  .titlebar-drag {
+    -webkit-app-region: drag;
+  }
+  .titlebar-no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* Registration card: horizontal layout on desktop */
+@media (min-width: 768px) {
+  .registration-card {
+    flex-direction: row !important;
+  }
+}
+
+/* Custom retro styling rules */
+body {
+  background-color: var(--color-wood-pine);
+  color: var(--color-charcoal-brown);
+  font-family: 'VT323', monospace;
+  font-size: 20px;
+  image-rendering: pixelated;
+  overflow: hidden;
+}
+
+/* macOS safe area: accounts for hiddenInset title bar */
+.safe-area-top {
+  padding-top: max(36px, env(safe-area-inset-top, 36px));
+}
+
+/* Drag region for macOS hiddenInset titlebar */
+.electron-drag-region {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  -webkit-app-region: drag;
+  z-index: 9999;
+  pointer-events: auto;
+}
+
+/* 8-bit Pixelated Borders & Panels */
+.pixel-border-wood {
+  border: 4px solid var(--color-wood-pine);
+  box-shadow: 
+    0 -4px 0 -2px var(--color-wood-oak),
+    0 4px 0 -2px var(--color-wood-oak),
+    -4px 0 0 -2px var(--color-wood-oak),
+    4px 0 0 -2px var(--color-wood-oak),
+    inset 0 0 0 2px var(--color-wood-oak);
+  background-color: var(--color-wood-oak);
+}
+
+.pixel-border-paper {
+  border: 4px solid var(--color-wood-pine);
+  box-shadow: 
+    0 -4px 0 -2px var(--color-parchment-dark),
+    0 4px 0 -2px var(--color-parchment-dark),
+    -4px 0 0 -2px var(--color-parchment-dark),
+    4px 0 0 -2px var(--color-parchment-dark),
+    inset 0 0 0 2px var(--color-parchment-dark);
+  background-color: var(--color-parchment);
+}
+
+/* Retro Pixel Buttons */
+.pixel-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--color-parchment);
+  background-color: var(--color-wood-oak);
+  border: 3px solid var(--color-wood-pine);
+  box-shadow: inset -2px -2px 0px 0px rgba(0, 0, 0, 0.4), inset 2px 2px 0px 0px rgba(255, 255, 255, 0.2);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.05s ease-in-out;
+}
+
+.pixel-btn:active {
+  box-shadow: inset 2px 2px 0px 0px rgba(0, 0, 0, 0.4);
+  transform: translate(1px, 1px);
+}
+
+.pixel-btn:hover {
+  background-color: #d17a3f;
+}
+
+.pixel-btn-green {
+  background-color: var(--color-crop-green);
+}
+.pixel-btn-green:hover {
+  background-color: #5bc541;
+}
+
+.pixel-btn-orange {
+  background-color: var(--color-pumpkin-orange);
+}
+.pixel-btn-orange:hover {
+  background-color: #f39b3c;
+}
+
+.pixel-btn-red {
+  background-color: var(--color-berry-red);
+}
+.pixel-btn-red:hover {
+  background-color: #e94b4b;
+}
+
+.pixel-btn-disabled {
+  background-color: var(--color-grey-brown) !important;
+  color: var(--color-parchment-dark);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Cozy Scrollbars */
+::-webkit-scrollbar {
+  width: 12px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-parchment-dark);
+  border-left: 3px solid var(--color-wood-pine);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-wood-oak);
+  border: 3px solid var(--color-wood-pine);
+  box-shadow: inset 1px 1px 0px rgba(255,255,255,0.2);
+}
+
+/* Speech bubble indicator styling */
+.pixel-bubble {
+  position: relative;
+  background: var(--color-parchment);
+  border: 3px solid var(--color-wood-pine);
+  border-radius: 4px;
+}
+.pixel-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0;
+  border-style: solid;
+  border-color: var(--color-wood-pine) transparent;
+  display: block;
+  width: 0;
+}
+
+/* Image rendering */
+.image-rendering-pixelated {
+  image-rendering: pixelated;
+}
+
+/* Animations */
+@keyframes text-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.blink {
+  animation: text-blink 1s step-end infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px var(--color-sun-gold); }
+  50% { box-shadow: 0 0 12px var(--color-sun-gold); }
+}
+.pulse-glow {
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+@keyframes float-up {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-20px); opacity: 0; }
+}
+.float-up {
+  animation: float-up 1.5s ease-out forwards;
+}
