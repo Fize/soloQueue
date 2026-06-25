@@ -1,0 +1,157 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
+/* ─── Apple HIG Color Tokens ────────────────────────────────────────── */
+@theme {
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Apple Corner Radii Curvatures */
+  --radius-lg: 13px; /* Cards, sheets, dialogs */
+  --radius-md: 10px; /* Standard buttons, navigation selections */
+  --radius-sm: 8px;  /* Inputs, small buttons */
+  --radius-xl: 20px; /* Large cards */
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}
+
+/* ─── Color Variables ───────────────────────────────────────────────── */
+:root {
+  /* Deep Purple Indigo - Light Mode */
+  --background: #faf5ff;
+  --foreground: #1e1b2e;
+  --card: #ffffff;
+  --card-foreground: #1e1b2e;
+  --popover: #ffffff;
+  --popover-foreground: #1e1b2e;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #f3e8ff;
+  --secondary-foreground: #3d3852;
+  --muted: #ede9fe;
+  --muted-foreground: #6b6380;
+  --accent: #7c3aed;
+  --accent-foreground: #ffffff;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: rgba(124, 58, 237, 0.12);
+  --input: rgba(124, 58, 237, 0.08);
+  --ring: rgba(124, 58, 237, 0.4);
+
+  color-scheme: light;
+}
+
+.dark {
+  /* Deep Purple Indigo - Dark Mode */
+  --background: #0f0d15;
+  --foreground: #f0ecf9;
+  --card: #1a1725;
+  --card-foreground: #f0ecf9;
+  --popover: #1a1725;
+  --popover-foreground: #f0ecf9;
+  --primary: #8b5cf6;
+  --primary-foreground: #ffffff;
+  --secondary: #252033;
+  --secondary-foreground: #d4cce6;
+  --muted: #2d2844;
+  --muted-foreground: #8b82a1;
+  --accent: #8b5cf6;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(139, 92, 246, 0.15);
+  --input: rgba(139, 92, 246, 0.1);
+  --ring: rgba(139, 92, 246, 0.5);
+
+  color-scheme: dark;
+}
+
+/* ─── Global Electron Shell Rules ───────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--background);
+  color: var(--foreground);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary);
+}
+
+/* Drag Regions for Electron Borderless Window */
+.electron-drag-region {
+  -webkit-app-region: drag;
+}
+
+.electron-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom Utilities for Native Mac Visuals */
+.mac-vibrancy-light {
+  backdrop-filter: blur(20px) saturate(190%);
+  background-color: rgba(250, 245, 255, 0.72);
+}
+
+.mac-vibrancy-dark {
+  backdrop-filter: blur(20px) saturate(140%);
+  background-color: rgba(15, 13, 21, 0.75);
+}
+
+.mac-vibrancy {
+  backdrop-filter: blur(20px) saturate(190%);
+  background-color: rgba(250, 245, 255, 0.72);
+}
+
+.dark .mac-vibrancy {
+  backdrop-filter: blur(20px) saturate(140%);
+  background-color: rgba(15, 13, 21, 0.75);
+}
+
+/* Native List Separators */
+.mac-list-divider {
+  border-bottom: 0.5px solid var(--border);
+}

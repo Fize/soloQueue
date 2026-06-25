@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 make build        # pnpm build + copy dist + copy skills → internal/server/dist → go build
 make build-go     # go build only (needs internal/server/dist already in place)
 make build-web    # pnpm build + cp dist + cp skills to internal/server/dist
-make clean        # rm soloqueue web/dist internal/server/dist
+make clean        # rm soloqueue desktop/dist portal/dist internal/server/dist
 ```
 
 The Go binary embeds `internal/server/dist/` via `//go:embed`. Run `make build-web` before `go build` if dist is missing. `make build-web` also copies `skills/` into the dist so embedded skills are available at runtime.
@@ -20,10 +20,8 @@ go test ./...                          # all packages
 go test ./internal/timeline/...        # single package
 go test -run TestReplayInto ./internal/timeline/...  # single test
 
-cd web && pnpm check                   # tsc --noEmit + eslint + prettier
-cd web && pnpm lint                    # eslint only
-cd web && pnpm test                    # vitest
-cd web && pnpm test:e2e                # playwright
+cd desktop && pnpm check               # tsc --noEmit + eslint + prettier
+cd desktop && pnpm lint                # eslint only
 ```
 
 RTK (`rtk go test ./...`) produces compact output — only failures are shown.
@@ -32,7 +30,7 @@ RTK (`rtk go test ./...`) produces compact output — only failures are shown.
 
 ```bash
 go run ./cmd/soloqueue serve --port 8765    # start server
-cd web && pnpm install && pnpm dev          # web UI (separate terminal, port 5173)
+cd desktop && pnpm install && pnpm dev      # desktop UI & Electron shell (separate terminal)
 ```
 
 Open `http://localhost:5173`. Vite proxies `/api` → `http://localhost:8765` and `/ws` → `ws://localhost:8765`.
@@ -109,9 +107,9 @@ Data paths under `~/.soloqueue/`: timeline JSONL in `logs/timelines/`, shared SQ
 
 `internal/timeline/` provides append-only JSONL event sourcing. All agent interactions are recorded. System prompts are pushed with `replayMode=true` to prevent timeline contamination.
 
-### Web UI
+### Desktop UI
 
-`web/` is a React 19 + TypeScript + Vite app with TailwindCSS v4. State management uses Zustand stores (`web/src/stores/`). Real-time updates via WebSocket.
+`desktop/` is a unified Electron desktop app wrapping React 19 + TypeScript + Vite with TailwindCSS v4. State management uses Zustand stores (`desktop/src/stores/`). Real-time updates via WebSocket.
 
 ## Critical invariants
 
