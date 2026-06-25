@@ -387,7 +387,7 @@ internal/server/
   tool_skill_handlers.go        # HTTP handlers
   server.go                     # 路由注册
 
-web/src/
+desktop/src/
   components/settings/SkillsTab.tsx  # 前端管理界面
   stores/toolsAndSkillsStore.ts       # Zustand store
   lib/api.ts                         # API 函数

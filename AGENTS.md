@@ -8,7 +8,7 @@ Tactical guidance for AI coding agents working in this repository.
 make build        # pnpm build + cp dist + cp skills → internal/server/dist → go build
 make build-go     # go build only (needs internal/server/dist already in place)
 make build-web    # pnpm build + cp dist + cp skills to internal/server/dist
-make clean        # rm soloqueue web/dist internal/server/dist
+make clean        # rm soloqueue desktop/dist portal/dist internal/server/dist
 ```
 
 The Go binary embeds `internal/server/dist/` via `//go:embed`. `make build-web` also copies `skills/` into dist.
@@ -87,7 +87,7 @@ internal/sqlitedb/      shared SQLite wrapper + schema migrations
 internal/team/          team group reload
 internal/timeline/      append-only JSONL event sourcing
 internal/tools/         Tool implementations + Sandbox execution backend
-web/                    React web UI (Vite dev server)
+desktop/                Unified Electron app (React + Vite dev server)
 ```
 
 ## Simulation Engine (internal/simulation/)

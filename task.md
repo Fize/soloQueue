@@ -1,0 +1,30 @@
+# Task List: Unified Desktop Redesign
+
+- [x] Unify configuration files in `desktop/`
+    - [x] Create `desktop/tsconfig.json` and `tsconfig.node.json`
+    - [x] Create `desktop/vite.config.ts`
+    - [x] Create `desktop/components.json`
+    - [x] Create `desktop/index.html`
+    - [x] Merge dependencies and scripts in `desktop/package.json`
+- [x] Implement macOS HIG styling
+    - [x] Create `desktop/src/index.css` with dynamic light/dark tokens
+- [x] Migrate and redesign core visual views in `desktop/src/`
+    - [x] Copy and re-integrate stores, utilities, and api libs from `web/src/`
+    - [x] Create `desktop/src/main.tsx` entrypoint
+    - [x] Create `desktop/src/App.tsx` layout with collapsible sidebar and titlebar padding
+    - [x] Redesign `desktop/src/components/Sidebar.tsx`
+    - [x] Redesign `desktop/src/components/ChatPage.tsx`
+    - [x] Redesign `desktop/src/components/OfficeGameLayout.tsx`
+    - [x] Redesign `desktop/src/components/SimulationDetailPage.tsx`
+    - [x] Redesign `desktop/src/components/FilesPage.tsx`
+    - [x] Redesign `desktop/src/components/SettingsLayout.tsx`
+- [x] Update build and packaging setup
+    - [x] Modify `Makefile` targets
+    - [x] Update `desktop/main.js` production file path loader
+    - [x] Update `desktop/electron-builder.json` file inclusions
+- [x] Cleanup and deprecate old code
+    - [x] Delete `web/` directory
+- [x] Verify functionality
+    - [x] Run typescript checks and builds
+    - [x] Verify status portal read-only web server
+    - [x] Run desktop app locally in development mode
