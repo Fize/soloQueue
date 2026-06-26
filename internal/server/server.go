@@ -76,7 +76,9 @@ type Mux struct {
 	mcpLoader     *mcp.Loader      // MCP config loader for /api/mcp endpoints
 	sessionMgr    *session.SessionManager
 	l2Store       *session.L2SessionStore // L2 multi-session store (nil if not configured)
-	authConfig    config.AuthConfig
+	authConfig       config.AuthConfig
+	effectiveAuthUser string
+	effectiveAuthPass string
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
 	proxyManager   *proxy.ProxyManager
@@ -315,7 +317,8 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Use(al.Middleware)
 	}
 
-	// ── Auth middleware (protects all routes below if enabled) ──
+	// ── Auth middleware (protects all routes below if [auth] configured) ──
+	m.resolveEffectiveAuth()
 	if m.authConfig.User != "" {
 		r.Use(m.tokenAuthMiddleware)
 	}
@@ -527,6 +530,18 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	fsys := distFS()
 	fileServer := http.FileServer(http.FS(fsys))
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		// Remote access to the embedded portal requires Basic Auth.
+		// Localhost (127.0.0.1, ::1) bypasses this check.
+		if !isLocalhostAccess(r) && m.effectiveAuthUser != "" {
+			user, password, ok := r.BasicAuth()
+			if !ok || user != m.effectiveAuthUser || password != m.effectiveAuthPass {
+				w.Header().Set("WWW-Authenticate", `Basic realm="SoloQueue Portal"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+		}
+
 		// Serve SoloQueue's own embedded static files first to prevent them from being hijacked by the proxy.
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path != "" {

@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0', // Allow remote access
     port: 5174, // Running on a different port than desktop web (5173)
     proxy: {
       '/api': 'http://localhost:8765',
