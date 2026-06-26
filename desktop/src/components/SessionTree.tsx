@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -30,7 +30,6 @@ export function SessionTree() {
   const deleteL2Session = useChatStore((s) => s.deleteL2Session)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
 
-  const agentsData = useAgentStore((s) => s.agents)
   const fetchLiveAgents = useAgentStore((s) => s.fetchLiveAgents)
 
   const [groups, setGroups] = useState<GroupInfo[]>([])
@@ -86,15 +85,7 @@ export function SessionTree() {
     }
   }
 
-  const l1Session = sessions.find((s) => s.type === 'l1')
   const l2Sessions = sessions.filter((s) => s.type === 'l2')
-
-  // Find L1 agent by its known ID (not subtraction heuristic —
-  // simulation agents and other non-supervised agents would match that).
-  const l1Agent = useMemo(() => {
-    if (!agentsData) return null
-    return agentsData.agents.find((a) => a.id === 'l1-agent') || null
-  }, [agentsData])
 
   // Build tree: sessions nested under their parent (group or project).
   const buildSessionTree = useCallback(() => {
@@ -137,10 +128,20 @@ export function SessionTree() {
       if (streaming) return
       await deleteL2Session(id)
       if (activeSessionId === id) {
-        navigate('/chat/l1')
+        const remaining = sessions.filter((s) => s.id !== id && s.type === 'l2')
+        if (remaining.length > 0) {
+          const sorted = [...remaining].sort((a, b) => {
+            const timeA = a.createdAt || (a as any).created_at || ''
+            const timeB = b.createdAt || (b as any).created_at || ''
+            return timeB.localeCompare(timeA)
+          })
+          navigate(`/chat/${sorted[0].id}`)
+        } else {
+          navigate('/chat')
+        }
       }
     },
-    [streaming, deleteL2Session, activeSessionId, navigate]
+    [streaming, deleteL2Session, activeSessionId, sessions, navigate]
   )
 
   const toggleGroup = (name: string) =>
@@ -154,24 +155,8 @@ export function SessionTree() {
 
   return (
     <div className="flex flex-col py-1 space-y-1 select-none">
-      {/* ─── L1 ─── */}
-      {l1Session && (
-        <TreeItem
-          icon={Bot}
-          label={l1Agent?.name || l1Session.name || 'L1 Orchestrator'}
-          active={activeSessionId === 'l1'}
-          state={l1Agent?.state}
-          onClick={() => {
-            setActiveSession('l1')
-            navigate('/chat/l1')
-          }}
-          indent={0}
-          showDelete={false}
-        />
-      )}
-
       {/* ─── L2 groups with nested projects ─── */}
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {groups.map((group) => {
           const groupSessions = sessionTree[group.name] || []
           const hasProjects = group.projects.length > 0
@@ -180,16 +165,16 @@ export function SessionTree() {
           return (
             <div key={group.name} className="space-y-0.5">
               {/* Group header */}
-              <div className="flex items-center group/header w-full px-2 py-1.5 rounded-md hover:bg-muted/40 transition-colors">
+              <div className="flex items-center group/header w-full px-2 py-1 rounded-md hover:bg-muted/20 transition-colors">
                 <button
                   onClick={() => toggleGroup(group.name)}
-                  className="flex-1 flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-foreground cursor-pointer text-left"
+                  className="flex-1 flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider hover:text-foreground cursor-pointer text-left"
                 >
-                  {hasProjects ? (
+                  {hasProjects || groupSessions.length > 0 ? (
                     gExpanded ? (
-                      <ChevronDown className="h-3 w-3 shrink-0" />
+                      <ChevronDown className="h-3 w-3 shrink-0 transition-transform duration-200" />
                     ) : (
-                      <ChevronRight className="h-3 w-3 shrink-0" />
+                      <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200" />
                     )
                   ) : (
                     <span className="w-3 shrink-0" />
@@ -202,16 +187,16 @@ export function SessionTree() {
                     handleNewSession(group.name)
                   }}
                   disabled={creating === group.name || streaming}
-                  className="p-1 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/header:opacity-100"
+                  className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/header:opacity-100"
                   title={`New session in ${group.name || 'this group'}`}
                 >
-                  <Plus className="h-3.5 w-3.5" />
+                  <Plus className="h-3 w-3" />
                 </button>
               </div>
 
               {/* Children */}
               {gExpanded && (
-                <div className="space-y-0.5 ml-3 border-l-2 border-border/60 pl-3 mt-1 mb-3">
+                <div className="space-y-0.5 mt-0.5">
                   {hasProjects ? (
                     <>
                       {/* Projects & their sessions */}
@@ -231,36 +216,38 @@ export function SessionTree() {
                             {/* Project row */}
                             <div
                               onClick={() => toggleProject(projKey)}
-                              className="group/proj flex items-center gap-2 w-full px-2 py-1.5 text-sm text-foreground/80 hover:text-foreground hover:bg-muted/40 rounded-md transition-colors cursor-pointer relative"
+                              className="group/proj flex items-center gap-1.5 w-full pl-5 pr-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 rounded-md transition-colors cursor-pointer relative"
                             >
-                              <div className="absolute -left-[14px] top-1/2 w-3 h-[2px] bg-border/60" />
-                              {pExpanded ? (
-                                <ChevronDown className="h-3 w-3 shrink-0" />
+                              {projSessions.length > 0 ? (
+                                pExpanded ? (
+                                  <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-200" />
+                                ) : (
+                                  <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-200" />
+                                )
                               ) : (
-                                <ChevronRight className="h-3 w-3 shrink-0" />
+                                <span className="w-3 shrink-0" />
                               )}
-                              <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                              <span className="flex-1 text-left truncate">{proj.name}</span>
+                              <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-70 text-muted-foreground/60" />
+                              <span className="flex-1 text-left truncate font-medium">{proj.name}</span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   handleNewSession(group.name, proj.path)
                                 }}
                                 disabled={creating === projKey || streaming}
-                                className="p-1 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/proj:opacity-100"
+                                className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/proj:opacity-100"
                                 title={`New session in ${proj.name}`}
                               >
-                                <Plus className="h-3.5 w-3.5" />
+                                <Plus className="h-3 w-3" />
                               </button>
                             </div>
 
                             {/* Sessions under this project */}
-                            {pExpanded && (
-                              <div className="space-y-0.5 ml-4 border-l-2 border-border/60 pl-3 mt-1 mb-1">
-                                {projSessions.map((s) => (
-                                  <div key={s.id} className="relative">
-                                    <div className="absolute -left-[14px] top-1/2 w-3 h-[2px] bg-border/60" />
+                            {pExpanded && projSessions.length > 0 && (
+                              <div className="space-y-0.5 mt-0.5">
+                                  {projSessions.map((s) => (
                                     <TreeItem
+                                      key={s.id}
                                       icon={MessageSquare}
                                       label={s.name || 'New session'}
                                       isPast={s.name ? s.name.startsWith('Past') : false}
@@ -271,20 +258,9 @@ export function SessionTree() {
                                       }}
                                       onDelete={(e) => handleDelete(e, s.id)}
                                       disabled={streaming}
-                                      indent={0}
+                                      indent={2}
                                     />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {!pExpanded && projSessions.length > 0 && (
-                              <div className="pl-6 py-1 text-xs text-muted-foreground font-medium select-none relative">
-                                <div className="absolute -left-[14px] top-1/2 w-3 h-[2px] bg-border/60" />
-                                <span className="px-2 py-0.5 bg-muted rounded-full border border-border/50">
-                                  {projSessions.length} session
-                                  {projSessions.length !== 1 ? 's' : ''}
-                                </span>
+                                  ))}
                               </div>
                             )}
                           </div>
@@ -295,22 +271,20 @@ export function SessionTree() {
                     <>
                       {/* No projects: show sessions directly */}
                       {groupSessions.map((s) => (
-                        <div key={s.id} className="relative">
-                          <div className="absolute -left-[14px] top-1/2 w-3 h-[2px] bg-border/60" />
-                          <TreeItem
-                            icon={MessageSquare}
-                            label={s.name || 'New session'}
-                            isPast={s.name ? s.name.startsWith('Past') : false}
-                            active={activeSessionId === s.id}
-                            onClick={() => {
-                              setActiveSession(s.id)
-                              navigate(`/chat/${s.id}`)
-                            }}
-                            onDelete={(e) => handleDelete(e, s.id)}
-                            disabled={streaming}
-                            indent={0}
-                          />
-                        </div>
+                        <TreeItem
+                          key={s.id}
+                          icon={MessageSquare}
+                          label={s.name || 'New session'}
+                          isPast={s.name ? s.name.startsWith('Past') : false}
+                          active={activeSessionId === s.id}
+                          onClick={() => {
+                            setActiveSession(s.id)
+                            navigate(`/chat/${s.id}`)
+                          }}
+                          onDelete={(e) => handleDelete(e, s.id)}
+                          disabled={streaming}
+                          indent={1}
+                        />
                       ))}
                     </>
                   )}
@@ -348,20 +322,20 @@ function TreeItem({
   isPast?: boolean
   state?: string
 }) {
-  const pl = 12 + indent * 12
+  const pl = 8 + indent * 14
   return (
     <div className="group relative">
       <button
         onClick={onClick}
         style={{ paddingLeft: `${pl}px` }}
-        className={`w-full flex items-center gap-2 pr-8 py-2 rounded-md text-sm leading-tight transition-colors cursor-pointer ${
+        className={`w-full flex items-center gap-2 pr-8 py-1.5 rounded-md text-xs leading-tight transition-all cursor-pointer ${
           active
-            ? 'bg-primary/10 text-primary font-medium'
-            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            ? 'bg-primary/10 text-primary font-semibold'
+            : 'text-muted-foreground hover:bg-muted/20 hover:text-foreground'
         }`}
       >
         <div className="relative flex items-center justify-center shrink-0">
-          <Icon className="h-3.5 w-3.5 opacity-60" />
+          <Icon className="h-3.5 w-3.5 opacity-70" />
           {state && (
             <span
               className={cn(
@@ -375,7 +349,7 @@ function TreeItem({
             />
           )}
         </div>
-        <span className="truncate text-left flex-1">
+        <span className="truncate text-left flex-1 font-medium">
           {label}
           {isPast && (
             <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-amber-500/10 text-amber-600/60">
@@ -388,7 +362,7 @@ function TreeItem({
         <button
           onClick={onDelete}
           disabled={disabled}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-all cursor-pointer disabled:opacity-0"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-all cursor-pointer disabled:opacity-0"
           title="Delete session"
         >
           <Trash2 className="h-3.5 w-3.5" />

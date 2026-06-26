@@ -236,7 +236,7 @@ function NavView({
                         : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
                     )}
                   >
-                    <span className="flex-1 text-left pl-5">聊天会话</span>
+                    <span className="flex-1 text-left pl-5">会话</span>
                     {chatOpen ? (
                       <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                     ) : (

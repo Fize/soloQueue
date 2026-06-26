@@ -5,7 +5,7 @@ import { ChatInput } from '@/components/ChatInput'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatStream } from '@/hooks/useChatStream'
 import { useAgentStream } from '@/hooks/useAgentStream'
-import { PanelRight, Loader2, Activity } from 'lucide-react'
+import { PanelRight, Loader2, Activity, Plus, Bot } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { cn } from '@/lib/utils'
 import type { AgentInfo, Project } from '@/types'
@@ -97,21 +97,45 @@ export function ChatPage() {
     fetchTeams()
   }, [fetchLiveAgents, fetchTeams])
 
+  const handleNewSession = async (group: string, workDir?: string) => {
+    const newId = await createL2Session(group, workDir || '')
+    if (newId) {
+      navigate(`/chat/${newId}`)
+    }
+  }
+
   useEffect(() => {
     loadSessions()
   }, [loadSessions, streaming])
 
   useEffect(() => {
-    if (sessionId) {
+    if (sessionId && sessionId !== 'l1') {
       if (sessionId !== activeSessionId) {
         setActiveSession(sessionId)
       }
-    } else if (activeSessionId) {
-      navigate(`/chat/${activeSessionId}`, { replace: true })
     } else {
-      navigate('/chat/l1', { replace: true })
+      // Find the most recent L2 session
+      const l2Sessions = sessions.filter((s) => s.type === 'l2')
+      if (l2Sessions.length > 0) {
+        const sorted = [...l2Sessions].sort((a, b) => {
+          const timeA = a.createdAt || (a as any).created_at || ''
+          const timeB = b.createdAt || (b as any).created_at || ''
+          return timeB.localeCompare(timeA)
+        })
+        const latest = sorted[0].id
+        setActiveSession(latest)
+        navigate(`/chat/${latest}`, { replace: true })
+      } else {
+        // No L2 sessions exist
+        if (activeSessionId) {
+          setActiveSession('')
+        }
+        if (sessionId === 'l1') {
+          navigate('/chat', { replace: true })
+        }
+      }
     }
-  }, [sessionId, activeSessionId, setActiveSession, navigate])
+  }, [sessionId, activeSessionId, sessions, setActiveSession, navigate])
 
   const currentMessages = messages[activeSessionId || ''] || []
   const activeSession = sessions.find((s) => s.id === activeSessionId)
@@ -345,6 +369,62 @@ export function ChatPage() {
     if (userScrolledUp.current) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [contentSum, streaming])
+
+  if (!activeSessionId) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-background select-none h-full w-full">
+        <div className="w-full max-w-3xl flex flex-col items-center space-y-8">
+          <div className="text-center space-y-3">
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mx-auto mb-2 shadow-inner">
+              <Bot className="h-8 w-8 animate-pulse" />
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-foreground bg-gradient-to-r from-foreground to-foreground/75 bg-clip-text">
+              欢迎使用 SoloQueue 协作空间
+            </h1>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto text-center">
+              选择或创建一个团队和项目的工作会话，与多智能体系统开始协同编程。
+            </p>
+          </div>
+
+          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+            {l2Groups.map((group) => {
+              const groupProjects = teamProjectsMap[group] || []
+              return (
+                <div key={group} className="border border-border/45 bg-card/40 rounded-xl p-5 hover:border-border/80 hover:bg-card/60 transition-all flex flex-col justify-between space-y-4">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-bold text-foreground tracking-wider uppercase">{group} 团队</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {groupProjects.length > 0 
+                        ? `关联项目: ${groupProjects.map(p => p.name).join(', ')}` 
+                        : '无关联项目'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <button
+                      onClick={() => handleNewSession(group)}
+                      className="flex-1 py-1.5 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/95 transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer min-w-[120px]"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> 开启空会话
+                    </button>
+                    {groupProjects.map((proj) => (
+                      <button
+                        key={proj.id}
+                        onClick={() => handleNewSession(group, proj.path)}
+                        className="py-1.5 px-3 rounded-lg border border-border/80 hover:border-foreground text-foreground text-xs font-medium bg-secondary/50 hover:bg-secondary transition-all cursor-pointer truncate max-w-[140px]"
+                        title={`开启项目 ${proj.name} 的会话`}
+                      >
+                        {proj.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
