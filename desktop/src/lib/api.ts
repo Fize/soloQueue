@@ -17,7 +17,6 @@ import type {
   SkillListResponse,
   MCPConfig,
   FileInfo,
-  FileRoot,
   DependenciesResponse,
   SetDependenciesRequest,
   CronTask,
@@ -219,20 +218,6 @@ export async function listFiles(dir: string): Promise<FileInfo[]> {
     throw new Error('Unauthorized')
   }
   if (!res.ok) throw new Error(`Failed to list files: ${res.statusText}`)
-  return res.json()
-}
-
-export async function getFileRoots(): Promise<FileRoot[]> {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...getAuthHeaders(),
-  }
-  const res = await fetch(`${API_BASE}/files/roots`, { headers })
-  if (res.status === 401) {
-    useAuthStore.getState().logout()
-    throw new Error('Unauthorized')
-  }
-  if (!res.ok) throw new Error(`Failed to fetch roots: ${res.statusText}`)
   return res.json()
 }
 

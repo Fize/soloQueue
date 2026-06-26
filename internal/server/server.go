@@ -183,7 +183,7 @@ func WithTemplates(templates []agent.AgentTemplate) MuxOption {
 }
 
 // WithGroupsDir sets the groups directory for hot-reload support.
-// When set, groups are reloaded from disk on each request (handleGetFileRoots, allowedRoots).
+// When set, groups are reloaded from disk on each request (allowedRoots).
 func WithGroupsDir(dir string) MuxOption {
 	return func(m *Mux) { m.groupsDir = dir }
 }
@@ -517,10 +517,8 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
 
 	// File routes (read-only access to plan directory and team workspaces)
-	r.Get("/api/files/roots", m.handleGetFileRoots)
 	r.Get("/api/files/content", m.handleGetFileContent)
 	r.Get("/api/files/list", m.handleListFiles)
-	r.Get("/api/files/info", m.handleGetFileInfo)
 	r.Post("/api/files/toggle-checkbox", m.handleToggleCheckbox)
 
 	// Static file server for embedded web UI (catch-all: only unmatched paths).

@@ -28,7 +28,6 @@ const mainNav = [
   { to: '/office', icon: Gamepad2, label: '办公室' },
   { to: '/chat', icon: Bot, label: '助手' },
   { to: '/simulations', icon: Play, label: '模拟推演' },
-  { to: '/files', icon: FolderOpen, label: '文件管理器' },
   { to: '/cron', icon: Clock, label: '定时任务' },
 ]
 

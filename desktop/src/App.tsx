@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import { PanelLeftClose, PanelRightOpen } from 'lucide-react'
 import { Sidebar } from '@/components/Sidebar'
 import { AgentDetailPage } from '@/components/AgentDetailPage'
-import { FilesPage } from '@/components/FilesPage'
 import { CronPage } from '@/components/CronPage'
 import { SimulationListPage } from '@/components/SimulationListPage'
 import { SimulationDetailPage } from '@/components/SimulationDetailPage'
@@ -153,7 +152,6 @@ function App() {
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/chat/:sessionId" element={<ChatPage />} />
                 <Route path="/agents/:id" element={<AgentDetailPage />} />
-                <Route path="/files" element={<FilesPage />} />
                 <Route path="/cron" element={<CronPage />} />
                 <Route path="/simulations" element={<SimulationListPage />} />
                 <Route path="/simulations/:id" element={<SimulationDetailPage />} />

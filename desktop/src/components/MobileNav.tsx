@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bot, Clock, FolderOpen, Menu } from 'lucide-react'
+import { Bot, Clock, Menu } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -9,7 +9,6 @@ interface MobileNavProps {
 
 const tabs = [
   { to: '/', icon: Bot, label: 'Agents' },
-  { to: '/files', icon: FolderOpen, label: 'Files' },
   { to: '/cron', icon: Clock, label: 'Cron' },
 ]
 

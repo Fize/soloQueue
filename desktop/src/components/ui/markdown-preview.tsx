@@ -1,6 +1,5 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -100,7 +99,6 @@ function CodeBlock({
 }
 
 export function MarkdownPreview({ content, className, onToggleCheckbox }: MarkdownPreviewProps) {
-  const navigate = useNavigate()
   if (!content) return null
 
   let checkboxIndex = 0
@@ -150,35 +148,6 @@ export function MarkdownPreview({ content, className, onToggleCheckbox }: Markdo
             return <input {...props} />
           },
           a({ node: _node, href, children, ...props }) {
-            if (
-              href &&
-              (href.startsWith('file://') ||
-                href.startsWith('/') ||
-                href.startsWith('\\') ||
-                href.includes(':\\') ||
-                href.includes(':/'))
-            ) {
-              let cleanPath = href
-              if (href.startsWith('file://')) {
-                cleanPath = href.replace(/^file:\/\//, '')
-                if (cleanPath.match(/^\/[a-zA-Z]:/)) {
-                  cleanPath = cleanPath.substring(1)
-                }
-              }
-              return (
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    navigate(`/files?path=${encodeURIComponent(cleanPath)}`)
-                  }}
-                  className="text-primary hover:underline cursor-pointer"
-                  {...props}
-                >
-                  {children}
-                </a>
-              )
-            }
             return (
               <a href={href} {...props}>
                 {children}

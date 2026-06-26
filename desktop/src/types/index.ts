@@ -699,12 +699,6 @@ export interface FileInfo {
   modTime: string
 }
 
-export interface FileRoot {
-  label: string
-  path: string
-  group: string
-}
-
 // ─── Team & Agent CRUD Types (DB-backed) ────────────────────────────────────
 
 export interface TeamWorkspace {
