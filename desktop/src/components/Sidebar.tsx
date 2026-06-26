@@ -12,7 +12,6 @@ import {
   Server,
   Users,
   Clock,
-  Monitor,
   Sun,
   Moon,
   MessageSquare,
@@ -38,7 +37,6 @@ const settingsChildren = [
   { to: '/settings/mcp', icon: Server, label: 'MCP 服务' },
   { to: '/settings/teams', icon: Users, label: '团队管理' },
   { to: '/settings/projects', icon: FolderOpen, label: '工作项目' },
-  { to: '/settings/proxies', icon: Monitor, label: '代理管理' },
 ]
 
 interface SidebarProps {
@@ -53,7 +51,6 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
   const navigate = useNavigate()
   const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
   const [chatOpen, setChatOpen] = useState(location.pathname.startsWith('/chat/l2:'))
-  const [proxies, setProxies] = useState<{ id: string }[]>([])
   const [viewMode, setViewMode] = useState<'nav' | 'settings'>(
     location.pathname.startsWith('/settings') ? 'settings' : 'nav'
   )
@@ -67,25 +64,6 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
       setViewMode('nav')
     }
   }, [location.pathname])
-
-  const fetchProxies = async () => {
-    try {
-      const res = await fetch('/api/proxy')
-      if (res.ok) {
-        const data = await res.json()
-        setProxies(data || [])
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  useEffect(() => {
-    fetchProxies()
-    const handleProxyUpdated = () => fetchProxies()
-    window.addEventListener('proxy-updated', handleProxyUpdated)
-    return () => window.removeEventListener('proxy-updated', handleProxyUpdated)
-  }, [])
 
   const handleNav = (to: string) => {
     navigate(to)
@@ -123,7 +101,6 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
           location={location}
           chatOpen={chatOpen}
           setChatOpen={setChatOpen}
-          proxies={proxies}
           onNav={handleNav}
           narrow={false}
         />
@@ -179,14 +156,12 @@ function NavView({
   location,
   chatOpen,
   setChatOpen,
-  proxies,
   onNav,
   narrow,
 }: {
   location: ReturnType<typeof useLocation>
   chatOpen: boolean
   setChatOpen: (v: boolean) => void
-  proxies: { id: string }[]
   onNav: (to: string) => void
   narrow: boolean
 }) {
@@ -277,34 +252,6 @@ function NavView({
           )
         })}
 
-        {/* Dynamic proxies / external tools */}
-        {showText && proxies.length > 0 && (
-          <div className="pt-3">
-            <div className="px-2.5 pb-1 text-[10px] font-bold text-muted-foreground/60 tracking-wider uppercase">
-              扩展工具
-            </div>
-            <div className="space-y-0.5">
-              {proxies.map((proxy) => {
-                const active = location.pathname === `/iframe/${proxy.id}`
-                return (
-                  <button
-                    key={`proxy-${proxy.id}`}
-                    onClick={() => onNav(`/iframe/${proxy.id}`)}
-                    className={cn(
-                      'flex w-full items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 cursor-pointer',
-                      active
-                        ? 'bg-primary text-white shadow-sm font-semibold'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
-                    )}
-                  >
-                    <Monitor className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{proxy.id}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
       </nav>
     </>
   )

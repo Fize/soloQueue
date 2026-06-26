@@ -31,7 +31,6 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,7 +45,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/proxy"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
@@ -81,7 +79,6 @@ type Mux struct {
 	effectiveAuthPass string
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
-	proxyManager   *proxy.ProxyManager
 	simEngine      *simulation.SimulationEngine
 }
 
@@ -246,11 +243,6 @@ func WithOnConfigChange(fn func() error) MuxOption {
 	return func(m *Mux) { m.onConfigChange = fn }
 }
 
-// WithProxyManager sets the proxy manager for the /api/proxy endpoints.
-func WithProxyManager(pm *proxy.ProxyManager) MuxOption {
-	return func(m *Mux) { m.proxyManager = pm }
-}
-
 // WithSessionManager sets the session manager for /api/session endpoints.
 func WithSessionManager(mgr *session.SessionManager) MuxOption {
 	return func(m *Mux) { m.sessionMgr = mgr }
@@ -288,7 +280,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(m.corsMiddleware)
-	r.Use(m.proxyEntryPointMiddleware)
 
 	// Logging middleware
 	r.Use(func(next http.Handler) http.Handler {
@@ -469,15 +460,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		})
 	})
 
-	// Proxy routes
-	r.Route("/api/proxy", func(r chi.Router) {
-		r.Get("/", m.handleListProxies)
-		r.Post("/", m.handleCreateProxy)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Delete("/", m.handleDeleteProxy)
-		})
-	})
-
 	// Cron routes
 	r.Route("/api/cron", func(r chi.Router) {
 		r.Get("/", m.handleListCronTasks)
@@ -542,7 +524,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			}
 		}
 
-		// Serve SoloQueue's own embedded static files first to prevent them from being hijacked by the proxy.
+		// SPA: serve embedded static files or fallback to index.html
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path != "" {
 			if info, err := fs.Stat(fsys, path); err == nil && !info.IsDir() {
@@ -550,20 +532,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 				return
 			}
 		}
-
-		// If it's a request from SoloQueue's own UI, don't proxy it.
-		if r.Header.Get("X-SoloQueue-Request") == "true" {
-			http.Error(w, "Not Found", http.StatusNotFound)
-			return
-		}
-
-		targetProxyID := m.detectProxyID(r)
-		if targetProxyID != "" && m.proxyManager != nil && m.proxyManager.HasProxy(targetProxyID) {
-			m.proxyManager.CachePath(r.URL.Path, targetProxyID)
-			m.serveReverseProxy(w, r, targetProxyID)
-			return
-		}
-
 		if _, err := fs.Stat(fsys, path); err != nil {
 			r.URL.Path = "/"
 		}
@@ -571,67 +539,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	})
 
 	return m
-}
-
-func (m *Mux) detectProxyID(r *http.Request) string {
-	// 1. Direct query parameter
-	if id := r.URL.Query().Get("soloqueue_proxy"); id != "" {
-		return id
-	}
-
-	// 2. Referer-based detection
-	referer := r.Header.Get("Referer")
-	if referer != "" {
-		if refURL, err := url.Parse(referer); err == nil {
-			if id := refURL.Query().Get("soloqueue_proxy"); id != "" {
-				return id
-			} else if m.proxyManager != nil {
-				if id := m.proxyManager.GetCachedProxy(refURL.Path); id != "" {
-					return id
-				}
-			}
-		}
-	}
-
-	// 3. Fallback cookie for WebSockets and relative sub-resource requests
-	isWebsocket := strings.ToLower(r.Header.Get("Upgrade")) == "websocket" || r.Header.Get("Sec-WebSocket-Key") != ""
-	isHTML := strings.Contains(r.Header.Get("Accept"), "text/html")
-	if isWebsocket || (!isHTML && r.URL.Path != "/") {
-		if cookie, err := r.Cookie("soloqueue_active_proxy"); err == nil && cookie.Value != "" {
-			return cookie.Value
-		}
-	}
-
-	return ""
-}
-
-func (m *Mux) proxyEntryPointMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// If it's a request from SoloQueue's own UI, bypass proxying.
-		if r.Header.Get("X-SoloQueue-Request") == "true" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Check if request matches an existing static asset in the embedded filesystem.
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path != "" {
-			fsys := distFS()
-			if info, err := fs.Stat(fsys, path); err == nil && !info.IsDir() {
-				// Serve static file normally, bypass proxy.
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-
-		proxyID := m.detectProxyID(r)
-		if proxyID != "" && m.proxyManager != nil && m.proxyManager.HasProxy(proxyID) {
-			m.proxyManager.CachePath(r.URL.Path, proxyID)
-			m.serveReverseProxy(w, r, proxyID)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // ServeHTTP implements http.Handler.

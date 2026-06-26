@@ -19,7 +19,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/proxy"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -100,31 +99,6 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("start cron scheduler: %w", err)
 			}
 			defer cronScheduler.Stop()
-
-			// Initialize proxy manager (Go native)
-			var proxyManager *proxy.ProxyManager
-			defer func() {
-				if proxyManager != nil {
-					log.Info(logger.CatApp, "shutting down proxy manager on exit")
-					proxyManager.Shutdown()
-				}
-			}()
-
-			proxyConfigDir := filepath.Join(workDir, "nginx")
-			proxyStateFile := filepath.Join(workDir, "proxies.json")
-			if err := os.MkdirAll(proxyConfigDir, 0o755); err != nil {
-				log.Warn(logger.CatApp, "failed to create proxy config dir, proxy feature disabled", "err", err.Error())
-			} else {
-				pm, err := proxy.NewProxyManager(proxyConfigDir, proxyStateFile)
-				if err != nil {
-					log.Warn(logger.CatApp, "failed to create proxy manager, proxy feature disabled", "err", err.Error())
-				} else if err := pm.Start(); err != nil {
-					log.Warn(logger.CatApp, "proxy manager failed to start, proxy feature disabled", "err", err.Error())
-				} else {
-					proxyManager = pm
-					log.Info(logger.CatApp, "proxy manager started", "config_dir", proxyConfigDir)
-				}
-			}
 
 			mgr.SetCronHandler(func(ctx context.Context, expression, instruction string) (string, time.Time, error) {
 				nextRun, err := cron.NextTrigger(expression, time.Now())
@@ -217,7 +191,6 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithTeamStore(rt.TeamStore),
 			server.WithAuthConfig(cfg.Get().Auth),
 			server.WithOnConfigChange(rt.OnConfigChange),
-			server.WithProxyManager(proxyManager),
 			server.WithSimulationEngine(rt.SimulationEngine),
 		)
 
@@ -281,9 +254,6 @@ func ServeCmd(version string) *cobra.Command {
 				defer cancel()
 				_ = srv.Shutdown(shutdownCtx)
 				mgr.Shutdown(5 * time.Second)
-				if proxyManager != nil {
-					proxyManager.Shutdown()
-				}
 			}()
 
 			if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
