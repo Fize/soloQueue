@@ -8,8 +8,9 @@ import { useAgentStream } from '@/hooks/useAgentStream'
 import { PanelRight, Loader2, Activity } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { cn } from '@/lib/utils'
-import type { AgentInfo } from '@/types'
+import type { AgentInfo, Project } from '@/types'
 import { L2SessionStatusPanel } from '@/components/L2SessionStatusPanel'
+import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -26,6 +27,8 @@ export function ChatPage() {
     loadSessions,
     setActiveSession,
     loadHistory,
+    createL2Session,
+    deleteL2Session,
   } = useChatStore()
   const { send, cancel } = useChatStream()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -35,6 +38,54 @@ export function ChatPage() {
 
   // macOS Inspector state
   const [showInspector, setShowInspector] = useState(true)
+
+  // L2 redesign states
+  const [l2Groups, setL2Groups] = useState<string[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [teamProjectsMap, setTeamProjectsMap] = useState<Record<string, Project[]>>({})
+
+  const [selectedGroup, setSelectedGroup] = useState<string>('')
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+
+  // Load L2 groups, projects, teams
+  useEffect(() => {
+    let active = true
+    async function loadInitialData() {
+      try {
+        const [groupNames, projs, teamsData] = await Promise.all([
+          listL2Groups(),
+          listProjects(),
+          getTeams().catch(() => ({ teams: [] })),
+        ])
+
+        if (!active) return
+
+        setL2Groups(groupNames)
+        setProjects(projs)
+
+        const projectMap = new Map(projs.map((p) => [p.id, p]))
+        const groupProjects: Record<string, Project[]> = {}
+        for (const team of (teamsData as any).teams || []) {
+          if (team.projects && Array.isArray(team.projects)) {
+            for (const pid of team.projects) {
+              const proj = projectMap.get(pid)
+              if (proj) {
+                if (!groupProjects[team.name]) groupProjects[team.name] = []
+                groupProjects[team.name].push(proj)
+              }
+            }
+          }
+        }
+        setTeamProjectsMap(groupProjects)
+      } catch (err) {
+        console.error('Failed to load welcome screen options:', err)
+      }
+    }
+    loadInitialData()
+    return () => {
+      active = false
+    }
+  }, [])
 
   const agentsData = useAgentStore((state) => state.agents)
   const teamsData = useAgentStore((state) => state.teams)
@@ -66,6 +117,33 @@ export function ChatPage() {
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeGroup = activeSession?.group
   const isL1Session = activeSessionId === 'l1'
+
+  // Sync selected group and project path when activeSession changes
+  useEffect(() => {
+    if (activeSession) {
+      setSelectedGroup(activeSession.group || '')
+      setSelectedProjectPath(activeSession.project_path || '')
+    } else if (l2Groups.length > 0) {
+      setSelectedGroup(l2Groups[0])
+    }
+  }, [activeSession, l2Groups])
+
+  // Sync first project of selected group when selectedGroup changes
+  useEffect(() => {
+    if (selectedGroup) {
+      const groupProjs = teamProjectsMap[selectedGroup] || []
+      const currentProjValid = groupProjs.some((p) => p.path === selectedProjectPath)
+      if (!currentProjValid) {
+        if (groupProjs.length > 0) {
+          setSelectedProjectPath(groupProjs[0].path)
+        } else if (projects.length > 0) {
+          setSelectedProjectPath(projects[0].path)
+        }
+      }
+    }
+  }, [selectedGroup, teamProjectsMap, projects, selectedProjectPath])
+
+  const selectedProject = projects.find((p) => p.path === selectedProjectPath)
 
   const groupAgents = useMemo(() => {
     if (isL1Session) {
@@ -197,6 +275,33 @@ export function ChatPage() {
     return currentMessages
   }, [currentMessages, isL1Session, l1AgentState, streaming, streamChatSegments])
 
+  const handleSend = async (
+    text: string,
+    files?: { name: string; path: string }[],
+    group?: string,
+    projectPath?: string
+  ) => {
+    let targetSessionId = activeSessionId || undefined
+
+    if (!isL1Session && currentMessages.length === 0 && group && activeSession) {
+      const currentProjPath = activeSession.project_path || ''
+      const currentGroup = activeSession.group || ''
+
+      if (group !== currentGroup || projectPath !== currentProjPath) {
+        const newId = await createL2Session(group, projectPath || '')
+        if (newId) {
+          if (activeSessionId && activeSessionId !== newId) {
+            await deleteL2Session(activeSessionId)
+          }
+          targetSessionId = newId
+          navigate(`/chat/${newId}`)
+        }
+      }
+    }
+
+    await send(text, files, targetSessionId)
+  }
+
   const contentSum = finalMessages.reduce((acc, msg) => {
     let sum = 0
     for (const seg of msg.segments) {
@@ -286,37 +391,81 @@ export function ChatPage() {
           
           {/* Conversation stream */}
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
-              {historyLoading && (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-mono ml-2">正在载入历史...</span>
-                </div>
-              )}
-              
-              {finalMessages.map((msg) => (
-                <ChatMessageView key={msg.id} message={msg} />
-              ))}
+            {finalMessages.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
+                <div className="w-full max-w-3xl flex flex-col items-center space-y-8 select-none">
+                  {/* Centered Heading */}
+                  <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
+                    {isL1Session 
+                      ? 'What should we build with L1 Orchestrator?' 
+                      : `What should we build in ${selectedProject?.name || 'soloQueue'}?`
+                    }
+                  </h1>
 
-              {delegating && (
-                <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
-                  <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
-                  <span>团队正在协作分发中，请稍候...</span>
+                  {/* Redesigned Input Card */}
+                  <div className="w-full">
+                    <ChatInput
+                      onSend={handleSend}
+                      onCancel={cancel}
+                      streaming={streaming}
+                      delegating={delegating}
+                      disabled={!activeSessionId || streaming || delegating}
+                      activeSessionId={activeSessionId || undefined}
+                      showL2Selectors={!isL1Session}
+                      groups={l2Groups}
+                      projects={projects}
+                      teamProjectsMap={teamProjectsMap}
+                      selectedGroup={selectedGroup}
+                      selectedProjectPath={selectedProjectPath}
+                      onGroupChange={setSelectedGroup}
+                      onProjectChange={setSelectedProjectPath}
+                    />
+                  </div>
                 </div>
-              )}
-              
-              <div ref={bottomRef} className="h-2" />
-            </div>
+              </div>
+            ) : (
+              <>
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
+                  {historyLoading && (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground font-mono ml-2">正在载入历史...</span>
+                    </div>
+                  )}
+                  
+                  {finalMessages.map((msg) => (
+                    <ChatMessageView key={msg.id} message={msg} />
+                  ))}
 
-            {/* Input area */}
-            <ChatInput
-              onSend={send}
-              onCancel={cancel}
-              streaming={streaming}
-              delegating={delegating}
-              disabled={!activeSessionId || streaming || delegating}
-              activeSessionId={activeSessionId || undefined}
-            />
+                  {delegating && (
+                    <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
+                      <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
+                      <span>团队正在协作分发中，请稍候...</span>
+                    </div>
+                  )}
+                  
+                  <div ref={bottomRef} className="h-2" />
+                </div>
+
+                <ChatInput
+                  onSend={handleSend}
+                  onCancel={cancel}
+                  streaming={streaming}
+                  delegating={delegating}
+                  disabled={!activeSessionId || streaming || delegating}
+                  activeSessionId={activeSessionId || undefined}
+                  showL2Selectors={!isL1Session}
+                  readOnlySelectors={true}
+                  groups={l2Groups}
+                  projects={projects}
+                  teamProjectsMap={teamProjectsMap}
+                  selectedGroup={selectedGroup}
+                  selectedProjectPath={selectedProjectPath}
+                  onGroupChange={setSelectedGroup}
+                  onProjectChange={setSelectedProjectPath}
+                />
+              </>
+            )}
           </div>
 
           {/* Right Inspector panel (Plan lists, checklist, MCP status details) */}

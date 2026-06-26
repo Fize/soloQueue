@@ -595,3 +595,8 @@ export async function uploadFile(
 
   return res.json()
 }
+
+export async function getProjectBranches(projectId: string): Promise<string[]> {
+  const data = await request<{ branches: string[] }>(`/projects/${encodeURIComponent(projectId)}/branches`)
+  return data.branches ?? []
+}

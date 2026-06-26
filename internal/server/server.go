@@ -385,6 +385,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Get("/", m.handleGetProject)
 			r.Put("/", m.handleUpdateProject)
 			r.Delete("/", m.handleDeleteProject)
+			r.Get("/branches", m.handleGetProjectBranches)
 		})
 	})
 

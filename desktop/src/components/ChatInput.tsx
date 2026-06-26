@@ -1,15 +1,36 @@
-import { type KeyboardEvent, useRef, useEffect, useCallback, useState } from 'react'
+import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { toast } from 'sonner'
-import { ArrowUp, StopCircle, X, Loader2 } from 'lucide-react'
-import { uploadFile } from '@/lib/api'
+import { 
+  ArrowUp, StopCircle, X, Loader2, Plus, ChevronDown, 
+  Check, Laptop, GitBranch, Bot, Mic 
+} from 'lucide-react'
+import { uploadFile, getProjectBranches } from '@/lib/api'
+import type { Project } from '@/types'
+import { cn } from '@/lib/utils'
 
 export interface ChatInputProps {
-  onSend: (text: string, files?: { name: string; path: string }[]) => void
+  onSend: (
+    text: string, 
+    files?: { name: string; path: string }[],
+    group?: string,
+    projectPath?: string
+  ) => void
   onCancel: () => void
   streaming: boolean
   delegating: boolean
   disabled: boolean
   activeSessionId?: string
+
+  // Redesign selectors props
+  showL2Selectors?: boolean
+  groups?: string[]
+  projects?: Project[]
+  teamProjectsMap?: Record<string, Project[]>
+  selectedGroup?: string
+  selectedProjectPath?: string
+  onGroupChange?: (group: string) => void
+  onProjectChange?: (path: string) => void
+  readOnlySelectors?: boolean
 }
 
 interface Attachment {
@@ -29,9 +50,61 @@ export function ChatInput({
   delegating,
   disabled,
   activeSessionId,
+  showL2Selectors = false,
+  groups = [],
+  projects = [],
+  teamProjectsMap = {},
+  selectedGroup = '',
+  selectedProjectPath = '',
+  onGroupChange,
+  onProjectChange,
+  readOnlySelectors = false,
 }: ChatInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
+
+  // Selectors State
+  const [activeDropdown, setActiveDropdown] = useState<'group' | 'project' | 'branch' | null>(null)
+  const [branch, setBranch] = useState<string>('main')
+  const [branches, setBranches] = useState<string[]>(['main'])
+
+  // Fetch branches dynamically based on the selected project path
+  useEffect(() => {
+    if (selectedProjectPath && projects.length > 0) {
+      const proj = projects.find((p) => p.path === selectedProjectPath)
+      if (proj) {
+        getProjectBranches(proj.id)
+          .then((list) => {
+            setBranches(list)
+            if (list.length > 0 && !list.includes(branch)) {
+              setBranch(list[0])
+            }
+          })
+          .catch(() => {
+            setBranches(['main'])
+          })
+      }
+    } else {
+      setBranches(['main'])
+    }
+  }, [selectedProjectPath, projects])
+
+  const filteredProjects = useMemo(() => {
+    if (!selectedGroup || !teamProjectsMap) return []
+    return teamProjectsMap[selectedGroup] || []
+  }, [selectedGroup, teamProjectsMap])
+
+  // Automatically select the first filtered project if the current selection is invalid
+  useEffect(() => {
+    if (showL2Selectors && selectedGroup && onProjectChange) {
+      const activeProj = filteredProjects.find(p => p.path === selectedProjectPath)
+      if (!activeProj && filteredProjects.length > 0) {
+        onProjectChange(filteredProjects[0].path)
+      } else if (filteredProjects.length === 0 && selectedProjectPath !== '') {
+        onProjectChange('')
+      }
+    }
+  }, [selectedGroup, filteredProjects, selectedProjectPath, onProjectChange, showL2Selectors])
 
   useEffect(() => {
     if (!streaming) {
@@ -136,7 +209,12 @@ export function ChatInput({
       text ||
       (uploadedFiles.length === 1 ? `Pasted image: ${uploadedFiles[0].name}` : 'Pasted images')
 
-    onSend(finalPrompt, uploadedFiles.length > 0 ? uploadedFiles : undefined)
+    onSend(
+      finalPrompt, 
+      uploadedFiles.length > 0 ? uploadedFiles : undefined,
+      selectedGroup || undefined,
+      selectedProjectPath || undefined
+    )
 
     if (inputRef.current) inputRef.current.value = ''
 
@@ -146,7 +224,7 @@ export function ChatInput({
 
     // Reset height
     if (inputRef.current) inputRef.current.style.height = 'auto'
-  }, [streaming, disabled, onSend, attachments])
+  }, [streaming, disabled, onSend, attachments, selectedGroup, selectedProjectPath, delegating])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -160,17 +238,27 @@ export function ChatInput({
     const el = inputRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = el.scrollHeight + 'px'
+    const nextHeight = Math.min(el.scrollHeight, 160)
+    el.style.height = nextHeight + 'px'
   }
 
-  const placeholderText = disabled
-    ? 'Select a session to begin...'
-    : 'Ask anything, or paste an image — Enter to send, Shift+Enter for newline'
+
 
   return (
-    <div className="border-t border-border/50 bg-gradient-to-t from-card to-card/80 backdrop-blur-sm">
-      <div className="mx-auto max-w-3xl px-4 py-4">
-        <div className="relative flex flex-col rounded-2xl border border-border/60 bg-background shadow-sm transition-shadow focus-within:shadow-md focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/5">
+    <div className="mx-auto w-full max-w-3xl px-4 py-2">
+      {/* Dropdown Click Catcher */}
+      {activeDropdown && (
+        <div 
+          className="fixed inset-0 z-40 bg-transparent cursor-default" 
+          onClick={() => setActiveDropdown(null)} 
+        />
+      )}
+
+      {/* Main card wrapper */}
+      <div className="relative flex flex-col rounded-3xl border border-border/60 bg-muted/20 dark:bg-muted/10 p-2 shadow-sm transition-all focus-within:shadow-md focus-within:border-primary/30">
+        
+        {/* Upper Card Area: input text area */}
+        <div className="w-full bg-background rounded-2xl border border-border/40 shadow-sm flex flex-col p-2.5">
           {/* Thumbnails preview */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-2xl">
@@ -205,51 +293,209 @@ export function ChatInput({
             </div>
           )}
 
-          <div className="flex items-end w-full">
+          <div className="flex flex-col w-full min-h-[32px]">
             <textarea
               ref={inputRef}
-              className="flex-1 resize-none bg-transparent px-4 py-3 text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none min-h-[48px] rounded-2xl"
-              placeholder={placeholderText}
+              className="w-full resize-none bg-transparent px-3 py-1 text-[15px] leading-normal text-foreground placeholder:text-muted-foreground/45 focus:outline-none min-h-[32px] max-h-[160px] overflow-y-auto rounded-lg"
+              placeholder="Ask anything..."
               rows={1}
               disabled={(streaming && !delegating) || disabled}
               onKeyDown={handleKeyDown}
               onInput={autoResize}
               onPaste={handlePaste}
             />
-            <div className="shrink-0 flex items-center gap-1 pr-2 pb-2">
-              {streaming && !delegating ? (
+
+            {/* Inner action buttons row */}
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/30">
+              {/* Left actions: plus and selectors */}
+              <div className="flex items-center gap-2 flex-1 min-w-0">
                 <button
-                  onClick={onCancel}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors text-xs font-medium"
-                  title="Stop generating"
+                  type="button"
+                  onClick={() => toast.info('Drag and drop or paste images to attach')}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0"
+                  title="Add context"
                 >
-                  <StopCircle className="h-3.5 w-3.5" />
-                  <span>Stop</span>
+                  <Plus className="h-4 w-4" />
                 </button>
-              ) : delegating ? (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-500/10 text-violet-500 text-xs font-medium">
-                  <span className="inline-block h-2 w-2 rounded-full bg-violet-500 animate-pulse" />
-                  <span>Delegating</span>
-                </div>
-              ) : (
+
+                {showL2Selectors && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5 flex-1 min-w-0">
+                    {/* L2 Group Select */}
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (readOnlySelectors) return
+                          setActiveDropdown(activeDropdown === 'group' ? null : 'group')
+                        }}
+                        className={cn(
+                          "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
+                          readOnlySelectors 
+                            ? "cursor-default" 
+                            : "cursor-pointer hover:text-foreground hover:bg-muted/40"
+                        )}
+                      >
+                        <Bot className="h-3 w-3 text-muted-foreground/60" />
+                        <span className="text-foreground/80">{selectedGroup || 'Select Group'}</span>
+                        {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
+                      </button>
+
+                      {activeDropdown === 'group' && groups.length > 0 && (
+                        <div className="absolute left-0 bottom-full mb-1 z-50 w-44 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto">
+                          {groups.map((g) => (
+                            <button
+                              key={g}
+                              type="button"
+                              onClick={() => {
+                                if (onGroupChange) onGroupChange(g)
+                                setActiveDropdown(null)
+                              }}
+                              className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+                            >
+                              <span>{g}</span>
+                              {selectedGroup === g && <Check className="h-3 w-3 text-primary" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Project Select - Only show if the team actually has projects */}
+                    {filteredProjects.length > 0 && (
+                      <>
+                        <span className="text-muted-foreground/20 font-mono select-none">/</span>
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (readOnlySelectors) return
+                              setActiveDropdown(activeDropdown === 'project' ? null : 'project')
+                            }}
+                            className={cn(
+                              "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
+                              readOnlySelectors 
+                                ? "cursor-default" 
+                                : "cursor-pointer hover:text-foreground hover:bg-muted/40"
+                            )}
+                          >
+                            <Laptop className="h-3 w-3 text-muted-foreground/60" />
+                            <span className="text-foreground/80 truncate max-w-[120px]">
+                              {projects.find((p) => p.path === selectedProjectPath)?.name || 'Select Project'}
+                            </span>
+                            {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
+                          </button>
+
+                          {activeDropdown === 'project' && (
+                            <div className="absolute left-0 bottom-full mb-1 z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto">
+                              {filteredProjects.map((p) => (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => {
+                                    if (onProjectChange) onProjectChange(p.path)
+                                    setActiveDropdown(null)
+                                  }}
+                                  className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+                                >
+                                  <span className="truncate">{p.name}</span>
+                                  {selectedProjectPath === p.path && <Check className="h-3 w-3 text-primary" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Branch Select - Only show if projects are present and one is selected */}
+                    {filteredProjects.length > 0 && selectedProjectPath && (
+                      <>
+                        <span className="text-muted-foreground/20 font-mono select-none">/</span>
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (readOnlySelectors) return
+                              setActiveDropdown(activeDropdown === 'branch' ? null : 'branch')
+                            }}
+                            className={cn(
+                              "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
+                              readOnlySelectors 
+                                ? "cursor-default" 
+                                : "cursor-pointer hover:text-foreground hover:bg-muted/40"
+                            )}
+                          >
+                            <GitBranch className="h-3 w-3 text-muted-foreground/60" />
+                            <span className="text-foreground/80">{branch}</span>
+                            {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
+                          </button>
+
+                          {activeDropdown === 'branch' && (
+                            <div className="absolute left-0 bottom-full mb-1 z-50 w-32 rounded-xl border border-border bg-popover p-1 shadow-lg">
+                              {branches.map((b) => (
+                                <button
+                                  key={b}
+                                  type="button"
+                                  onClick={() => {
+                                    setBranch(b)
+                                    setActiveDropdown(null)
+                                  }}
+                                  className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+                                >
+                                  <span>{b}</span>
+                                  {branch === b && <Check className="h-3 w-3 text-primary" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Right actions: microphone, send only */}
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={handleSubmit}
-                  disabled={disabled || attachments.some((att) => att.status === 'uploading')}
-                  className="flex items-center justify-center h-8 w-8 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Send message"
+                  type="button"
+                  onClick={() => toast.info('Voice input is not supported in this environment')}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer"
+                  title="Voice input"
                 >
-                  <ArrowUp className="h-4 w-4" />
+                  <Mic className="h-4 w-4" />
                 </button>
-              )}
+
+                {streaming && !delegating ? (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="flex items-center gap-1 px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
+                  >
+                    <StopCircle className="h-4 w-4" />
+                    <span>Stop</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={disabled || attachments.some((att) => att.status === 'uploading')}
+                    className="flex items-center justify-center h-8 w-8 rounded-full bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
-        {disabled && (
-          <p className="mt-2 text-center text-[11px] text-muted-foreground/50">
-            Create a new session from the sidebar to get started
-          </p>
-        )}
       </div>
+
+      {disabled && !showL2Selectors && (
+        <p className="mt-2 text-center text-[11px] text-muted-foreground/50">
+          Create a new session from the sidebar to get started
+        </p>
+      )}
     </div>
   )
 }

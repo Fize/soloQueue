@@ -27,8 +27,9 @@ export function useChatStream() {
   } = useChatStore()
 
   const send = useCallback(
-    async (prompt: string, files?: { name: string; path: string }[]) => {
-      const sid = activeSessionId
+    async (prompt: string, files?: { name: string; path: string }[], sessionIdOverride?: string) => {
+      const state = useChatStore.getState()
+      const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
 
       const requestId = generateRequestId()
@@ -57,7 +58,7 @@ export function useChatStream() {
       setStreaming(true)
 
       const isL2 = sid.startsWith('l2:')
-      const shouldGenTitle = isL2 && !titleGenerated[sid]
+      const shouldGenTitle = isL2 && !state.titleGenerated[sid]
       let finalContent = ''
 
       let finished = false
