@@ -1,7 +1,255 @@
 @import "tailwindcss";
 
+/* ─── Class-based dark mode ─── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ════════════════════════════════════════════════
+   Material Design 3 — Custom Color Tokens
+   ════════════════════════════════════════════════ */
+:root {
+  /* Primary — Indigo */
+  --md-primary: #635bff;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #e8e0ff;
+  --md-on-primary-container: #1a0080;
+
+  /* Secondary */
+  --md-secondary: #5a5d72;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #e0e0f4;
+  --md-on-secondary-container: #171b2c;
+
+  /* Tertiary — Teal accent for token/metrics */
+  --md-tertiary: #006a6a;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #6ff7f7;
+  --md-on-tertiary-container: #002020;
+
+  /* Error */
+  --md-error: #ba1a1a;
+  --md-on-error: #ffffff;
+  --md-error-container: #ffdad6;
+  --md-on-error-container: #410002;
+
+  /* Surface */
+  --md-surface: #f9f9fd;
+  --md-on-surface: #1a1b1f;
+  --md-surface-variant: #e4e1ec;
+  --md-on-surface-variant: #47464f;
+  --md-inverse-surface: #2f3033;
+  --md-inverse-on-surface: #f1f0f4;
+
+  /* Surface containers */
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f2f2f7;
+  --md-surface-container: #ececf3;
+  --md-surface-container-high: #e5e5ed;
+  --md-surface-container-highest: #dfdfe7;
+
+  /* Outline */
+  --md-outline: #74777f;
+  --md-outline-variant: #c4c6d0;
+
+  /* Elevation shadows (Material 3) */
+  --md-elevation-1: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+  --md-elevation-2: 0 3px 6px 0 rgb(0 0 0 / 0.10), 0 1px 3px -1px rgb(0 0 0 / 0.06);
+  --md-elevation-3: 0 6px 12px 0 rgb(0 0 0 / 0.10), 0 2px 6px 0 rgb(0 0 0 / 0.06);
+  --md-elevation-4: 0 8px 16px 0 rgb(0 0 0 / 0.10), 0 4px 8px 0 rgb(0 0 0 / 0.06);
+  --md-elevation-5: 0 12px 24px 0 rgb(0 0 0 / 0.12), 0 6px 12px 0 rgb(0 0 0 / 0.06);
+
+  /* Semantic token colors */
+  --md-success: #2e7d32;
+  --md-on-success: #ffffff;
+  --md-success-container: #a5d6a7;
+  --md-warning: #ed6c02;
+  --md-on-warning: #ffffff;
+  --md-warning-container: #ffe2b3;
+  --md-info: #0288d1;
+  --md-on-info: #ffffff;
+  --md-info-container: #b3e5fc;
+
+  /* Background (body) */
+  --md-background: #f4f4f8;
+  --md-on-background: #1a1b1f;
+}
+
+/* ─── Dark mode overrides ─── */
+.dark {
+  --md-primary: #b0a8ff;
+  --md-on-primary: #2600d9;
+  --md-primary-container: #4400ff;
+  --md-on-primary-container: #e8e0ff;
+
+  --md-secondary: #c4c6db;
+  --md-on-secondary: #2d3042;
+  --md-secondary-container: #434659;
+  --md-on-secondary-container: #e0e0f4;
+
+  --md-tertiary: #4edbdb;
+  --md-on-tertiary: #003737;
+  --md-tertiary-container: #004f4f;
+  --md-on-tertiary-container: #6ff7f7;
+
+  --md-error: #ffb4ab;
+  --md-on-error: #690005;
+  --md-error-container: #93000a;
+  --md-on-error-container: #ffdad6;
+
+  --md-surface: #121318;
+  --md-on-surface: #e3e2e6;
+  --md-surface-variant: #47464f;
+  --md-on-surface-variant: #cac4d0;
+  --md-inverse-surface: #e3e2e6;
+  --md-inverse-on-surface: #2f3033;
+
+  --md-surface-container-lowest: #0d0e12;
+  --md-surface-container-low: #1a1b20;
+  --md-surface-container: #1e1f25;
+  --md-surface-container-high: #292a30;
+  --md-surface-container-highest: #34353b;
+
+  --md-outline: #8e9099;
+  --md-outline-variant: #44474f;
+
+  --md-elevation-1: 0 1px 3px 0 rgb(0 0 0 / 0.30), 0 1px 2px -1px rgb(0 0 0 / 0.20);
+  --md-elevation-2: 0 3px 6px 0 rgb(0 0 0 / 0.32), 0 1px 3px -1px rgb(0 0 0 / 0.22);
+  --md-elevation-3: 0 6px 12px 0 rgb(0 0 0 / 0.34), 0 2px 6px 0 rgb(0 0 0 / 0.22);
+  --md-elevation-4: 0 8px 16px 0 rgb(0 0 0 / 0.34), 0 4px 8px 0 rgb(0 0 0 / 0.22);
+  --md-elevation-5: 0 12px 24px 0 rgb(0 0 0 / 0.36), 0 6px 12px 0 rgb(0 0 0 / 0.22);
+
+  --md-background: #0a0b0f;
+  --md-on-background: #e3e2e6;
+
+  --md-success: #81c784;
+  --md-on-success: #1b5e20;
+  --md-success-container: #2e7d32;
+  --md-warning: #ffb74d;
+  --md-on-warning: #7c3a00;
+  --md-warning-container: #a85d00;
+  --md-info: #4fc3f7;
+  --md-on-info: #01579b;
+  --md-info-container: #0277bd;
+}
+
+/* ════════════════════════════════════════════════
+   Base Layer
+   ════════════════════════════════════════════════ */
 @layer base {
   body {
-    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans",
+      "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    background-color: var(--md-background);
+    color: var(--md-on-surface);
+    transition: background-color 0.25s ease, color 0.25s ease;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--md-outline-variant);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--md-outline);
+  }
+
+  /* Selection color */
+  ::selection {
+    background-color: color-mix(in srgb, var(--md-primary) 30%, transparent);
+  }
+
+  /* Global focus-visible ring */
+  *:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+  }
+
+  /* Remove focus ring for mouse clicks */
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+/* ════════════════════════════════════════════════
+   Theme Utility Classes
+   ════════════════════════════════════════════════ */
+@utility surface {
+  background-color: var(--md-surface);
+}
+@utility surface-container-low {
+  background-color: var(--md-surface-container-low);
+}
+@utility surface-container {
+  background-color: var(--md-surface-container);
+}
+@utility surface-container-high {
+  background-color: var(--md-surface-container-high);
+}
+@utility surface-container-highest {
+  background-color: var(--md-surface-container-highest);
+}
+
+/* ─── Shimmer loading animation ─── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@utility shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--md-surface-container) 25%,
+    var(--md-surface-container-high) 50%,
+    var(--md-surface-container) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ─── Agent pulse dot ─── */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+@utility animate-dot-pulse {
+  animation: dot-pulse 1.5s ease-in-out infinite;
+}
+
+/* ─── Slide in from bottom ─── */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@utility animate-slide-up {
+  animation: slide-up 0.3s ease-out both;
+}
+
+/* ─── Number counter flicker ─── */
+@keyframes count-flicker {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+@utility animate-count-update {
+  animation: count-flicker 0.2s ease;
+}
+
+/* ─── Scrollable table wrapper ─── */
+@utility table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ─── Responsive grid auto-fill for metric cards ─── */
+@utility metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 1rem;
 }
