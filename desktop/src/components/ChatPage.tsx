@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ChatMessageView } from '@/components/ChatMessage'
 import { ChatInput } from '@/components/ChatInput'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatStream } from '@/hooks/useChatStream'
 import { useAgentStream } from '@/hooks/useAgentStream'
-import { PanelRight, Loader2, Activity, Bot, Users } from 'lucide-react'
+import { PanelRight, Loader2, Activity, Bot, Users, FolderOpen, Layers } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { cn } from '@/lib/utils'
 import type { AgentInfo, Project } from '@/types'
 import { L2SessionStatusPanel } from '@/components/L2SessionStatusPanel'
+import { SessionFilePanel } from '@/components/SessionFilePanel'
 import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 
 export function ChatPage() {
@@ -39,7 +40,59 @@ export function ChatPage() {
 
   // macOS Inspector state
   const [showInspector, setShowInspector] = useState(false)
+  const [inspectorTab, setInspectorTab] = useState<'files' | 'changes'>('files')
+
+  const toggleInspector = (open: boolean) => {
+    useRuntimeStore.getState().setInspectorPanelWidth(open ? panelWidth : 0)
+    setShowInspector(open)
+  }
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
+
+  // Resizable inspector panel
+  const MIN_AREA_WIDTH = 200
+  const [panelWidth, setPanelWidth] = useState(300)
+  const [isResizing, setIsResizing] = useState(false)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isResizing) return
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!splitContainerRef.current) return
+      const rect = splitContainerRef.current.getBoundingClientRect()
+      const newWidth = rect.right - e.clientX
+      const maxWidth = Math.floor(rect.width * 0.6)
+      const clamped = Math.max(
+        MIN_AREA_WIDTH,
+        Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth)
+      )
+      setPanelWidth(clamped)
+      useRuntimeStore.getState().setInspectorPanelWidth(clamped)
+    }
+    const handleMouseUp = () => setIsResizing(false)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
+
+  // Track split container width for responsive content sizing
+  const [containerWidth, setContainerWidth] = useState(0)
+  useEffect(() => {
+    const el = splitContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      setContainerWidth(entry.contentRect.width)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([])
@@ -136,6 +189,15 @@ export function ChatPage() {
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeGroup = activeSession?.group
   const isL1Session = activeSessionId === 'l1'
+
+  // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
+  const MESSAGE_MAX_W = 768
+  const messageMaxWidth = useMemo(() => {
+    const panelVisible = showInspector && activeSession
+    const mainContentWidth = containerWidth - (panelVisible ? panelWidth + 4 : 0) // 4px = handle width
+    if (mainContentWidth <= 0) return MESSAGE_MAX_W
+    return Math.max(MIN_AREA_WIDTH - 32, Math.min(mainContentWidth * 0.85, MESSAGE_MAX_W))
+  }, [showInspector, activeSession, containerWidth, panelWidth])
 
   // Sync selected group and project path when activeSession changes
   useEffect(() => {
@@ -235,7 +297,7 @@ export function ChatPage() {
 
   useEffect(() => {
     if (anyRunning) {
-      setShowInspector(true)
+      toggleInspector(true)
     }
   }, [anyRunning])
 
@@ -398,7 +460,10 @@ export function ChatPage() {
   if (!activeSessionId) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-background select-none h-full w-full">
-        <div className="w-full max-w-3xl flex flex-col items-center space-y-8">
+        <div
+          className="w-full flex flex-col items-center space-y-8"
+          style={{ maxWidth: messageMaxWidth }}
+        >
           <div className="text-center space-y-3">
             <div className="h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mx-auto mb-2 shadow-inner">
               <Bot className="h-8 w-8 animate-pulse" />
@@ -473,50 +538,97 @@ export function ChatPage() {
     <div className="flex h-full w-full overflow-hidden bg-background">
       {/* Pane 3: Chat conversation bubble stream */}
       <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
-        {/* Chat header */}
+        {/* Chat header — split into chat section + panel section when inspector is open */}
         <header className={cn(
-          "flex h-12 items-center justify-between border-b border-border/30 px-6 select-none bg-card/20 shrink-0",
+          "flex h-12 items-center border-b border-border/30 select-none bg-card/20 shrink-0",
           sidebarCollapsed && "pl-[115px]"
         )}>
-          {/* Header left: info and status */}
-          <div className="flex items-center gap-3">
+          {/* Left section: chat header area — fills remaining space */}
+          <div className={cn(
+            "flex items-center gap-3 px-6 h-full",
+            showInspector ? "flex-1 justify-between" : "flex-1 justify-between"
+          )}>
             <h1 className="text-xs font-bold text-foreground truncate font-mono">
               {activeSession?.name || (isL1Session ? '通用问答 (L1)' : `${activeGroup} 团队`)}
             </h1>
+            <div className="flex items-center gap-2 electron-no-drag">
+              {streaming && (
+                <button
+                  onClick={cancel}
+                  className="px-2.5 py-1 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-[10px] font-semibold transition-all cursor-pointer"
+                >
+                  停止生成
+                </button>
+              )}
+              {!showInspector && (
+                <button
+                  onClick={() => toggleInspector(true)}
+                  className="p-1.5 rounded-md hover:bg-foreground/5 transition-all cursor-pointer text-muted-foreground"
+                  title="显示任务状态面板"
+                >
+                  <PanelRight className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Header right: Actions */}
-          <div className="flex items-center gap-2 electron-no-drag">
-            {streaming && (
-              <button
-                onClick={cancel}
-                className="px-2.5 py-1 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-[10px] font-semibold transition-all cursor-pointer"
-              >
-                停止生成
-              </button>
-            )}
-            
-            <button
-              onClick={() => setShowInspector(!showInspector)}
-              className={cn(
-                'p-1.5 rounded-md hover:bg-foreground/5 transition-all cursor-pointer',
-                showInspector ? 'text-primary' : 'text-muted-foreground'
-              )}
-              title="显示/隐藏 任务状态面板"
+          {/* Right section: panel header area — aligned to inspector width */}
+          {showInspector && (
+            <div
+              className="shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3"
+              style={{ width: panelWidth }}
             >
-              <PanelRight className="h-4 w-4" />
-            </button>
-          </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setInspectorTab('files')}
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer',
+                    inspectorTab === 'files'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                  )}
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  文件
+                </button>
+                <button
+                  onClick={() => setInspectorTab('changes')}
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer',
+                    inspectorTab === 'changes'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                  )}
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  变更
+                </button>
+              </div>
+              <button
+                onClick={() => toggleInspector(false)}
+                className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
+                title="关闭面板"
+              >
+                <PanelRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </header>
 
         {/* Outer container for chat content + inspector split layout */}
-        <div className="flex flex-1 min-h-0 overflow-hidden relative">
+        <div ref={splitContainerRef} className={cn(
+          'flex flex-1 min-h-0 overflow-hidden relative',
+          isResizing && 'select-none'
+        )}>
           
           {/* Conversation stream */}
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
             {finalMessages.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
-                <div className="w-full max-w-3xl flex flex-col items-center space-y-8 select-none">
+                <div
+                  className="w-full flex flex-col items-center space-y-8 select-none"
+                  style={{ maxWidth: messageMaxWidth }}
+                >
                   {/* Centered Heading */}
                   <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
                     {isL1Session 
@@ -551,7 +663,10 @@ export function ChatPage() {
             ) : (
               <>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-6">
-                  <div className="max-w-3xl mx-auto w-full space-y-6 px-4">
+                  <div
+                    className="mx-auto w-full space-y-6 px-4"
+                    style={{ maxWidth: messageMaxWidth }}
+                  >
                     {activeSessionId && historyLoading[activeSessionId] && (
                       <div className="flex items-center justify-center py-4">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -599,9 +714,37 @@ export function ChatPage() {
 
           {/* Right Inspector panel (Plan lists, checklist, MCP status details) */}
           {showInspector && activeSession && (
-            <div className="w-[300px] shrink-0 border-l border-border/30 h-full overflow-y-auto bg-card/5">
-              <L2SessionStatusPanel session={activeSession} activeAgent={activeAgent} />
-            </div>
+            <>
+              {/* Resize handle */}
+              <div
+                onMouseDown={handleResizeStart}
+                className={cn(
+                  'w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors',
+                  isResizing && 'bg-primary/40'
+                )}
+              />
+              <div
+                className="shrink-0 border-l border-border/30 h-full overflow-hidden bg-card/5 flex flex-col"
+                style={{ width: panelWidth }}
+              >
+                {/* Panel content */}
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {inspectorTab === 'files' ? (
+                    activeSession.project_path ? (
+                      <SessionFilePanel projectPath={activeSession.project_path} panelWidth={panelWidth} />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                        当前会话未关联项目
+                      </div>
+                    )
+                  ) : (
+                    <div className="h-full overflow-y-auto">
+                      <L2SessionStatusPanel session={activeSession} activeAgent={activeAgent} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>

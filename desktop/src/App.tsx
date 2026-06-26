@@ -29,6 +29,7 @@ function App() {
   const { isAuthenticated, isLoading } = useAuthStore()
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
+  const inspectorPanelWidth = useRuntimeStore((s) => s.inspectorPanelWidth)
   const [isHovered, setIsHovered] = useState(false)
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -130,11 +131,17 @@ function App() {
             <div className="absolute top-0 left-0 right-0 h-12 z-50 pointer-events-none">
               {sidebarCollapsed ? (
                 <>
-                  <div className="absolute left-0 top-0 w-[70px] h-full electron-drag-region pointer-events-auto" />
-                  <div className="absolute left-[115px] right-[250px] top-0 h-full electron-drag-region pointer-events-auto" />
+                  <div className="absolute left-0 top-0 w-[70px] h-full electron-drag-region" />
+                  <div
+                    className="absolute left-[115px] top-0 h-full electron-drag-region"
+                    style={{ right: inspectorPanelWidth }}
+                  />
                 </>
               ) : (
-                <div className="absolute left-0 top-0 right-[250px] h-full electron-drag-region pointer-events-auto" />
+                <div
+                  className="absolute left-0 top-0 h-full electron-drag-region"
+                  style={{ right: inspectorPanelWidth }}
+                />
               )}
             </div>
 

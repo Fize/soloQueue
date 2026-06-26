@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { getFileUrl, toggleFileCheckbox } from '@/lib/api'
@@ -92,6 +92,49 @@ const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp
 const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.opus']
 const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv']
 
+// Known plain text extensions (mirrors backend textExtensions) — anything NOT in
+// extToLanguage + image/audio/video + plainText + markdown is treated as binary.
+const plainTextExtensions = new Set([
+  '.markdown', '.txt', '.log', '.mod', '.sum', '.pyx',
+  '.kts', '.scala', '.ini', '.cfg', '.less', '.fish', '.psql',
+  '.Makefile', '.dockerignore', '.gitignore', '.env', '.envrc',
+  '.lua', '.rb', '.php', '.swift', '.r', '.dart',
+  '.tf', '.hcl', '.vue', '.svelte',
+])
+
+// Well-known text filenames that don't have extensions.
+const knownTextFilenames = new Set([
+  'Dockerfile', 'Makefile', 'README', 'LICENSE', 'CHANGELOG',
+  'Procfile', 'Jenkinsfile', 'Vagrantfile',
+])
+
+function isBinaryFile(path: string): boolean {
+  const ext = getExt(path)
+  if (!ext) {
+    // No extension — only treat as text if it's a well-known text filename.
+    const name = path.split('/').pop() ?? path
+    return !knownTextFilenames.has(name)
+  }
+  if (extToLanguage[ext]) return false
+  if (ext === '.md' || ext === '.markdown') return false
+  if (imageExtensions.includes(ext)) return false
+  if (audioExtensions.includes(ext)) return false
+  if (videoExtensions.includes(ext)) return false
+  if (plainTextExtensions.has(ext)) return false
+  return true
+}
+
+// looksBinary checks whether the first N bytes contain a NUL byte (0x00),
+// matching the backend's binary detection heuristic.
+function looksBinary(buf: ArrayBuffer): boolean {
+  const n = Math.min(buf.byteLength, 512)
+  const view = new Uint8Array(buf, 0, n)
+  for (let i = 0; i < n; i++) {
+    if (view[i] === 0) return true
+  }
+  return false
+}
+
 function getExt(path: string): string {
   const name = path.split('/').pop() ?? path
   const dot = name.lastIndexOf('.')
@@ -110,6 +153,12 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview')
+
+  // Use a ref so we can call the latest onError without adding it to the
+  // effect dependency array (avoiding re-fetch when the parent re-renders).
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
 
   useEffect(() => {
     if (!path) {
@@ -119,10 +168,14 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
     }
 
     const ext = getExt(path)
+    // Reset view mode when switching files
+    setViewMode('preview')
+
     if (
       imageExtensions.includes(ext) ||
       audioExtensions.includes(ext) ||
-      videoExtensions.includes(ext)
+      videoExtensions.includes(ext) ||
+      isBinaryFile(path)
     ) {
       setContent(null)
       setError(null)
@@ -135,18 +188,27 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
     fetch(getFileUrl(path))
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.text()
+        return res.arrayBuffer()
       })
-      .then((text) => {
-        setContent(text)
+      .then((buf) => {
+        // Content-based binary detection: if the file contains NUL bytes it
+        // is binary regardless of extension. Prevents freezing the renderer.
+        if (looksBinary(buf)) {
+          setContent(null)
+          setError(null)
+          setLoading(false)
+          return
+        }
+        const decoder = new TextDecoder()
+        setContent(decoder.decode(buf))
         setLoading(false)
       })
       .catch((err) => {
         setError(err.message)
         setLoading(false)
-        onError?.(path)
+        onErrorRef.current?.(path)
       })
-  }, [path, onError, refreshKey])
+  }, [path, refreshKey])
 
   if (!path) {
     return (
@@ -160,6 +222,8 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
   const isImage = imageExtensions.includes(ext)
   const isAudio = audioExtensions.includes(ext)
   const isVideo = videoExtensions.includes(ext)
+  const isBinary = isBinaryFile(path)
+  const isTextFile = !isImage && !isAudio && !isVideo && !isBinary
   const isMarkdown = ext === '.md' || ext === '.markdown'
   const language = extToLanguage[ext]
   const fileName = path.split('/').pop() ?? path
@@ -195,9 +259,35 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-2 border-b flex items-center justify-between shrink-0">
-        <p className="text-xs font-mono text-muted-foreground truncate">{fileName}</p>
-        {!isImage && !isAudio && !isVideo && content !== null && (
+      <div className="px-4 py-2 border-b flex items-center justify-between shrink-0 gap-2">
+        <p className="text-xs font-mono text-muted-foreground truncate flex-1 min-w-0">{fileName}</p>
+        {isTextFile && content !== null && (
+          <div className="flex items-center rounded-md border border-border/60 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setViewMode('preview')}
+              className={`px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                viewMode === 'preview'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+              }`}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('raw')}
+              className={`px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer border-l border-border/60 ${
+                viewMode === 'raw'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+              }`}
+            >
+              Raw
+            </button>
+          </div>
+        )}
+        {isTextFile && content !== null && (
           <Button
             variant="ghost"
             size="icon"
@@ -215,6 +305,14 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-4">
+          {isBinary && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+              <FileIcon className="h-10 w-10 opacity-30" />
+              <p className="text-sm font-medium">Cannot preview binary file</p>
+              <p className="text-xs opacity-50">This file format is not supported for preview.</p>
+            </div>
+          )}
+
           {isImage && (
             <div className="flex items-center justify-center">
               <img
@@ -237,7 +335,13 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
             </div>
           )}
 
-          {!isImage && !isAudio && !isVideo && content !== null && (
+          {isTextFile && content !== null && viewMode === 'raw' && (
+            <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs font-mono leading-relaxed">
+              {content}
+            </pre>
+          )}
+
+          {isTextFile && content !== null && viewMode === 'preview' && (
             <>
               {isMarkdown && (
                 <MarkdownPreview
