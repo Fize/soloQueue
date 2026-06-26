@@ -2,7 +2,7 @@ import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo }
 import { toast } from 'sonner'
 import { 
   ArrowUp, StopCircle, X, Loader2, Plus, ChevronDown, 
-  Check, Laptop, GitBranch, Users, Mic 
+  Check, Laptop, GitBranch, Users
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
@@ -31,6 +31,8 @@ export interface ChatInputProps {
   onGroupChange?: (group: string) => void
   onProjectChange?: (path: string) => void
   readOnlySelectors?: boolean
+  ctxwinUsed?: number
+  ctxwinLimit?: number
 }
 
 interface Attachment {
@@ -59,6 +61,8 @@ export function ChatInput({
   onGroupChange,
   onProjectChange,
   readOnlySelectors = false,
+  ctxwinUsed = 0,
+  ctxwinLimit = 0,
 }: ChatInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
@@ -71,6 +75,15 @@ export function ChatInput({
   const [dropdownPos, setDropdownPos] = useState<{ bottom: number; left: number } | null>(null)
   const [branch, setBranch] = useState<string>('main')
   const [branches, setBranches] = useState<string[]>(['main'])
+
+  // Context window ring calculation
+  const cwPct = useMemo(() => {
+    if (!ctxwinLimit || ctxwinLimit <= 0) return 0
+    return Math.min(100, Math.max(0, (ctxwinUsed / ctxwinLimit) * 100))
+  }, [ctxwinUsed, ctxwinLimit])
+  const cwRadius = 7
+  const cwCircum = 2 * Math.PI * cwRadius
+  const cwOffset = cwCircum - (cwPct / 100) * cwCircum
 
   // Compute fixed position for dropdown menus (must break out of overflow-x-auto clipping)
   useEffect(() => {
@@ -489,16 +502,47 @@ export function ChatInput({
                 )}
               </div>
 
-              {/* Right actions: microphone, send only */}
+              {/* Right actions: context window ring, send/stop */}
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => toast.info('Voice input is not supported in this environment')}
-                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer"
-                  title="Voice input"
-                >
-                  <Mic className="h-4 w-4" />
-                </button>
+                {ctxwinLimit > 0 && (
+                  <div className="relative group/cw flex items-center">
+                    <svg
+                      width="20" height="20" viewBox="0 0 20 20"
+                      className="-rotate-90 shrink-0"
+                    >
+                      {/* Background track */}
+                      <circle
+                        cx="10" cy="10" r={cwRadius}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        className="text-muted-foreground/15"
+                      />
+                      {/* Progress arc */}
+                      <circle
+                        cx="10" cy="10" r={cwRadius}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeDasharray={cwCircum}
+                        strokeDashoffset={cwOffset}
+                        className="text-violet-500 transition-all duration-500 ease-out"
+                      />
+                    </svg>
+                    {/* Hover tooltip */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/cw:block z-50 pointer-events-none">
+                      <div className="bg-popover border border-border rounded-xl px-3 py-2 shadow-xl whitespace-nowrap">
+                        <p className="text-xs font-semibold text-foreground">
+                          {cwPct.toFixed(1)}% used
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {ctxwinUsed.toLocaleString()} / {ctxwinLimit.toLocaleString()} tokens
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {streaming && !delegating ? (
                   <button

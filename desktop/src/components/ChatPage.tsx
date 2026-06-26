@@ -428,6 +428,8 @@ export function ChatPage() {
               selectedProjectPath={selectedProjectPath}
               onGroupChange={setSelectedGroup}
               onProjectChange={setSelectedProjectPath}
+              ctxwinUsed={0}
+              ctxwinLimit={0}
             />
           </div>
 
@@ -481,9 +483,6 @@ export function ChatPage() {
             <h1 className="text-xs font-bold text-foreground truncate font-mono">
               {activeSession?.name || (isL1Session ? '通用问答 (L1)' : `${activeGroup} 团队`)}
             </h1>
-            <span className="text-[10px] text-muted-foreground font-mono bg-secondary px-1.5 py-0.5 rounded border border-border/20">
-              {isL1Session ? 'L1 fast-edit mode' : `L2 multi-agent workspace`}
-            </span>
           </div>
 
           {/* Header right: Actions */}
@@ -543,6 +542,8 @@ export function ChatPage() {
                       selectedProjectPath={selectedProjectPath}
                       onGroupChange={setSelectedGroup}
                       onProjectChange={setSelectedProjectPath}
+                      ctxwinUsed={activeSession?.ctxwin_used ?? 0}
+                      ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                     />
                   </div>
                 </div>
@@ -589,6 +590,8 @@ export function ChatPage() {
                   selectedProjectPath={selectedProjectPath}
                   onGroupChange={setSelectedGroup}
                   onProjectChange={setSelectedProjectPath}
+                  ctxwinUsed={activeSession?.ctxwin_used ?? 0}
+                  ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                 />
               </>
             )}
