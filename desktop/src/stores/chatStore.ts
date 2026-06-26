@@ -12,14 +12,14 @@ interface ChatState {
   titleGenerated: Record<string, boolean> // track which sessions already had title generated
   historyLoading: Record<string, boolean> // track which sessions are loading history
   historyHasMore: Record<string, boolean> // track which sessions have more history to load
-  pendingHistory: Record<string, ChatMessage[]> // older messages not yet shown
+  historyCursor: Record<string, string | null> // cursor for next load-more page
 
   loadSessions: () => Promise<void>
   createL2Session: (group: string, workDir?: string) => Promise<string | null>
   deleteL2Session: (id: string) => Promise<void>
   setActiveSession: (id: string) => void
   loadHistory: (sessionId: string) => Promise<void>
-  loadMoreHistory: (sessionId: string) => void
+  loadMoreHistory: (sessionId: string) => Promise<void>
   renameSession: (id: string, name: string) => void
   markTitleGenerated: (id: string) => void
 
@@ -41,6 +41,8 @@ interface ChatState {
   resolveToolConfirm: (callId: string, choice: string) => void
 }
 
+const PAGE_SIZE = 30 // number of messages to load per page
+
 export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   activeSessionId: null,
@@ -50,7 +52,7 @@ export const useChatStore = create<ChatState>((set) => ({
   titleGenerated: {},
   historyLoading: {},
   historyHasMore: {},
-  pendingHistory: {},
+  historyCursor: {},
 
   loadSessions: async () => {
     try {
@@ -92,7 +94,7 @@ export const useChatStore = create<ChatState>((set) => ({
         const { [id]: _title, ...restTitle } = s.titleGenerated
         const { [id]: _loading, ...restLoading } = s.historyLoading
         const { [id]: _more, ...restHasMore } = s.historyHasMore
-        const { [id]: _pending, ...restPending } = s.pendingHistory
+        const { [id]: _cursor, ...restCursor } = s.historyCursor
         return {
           sessions: s.sessions.filter((sess) => sess.id !== id),
           activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
@@ -100,7 +102,7 @@ export const useChatStore = create<ChatState>((set) => ({
           titleGenerated: restTitle,
           historyLoading: restLoading,
           historyHasMore: restHasMore,
-          pendingHistory: restPending,
+          historyCursor: restCursor,
         }
       })
     } catch {
@@ -123,36 +125,24 @@ export const useChatStore = create<ChatState>((set) => ({
       historyLoading: { ...s.historyLoading, [sessionId]: true },
     }))
     try {
-      const data = await fetchSessionHistory(sessionId)
+      const data = await fetchSessionHistory(sessionId, undefined, PAGE_SIZE)
       const msgs: ChatMessage[] = data.messages.map((hm: SessionHistoryMessage) => ({
         id: hm.id,
         role: hm.role as 'user' | 'assistant',
         segments: hm.segments.map(convertHistorySegment),
         timestamp: hm.timestamp,
       }))
-      // Only show last 10 initially; buffer the rest for load-more
-      const PAGE_SIZE = 10
-      if (msgs.length > PAGE_SIZE) {
-        const visible = msgs.slice(-PAGE_SIZE)
-        const pending = msgs.slice(0, -PAGE_SIZE)
-        set((s) => ({
-          messages: { ...s.messages, [sessionId]: visible },
-          pendingHistory: { ...s.pendingHistory, [sessionId]: pending },
-          historyHasMore: { ...s.historyHasMore, [sessionId]: pending.length > 0 },
-        }))
-      } else {
-        set((s) => ({
-          messages: { ...s.messages, [sessionId]: msgs },
-          pendingHistory: { ...s.pendingHistory, [sessionId]: [] },
-          historyHasMore: { ...s.historyHasMore, [sessionId]: false },
-        }))
-      }
+      set((s) => ({
+        messages: { ...s.messages, [sessionId]: msgs },
+        historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
+        historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
+      }))
     } catch {
       // Timeline may not exist yet for new sessions; that's fine.
       set((s) => ({
         messages: { ...s.messages, [sessionId]: [] },
-        pendingHistory: { ...s.pendingHistory, [sessionId]: [] },
         historyHasMore: { ...s.historyHasMore, [sessionId]: false },
+        historyCursor: { ...s.historyCursor, [sessionId]: null },
       }))
     } finally {
       set((s) => ({
@@ -161,23 +151,36 @@ export const useChatStore = create<ChatState>((set) => ({
     }
   },
 
-  loadMoreHistory: (sessionId: string) => {
-    set((s) => {
-      const pending = s.pendingHistory[sessionId] || []
-      if (pending.length === 0) return s
+  loadMoreHistory: async (sessionId: string) => {
+    const cursor = useChatStore.getState().historyCursor[sessionId]
+    if (!cursor) return // no more to load
 
-      const PAGE_SIZE = 10
-      // Take the last PAGE_SIZE from pending (closest to what's already shown)
-      const toShow = pending.slice(-PAGE_SIZE)
-      const remaining = pending.slice(0, -PAGE_SIZE)
-      const current = s.messages[sessionId] || []
-
-      return {
-        messages: { ...s.messages, [sessionId]: [...toShow, ...current] },
-        pendingHistory: { ...s.pendingHistory, [sessionId]: remaining },
-        historyHasMore: { ...s.historyHasMore, [sessionId]: remaining.length > 0 },
-      }
-    })
+    set((s) => ({
+      historyLoading: { ...s.historyLoading, [sessionId]: true },
+    }))
+    try {
+      const data = await fetchSessionHistory(sessionId, cursor, PAGE_SIZE)
+      const olderMsgs: ChatMessage[] = data.messages.map((hm: SessionHistoryMessage) => ({
+        id: hm.id,
+        role: hm.role as 'user' | 'assistant',
+        segments: hm.segments.map(convertHistorySegment),
+        timestamp: hm.timestamp,
+      }))
+      set((s) => {
+        const current = s.messages[sessionId] || []
+        return {
+          messages: { ...s.messages, [sessionId]: [...olderMsgs, ...current] },
+          historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
+          historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
+        }
+      })
+    } catch {
+      // If the request fails, keep the current cursor so the user can retry
+    } finally {
+      set((s) => ({
+        historyLoading: { ...s.historyLoading, [sessionId]: false },
+      }))
+    }
   },
 
   renameSession: (id: string, name: string) => {

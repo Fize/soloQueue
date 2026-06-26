@@ -147,9 +147,9 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
           </div>
 
           {/* Actions bar */}
-          {!isEmpty && !isUser && (
+          {!isEmpty && (
             <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover/message:opacity-100 transition-opacity">
-              <CopyButton text={extractFullContent(message)} />
+              <CopyButton text={extractFullContent(message)} label={isUser ? 'Copy message' : 'Copy response'} />
             </div>
           )}
         </div>
@@ -796,7 +796,7 @@ function ImageResultPreviews({
   )
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -813,7 +813,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       onClick={handleCopy}
       className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
-      title="Copy response"
+      title={label}
     >
       {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
       {copied ? 'Copied' : 'Copy'}

@@ -534,11 +534,13 @@ export async function listL2Groups(): Promise<string[]> {
 
 export async function fetchSessionHistory(
   sessionId: string,
-  before?: string
+  before?: string,
+  limit?: number
 ): Promise<SessionHistoryResponse> {
   const cleanId = sessionId.replace(/^l2:/, '')
   const params = new URLSearchParams({ session_id: cleanId })
   if (before) params.set('before', before)
+  if (limit) params.set('limit', String(limit))
   return request<SessionHistoryResponse>(`/session/history?${params.toString()}`)
 }
 

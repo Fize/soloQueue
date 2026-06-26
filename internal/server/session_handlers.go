@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -772,12 +773,21 @@ func (m *Mux) handleConfirmSession(w http.ResponseWriter, r *http.Request) {
 // ─── Session History ───────────────────────────────────────────────────────
 
 // handleSessionHistory returns conversation history for a session.
-// GET /api/session/history?session_id=l1|"l2:<uuid>"[&before=<cursor>]
+// GET /api/session/history?session_id=l1|"l2:<uuid>"[&before=<cursor>&limit=<n>]
 func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is required"})
 		return
+	}
+
+	before := r.URL.Query().Get("before") // cursor: message ID to load older messages before
+	limitStr := r.URL.Query().Get("limit")
+	limit := 0 // 0 = no pagination, return all
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
 	}
 
 	var dir string
@@ -958,9 +968,54 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		msgs = []historyMsg{}
 	}
 
+	// ── Cursor-based pagination ──────────────────────────────────────────────
+	// msgs is ordered oldest → newest. before=cursor means "load older than cursor".
+	// The cursor is the message ID of the oldest visible message.
+	// When limit=0 (not specified), return all messages (backward compat).
+
+	hasMore := false
+	var cursor string
+
+	if limit > 0 && len(msgs) > 0 {
+		if before != "" {
+			// Find the message with this cursor ID
+			beforeIdx := -1
+			for i, msg := range msgs {
+				if msg.ID == before {
+					beforeIdx = i
+					break
+				}
+			}
+			if beforeIdx > 0 {
+				start := beforeIdx - limit
+				if start < 0 {
+					start = 0
+				}
+				msgs = msgs[start:beforeIdx]
+				cursor = msgs[0].ID
+				hasMore = start > 0
+			} else {
+				// Cursor not found or is the first message → nothing more to load
+				msgs = []historyMsg{}
+				hasMore = false
+			}
+		} else {
+			// First page: return the last `limit` messages (most recent)
+			if len(msgs) > limit {
+				msgs = msgs[len(msgs)-limit:]
+				cursor = msgs[0].ID
+				hasMore = true
+			} else {
+				cursor = ""
+				hasMore = false
+			}
+		}
+	}
+
 	m.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"messages": msgs,
-		"has_more": false,
+		"has_more": hasMore,
+		"cursor":   cursor,
 	})
 }
 
