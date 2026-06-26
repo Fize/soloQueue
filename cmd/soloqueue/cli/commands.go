@@ -255,9 +255,7 @@ func ServeCmd(version string) *cobra.Command {
 						continue
 					}
 					cur, maxTokens, _ := s.CW().TokenUsage()
-					if maxTokens > 0 {
-						runtimeMetrics.SetContext(cur * 100 / maxTokens)
-					}
+					runtimeMetrics.SetCtxwin(cur, maxTokens)
 				}
 			}
 		}()
