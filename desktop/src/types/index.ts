@@ -889,6 +889,7 @@ export interface CreateL2SessionResponse {
   name: string
   group: string
   agent_name: string
+  project_path?: string
   created_at: string
 }
 

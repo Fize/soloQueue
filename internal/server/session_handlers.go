@@ -622,11 +622,12 @@ func (m *Mux) handleCreateL2Session(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":         info.ID,
-		"name":       info.Name,
-		"group":      info.Group,
-		"agent_name": m.leaderAgentName(info.Group),
-		"created_at": info.CreatedAt,
+		"id":           info.ID,
+		"name":         info.Name,
+		"group":        info.Group,
+		"agent_name":   m.leaderAgentName(info.Group),
+		"project_path": info.WorkDir,
+		"created_at":   info.CreatedAt,
 	})
 }
 

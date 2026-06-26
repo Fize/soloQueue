@@ -59,9 +59,8 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
   )
 
   useEffect(() => {
-    if (location.pathname.startsWith('/chat/l2:')) {
-      setChatOpen(true)
-    }
+    const onChatRoute = location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')
+    setChatOpen(onChatRoute)
     if (location.pathname.startsWith('/settings')) {
       setViewMode('settings')
     } else {
@@ -231,12 +230,14 @@ function NavView({
               }}
               className={cn(
                 'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full gap-2 px-2.5 py-1.5',
-                chatOpen
-                  ? 'text-foreground hover:bg-foreground/5'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')
+                  ? 'bg-primary text-white shadow-sm font-semibold'
+                  : chatOpen
+                    ? 'text-foreground hover:bg-foreground/5'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
               )}
             >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
               <span className="flex-1 text-left">会话</span>
               {chatOpen ? (
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />

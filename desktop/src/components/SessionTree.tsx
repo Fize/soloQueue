@@ -45,6 +45,30 @@ export function SessionTree() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Auto-expand group/project and scroll to active session
+  useEffect(() => {
+    if (!activeSessionId) return
+    const s = sessions.find((x) => x.id === activeSessionId)
+    if (s?.group) {
+      setExpandedGroups((prev) => ({ ...prev, [s.group!]: true }))
+    }
+    // Find project membership and expand it
+    for (const g of groups) {
+      for (const p of g.projects) {
+        if (s?.project_path === p.path) {
+          setExpandedProjects((prev) => ({ ...prev, [`${g.name}:${p.id}`]: true }))
+        }
+      }
+    }
+    // Scroll after state settles (next frame)
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-session-id="${activeSessionId}"]`)
+      if (el) {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    })
+  }, [activeSessionId, sessions, groups])
+
   const loadGroupInfo = async () => {
     try {
       const [groupNames, projects, teamsData] = await Promise.all([
@@ -165,7 +189,7 @@ export function SessionTree() {
           return (
             <div key={group.name} className="space-y-0.5">
               {/* Group header */}
-              <div className="flex items-center group/header w-full pl-[32px] pr-2 py-1 rounded-md hover:bg-muted/20 transition-colors">
+              <div className="flex items-center group/header w-full pl-3 pr-2 py-1 rounded-md hover:bg-muted/20 transition-colors">
                 <button
                   onClick={() => toggleGroup(group.name)}
                   className="flex-1 flex items-center gap-2 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider hover:text-foreground cursor-pointer text-left"
@@ -217,7 +241,7 @@ export function SessionTree() {
                             {/* Project row */}
                             <div
                               onClick={() => toggleProject(projKey)}
-                              className="group/proj flex items-center gap-2 w-full pl-[54px] pr-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 rounded-md transition-colors cursor-pointer relative"
+                              className="group/proj flex items-center gap-2 w-full pl-[28px] pr-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 rounded-md transition-colors cursor-pointer relative"
                             >
                               {projSessions.length > 0 ? (
                                 pExpanded ? (
@@ -249,16 +273,17 @@ export function SessionTree() {
                                     {projSessions.map((s) => (
                                       <TreeItem
                                         key={s.id}
+                                        sessionId={s.id}
                                         label={s.name || 'New session'}
-                                      isPast={s.name ? s.name.startsWith('Past') : false}
-                                      active={activeSessionId === s.id}
-                                      onClick={() => {
-                                        setActiveSession(s.id)
-                                        navigate(`/chat/${s.id}`)
-                                      }}
-                                      onDelete={(e) => handleDelete(e, s.id)}
-                                      disabled={streaming}
-                                      indent={2}
+                                        isPast={s.name ? s.name.startsWith('Past') : false}
+                                        active={activeSessionId === s.id}
+                                        onClick={() => {
+                                          setActiveSession(s.id)
+                                          navigate(`/chat/${s.id}`)
+                                        }}
+                                        onDelete={(e) => handleDelete(e, s.id)}
+                                        disabled={streaming}
+                                        indent={2}
                                     />
                                   ))}
                               </div>
@@ -273,6 +298,7 @@ export function SessionTree() {
                       {groupSessions.map((s) => (
                         <TreeItem
                           key={s.id}
+                          sessionId={s.id}
                           label={s.name || 'New session'}
                           isPast={s.name ? s.name.startsWith('Past') : false}
                           active={activeSessionId === s.id}
@@ -309,6 +335,7 @@ function TreeItem({
   showDelete = true,
   isPast = false,
   state,
+  sessionId,
 }: {
   icon?: typeof Bot
   label: string
@@ -320,12 +347,14 @@ function TreeItem({
   showDelete?: boolean
   isPast?: boolean
   state?: string
+  sessionId?: string
 }) {
-  const pl = indent === 1 ? 54 : 76
+  const pl = 28 + (indent - 1) * 16 // indent=1→28px, indent=2→44px
   return (
     <div className="group relative">
       <button
         onClick={onClick}
+        data-session-id={sessionId}
         style={{ paddingLeft: `${pl}px` }}
         className={`w-full flex items-center gap-2 pr-8 py-1.5 rounded-md text-xs leading-tight transition-all cursor-pointer ${
           active

@@ -192,6 +192,15 @@ export function ChatPage() {
   const activeProjectPath = activeSession?.project_path ?? null
   const isL1Session = activeSessionId === 'l1'
 
+  // Sync selectors from active session when session changes
+  useEffect(() => {
+    if (activeSession) {
+      setSelectedGroup(activeSession.group || '')
+      setSelectedProjectPath(activeSession.project_path || '')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId])
+
   // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
   const MESSAGE_MAX_W = 768
   const messageMaxWidth = useMemo(() => {

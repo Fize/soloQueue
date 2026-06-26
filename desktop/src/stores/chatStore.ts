@@ -76,6 +76,7 @@ export const useChatStore = create<ChatState>((set) => ({
         name: '',
         group: info.group,
         agent_name: info.agent_name,
+        project_path: info.project_path || workDir || '',
         createdAt: info.created_at,
       }
       set((s) => ({ sessions: [...s.sessions, session], activeSessionId: session.id }))
