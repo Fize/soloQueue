@@ -6,6 +6,8 @@ interface RuntimeState {
   setStatus: (status: RuntimeStatus | null) => void
   connectionStatus: 'connected' | 'disconnected' | 'reconnecting'
   setConnectionStatus: (status: 'connected' | 'disconnected' | 'reconnecting') => void
+  sidebarCollapsed: boolean
+  setSidebarCollapsed: (collapsed: boolean) => void
 }
 
 export const useRuntimeStore = create<RuntimeState>((set) => ({
@@ -13,4 +15,6 @@ export const useRuntimeStore = create<RuntimeState>((set) => ({
   setStatus: (status) => set({ status }),
   connectionStatus: 'disconnected',
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
+  sidebarCollapsed: false,
+  setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
 }))

@@ -37,7 +37,7 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
   return (
     <div className={`group/message px-4 py-3 ${isUser ? 'flex justify-end' : ''}`}>
       <div
-        className={`flex gap-3 ${isUser ? 'max-w-[80%] sm:max-w-[70%] lg:max-w-[60%] flex-row-reverse' : 'max-w-[90%] sm:max-w-[80%] lg:max-w-[70%]'}`}
+        className={`flex gap-3 w-full ${isUser ? 'max-w-[80%] sm:max-w-[70%] lg:max-w-[60%] flex-row-reverse' : ''}`}
       >
         {/* Avatar */}
         <div className="shrink-0 self-start">
@@ -65,11 +65,11 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
 
           {/* Bubble content */}
           <div
-            className={`rounded-2xl px-4 py-2.5 ${
+            className={
               isUser
-                ? 'bg-primary text-primary-foreground rounded-br-md'
-                : 'bg-muted/60 text-foreground rounded-bl-md'
-            }`}
+                ? 'rounded-2xl px-4 py-2.5 bg-gradient-to-br from-violet-600 to-indigo-600 dark:from-violet-500 dark:to-indigo-500 text-white rounded-br-md shadow-sm border border-violet-500/10'
+                : 'w-full text-foreground'
+            }
           >
             {/* Message body */}
             {isEmpty ? (

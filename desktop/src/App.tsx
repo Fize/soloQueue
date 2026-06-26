@@ -23,10 +23,12 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
 import { wsManager } from '@/lib/websocket'
 import { useAuthStore } from '@/stores/authStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 
 function App() {
   const { isAuthenticated, isLoading } = useAuthStore()
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
+  const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const [isHovered, setIsHovered] = useState(false)
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -47,13 +49,9 @@ function App() {
   }, [])
 
   const toggleCollapse = useCallback(() => {
-    setSidebarCollapsed((v) => {
-      const next = !v
-      // immediately clear hover so the visual state matches the new collapsed state
-      setIsHovered(false)
-      return next
-    })
-  }, [])
+    setSidebarCollapsed(!sidebarCollapsed)
+    setIsHovered(false)
+  }, [sidebarCollapsed, setSidebarCollapsed])
 
   if (isLoading) {
     return (
@@ -128,15 +126,15 @@ function App() {
 
           {/* Main content pane */}
           <main className="flex flex-1 flex-col min-w-0 overflow-hidden h-full bg-background relative">
-            {/* Title Bar drag region */}
-            <div className="h-8 bg-background/20 shrink-0 relative">
+            {/* Title Bar drag region overlay */}
+            <div className="absolute top-0 left-0 right-0 h-12 z-50 pointer-events-none">
               {sidebarCollapsed ? (
                 <>
-                  <div className="absolute left-0 top-0 w-[70px] h-full electron-drag-region" />
-                  <div className="absolute left-[115px] right-0 top-0 h-full electron-drag-region" />
+                  <div className="absolute left-0 top-0 w-[70px] h-full electron-drag-region pointer-events-auto" />
+                  <div className="absolute left-[115px] right-[250px] top-0 h-full electron-drag-region pointer-events-auto" />
                 </>
               ) : (
-                <div className="absolute left-0 top-0 w-full h-full electron-drag-region" />
+                <div className="absolute left-0 top-0 right-[250px] h-full electron-drag-region pointer-events-auto" />
               )}
             </div>
 

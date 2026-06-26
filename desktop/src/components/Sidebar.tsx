@@ -19,13 +19,14 @@ import {
   Play,
   Gamepad2,
   ArrowLeft,
+  Bot,
 } from 'lucide-react'
 import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
 
 const mainNav = [
   { to: '/office', icon: Gamepad2, label: '办公室' },
-  { to: '/chat', icon: MessageSquare, label: '助手' },
+  { to: '/chat', icon: Bot, label: '助手' },
   { to: '/simulations', icon: Play, label: '模拟推演' },
   { to: '/files', icon: FolderOpen, label: '文件管理器' },
   { to: '/cron', icon: Clock, label: '定时任务' },
@@ -52,14 +53,14 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
-  const [chatOpen, setChatOpen] = useState(location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents'))
+  const [chatOpen, setChatOpen] = useState(location.pathname.startsWith('/chat/l2:'))
   const [proxies, setProxies] = useState<{ id: string }[]>([])
   const [viewMode, setViewMode] = useState<'nav' | 'settings'>(
     location.pathname.startsWith('/settings') ? 'settings' : 'nav'
   )
 
   useEffect(() => {
-    if (location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')) {
+    if (location.pathname.startsWith('/chat/l2:')) {
       setChatOpen(true)
     }
     if (location.pathname.startsWith('/settings')) {
@@ -199,7 +200,7 @@ function NavView({
         {mainNav.map((item) => {
           const isChat = item.to === '/chat'
           const active = isChat
-            ? location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')
+            ? location.pathname === '/chat' || location.pathname === '/chat/' || location.pathname.startsWith('/agents')
             : location.pathname.startsWith(item.to)
 
           return (
@@ -208,7 +209,7 @@ function NavView({
                 onClick={() => onNav(item.to)}
                 className={cn(
                   'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer',
-                  narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2.5 px-2.5 py-1.5',
+                  narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2 px-2.5 py-1.5',
                   active
                     ? 'bg-primary text-white shadow-sm font-semibold'
                     : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
@@ -230,13 +231,14 @@ function NavView({
                       setChatOpen(!chatOpen)
                     }}
                     className={cn(
-                      'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full gap-2.5 px-2.5 py-1.5',
+                      'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full gap-2 px-2.5 py-1.5',
                       chatOpen
                         ? 'text-foreground hover:bg-foreground/5'
                         : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
                     )}
                   >
-                    <span className="flex-1 text-left pl-5">会话</span>
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    <span className="flex-1 text-left">会话</span>
                     {chatOpen ? (
                       <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                     ) : (
@@ -245,7 +247,7 @@ function NavView({
                   </button>
 
                   {chatOpen && (
-                    <div className="pl-3 pr-1 py-1">
+                    <div className="pr-1 py-1">
                       <SessionTree />
                     </div>
                   )}

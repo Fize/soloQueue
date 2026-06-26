@@ -165,19 +165,19 @@ export function SessionTree() {
           return (
             <div key={group.name} className="space-y-0.5">
               {/* Group header */}
-              <div className="flex items-center group/header w-full px-2 py-1 rounded-md hover:bg-muted/20 transition-colors">
+              <div className="flex items-center group/header w-full pl-[32px] pr-2 py-1 rounded-md hover:bg-muted/20 transition-colors">
                 <button
                   onClick={() => toggleGroup(group.name)}
-                  className="flex-1 flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider hover:text-foreground cursor-pointer text-left"
+                  className="flex-1 flex items-center gap-2 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider hover:text-foreground cursor-pointer text-left"
                 >
                   {hasProjects || groupSessions.length > 0 ? (
                     gExpanded ? (
-                      <ChevronDown className="h-3 w-3 shrink-0 transition-transform duration-200" />
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform duration-200" />
                     ) : (
-                      <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200" />
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-200" />
                     )
                   ) : (
-                    <span className="w-3 shrink-0" />
+                    <span className="w-3.5 shrink-0" />
                   )}
                   <span className="flex-1 text-left truncate">{group.name || 'UNGROUPED'}</span>
                 </button>
@@ -216,16 +216,16 @@ export function SessionTree() {
                             {/* Project row */}
                             <div
                               onClick={() => toggleProject(projKey)}
-                              className="group/proj flex items-center gap-1.5 w-full pl-5 pr-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 rounded-md transition-colors cursor-pointer relative"
+                              className="group/proj flex items-center gap-2 w-full pl-[54px] pr-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 rounded-md transition-colors cursor-pointer relative"
                             >
                               {projSessions.length > 0 ? (
                                 pExpanded ? (
-                                  <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-200" />
+                                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200" />
                                 ) : (
-                                  <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/70 transition-transform duration-200" />
+                                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200" />
                                 )
                               ) : (
-                                <span className="w-3 shrink-0" />
+                                <span className="w-3.5 shrink-0" />
                               )}
                               <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-70 text-muted-foreground/60" />
                               <span className="flex-1 text-left truncate font-medium">{proj.name}</span>
@@ -322,7 +322,7 @@ function TreeItem({
   isPast?: boolean
   state?: string
 }) {
-  const pl = 8 + indent * 14
+  const pl = indent === 1 ? 54 : 76
   return (
     <div className="group relative">
       <button
@@ -330,7 +330,7 @@ function TreeItem({
         style={{ paddingLeft: `${pl}px` }}
         className={`w-full flex items-center gap-2 pr-8 py-1.5 rounded-md text-xs leading-tight transition-all cursor-pointer ${
           active
-            ? 'bg-primary/10 text-primary font-semibold'
+            ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground shadow-xs font-semibold'
             : 'text-muted-foreground hover:bg-muted/20 hover:text-foreground'
         }`}
       >

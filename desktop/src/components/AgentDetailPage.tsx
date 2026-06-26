@@ -13,6 +13,8 @@ import { GlassCard } from '@/components/ui/glass-card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Terminal, Loader2, AlertTriangle, Mail, Info } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 
 // ─── InlineContent Component ──────────────────────────────────────────────
 interface InlineContentProps {
@@ -55,6 +57,7 @@ export function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
 
   // Find agent in websocket stream or team list
   const data = useAgentStore((state) => state.agents)
@@ -146,9 +149,11 @@ export function AgentDetailPage() {
 
   return (
     <div className="flex h-full flex-col min-w-0 bg-background overflow-hidden pb-16 md:pb-0">
-      {/* Sticky Header */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border/80 px-4 py-3 md:px-6 bg-card/65 backdrop-blur-md sticky top-0 z-10">
-        <div className="flex items-center gap-3 min-w-0">
+      <header className={cn(
+        "flex shrink-0 items-center justify-between border-b border-border/80 px-4 py-3 md:px-6 bg-card/65 backdrop-blur-md sticky top-0 z-10",
+        sidebarCollapsed && "pl-[115px]"
+      )}>
+        <div className="flex items-center gap-3 min-w-0 electron-no-drag">
           <Button
             variant="ghost"
             size="icon"

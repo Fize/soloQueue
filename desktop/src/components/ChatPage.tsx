@@ -7,6 +7,7 @@ import { useChatStream } from '@/hooks/useChatStream'
 import { useAgentStream } from '@/hooks/useAgentStream'
 import { PanelRight, Loader2, Activity, Plus, Bot } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 import { cn } from '@/lib/utils'
 import type { AgentInfo, Project } from '@/types'
 import { L2SessionStatusPanel } from '@/components/L2SessionStatusPanel'
@@ -37,7 +38,8 @@ export function ChatPage() {
   const loadingMore = useRef(false)
 
   // macOS Inspector state
-  const [showInspector, setShowInspector] = useState(true)
+  const [showInspector, setShowInspector] = useState(false)
+  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([])
@@ -233,6 +235,11 @@ export function ChatPage() {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null
   }, [groupAgents])
 
+  const agentDisplayName = useMemo(() => {
+    if (isL1Session) return 'L1 Agent'
+    return activeSession?.agent_name || activeAgent?.name || 'Assistant'
+  }, [isL1Session, activeSession, activeAgent])
+
   useEffect(() => {
     if (anyRunning) {
       setShowInspector(true)
@@ -336,6 +343,8 @@ export function ChatPage() {
     return acc + sum + msg.segments.length
   }, 0)
 
+  const lastScrolledSessionId = useRef<string | null>(null)
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -348,7 +357,10 @@ export function ChatPage() {
         userScrolledUp.current = true
       }
 
-      if (scrollTop < 50 && historyHasMore && !historyLoading && !loadingMore.current) {
+      const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false
+      const isLoading = activeSessionId ? historyLoading[activeSessionId] : false
+
+      if (scrollTop < 50 && hasMore && !isLoading && !loadingMore.current) {
         loadingMore.current = true
         const prevHeight = scrollHeight
         loadMoreHistory(activeSessionId || '')
@@ -363,12 +375,22 @@ export function ChatPage() {
     }
     el.addEventListener('scroll', handleScroll)
     return () => el.removeEventListener('scroll', handleScroll)
-  }, [historyHasMore, historyLoading, loadMoreHistory])
+  }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory])
 
   useEffect(() => {
     if (userScrolledUp.current) return
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [contentSum, streaming])
+    
+    const shouldScrollInstant = !streaming && (lastScrolledSessionId.current !== activeSessionId)
+    
+    if (shouldScrollInstant) {
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      if (finalMessages.length > 0) {
+        lastScrolledSessionId.current = activeSessionId
+      }
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [contentSum, streaming, activeSessionId, finalMessages])
 
   if (!activeSessionId) {
     return (
@@ -431,7 +453,10 @@ export function ChatPage() {
       {/* Pane 3: Chat conversation bubble stream */}
       <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
         {/* Chat header */}
-        <header className="flex h-12 items-center justify-between border-b border-border/30 px-6 select-none bg-card/20 shrink-0">
+        <header className={cn(
+          "flex h-12 items-center justify-between border-b border-border/30 px-6 select-none bg-card/20 shrink-0",
+          sidebarCollapsed && "pl-[115px]"
+        )}>
           {/* Header left: info and status */}
           <div className="flex items-center gap-3">
             <h1 className="text-xs font-bold text-foreground truncate font-mono">
@@ -443,7 +468,7 @@ export function ChatPage() {
           </div>
 
           {/* Header right: Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 electron-no-drag">
             {streaming && (
               <button
                 onClick={cancel}
@@ -505,26 +530,28 @@ export function ChatPage() {
               </div>
             ) : (
               <>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
-                  {historyLoading && (
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground font-mono ml-2">正在载入历史...</span>
-                    </div>
-                  )}
-                  
-                  {finalMessages.map((msg) => (
-                    <ChatMessageView key={msg.id} message={msg} />
-                  ))}
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6">
+                  <div className="max-w-3xl mx-auto w-full space-y-6 px-4">
+                    {activeSessionId && historyLoading[activeSessionId] && (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground font-mono ml-2">正在载入历史...</span>
+                      </div>
+                    )}
+                    
+                    {finalMessages.map((msg) => (
+                      <ChatMessageView key={msg.id} message={msg} agentName={agentDisplayName} />
+                    ))}
 
-                  {delegating && (
-                    <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
-                      <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
-                      <span>团队正在协作分发中，请稍候...</span>
-                    </div>
-                  )}
-                  
-                  <div ref={bottomRef} className="h-2" />
+                    {delegating && (
+                      <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
+                        <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
+                        <span>团队正在协作分发中，请稍候...</span>
+                      </div>
+                    )}
+                    
+                    <div ref={bottomRef} className="h-2" />
+                  </div>
                 </div>
 
                 <ChatInput
