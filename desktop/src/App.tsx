@@ -17,6 +17,7 @@ import { ProjectsTab } from '@/components/settings/ProjectsTab'
 import { ProxiesTab } from '@/components/settings/ProxiesTab'
 import { IframePageView } from '@/components/IframePageView'
 import { ChatPage } from '@/components/ChatPage'
+import { AssistantPage } from '@/components/AssistantPage'
 import OfficeGameLayout from '@/components/OfficeGameLayout'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
@@ -149,6 +150,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<Navigate to="/office" replace />} />
                 <Route path="/office" element={<OfficeGameLayout />} />
+                <Route path="/assistant" element={<AssistantPage />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/chat/:sessionId" element={<ChatPage />} />
                 <Route path="/agents/:id" element={<AgentDetailPage />} />

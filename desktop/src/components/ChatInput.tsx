@@ -127,11 +127,11 @@ export function ChatInput({
             }
           })
           .catch(() => {
-            setBranches(['main'])
+            setBranches(prev => (prev.length === 1 && prev[0] === 'main') ? prev : ['main'])
           })
       }
     } else {
-      setBranches(['main'])
+      setBranches(prev => (prev.length === 1 && prev[0] === 'main') ? prev : ['main'])
     }
   }, [selectedProjectPath, projects])
 

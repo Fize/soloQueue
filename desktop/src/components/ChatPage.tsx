@@ -154,7 +154,7 @@ export function ChatPage() {
 
   useEffect(() => {
     loadSessions()
-  }, [loadSessions, streaming])
+  }, [loadSessions])
 
   useEffect(() => {
     if (sessionId && sessionId !== 'l1') {
@@ -187,7 +187,9 @@ export function ChatPage() {
 
   const currentMessages = messages[activeSessionId || ''] || []
   const activeSession = sessions.find((s) => s.id === activeSessionId)
-  const activeGroup = activeSession?.group
+  const hasActiveSession = activeSession != null
+  const activeGroup = activeSession?.group ?? null
+  const activeProjectPath = activeSession?.project_path ?? null
   const isL1Session = activeSessionId === 'l1'
 
   // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
@@ -199,30 +201,30 @@ export function ChatPage() {
     return Math.max(MIN_AREA_WIDTH - 32, Math.min(mainContentWidth * 0.85, MESSAGE_MAX_W))
   }, [showInspector, activeSession, containerWidth, panelWidth])
 
-  // Sync selected group and project path when activeSession changes
+  // Sync selected group and project path when active session data changes
   useEffect(() => {
-    if (activeSession) {
-      setSelectedGroup(activeSession.group || '')
-      setSelectedProjectPath(activeSession.project_path || '')
+    if (hasActiveSession) {
+      setSelectedGroup(activeGroup || '')
+      setSelectedProjectPath(activeProjectPath || '')
     } else if (l2Groups.length > 0) {
       setSelectedGroup(l2Groups[0])
     }
-  }, [activeSession, l2Groups])
+  }, [hasActiveSession, activeGroup, activeProjectPath, l2Groups])
 
   // Sync first project of selected group when selectedGroup changes
   useEffect(() => {
     if (selectedGroup) {
       const groupProjs = teamProjectsMap[selectedGroup] || []
-      const currentProjValid = groupProjs.some((p) => p.path === selectedProjectPath)
-      if (!currentProjValid) {
-        if (groupProjs.length > 0) {
-          setSelectedProjectPath(groupProjs[0].path)
-        } else if (projects.length > 0) {
-          setSelectedProjectPath(projects[0].path)
+      setSelectedProjectPath(prevPath => {
+        const valid = groupProjs.some((p) => p.path === prevPath)
+        if (!valid) {
+          if (groupProjs.length > 0) return groupProjs[0].path
+          if (projects.length > 0) return projects[0].path
         }
-      }
+        return prevPath // same ref → React bails, no re-render
+      })
     }
-  }, [selectedGroup, teamProjectsMap, projects, selectedProjectPath])
+  }, [selectedGroup, teamProjectsMap, projects])
 
   const selectedProject = projects.find((p) => p.path === selectedProjectPath)
 

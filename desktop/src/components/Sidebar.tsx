@@ -26,7 +26,7 @@ import { SessionTree } from './SessionTree'
 
 const mainNav = [
   { to: '/office', icon: Gamepad2, label: '办公室' },
-  { to: '/chat', icon: Bot, label: '助手' },
+  { to: '/assistant', icon: Bot, label: '助手' },
   { to: '/simulations', icon: Play, label: '模拟推演' },
   { to: '/cron', icon: Clock, label: '定时任务' },
 ]
@@ -196,14 +196,11 @@ function NavView({
     <>
       {/* Navigation list */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
-        {mainNav.map((item) => {
-          const isChat = item.to === '/chat'
-          const active = isChat
-            ? location.pathname === '/chat' || location.pathname === '/chat/' || location.pathname.startsWith('/agents')
-            : location.pathname.startsWith(item.to)
-
+        {/* 办公室 + 助手 — first two nav items */}
+        {mainNav.slice(0, 2).map((item) => {
+          const active = location.pathname.startsWith(item.to)
           return (
-            <div key={item.to} className="space-y-0.5">
+            <div key={item.to}>
               <button
                 onClick={() => onNav(item.to)}
                 className={cn(
@@ -218,40 +215,63 @@ function NavView({
                 <item.icon className="h-3.5 w-3.5 shrink-0" />
                 {showText && <span className="whitespace-nowrap">{item.label}</span>}
               </button>
+            </div>
+          )
+        })}
 
-              {/* L2 session tree — separate collapsible button, original behavior */}
-              {isChat && showText && (
-                <div className="space-y-0.5">
-                  <button
-                    onClick={() => {
-                      if (!location.pathname.startsWith('/chat') && !location.pathname.startsWith('/agents')) {
-                        onNav('/chat')
-                      }
-                      setChatOpen(!chatOpen)
-                    }}
-                    className={cn(
-                      'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full gap-2 px-2.5 py-1.5',
-                      chatOpen
-                        ? 'text-foreground hover:bg-foreground/5'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
-                    )}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                    <span className="flex-1 text-left">会话</span>
-                    {chatOpen ? (
-                      <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    )}
-                  </button>
-
-                  {chatOpen && (
-                    <div className="pr-1 py-1">
-                      <SessionTree />
-                    </div>
-                  )}
-                </div>
+        {/* Session tree — between 助手 and 模拟推演 */}
+        {showText && (
+          <div className="space-y-0.5">
+            <button
+              onClick={() => {
+                if (!location.pathname.startsWith('/chat') && !location.pathname.startsWith('/agents')) {
+                  onNav('/chat')
+                }
+                setChatOpen(!chatOpen)
+              }}
+              className={cn(
+                'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full gap-2 px-2.5 py-1.5',
+                chatOpen
+                  ? 'text-foreground hover:bg-foreground/5'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
               )}
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span className="flex-1 text-left">会话</span>
+              {chatOpen ? (
+                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+            </button>
+
+            {chatOpen && (
+              <div className="pr-1 py-1">
+                <SessionTree />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 模拟推演 + 定时任务 — remaining nav items */}
+        {mainNav.slice(2).map((item) => {
+          const active = location.pathname.startsWith(item.to)
+          return (
+            <div key={item.to}>
+              <button
+                onClick={() => onNav(item.to)}
+                className={cn(
+                  'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer',
+                  narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2 px-2.5 py-1.5',
+                  active
+                    ? 'bg-primary text-white shadow-sm font-semibold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                )}
+                title={narrow ? item.label : undefined}
+              >
+                <item.icon className="h-3.5 w-3.5 shrink-0" />
+                {showText && <span className="whitespace-nowrap">{item.label}</span>}
+              </button>
             </div>
           )
         })}
