@@ -29,6 +29,8 @@ type RuntimeMetrics struct {
 	CacheHitTokens    int64
 	CacheMissTokens   int64
 	ContextPct        int
+	CurrentTokens     int
+	MaxTokens         int
 	CurrentIter       int
 	ContentDeltas     int
 	ActiveDelegations int
@@ -48,10 +50,17 @@ func (rm *RuntimeMetrics) SetOnChange(fn func()) {
 	rm.mu.Unlock()
 }
 
-// SetContext updates context percentage (thread-safe).
-func (rm *RuntimeMetrics) SetContext(pct int) {
+// SetCtxwin updates context window metrics (current usage, max capacity, percentage).
+// Thread-safe.
+func (rm *RuntimeMetrics) SetCtxwin(cur, max int) {
 	rm.mu.Lock()
-	rm.ContextPct = pct
+	rm.CurrentTokens = cur
+	rm.MaxTokens = max
+	if max > 0 {
+		rm.ContextPct = cur * 100 / max
+	} else {
+		rm.ContextPct = 0
+	}
 	if rm.onChange != nil {
 		rm.onChange()
 	}
@@ -59,11 +68,11 @@ func (rm *RuntimeMetrics) SetContext(pct int) {
 }
 
 // Snapshot returns a consistent read of all metrics fields.
-func (rm *RuntimeMetrics) Snapshot() (phase string, promptTokens, outputTokens, cacheHit, cacheMiss int64, contextPct, currentIter, contentDeltas, activeDelegations int, httpAddr string) {
+func (rm *RuntimeMetrics) Snapshot() (phase string, promptTokens, outputTokens, cacheHit, cacheMiss int64, contextPct, currentTokens, maxTokens, currentIter, contentDeltas, activeDelegations int, httpAddr string) {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
 	return rm.Phase, rm.PromptTokens, rm.OutputTokens, rm.CacheHitTokens, rm.CacheMissTokens,
-		rm.ContextPct, rm.CurrentIter, rm.ContentDeltas, rm.ActiveDelegations, rm.HTTPAddr
+		rm.ContextPct, rm.CurrentTokens, rm.MaxTokens, rm.CurrentIter, rm.ContentDeltas, rm.ActiveDelegations, rm.HTTPAddr
 }
 
 // ─── Agent Stream State ─────────────────────────────────────────────────────
@@ -278,6 +287,8 @@ type RuntimeStatusResponse struct {
 	CacheHitTokens    int64                        `json:"cache_hit_tokens"`
 	CacheMissTokens   int64                        `json:"cache_miss_tokens"`
 	ContextPct        int                          `json:"context_pct"`
+	CurrentTokens     int                          `json:"current_tokens"`
+	MaxTokens         int                          `json:"max_tokens"`
 	CurrentIter       int                          `json:"current_iter"`
 	ContentDeltas     int                          `json:"content_deltas"`
 	ActiveDelegations int                          `json:"active_delegations"`
@@ -614,7 +625,7 @@ func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
 	}
 
 	_, promptTokens, outputTokens, cacheHit, cacheMiss,
-		contextPct, currentIter, contentDeltas, _, httpAddr := m.runtimeMetrics.Snapshot()
+		contextPct, currentTokens, maxTokens, currentIter, contentDeltas, _, httpAddr := m.runtimeMetrics.Snapshot()
 
 	// Count agents from registry and supervisors.
 	var totalAgents, runningAgents, idleAgents, totalErrors, activeDelegations int
@@ -652,6 +663,8 @@ func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
 		CacheHitTokens:    cacheHit,
 		CacheMissTokens:   cacheMiss,
 		ContextPct:        contextPct,
+		CurrentTokens:     currentTokens,
+		MaxTokens:         maxTokens,
 		CurrentIter:       currentIter,
 		ContentDeltas:     contentDeltas,
 		ActiveDelegations: activeDelegations,

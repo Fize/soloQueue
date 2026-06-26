@@ -3,15 +3,70 @@ import { ChatMessageView } from '@/components/ChatMessage'
 import { ChatInput } from '@/components/ChatInput'
 import { Loader2, Sparkles } from 'lucide-react'
 import { wsManager } from '@/lib/websocket'
+import { fetchSessionHistory } from '@/lib/api'
 import { useAgentStore } from '@/stores/agentStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import type { ChatHandler } from '@/lib/websocket'
-import type { ChatMessage, ChatSegment } from '@/types'
+import type { ChatMessage, ChatSegment, SessionHistoryMessage, SessionHistorySegment } from '@/types'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function generateRequestId(): string {
   return `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function toChatMessage(hm: SessionHistoryMessage): ChatMessage {
+  return {
+    id: hm.id,
+    role: hm.role as 'user' | 'assistant',
+    segments: hm.segments.map(toChatSegment),
+    timestamp: hm.timestamp,
+  }
+}
+
+function toChatSegment(seg: SessionHistorySegment): ChatSegment {
+  switch (seg.type) {
+    case 'content':
+      return { type: 'content', text: seg.text || '' }
+    case 'thinking':
+      return { type: 'thinking', text: seg.text || '' }
+    case 'tool_call':
+      return {
+        type: 'tool_call',
+        callId: seg.call_id || '',
+        name: seg.name || '',
+        args: seg.args || '',
+        result: seg.result,
+        error: seg.error,
+        durationMs: seg.duration_ms,
+        done: seg.done ?? true,
+      }
+    case 'delegation':
+      return {
+        type: 'delegation',
+        agentName: seg.agent_name || seg.name || '',
+        task: seg.task || '',
+        status: (seg.status as 'running' | 'completed' | 'failed') || 'completed',
+        durationMs: seg.duration_ms,
+        resultContent: seg.result,
+      }
+    case 'tool_confirm':
+      return {
+        type: 'tool_confirm',
+        callId: seg.call_id || '',
+        name: seg.name || '',
+        prompt: seg.prompt || '',
+        allowInSession: seg.allow_in_session ?? false,
+        resolved: seg.resolved ?? true,
+        choice: seg.choice,
+      }
+    case 'error':
+      return { type: 'error', text: seg.text || '' }
+    default:
+      return { type: 'error', text: 'Unknown segment type' }
+  }
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -32,11 +87,34 @@ export function AssistantPage() {
     return l1?.name || 'L1 Agent'
   }, [agentsData])
 
-  // Context window from runtime (same broadcast as ChatPage uses)
-  const ctxwinUsed = runtimeStatus?.prompt_tokens ?? 0
-  const ctxwinLimit = runtimeStatus?.prompt_tokens && runtimeStatus?.cache_hit_tokens
-    ? runtimeStatus.prompt_tokens + runtimeStatus.cache_hit_tokens + runtimeStatus.cache_miss_tokens
-    : 0
+  // Context window from runtime (broadcast every 3s from backend CW().TokenUsage())
+  const ctxwinUsed = runtimeStatus?.current_tokens ?? 0
+  const ctxwinLimit = runtimeStatus?.max_tokens ?? 0
+
+  // ── Load history on mount ──────────────────────────────────────────────────
+  const [historyLoading, setHistoryLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setHistoryLoading(true)
+
+    fetchSessionHistory('l1')
+      .then((data) => {
+        if (cancelled) return
+        const msgs: ChatMessage[] = data.messages.map(toChatMessage)
+        setMessages(msgs)
+      })
+      .catch(() => {
+        // Timeline may not exist yet for a fresh session; that's fine.
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -189,7 +267,12 @@ export function AssistantPage() {
           ref={scrollRef}
           className={messages.length > 0 ? 'flex-1 overflow-y-auto' : 'flex-1'}
         >
-          {messages.length === 0 ? (
+          {messages.length === 0 && historyLoading ? (
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
+              <Loader2 className="h-7 w-7 animate-spin text-violet-500/70" />
+              <p className="text-xs text-muted-foreground font-mono">正在载入历史...</p>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 border border-violet-500/20">
                 <Sparkles className="h-7 w-7 text-violet-500" />

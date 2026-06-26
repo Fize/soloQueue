@@ -112,6 +112,8 @@ export interface RuntimeStatus {
   cache_hit_tokens: number
   cache_miss_tokens: number
   context_pct: number
+  current_tokens: number
+  max_tokens: number
   current_iter: number
   content_deltas: number
   active_delegations: number
