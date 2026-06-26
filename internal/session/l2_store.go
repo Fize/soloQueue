@@ -94,6 +94,7 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 		Name:      entry.Name,
 		Group:     entry.Group,
 		ProjectID: entry.ProjectID,
+		WorkDir:   entry.WorkDir,
 		CreatedAt: entry.CreatedAt,
 	}, nil
 }

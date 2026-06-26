@@ -84,7 +84,7 @@ function App() {
           className: 'text-sm font-medium bg-card border border-border text-foreground rounded-lg shadow-lg',
         }}
       />
-      <div className="flex h-screen w-screen bg-background overflow-hidden select-none relative">
+      <div className="flex h-screen w-screen bg-background overflow-hidden relative">
         {/* Independent collapse toggle button: lives in its own fixed wrapper so it
              stays above all other drag regions. Button itself has electron-no-drag to stay clickable. */}
         <div className="absolute left-[70px] top-0 z-[100] h-12 w-[45px] flex items-center justify-center electron-no-drag">

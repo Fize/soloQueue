@@ -71,12 +71,19 @@ function toChatSegment(seg: SessionHistorySegment): ChatSegment {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+const HISTORY_PAGE_SIZE = 30
+
 export function AssistantPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streaming, setStreaming] = useState(false)
+  const [historyHasMore, setHistoryHasMore] = useState(false)
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null)
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
   const activeRequestRef = useRef<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const loadingMoreRef = useRef(false)
+  const userScrolledUpRef = useRef(false)
 
   // Agent name from runtime data (same source as ChatPage)
   const agentsData = useAgentStore((state) => state.agents)
@@ -98,11 +105,13 @@ export function AssistantPage() {
     let cancelled = false
     setHistoryLoading(true)
 
-    fetchSessionHistory('l1')
+    fetchSessionHistory('l1', undefined, HISTORY_PAGE_SIZE)
       .then((data) => {
         if (cancelled) return
         const msgs: ChatMessage[] = data.messages.map(toChatMessage)
         setMessages(msgs)
+        setHistoryHasMore(data.has_more || false)
+        setHistoryCursor(data.cursor || null)
       })
       .catch(() => {
         // Timeline may not exist yet for a fresh session; that's fine.
@@ -116,10 +125,53 @@ export function AssistantPage() {
     }
   }, [])
 
-  // Auto-scroll to bottom
+  // ── Load more history when scrolling up ───────────────────────────────────
+  const loadMoreHistory = useCallback(async () => {
+    if (!historyCursor || historyLoadingMore) return
+    setHistoryLoadingMore(true)
+    try {
+      const data = await fetchSessionHistory('l1', historyCursor, HISTORY_PAGE_SIZE)
+      const olderMsgs: ChatMessage[] = data.messages.map(toChatMessage)
+      setMessages((prev) => [...olderMsgs, ...prev])
+      setHistoryHasMore(data.has_more || false)
+      setHistoryCursor(data.cursor || null)
+    } catch {
+      // keep cursor so user can retry
+    } finally {
+      setHistoryLoadingMore(false)
+    }
+  }, [historyCursor, historyLoadingMore])
+
+  // Scroll-up detection → load more history
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    const el = scrollRef.current
+    if (!el) return
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+      userScrolledUpRef.current = !isNearBottom
+
+      if (scrollTop < 50 && historyHasMore && !historyLoadingMore && !loadingMoreRef.current) {
+        loadingMoreRef.current = true
+        const prevHeight = scrollHeight
+        loadMoreHistory().then(() => {
+          if (scrollRef.current) {
+            const diff = scrollRef.current.scrollHeight - prevHeight
+            scrollRef.current.scrollTop = diff
+          }
+          loadingMoreRef.current = false
+        })
+      }
+    }
+    el.addEventListener('scroll', handleScroll)
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [historyHasMore, historyLoadingMore, loadMoreHistory])
+
+  // Auto-scroll to bottom — instant for history loads, smooth for live streaming
+  useEffect(() => {
+    if (userScrolledUpRef.current) return
+    bottomRef.current?.scrollIntoView({ behavior: streaming ? 'smooth' : 'auto' })
+  }, [messages, streaming])
 
   // ── Send ──────────────────────────────────────────────────────────────────
 
@@ -284,6 +336,12 @@ export function AssistantPage() {
             </div>
           ) : (
             <div className="mx-auto max-w-3xl">
+              {historyLoadingMore && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground font-mono ml-2">正在载入更多历史...</span>
+                </div>
+              )}
               {messages.map((msg) => (
                 <ChatMessageView key={msg.id} message={msg} agentName={agentName} />
               ))}

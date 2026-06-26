@@ -192,6 +192,15 @@ export function ChatPage() {
   const activeProjectPath = activeSession?.project_path ?? null
   const isL1Session = activeSessionId === 'l1'
 
+  // Sync selectors from active session when session changes
+  useEffect(() => {
+    if (activeSession) {
+      setSelectedGroup(activeSession.group || '')
+      setSelectedProjectPath(activeSession.project_path || '')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId])
+
   // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
   const MESSAGE_MAX_W = 768
   const messageMaxWidth = useMemo(() => {
@@ -430,14 +439,13 @@ export function ChatPage() {
       if (scrollTop < 50 && hasMore && !isLoading && !loadingMore.current) {
         loadingMore.current = true
         const prevHeight = scrollHeight
-        loadMoreHistory(activeSessionId || '')
-        setTimeout(() => {
+        loadMoreHistory(activeSessionId || '').then(() => {
           if (scrollRef.current) {
             const diff = scrollRef.current.scrollHeight - prevHeight
             scrollRef.current.scrollTop = diff
           }
           loadingMore.current = false
-        }, 0)
+        })
       }
     }
     el.addEventListener('scroll', handleScroll)
@@ -446,16 +454,13 @@ export function ChatPage() {
 
   useEffect(() => {
     if (userScrolledUp.current) return
-    
-    const shouldScrollInstant = !streaming && (lastScrolledSessionId.current !== activeSessionId)
-    
-    if (shouldScrollInstant) {
-      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
-      if (finalMessages.length > 0) {
-        lastScrolledSessionId.current = activeSessionId
-      }
-    } else {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Use instant scroll (no animation) when not streaming.
+    // During streaming, smooth scroll to follow live content.
+    bottomRef.current?.scrollIntoView({
+      behavior: streaming ? 'smooth' : 'auto',
+    })
+    if (finalMessages.length > 0) {
+      lastScrolledSessionId.current = activeSessionId
     }
   }, [contentSum, streaming, activeSessionId, finalMessages])
 

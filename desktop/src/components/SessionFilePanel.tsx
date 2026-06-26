@@ -271,12 +271,6 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border/30 px-3 py-2 flex items-center justify-between bg-card/5 select-none shrink-0">
-        <span className="text-[10px] font-bold tracking-tight text-foreground/80 font-mono uppercase">
-          项目文件
-        </span>
-      </div>
-
       {body}
 
       {/* Modal preview — only used when panel is too narrow for inline */}
