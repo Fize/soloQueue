@@ -14,8 +14,6 @@ import { SkillsTab } from '@/components/settings/SkillsTab/index'
 import { MCPTab } from '@/components/settings/MCPTab'
 import TeamsTab from '@/components/settings/TeamsTab'
 import { ProjectsTab } from '@/components/settings/ProjectsTab'
-import { ProxiesTab } from '@/components/settings/ProxiesTab'
-import { IframePageView } from '@/components/IframePageView'
 import { ChatPage } from '@/components/ChatPage'
 import { AssistantPage } from '@/components/AssistantPage'
 import OfficeGameLayout from '@/components/OfficeGameLayout'
@@ -165,9 +163,7 @@ function App() {
                   <Route path="mcp" element={<MCPTab />} />
                   <Route path="teams" element={<TeamsTab />} />
                   <Route path="projects" element={<ProjectsTab />} />
-                  <Route path="proxies" element={<ProxiesTab />} />
                 </Route>
-                <Route path="/iframe/:id" element={<IframePageView />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </div>
