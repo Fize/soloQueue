@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { wsManager } from '@/lib/websocket'
+import { cn } from '@/lib/utils'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 import { SimulationGraph, type GraphEdgeInput } from './SimulationGraph'
 import { AgentDetailPanel } from './AgentDetailPanel'
 import ReactMarkdown from 'react-markdown'
@@ -82,6 +84,7 @@ const WORLD_STATE_KEYS_ZH: Record<string, string> = {
 export function SimulationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
 
   const [state, setState] = useState<SimulationState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1329,8 +1332,11 @@ export function SimulationDetailPage() {
   return (
     <div className="flex h-full flex-col bg-background text-foreground overflow-hidden">
       {/* Top Header Controls */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border bg-card/30 px-6 py-4">
-        <div className="flex items-center gap-4 min-w-0">
+      <header className={cn(
+        "flex shrink-0 items-center justify-between border-b border-border bg-card/30 px-6 py-4",
+        sidebarCollapsed && "pl-[115px]"
+      )}>
+        <div className="flex items-center gap-4 min-w-0 electron-no-drag">
           <button
             onClick={() => navigate('/simulations')}
             className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -1393,7 +1399,7 @@ export function SimulationDetailPage() {
         </div>
 
         {/* Start / Stop / Pause / Resume / Step / Fork / Delete Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 electron-no-drag">
           {(state.status === 'idle' || state.status === 'pending') && (
             <>
               <button

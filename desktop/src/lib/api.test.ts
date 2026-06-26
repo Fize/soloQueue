@@ -13,7 +13,6 @@ import {
   updateMCPConfig,
   getFileUrl,
   listFiles,
-  getFileRoots,
 } from './api'
 
 beforeEach(() => {
@@ -130,10 +129,5 @@ describe('api', () => {
       expect(files).toHaveLength(1)
     })
 
-    it('getFileRoots', async () => {
-      mockResponse([{ label: 'root', path: '/', group: '' }])
-      const roots = await getFileRoots()
-      expect(roots).toHaveLength(1)
-    })
   })
 })

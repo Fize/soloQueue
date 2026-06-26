@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,88 +9,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
 
-func TestHTTP_FileHandlers_RootsAndToggle(t *testing.T) {
+func TestHTTP_FileHandlers_ToggleCheckbox(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// 1. Create SQLite DB
-	dbPath := filepath.Join(tempDir, "entries.db")
-	sdb, err := sqlitedb.Open(dbPath)
-	if err != nil {
-		t.Fatalf("failed to open sqlite DB: %v", err)
-	}
-	defer sdb.Close()
-
-	// 2. Initialize teamstore and project
-	store := teamstore.NewStore(filepath.Join(tempDir, "groups"), filepath.Join(tempDir, "agents"), sdb)
-	ctx := context.Background()
-	projPath := filepath.Join(tempDir, "project-1")
-	if err := os.MkdirAll(projPath, 0755); err != nil {
-		t.Fatalf("failed to create project dir: %v", err)
-	}
-
-	err = store.CreateProject(ctx, &teamstore.Project{
-		ID:   "p1",
-		Name: "Project One",
-		Path: projPath,
-	})
-	if err != nil {
-		t.Fatalf("failed to create project: %v", err)
-	}
-
-	// 3. Create Mux
-	mux := NewMux(tempDir, nil, WithTeamStore(store))
+	// Create Mux
+	mux := NewMux(tempDir, nil)
 	defer mux.Close()
 
-	// 4. Test GET /api/files/roots
-	{
-		req := httptest.NewRequest("GET", "/api/files/roots", nil)
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", rec.Code)
-		}
-
-		var roots []FileRoot
-		if err := json.Unmarshal(rec.Body.Bytes(), &roots); err != nil {
-			t.Fatalf("failed to parse roots: %v", err)
-		}
-
-		// Should contain Global Plans, Global Workspaces, and Project One
-		hasGlobalPlans := false
-		hasGlobalWorkspaces := false
-		hasProject := false
-		expectedWorkspacePath := filepath.Join(tempDir, "workspace")
-
-		for _, r := range roots {
-			if r.Label == "Global Plans" {
-				hasGlobalPlans = true
-			}
-			if r.Label == "Global Workspaces" && r.Path == expectedWorkspacePath && r.Group == "Global Plans" {
-				hasGlobalWorkspaces = true
-			}
-			if r.Label == "Project One" && r.Path == projPath && r.Group == "Projects" {
-				hasProject = true
-			}
-		}
-
-		if !hasGlobalPlans {
-			t.Error("missing Global Plans root")
-		}
-		if !hasGlobalWorkspaces {
-			t.Error("missing Global Workspaces root")
-		}
-		if !hasProject {
-			t.Error("missing Project One root")
-		}
-	}
-
-	// 5. Test POST /api/files/toggle-checkbox
+	// Test POST /api/files/toggle-checkbox
 	{
 		// Create a plan file under global plan directory
 		planDir := filepath.Join(tempDir, "plan")

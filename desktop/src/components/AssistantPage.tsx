@@ -1,0 +1,226 @@
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { ChatMessageView } from '@/components/ChatMessage'
+import { ChatInput } from '@/components/ChatInput'
+import { Loader2, Sparkles } from 'lucide-react'
+import { wsManager } from '@/lib/websocket'
+import { useAgentStore } from '@/stores/agentStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
+import type { ChatHandler } from '@/lib/websocket'
+import type { ChatMessage, ChatSegment } from '@/types'
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function generateRequestId(): string {
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+export function AssistantPage() {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [streaming, setStreaming] = useState(false)
+  const activeRequestRef = useRef<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Agent name from runtime data (same source as ChatPage)
+  const agentsData = useAgentStore((state) => state.agents)
+  const runtimeStatus = useRuntimeStore((state) => state.status)
+
+  const agentName = useMemo(() => {
+    const l1 = agentsData?.agents.find((a) => a.id === 'l1-agent')
+    return l1?.name || 'L1 Agent'
+  }, [agentsData])
+
+  // Context window from runtime (same broadcast as ChatPage uses)
+  const ctxwinUsed = runtimeStatus?.prompt_tokens ?? 0
+  const ctxwinLimit = runtimeStatus?.prompt_tokens && runtimeStatus?.cache_hit_tokens
+    ? runtimeStatus.prompt_tokens + runtimeStatus.cache_hit_tokens + runtimeStatus.cache_miss_tokens
+    : 0
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  // ── Send ──────────────────────────────────────────────────────────────────
+
+  const handleSend = useCallback(
+    (text: string, files?: { name: string; path: string }[], _group?: string, _projectPath?: string) => {
+      if (!text.trim() || streaming) return
+
+      const requestId = generateRequestId()
+      activeRequestRef.current = requestId
+
+      const msgId = `asst-msg-${Date.now()}`
+      const asstId = `asst-msg-${Date.now() + 1}`
+
+      // Add user message
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: msgId,
+          role: 'user',
+          segments: [{ type: 'content' as const, text }],
+          timestamp: new Date().toISOString(),
+          files,
+        },
+      ])
+
+      // Add empty assistant placeholder
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: asstId,
+          role: 'assistant',
+          segments: [],
+          timestamp: new Date().toISOString(),
+        },
+      ])
+
+      setStreaming(true)
+
+      // Accumulators (mutable locals avoid stale closures)
+      let currentContent = ''
+      let currentThinking = ''
+
+      const buildSegments = (): ChatSegment[] => {
+        const segs: ChatSegment[] = []
+        if (currentThinking) segs.push({ type: 'thinking' as const, text: currentThinking })
+        if (currentContent) segs.push({ type: 'content' as const, text: currentContent })
+        return segs
+      }
+
+      const finish = () => {
+        setStreaming(false)
+        activeRequestRef.current = null
+        wsManager.unregisterChat(requestId)
+      }
+
+      const handler: ChatHandler = {
+        onChunk: (delta: string) => {
+          currentContent += delta
+          const segs = buildSegments()
+          setMessages((prev) => {
+            const msgs = [...prev]
+            const last = msgs[msgs.length - 1]
+            if (last?.role === 'assistant') {
+              msgs[msgs.length - 1] = { ...last, segments: segs }
+            }
+            return msgs
+          })
+        },
+        onReasoning: (delta: string) => {
+          currentThinking += delta
+          const segs = buildSegments()
+          setMessages((prev) => {
+            const msgs = [...prev]
+            const last = msgs[msgs.length - 1]
+            if (last?.role === 'assistant') {
+              msgs[msgs.length - 1] = { ...last, segments: segs }
+            }
+            return msgs
+          })
+        },
+        onDone: () => finish(),
+        onError: (error: string) => {
+          const segs = buildSegments()
+          const finalSegs: ChatSegment[] = segs.length > 0
+            ? [...segs, { type: 'error' as const, text: error }]
+            : [{ type: 'error' as const, text: error }]
+          setMessages((prev) => {
+            const msgs = [...prev]
+            const last = msgs[msgs.length - 1]
+            if (last?.role === 'assistant') {
+              msgs[msgs.length - 1] = { ...last, segments: finalSegs }
+            }
+            return msgs
+          })
+          finish()
+        },
+        onClose: () => {
+          if (activeRequestRef.current === requestId) finish()
+        },
+      }
+
+      wsManager.registerChat(requestId, handler)
+      wsManager.send({
+        type: 'chat_send',
+        request_id: requestId,
+        session_id: 'l1',
+        prompt: text,
+        files,
+      })
+    },
+    [streaming]
+  )
+
+  // ── Cancel ────────────────────────────────────────────────────────────────
+
+  const handleCancel = useCallback(() => {
+    const rid = activeRequestRef.current
+    if (!rid) return
+    wsManager.send({ type: 'chat_cancel', request_id: rid, session_id: 'l1' })
+    setStreaming(false)
+    activeRequestRef.current = null
+    wsManager.unregisterChat(rid)
+  }, [])
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex h-full w-full overflow-hidden bg-background">
+      <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
+        {/* Header — matches ChatPage header style */}
+        <header className="flex h-12 shrink-0 items-center border-b border-border/30 bg-card/20 px-6 select-none">
+          <div className="flex flex-1 items-center gap-3">
+            <h1 className="text-xs font-bold text-foreground font-mono truncate">{agentName}</h1>
+          </div>
+          {streaming && (
+            <div className="flex items-center gap-1.5 text-[10px] text-violet-500/70">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              生成中...
+            </div>
+          )}
+        </header>
+
+        {/* Messages — conditional overflow to avoid scrollbar when empty */}
+        <div
+          ref={scrollRef}
+          className={messages.length > 0 ? 'flex-1 overflow-y-auto' : 'flex-1'}
+        >
+          {messages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 border border-violet-500/20">
+                <Sparkles className="h-7 w-7 text-violet-500" />
+              </div>
+              <h2 className="text-lg font-semibold text-foreground/80">{agentName}</h2>
+              <p className="max-w-xs text-center text-xs text-muted-foreground">
+                向 L1 智能体发送消息，获取即时响应。
+              </p>
+            </div>
+          ) : (
+            <div className="mx-auto max-w-3xl">
+              {messages.map((msg) => (
+                <ChatMessageView key={msg.id} message={msg} agentName={agentName} />
+              ))}
+            </div>
+          )}
+          <div ref={bottomRef} className="h-2" />
+        </div>
+
+        {/* Input — same ChatInput as ChatPage */}
+        <ChatInput
+          onSend={handleSend}
+          onCancel={handleCancel}
+          streaming={streaming}
+          delegating={false}
+          disabled={streaming}
+          showL2Selectors={false}
+          ctxwinUsed={ctxwinUsed}
+          ctxwinLimit={ctxwinLimit}
+        />
+      </div>
+    </div>
+  )
+}

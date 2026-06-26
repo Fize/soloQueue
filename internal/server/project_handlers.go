@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
@@ -133,4 +135,45 @@ func (m *Mux) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
+func (m *Mux) handleGetProjectBranches(w http.ResponseWriter, r *http.Request) {
+	if m.teamstore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "team store not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	p, err := m.teamstore.GetProject(r.Context(), id)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Get current active branch
+	activeCmd := exec.Command("git", "-C", p.Path, "rev-parse", "--abbrev-ref", "HEAD")
+	activeBranchBytes, err := activeCmd.Output()
+	activeBranch := "main"
+	if err == nil {
+		activeBranch = strings.TrimSpace(string(activeBranchBytes))
+	}
+
+	cmd := exec.Command("git", "-C", p.Path, "branch", "--format=%(refname:short)")
+	output, err := cmd.Output()
+	if err != nil {
+		m.writeJSON(w, http.StatusOK, map[string]any{"branches": []string{activeBranch}})
+		return
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var branches []string
+	branches = append(branches, activeBranch)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && line != activeBranch {
+			branches = append(branches, line)
+		}
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]any{"branches": branches})
 }

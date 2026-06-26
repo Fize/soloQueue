@@ -1,5 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { Settings } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 
 const tabLabels: Record<string, string> = {
   '/settings/config': '全局配置参数',
@@ -14,11 +16,15 @@ const tabLabels: Record<string, string> = {
 export function SettingsLayout() {
   const location = useLocation()
   const activeLabel = tabLabels[location.pathname] || '偏好设置'
+  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
 
   return (
     <div className="h-full w-full overflow-hidden flex flex-col bg-background">
       {/* macOS Style Preferences Header Bar */}
-      <header className="flex h-12 items-center justify-between border-b border-border/30 px-6 bg-card/20 shrink-0 select-none">
+      <header className={cn(
+        "flex h-12 items-center justify-between border-b border-border/30 px-6 bg-card/20 shrink-0 select-none",
+        sidebarCollapsed && "pl-[115px]"
+      )}>
         <div className="flex items-center gap-2.5">
           <Settings className="h-4 w-4 text-muted-foreground" />
           <h1 className="text-xs font-bold text-foreground font-mono">{activeLabel}</h1>

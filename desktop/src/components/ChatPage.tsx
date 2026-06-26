@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ChatMessageView } from '@/components/ChatMessage'
 import { ChatInput } from '@/components/ChatInput'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatStream } from '@/hooks/useChatStream'
 import { useAgentStream } from '@/hooks/useAgentStream'
-import { PanelRight, Loader2, Activity } from 'lucide-react'
+import { PanelRight, Loader2, Activity, Bot, Users, FolderOpen, Layers } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 import { cn } from '@/lib/utils'
-import type { AgentInfo } from '@/types'
+import type { AgentInfo, Project } from '@/types'
 import { L2SessionStatusPanel } from '@/components/L2SessionStatusPanel'
+import { SessionFilePanel } from '@/components/SessionFilePanel'
+import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -26,6 +29,8 @@ export function ChatPage() {
     loadSessions,
     setActiveSession,
     loadHistory,
+    createL2Session,
+    deleteL2Session,
   } = useChatStore()
   const { send, cancel } = useChatStream()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -34,7 +39,108 @@ export function ChatPage() {
   const loadingMore = useRef(false)
 
   // macOS Inspector state
-  const [showInspector, setShowInspector] = useState(true)
+  const [showInspector, setShowInspector] = useState(false)
+  const [inspectorTab, setInspectorTab] = useState<'files' | 'changes'>('files')
+
+  const toggleInspector = (open: boolean) => {
+    useRuntimeStore.getState().setInspectorPanelWidth(open ? panelWidth : 0)
+    setShowInspector(open)
+  }
+  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
+
+  // Resizable inspector panel
+  const MIN_AREA_WIDTH = 200
+  const [panelWidth, setPanelWidth] = useState(300)
+  const [isResizing, setIsResizing] = useState(false)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isResizing) return
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!splitContainerRef.current) return
+      const rect = splitContainerRef.current.getBoundingClientRect()
+      const newWidth = rect.right - e.clientX
+      const maxWidth = Math.floor(rect.width * 0.6)
+      const clamped = Math.max(
+        MIN_AREA_WIDTH,
+        Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth)
+      )
+      setPanelWidth(clamped)
+      useRuntimeStore.getState().setInspectorPanelWidth(clamped)
+    }
+    const handleMouseUp = () => setIsResizing(false)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
+
+  // Track split container width for responsive content sizing
+  const [containerWidth, setContainerWidth] = useState(0)
+  useEffect(() => {
+    const el = splitContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      setContainerWidth(entry.contentRect.width)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // L2 redesign states
+  const [l2Groups, setL2Groups] = useState<string[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [teamProjectsMap, setTeamProjectsMap] = useState<Record<string, Project[]>>({})
+
+  const [selectedGroup, setSelectedGroup] = useState<string>('')
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+
+  // Load L2 groups, projects, teams
+  useEffect(() => {
+    let active = true
+    async function loadInitialData() {
+      try {
+        const [groupNames, projs, teamsData] = await Promise.all([
+          listL2Groups(),
+          listProjects(),
+          getTeams().catch(() => ({ teams: [] })),
+        ])
+
+        if (!active) return
+
+        setL2Groups(groupNames)
+        setProjects(projs)
+
+        const projectMap = new Map(projs.map((p) => [p.id, p]))
+        const groupProjects: Record<string, Project[]> = {}
+        for (const team of (teamsData as any).teams || []) {
+          if (team.projects && Array.isArray(team.projects)) {
+            for (const pid of team.projects) {
+              const proj = projectMap.get(pid)
+              if (proj) {
+                if (!groupProjects[team.name]) groupProjects[team.name] = []
+                groupProjects[team.name].push(proj)
+              }
+            }
+          }
+        }
+        setTeamProjectsMap(groupProjects)
+      } catch (err) {
+        console.error('Failed to load welcome screen options:', err)
+      }
+    }
+    loadInitialData()
+    return () => {
+      active = false
+    }
+  }, [])
 
   const agentsData = useAgentStore((state) => state.agents)
   const teamsData = useAgentStore((state) => state.teams)
@@ -48,24 +154,79 @@ export function ChatPage() {
 
   useEffect(() => {
     loadSessions()
-  }, [loadSessions, streaming])
+  }, [loadSessions])
 
   useEffect(() => {
-    if (sessionId) {
+    if (sessionId && sessionId !== 'l1') {
       if (sessionId !== activeSessionId) {
         setActiveSession(sessionId)
       }
-    } else if (activeSessionId) {
-      navigate(`/chat/${activeSessionId}`, { replace: true })
     } else {
-      navigate('/chat/l1', { replace: true })
+      // Find the most recent L2 session
+      const l2Sessions = sessions.filter((s) => s.type === 'l2')
+      if (l2Sessions.length > 0) {
+        const sorted = [...l2Sessions].sort((a, b) => {
+          const timeA = a.createdAt || (a as any).created_at || ''
+          const timeB = b.createdAt || (b as any).created_at || ''
+          return timeB.localeCompare(timeA)
+        })
+        const latest = sorted[0].id
+        setActiveSession(latest)
+        navigate(`/chat/${latest}`, { replace: true })
+      } else {
+        // No L2 sessions exist
+        if (activeSessionId) {
+          setActiveSession('')
+        }
+        if (sessionId === 'l1') {
+          navigate('/chat', { replace: true })
+        }
+      }
     }
-  }, [sessionId, activeSessionId, setActiveSession, navigate])
+  }, [sessionId, activeSessionId, sessions, setActiveSession, navigate])
 
   const currentMessages = messages[activeSessionId || ''] || []
   const activeSession = sessions.find((s) => s.id === activeSessionId)
-  const activeGroup = activeSession?.group
+  const hasActiveSession = activeSession != null
+  const activeGroup = activeSession?.group ?? null
+  const activeProjectPath = activeSession?.project_path ?? null
   const isL1Session = activeSessionId === 'l1'
+
+  // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
+  const MESSAGE_MAX_W = 768
+  const messageMaxWidth = useMemo(() => {
+    const panelVisible = showInspector && activeSession
+    const mainContentWidth = containerWidth - (panelVisible ? panelWidth + 4 : 0) // 4px = handle width
+    if (mainContentWidth <= 0) return MESSAGE_MAX_W
+    return Math.max(MIN_AREA_WIDTH - 32, Math.min(mainContentWidth * 0.85, MESSAGE_MAX_W))
+  }, [showInspector, activeSession, containerWidth, panelWidth])
+
+  // Sync selected group and project path when active session data changes
+  useEffect(() => {
+    if (hasActiveSession) {
+      setSelectedGroup(activeGroup || '')
+      setSelectedProjectPath(activeProjectPath || '')
+    } else if (l2Groups.length > 0) {
+      setSelectedGroup(l2Groups[0])
+    }
+  }, [hasActiveSession, activeGroup, activeProjectPath, l2Groups])
+
+  // Sync first project of selected group when selectedGroup changes
+  useEffect(() => {
+    if (selectedGroup) {
+      const groupProjs = teamProjectsMap[selectedGroup] || []
+      setSelectedProjectPath(prevPath => {
+        const valid = groupProjs.some((p) => p.path === prevPath)
+        if (!valid) {
+          if (groupProjs.length > 0) return groupProjs[0].path
+          if (projects.length > 0) return projects[0].path
+        }
+        return prevPath // same ref → React bails, no re-render
+      })
+    }
+  }, [selectedGroup, teamProjectsMap, projects])
+
+  const selectedProject = projects.find((p) => p.path === selectedProjectPath)
 
   const groupAgents = useMemo(() => {
     if (isL1Session) {
@@ -131,9 +292,14 @@ export function ChatPage() {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null
   }, [groupAgents])
 
+  const agentDisplayName = useMemo(() => {
+    if (isL1Session) return 'L1 Agent'
+    return activeSession?.agent_name || activeAgent?.name || 'Assistant'
+  }, [isL1Session, activeSession, activeAgent])
+
   useEffect(() => {
     if (anyRunning) {
-      setShowInspector(true)
+      toggleInspector(true)
     }
   }, [anyRunning])
 
@@ -197,6 +363,43 @@ export function ChatPage() {
     return currentMessages
   }, [currentMessages, isL1Session, l1AgentState, streaming, streamChatSegments])
 
+  const handleSend = async (
+    text: string,
+    files?: { name: string; path: string }[],
+    group?: string,
+    projectPath?: string
+  ) => {
+    let targetSessionId = activeSessionId || undefined
+
+    if (!isL1Session && group) {
+      if (!activeSessionId) {
+        // No session exists — auto-create one on first send
+        const newId = await createL2Session(group, projectPath || '')
+        if (newId) {
+          targetSessionId = newId
+          navigate(`/chat/${newId}`)
+        }
+      } else if (currentMessages.length === 0 && activeSession) {
+        // Session exists but no messages — recreate if context changed
+        const currentProjPath = activeSession.project_path || ''
+        const currentGroup = activeSession.group || ''
+
+        if (group !== currentGroup || projectPath !== currentProjPath) {
+          const newId = await createL2Session(group, projectPath || '')
+          if (newId) {
+            if (activeSessionId !== newId) {
+              await deleteL2Session(activeSessionId)
+            }
+            targetSessionId = newId
+            navigate(`/chat/${newId}`)
+          }
+        }
+      }
+    }
+
+    await send(text, files, targetSessionId)
+  }
+
   const contentSum = finalMessages.reduce((acc, msg) => {
     let sum = 0
     for (const seg of msg.segments) {
@@ -206,6 +409,8 @@ export function ChatPage() {
     }
     return acc + sum + msg.segments.length
   }, 0)
+
+  const lastScrolledSessionId = useRef<string | null>(null)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -219,7 +424,10 @@ export function ChatPage() {
         userScrolledUp.current = true
       }
 
-      if (scrollTop < 50 && historyHasMore && !historyLoading && !loadingMore.current) {
+      const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false
+      const isLoading = activeSessionId ? historyLoading[activeSessionId] : false
+
+      if (scrollTop < 50 && hasMore && !isLoading && !loadingMore.current) {
         loadingMore.current = true
         const prevHeight = scrollHeight
         loadMoreHistory(activeSessionId || '')
@@ -234,96 +442,311 @@ export function ChatPage() {
     }
     el.addEventListener('scroll', handleScroll)
     return () => el.removeEventListener('scroll', handleScroll)
-  }, [historyHasMore, historyLoading, loadMoreHistory])
+  }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory])
 
   useEffect(() => {
     if (userScrolledUp.current) return
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [contentSum, streaming])
+    
+    const shouldScrollInstant = !streaming && (lastScrolledSessionId.current !== activeSessionId)
+    
+    if (shouldScrollInstant) {
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      if (finalMessages.length > 0) {
+        lastScrolledSessionId.current = activeSessionId
+      }
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [contentSum, streaming, activeSessionId, finalMessages])
+
+  if (!activeSessionId) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-background select-none h-full w-full">
+        <div
+          className="w-full flex flex-col items-center space-y-8"
+          style={{ maxWidth: messageMaxWidth }}
+        >
+          <div className="text-center space-y-3">
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mx-auto mb-2 shadow-inner">
+              <Bot className="h-8 w-8 animate-pulse" />
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-foreground bg-gradient-to-r from-foreground to-foreground/75 bg-clip-text">
+              欢迎使用 SoloQueue 协作空间
+            </h1>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto text-center">
+              选择团队和项目，与多智能体系统开始协同编程。
+            </p>
+          </div>
+
+          {/* ChatInput with selectors — available immediately for composing first message */}
+          <div className="w-full">
+            <ChatInput
+              onSend={handleSend}
+              onCancel={cancel}
+              streaming={streaming}
+              delegating={delegating}
+              disabled={streaming || delegating}
+              activeSessionId={undefined}
+              showL2Selectors={true}
+              groups={l2Groups}
+              projects={projects}
+              teamProjectsMap={teamProjectsMap}
+              selectedGroup={selectedGroup}
+              selectedProjectPath={selectedProjectPath}
+              onGroupChange={setSelectedGroup}
+              onProjectChange={setSelectedProjectPath}
+              ctxwinUsed={0}
+              ctxwinLimit={0}
+            />
+          </div>
+
+          {/* Team cards — click to pre-fill selectors above */}
+          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+            {l2Groups.map((group) => {
+              const groupProjects = teamProjectsMap[group] || []
+              return (
+                <div
+                  key={group}
+                  onClick={() => {
+                    setSelectedGroup(group)
+                    if (groupProjects.length > 0) setSelectedProjectPath(groupProjects[0].path)
+                  }}
+                  className={cn(
+                    "border border-border/45 bg-card/40 rounded-xl p-5 hover:border-border/80 hover:bg-card/60 transition-all cursor-pointer",
+                    selectedGroup === group && "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+                  )}
+                >
+                  <div className="space-y-1.5">
+                    <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                      <span className="tracking-wider uppercase">{group} 团队</span>
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {groupProjects.length > 0
+                        ? `关联项目: ${groupProjects.map(p => p.name).join(', ')}`
+                        : '无关联项目'}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
       {/* Pane 3: Chat conversation bubble stream */}
       <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
-        {/* Chat header */}
-        <header className="flex h-12 items-center justify-between border-b border-border/30 px-6 select-none bg-card/20 shrink-0">
-          {/* Header left: info and status */}
-          <div className="flex items-center gap-3">
+        {/* Chat header — split into chat section + panel section when inspector is open */}
+        <header className={cn(
+          "flex h-12 items-center border-b border-border/30 select-none bg-card/20 shrink-0",
+          sidebarCollapsed && "pl-[115px]"
+        )}>
+          {/* Left section: chat header area — fills remaining space */}
+          <div className={cn(
+            "flex items-center gap-3 px-6 h-full",
+            showInspector ? "flex-1 justify-between" : "flex-1 justify-between"
+          )}>
             <h1 className="text-xs font-bold text-foreground truncate font-mono">
               {activeSession?.name || (isL1Session ? '通用问答 (L1)' : `${activeGroup} 团队`)}
             </h1>
-            <span className="text-[10px] text-muted-foreground font-mono bg-secondary px-1.5 py-0.5 rounded border border-border/20">
-              {isL1Session ? 'L1 fast-edit mode' : `L2 multi-agent workspace`}
-            </span>
+            <div className="flex items-center gap-2 electron-no-drag">
+              {streaming && (
+                <button
+                  onClick={cancel}
+                  className="px-2.5 py-1 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-[10px] font-semibold transition-all cursor-pointer"
+                >
+                  停止生成
+                </button>
+              )}
+              {!showInspector && (
+                <button
+                  onClick={() => toggleInspector(true)}
+                  className="p-1.5 rounded-md hover:bg-foreground/5 transition-all cursor-pointer text-muted-foreground"
+                  title="显示任务状态面板"
+                >
+                  <PanelRight className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Header right: Actions */}
-          <div className="flex items-center gap-2">
-            {streaming && (
-              <button
-                onClick={cancel}
-                className="px-2.5 py-1 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-[10px] font-semibold transition-all cursor-pointer"
-              >
-                停止生成
-              </button>
-            )}
-            
-            <button
-              onClick={() => setShowInspector(!showInspector)}
-              className={cn(
-                'p-1.5 rounded-md hover:bg-foreground/5 transition-all cursor-pointer',
-                showInspector ? 'text-primary' : 'text-muted-foreground'
-              )}
-              title="显示/隐藏 任务状态面板"
+          {/* Right section: panel header area — aligned to inspector width */}
+          {showInspector && (
+            <div
+              className="shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3"
+              style={{ width: panelWidth }}
             >
-              <PanelRight className="h-4 w-4" />
-            </button>
-          </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setInspectorTab('files')}
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer',
+                    inspectorTab === 'files'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                  )}
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  文件
+                </button>
+                <button
+                  onClick={() => setInspectorTab('changes')}
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer',
+                    inspectorTab === 'changes'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                  )}
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  变更
+                </button>
+              </div>
+              <button
+                onClick={() => toggleInspector(false)}
+                className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
+                title="关闭面板"
+              >
+                <PanelRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </header>
 
         {/* Outer container for chat content + inspector split layout */}
-        <div className="flex flex-1 min-h-0 overflow-hidden relative">
+        <div ref={splitContainerRef} className={cn(
+          'flex flex-1 min-h-0 overflow-hidden relative',
+          isResizing && 'select-none'
+        )}>
           
           {/* Conversation stream */}
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
-              {historyLoading && (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-mono ml-2">正在载入历史...</span>
-                </div>
-              )}
-              
-              {finalMessages.map((msg) => (
-                <ChatMessageView key={msg.id} message={msg} />
-              ))}
+            {finalMessages.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
+                <div
+                  className="w-full flex flex-col items-center space-y-8 select-none"
+                  style={{ maxWidth: messageMaxWidth }}
+                >
+                  {/* Centered Heading */}
+                  <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
+                    {isL1Session 
+                      ? 'What should we build with L1 Orchestrator?' 
+                      : `What should we build in ${selectedProject?.name || 'soloQueue'}?`
+                    }
+                  </h1>
 
-              {delegating && (
-                <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
-                  <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
-                  <span>团队正在协作分发中，请稍候...</span>
+                  {/* Redesigned Input Card */}
+                    <div className="w-full">
+                    <ChatInput
+                      onSend={handleSend}
+                      onCancel={cancel}
+                      streaming={streaming}
+                      delegating={delegating}
+                      disabled={streaming || delegating}
+                      activeSessionId={activeSessionId || undefined}
+                      showL2Selectors={!isL1Session}
+                      groups={l2Groups}
+                      projects={projects}
+                      teamProjectsMap={teamProjectsMap}
+                      selectedGroup={selectedGroup}
+                      selectedProjectPath={selectedProjectPath}
+                      onGroupChange={setSelectedGroup}
+                      onProjectChange={setSelectedProjectPath}
+                      ctxwinUsed={activeSession?.ctxwin_used ?? 0}
+                      ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
+                    />
+                  </div>
                 </div>
-              )}
-              
-              <div ref={bottomRef} className="h-2" />
-            </div>
+              </div>
+            ) : (
+              <>
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6">
+                  <div
+                    className="mx-auto w-full space-y-6 px-4"
+                    style={{ maxWidth: messageMaxWidth }}
+                  >
+                    {activeSessionId && historyLoading[activeSessionId] && (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground font-mono ml-2">正在载入历史...</span>
+                      </div>
+                    )}
+                    
+                    {finalMessages.map((msg) => (
+                      <ChatMessageView key={msg.id} message={msg} agentName={agentDisplayName} />
+                    ))}
 
-            {/* Input area */}
-            <ChatInput
-              onSend={send}
-              onCancel={cancel}
-              streaming={streaming}
-              delegating={delegating}
-              disabled={!activeSessionId || streaming || delegating}
-              activeSessionId={activeSessionId || undefined}
-            />
+                    {delegating && (
+                      <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
+                        <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
+                        <span>团队正在协作分发中，请稍候...</span>
+                      </div>
+                    )}
+                    
+                    <div ref={bottomRef} className="h-2" />
+                  </div>
+                </div>
+
+                <ChatInput
+                  onSend={handleSend}
+                  onCancel={cancel}
+                  streaming={streaming}
+                  delegating={delegating}
+                  disabled={streaming || delegating}
+                  activeSessionId={activeSessionId || undefined}
+                  showL2Selectors={!isL1Session}
+                  readOnlySelectors={true}
+                  groups={l2Groups}
+                  projects={projects}
+                  teamProjectsMap={teamProjectsMap}
+                  selectedGroup={selectedGroup}
+                  selectedProjectPath={selectedProjectPath}
+                  onGroupChange={setSelectedGroup}
+                  onProjectChange={setSelectedProjectPath}
+                  ctxwinUsed={activeSession?.ctxwin_used ?? 0}
+                  ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
+                />
+              </>
+            )}
           </div>
 
           {/* Right Inspector panel (Plan lists, checklist, MCP status details) */}
           {showInspector && activeSession && (
-            <div className="w-[300px] shrink-0 border-l border-border/30 h-full overflow-y-auto bg-card/5">
-              <L2SessionStatusPanel session={activeSession} activeAgent={activeAgent} />
-            </div>
+            <>
+              {/* Resize handle */}
+              <div
+                onMouseDown={handleResizeStart}
+                className={cn(
+                  'w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors',
+                  isResizing && 'bg-primary/40'
+                )}
+              />
+              <div
+                className="shrink-0 border-l border-border/30 h-full overflow-hidden bg-card/5 flex flex-col"
+                style={{ width: panelWidth }}
+              >
+                {/* Panel content */}
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {inspectorTab === 'files' ? (
+                    activeSession.project_path ? (
+                      <SessionFilePanel projectPath={activeSession.project_path} panelWidth={panelWidth} />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                        当前会话未关联项目
+                      </div>
+                    )
+                  ) : (
+                    <div className="h-full overflow-y-auto">
+                      <L2SessionStatusPanel session={activeSession} activeAgent={activeAgent} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
