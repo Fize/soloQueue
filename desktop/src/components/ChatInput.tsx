@@ -2,7 +2,7 @@ import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo }
 import { toast } from 'sonner'
 import { 
   ArrowUp, StopCircle, X, Loader2, Plus, ChevronDown, 
-  Check, Laptop, GitBranch, Bot, Mic 
+  Check, Laptop, GitBranch, Users, Mic 
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
@@ -61,12 +61,45 @@ export function ChatInput({
   readOnlySelectors = false,
 }: ChatInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const groupRef = useRef<HTMLDivElement>(null)
+  const projectRef = useRef<HTMLDivElement>(null)
+  const branchRef = useRef<HTMLDivElement>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
 
   // Selectors State
   const [activeDropdown, setActiveDropdown] = useState<'group' | 'project' | 'branch' | null>(null)
+  const [dropdownPos, setDropdownPos] = useState<{ bottom: number; left: number } | null>(null)
   const [branch, setBranch] = useState<string>('main')
   const [branches, setBranches] = useState<string[]>(['main'])
+
+  // Compute fixed position for dropdown menus (must break out of overflow-x-auto clipping)
+  useEffect(() => {
+    if (activeDropdown) {
+      const ref = activeDropdown === 'group' ? groupRef : activeDropdown === 'project' ? projectRef : branchRef
+      const rect = ref.current?.getBoundingClientRect()
+      if (rect) {
+        setDropdownPos({
+          bottom: window.innerHeight - rect.top + 4,
+          left: rect.left,
+        })
+      }
+    } else {
+      setDropdownPos(null)
+    }
+  }, [activeDropdown])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const targets = [groupRef.current, projectRef.current, branchRef.current]
+      const clickedInside = targets.some((ref) => ref && ref.contains(e.target as Node))
+      if (!clickedInside) {
+        setActiveDropdown(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Fetch branches dynamically based on the selected project path
   useEffect(() => {
@@ -246,14 +279,6 @@ export function ChatInput({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
-      {/* Dropdown Click Catcher */}
-      {activeDropdown && (
-        <div 
-          className="fixed inset-0 z-40 bg-transparent cursor-default" 
-          onClick={() => setActiveDropdown(null)} 
-        />
-      )}
-
       {/* Main card wrapper */}
       <div className="relative flex flex-col rounded-3xl border border-border/60 bg-muted/20 dark:bg-muted/10 p-2 shadow-sm transition-all focus-within:shadow-md focus-within:border-primary/30">
         
@@ -321,7 +346,7 @@ export function ChatInput({
                 {showL2Selectors && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5 flex-1 min-w-0">
                     {/* L2 Group Select */}
-                    <div className="relative shrink-0">
+                    <div className="relative shrink-0" ref={groupRef}>
                       <button
                         type="button"
                         onClick={() => {
@@ -335,13 +360,16 @@ export function ChatInput({
                             : "cursor-pointer hover:text-foreground hover:bg-muted/40"
                         )}
                       >
-                        <Bot className="h-3 w-3 text-muted-foreground/60" />
+                        <Users className="h-3 w-3 text-muted-foreground/60" />
                         <span className="text-foreground/80">{selectedGroup || 'Select Group'}</span>
                         {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                       </button>
 
                       {activeDropdown === 'group' && groups.length > 0 && (
-                        <div className="absolute left-0 bottom-full mb-1 z-50 w-44 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto">
+                        <div
+                          className="fixed z-50 w-44 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
+                          style={dropdownPos ? { bottom: `${dropdownPos.bottom}px`, left: `${dropdownPos.left}px` } : undefined}
+                        >
                           {groups.map((g) => (
                             <button
                               key={g}
@@ -364,7 +392,7 @@ export function ChatInput({
                     {filteredProjects.length > 0 && (
                       <>
                         <span className="text-muted-foreground/20 font-mono select-none">/</span>
-                        <div className="relative shrink-0">
+                        <div className="relative shrink-0" ref={projectRef}>
                           <button
                             type="button"
                             onClick={() => {
@@ -386,7 +414,10 @@ export function ChatInput({
                           </button>
 
                           {activeDropdown === 'project' && (
-                            <div className="absolute left-0 bottom-full mb-1 z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto">
+                            <div
+                              className="fixed z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
+                              style={dropdownPos ? { bottom: `${dropdownPos.bottom}px`, left: `${dropdownPos.left}px` } : undefined}
+                            >
                               {filteredProjects.map((p) => (
                                 <button
                                   key={p.id}
@@ -411,7 +442,7 @@ export function ChatInput({
                     {filteredProjects.length > 0 && selectedProjectPath && (
                       <>
                         <span className="text-muted-foreground/20 font-mono select-none">/</span>
-                        <div className="relative shrink-0">
+                        <div className="relative shrink-0" ref={branchRef}>
                           <button
                             type="button"
                             onClick={() => {
@@ -431,7 +462,10 @@ export function ChatInput({
                           </button>
 
                           {activeDropdown === 'branch' && (
-                            <div className="absolute left-0 bottom-full mb-1 z-50 w-32 rounded-xl border border-border bg-popover p-1 shadow-lg">
+                            <div
+                              className="fixed z-50 w-32 rounded-xl border border-border bg-popover p-1 shadow-lg"
+                              style={dropdownPos ? { bottom: `${dropdownPos.bottom}px`, left: `${dropdownPos.left}px` } : undefined}
+                            >
                               {branches.map((b) => (
                                 <button
                                   key={b}

@@ -5,7 +5,7 @@ import { ChatInput } from '@/components/ChatInput'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatStream } from '@/hooks/useChatStream'
 import { useAgentStream } from '@/hooks/useAgentStream'
-import { PanelRight, Loader2, Activity, Plus, Bot } from 'lucide-react'
+import { PanelRight, Loader2, Activity, Bot, Users } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { cn } from '@/lib/utils'
@@ -98,13 +98,6 @@ export function ChatPage() {
     fetchLiveAgents()
     fetchTeams()
   }, [fetchLiveAgents, fetchTeams])
-
-  const handleNewSession = async (group: string, workDir?: string) => {
-    const newId = await createL2Session(group, workDir || '')
-    if (newId) {
-      navigate(`/chat/${newId}`)
-    }
-  }
 
   useEffect(() => {
     loadSessions()
@@ -314,18 +307,28 @@ export function ChatPage() {
   ) => {
     let targetSessionId = activeSessionId || undefined
 
-    if (!isL1Session && currentMessages.length === 0 && group && activeSession) {
-      const currentProjPath = activeSession.project_path || ''
-      const currentGroup = activeSession.group || ''
-
-      if (group !== currentGroup || projectPath !== currentProjPath) {
+    if (!isL1Session && group) {
+      if (!activeSessionId) {
+        // No session exists — auto-create one on first send
         const newId = await createL2Session(group, projectPath || '')
         if (newId) {
-          if (activeSessionId && activeSessionId !== newId) {
-            await deleteL2Session(activeSessionId)
-          }
           targetSessionId = newId
           navigate(`/chat/${newId}`)
+        }
+      } else if (currentMessages.length === 0 && activeSession) {
+        // Session exists but no messages — recreate if context changed
+        const currentProjPath = activeSession.project_path || ''
+        const currentGroup = activeSession.group || ''
+
+        if (group !== currentGroup || projectPath !== currentProjPath) {
+          const newId = await createL2Session(group, projectPath || '')
+          if (newId) {
+            if (activeSessionId !== newId) {
+              await deleteL2Session(activeSessionId)
+            }
+            targetSessionId = newId
+            navigate(`/chat/${newId}`)
+          }
         }
       }
     }
@@ -404,40 +407,56 @@ export function ChatPage() {
               欢迎使用 SoloQueue 协作空间
             </h1>
             <p className="text-sm text-muted-foreground max-w-md mx-auto text-center">
-              选择或创建一个团队和项目的工作会话，与多智能体系统开始协同编程。
+              选择团队和项目，与多智能体系统开始协同编程。
             </p>
           </div>
 
+          {/* ChatInput with selectors — available immediately for composing first message */}
+          <div className="w-full">
+            <ChatInput
+              onSend={handleSend}
+              onCancel={cancel}
+              streaming={streaming}
+              delegating={delegating}
+              disabled={streaming || delegating}
+              activeSessionId={undefined}
+              showL2Selectors={true}
+              groups={l2Groups}
+              projects={projects}
+              teamProjectsMap={teamProjectsMap}
+              selectedGroup={selectedGroup}
+              selectedProjectPath={selectedProjectPath}
+              onGroupChange={setSelectedGroup}
+              onProjectChange={setSelectedProjectPath}
+            />
+          </div>
+
+          {/* Team cards — click to pre-fill selectors above */}
           <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
             {l2Groups.map((group) => {
               const groupProjects = teamProjectsMap[group] || []
               return (
-                <div key={group} className="border border-border/45 bg-card/40 rounded-xl p-5 hover:border-border/80 hover:bg-card/60 transition-all flex flex-col justify-between space-y-4">
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-bold text-foreground tracking-wider uppercase">{group} 团队</h3>
+                <div
+                  key={group}
+                  onClick={() => {
+                    setSelectedGroup(group)
+                    if (groupProjects.length > 0) setSelectedProjectPath(groupProjects[0].path)
+                  }}
+                  className={cn(
+                    "border border-border/45 bg-card/40 rounded-xl p-5 hover:border-border/80 hover:bg-card/60 transition-all cursor-pointer",
+                    selectedGroup === group && "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+                  )}
+                >
+                  <div className="space-y-1.5">
+                    <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                      <span className="tracking-wider uppercase">{group} 团队</span>
+                    </h3>
                     <p className="text-xs text-muted-foreground">
-                      {groupProjects.length > 0 
-                        ? `关联项目: ${groupProjects.map(p => p.name).join(', ')}` 
+                      {groupProjects.length > 0
+                        ? `关联项目: ${groupProjects.map(p => p.name).join(', ')}`
                         : '无关联项目'}
                     </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <button
-                      onClick={() => handleNewSession(group)}
-                      className="flex-1 py-1.5 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/95 transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer min-w-[120px]"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> 开启空会话
-                    </button>
-                    {groupProjects.map((proj) => (
-                      <button
-                        key={proj.id}
-                        onClick={() => handleNewSession(group, proj.path)}
-                        className="py-1.5 px-3 rounded-lg border border-border/80 hover:border-foreground text-foreground text-xs font-medium bg-secondary/50 hover:bg-secondary transition-all cursor-pointer truncate max-w-[140px]"
-                        title={`开启项目 ${proj.name} 的会话`}
-                      >
-                        {proj.name}
-                      </button>
-                    ))}
                   </div>
                 </div>
               )
@@ -508,13 +527,13 @@ export function ChatPage() {
                   </h1>
 
                   {/* Redesigned Input Card */}
-                  <div className="w-full">
+                    <div className="w-full">
                     <ChatInput
                       onSend={handleSend}
                       onCancel={cancel}
                       streaming={streaming}
                       delegating={delegating}
-                      disabled={!activeSessionId || streaming || delegating}
+                      disabled={streaming || delegating}
                       activeSessionId={activeSessionId || undefined}
                       showL2Selectors={!isL1Session}
                       groups={l2Groups}
@@ -559,7 +578,7 @@ export function ChatPage() {
                   onCancel={cancel}
                   streaming={streaming}
                   delegating={delegating}
-                  disabled={!activeSessionId || streaming || delegating}
+                  disabled={streaming || delegating}
                   activeSessionId={activeSessionId || undefined}
                   showL2Selectors={!isL1Session}
                   readOnlySelectors={true}

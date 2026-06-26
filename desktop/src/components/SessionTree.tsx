@@ -7,7 +7,7 @@ import {
   FolderOpen,
   ChevronRight,
   ChevronDown,
-  MessageSquare,
+  Users,
 } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
@@ -179,6 +179,7 @@ export function SessionTree() {
                   ) : (
                     <span className="w-3.5 shrink-0" />
                   )}
+                  <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
                   <span className="flex-1 text-left truncate">{group.name || 'UNGROUPED'}</span>
                 </button>
                 <button
@@ -245,11 +246,10 @@ export function SessionTree() {
                             {/* Sessions under this project */}
                             {pExpanded && projSessions.length > 0 && (
                               <div className="space-y-0.5 mt-0.5">
-                                  {projSessions.map((s) => (
-                                    <TreeItem
-                                      key={s.id}
-                                      icon={MessageSquare}
-                                      label={s.name || 'New session'}
+                                    {projSessions.map((s) => (
+                                      <TreeItem
+                                        key={s.id}
+                                        label={s.name || 'New session'}
                                       isPast={s.name ? s.name.startsWith('Past') : false}
                                       active={activeSessionId === s.id}
                                       onClick={() => {
@@ -273,7 +273,6 @@ export function SessionTree() {
                       {groupSessions.map((s) => (
                         <TreeItem
                           key={s.id}
-                          icon={MessageSquare}
                           label={s.name || 'New session'}
                           isPast={s.name ? s.name.startsWith('Past') : false}
                           active={activeSessionId === s.id}
@@ -311,7 +310,7 @@ function TreeItem({
   isPast = false,
   state,
 }: {
-  icon: typeof Bot
+  icon?: typeof Bot
   label: string
   active: boolean
   onClick: () => void
@@ -335,7 +334,7 @@ function TreeItem({
         }`}
       >
         <div className="relative flex items-center justify-center shrink-0">
-          <Icon className="h-3.5 w-3.5 opacity-70" />
+          {Icon && <Icon className="h-3.5 w-3.5 opacity-70" />}
           {state && (
             <span
               className={cn(
