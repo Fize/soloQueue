@@ -95,13 +95,21 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'flex h-full flex-col bg-card/65 backdrop-blur-xl select-none overflow-hidden transition-all duration-300 ease-out',
-        narrow ? 'w-[52px]' : 'w-[220px]',
-        floating && 'absolute left-0 top-0 z-40 w-[220px] shadow-2xl border-r border-border/40'
+        'flex h-full flex-col bg-card/65 backdrop-blur-xl select-none overflow-hidden transition-transform duration-300 ease-out w-[220px]',
+        (floating || narrow) ? 'absolute left-0 top-0 z-40 h-full' : 'h-full',
+        floating && 'shadow-2xl border-r border-border/40',
+        narrow && '-translate-x-full'
       )}
     >
-      {/* Top spacer for macOS traffic lights (no button here; button lives in App.tsx) */}
-      <div className="h-12 w-full shrink-0 electron-drag-region" />
+      {/* Top spacer for macOS traffic lights */}
+      <div className="h-12 w-full shrink-0 relative">
+        {/* Traffic lights drag region (0 to 70px) */}
+        <div className="absolute left-0 top-0 w-[70px] h-full electron-drag-region" />
+        {/* Right side drag region (from 115px to end), only active when expanded */}
+        {!narrow && (
+          <div className="absolute left-[115px] right-0 top-0 h-full electron-drag-region" />
+        )}
+      </div>
 
       {viewMode === 'settings' ? (
         <SettingsView
@@ -109,7 +117,7 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
           location={location}
           onNav={handleNav}
           onBack={() => setViewMode('nav')}
-          narrow={narrow}
+          narrow={false}
         />
       ) : (
         <NavView
@@ -118,7 +126,7 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
           setChatOpen={setChatOpen}
           proxies={proxies}
           onNav={handleNav}
-          narrow={narrow}
+          narrow={false}
         />
       )}
 
