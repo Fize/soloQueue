@@ -13,6 +13,7 @@ export function DelegationCard({
   result,
   error,
   durationMs,
+  agentInstanceId,
 }: {
   name: string
   args: string
@@ -21,6 +22,7 @@ export function DelegationCard({
   result?: string
   error?: string
   durationMs?: number
+  agentInstanceId?: string
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const agentsData = useAgentStore((state) => state.agents)
@@ -33,7 +35,7 @@ export function DelegationCard({
     (a) => a.name.toLowerCase().replace(/[\s_-]/g, '') === namePart
   )
 
-  const instanceId = matchedAgent?.instance_id || null
+  const instanceId = agentInstanceId || matchedAgent?.instance_id || null
   const agentStream = useAgentStream(instanceId)
 
   const running = !done

@@ -355,15 +355,17 @@ function SegmentView({
       return <ThinkingSegment segment={segment} isUser={isUser} isLastSegment={isLastSegment} />
     case 'tool_call':
       if (segment.name.startsWith('delegate_')) {
+        const teamName = segment.name.substring(9).replace(/_/g, ' ')
         return (
           <DelegationCard
-            name={segment.name}
+            name={teamName}
             args={segment.args}
             callId={segment.callId}
             done={segment.done}
             result={segment.result}
             error={segment.error}
             durationMs={segment.durationMs}
+            agentInstanceId={segment.agentInstanceId}
           />
         )
       }

@@ -47,10 +47,11 @@ type ToolCallDeltaEvent struct {
 
 // ToolExecStartEvent signals that the agent has started executing a tool.
 type ToolExecStartEvent struct {
-	Iter   int
-	CallID string
-	Name   string
-	Args   string // complete JSON arguments
+	Iter          int
+	CallID        string
+	Name          string
+	Args          string // complete JSON arguments
+	TargetAgentID string // unique instance ID of target agent (UUID) for delegation tools
 }
 
 // ToolExecDoneEvent signals that a tool execution has completed.

@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSimStore } from '../stores/simStore'
 import RegistrationScene from './RegistrationScene'
 import OfficeScene from './OfficeScene'
-import KanbanBoard from './KanbanBoard'
 import ShopMenu from './ShopMenu'
 import { sounds } from '../utils/audio'
 
@@ -27,7 +26,6 @@ export default function OfficeGameLayout() {
 
   const [backendLoading, setBackendLoading] = useState(false)
   const [backendError, setBackendError] = useState('')
-  const [showKanban, setShowKanban] = useState(false)
   const [showShop, setShowShop] = useState(false)
   const backendSpawnedRef = useRef(false)
 
@@ -134,7 +132,6 @@ export default function OfficeGameLayout() {
     <div className="relative w-full h-full flex flex-col overflow-hidden">
       {/* OfficeScene is always the base — no more TitleScene waiting screen */}
       <OfficeScene
-        onOpenKanban={() => { setShowKanban(true); try { sounds.playSelect() } catch {} }}
         onOpenShop={() => { setShowShop(true); try { sounds.playSelect() } catch {} }}
         backendLoading={backendLoading}
         backendError={backendError}
@@ -148,10 +145,7 @@ export default function OfficeGameLayout() {
         <RegistrationScene onComplete={handleRegistrationComplete} />
       )}
 
-      {/* Kanban Overlay */}
-      {showKanban && (
-        <KanbanBoard onClose={() => { setShowKanban(false); try { sounds.playSelect() } catch {} }} />
-      )}
+
 
       {/* Shop Overlay */}
       {showShop && (
