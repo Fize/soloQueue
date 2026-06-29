@@ -436,14 +436,12 @@ export default function OfficeScene({
           deskFg.width = 110
           deskFg.height = deskHeight
           
-          // Mask foreground desk to hide the chair backrest (top part of image)
+          // Mask foreground desk to hide ONLY the chair backrest.
+          // This allows the front desk surface to naturally cover the agent's legs.
           const deskMask = new Graphics()
-          // Left side
-          deskMask.rect(-55, -35, 33, deskHeight + 35)
-          // Right side
-          deskMask.rect(22, -35, 33, deskHeight + 35)
-          // Front side
-          deskMask.rect(-22, -13.5, 44, deskHeight + 35)
+          deskMask.rect(-60, -40, 120, deskHeight + 40) // Cover entire desk area
+          deskMask.cut()
+          deskMask.rect(-15, -40, 30, 26) // Cut out a small window for the chair backrest (y=-40 to -14)
           deskMask.fill(0xffffff)
           deskFg.mask = deskMask
           deskFg.addChild(deskMask)
