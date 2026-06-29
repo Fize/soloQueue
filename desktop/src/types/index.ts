@@ -360,6 +360,7 @@ export interface WSToolStart {
   call_id: string
   name: string
   args: string
+  target_agent_id?: string
 }
 
 export interface WSToolDone {
@@ -860,6 +861,7 @@ export type ChatSegment =
       error?: string
       durationMs?: number
       done: boolean
+      agentInstanceId?: string
     }
   | {
       type: 'delegation'

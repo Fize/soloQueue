@@ -293,9 +293,7 @@ export function ChatPage() {
     })
   }, [agentsData, teamsData, activeGroup, isL1Session])
 
-  const anyRunning = useMemo(() => {
-    return groupAgents.some((a) => a.state === 'processing')
-  }, [groupAgents])
+
 
   const activeAgent = useMemo(() => {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null
@@ -306,11 +304,7 @@ export function ChatPage() {
     return activeSession?.agent_name || activeAgent?.name || 'Assistant'
   }, [isL1Session, activeSession, activeAgent])
 
-  useEffect(() => {
-    if (anyRunning) {
-      toggleInspector(true)
-    }
-  }, [anyRunning])
+
 
   const l1Agent = isL1Session ? groupAgents[0] : null
   const l1AgentState = l1Agent?.state
@@ -559,14 +553,6 @@ export function ChatPage() {
               {activeSession?.name || (isL1Session ? '通用问答 (L1)' : `${activeGroup} 团队`)}
             </h1>
             <div className="flex items-center gap-2 electron-no-drag">
-              {streaming && (
-                <button
-                  onClick={cancel}
-                  className="px-2.5 py-1 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-[10px] font-semibold transition-all cursor-pointer"
-                >
-                  停止生成
-                </button>
-              )}
               {!showInspector && (
                 <button
                   onClick={() => toggleInspector(true)}

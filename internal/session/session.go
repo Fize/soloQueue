@@ -1136,6 +1136,11 @@ func (s *Session) touch() {
 	s.lastActive.Store(time.Now().UnixNano())
 }
 
+// LastActive 返回会话的最后活跃时间。
+func (s *Session) LastActive() time.Time {
+	return time.Unix(0, s.lastActive.Load())
+}
+
 // CancelCurrent 取消当前正在执行的 AskStream（如果有）。
 // 取消通过 askCtx 传播到 agent 的 streamLoop，进而中断 LLM 调用和工具执行。
 // 幂等安全：无活跃任务时返回 ErrNoActiveTask。

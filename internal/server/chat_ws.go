@@ -201,11 +201,12 @@ func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 
 	case agent.ToolExecStartEvent:
 		return &WSMessage{
-			Type:      "tool_start",
-			RequestID: requestID,
-			CallID:    e.CallID,
-			Name:      e.Name,
-			Args:      e.Args,
+			Type:          "tool_start",
+			RequestID:     requestID,
+			CallID:        e.CallID,
+			Name:          e.Name,
+			Args:          e.Args,
+			TargetAgentID: e.TargetAgentID,
 		}
 
 	case agent.ToolExecDoneEvent:

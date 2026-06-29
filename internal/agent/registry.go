@@ -376,6 +376,20 @@ type LocatableAdapter struct {
 	*Agent
 }
 
+func (la *LocatableAdapter) InstanceID() string {
+	if la.Agent != nil {
+		return la.Agent.InstanceID
+	}
+	return ""
+}
+
+func (la *LocatableAdapter) Name() string {
+	if la.Agent != nil {
+		return la.Agent.Def.Name
+	}
+	return ""
+}
+
 // AskStream implements iface.Locatable.AskStream.
 // Relays typed AgentEvent values through an iface.AgentEvent channel.
 func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {

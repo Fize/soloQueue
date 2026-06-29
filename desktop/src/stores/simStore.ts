@@ -3,7 +3,6 @@ import { sounds } from '../utils/audio'
 
 export type AgentType = 'L1' | 'L2' | 'L3'
 export type AgentStatus = 'idle' | 'walking_in' | 'working' | 'error' | 'walking_out'
-export type TaskStatus = 'backlog' | 'todo' | 'running' | 'done'
 
 export interface Agent {
   id: string
@@ -26,19 +25,6 @@ export interface Agent {
   errorTimer: number | null
 }
 
-export interface Task {
-  id: string
-  title: string
-  team: 'infra' | 'logic' | 'frontend'
-  reward: number
-  progress: number // 0 to 100
-  status: TaskStatus
-  duration: number // seconds
-  logs: string[]
-  assignedAgentId: string | null
-  completedAt?: string
-}
-
 export interface Upgrade {
   id: string
   name: string
@@ -58,10 +44,8 @@ interface SimState {
     registered: boolean
   }
   agents: Agent[]
-  tasks: Task[]
   upgrades: Record<string, Upgrade>
   logs: string[]
-  activeTaskId: string | null
   
   // Connection states
   backendStatus: 'idle' | 'starting' | 'running' | 'error'
@@ -79,12 +63,9 @@ interface SimState {
   registerL1: (name: string, gender: 'male' | 'female', style: string) => void
   loadProfile: () => Promise<void>
   setBackendStatus: (status: 'idle' | 'starting' | 'running' | 'error', error?: string) => void
-  addTask: (title: string, team: 'infra' | 'logic' | 'frontend', reward: number) => void
-  assignTask: (taskId: string, agentId: string) => void
   resolveError: (agentId: string) => void
   buyUpgrade: (upgradeId: string) => void
   hireAgent: (name: string, type: AgentType, gender: 'male' | 'female') => void
-  setActiveTaskId: (taskId: string | null) => void
   tickSimulation: (dt: number) => void
   addLog: (text: string) => void
 
@@ -159,6 +140,37 @@ export function findPath(
       return false
     }
 
+    // Block lounge partition walls (column 6, rows 10-16, except gate at 6,13)
+    if (gx === 6 && gy >= 10 && gy <= 16) {
+      if (gx === 6 && gy === 13) {
+        return true
+      }
+      return false
+    }
+
+    // Block lounge center furniture (columns 8-9, rows 11-12)
+    if (gx >= 8 && gx <= 9 && gy >= 11 && gy <= 12) {
+      return false
+    }
+
+    // Block gym partition walls (column 11, rows 10-16, except gate at 11,13)
+    if (gx === 11 && gy >= 10 && gy <= 16) {
+      if (gx === 11 && gy === 13) {
+        return true
+      }
+      return false
+    }
+
+    // Block gym equipment/treadmills (columns 13-14, rows 11-12)
+    if (gx >= 13 && gx <= 14 && gy >= 11 && gy <= 12) {
+      return false
+    }
+
+    // Block staircase shaft structure (columns 21-22, rows 14-16)
+    if (gx >= 21 && gx <= 22 && gy >= 14 && gy <= 16) {
+      return false
+    }
+
     return true
   }
 
@@ -197,26 +209,6 @@ export function findPath(
   return [{ x: startX * GRID_SIZE, y: startY * GRID_SIZE }, { x: endX * GRID_SIZE, y: endY * GRID_SIZE }]
 }
 
-// Generate realistic LLM stream messages for simulator
-function generateLogsForTask(taskTitle: string, agentName: string): string[] {
-  return [
-    `[INFO] Starting execution context for task: "${taskTitle}"`,
-    `[SYSTEM] Allocating expert worker model: ${agentName}`,
-    `[THINK] Analyzing requirements for "${taskTitle}"...`,
-    `[THINK] The codebase structure contains router.go and main_test.go. I should search for relevant structures.`,
-    `[TOOL_CALL] call_id="c1" name="grep_search" args={"Query": "Optimize", "SearchPath": "."}`,
-    `[TOOL_RESULT] call_id="c1" output="Found matches in internal/db/query.go (Line 45, Line 89)"`,
-    `[THINK] Excellent. The query lacks index parameters. Let's write a database patch file to optimize performance.`,
-    `[TOOL_CALL] call_id="c2" name="replace_file_content" args={"TargetFile": "internal/db/query.go", "Instruction": "Add optimized composite index to query" }`,
-    `[TOOL_RESULT] call_id="c2" output="File successfully modified (1 diff block applied)"`,
-    `[THINK] Running verify tests to ensure no regressions.`,
-    `[TOOL_CALL] call_id="c3" name="run_command" args={"CommandLine": "go test ./internal/db/..."}`,
-    `[TOOL_RESULT] call_id="c3" output="PASS: TestQueryOptimization (0.45s)"`,
-    `[INFO] Optimization complete. Token overhead analyzed.`,
-    `[SYSTEM] Task complete! Releasing allocation lock.`
-  ]
-}
-
 export type BackendConnectionStatus = 'idle' | 'starting' | 'running' | 'error'
 
 export const useSimStore = create<SimState>((set, get) => ({
@@ -228,12 +220,6 @@ export const useSimStore = create<SimState>((set, get) => ({
     registered: false,
   },
   agents: [],
-  tasks: [
-    { id: 'task-1', title: 'Initialize Vector Store DB Schema', team: 'infra', reward: 200, progress: 0, status: 'todo', duration: 8, logs: [], assignedAgentId: null },
-    { id: 'task-2', title: 'Fix WebSocket ErrSessionBusy Race Condition', team: 'logic', reward: 350, progress: 0, status: 'todo', duration: 12, logs: [], assignedAgentId: null },
-    { id: 'task-3', title: 'Design Glassmorphism Side Panel Layout', team: 'frontend', reward: 150, progress: 0, status: 'todo', duration: 6, logs: [], assignedAgentId: null },
-    { id: 'task-4', title: 'Profile Context Window Token Compression', team: 'infra', reward: 400, progress: 0, status: 'todo', duration: 15, logs: [], assignedAgentId: null },
-  ],
   upgrades: {
     'desk': { id: 'desk', name: 'Oak Desks Upgrades', description: 'Increases agent working speed by 25% per level.', level: 1, maxLevel: 5, baseCost: 300, costMultiplier: 1.8 },
     'coffee': { id: 'coffee', name: 'Premium Coffee Maker', description: 'Increases walking speeds and lowers crash rates by 20%.', level: 1, maxLevel: 5, baseCost: 200, costMultiplier: 1.5 },
@@ -241,9 +227,8 @@ export const useSimStore = create<SimState>((set, get) => ({
   },
   logs: [
     'Welcome to SoloQueue cozy office simulation!',
-    'Hire agents, delegate tasks, and accumulate Token profits.'
+    'Hire agents, and accumulate Token profits.'
   ],
-  activeTaskId: null,
   backendStatus: 'idle' as BackendConnectionStatus,
   backendError: '',
   isConnected: false,
@@ -395,65 +380,6 @@ export const useSimStore = create<SimState>((set, get) => ({
     }
   },
 
-  addTask: (title, team, reward) => {
-    const newTask: Task = {
-      id: `task-${Date.now()}`,
-      title,
-      team,
-      reward,
-      progress: 0,
-      status: 'todo',
-      duration: Math.floor(Math.random() * 8) + 6,
-      logs: [],
-      assignedAgentId: null
-    }
-    set({
-      tasks: [...get().tasks, newTask],
-      logs: [...get().logs, `New issue added to backlog: "${title}"`]
-    })
-  },
-
-  assignTask: (taskId, agentId) => {
-    const task = get().tasks.find(t => t.id === taskId)
-    const agent = get().agents.find(a => a.id === agentId)
-
-    if (!task || !agent || agent.status !== 'idle') return
-
-    // Pathfind from current location to their workstation
-    const dest = WORKSTATIONS[agent.workstationId]
-    const path = findPath(
-      Math.floor(agent.x / GRID_SIZE),
-      Math.floor(agent.y / GRID_SIZE),
-      dest.x,
-      dest.y
-    )
-
-    // Play select sound
-    sounds.playSelect()
-
-    // Update agent & task state
-    set({
-      agents: get().agents.map(a => 
-        a.id === agentId 
-          ? { 
-              ...a, 
-              status: 'walking_in', 
-              currentTaskId: taskId,
-              targetX: dest.x * GRID_SIZE,
-              targetY: dest.y * GRID_SIZE,
-              path: path
-            } 
-          : a
-      ),
-      tasks: get().tasks.map(t => 
-        t.id === taskId 
-          ? { ...t, status: 'running', assignedAgentId: agentId, logs: generateLogsForTask(t.title, agent.name) } 
-          : t
-      ),
-      logs: [...get().logs, `Assigned "${task.title}" to ${agent.name}. Agent is walking to workstation.`]
-    })
-  },
-
   resolveError: (agentId) => {
     const agent = get().agents.find(a => a.id === agentId)
     if (!agent || agent.status !== 'error') return
@@ -463,7 +389,7 @@ export const useSimStore = create<SimState>((set, get) => ({
       agents: get().agents.map(a => 
         a.id === agentId ? { ...a, status: 'working', errorTimer: null } : a
       ),
-      logs: [...get().logs, `Resolved compilation panic for ${agent.name}. Resuming task.`]
+      logs: [...get().logs, `Resolved compilation panic for ${agent.name}. Resuming work.`]
     })
   },
 
@@ -544,20 +470,28 @@ export const useSimStore = create<SimState>((set, get) => ({
       set({ logs: [...get().logs, `Created new workstation ${deskId} at (${nextX}, ${nextY}) for infinite expansion!`] })
     }
 
+    const dest = WORKSTATIONS[deskId]
+    const path = findPath(
+      ELEVATOR_SPAWN.x,
+      ELEVATOR_SPAWN.y,
+      dest.x,
+      dest.y
+    )
+
     const newAgent: Agent = {
       id: `agent-${Date.now()}`,
       name,
       type,
       gender,
-      status: 'idle',
+      status: 'walking_in',
       level: 1,
       workstationId: deskId,
       currentTaskId: null,
       x: ELEVATOR_SPAWN.x * GRID_SIZE,
       y: ELEVATOR_SPAWN.y * GRID_SIZE,
-      targetX: ELEVATOR_SPAWN.x * GRID_SIZE,
-      targetY: ELEVATOR_SPAWN.y * GRID_SIZE,
-      path: [],
+      targetX: dest.x * GRID_SIZE,
+      targetY: dest.y * GRID_SIZE,
+      path,
       speedMultiplier: 1.0,
       frame: 0,
       frameTimer: 0,
@@ -573,8 +507,6 @@ export const useSimStore = create<SimState>((set, get) => ({
   },
 
   setBackendStatus: (status, error) => set({ backendStatus: status, backendError: error || '' }),
-
-  setActiveTaskId: (taskId) => set({ activeTaskId: taskId }),
 
   addLog: (text) => set({ logs: [...get().logs, text] }),
 
@@ -676,14 +608,11 @@ export const useSimStore = create<SimState>((set, get) => ({
   tickSimulation: (dt) => {
     const state = get()
     const coffeeLvl = state.upgrades['coffee'].level
-    const deskLvl = state.upgrades['desk'].level
 
     // Speed constants
     const baseWalkSpeed = 64 // pixels per second
     const walkSpeed = baseWalkSpeed * (1 + (coffeeLvl - 1) * 0.2)
-    const workSpeedMultiplier = 1 + (deskLvl - 1) * 0.25
 
-    let tokensGained = 0
     const logsAdded: string[] = []
 
     const updatedAgents = state.agents.map(agent => {
@@ -792,95 +721,8 @@ export const useSimStore = create<SimState>((set, get) => ({
       }
     })
 
-    // Update tasks progress
-    const updatedTasks = state.tasks.map(task => {
-      if (task.status !== 'running') return task
-
-      const assignedAgent = updatedAgents.find(a => a.id === task.assignedAgentId)
-      if (!assignedAgent) return task
-
-      // If agent is in error, progress pauses
-      if (assignedAgent.status === 'error') return task
-
-      // Increment progress if agent is working at desk
-      if (assignedAgent.status === 'working') {
-        const progressIncrement = (100 / task.duration) * dt * workSpeedMultiplier
-        const newProgress = Math.min(task.progress + progressIncrement, 100)
-        
-        if (newProgress >= 100) {
-          tokensGained += task.reward
-          sounds.playSuccess()
-          logsAdded.push(`[x] Task completed successfully: "${task.title}"! Gained +${task.reward} Tokens.`)
-          
-          // Send agent back to elevator (despawn)
-          const agentIdx = updatedAgents.findIndex(a => a.id === task.assignedAgentId)
-          if (agentIdx !== -1) {
-            const path = findPath(
-              Math.floor(updatedAgents[agentIdx].x / GRID_SIZE),
-              Math.floor(updatedAgents[agentIdx].y / GRID_SIZE),
-              ELEVATOR_SPAWN.x,
-              ELEVATOR_SPAWN.y
-            )
-            updatedAgents[agentIdx].status = 'walking_out'
-            updatedAgents[agentIdx].targetX = ELEVATOR_SPAWN.x * GRID_SIZE
-            updatedAgents[agentIdx].targetY = ELEVATOR_SPAWN.y * GRID_SIZE
-            updatedAgents[agentIdx].path = path
-          }
-
-          return {
-            ...task,
-            progress: 100,
-            status: 'done' as TaskStatus,
-            completedAt: new Date().toLocaleTimeString()
-          }
-        }
-        
-        return {
-          ...task,
-          progress: newProgress
-        }
-      }
-
-      return task
-    })
-
-    // Spawn random tasks periodically if total tasks under 8
-    const currentActiveTasksCount = updatedTasks.filter(t => t.status !== 'done').length
-    let finalTasks = updatedTasks
-    if (currentActiveTasksCount < 6 && Math.random() < 0.005) {
-      const titles = [
-        'Optimize memory footprints in L0 Router',
-        'Add compression buffer to timeline log parser',
-        'Verify DeepSeek client retry parameters',
-        'Refactor skills load sequence to prevent cycle',
-        'Create visual micro-interactions on settings tab',
-        'Audit SQLite DB integrity on startup',
-        'Add healthcheck heartbeat to QQBot gateway'
-      ]
-      const teams: ('infra' | 'logic' | 'frontend')[] = ['infra', 'logic', 'frontend']
-      const newTitle = titles[Math.floor(Math.random() * titles.length)]
-      const newTeam = teams[Math.floor(Math.random() * teams.length)]
-      const reward = Math.floor(Math.random() * 200) + 150
-      
-      const newTask: Task = {
-        id: `task-${Date.now()}`,
-        title: newTitle,
-        team: newTeam,
-        reward,
-        progress: 0,
-        status: 'todo',
-        duration: Math.floor(Math.random() * 8) + 6,
-        logs: [],
-        assignedAgentId: null
-      }
-      finalTasks = [...updatedTasks, newTask]
-      logsAdded.push(`[SYSTEM] New backlog ticket spawned: "${newTitle}"`)
-    }
-
     set({
       agents: updatedAgents,
-      tasks: finalTasks,
-      tokens: state.tokens + tokensGained,
       logs: logsAdded.length > 0 ? [...state.logs, ...logsAdded] : state.logs
     })
   }

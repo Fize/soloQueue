@@ -196,11 +196,20 @@ func (a *Agent) execToolsWithAsync(
 
 		results[i] = formatDelegationStarted(tc)
 
+		targetInstanceID := ""
+		type instanceIDer interface {
+			InstanceID() string
+		}
+		if idProv, ok := action.Target.(instanceIDer); ok {
+			targetInstanceID = idProv.InstanceID()
+		}
+
 		a.emit(ctx, out, ToolExecStartEvent{
-			Iter:   iter,
-			CallID: tc.ID,
-			Name:   tc.Function.Name,
-			Args:   tc.Function.Arguments,
+			Iter:          iter,
+			CallID:        tc.ID,
+			Name:          tc.Function.Name,
+			Args:          tc.Function.Arguments,
+			TargetAgentID: targetInstanceID,
 		})
 
 		turnState.pending.Add(1)

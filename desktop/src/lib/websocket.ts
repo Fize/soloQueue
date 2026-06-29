@@ -15,7 +15,7 @@ type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 export interface ChatHandler {
   onChunk?: (delta: string) => void
   onReasoning?: (delta: string) => void
-  onToolStart?: (data: { call_id: string; name: string; args: string }) => void
+  onToolStart?: (data: { call_id: string; name: string; args: string; target_agent_id?: string }) => void
   onToolDone?: (data: {
     call_id: string
     name: string
@@ -218,7 +218,7 @@ class WebSocketManager {
       }
       case 'tool_start': {
         const h = this.chatHandlers.get(msg.request_id)
-        h?.onToolStart?.({ call_id: msg.call_id, name: msg.name, args: msg.args })
+        h?.onToolStart?.({ call_id: msg.call_id, name: msg.name, args: msg.args, target_agent_id: msg.target_agent_id })
         return
       }
       case 'tool_done': {

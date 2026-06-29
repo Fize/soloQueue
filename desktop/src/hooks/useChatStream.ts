@@ -86,6 +86,7 @@ export function useChatStream() {
             name: data.name,
             args: data.args,
             done: false,
+            agentInstanceId: data.target_agent_id,
           })
         },
         onToolDone: (data) => {
