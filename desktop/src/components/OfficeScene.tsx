@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSimStore, WORKSTATIONS } from '../stores/simStore'
 import { sounds } from '../utils/audio'
-import { Application, Container, Sprite, Texture, Rectangle, Graphics, Text } from 'pixi.js'
+import { Application, Container, Sprite, Texture, Rectangle, Graphics, Text, Assets } from 'pixi.js'
 
 // Import furniture
 import SecretaryChatDialog from './SecretaryChatDialog'
@@ -13,6 +13,13 @@ import spriteL2Female from '../assets/sprites/leader_female.png'
 import spriteL2Male from '../assets/sprites/leader_male.png'
 import spriteL3Female from '../assets/sprites/agent_female.png'
 import spriteL3Male from '../assets/sprites/agent_male.png'
+
+import imgSecretaryDesk from '../assets/furniture/secretary_desk.png'
+import imgCubicle from '../assets/furniture/cubicle_tileset.png'
+import imgPlant from '../assets/furniture/potted_plant.png'
+import imgWaterCooler from '../assets/furniture/water_cooler.png'
+import imgOfficeEntrance from '../assets/furniture/office_entrance.png'
+import imgSofa from '../assets/furniture/sofa.png'
 
 interface OfficeSceneProps {
   onOpenShop: () => void
@@ -140,12 +147,13 @@ export default function OfficeScene({
   } = useSimStore()
 
   // Interaction States
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'chat' | 'detail'>('chat')
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [timeStr, setTimeStr] = useState('')
   const [isDarkTheme, setIsDarkTheme] = useState(() => document.documentElement.classList.contains('dark'))
+  const [pixiReady, setPixiReady] = useState(false)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
 
   // Listen to theme changes on documentElement
   useEffect(() => {
@@ -167,7 +175,7 @@ export default function OfficeScene({
 
   // Store parsed textures
   const spriteTexturesRef = useRef<Record<string, Texture[][]>>({})
-  const agentSpritesRef = useRef<Record<string, { container: Container; sprite: Sprite; label: Text; baseRing?: Graphics }>>({})
+  const agentSpritesRef = useRef<Record<string, { container: Container; sprite: Sprite; label: Text; baseRing?: Graphics; mask?: Graphics }>>({})
 
   // Update digital clock
   useEffect(() => {
@@ -201,8 +209,6 @@ export default function OfficeScene({
     canvas.className = "w-full h-full cursor-grab active:cursor-grabbing"
     container.appendChild(canvas)
 
-    const rect = container.getBoundingClientRect()
-    
     const app = new Application()
     appRef.current = app
 
@@ -211,10 +217,13 @@ export default function OfficeScene({
 
     const initPixi = async () => {
       try {
+        const currentRect = container.getBoundingClientRect()
+        setDimensions({ width: currentRect.width, height: currentRect.height })
+
         await app.init({
           canvas,
-          width: rect.width,
-          height: rect.height,
+          width: currentRect.width,
+          height: currentRect.height,
           background: isDarkTheme ? '#020104' : '#e2e8f0',
           resolution: window.devicePixelRatio || 1,
           autoDensity: true,
@@ -231,546 +240,342 @@ export default function OfficeScene({
         worldRef.current = world
         app.stage.addChild(world)
 
-        const mapW = 24 * GRID_SIZE
-        const mapH = 18 * GRID_SIZE
+        // Fixed boundaries for Game Dev Tycoon style layout
+        const maxGridX = 32
+        const maxGridY = 21
 
-        // 2. Draw Floor grid
-        const floorColor = isDarkTheme ? '#0a0714' : '#f5f3ef'
-        const gridColor = isDarkTheme ? '#251a4a' : '#e5e2db'
-        const wallColor = isDarkTheme ? '#140f29' : '#e9e7e2'
-        const wallBorder = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
-        const moldColor = isDarkTheme ? '#a78bfa' : '#94a3b8'
-        const partitionColor = isDarkTheme ? '#1e1b30' : '#e2e8f0'
-        const partitionBorder = isDarkTheme ? '#564d7c' : '#cbd5e1'
+        const mapW = maxGridX * GRID_SIZE
+        const mapH = maxGridY * GRID_SIZE
+
+        // 2. Draw Floors (Game Dev Tycoon style rooms & roads)
+        const floors = new Graphics()
         
-        const elevatorColor = isDarkTheme ? '#1e1b30' : '#d1d5db'
-        const elevatorRecess = isDarkTheme ? '#0f0d1a' : '#e5e7eb'
-        const elevatorDoor = isDarkTheme ? '#3a3554' : '#f3f4f6'
-        const elevatorDoorBorder = isDarkTheme ? '#564d7c' : '#cbd5e1'
-        const elevatorLine = isDarkTheme ? '#8b5cf6' : '#9ca3af'
-        const elevatorStripe = isDarkTheme ? '#ffd700' : '#f59e0b'
-        const elevatorScreen = isDarkTheme ? '#252033' : '#f3f4f6'
-        const elevatorScreenBorder = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
-        const elevatorScreenArrow = isDarkTheme ? '#34d399' : '#3b82f6'
-
-        const stairColor = isDarkTheme ? '#140f29' : '#e9e7e2'
-        const stairBorder = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
-        const stairStep = isDarkTheme ? '#1c182a' : '#e8dfc9'
-        const stairStepShadow = isDarkTheme ? '#120f1a' : '#b5a98d'
-        const stairRail = isDarkTheme ? '#8b5cf6' : '#94a3b8'
-
-        const deskColor = isDarkTheme ? '#16102b' : '#e8dfc9'
-        const deskBorder = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
-        const deskTop = isDarkTheme ? '#241b44' : '#faf9f6'
-        const standColor = isDarkTheme ? '#8b5cf6' : '#9ca3af'
-        const hologramBg = isDarkTheme ? { color: '#8b5cf6', alpha: 0.25 } : { color: '#3b82f6', alpha: 0.15 }
-        const hologramBorder = isDarkTheme ? '#a78bfa' : '#60a5fa'
-        const hologramText = isDarkTheme ? '#a78bfa' : '#3b82f6'
-        const chairColor = isDarkTheme ? '#3d2e6b' : '#93c5fd'
-        const chairBorder = isDarkTheme ? '#8b5cf6' : '#60a5fa'
-
-        const wsDesk = isDarkTheme ? '#1e1b30' : '#e8dfc9'
-        const wsDeskBorder = isDarkTheme ? '#564d7c' : '#cbd5e1'
-        const iMacStand = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
-        const iMacScreenBg = isDarkTheme ? '#0a0714' : '#ffffff'
-        const iMacScreenBorder = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
-        const keybColor = isDarkTheme ? '#2d2844' : '#e5e7eb'
-        const glassColor = isDarkTheme ? { color: '#8b5cf6', alpha: 0.6 } : { color: '#34d399', alpha: 0.4 }
-
-        const sofaColor = isDarkTheme ? '#42362b' : '#fdba74'
-        const sofaBorder = isDarkTheme ? '#8b5cf6' : '#f97316'
-        const sofaCushion = isDarkTheme ? '#241a0e' : '#ffedd5'
-        const sofaCushionBorder = isDarkTheme ? '#564d7c' : '#fed7aa'
-
-        const gymBase = isDarkTheme ? '#2a2e3d' : '#cbd5e1'
-        const gymBaseBorder = isDarkTheme ? '#564d7c' : '#94a3b8'
-        const gymBelt = isDarkTheme ? '#0f111a' : '#1f2937'
-        const gymConsole = isDarkTheme ? '#120f1f' : '#4b5563'
-        const gymScreen = isDarkTheme ? '#06b6d4' : '#0284c7'
-        const matPink = isDarkTheme ? '#a04e7b' : '#fbcfe8'
-        const matPinkBorder = isDarkTheme ? '#ec4899' : '#f472b6'
-        const matBlue = isDarkTheme ? '#385d8a' : '#bae6fd'
-        const matBlueBorder = isDarkTheme ? '#0284c7' : '#38bdf8'
-        const rackBase = isDarkTheme ? '#36324d' : '#4b5563'
-        const rackBaseBorder = isDarkTheme ? '#564d7c' : '#1f2937'
-
-        const potColor = isDarkTheme ? '#423c5e' : '#ffffff'
-        const potBorder = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
+        const devCarpet = isDarkTheme ? '#1e293b' : '#f8fafc'
+        const devWalkway = isDarkTheme ? '#0f172a' : '#e2e8f0'
         
-        const coolerBody = isDarkTheme ? '#36324d' : '#ffffff'
-        const coolerBodyBorder = isDarkTheme ? '#564d7c' : '#cbd5e1'
-        const coolerScreen = isDarkTheme ? '#120f1f' : '#e5e7eb'
-        const coolerBottle = isDarkTheme ? { color: '#06b6d4', alpha: 0.7 } : { color: '#93c5fd', alpha: 0.6 }
-        const coolerBottleBorder = isDarkTheme ? '#22d3ee' : '#60a5fa'
+        const recepFloor = isDarkTheme ? '#2d1f10' : '#faeedf'
+        const recepPlank = isDarkTheme ? '#1c130a' : '#dec7ad'
+        
+        const breakFloor1 = isDarkTheme ? '#064e3b' : '#dcfce7'
+        const breakFloor2 = isDarkTheme ? '#022c22' : '#f0fdf4'
+        
+        const entFloor = isDarkTheme ? '#334155' : '#cbd5e1'
+        const entBorder = isDarkTheme ? '#475569' : '#94a3b8'
 
-        const serverRack = isDarkTheme ? '#181424' : '#e2e8f0'
-        const serverRackBorder = isDarkTheme ? '#8b5cf6' : '#cbd5e1'
-        const serverScreen = isDarkTheme ? '#0d0a14' : '#f8fafc'
-        const serverShelf = isDarkTheme ? '#2d2545' : '#ffffff'
-        const serverShelfBorder = isDarkTheme ? '#3d325c' : '#e2e8f0'
+        // Helper to fill rect
+        const fillRect = (gx: number, gy: number, gw: number, gh: number, color: string) => {
+          floors.rect(gx * GRID_SIZE, gy * GRID_SIZE, gw * GRID_SIZE, gh * GRID_SIZE)
+          floors.fill(color)
+        }
 
+        // DEV ZONES (Infra, Logic, Frontend)
+        fillRect(2, 2, 8, 7, devCarpet)
+        fillRect(11, 2, 9, 7, devCarpet)
+        fillRect(21, 2, 9, 7, devCarpet)
+
+        // CORRIDOR & DOORS
+        fillRect(2, 10, 28, 2, devWalkway) // Main horizontal
+        // Door gaps
+        fillRect(5, 9, 2, 1, devWalkway)
+        fillRect(15, 9, 2, 1, devWalkway)
+        fillRect(25, 9, 2, 1, devWalkway)
+        fillRect(5, 12, 2, 1, devWalkway)
+        fillRect(15, 12, 2, 1, devWalkway)
+        fillRect(25, 12, 2, 1, devWalkway)
+
+        // RECEPTION
+        fillRect(2, 13, 8, 6, recepFloor)
+        for (let py = 13 * GRID_SIZE + 8; py < 19 * GRID_SIZE; py += 8) {
+          floors.moveTo(2 * GRID_SIZE, py).lineTo(10 * GRID_SIZE, py)
+        }
+        floors.stroke({ color: recepPlank, width: 0.5 })
+
+        // BREAKROOM (Checkers)
+        for (let gx = 11; gx < 20; gx++) {
+          for (let gy = 13; gy < 19; gy++) {
+            fillRect(gx, gy, 1, 1, (gx + gy) % 2 === 0 ? breakFloor1 : breakFloor2)
+          }
+        }
+
+        // ENTRANCE (Marble)
+        fillRect(21, 13, 9, 6, entFloor)
+        for (let ex = 21 * GRID_SIZE; ex <= 30 * GRID_SIZE; ex += GRID_SIZE) {
+          floors.moveTo(ex, 13 * GRID_SIZE).lineTo(ex, 19 * GRID_SIZE)
+        }
+        for (let ey = 13 * GRID_SIZE; ey <= 19 * GRID_SIZE; ey += GRID_SIZE) {
+          floors.moveTo(21 * GRID_SIZE, ey).lineTo(30 * GRID_SIZE, ey)
+        }
+        floors.stroke({ color: entBorder, width: 0.5 })
+
+        world.addChild(floors)
+
+        // 2.5. Draw Floor grid overlay
         const grid = new Graphics()
-        grid.rect(0, 0, mapW, mapH)
-        grid.fill(floorColor)
-        
-        // Draw grid lines
-        for (let c = 0; c <= 24; c++) {
+        for (let c = 1; c < maxGridX; c++) {
           grid.moveTo(c * GRID_SIZE, 0).lineTo(c * GRID_SIZE, mapH)
         }
-        for (let r = 0; r <= 18; r++) {
+        for (let r = 1; r < maxGridY; r++) {
           grid.moveTo(0, r * GRID_SIZE).lineTo(mapW, r * GRID_SIZE)
         }
-        grid.stroke({ color: gridColor, width: 1 })
+        grid.stroke({ color: isDarkTheme ? 'rgba(51, 65, 85, 0.25)' : 'rgba(226, 232, 240, 0.45)', width: 1 })
         world.addChild(grid)
 
-        // 3. Wall boundaries
-        const walls = new Graphics()
-        // Top wall
-        walls.rect(0, 0, mapW, GRID_SIZE)
-        // Left wall
-        walls.rect(0, 0, GRID_SIZE, mapH)
-        // Bottom wall
-        walls.rect(0, mapH - GRID_SIZE, mapW, GRID_SIZE)
-        // Right wall
-        walls.rect(mapW - GRID_SIZE, 0, GRID_SIZE, mapH)
-        walls.fill(wallColor)
-        walls.stroke({ color: wallBorder, width: 2 })
+        // 3. Draw Outer & Inner Walls
+        const officeWalls = new Graphics()
+        const wallFillColor = isDarkTheme ? '#1e293b' : '#ffffff'
+        const wallStrokeColor = isDarkTheme ? '#475569' : '#cbd5e1'
 
-        // Draw clean wall molding strips
-        for (let x = 2 * GRID_SIZE; x < mapW - 2 * GRID_SIZE; x += 4 * GRID_SIZE) {
-          walls.rect(x, 6, 32, 2)
-          walls.fill(moldColor)
+        const drawWall = (gx: number, gy: number, gw: number, gh: number) => {
+          officeWalls.rect(gx * GRID_SIZE, gy * GRID_SIZE, gw * GRID_SIZE, gh * GRID_SIZE)
         }
-        world.addChild(walls)
 
-        // 3.5. Room partition walls for Gym and Lounge
-        const partitions = new Graphics()
-        // Lounge wall partition
-        partitions.rect(6 * GRID_SIZE - 2, 10 * GRID_SIZE, 4, 3 * GRID_SIZE)
-        partitions.rect(6 * GRID_SIZE - 2, 14 * GRID_SIZE, 4, 2 * GRID_SIZE)
-        // Gym wall partition
-        partitions.rect(11 * GRID_SIZE - 2, 10 * GRID_SIZE, 4, 3 * GRID_SIZE)
-        partitions.rect(11 * GRID_SIZE - 2, 14 * GRID_SIZE, 4, 2 * GRID_SIZE)
-        // Lobby wall partition
-        partitions.rect(16 * GRID_SIZE - 2, 10 * GRID_SIZE, 4, 3 * GRID_SIZE)
-        partitions.rect(16 * GRID_SIZE - 2, 14 * GRID_SIZE, 4, 2 * GRID_SIZE)
+        // Outer Walls
+        drawWall(1, 1, 30, 1) // Top
+        drawWall(1, 19, 30, 1) // Bottom
+        drawWall(1, 2, 1, 17) // Left
+        drawWall(30, 2, 1, 17) // Right
 
-        partitions.fill(partitionColor)
-        partitions.stroke({ color: partitionBorder, width: 1 })
+        // Inner Horizontal Row 9
+        drawWall(2, 9, 3, 1)
+        drawWall(7, 9, 3, 1)
+        drawWall(10, 9, 1, 1) // cross
+        drawWall(11, 9, 4, 1)
+        drawWall(17, 9, 3, 1)
+        drawWall(20, 9, 1, 1) // cross
+        drawWall(21, 9, 4, 1)
+
+        // Inner Horizontal Row 12
+        drawWall(2, 12, 3, 1)
+        drawWall(7, 12, 3, 1)
+        drawWall(10, 12, 1, 1) // cross
+        drawWall(11, 12, 4, 1)
+        drawWall(17, 12, 3, 1)
+        drawWall(20, 12, 1, 1) // cross
+        drawWall(21, 12, 4, 1)
+
+        // Elevator Shaft (Thick block)
+        drawWall(27, 9, 3, 4)
+
+        // Inner Vertical Col 10
+        drawWall(10, 2, 1, 7)
+        drawWall(10, 13, 1, 6)
+
+        // Inner Vertical Col 20
+        drawWall(20, 2, 1, 7)
+        drawWall(20, 13, 1, 6)
+
+        officeWalls.fill(wallFillColor)
+        officeWalls.stroke({ color: wallStrokeColor, width: 2 })
         
-        // Draw glass panes in partitions
-        partitions.rect(6 * GRID_SIZE - 1, 10.5 * GRID_SIZE, 2, 2 * GRID_SIZE)
-        partitions.rect(11 * GRID_SIZE - 1, 10.5 * GRID_SIZE, 2, 2 * GRID_SIZE)
-        partitions.rect(16 * GRID_SIZE - 1, 10.5 * GRID_SIZE, 2, 2 * GRID_SIZE)
-        partitions.fill({ color: '#38bdf8', alpha: 0.15 })
-        partitions.stroke({ color: '#bae6fd', width: 0.5 })
-        world.addChild(partitions)
-
-        // 3.8. Draw Floor labels to identify rooms
-        const drawFloorLabels = () => {
-          const createLabel = (text: string, gx: number, gy: number) => {
-            const lbl = new Text({
-              text,
-              style: {
-                fontFamily: 'monospace',
-                fontSize: 9,
-                fontWeight: 'bold',
-                fill: isDarkTheme ? '#a78bfa' : '#64748b',
-                align: 'center',
-              }
-            })
-            lbl.alpha = 0.25
-            lbl.anchor.set(0.5, 0.5)
-            lbl.x = gx * GRID_SIZE
-            lbl.y = gy * GRID_SIZE
-            world.addChild(lbl)
-          }
-
-          createLabel('L1 RECEPTION', 4.5, 15.5)
-          createLabel('BREAKROOM', 8.5, 15.5)
-          createLabel('ENERGY GYM', 13.5, 15.5)
-          createLabel('ELEVATOR LOBBY', 18.5, 15.5)
-          createLabel('STAIRWELL', 22.0, 13)
-          createLabel('DEV ZONE - INFRA', 4.5, 2.5)
-          createLabel('DEV ZONE - LOGIC', 12.5, 2.5)
-          createLabel('DEV ZONE - FRONTEND', 20.0, 2.5)
+        // Wall Moldings (Top Outer Wall)
+        for (let x = 2 * GRID_SIZE; x < 30 * GRID_SIZE; x += 4 * GRID_SIZE) {
+          officeWalls.rect(x, 1 * GRID_SIZE + 6, 32, 2)
+          officeWalls.fill(wallStrokeColor)
         }
-        drawFloorLabels()
+
+        world.addChild(officeWalls)
+
+        // (labelStyle removed since Floor labels were removed)
+        // Preload textures
+        const texEntrance = await Assets.load(imgOfficeEntrance)
+        const texSecretaryDesk = await Assets.load(imgSecretaryDesk)
+        const texCubicle = await Assets.load(imgCubicle)
+        const texPlant = await Assets.load(imgPlant)
+        const texWaterCooler = await Assets.load(imgWaterCooler)
+        const texSofa = await Assets.load(imgSofa)
+
+
+
+        // (Floor labels removed to prevent hardcoded text)
 
         // 4. Depth container for Y-sorted sprites
         const depthGroup = new Container()
         depthGroupRef.current = depthGroup
         world.addChild(depthGroup)
 
-        // Procedural Drawing: Elevator
-        const drawElevator = () => {
-          const elev = new Graphics()
-          // Casing
-          elev.rect(-64, -96, 128, 96)
-          elev.fill(elevatorColor)
-          elev.stroke({ color: elevatorLine, width: 2 })
+        // Draw Entrance Area (Lobby + Elevator) using sprite
+        const drawEntrance = () => {
+          const rectClosed = new Rectangle(59, 57, 512, 781)
+          const texClosed = new Texture({ source: texEntrance.source, frame: rectClosed })
 
-          // Door recess
-          elev.rect(-48, -80, 96, 80)
-          elev.fill(elevatorRecess)
-          
-          // Dual doors
-          elev.rect(-44, -76, 42, 76)
-          elev.fill(elevatorDoor)
-          elev.stroke({ color: elevatorDoorBorder, width: 1.5 })
-          elev.rect(2, -76, 42, 76)
-          elev.fill(elevatorDoor)
-          elev.stroke({ color: elevatorDoorBorder, width: 1.5 })
-
-          // Vertical panel lines
-          elev.moveTo(-6, -76).lineTo(-6, 0)
-          elev.moveTo(6, -76).lineTo(6, 0)
-          elev.stroke({ color: elevatorLine, width: 1 })
-
-          // Warning stripe
-          elev.rect(-52, -4, 104, 4)
-          elev.fill(elevatorStripe)
-
-          // Indicator screen
-          elev.rect(-16, -90, 32, 10)
-          elev.fill(elevatorScreen)
-          elev.stroke({ color: elevatorScreenBorder, width: 1 })
-          
-          // Up triangle
-          elev.moveTo(0, -88).lineTo(-4, -83).lineTo(4, -83).closePath()
-          elev.fill(elevatorScreenArrow)
-
-          elev.x = 19.5 * GRID_SIZE
-          elev.y = 13.5 * GRID_SIZE
-          depthGroup.addChild(elev)
+          const entrance = new Sprite(texClosed)
+          entrance.anchor.set(0.5, 0.5)
+          // Scale to fit 2x3 grids (width 64, height 97)
+          entrance.width = 64
+          entrance.height = 97
+          entrance.x = 28.5 * GRID_SIZE
+          entrance.y = 13.0 * GRID_SIZE - 48.5 // Flush with lobby floor (gy=13)
+          depthGroup.addChild(entrance)
         }
-        drawElevator()
+        drawEntrance()
 
-        // Procedural Drawing: Staircase
-        const drawStaircase = () => {
-          const stair = new Graphics()
-          stair.rect(-32, -96, 64, 96)
-          stair.fill(stairColor)
-          stair.stroke({ color: stairBorder, width: 2 })
-
-          // Steps
-          const stepW = 56
-          const stepH = 8
-          for (let i = 0; i < 9; i++) {
-            const stepY = -80 + i * 8
-            stair.rect(-28, stepY, stepW, stepH)
-            stair.fill(stairStep)
-            stair.stroke({ color: stairBorder, width: 0.5 })
-            
-            stair.rect(-28, stepY + stepH - 2, stepW, 2)
-            stair.fill(stairStepShadow)
-          }
-
-          // Chrome handrail
-          stair.moveTo(-24, -80).lineTo(24, 0)
-          stair.stroke({ color: stairRail, width: 2 })
-
-          stair.x = 22 * GRID_SIZE
-          stair.y = 16.0 * GRID_SIZE
-          depthGroup.addChild(stair)
-        }
-        drawStaircase()
-
-        // Procedural Drawing: Secretary Desk
+        // Draw Secretary Desk using sprite
         const drawSecretaryDesk = () => {
-          const desk = new Graphics()
-          // Wooden desk aligned to boundary of Columns 3-4, Row 13
-          desk.roundRect(-32, -12, 64, 24, 4)
-          desk.fill(deskColor)
-          desk.stroke({ color: deskBorder, width: 2 })
-
-          // Top panel
-          desk.roundRect(-28, -10, 56, 8, 2)
-          desk.fill(deskTop)
-          desk.stroke({ color: deskBorder, width: 1 })
-
-          // Screen stand
-          desk.rect(-10, -18, 2, 6)
-          desk.fill(standColor)
+          const rect = new Rectangle(97, 106, 1006, 635)
+          const tex = new Texture({ source: texSecretaryDesk.source, frame: rect })
+          const desk = new Sprite(tex)
+          desk.anchor.set(0.5, 0.5)
+          // secretary desk width 1006, scale to fit ~ 3.5 grids
+          const deskHeight = 110 * (635 / 1006)
           
-          // Hologram screen
-          desk.moveTo(-20, -36).lineTo(20, -36).lineTo(16, -18).lineTo(-16, -18).closePath()
-          desk.fill(hologramBg)
-          desk.stroke({ color: hologramBorder, width: 1 })
+          // Background desk (Chair backrest)
+          const deskBg = new Sprite(tex)
+          deskBg.anchor.set(0.5, 0.5)
+          deskBg.width = 110
+          deskBg.height = deskHeight
+          const deskBgContainer = new Container()
+          deskBgContainer.x = 7.0 * GRID_SIZE + 16
+          deskBgContainer.y = 15.0 * GRID_SIZE + 16 - 16 // Sort well BEFORE agent (agent is at +16)
+          deskBg.y = 8 // Visual center is 488 (15*32+16-8), container is 480, offset is +8
+          deskBgContainer.addChild(deskBg)
+          depthGroup.addChild(deskBgContainer)
 
-          const hText = new Text({
-            text: 'CHIEF',
-            style: {
-              fontFamily: 'monospace',
-              fontSize: 6,
-              fill: hologramText,
-              align: 'center',
-            }
-          })
-          hText.anchor.set(0.5, 0.5)
-          hText.x = 0
-          hText.y = -27
-          desk.addChild(hText)
-
-          // Keyboard
-          desk.rect(-12, 0, 24, 4)
-          desk.fill(standColor)
-
-          // Secretary chair
-          desk.roundRect(-10, 14, 20, 10, 3)
-          desk.fill(chairColor)
-          desk.stroke({ color: chairBorder, width: 1 })
-          desk.rect(-4, 4, 8, 10)
-          desk.fill(standColor)
+          // Foreground desk (Desk surface, monitors)
+          const deskFg = new Sprite(tex)
+          deskFg.anchor.set(0.5, 0.5)
+          deskFg.width = 110
+          deskFg.height = deskHeight
           
-          desk.x = 4 * GRID_SIZE
-          desk.y = 13.5 * GRID_SIZE
-          depthGroup.addChild(desk)
+          // Mask foreground desk to hide the chair backrest (top part of image)
+          const deskMask = new Graphics()
+          // Left side
+          deskMask.rect(-55, -35, 33, deskHeight + 35)
+          // Right side
+          deskMask.rect(22, -35, 33, deskHeight + 35)
+          // Front side
+          deskMask.rect(-22, -13.5, 44, deskHeight + 35)
+          deskMask.fill(0xffffff)
+          deskFg.mask = deskMask
+          deskFg.addChild(deskMask)
+
+          const deskFgContainer = new Container()
+          deskFgContainer.x = 7.0 * GRID_SIZE + 16
+          deskFgContainer.y = 15.0 * GRID_SIZE + 16 + 16 // Sort AFTER agent
+          deskFg.y = -24 // Visual center 488, container 512, offset -24
+          deskFgContainer.addChild(deskFg)
+          depthGroup.addChild(deskFgContainer)
         }
         drawSecretaryDesk()
 
-        // Procedural Drawing: Workstations
-        const drawWorkstation = (wsId: string, ws: { x: number; y: number; direction: 'left' | 'right' | 'up' | 'down' }) => {
-          const wsContainer = new Container()
-          const desk = new Graphics()
+        // Draw Workstations using sprite
+        const drawWorkstation = (ws: { x: number; y: number; direction: 'left' | 'right' | 'up' | 'down' }) => {
+          const rectCubicle = new Rectangle(27, 28, 227, 190)
+          const texCubicleDesk = new Texture({ source: texCubicle.source, frame: rectCubicle })
 
-          // Wood table top (aligned to top half: x = -16 to 16, y = -16 to 0)
-          desk.roundRect(-16, -16, 32, 16, 3)
-          desk.fill(wsDesk)
-          desk.stroke({ color: wsDeskBorder, width: 1.5 })
+          const rectChair = new Rectangle(70, 752, 113, 165)
+          const texChair = new Texture({ source: texCubicle.source, frame: rectChair })
 
-          // iMac base & screen
-          desk.rect(-10, -15, 20, 2)
-          desk.fill(iMacScreenBg)
-          desk.stroke({ color: iMacScreenBorder, width: 1 })
+          // Draw desk
+          const deskContainer = new Container()
+          const deskSprite = new Sprite(texCubicleDesk)
+          deskSprite.anchor.set(0.5, 0.5)
+          deskSprite.width = 44
+          deskSprite.height = 36
+          deskContainer.addChild(deskSprite)
 
-          desk.rect(-2, -13, 4, 3)
-          desk.fill(iMacStand)
+          // Draw chair
+          const chairContainer = new Container()
+          const chairSprite = new Sprite(texChair)
+          chairSprite.anchor.set(0.5, 0.5)
+          chairSprite.width = 18
+          chairSprite.height = 26
+          chairContainer.addChild(chairSprite)
 
-          // Keyboard
-          desk.rect(-8, -6, 16, 3)
-          desk.fill(keybColor)
-
-          // Mint glass screen divider
-          desk.rect(-16, -16, 32, 2)
-          desk.fill(glassColor)
-
-          // Chair (aligned to bottom half: x = -8 to 8, y = 4 to 14)
-          desk.roundRect(-8, 4, 16, 10, 2)
-          desk.fill(chairColor)
-          desk.stroke({ color: chairBorder, width: 1 })
-          
-          desk.rect(-4, 0, 8, 4)
-          desk.fill(iMacStand)
-
-          wsContainer.addChild(desk)
-
-          let teamColor = isDarkTheme ? '#a78bfa' : '#7c3aed'
-          let teamName = 'LOGIC'
-          if (wsId.startsWith('desk-A')) {
-            teamColor = isDarkTheme ? '#22d3ee' : '#0284c7'
-            teamName = 'INFRA'
-          } else if (wsId.startsWith('desk-C')) {
-            teamColor = isDarkTheme ? '#f472b6' : '#db2777'
-            teamName = 'FRONT'
-          }
-          
-          const teamLabel = new Text({
-            text: teamName,
-            style: {
-              fontFamily: 'monospace',
-              fontSize: 6,
-              fill: teamColor,
-              fontWeight: 'bold',
-              align: 'center',
-            }
-          })
-          teamLabel.anchor.set(0.5, 0.5)
-          teamLabel.y = -22
-          wsContainer.addChild(teamLabel)
-
-          const teamDot = new Graphics()
-          teamDot.circle(0, -28, 2)
-          teamDot.fill(teamColor)
-          wsContainer.addChild(teamDot)
-
+          // Rotate if necessary
           if (ws.direction === 'left') {
-            wsContainer.angle = -90
+            deskContainer.angle = -90; chairContainer.angle = -90
           } else if (ws.direction === 'right') {
-            wsContainer.angle = 90
+            deskContainer.angle = 90; chairContainer.angle = 90
           } else if (ws.direction === 'down') {
-            wsContainer.angle = 180
+            deskContainer.angle = 180; chairContainer.angle = 180
           }
 
-          wsContainer.x = ws.x * GRID_SIZE + 16
-          wsContainer.y = ws.y * GRID_SIZE + 16
-          depthGroup.addChild(wsContainer)
+          // In Y-sorting, desk should be drawn BEFORE agent, chair should be drawn AFTER agent.
+          deskContainer.x = ws.x * GRID_SIZE + 16
+          deskContainer.y = ws.y * GRID_SIZE + 16 - 6 
+          
+          chairContainer.x = ws.x * GRID_SIZE + 16
+          chairContainer.y = ws.y * GRID_SIZE + 16 + 12
+
+          depthGroup.addChild(deskContainer)
+          depthGroup.addChild(chairContainer)
         }
         Object.entries(WORKSTATIONS).forEach(([wsId, ws]) => {
-          drawWorkstation(wsId, ws)
+          if (wsId !== 'desk-L1') { // L1 desk is drawn separately as secretary desk
+            drawWorkstation(ws)
+          }
         })
 
-        // Procedural Drawing: Lounge Area Decor
-        const drawLoungeDecor = () => {
-          const lounge = new Graphics()
-          
-          // Curved Sectional Sofa
-          lounge.roundRect(-24, -20, 48, 16, 4) // Backrest
-          lounge.fill(sofaColor)
-          lounge.stroke({ color: sofaBorder, width: 1 })
-          lounge.roundRect(-20, -12, 40, 20, 4) // Cushion
-          lounge.fill(sofaCushion)
-          lounge.stroke({ color: sofaCushionBorder, width: 1 })
-
-          // Round oak wood table
-          lounge.circle(0, 20, 10)
-          lounge.fill(deskColor)
-          lounge.stroke({ color: sofaCushionBorder, width: 1.5 })
-          
-          // Coffee cup
-          lounge.circle(-2, 18, 2)
-          lounge.fill('#ffffff')
-          
-          lounge.x = 8.5 * GRID_SIZE
-          lounge.y = 12.5 * GRID_SIZE
-          depthGroup.addChild(lounge)
-        }
-        drawLoungeDecor()
-
-        // Procedural Drawing: Gym Area Decor
-        const drawGymDecor = () => {
-          // Treadmill 1
-          const t1 = new Graphics()
-          t1.rect(-8, -18, 16, 36)
-          t1.fill(gymBase)
-          t1.stroke({ color: gymBaseBorder, width: 1 })
-          t1.rect(-6, -14, 12, 28)
-          t1.fill(gymBelt)
-          t1.rect(-8, -22, 16, 4)
-          t1.fill(gymConsole)
-          t1.rect(-4, -26, 8, 4)
-          t1.fill(gymScreen)
-          t1.x = 13.5 * GRID_SIZE
-          t1.y = 11.5 * GRID_SIZE
-          depthGroup.addChild(t1)
-
-          // Yoga mats
-          const mats = new Graphics()
-          mats.roundRect(-10, -18, 8, 20, 2)
-          mats.fill(matPink)
-          mats.stroke({ color: matPinkBorder, width: 0.5 })
-          mats.roundRect(2, -14, 8, 20, 2)
-          mats.fill(matBlue)
-          mats.stroke({ color: matBlueBorder, width: 0.5 })
-          mats.x = 14.0 * GRID_SIZE
-          mats.y = 14.5 * GRID_SIZE
-          depthGroup.addChild(mats)
-
-          // Dumbbell Rack
-          const rack = new Graphics()
-          rack.rect(-12, -4, 24, 8)
-          rack.fill(rackBase)
-          rack.stroke({ color: rackBaseBorder, width: 1 })
-          for (let i = -8; i <= 8; i += 8) {
-            rack.circle(i, -1, 3)
-            rack.fill(matBlue)
-            rack.rect(i - 4, -1, 8, 2)
-            rack.fill(gymBelt)
-          }
-          rack.x = 12.5 * GRID_SIZE
-          rack.y = 13.5 * GRID_SIZE
-          depthGroup.addChild(rack)
-        }
-        drawGymDecor()
-
-        // Procedural Drawing: Potted Plants
-        const drawPlant = (x: number, y: number) => {
-          const plant = new Graphics()
-          plant.moveTo(-8, 0).lineTo(8, 0).lineTo(12, -12).lineTo(-12, -12).closePath()
-          plant.fill(potColor)
-          plant.stroke({ color: potBorder, width: 1.5 })
-
-          plant.moveTo(0, -12).bezierCurveTo(-14, -28, -6, -38, 0, -42).bezierCurveTo(6, -38, 14, -28, 0, -12).closePath()
-          plant.fill('#10b981')
-          plant.moveTo(-6, -12).bezierCurveTo(-18, -22, -16, -30, -10, -32).bezierCurveTo(-4, -28, -4, -20, -6, -12).closePath()
-          plant.fill('#059669')
-          plant.moveTo(6, -12).bezierCurveTo(18, -22, 16, -30, 10, -32).bezierCurveTo(4, -28, 4, -20, 6, -12).closePath()
-          plant.fill('#34d399')
-          
-          plant.x = x * GRID_SIZE
-          plant.y = y * GRID_SIZE
+        // Draw Potted Plants using sprite
+        const drawPlant = (gx: number, gy: number) => {
+          const rect = new Rectangle(184, 92, 656, 892)
+          const tex = new Texture({ source: texPlant.source, frame: rect })
+          const plant = new Sprite(tex)
+          plant.anchor.set(0.5, 0.8)
+          plant.width = 24
+          plant.height = 24 * (892 / 656)
+          plant.x = gx * GRID_SIZE
+          plant.y = gy * GRID_SIZE
           depthGroup.addChild(plant)
         }
-        drawPlant(1.5, 12.5)
-        drawPlant(5.5, 7.0)
-        drawPlant(14.5, 13.0)
+        drawPlant(2.5, 3.0)
+        drawPlant(9.5, 3.0)
+        drawPlant(11.5, 3.0)
+        drawPlant(18.5, 3.0)
+        drawPlant(21.5, 3.0)
+        drawPlant(28.5, 3.0)
+        drawPlant(2.5, 14.5)
+        drawPlant(2.5, 18.5)
+        drawPlant(19.5, 14.5)
+        drawPlant(22.5, 18.5)
+        drawPlant(28.5, 18.5)
 
-        // Procedural Drawing: Water Cooler
+        // Draw Water Cooler using sprite
         const drawWaterCooler = () => {
-          const cooler = new Graphics()
-          cooler.roundRect(-8, -14, 16, 14, 2)
-          cooler.fill(coolerBody)
-          cooler.stroke({ color: coolerBodyBorder, width: 1.5 })
-
-          cooler.rect(-5, -12, 10, 8)
-          cooler.fill(coolerScreen)
-
-          cooler.rect(-3, -11, 2, 2)
-          cooler.fill('#3b82f6')
-          cooler.rect(1, -11, 2, 2)
-          cooler.fill('#ef4444')
-
-          cooler.roundRect(-7, -42, 14, 28, 4)
-          cooler.fill(coolerBottle)
-          cooler.stroke({ color: coolerBottleBorder, width: 1 })
-
-          cooler.circle(-3, -32, 1)
-          cooler.fill('#ffffff')
-          cooler.circle(2, -26, 1.5)
-          cooler.fill('#ffffff')
-          cooler.circle(-1, -20, 1)
-          cooler.fill('#ffffff')
-
-          cooler.roundRect(-8, -44, 16, 3, 1)
-          cooler.fill(coolerBody)
-
-          cooler.x = 10.5 * GRID_SIZE
-          cooler.y = 13.0 * GRID_SIZE
+          const rect = new Rectangle(266, 51, 431, 943)
+          const tex = new Texture({ source: texWaterCooler.source, frame: rect })
+          const cooler = new Sprite(tex)
+          cooler.anchor.set(0.5, 0.8)
+          cooler.width = 24
+          cooler.height = 24 * (943 / 431)
+          cooler.x = 11.5 * GRID_SIZE // Moved into breakroom
+          cooler.y = 14.5 * GRID_SIZE
           depthGroup.addChild(cooler)
         }
         drawWaterCooler()
 
-        // Procedural Drawing: Server Racks
-        const drawServerRack = (x: number, y: number) => {
-          const rack = new Graphics()
-          rack.roundRect(-24, -64, 48, 64, 4)
-          rack.fill(serverRack)
-          rack.stroke({ color: serverRackBorder, width: 1.5 })
-
-          rack.rect(-20, -58, 40, 52)
-          rack.fill(serverScreen)
-
-          for (let row = 0; row < 6; row++) {
-            const h = -54 + row * 8
-            rack.rect(-18, h, 36, 6)
-            rack.fill(serverShelf)
-            rack.stroke({ color: serverShelfBorder, width: 0.5 })
-
-            rack.circle(-12, h + 3, 1)
-            rack.fill('#3b82f6')
-            rack.circle(-8, h + 3, 1)
-            rack.fill('#10b981')
-            
-            rack.circle(12, h + 3, 1)
-            rack.fill(Math.random() > 0.5 ? '#f59e0b' : '#ef4444')
-          }
-
-          rack.x = x * GRID_SIZE
-          rack.y = y * GRID_SIZE
-          depthGroup.addChild(rack)
+        // Draw Sofa in Breakroom
+        const drawSofa = () => {
+          const sofa = new Sprite(texSofa)
+          sofa.anchor.set(0.5, 0.8)
+          sofa.width = 96
+          sofa.height = 48
+          sofa.x = 15.5 * GRID_SIZE
+          sofa.y = 16.0 * GRID_SIZE
+          depthGroup.addChild(sofa)
         }
-        drawServerRack(9.5, 1.5)
-        drawServerRack(15.5, 1.5)
+        drawSofa()
+
+        const drawTable = () => {
+          const tableContainer = new Container()
+          tableContainer.x = 15.5 * GRID_SIZE
+          tableContainer.y = 17.5 * GRID_SIZE
+          
+          const shadow = new Graphics()
+          shadow.roundRect(-24, -12, 48, 24, 4)
+          shadow.fill({ color: 0x000000, alpha: 0.2 })
+          shadow.y = 4
+          
+          const table = new Graphics()
+          table.roundRect(-24, -12, 48, 24, 4)
+          table.fill(0xd4a373)
+          table.stroke({ color: 0x8d6e63, width: 2 })
+          
+          tableContainer.addChild(shadow)
+          tableContainer.addChild(table)
+          depthGroup.addChild(tableContainer)
+        }
+        drawTable()
 
         // Load character spritesheets
         const loadCharacter = (name: string, src: string) => {
@@ -805,6 +610,8 @@ export default function OfficeScene({
             }
           }
         })
+
+        setPixiReady(true)
       } catch (err) {
         console.error('PixiJS init failed:', err)
       }
@@ -817,6 +624,7 @@ export default function OfficeScene({
       if (!appRef.current || !initialized) return
       const currentRect = container.getBoundingClientRect()
       appRef.current.renderer.resize(currentRect.width, currentRect.height)
+      setDimensions({ width: currentRect.width, height: currentRect.height })
     }
     window.addEventListener('resize', handleResize)
 
@@ -934,10 +742,21 @@ export default function OfficeScene({
         let row = 0
         const dx = agent.targetX - agent.x
         const dy = agent.targetY - agent.y
-        if (Math.abs(dx) > Math.abs(dy)) {
-          row = dx > 0 ? 2 : 1
-        } else if (Math.abs(dy) > 0.1) {
-          row = dy > 0 ? 0 : 3
+        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+          if (Math.abs(dx) > Math.abs(dy)) {
+            row = dx > 0 ? 2 : 1
+          } else {
+            row = dy > 0 ? 0 : 3
+          }
+        } else {
+          // Stationary: face workstation direction
+          const ws = WORKSTATIONS[agent.workstationId]
+          if (ws) {
+            if (ws.direction === 'down') row = 0
+            else if (ws.direction === 'left') row = 1
+            else if (ws.direction === 'right') row = 2
+            else if (ws.direction === 'up') row = 3
+          }
         }
 
         const cols = sheet[row]
@@ -948,6 +767,27 @@ export default function OfficeScene({
           const ratio = texture.width / texture.height
           data.sprite.height = 36
           data.sprite.width = 36 * ratio
+        }
+      }
+
+      // Apply mask and offset for L1 agent to sit in the executive chair
+      if (agent.workstationId === 'desk-L1' && agent.status === 'working') {
+        data.sprite.x = 0
+        data.sprite.y = -6 // Move agent up to sit properly in the chair
+        if (data.mask) {
+          data.sprite.mask = null
+          data.container.removeChild(data.mask)
+          data.mask.destroy()
+          data.mask = undefined
+        }
+      } else {
+        data.sprite.x = 0
+        data.sprite.y = 0
+        if (data.mask) {
+          data.sprite.mask = null
+          data.container.removeChild(data.mask)
+          data.mask.destroy()
+          data.mask = undefined
         }
       }
 
@@ -1001,20 +841,30 @@ export default function OfficeScene({
   // Sync pan/zoom state variables with PixiJS Camera Container
   useEffect(() => {
     const world = worldRef.current
-    if (!world || !containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
+    if (!world || !pixiReady) return
+    const { width, height } = dimensions
+    if (width === 0 || height === 0) return
     
-    const mapW = 24 * GRID_SIZE
-    const mapH = 18 * GRID_SIZE
-    const baseScale = Math.min((rect.width * 0.95) / mapW, (rect.height * 0.95) / mapH)
+    // Recalculate map boundaries dynamically
+    let maxGridX = 26
+    let maxGridY = 20
+    Object.values(WORKSTATIONS).forEach(w => {
+      if (w.x + 6 > maxGridX) maxGridX = w.x + 6
+      if (w.y + 6 > maxGridY) maxGridY = w.y + 6
+    })
+    const mapW = maxGridX * GRID_SIZE
+    const mapH = maxGridY * GRID_SIZE
+
+    const visibleWidth = width - (isPanelOpen ? 340 : 0)
+    const baseScale = Math.min((visibleWidth * 0.95) / mapW, (height * 0.95) / mapH)
     const renderScale = zoom * baseScale
 
     world.scale.set(renderScale)
     world.position.set(
-      pan.x + (rect.width - mapW * renderScale) / 2,
-      pan.y + (rect.height - mapH * renderScale) / 2
+      pan.x + (visibleWidth - mapW * renderScale) / 2,
+      pan.y + (height - mapH * renderScale) / 2
     )
-  }, [pan, zoom])
+  }, [pan, zoom, isPanelOpen, pixiReady, dimensions, agents.length])
 
   // Canvas pan & zoom event handlers (reuse raw HTML event listeners)
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1039,7 +889,8 @@ export default function OfficeScene({
 
   const handleWheel = (e: React.WheelEvent) => {
     const delta = e.deltaY > 0 ? 0.9 : 1.1
-    setZoom((z) => Math.max(0.5, Math.min(3, z * delta)))
+    // Allow much deeper zoom-out for infinite canvas feeling
+    setZoom((z) => Math.max(0.1, Math.min(5, z * delta)))
   }
 
   const handleCanvasClick = (e: React.MouseEvent) => {
@@ -1047,11 +898,19 @@ export default function OfficeScene({
     if (!container) return
     const rect = container.getBoundingClientRect()
 
-    const mapW = 24 * GRID_SIZE
-    const mapH = 18 * GRID_SIZE
-    const baseScale = Math.min((rect.width * 0.95) / mapW, (rect.height * 0.95) / mapH)
+    let maxGridX = 26
+    let maxGridY = 20
+    Object.values(WORKSTATIONS).forEach(w => {
+      if (w.x + 6 > maxGridX) maxGridX = w.x + 6
+      if (w.y + 6 > maxGridY) maxGridY = w.y + 6
+    })
+    const mapW = maxGridX * GRID_SIZE
+    const mapH = maxGridY * GRID_SIZE
+
+    const visibleWidth = rect.width - (isPanelOpen ? 340 : 0)
+    const baseScale = Math.min((visibleWidth * 0.95) / mapW, (rect.height * 0.95) / mapH)
     const renderScale = zoom * baseScale
-    const offsetX = pan.x + (rect.width - mapW * renderScale) / 2
+    const offsetX = pan.x + (visibleWidth - mapW * renderScale) / 2
     const offsetY = pan.y + (rect.height - mapH * renderScale) / 2
 
     const clickX = (e.clientX - rect.left - offsetX) / renderScale
@@ -1062,7 +921,7 @@ export default function OfficeScene({
     const secDeskY = clickY / GRID_SIZE
     if (secDeskX >= 2 && secDeskX <= 5 && secDeskY >= 11 && secDeskY <= 13) {
       sounds.playSelect()
-      setActiveTab('chat')
+      setIsPanelOpen(true)
       return
     }
 
@@ -1074,18 +933,13 @@ export default function OfficeScene({
 
     if (clickedAgent) {
       sounds.playSelect()
-      setSelectedAgentId(clickedAgent.id)
-      setActiveTab('detail')
-      if (clickedAgent.status === 'error') {
+      if (clickedAgent.type === 'L1') {
+        setIsPanelOpen(true)
+      } else if (clickedAgent.status === 'error') {
         resolveError(clickedAgent.id)
       }
-    } else {
-      setSelectedAgentId(null)
     }
   }
-
-  // Selected agent info
-  const selectedAgent = agents.find(a => a.id === selectedAgentId)
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 select-none font-retro relative overflow-hidden">
@@ -1131,7 +985,7 @@ export default function OfficeScene({
       </div>
 
       {/* Main Row: Canvas (left) + Side Panel (right) */}
-      <div className="flex-1 flex flex-row min-h-0 relative bg-slate-50">
+      <div className="flex-1 flex flex-row min-h-0 relative bg-slate-50 overflow-hidden">
         {/* Canvas Area */}
         <div className="flex-1 h-full relative overflow-hidden bg-white">
           <div
@@ -1146,101 +1000,13 @@ export default function OfficeScene({
           />
         </div>
 
-        {/* Side Panel Area (340px) */}
-        <div className="w-[340px] shrink-0 border-l border-gray-200 bg-white/95 backdrop-blur flex flex-col h-full overflow-hidden">
-          {/* Tabs header */}
-          <div className="flex bg-gray-50 border-b border-gray-200 p-1 gap-1 shrink-0">
-            <button
-              onClick={() => { sounds.playSelect(); setActiveTab('chat'); }}
-              className={`py-1.5 text-[10px] flex-1 rounded font-bold transition-all ${
-                activeTab === 'chat'
-                  ? 'bg-primary/10 text-primary border border-primary/20'
-                  : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              💬 SECRETARY CHAT
-            </button>
-            <button
-              onClick={() => { sounds.playSelect(); setActiveTab('detail'); }}
-              className={`py-1.5 text-[10px] flex-1 rounded font-bold transition-all relative ${
-                activeTab === 'detail'
-                  ? 'bg-primary/10 text-primary border border-primary/20'
-                  : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              📋 STAFF DETAIL
-              {selectedAgent && selectedAgent.status === 'error' && (
-                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 animate-ping" />
-              )}
-            </button>
-          </div>
-
+        {/* Side Panel Area (340px) - sliding right overlay */}
+        <div className={`absolute right-0 top-0 h-full w-[340px] z-50 border-l border-gray-200 bg-white/95 backdrop-blur flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${
+          isPanelOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}>
           {/* Tab Content */}
           <div className="flex-1 min-h-0 overflow-hidden relative">
-            {activeTab === 'chat' && (
-              <SecretaryChatDialog />
-            )}
-
-            {activeTab === 'detail' && (
-              <div className="p-4 flex flex-col h-full text-gray-800 overflow-y-auto">
-                {selectedAgent ? (
-                  <div className="flex-1 flex flex-col justify-between min-h-0">
-                    <div className="shrink-0">
-                      {/* Agent Info card */}
-                      <div className="flex justify-between items-start border-b border-gray-200 pb-3 mb-4">
-                        <div>
-                          <h2 className="font-bold text-[16px] text-gray-800 leading-none mb-1">
-                            {selectedAgent.name}
-                          </h2>
-                          <span className="font-pixel text-[9px] text-gray-400">
-                            {selectedAgent.type} (LEVEL {selectedAgent.level})
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => setSelectedAgentId(null)}
-                          className="text-gray-400 hover:text-gray-700 font-bold text-[14px]"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      {/* Status */}
-                      <div className="mb-4 bg-gray-50 border border-gray-200 p-3 rounded-lg">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[12px] text-gray-500 font-bold">工作状态:</span>
-                          <span className={`text-[12px] font-bold ${
-                            selectedAgent.status === 'working' ? 'text-emerald-600' :
-                            selectedAgent.status === 'error' ? 'text-red-500 animate-pulse' : 'text-gray-800'
-                          }`}>
-                            {selectedAgent.status.toUpperCase()}
-                          </span>
-                        </div>
-
-                        {selectedAgent.status === 'error' && (
-                          <button
-                            onClick={() => resolveError(selectedAgent.id)}
-                            className="mt-3 block w-full py-1.5 bg-red-50 border border-red-200 text-red-700 font-bold rounded hover:bg-red-100 transition-colors text-[11px]"
-                          >
-                            RESOLVE PANIC
-                          </button>
-                        )}
-                      </div>
-
-                      <p className="text-gray-400 text-[12px] italic text-center py-6">
-                        Currently resting.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-center p-4">
-                    <span className="text-[28px] mb-2 animate-bounce">👥</span>
-                    <p className="text-gray-400 text-[12px] leading-relaxed">
-                      在左侧地图中点击一个 Agent<br />查看其详细工作状态与推理日志
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+            <SecretaryChatDialog onClose={() => setIsPanelOpen(false)} />
           </div>
         </div>
       </div>

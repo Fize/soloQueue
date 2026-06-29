@@ -398,3 +398,70 @@ func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
 		t.Errorf("Expected tool_call segment 'delegate_agent' not found in history")
 	}
 }
+
+func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	// Create mock timeline directory and file
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+
+	// Write two duplicate user inputs with timestamp diff less than 5 seconds
+	events := []string{
+		`{"ts":"2026-06-29T14:50:24.000000+08:00","type":"message","msg":{"role":"user","content":"分析下兆易创新怎么样"}}`,
+		`{"ts":"2026-06-29T14:50:24.300000+08:00","type":"message","msg":{"role":"user","content":"分析下兆易创新怎么样"}}`,
+		`{"ts":"2026-06-29T14:50:28.000000+08:00","type":"message","msg":{"role":"user","content":"不同的问题"}}`,
+	}
+
+	f, err := os.Create(timelinePath)
+	if err != nil {
+		t.Fatalf("Create timeline file: %v", err)
+	}
+	for _, ev := range events {
+		_, _ = f.WriteString(ev + "\n")
+	}
+	f.Close()
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+
+	req := httptest.NewRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Role     string `json:"role"`
+			Segments []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	// We expect 2 user messages (the first duplicate is deduplicated, the third is kept because the content is different)
+	userMsgCount := 0
+	for _, msg := range resp.Messages {
+		if msg.Role == "user" {
+			userMsgCount++
+		}
+	}
+
+	if userMsgCount != 2 {
+		t.Errorf("Expected 2 user messages after deduplication, but got %d", userMsgCount)
+	}
+}

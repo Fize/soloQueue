@@ -1,8 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSimStore } from '../stores/simStore'
 import { sounds } from '../utils/audio'
+import { MarkdownPreview } from './ui/markdown-preview'
+import portraitMale from '../assets/portraits/portrait_secretary_male.png'
+import portraitFemale from '../assets/portraits/portrait_secretary_female.png'
 
-export default function SecretaryChatDialog() {
+interface SecretaryChatDialogProps {
+  onClose?: () => void
+}
+
+export default function SecretaryChatDialog({ onClose }: SecretaryChatDialogProps) {
   const isConnected = useSimStore(s => s.isConnected)
   const sessionMessages = useSimStore(s => s.sessionMessages)
   const sessionBusy = useSimStore(s => s.sessionBusy)
@@ -10,6 +17,9 @@ export default function SecretaryChatDialog() {
   const cancelSessionTask = useSimStore(s => s.cancelSessionTask)
   const clearSessionHistory = useSimStore(s => s.clearSessionHistory)
   const fetchSessionStatus = useSimStore(s => s.fetchSessionStatus)
+  const profile = useSimStore(s => s.profile)
+
+  const l1Avatar = profile?.gender === 'male' ? portraitMale : portraitFemale
 
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -74,8 +84,22 @@ export default function SecretaryChatDialog() {
 
   return (
     <div className="flex flex-col h-full bg-white font-retro overflow-hidden">
+      {/* Header bar */}
+      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0">
+        <span className="text-[11px] font-bold text-gray-700 font-retro">💬 L1 SECRETARY CHAT</span>
+        {onClose && (
+          <button 
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700 font-bold text-[14px] cursor-pointer p-0.5 line-none transition-colors"
+            title="收起"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
       {/* Status line */}
-      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500">
+      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 shrink-0">
         {!isConnected
           ? '⚠ NOT CONNECTED — start backend first'
           : sessionBusy
@@ -94,15 +118,20 @@ export default function SecretaryChatDialog() {
           sessionMessages.map((msg, i) => {
             const isUser = msg.role === 'user'
             return (
-              <div key={i} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+              <div key={i} className={`flex ${isUser ? 'justify-end' : 'justify-start'} gap-2 items-start`}>
+                {!isUser && (
+                  <div className="w-8 h-8 rounded-full border border-gray-200 overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center shadow-sm">
+                    <img src={l1Avatar} alt="L1" className="w-full h-full object-cover" />
+                  </div>
+                )}
                 <div
-                  className={`max-w-[90%] px-3 py-2 border rounded-lg ${
+                  className={`${isUser ? 'max-w-[90%]' : 'max-w-[80%]'} px-3 py-2 border rounded-lg ${
                     isUser
                       ? 'bg-primary/10 text-gray-900 border-primary/25 rounded-tr-none'
                       : 'bg-white text-gray-900 border-gray-200 rounded-tl-none shadow-sm'
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 border-b border-gray-100 pb-0.5">
                     <span className="text-[9px] font-bold text-primary opacity-90">
                       {isUser ? 'YOU' : '👩‍💼 L1'}
                     </span>
@@ -112,17 +141,18 @@ export default function SecretaryChatDialog() {
                       </span>
                     )}
                   </div>
-                  <p className="text-[12px] leading-relaxed text-gray-800 whitespace-pre-wrap break-words">
-                    {msg.content}
-                  </p>
+                  <MarkdownPreview content={msg.content} className="text-[12px] leading-relaxed text-gray-800" />
                 </div>
               </div>
             )
           })
         )}
         {sessionBusy && (
-          <div className="flex justify-start">
-            <div className="bg-white text-gray-400 border border-gray-200 rounded-lg rounded-tl-none px-3 py-2 text-[11px] italic animate-pulse">
+          <div className="flex justify-start gap-2 items-start">
+            <div className="w-8 h-8 rounded-full border border-gray-200 overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center shadow-sm">
+              <img src={l1Avatar} alt="L1" className="w-full h-full object-cover" />
+            </div>
+            <div className="bg-white text-gray-400 border border-gray-200 rounded-lg rounded-tl-none px-3 py-2 text-[11px] italic animate-pulse animate-duration-1000">
               Thinking...
             </div>
           </div>

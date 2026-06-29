@@ -37,6 +37,8 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
   const loadingMore = useRef(false)
+  const connectionStatus = useRuntimeStore((s) => s.connectionStatus)
+  const isProgrammaticScrolling = useRef(false)
 
   // macOS Inspector state
   const [showInspector, setShowInspector] = useState(false)
@@ -406,14 +408,25 @@ export function ChatPage() {
   const contentSum = finalMessages.reduce((acc, msg) => {
     let sum = 0
     for (const seg of msg.segments) {
-      if ('text' in seg && typeof (seg as any).text === 'string') {
-        sum += (seg as any).text.length
+      if (seg.type === 'content' || seg.type === 'thinking' || seg.type === 'error') {
+        sum += (seg.text || '').length
+      } else if (seg.type === 'tool_call') {
+        sum += (seg.name || '').length + (seg.args || '').length + (seg.result || '').length + (seg.error || '').length + (seg.done ? 1 : 0)
+      } else if (seg.type === 'delegation') {
+        sum += (seg.agentName || '').length + (seg.task || '').length + (seg.status || '').length + (seg.resultContent || '').length
+      } else if (seg.type === 'tool_confirm') {
+        sum += (seg.name || '').length + (seg.prompt || '').length + (seg.resolved ? 1 : 0) + (seg.choice || '').length
       }
     }
     return acc + sum + msg.segments.length
   }, 0)
 
   const lastScrolledSessionId = useRef<string | null>(null)
+
+  // Reset scroll state on session change
+  useEffect(() => {
+    userScrolledUp.current = false
+  }, [activeSessionId])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -423,7 +436,7 @@ export function ChatPage() {
       const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
       if (isNearBottom) {
         userScrolledUp.current = false
-      } else {
+      } else if (!isProgrammaticScrolling.current) {
         userScrolledUp.current = true
       }
 
@@ -450,12 +463,20 @@ export function ChatPage() {
     if (userScrolledUp.current) return
     // Use instant scroll (no animation) when not streaming.
     // During streaming, smooth scroll to follow live content.
+    isProgrammaticScrolling.current = true
     bottomRef.current?.scrollIntoView({
       behavior: streaming ? 'smooth' : 'auto',
     })
+    const delay = streaming ? 800 : 100
+    const timer = setTimeout(() => {
+      isProgrammaticScrolling.current = false
+    }, delay)
+
     if (finalMessages.length > 0) {
       lastScrolledSessionId.current = activeSessionId
     }
+
+    return () => clearTimeout(timer)
   }, [contentSum, streaming, activeSessionId, finalMessages])
 
   if (!activeSessionId) {
@@ -484,7 +505,7 @@ export function ChatPage() {
               onCancel={cancel}
               streaming={streaming}
               delegating={delegating}
-              disabled={streaming || delegating}
+              disabled={streaming || delegating || connectionStatus !== 'connected'}
               activeSessionId={undefined}
               showL2Selectors={true}
               groups={l2Groups}
@@ -549,9 +570,24 @@ export function ChatPage() {
             "flex items-center gap-3 px-6 h-full",
             showInspector ? "flex-1 justify-between" : "flex-1 justify-between"
           )}>
-            <h1 className="text-xs font-bold text-foreground truncate font-mono">
-              {activeSession?.name || (isL1Session ? '通用问答 (L1)' : `${activeGroup} 团队`)}
-            </h1>
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-xs font-bold text-foreground truncate font-mono">
+                {activeSession?.name || (isL1Session ? '通用问答 (L1)' : `${activeGroup} 团队`)}
+              </h1>
+              {connectionStatus === 'reconnecting' && (
+                <span className="flex items-center gap-1 text-[10px] text-amber-500 font-medium animate-pulse shrink-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping absolute inline-flex h-1.5 w-1.5 rounded-full opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500" />
+                  连接中...
+                </span>
+              )}
+              {connectionStatus === 'disconnected' && (
+                <span className="flex items-center gap-1 text-[10px] text-destructive font-medium animate-pulse shrink-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                  未连接
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 electron-no-drag">
               {!showInspector && (
                 <button
@@ -637,7 +673,7 @@ export function ChatPage() {
                       onCancel={cancel}
                       streaming={streaming}
                       delegating={delegating}
-                      disabled={streaming || delegating}
+                      disabled={streaming || delegating || connectionStatus !== 'connected'}
                       activeSessionId={activeSessionId || undefined}
                       showL2Selectors={!isL1Session}
                       groups={l2Groups}
@@ -687,7 +723,7 @@ export function ChatPage() {
                   onCancel={cancel}
                   streaming={streaming}
                   delegating={delegating}
-                  disabled={streaming || delegating}
+                  disabled={streaming || delegating || connectionStatus !== 'connected'}
                   activeSessionId={activeSessionId || undefined}
                   showL2Selectors={!isL1Session}
                   readOnlySelectors={true}

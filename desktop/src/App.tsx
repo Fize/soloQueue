@@ -22,6 +22,8 @@ import { Toaster } from 'sonner'
 import { wsManager } from '@/lib/websocket'
 import { useAuthStore } from '@/stores/authStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useAgentStore } from '@/stores/agentStore'
 
 function App() {
   const { isAuthenticated, isLoading } = useAuthStore()
@@ -192,6 +194,47 @@ export default function AppWithRouter() {
     }
     return () => {
       wsManager.disconnect()
+    }
+  }, [ready, isAuthenticated])
+
+  // Automatically check connection and reload data when window gains focus or document becomes visible
+  useEffect(() => {
+    if (!ready || !isAuthenticated) return
+
+    let lastRefresh = 0
+    const handleFocusOrVisible = () => {
+      const now = Date.now()
+      if (now - lastRefresh < 2000) return // Throttled to 2 seconds
+      lastRefresh = now
+
+      // 1. Recover/reconnect socket
+      wsManager.connect()
+
+      // 2. Reload sessions list
+      useChatStore.getState().loadSessions()
+
+      // 3. Reload live agents
+      useAgentStore.getState().fetchLiveAgents()
+
+      // 4. Reload active session history if one is selected
+      const activeSessionId = useChatStore.getState().activeSessionId
+      if (activeSessionId) {
+        useChatStore.getState().loadHistory(activeSessionId)
+      }
+    }
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        handleFocusOrVisible()
+      }
+    }
+
+    window.addEventListener('focus', handleFocusOrVisible)
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisible)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [ready, isAuthenticated])
 

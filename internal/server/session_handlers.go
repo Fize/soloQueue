@@ -853,6 +853,11 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		msgTimestamp := msg.Timestamp
+		if msgTimestamp == "" {
+			msgTimestamp = evt.Timestamp
+		}
+
 		msgID := fmt.Sprintf("hist-%d", len(msgs))
 
 		switch msg.Role {
@@ -873,6 +878,25 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 				}
 				break // skip creating a separate user message bubble
 			}
+			isDuplicate := false
+			if len(msgs) > 0 && msgs[len(msgs)-1].Role == "user" {
+				lastMsg := msgs[len(msgs)-1]
+				if len(lastMsg.Segments) == 1 && lastMsg.Segments[0]["type"] == "content" {
+					lastText, _ := lastMsg.Segments[0]["text"].(string)
+					newText := session.StripRecalledMemories(msg.Content)
+					if lastText == newText {
+						t1, err1 := time.Parse(time.RFC3339Nano, lastMsg.Timestamp)
+						t2, err2 := time.Parse(time.RFC3339Nano, msgTimestamp)
+						if err1 == nil && err2 == nil && t2.Sub(t1) < 5*time.Second {
+							isDuplicate = true
+						}
+					}
+				}
+			}
+			if isDuplicate {
+				break
+			}
+
 			segments := []map[string]interface{}{}
 			if msg.Content != "" {
 				segments = append(segments, map[string]interface{}{
@@ -884,7 +908,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 				ID:        msgID,
 				Role:      "user",
 				Segments:  segments,
-				Timestamp: msg.Timestamp,
+				Timestamp: msgTimestamp,
 			})
 		case "assistant":
 			segments := []map[string]interface{}{}
@@ -943,7 +967,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					ID:        msgID,
 					Role:      "assistant",
 					Segments:  segments,
-					Timestamp: msg.Timestamp,
+					Timestamp: msgTimestamp,
 				})
 			}
 		case "tool":

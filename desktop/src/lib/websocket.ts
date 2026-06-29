@@ -167,7 +167,10 @@ class WebSocketManager {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(data)
     } else {
-      this.pendingMessages.push(data)
+      // Don't queue chat_send to prevent duplicate messages when reconnecting.
+      if (msg.type !== 'chat_send') {
+        this.pendingMessages.push(data)
+      }
     }
   }
 

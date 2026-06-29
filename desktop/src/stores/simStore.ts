@@ -82,17 +82,29 @@ interface SimState {
 
 // Predefined workstations coordinates on grid
 export const WORKSTATIONS: Record<string, { x: number; y: number; direction: 'left' | 'right' | 'up' | 'down' }> = {
-  'desk-L1': { x: 3, y: 12, direction: 'left' },   // Bottom-left secretary desk
-  'desk-A1': { x: 3, y: 4, direction: 'up' },      // Team A (Infra) desk 1
-  'desk-A2': { x: 5, y: 4, direction: 'up' },      // Team A (Infra) desk 2
-  'desk-C2': { x: 3, y: 6, direction: 'up' },      // Team A (Infra) desk 3 (repurposed from C2)
-  'desk-B1': { x: 11, y: 4, direction: 'up' },     // Team B (Logic) desk 1
-  'desk-B2': { x: 13, y: 4, direction: 'up' },     // Team B (Logic) desk 2
-  'desk-C1': { x: 19, y: 4, direction: 'up' },     // Team C (Frontend) desk 1
+  'desk-L1': { x: 7, y: 15, direction: 'down' },   // Secretary desk in Reception
+
+  // Infra Room (Team A)
+  'desk-A1': { x: 3, y: 4, direction: 'up' },
+  'desk-A2': { x: 6, y: 4, direction: 'up' },
+  'desk-A3': { x: 3, y: 7, direction: 'up' },
+  'desk-A4': { x: 6, y: 7, direction: 'up' },
+
+  // Logic Room (Team B)
+  'desk-B1': { x: 13, y: 4, direction: 'up' },
+  'desk-B2': { x: 16, y: 4, direction: 'up' },
+  'desk-B3': { x: 13, y: 7, direction: 'up' },
+  'desk-B4': { x: 16, y: 7, direction: 'up' },
+
+  // Frontend Room (Team C)
+  'desk-C1': { x: 23, y: 4, direction: 'up' },
+  'desk-C2': { x: 26, y: 4, direction: 'up' },
+  'desk-C3': { x: 23, y: 7, direction: 'up' },
+  'desk-C4': { x: 26, y: 7, direction: 'up' },
 }
 
 const GRID_SIZE = 32
-const ELEVATOR_SPAWN = { x: 18, y: 14 } // Bottom-right elevator spawn grid coord
+const ELEVATOR_SPAWN = { x: 28, y: 16 } // Bottom-right elevator spawn grid coord
 
 // Simple BFS grid pathfinder
 export function findPath(
@@ -101,77 +113,56 @@ export function findPath(
   endX: number,
   endY: number
 ): { x: number; y: number }[] {
-  const maxX = Math.max(24, ...Object.values(WORKSTATIONS).map(w => w.x))
-  const cols = maxX + 8
-  const rows = 18
-
-  // Open floor pathing: walkable everywhere inside outer walls except physical obstacles
   const isWalkable = (gx: number, gy: number): boolean => {
-    if (gx <= 0 || gx >= cols - 1 || gy <= 0 || gy >= rows - 1) return false
-    
+    if (gx < 1 || gx > 30 || gy < 1 || gy > 19) return false;
+
     // Allow walking on destination cell
-    if (gx === endX && gy === endY) return true
+    if (gx === endX && gy === endY) return true;
+
+    // Walls
+    if (gy === 9) { // Top Inner Wall
+      if (![5,6, 15,16, 25,26].includes(gx)) return false;
+    }
+    if (gy === 12) { // Bottom Inner Wall
+      if (![5,6, 15,16, 25,26].includes(gx)) return false;
+    }
+    if (gx === 10) { // Vertical Wall 1
+      if (gy !== 10 && gy !== 11) return false;
+    }
+    if (gx === 20) { // Vertical Wall 2
+      if (gy !== 10 && gy !== 11) return false;
+    }
 
     // Block other workstations
     for (const desk of Object.values(WORKSTATIONS)) {
-      if (gx === desk.x && gy === desk.y) {
-        return false
-      }
+      if (gx === desk.x && gy === desk.y) return false;
     }
 
-    // Block secretary desk physical area (columns 3-4, row 13)
-    if ((gx === 3 || gx === 4) && gy === 13) {
-      return false
+    // Secretary desk physical area (center at 7,15)
+    if (gx >= 6 && gx <= 8 && gy >= 14 && gy <= 15) return false;
+
+    // Elevator shaft
+    if (gx >= 27 && gx <= 29 && gy >= 9 && gy <= 12) return false;
+
+    // Sofa in breakroom
+    if (gx >= 14 && gx <= 16 && gy === 16) return false;
+    
+    // Coffee table
+    if ((gx === 15 || gx === 16) && gy === 17) return false;
+
+    // Water cooler
+    if (gx === 11 && gy === 14) return false;
+
+    // Potted plants
+    const plants = [
+      [2, 3], [9, 3], [11, 3], [18, 3], [21, 3], [28, 3],
+      [2, 14], [2, 18], [19, 14], [22, 18], [28, 18]
+    ]
+    for (const [px, py] of plants) {
+      if (gx === px && gy === py) return false;
     }
 
-    // Block elevator walls (columns 18-21, rows 11-13, except the door at 18,13)
-    if (gx >= 18 && gx <= 21 && gy >= 11 && gy <= 13) {
-      if (gx === 18 && gy === 13) {
-        return true
-      }
-      return false
-    }
-
-    // Block elevator lobby partition walls (column 16, rows 10-16, except the gate at 16,13)
-    if (gx === 16 && gy >= 10 && gy <= 16) {
-      if (gx === 16 && gy === 13) {
-        return true
-      }
-      return false
-    }
-
-    // Block lounge partition walls (column 6, rows 10-16, except gate at 6,13)
-    if (gx === 6 && gy >= 10 && gy <= 16) {
-      if (gx === 6 && gy === 13) {
-        return true
-      }
-      return false
-    }
-
-    // Block lounge center furniture (columns 8-9, rows 11-12)
-    if (gx >= 8 && gx <= 9 && gy >= 11 && gy <= 12) {
-      return false
-    }
-
-    // Block gym partition walls (column 11, rows 10-16, except gate at 11,13)
-    if (gx === 11 && gy >= 10 && gy <= 16) {
-      if (gx === 11 && gy === 13) {
-        return true
-      }
-      return false
-    }
-
-    // Block gym equipment/treadmills (columns 13-14, rows 11-12)
-    if (gx >= 13 && gx <= 14 && gy >= 11 && gy <= 12) {
-      return false
-    }
-
-    // Block staircase shaft structure (columns 21-22, rows 14-16)
-    if (gx >= 21 && gx <= 22 && gy >= 14 && gy <= 16) {
-      return false
-    }
-
-    return true
+    return true;
   }
 
   // BFS Queue
@@ -426,9 +417,9 @@ export const useSimStore = create<SimState>((set, get) => ({
     let deskId = ''
     
     // Look for desks matching type
-    const deskPrefixes = type === 'L2' ? ['desk-B1', 'desk-B2'] : ['desk-A1', 'desk-A2', 'desk-C1', 'desk-C2']
-    for (const d of deskPrefixes) {
-      if (!occupiedDesks.has(d)) {
+    const deskPrefixes = type === 'L2' ? ['desk-B'] : ['desk-A', 'desk-C']
+    for (const d of Object.keys(WORKSTATIONS)) {
+      if (deskPrefixes.some(prefix => d.startsWith(prefix)) && !occupiedDesks.has(d)) {
         deskId = d
         break
       }
