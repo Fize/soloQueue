@@ -2,8 +2,11 @@ package cron
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -30,8 +33,18 @@ type SessionManager interface {
 	Session() Session
 }
 
+// SendFileMedia holds metadata about a file the agent sent via the SendFile tool.
+// FileType mirrors QQ Bot's file type constants: 1=image, 2=video, 3=voice, 4=file.
+type SendFileMedia struct {
+	FileType   int
+	URL        string
+	Base64Data string
+	FileName   string
+}
+
 // TaskCompletedHook defines the callback invoked when a scheduled task completes.
-type TaskCompletedHook func(ctx context.Context, task Task, reply string)
+// mediaFiles contains any files sent via the SendFile tool during the task.
+type TaskCompletedHook func(ctx context.Context, task Task, reply string, mediaFiles []SendFileMedia)
 
 // Scheduler manages executing scheduled tasks (both cron and timer-based) in the background.
 type Scheduler struct {
@@ -235,12 +248,25 @@ func (s *Scheduler) executeTask(t Task) {
 		return
 	}
 
-	// Drain the channel and collect assistant response text
+	// Drain the channel, collect assistant response text and any SendFile media.
 	var contentBuf strings.Builder
+	var mediaFiles []SendFileMedia
 	for ev := range ch {
 		if consumer, ok := ev.(iface.EventConsumer); ok {
 			if delta, ok := consumer.ContentDelta(); ok {
 				contentBuf.WriteString(delta)
+			}
+		}
+
+		// Use reflection to extract ToolExecDoneEvent without importing agent package (avoids cycle)
+		rv := reflect.ValueOf(ev)
+		if rv.Type().Name() == "ToolExecDoneEvent" {
+			name := rv.FieldByName("Name").String()
+			result := rv.FieldByName("Result").String()
+			if name == "SendFile" && result != "" {
+				if m := parseSendFileMedia(result); m != nil {
+					mediaFiles = append(mediaFiles, *m)
+				}
 			}
 		}
 	}
@@ -254,7 +280,7 @@ func (s *Scheduler) executeTask(t Task) {
 	hook := s.onTaskCompleted
 	s.mu.Unlock()
 	if hook != nil && t.QQSource != -1 {
-		hook(context.Background(), t, replyText)
+		hook(context.Background(), t, replyText, mediaFiles)
 	}
 
 	// Update DB timestamps: one-time → completed, periodic → update next_run
@@ -286,4 +312,45 @@ func buildCronPrompt(t Task) string {
 			"Simply execute the following instruction directly:\n\n%s",
 		t.ID, scheduleDesc, triggerTime, t.Instruction,
 	)
+}
+
+// parseSendFileMedia extracts media metadata from a SendFile tool result JSON.
+func parseSendFileMedia(raw string) *SendFileMedia {
+	var r struct {
+		Status   string `json:"status"`
+		FileName string `json:"file_name"`
+		FileType string `json:"file_type"`
+		Path     string `json:"path"`
+		URL      string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return nil
+	}
+	if r.Status != "success" {
+		return nil
+	}
+
+	ftype := 4 // default file
+	switch r.FileType {
+	case "image":
+		ftype = 1
+	case "video":
+		ftype = 2
+	case "voice":
+		ftype = 3
+	}
+
+	b64 := ""
+	if r.Path != "" {
+		if data, err := os.ReadFile(r.Path); err == nil {
+			b64 = base64.StdEncoding.EncodeToString(data)
+		}
+	}
+
+	return &SendFileMedia{
+		FileType:   ftype,
+		URL:        r.URL,
+		Base64Data: b64,
+		FileName:   r.FileName,
+	}
 }

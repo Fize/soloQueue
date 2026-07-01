@@ -277,7 +277,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 
 	// Send media attachments (if any) or generated images before the text reply.
 	if len(result.MediaList) > 0 {
-		b.sendMediaList(ctx, msg, result.MediaList)
+		b.SendMediaList(ctx, msg, result.MediaList)
 	} else if len(result.ImageURLs) > 0 {
 		b.sendImages(ctx, msg, result.ImageURLs)
 	}
@@ -494,8 +494,8 @@ func (b *SessionBridge) sendImages(ctx context.Context, msg QQMessage, urls []st
 	}
 }
 
-// sendMediaList uploads each media in the list to QQ and sends as rich media (active message, NOT reply).
-func (b *SessionBridge) sendMediaList(ctx context.Context, msg QQMessage, mediaList []PendingMedia) {
+// SendMediaList uploads each media in the list to QQ and sends as rich media (active message, NOT reply).
+func (b *SessionBridge) SendMediaList(ctx context.Context, msg QQMessage, mediaList []PendingMedia) {
 	targetType, targetID := imageUploadTarget(msg)
 	if targetType == "" {
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot: unsupported source for media upload",

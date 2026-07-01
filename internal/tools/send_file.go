@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -81,6 +82,18 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 		if err != nil {
 			return "", err
 		}
+		
+		info, err := os.Stat(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", fmt.Errorf("file does not exist: %s", abs)
+			}
+			return "", fmt.Errorf("failed to access file %s: %v", abs, err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("path is a directory, not a file: %s", abs)
+		}
+
 		fileName = filepath.Base(abs)
 		path = abs
 

@@ -61,7 +61,7 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, cronSche
 	)
 
 	if cronSched != nil {
-		cronSched.OnTaskCompleted(func(ctx context.Context, task cron.Task, reply string) {
+		cronSched.OnTaskCompleted(func(ctx context.Context, task cron.Task, reply string, mediaFiles []cron.SendFileMedia) {
 			msg := qqbot.QQMessage{
 				Source:       qqbot.MessageSource(task.QQSource),
 				OpenID:       task.QQOpenID,
@@ -73,6 +73,19 @@ func StartQQBot(cfg *config.GlobalService, mgr *session.SessionManager, cronSche
 				qqLog.Error(logger.CatApp, "qqbot cron: failed to send active message reply", "task_id", task.ID, "err", err)
 			} else {
 				qqLog.Info(logger.CatApp, "qqbot cron: active message reply sent successfully", "task_id", task.ID)
+			}
+
+			if len(mediaFiles) > 0 {
+				var pm []qqbot.PendingMedia
+				for _, m := range mediaFiles {
+					pm = append(pm, qqbot.PendingMedia{
+						FileType:   m.FileType,
+						URL:        m.URL,
+						Base64Data: m.Base64Data,
+						FileName:   m.FileName,
+					})
+				}
+				qqBridge.SendMediaList(ctx, msg, pm)
 			}
 		})
 	}
