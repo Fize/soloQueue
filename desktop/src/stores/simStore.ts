@@ -504,7 +504,12 @@ export const useSimStore = create<SimState>((set, get) => ({
   toggleChat: () => set(s => ({ chatOpen: !s.chatOpen })),
 
   connectToBackend: (customUrl?: string) => {
-    const base = customUrl || 'http://localhost:8765'
+    let base = customUrl
+    if (!base) {
+      const electronPort = (window as any).electronAPI?.backendPort
+      const port = electronPort || 8765
+      base = `http://localhost:${port}`
+    }
     set({ backendUrl: base, wsUrl: base.replace('http', 'ws') + '/ws', isConnecting: true, backendStatus: 'starting' })
     try {
       const ws = new WebSocket(base.replace('http', 'ws') + '/ws')
