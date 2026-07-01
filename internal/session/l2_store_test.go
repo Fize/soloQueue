@@ -242,3 +242,53 @@ func TestL2SessionStore_RestoreFromDisk_NoDiskDir(t *testing.T) {
 		t.Fatal("expected error for session with no disk directory")
 	}
 }
+
+func TestL2SessionStore_SetName_PersistAndRestore(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t, dir)
+
+	id := "test-persist-id"
+	_, err := store.Create(context.Background(), id, "dev", "", "/project/path")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	tlDir := filepath.Join(dir, "logs", "timelines", "l2-"+id)
+	if err := os.MkdirAll(tlDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	expectedName := "Concise title generation"
+	store.SetName(id, expectedName)
+
+	metaFile := filepath.Join(tlDir, "meta")
+	if _, err := os.Stat(metaFile); os.IsNotExist(err) {
+		t.Fatal("expected meta file to be written to disk, but it does not exist")
+	}
+
+	newStore := newTestStore(t, dir)
+	err = newStore.restoreFromDisk(context.Background(), id)
+	if err != nil {
+		t.Fatalf("restoreFromDisk: %v", err)
+	}
+
+	found := false
+	for _, s := range newStore.List() {
+		if s.ID == id {
+			found = true
+			if s.Name != expectedName {
+				t.Errorf("Name = %q, want %q", s.Name, expectedName)
+			}
+			if s.Group != "dev" {
+				t.Errorf("Group = %q, want %q", s.Group, "dev")
+			}
+			if s.WorkDir != "/project/path" {
+				t.Errorf("WorkDir = %q, want %q", s.WorkDir, "/project/path")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("session was not restored in the new store")
+	}
+}

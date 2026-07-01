@@ -407,15 +407,15 @@ func generateSessionTitle(prompt, response string) string {
 	if prompt == "" {
 		return ""
 	}
-	// Use the first line or first 80 chars of the prompt as title.
+	// Use the first line or first 30 chars of the prompt as title.
 	title := prompt
 	if idx := strings.Index(title, "\n"); idx != -1 {
 		title = title[:idx]
 	}
 	title = strings.TrimSpace(title)
-	if len([]rune(title)) > 80 {
+	if len([]rune(title)) > 30 {
 		runes := []rune(title)
-		title = string(runes[:77]) + "..."
+		title = string(runes[:27]) + "..."
 	}
 	if title == "" {
 		return ""
@@ -524,13 +524,16 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			// Read meta JSON (preferred) or legacy "group" file.
 			group := ""
 			projectPath := ""
+			name := ""
 			metaFile := filepath.Join(timelinesDir, entry.Name(), "meta")
 			if data, rerr := os.ReadFile(metaFile); rerr == nil {
 				var meta struct {
+					Name    string `json:"name"`
 					Group   string `json:"group"`
 					WorkDir string `json:"work_dir"`
 				}
 				if json.Unmarshal(data, &meta) == nil {
+					name = meta.Name
 					group = meta.Group
 					projectPath = meta.WorkDir
 				}
@@ -550,21 +553,26 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				createdAt = info.ModTime()
 			}
 
-			name := ""
-			segments, _, _ := timeline.ReadTail(
-				filepath.Join(timelinesDir, entry.Name()), "timeline", 1, "")
-			for _, seg := range segments {
-				for _, msg := range seg.Messages {
-					if msg.Role == "user" && msg.Content != "" {
-						name = msg.Content
-						if len(name) > 80 {
-							name = name[:77] + "..."
+			if name == "" {
+				segments, _, _ := timeline.ReadTail(
+					filepath.Join(timelinesDir, entry.Name()), "timeline", 1, "")
+				for _, seg := range segments {
+					for _, msg := range seg.Messages {
+						if msg.Role == "user" && msg.Content != "" {
+							name = msg.Content
+							if len([]rune(name)) > 30 {
+								name = string([]rune(name)[:27]) + "..."
+							}
+							break
 						}
+					}
+					if name != "" {
 						break
 					}
 				}
-				if name != "" {
-					break
+			} else {
+				if len([]rune(name)) > 30 {
+					name = string([]rune(name)[:27]) + "..."
 				}
 			}
 			if name == "" {
