@@ -989,6 +989,20 @@ Prefer the Read tool for reading files. Using Bash with cat wastes tokens and by
 
 # 12. Prefer Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
+
+# 13. LSP Tools — Even Higher Priority Than Grep
+The built-in LSP tools (lsp__*) understand language semantics (AST, types, symbols), making them **strictly preferable** to text-based Grep/Glob/Read for code navigation tasks:
+- **lsp__document_outline** — file structure overview (use before Read on unfamiliar files)
+- **lsp__goto_definition_by_name** — find a symbol by name across the workspace
+- **lsp__get_code_item** — retrieve a symbol's exact source code by name
+- **lsp__goto_definition** — jump to definition at cursor position
+- **lsp__find_references** — find all usages of a symbol
+- **lsp__workspace_symbols** — search workspace by symbol name/pattern
+- **lsp__hover** — quick type and documentation lookup
+- **lsp__diagnostics** — get compilation errors and warnings for a file
+- **lsp__rename_symbol** — rename globally with LSP semantics (preferred over search-and-replace)
+
+Before Grep/Glob/Read for code research (planning, investigating, understanding), always try LSP tools first. Fall back to text search only when LSP returns no results or the matching LSP server is unavailable.
 `
 
 const l2EnforcedDirectivesPart2 = `
@@ -1316,6 +1330,15 @@ Prefer the Read tool for reading files. Using Bash with cat wastes tokens and by
 
 # 7. Prefer Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
+
+# 8. LSP Tools — Higher Priority Than Grep
+LSP tools understand code semantics. Use them BEFORE text-based tools for code tasks:
+- **lsp__get_code_item** — retrieve a symbol's source by name (before reading the whole file)
+- **lsp__goto_definition_by_name** — find a symbol definition across the workspace (before Grep)
+- **lsp__goto_definition** — jump to definition at a known position
+- **lsp__document_outline** — understand file structure before editing
+- **lsp__find_references** — find all usages before refactoring
+- **lsp__diagnostics** — verify code after edits (check for errors)
 `
 
 // buildL3SystemPrompt 为 L3 Worker 构建两段式 System Prompt。
