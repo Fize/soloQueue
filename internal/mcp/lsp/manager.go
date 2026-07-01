@@ -149,6 +149,36 @@ func (m *Manager) clientForFile(filePath string) (*Client, error) {
 	return m.servers[serverID], nil
 }
 
+// GetAnyClient returns any currently active client, or attempts to start a default server.
+func (m *Manager) GetAnyClient() (*Client, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Try active servers first
+	for _, client := range m.servers {
+		if client != nil {
+			return client, nil
+		}
+	}
+
+	// Try starting gopls by default
+	if _, ok := m.defs["gopls"]; ok {
+		if err := m.startClient(context.Background(), "gopls"); err == nil {
+			return m.servers["gopls"], nil
+		}
+	}
+
+	// Try starting any defined server
+	for id := range m.defs {
+		if err := m.startClient(context.Background(), id); err == nil {
+			return m.servers[id], nil
+		}
+	}
+
+	return nil, fmt.Errorf("no active or startable LSP server found")
+}
+
+
 // ensureOpen sends didOpen to the LSP server if the document hasn't been opened yet.
 func (m *Manager) ensureOpen(client *Client, filePath, uri string) error {
 	m.mu.RLock()

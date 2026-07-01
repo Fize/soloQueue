@@ -385,3 +385,21 @@ type DidCloseTextDocumentParams struct {
 type DocumentDiagnosticParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
 }
+
+// ── Rename Types ──────────────────────────────────────────────────────────────
+
+type RenameParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	NewName      string                 `json:"newName"`
+}
+
+type WorkspaceEdit struct {
+	Changes map[string][]TextEdit `json:"changes,omitempty"`
+}
+
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
+
