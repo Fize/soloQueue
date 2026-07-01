@@ -8,6 +8,7 @@ interface ChatState {
   activeSessionId: string | null
   messages: Record<string, ChatMessage[]> // keyed by session id
   streaming: boolean
+  streamingSessionId: string | null
   delegating: boolean // true when async delegation is in progress (L1 waiting for L2)
   titleGenerated: Record<string, boolean> // track which sessions already had title generated
   historyLoading: Record<string, boolean> // track which sessions are loading history
@@ -33,7 +34,7 @@ interface ChatState {
     error?: string,
     durationMs?: number
   ) => void
-  setStreaming: (v: boolean) => void
+  setStreaming: (v: boolean, sessionId?: string | null) => void
   setDelegating: (v: boolean) => void
   removeLastEmptyAssistantMessage: () => void
   addDelegationSegment: (delegation: { agentName: string; task: string }) => void
@@ -48,6 +49,7 @@ export const useChatStore = create<ChatState>((set) => ({
   activeSessionId: null,
   messages: {},
   streaming: false,
+  streamingSessionId: null,
   delegating: false,
   titleGenerated: {},
   historyLoading: {},
@@ -122,6 +124,10 @@ export const useChatStore = create<ChatState>((set) => ({
   },
 
   loadHistory: async (sessionId: string) => {
+    const state = useChatStore.getState()
+    if (state.streamingSessionId === sessionId) {
+      return
+    }
     set((s) => ({
       historyLoading: { ...s.historyLoading, [sessionId]: true },
     }))
@@ -291,7 +297,11 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  setStreaming: (v: boolean) => set({ streaming: v }),
+  setStreaming: (v: boolean, sessionId?: string | null) =>
+    set((s) => ({
+      streaming: v,
+      streamingSessionId: v ? (sessionId || s.activeSessionId) : null,
+    })),
   setDelegating: (v: boolean) => set({ delegating: v }),
 
   removeLastEmptyAssistantMessage: () => {

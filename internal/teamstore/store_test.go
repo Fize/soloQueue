@@ -277,7 +277,7 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 		}
 	}
 
-	// 2. Verify we cannot modify Andrej Karpathy's system prompt.
+	// 2. Verify we can modify Andrej Karpathy's system prompt.
 	architect, err := store.GetAgentByName(ctx, "Andrej Karpathy")
 	if err != nil {
 		t.Fatalf("failed to retrieve Andrej Karpathy: %v", err)
@@ -285,20 +285,20 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 
 	architect.SystemPrompt = "modified prompt"
 	err = store.UpdateAgent(ctx, "Andrej Karpathy", architect)
-	if err == nil {
-		t.Error("expected UpdateAgent to fail when modifying leader prompt")
+	if err != nil {
+		t.Errorf("expected UpdateAgent to succeed when modifying leader prompt, got error: %v", err)
 	}
 
-	// Check if prompt was reverted on disk.
+	// Check if prompt was saved on disk.
 	architect2, err := store.GetAgentByName(ctx, "Andrej Karpathy")
 	if err != nil {
-		t.Fatalf("failed to retrieve leader after failed update: %v", err)
+		t.Fatalf("failed to retrieve leader after update: %v", err)
 	}
-	if architect2.SystemPrompt == "modified prompt" {
-		t.Error("expected leader prompt to be reverted")
+	if architect2.SystemPrompt != "modified prompt" {
+		t.Error("expected leader prompt to be updated and saved")
 	}
 
-	// Verify we cannot modify explorer's system prompt.
+	// Verify we can modify explorer's system prompt.
 	explorer, err := store.GetAgentByName(ctx, "explorer")
 	if err != nil {
 		t.Fatalf("failed to retrieve explorer: %v", err)
@@ -306,16 +306,16 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 
 	explorer.SystemPrompt = "modified prompt"
 	err = store.UpdateAgent(ctx, "explorer", explorer)
-	if err == nil {
-		t.Error("expected UpdateAgent to fail when modifying explorer prompt")
+	if err != nil {
+		t.Errorf("expected UpdateAgent to succeed when modifying explorer prompt, got error: %v", err)
 	}
 
 	explorer2, err := store.GetAgentByName(ctx, "explorer")
 	if err != nil {
-		t.Fatalf("failed to retrieve explorer after failed update: %v", err)
+		t.Fatalf("failed to retrieve explorer after update: %v", err)
 	}
-	if explorer2.SystemPrompt == "modified prompt" {
-		t.Error("expected explorer prompt to be reverted")
+	if explorer2.SystemPrompt != "modified prompt" {
+		t.Error("expected explorer prompt to be updated and saved")
 	}
 
 	// 3. Verify we cannot delete Andrej Karpathy or engineering or sub-agents.

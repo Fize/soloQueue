@@ -189,3 +189,17 @@ func BypassConfirmFromContext(ctx context.Context) bool {
 	v, _ := ctx.Value(bypassConfirmCtxKey{}).(bool)
 	return v
 }
+
+type qbotCtxKey struct{}
+
+// ContextWithIsQBot injects the QQ Bot status into context.
+func ContextWithIsQBot(ctx context.Context, isQBot bool) context.Context {
+	return context.WithValue(ctx, qbotCtxKey{}, isQBot)
+}
+
+// IsQBotFromContext extracts the QQ Bot status from context.
+// Returns false if not present.
+func IsQBotFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(qbotCtxKey{}).(bool)
+	return v
+}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 )
 
 func mkSendFileTool(t *testing.T, maxSize int64) (*sendFileTool, string) {
@@ -27,7 +29,8 @@ func TestSendFile_HappyLocalPath(t *testing.T) {
 
 	// Execute with only path
 	args, _ := json.Marshal(sendFileArgs{Path: path})
-	out, err := tool.Execute(context.Background(), string(args))
+	ctx := iface.ContextWithIsQBot(context.Background(), true)
+	out, err := tool.Execute(ctx, string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -60,7 +63,8 @@ func TestSendFile_HappyURL(t *testing.T) {
 
 	// Execute with only url
 	args, _ := json.Marshal(sendFileArgs{URL: testURL})
-	out, err := tool.Execute(context.Background(), string(args))
+	ctx := iface.ContextWithIsQBot(context.Background(), true)
+	out, err := tool.Execute(ctx, string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -92,12 +96,12 @@ func TestSendFile_HappyManualType(t *testing.T) {
 	path := filepath.Join(dir, "data.txt")
 	_ = os.WriteFile(path, []byte("some text"), 0o644)
 
-	// Force file_type to "voice" even if it is a .txt
 	args, _ := json.Marshal(sendFileArgs{
 		Path:     path,
 		FileType: "voice",
 	})
-	out, err := tool.Execute(context.Background(), string(args))
+	ctx := iface.ContextWithIsQBot(context.Background(), true)
+	out, err := tool.Execute(ctx, string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -116,13 +120,14 @@ func TestSendFile_ValidationErrors(t *testing.T) {
 	tool, _ := mkSendFileTool(t, 1024)
 
 	// Neither path nor URL
-	_, err := tool.Execute(context.Background(), `{"file_type":"image"}`)
+	ctx := iface.ContextWithIsQBot(context.Background(), true)
+	_, err := tool.Execute(ctx, `{"file_type":"image"}`)
 	if err == nil || !strings.Contains(err.Error(), "must provide either 'path' or 'url'") {
 		t.Errorf("expected error for missing path/url, got %v", err)
 	}
 
 	// Both path and URL
-	_, err = tool.Execute(context.Background(), `{"path":"a.png", "url":"http://a.png"}`)
+	_, err = tool.Execute(ctx, `{"path":"a.png", "url":"http://a.png"}`)
 	if err == nil || !strings.Contains(err.Error(), "cannot provide both 'path' and 'url'") {
 		t.Errorf("expected error for both path/url, got %v", err)
 	}
@@ -165,3 +170,20 @@ func TestSendFile_Metadata(t *testing.T) {
 		t.Error("Parameters should not be empty")
 	}
 }
+
+func TestSendFile_FailsWithoutQBot(t *testing.T) {
+	tool, dir := mkSendFileTool(t, 1024)
+	path := filepath.Join(dir, "test.png")
+	_ = os.WriteFile(path, []byte("fake"), 0o644)
+
+	args, _ := json.Marshal(sendFileArgs{Path: path})
+	// With context.Background(), IsQBot is false
+	_, err := tool.Execute(context.Background(), string(args))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "only available for QQ Bot channel") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+

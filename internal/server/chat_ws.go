@@ -107,7 +107,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	}
 
 	// Consume agent events and forward to client.
-	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch)
+	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
 }
 
 // handleChatCancel cancels an active chat request.
@@ -153,7 +153,7 @@ func (h *Hub) handleToolConfirm(client *Client, msg *ClientMessage) {
 // forwardAgentEvents reads from the agent event channel and converts each event
 // to a WSMessage pushed directly to the client's send channel.
 // The goroutine exits when the channel closes or the request context is cancelled.
-func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel context.CancelFunc, ch <-chan iface.AgentEvent) {
+func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel context.CancelFunc, ch <-chan iface.AgentEvent, sessionID string, prompt string) {
 	defer cancel()
 	defer client.removeActiveRequest(requestID)
 
@@ -162,6 +162,20 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 		if !ok {
 			continue
 		}
+
+		// Auto-generate session name after first exchange for L2 sessions.
+		if doneEv, ok := agEv.(agent.DoneEvent); ok {
+			if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
+				l2ID := strings.TrimPrefix(sessionID, "l2:")
+				if h.mux.l2Store.GetName(l2ID) == "" {
+					title := generateSessionTitle(prompt, doneEv.Content)
+					if title != "" {
+						h.mux.l2Store.SetName(l2ID, title)
+					}
+				}
+			}
+		}
+
 		wsMsg := convertAgentEvent(agEv, requestID)
 		if wsMsg == nil {
 			continue

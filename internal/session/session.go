@@ -289,6 +289,7 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 	if s.closed.Load() {
 		return nil, ErrSessionClosed
 	}
+	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
 	ch, err := s.Agent.AskStream(ctx, prompt)
 	if err != nil {
 		return nil, err
@@ -593,6 +594,8 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	if recalled != "" {
 		prompt = recalled + "\n\n" + prompt
 	}
+	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
+
 
 	// Resize to default model's context window and push user prompt
 	effectiveCW := s.Agent.Def.ContextWindow
@@ -878,8 +881,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		)
 	}
 
-	// ── 创建可取消的 askCtx ──
+	// ── 创建可取消 of askCtx ──
 	askCtx, askCancel := context.WithTimeout(ctx, 20*time.Minute)
+	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
 
 	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()

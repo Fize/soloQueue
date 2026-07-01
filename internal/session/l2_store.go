@@ -263,6 +263,17 @@ func (s *L2SessionStore) SetName(id, name string) {
 	s.mu.Unlock()
 }
 
+// GetName returns the current display name of an L2 session.
+func (s *L2SessionStore) GetName(id string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if entry, ok := s.sessions[id]; ok {
+		return entry.Name
+	}
+	return ""
+}
+
+
 // Remove destroys an L2 session: stops the agent, closes the timeline, removes
 // the timeline directory from disk, and removes the entry from the store.
 func (s *L2SessionStore) Remove(ctx context.Context, id string) error {

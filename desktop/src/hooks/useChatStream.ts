@@ -55,7 +55,7 @@ export function useChatStream() {
         timestamp: new Date().toISOString(),
       })
 
-      setStreaming(true)
+      setStreaming(true, sid)
 
       const isL2 = sid.startsWith('l2:')
       const shouldGenTitle = isL2 && !state.titleGenerated[sid]
@@ -189,8 +189,8 @@ function generateTitle(prompt: string, _response: string): string {
   } else {
     title = prompt.trim()
   }
-  if (title.length > 60) {
-    title = title.slice(0, 57) + '...'
+  if (title.length > 30) {
+    title = title.slice(0, 27) + '...'
   }
   return title
 }
