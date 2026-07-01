@@ -291,7 +291,7 @@ func formatError(action string, err error) string {
 func newGotoDefinitionTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__goto_definition",
-		description: "Jump to the definition of a symbol at a given file, line, and character position.",
+		description: "Jump to the definition of a symbol at a given file, line, and character position. Use this when you need to find where a function, type, struct, interface, or variable is declared — much more precise than Grep + Read for locating definitions because LSP resolves the exact AST node. After finding the definition location, call lsp__get_code_item to retrieve the full implementation code. Input uses 1-indexed line/character (first line = line 1).",
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "goto_definition",
@@ -302,7 +302,7 @@ func newGotoDefinitionTool(mgr *Manager) tools.Tool {
 func newFindReferencesTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__find_references",
-		description: "Find all references to a symbol at a given file, line, and character position.",
+		description: "Find all references to a symbol (function, variable, type, method) across the workspace. Use this before refactoring to understand the full impact of a change — it finds every usage location that LSP can resolve semantically, which is more complete than Grep text search. Input uses 1-indexed line/character. Combine with lsp__rename_symbol for safe global renaming.",
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "find_references",
@@ -313,7 +313,7 @@ func newFindReferencesTool(mgr *Manager) tools.Tool {
 func newHoverTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__hover",
-		description: "Get type information, documentation, and signature at a given file, line, and character position.",
+		description: "Get type information, documentation, signature, and doc comments for a symbol at a given position. Use this when you need to understand what a symbol represents, its type signature, or its documentation without navigating away from the current context. Faster than Read + searching for the definition when you just need a quick lookup. Input uses 1-indexed line/character.",
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "hover",
@@ -324,7 +324,7 @@ func newHoverTool(mgr *Manager) tools.Tool {
 func newDocumentSymbolsTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__document_symbols",
-		description: "List all symbols (functions, classes, variables, etc.) in a given file.",
+		description: "List all symbols (functions, classes, structs, interfaces, methods, variables, constants, enums) in a given file, with their kinds and line ranges. Use this to get a quick structural overview of a file before diving into specific symbols. More accurate than Grep for finding all definitions in a file because LSP understands the language's symbol hierarchy. For a formatted tree view, use lsp__document_outline instead.",
 		params:      fileOnlyParamsSchema(),
 		manager:     mgr,
 		action:      "document_symbols",
@@ -345,7 +345,7 @@ func newWorkspaceSymbolsTool(mgr *Manager) tools.Tool {
 	}`)
 	return &LSPTool{
 		name:        "lsp__workspace_symbols",
-		description: "Search for symbols by name across the entire workspace. Returns matching symbols with their locations.",
+		description: "Search for symbols by name across the entire workspace. Use this when you know a symbol's name (or partial name) but not which file it's in. Returns matching symbols with their file paths, line numbers, and symbol kinds. The best first step when exploring an unfamiliar codebase: search for a class/function name and use the results to navigate directly to relevant files. The query supports fuzzy matching — try partial names if exact match returns nothing.",
 		params:      schema,
 		manager:     mgr,
 		action:      "workspace_symbols",
@@ -356,7 +356,7 @@ func newWorkspaceSymbolsTool(mgr *Manager) tools.Tool {
 func newFindImplementationsTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__find_implementations",
-		description: "Find all implementations of an interface or abstract method at a given file, line, and character position.",
+		description: "Find all concrete implementations of an interface or abstract method. Use this to discover all types that implement a given interface, or all method overrides in subclasses. Essential for understanding polymorphism and the type hierarchy in object-oriented code. Input uses 1-indexed line/character. Position the cursor on the interface/abstract method definition, not on a concrete implementation.",
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "find_implementations",
@@ -367,7 +367,7 @@ func newFindImplementationsTool(mgr *Manager) tools.Tool {
 func newDiagnosticsTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__diagnostics",
-		description: "Get diagnostics (errors, warnings, hints) for a given file.",
+		description: "Get all diagnostics (compiler errors, warnings, hints, suggestions) for a given file from the LSP server. Use this after editing a file to check for compilation errors, type mismatches, or lint warnings before running the build. More immediate than running a full compile because LSP reports issues in real-time from the language server.",
 		params:      fileOnlyParamsSchema(),
 		manager:     mgr,
 		action:      "diagnostics",
@@ -378,7 +378,7 @@ func newDiagnosticsTool(mgr *Manager) tools.Tool {
 func newCallHierarchyIncomingTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__call_hierarchy_incoming",
-		description: "Find all incoming calls — who calls the function/method at a given file, line, and character position.",
+		description: "Find all incoming calls to a function or method — who calls it and from where. Use this before refactoring a function to understand the full call graph and ensure you don't miss callers. Also use this to trace how data flows into a function. Input uses 1-indexed line/character. Follow up with lsp__goto_definition on caller locations to navigate the call chain.",
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "call_hierarchy_incoming",
@@ -389,7 +389,7 @@ func newCallHierarchyIncomingTool(mgr *Manager) tools.Tool {
 func newCallHierarchyOutgoingTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__call_hierarchy_outgoing",
-		description: "Find all outgoing calls — what functions/methods are called by the symbol at a given file, line, and character position.",
+		description: "Find all functions and methods called by a given symbol — what it depends on. Use this to understand a function's dependencies, trace execution flow, or analyze the coupling of a code unit. Input uses 1-indexed line/character. Follow up with lsp__goto_definition on called symbols to navigate deeper into the call chain.",
 		params:      positionParamsSchema(),
 		manager:     mgr,
 		action:      "call_hierarchy_outgoing",
@@ -496,7 +496,7 @@ func newRenameSymbolTool(mgr *Manager) tools.Tool {
 	}`)
 	return &LSPTool{
 		name:        "lsp__rename_symbol",
-		description: "Rename a symbol globally across all referenced files in the workspace.",
+		description: "Rename a symbol globally across all files in the workspace using LSP semantics. This performs a safe, complete rename — it updates the declaration, all references, imports, and usages in every file. Use this INSTEAD of search-and-replace (Grep + Edit) for symbol renaming because LSP understands the language grammar and won't accidentally rename unrelated text that happens to match the name. ⚠️ This modifies files directly — it writes changes to disk. Verify with lsp__find_references first to understand the impact scope.",
 		params:      schema,
 		manager:     mgr,
 		action:      "rename_symbol",
@@ -507,7 +507,7 @@ func newRenameSymbolTool(mgr *Manager) tools.Tool {
 func newDocumentOutlineTool(mgr *Manager) tools.Tool {
 	return &LSPTool{
 		name:        "lsp__document_outline",
-		description: "Generate a clean Markdown hierarchy of classes, methods, and functions in a file.",
+		description: "Generate a clean Markdown hierarchy of all symbols (classes, methods, functions, structs, interfaces) in a file, with nesting depth indicated by indentation and line numbers shown for each symbol. Use this as the FIRST step when exploring an unfamiliar file — it provides a structured overview much faster than reading the entire file. After identifying a symbol of interest, use lsp__get_code_item to retrieve its implementation, or lsp__goto_definition_by_name to search across the workspace.",
 		params:      fileOnlyParamsSchema(),
 		manager:     mgr,
 		action:      "document_outline",
@@ -526,7 +526,7 @@ func newGetCodeItemTool(mgr *Manager) tools.Tool {
 	}`)
 	return &LSPTool{
 		name:        "lsp__get_code_item",
-		description: "Retrieve only the code snippet block of a specific symbol by name from a file.",
+		description: "Retrieve the exact source code of a named symbol (function, struct, class, method, interface) from a file. Use this when you need to see a symbol's full implementation without reading the entire file — more precise than Read + manually scrolling to the right line. First use lsp__document_outline or lsp__document_symbols to discover available symbol names, then call this to get the code. Returns only the lines within the symbol's AST range.",
 		params:      schema,
 		manager:     mgr,
 		action:      "get_code_item",
@@ -544,7 +544,7 @@ func newGotoDefinitionByNameTool(mgr *Manager) tools.Tool {
 	}`)
 	return &LSPTool{
 		name:        "lsp__goto_definition_by_name",
-		description: "Locate a symbol definition across the workspace by name, and return its code definition preview snippet.",
+		description: "Find a symbol definition by name across the entire workspace and return a preview of its source code with surrounding context. THE tool to use when you know a symbol's name but not its file location — it searches the workspace via LSP, resolves to the actual definition (not just a declaration), and returns a readable preview. More powerful than lsp__workspace_symbols because it follows through to the definition and shows code context. Supports fuzzy matching.",
 		params:      schema,
 		manager:     mgr,
 		action:      "goto_definition_by_name",
