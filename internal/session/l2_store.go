@@ -111,13 +111,16 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	// Read meta file (preferred) or legacy group file.
 	group := ""
 	workDir := ""
+	name := ""
 	metaFile := filepath.Join(tlDir, "meta")
 	if data, rerr := os.ReadFile(metaFile); rerr == nil {
 		var meta struct {
+			Name    string `json:"name"`
 			Group   string `json:"group"`
 			WorkDir string `json:"work_dir"`
 		}
 		if json.Unmarshal(data, &meta) == nil {
+			name = meta.Name
 			group = meta.Group
 			workDir = meta.WorkDir
 		}
@@ -140,6 +143,7 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	}
 	s.sessions[id] = &L2SessionEntry{
 		ID:        id,
+		Name:      name,
 		Group:     group,
 		WorkDir:   workDir,
 		Session:   nil, // will be built lazily by Activate
@@ -231,8 +235,8 @@ func (s *L2SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 // SetName updates the display name of an L2 session.
 func (s *L2SessionStore) SetName(id, name string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if entry, ok := s.sessions[id]; ok {
+	entry, ok := s.sessions[id]
+	if ok {
 		entry.Name = name
 		if s.logger != nil {
 			s.logger.DebugContext(context.Background(), logger.CatApp, "L2 session renamed",
@@ -240,7 +244,23 @@ func (s *L2SessionStore) SetName(id, name string) {
 				"name", name,
 			)
 		}
+		// Write meta to disk
+		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
+		metaFile := filepath.Join(tlDir, "meta")
+		meta := struct {
+			Name    string `json:"name"`
+			Group   string `json:"group"`
+			WorkDir string `json:"work_dir"`
+		}{
+			Name:    name,
+			Group:   entry.Group,
+			WorkDir: entry.WorkDir,
+		}
+		if data, err := json.Marshal(meta); err == nil {
+			_ = os.WriteFile(metaFile, data, 0644)
+		}
 	}
+	s.mu.Unlock()
 }
 
 // Remove destroys an L2 session: stops the agent, closes the timeline, removes
