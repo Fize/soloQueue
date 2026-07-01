@@ -68,6 +68,21 @@ export function getToolCallSummary(name: string, argsStr: string): string {
         return args.query || ''
       case 'ConnectEntities':
         return `${args.source || ''} -> ${args.target || ''}`
+      case 'Skill': {
+        const skillName = args.skill || ''
+        const skillArgs = args.args || ''
+        return skillName + (skillArgs ? ` (${skillArgs})` : '')
+      }
+    }
+
+    // LSP tools custom handler
+    if (name.startsWith('lsp__')) {
+      const file = args.file || args.uri || ''
+      const query = args.query || ''
+      if (file) {
+        return file.substring(file.lastIndexOf('/') + 1)
+      }
+      return query || ''
     }
 
     // General fallback
@@ -96,35 +111,46 @@ export function getToolCallSummary(name: string, argsStr: string): string {
     const keysToCheck =
       name === 'Bash'
         ? ['command']
-        : ['Read', 'Write', 'Edit', 'MultiEdit', 'SendFile'].includes(name)
-          ? ['path', 'TargetFile']
-          : name === 'Grep'
-            ? ['query', 'path', 'SearchPath']
-            : name === 'Glob'
-              ? ['pattern', 'SearchPath']
-              : name === 'WebFetch'
-                ? ['url']
-                : ['ImageEdit', 'ImageGenerate'].includes(name)
-                  ? ['prompt']
-                  : ['WebSearch', 'RecallMemory'].includes(name)
-                    ? ['query']
-                    : [
-                        'command',
-                        'path',
-                        'TargetFile',
-                        'SearchPath',
-                        'query',
-                        'url',
-                        'pattern',
-                        'prompt',
-                        'entity',
-                        'source',
-                        'text',
-                      ]
+        : name === 'Skill'
+          ? ['skill', 'args']
+          : ['Read', 'Write', 'Edit', 'MultiEdit', 'SendFile'].includes(name) || name.startsWith('lsp__')
+            ? ['path', 'TargetFile', 'file', 'uri']
+            : name === 'Grep'
+              ? ['query', 'path', 'SearchPath']
+              : name === 'Glob'
+                ? ['pattern', 'SearchPath']
+                : name === 'WebFetch'
+                  ? ['url']
+                  : ['ImageEdit', 'ImageGenerate'].includes(name)
+                    ? ['prompt']
+                    : ['WebSearch', 'RecallMemory'].includes(name)
+                      ? ['query']
+                      : [
+                          'command',
+                          'path',
+                          'TargetFile',
+                          'SearchPath',
+                          'query',
+                          'url',
+                          'pattern',
+                          'prompt',
+                          'entity',
+                          'source',
+                          'text',
+                          'skill',
+                        ]
+
+    let foundSkill = ''
+    let foundArgs = ''
 
     for (const key of keysToCheck) {
       const val = extractPropertyFromPartialJson(argsStr, key)
       if (val) {
+        if (name === 'Skill') {
+          if (key === 'skill') foundSkill = val
+          if (key === 'args') foundArgs = val
+          continue
+        }
         if (name === 'Grep' && key === 'query') {
           const pathVal =
             extractPropertyFromPartialJson(argsStr, 'path') ||
@@ -132,19 +158,39 @@ export function getToolCallSummary(name: string, argsStr: string): string {
             ''
           return `${val} in ${pathVal}`
         }
+        if (name.startsWith('lsp__') && (key === 'file' || key === 'uri' || key === 'path')) {
+          return val.substring(val.lastIndexOf('/') + 1)
+        }
         return val
       }
+    }
+    if (name === 'Skill' && foundSkill) {
+      return foundSkill + (foundArgs ? ` (${foundArgs})` : '')
     }
   }
   return ''
 }
 
 export function formatToolCallHeader(name: string, argsStr: string): string {
+  let displayName = name
+  if (name.startsWith('mcp__')) {
+    const parts = name.split('__')
+    const server = parts[1] || ''
+    const tool = parts[2] || ''
+    displayName = `🔌 [MCP: ${server}] ${tool}`
+  } else if (name.startsWith('lsp__')) {
+    const action = name.replace('lsp__', '')
+    displayName = `🔌 [LSP] ${action}`
+  } else if (name === 'Skill') {
+    displayName = `🛠️ Skill`
+  }
+
   const summary = getToolCallSummary(name, argsStr)
 
   if (summary) {
-    return `${name}   ${summary}`
+    return `${displayName}   ${summary}`
   } else {
-    return `${name}`
+    return displayName
   }
 }
+
