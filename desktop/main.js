@@ -5,6 +5,7 @@ import http from 'http'
 import net from 'net'
 import { spawn, execSync } from 'child_process'
 import { fileURLToPath } from 'url'
+import os from 'os'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -13,11 +14,55 @@ const __dirname = path.dirname(__filename)
 if (process.platform === 'darwin') {
   try {
     const shell = process.env.SHELL || '/bin/zsh'
-    const stdout = execSync(`${shell} -l -c "env"`, {
-      encoding: 'utf-8',
-      timeout: 2000,
-      maxBuffer: 1024 * 1024,
-    })
+    const shellName = path.basename(shell)
+    const homeDir = os.homedir()
+    let command = 'env'
+
+    if (shellName === 'zsh') {
+      const zprofile = path.join(homeDir, '.zprofile')
+      const zshrc = path.join(homeDir, '.zshrc')
+      let sourceCmds = []
+      if (fs.existsSync(zprofile)) sourceCmds.push(`source "${zprofile}"`)
+      if (fs.existsSync(zshrc)) sourceCmds.push(`source "${zshrc}"`)
+      if (sourceCmds.length > 0) {
+        command = `${sourceCmds.join(' && ')} && env`
+      }
+    } else if (shellName === 'bash') {
+      const bashProfile = path.join(homeDir, '.bash_profile')
+      const profile = path.join(homeDir, '.profile')
+      const bashrc = path.join(homeDir, '.bashrc')
+      let sourceCmds = []
+      if (fs.existsSync(bashProfile)) sourceCmds.push(`source "${bashProfile}"`)
+      else if (fs.existsSync(profile)) sourceCmds.push(`source "${profile}"`)
+      if (fs.existsSync(bashrc)) sourceCmds.push(`source "${bashrc}"`)
+      if (sourceCmds.length > 0) {
+        command = `${sourceCmds.join(' && ')} && env`
+      }
+    } else if (shellName === 'fish') {
+      const fishConfig = path.join(homeDir, '.config/fish/config.fish')
+      if (fs.existsSync(fishConfig)) {
+        command = `source "${fishConfig}"; and env`
+      }
+    }
+
+    let stdout = ''
+    try {
+      stdout = execSync(command, {
+        shell: shell,
+        encoding: 'utf-8',
+        timeout: 3000,
+        maxBuffer: 1024 * 1024,
+      })
+    } catch (cmdErr) {
+      console.warn('[Electron] Sourcing custom shell rc failed, falling back to basic env:', cmdErr)
+      stdout = execSync('env', {
+        shell: shell,
+        encoding: 'utf-8',
+        timeout: 2000,
+        maxBuffer: 1024 * 1024,
+      })
+    }
+
     const env = {}
     stdout.split('\n').forEach((line) => {
       const parts = line.split('=')
@@ -28,6 +73,20 @@ if (process.platform === 'darwin') {
       }
     })
     Object.assign(process.env, env)
+
+    // Fallback: Ensure common macOS developer paths are present in PATH
+    const standardPaths = [
+      '/opt/homebrew/bin',
+      '/opt/homebrew/sbin',
+      '/usr/local/bin',
+    ]
+    const currentPaths = (process.env.PATH || '').split(':')
+    standardPaths.forEach((p) => {
+      if (p && !currentPaths.includes(p)) {
+        currentPaths.unshift(p)
+      }
+    })
+    process.env.PATH = currentPaths.join(':')
   } catch (err) {
     console.error('[Electron] Failed to load shell environment:', err)
   }
