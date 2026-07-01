@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -216,7 +217,7 @@ func (s *Scheduler) executeTask(t Task) {
 
 	if !session.Idle() {
 		s.logger.Warn(logger.CatApp, "cron: session busy, queueing task into pending queue", "task_id", t.ID)
-		session.QueueMessage(t.Instruction)
+		session.QueueMessage(buildCronPrompt(t))
 		// Task is queued rather than executed; release the claim.
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		return
@@ -227,7 +228,7 @@ func (s *Scheduler) executeTask(t Task) {
 	// no ContextWindow/timeline writes). This prevents stale history from
 	// confusing the agent (e.g. mistaking the instruction for a new schedule request)
 	// and avoids polluting the user's conversation with cron tool-call chains.
-	ch, err := session.AskIsolated(iface.ContextWithBypassConfirm(context.Background()), t.Instruction)
+	ch, err := session.AskIsolated(iface.ContextWithBypassConfirm(context.Background()), buildCronPrompt(t))
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: task execution failed to start", "task_id", t.ID, "err", err)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
@@ -263,4 +264,26 @@ func (s *Scheduler) executeTask(t Task) {
 		next, _ := NextTrigger(t.Expression, time.Now())
 		_ = s.dbStore.UpdateNextRun(ctx, t.ID, time.Now(), next)
 	}
+}
+
+// buildCronPrompt wraps a task's instruction with a scheduler-context header.
+// Without this header, the LLM has no way to distinguish "a scheduled task is
+// being triggered" from "the user is requesting a new scheduled task", causing
+// it to misfire Rule 21 and call schedule_task instead of executing the work.
+func buildCronPrompt(t Task) string {
+	triggerTime := time.Now().Format("2006-01-02 15:04:05")
+	scheduleDesc := t.Expression
+	if t.IsOneTime() {
+		scheduleDesc = "one-time task"
+	}
+	return fmt.Sprintf(
+		"[SCHEDULED TASK EXECUTION]\n"+
+			"Task ID: %s\n"+
+			"Schedule: %s\n"+
+			"Triggered at: %s\n"+
+			"\nIMPORTANT: This message is automatically triggered by the scheduler — NOT a user request. "+
+			"Do NOT call schedule_task or create any new scheduled tasks. "+
+			"Simply execute the following instruction directly:\n\n%s",
+		t.ID, scheduleDesc, triggerTime, t.Instruction,
+	)
 }
