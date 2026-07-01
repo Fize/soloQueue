@@ -13,7 +13,8 @@ let mainWindow = null
 let goProcess = null
 let backendStartTime = null
 let externalGoInstance = false // Flag to track if Go was already running
-const BACKEND_PORT = 8765
+const isDev = !app.isPackaged && !process.env.ELECTRON_PROD
+const BACKEND_PORT = isDev ? 8765 : 57647
 
 // ── Go binary path resolution ──────────────────────────────
 function getGoBinaryPath() {
@@ -342,6 +343,10 @@ function createWindow() {
     mainWindow = null
   })
 }
+
+ipcMain.on('backend:get-port-sync', (event) => {
+  event.returnValue = BACKEND_PORT
+})
 
 // ── IPC handlers ───────────────────────────────────────────
 ipcMain.handle('backend:start', async () => {

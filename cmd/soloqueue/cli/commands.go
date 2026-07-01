@@ -232,6 +232,26 @@ func ServeCmd(version string) *cobra.Command {
 				}
 			}
 		}()
+		// Background goroutine: monitor parent process death
+		initialPPID := os.Getppid()
+		if initialPPID > 1 {
+			go func() {
+				ticker := time.NewTicker(2 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-rootCtx.Done():
+						return
+					case <-ticker.C:
+						if isParentDead(initialPPID) {
+							log.Info(logger.CatApp, "Parent process terminated, initiating shutdown")
+							stop()
+							return
+						}
+					}
+				}
+			}()
+		}
 
 		srv := &http.Server{Handler: mux}
 
