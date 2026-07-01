@@ -142,28 +142,9 @@ func (s *Store) EnsureBuiltinTechTeam(ctx context.Context) error {
 		}
 	}
 
-	// 2. Ensure "Andrej Karpathy" leader exists and prompt is correct.
+	// 2. Ensure "Andrej Karpathy" leader exists.
 	agentPath := getAgentFilePath(s.agentsDir, "Andrej Karpathy")
-
-	var needWriteAgent bool
-	var existingAgent *Agent
-	if info, err := os.Stat(agentPath); err == nil {
-		existingAgent, err = parseAgentFile(agentPath, info)
-		if err != nil {
-			needWriteAgent = true
-		} else {
-			if existingAgent.SystemPrompt != BuiltinLeaderPrompt ||
-				existingAgent.TeamName != "engineering" ||
-				!existingAgent.IsLeader ||
-				existingAgent.Description != "Principal Architect responsible for task breakdown, architectural decisions, and technical leadership." {
-				needWriteAgent = true
-			}
-		}
-	} else {
-		needWriteAgent = true
-	}
-
-	if needWriteAgent {
+	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 		now := time.Now().Format(time.RFC3339)
 		a := &Agent{
 			ID:           "andrej karpathy",
@@ -210,25 +191,7 @@ func (s *Store) EnsureBuiltinTechTeam(ctx context.Context) error {
 
 	for _, sa := range subAgents {
 		saPath := getAgentFilePath(s.agentsDir, sa.name)
-		var needWriteSubAgent bool
-		var existingSubAgent *Agent
-		if info, err := os.Stat(saPath); err == nil {
-			existingSubAgent, err = parseAgentFile(saPath, info)
-			if err != nil {
-				needWriteSubAgent = true
-			} else {
-				if existingSubAgent.SystemPrompt != sa.prompt ||
-					existingSubAgent.TeamName != "engineering" ||
-					existingSubAgent.IsLeader ||
-					existingSubAgent.Description != sa.description {
-					needWriteSubAgent = true
-				}
-			}
-		} else {
-			needWriteSubAgent = true
-		}
-
-		if needWriteSubAgent {
+		if _, err := os.Stat(saPath); os.IsNotExist(err) {
 			now := time.Now().Format(time.RFC3339)
 			a := &Agent{
 				ID:           sa.id,

@@ -247,24 +247,6 @@ func (s *Store) CreateAgent(ctx context.Context, a *Agent) error {
 	a.CreatedAt = now
 	a.UpdatedAt = now
 
-	if strings.EqualFold(a.Name, "Andrej Karpathy") {
-		if a.SystemPrompt != BuiltinLeaderPrompt {
-			return fmt.Errorf("teamstore: built-in leader %q must use the built-in prompt", a.Name)
-		}
-	} else if strings.EqualFold(a.Name, "explorer") {
-		if a.SystemPrompt != BuiltinExplorerPrompt {
-			return fmt.Errorf("teamstore: built-in agent %q must use the built-in prompt", a.Name)
-		}
-	} else if strings.EqualFold(a.Name, "editor") {
-		if a.SystemPrompt != BuiltinEditorPrompt {
-			return fmt.Errorf("teamstore: built-in agent %q must use the built-in prompt", a.Name)
-		}
-	} else if strings.EqualFold(a.Name, "tester") {
-		if a.SystemPrompt != BuiltinTesterPrompt {
-			return fmt.Errorf("teamstore: built-in agent %q must use the built-in prompt", a.Name)
-		}
-	}
-
 	// Check if already exists
 	path := getAgentFilePath(s.agentsDir, a.Name)
 	if _, err := os.Stat(path); err == nil {
@@ -374,33 +356,6 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 	existing, err := parseAgentFile(path, info)
 	if err != nil {
 		return err
-	}
-
-	if strings.EqualFold(name, "Andrej Karpathy") {
-		if a.SystemPrompt != BuiltinLeaderPrompt {
-			// Write the original unmodified prompt back to disk (revert file modification if any)
-			existing.SystemPrompt = BuiltinLeaderPrompt
-			_ = s.writeAgentFile(path, existing)
-			return fmt.Errorf("teamstore: modification of built-in leader %q prompt is not allowed", name)
-		}
-	} else if strings.EqualFold(name, "explorer") {
-		if a.SystemPrompt != BuiltinExplorerPrompt {
-			existing.SystemPrompt = BuiltinExplorerPrompt
-			_ = s.writeAgentFile(path, existing)
-			return fmt.Errorf("teamstore: modification of built-in agent %q prompt is not allowed", name)
-		}
-	} else if strings.EqualFold(name, "editor") {
-		if a.SystemPrompt != BuiltinEditorPrompt {
-			existing.SystemPrompt = BuiltinEditorPrompt
-			_ = s.writeAgentFile(path, existing)
-			return fmt.Errorf("teamstore: modification of built-in agent %q prompt is not allowed", name)
-		}
-	} else if strings.EqualFold(name, "tester") {
-		if a.SystemPrompt != BuiltinTesterPrompt {
-			existing.SystemPrompt = BuiltinTesterPrompt
-			_ = s.writeAgentFile(path, existing)
-			return fmt.Errorf("teamstore: modification of built-in agent %q prompt is not allowed", name)
-		}
 	}
 
 	existing.Description = a.Description

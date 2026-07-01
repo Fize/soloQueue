@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
@@ -58,6 +59,10 @@ type sendFileResult struct {
 func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err := ctxErrOrNil(ctx); err != nil {
 		return "", err
+	}
+
+	if !iface.IsQBotFromContext(ctx) {
+		return "", fmt.Errorf("sendfile tool is only available for QQ Bot channel")
 	}
 
 	var a sendFileArgs

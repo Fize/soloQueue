@@ -241,7 +241,10 @@ func (s *Scheduler) executeTask(t Task) {
 	// no ContextWindow/timeline writes). This prevents stale history from
 	// confusing the agent (e.g. mistaking the instruction for a new schedule request)
 	// and avoids polluting the user's conversation with cron tool-call chains.
-	ch, err := session.AskIsolated(iface.ContextWithBypassConfirm(context.Background()), buildCronPrompt(t))
+	isQBot := t.QQOpenID != "" || t.QQChatID != "" || t.QQSource != 0
+	cronCtx := iface.ContextWithBypassConfirm(context.Background())
+	cronCtx = iface.ContextWithIsQBot(cronCtx, isQBot)
+	ch, err := session.AskIsolated(cronCtx, buildCronPrompt(t))
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: task execution failed to start", "task_id", t.ID, "err", err)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
