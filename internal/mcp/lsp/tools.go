@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -31,26 +33,38 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 		Line      int    `json:"line"`
 		Character int    `json:"character"`
 		Query     string `json:"query"`
+		NewName   string `json:"newName"`
 	}
 	if err := json.Unmarshal([]byte(args), &in); err != nil {
 		return "", fmt.Errorf("parse args: %w", err)
 	}
 
-	client, err := t.manager.clientForFile(in.File)
-	if err != nil {
-		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
-		return "", err
-	}
+	var client *Client
+	var err error
+	var uri string
+	var pos Position
 
-	uri := PathToURI(in.File)
-	pos := Position{
-		Line:      in.Line - 1,
-		Character: in.Character - 1,
-	}
-
-	if err := t.manager.ensureOpen(client, in.File, uri); err != nil {
-		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
-		return "", fmt.Errorf("ensureOpen: %w", err)
+	if in.File != "" {
+		client, err = t.manager.clientForFile(in.File)
+		if err != nil {
+			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
+			return "", err
+		}
+		uri = PathToURI(in.File)
+		pos = Position{
+			Line:      in.Line - 1,
+			Character: in.Character - 1,
+		}
+		if err := t.manager.ensureOpen(client, in.File, uri); err != nil {
+			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
+			return "", fmt.Errorf("ensureOpen: %w", err)
+		}
+	} else {
+		client, err = t.manager.GetAnyClient()
+		if err != nil {
+			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
+			return "", err
+		}
 	}
 
 	t.log.Debug(logger.CatMCP, "lsp tool called",
@@ -79,6 +93,14 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 		return t.doCallHierarchyIncoming(ctx, client, uri, pos)
 	case "call_hierarchy_outgoing":
 		return t.doCallHierarchyOutgoing(ctx, client, uri, pos)
+	case "rename_symbol":
+		return t.doRenameSymbol(ctx, client, uri, pos, in.NewName)
+	case "document_outline":
+		return t.doDocumentOutline(ctx, client, uri)
+	case "get_code_item":
+		return t.doGetCodeItem(ctx, client, uri, in.Query)
+	case "goto_definition_by_name":
+		return t.doGotoDefinitionByName(ctx, client, in.Query)
 	default:
 		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", fmt.Sprintf("unknown LSP action: %s", t.action))
 		return "", fmt.Errorf("unknown LSP action: %s", t.action)
@@ -409,6 +431,10 @@ func LSPTools(mgr *Manager) []tools.Tool {
 		newDiagnosticsTool(mgr),
 		newCallHierarchyIncomingTool(mgr),
 		newCallHierarchyOutgoingTool(mgr),
+		newRenameSymbolTool(mgr),
+		newDocumentOutlineTool(mgr),
+		newGetCodeItemTool(mgr),
+		newGotoDefinitionByNameTool(mgr),
 	}
 }
 
@@ -424,6 +450,10 @@ func ToolActionNames() []string {
 		"diagnostics",
 		"call_hierarchy_incoming",
 		"call_hierarchy_outgoing",
+		"rename_symbol",
+		"document_outline",
+		"get_code_item",
+		"goto_definition_by_name",
 	}
 }
 
@@ -439,10 +469,389 @@ func toolNames() []string {
 		"lsp__diagnostics",
 		"lsp__call_hierarchy_incoming",
 		"lsp__call_hierarchy_outgoing",
+		"lsp__rename_symbol",
+		"lsp__document_outline",
+		"lsp__get_code_item",
+		"lsp__goto_definition_by_name",
 	}
 }
 
 // toolNames is used by manager for display.
 func ToolNames() string {
 	return strings.Join(toolNames(), ", ")
+}
+
+// ── New Tool Constructors ───────────────────────────────────────────────────
+
+func newRenameSymbolTool(mgr *Manager) tools.Tool {
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"file": {"type": "string", "description": "Absolute path to the source file containing the symbol"},
+			"line": {"type": "integer", "description": "1-indexed line number where the symbol is located"},
+			"character": {"type": "integer", "description": "1-indexed character offset on the line"},
+			"newName": {"type": "string", "description": "The new name of the symbol"}
+		},
+		"required": ["file", "line", "character", "newName"]
+	}`)
+	return &LSPTool{
+		name:        "lsp__rename_symbol",
+		description: "Rename a symbol globally across all referenced files in the workspace.",
+		params:      schema,
+		manager:     mgr,
+		action:      "rename_symbol",
+		log:         mgr.log,
+	}
+}
+
+func newDocumentOutlineTool(mgr *Manager) tools.Tool {
+	return &LSPTool{
+		name:        "lsp__document_outline",
+		description: "Generate a clean Markdown hierarchy of classes, methods, and functions in a file.",
+		params:      fileOnlyParamsSchema(),
+		manager:     mgr,
+		action:      "document_outline",
+		log:         mgr.log,
+	}
+}
+
+func newGetCodeItemTool(mgr *Manager) tools.Tool {
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"file": {"type": "string", "description": "Absolute path to the source file"},
+			"query": {"type": "string", "description": "The name of the function, class, struct, or method to retrieve code for"}
+		},
+		"required": ["file", "query"]
+	}`)
+	return &LSPTool{
+		name:        "lsp__get_code_item",
+		description: "Retrieve only the code snippet block of a specific symbol by name from a file.",
+		params:      schema,
+		manager:     mgr,
+		action:      "get_code_item",
+		log:         mgr.log,
+	}
+}
+
+func newGotoDefinitionByNameTool(mgr *Manager) tools.Tool {
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"query": {"type": "string", "description": "The name of the class, struct, or function definition to locate"}
+		},
+		"required": ["query"]
+	}`)
+	return &LSPTool{
+		name:        "lsp__goto_definition_by_name",
+		description: "Locate a symbol definition across the workspace by name, and return its code definition preview snippet.",
+		params:      schema,
+		manager:     mgr,
+		action:      "goto_definition_by_name",
+		log:         mgr.log,
+	}
+}
+
+// ── New Tool Execution Helpers ──────────────────────────────────────────────
+
+func comparePositions(p1, p2 Position) int {
+	if p1.Line != p2.Line {
+		return p1.Line - p2.Line
+	}
+	return p1.Character - p2.Character
+}
+
+func applyTextEdits(content string, edits []TextEdit) (string, error) {
+	lines := strings.Split(content, "\n")
+
+	// Sort edits in descending order of start position so line changes do not shift earlier offsets
+	sort.Slice(edits, func(i, j int) bool {
+		return comparePositions(edits[i].Range.Start, edits[j].Range.Start) > 0
+	})
+
+	for _, edit := range edits {
+		startLine := edit.Range.Start.Line
+		startChar := edit.Range.Start.Character
+		endLine := edit.Range.End.Line
+		endChar := edit.Range.End.Character
+
+		if startLine < 0 || startLine >= len(lines) || endLine < 0 || endLine >= len(lines) {
+			return "", fmt.Errorf("edit range out of bounds: line %d (start) / %d (end) not in [0, %d)", startLine, endLine, len(lines))
+		}
+
+		startRunes := []rune(lines[startLine])
+		endRunes := []rune(lines[endLine])
+		if startChar < 0 || startChar > len(startRunes) || endChar < 0 || endChar > len(endRunes) {
+			return "", fmt.Errorf("edit char offset out of bounds: start %d in [0, %d], end %d in [0, %d]", startChar, len(startRunes), endChar, len(endRunes))
+		}
+
+		prefix := string(startRunes[:startChar])
+		suffix := string(endRunes[endChar:])
+
+		replacementLines := strings.Split(edit.NewText, "\n")
+		replacementLines[0] = prefix + replacementLines[0]
+		replacementLines[len(replacementLines)-1] = replacementLines[len(replacementLines)-1] + suffix
+
+		newLines := make([]string, 0, len(lines)-(endLine-startLine)+len(replacementLines)-1)
+		newLines = append(newLines, lines[:startLine]...)
+		newLines = append(newLines, replacementLines...)
+		newLines = append(newLines, lines[endLine+1:]...)
+		lines = newLines
+	}
+
+	return strings.Join(lines, "\n"), nil
+}
+
+func (t *LSPTool) doRenameSymbol(ctx context.Context, c *Client, uri string, pos Position, newName string) (string, error) {
+	if newName == "" {
+		return `{"error": "newName is required"}`, nil
+	}
+	edit, err := c.Rename(ctx, uri, pos, newName)
+	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
+		return formatError("rename_symbol", err), nil
+	}
+	if edit == nil || len(edit.Changes) == 0 {
+		return `{"changes_applied": 0, "message": "no changes returned by LSP server"}`, nil
+	}
+
+	type fileResult struct {
+		File  string `json:"file"`
+		Edits int    `json:"edits"`
+	}
+	var results []fileResult
+
+	for fileURI, fileEdits := range edit.Changes {
+		filePath := uriToPath(fileURI)
+		contentBytes, err := os.ReadFile(filePath)
+		if err != nil {
+			t.log.Error(logger.CatMCP, "failed to read file for rename", "file", filePath, "err", err.Error())
+			return formatError("rename_symbol", fmt.Errorf("read %s: %w", filePath, err)), nil
+		}
+
+		newContent, err := applyTextEdits(string(contentBytes), fileEdits)
+		if err != nil {
+			t.log.Error(logger.CatMCP, "failed to apply edits for rename", "file", filePath, "err", err.Error())
+			return formatError("rename_symbol", fmt.Errorf("apply edits to %s: %w", filePath, err)), nil
+		}
+
+		if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+			t.log.Error(logger.CatMCP, "failed to save file after rename", "file", filePath, "err", err.Error())
+			return formatError("rename_symbol", fmt.Errorf("write %s: %w", filePath, err)), nil
+		}
+
+		// Notify LSP server of the modification
+		c.DidChange(fileURI, newContent, 0)
+
+		results = append(results, fileResult{
+			File:  filePath,
+			Edits: len(fileEdits),
+		})
+	}
+
+	data, _ := json.Marshal(map[string]any{
+		"changes_applied": len(results),
+		"modified_files":  results,
+	})
+	return string(data), nil
+}
+
+func formatSymbolsOutline(symbols []DocumentSymbol, depth int) string {
+	var sb strings.Builder
+	indent := strings.Repeat("  ", depth)
+	for _, sym := range symbols {
+		kindStr := symbolKindToString(sym.Kind)
+		sb.WriteString(fmt.Sprintf("%s- %s %s [Line %d]\n", indent, kindStr, sym.Name, sym.Range.Start.Line+1))
+		if len(sym.Children) > 0 {
+			sb.WriteString(formatSymbolsOutline(sym.Children, depth+1))
+		}
+	}
+	return sb.String()
+}
+
+func symbolKindToString(k SymbolKind) string {
+	switch k {
+	case SymbolKindFile:
+		return "file"
+	case SymbolKindModule:
+		return "module"
+	case SymbolKindNamespace:
+		return "namespace"
+	case SymbolKindPackage:
+		return "package"
+	case SymbolKindClass:
+		return "class"
+	case SymbolKindMethod:
+		return "method"
+	case SymbolKindProperty:
+		return "property"
+	case SymbolKindField:
+		return "field"
+	case SymbolKindConstructor:
+		return "constructor"
+	case SymbolKindEnum:
+		return "enum"
+	case SymbolKindInterface:
+		return "interface"
+	case SymbolKindFunction:
+		return "function"
+	case SymbolKindVariable:
+		return "variable"
+	case SymbolKindConstant:
+		return "constant"
+	case SymbolKindStruct:
+		return "struct"
+	default:
+		return "symbol"
+	}
+}
+
+func (t *LSPTool) doDocumentOutline(ctx context.Context, c *Client, uri string) (string, error) {
+	symbols, err := c.DocumentSymbols(ctx, uri)
+	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
+		return formatError("document_outline", err), nil
+	}
+	if len(symbols) == 0 {
+		return "No symbols found in file.", nil
+	}
+	return formatSymbolsOutline(symbols, 0), nil
+}
+
+func (t *LSPTool) doGetCodeItem(ctx context.Context, c *Client, uri string, name string) (string, error) {
+	if name == "" {
+		return `{"error": "query (symbol name) is required"}`, nil
+	}
+	symbols, err := c.DocumentSymbols(ctx, uri)
+	if err != nil {
+		return formatError("get_code_item", err), nil
+	}
+	var flat []DocumentSymbol
+	flattenSymbols(symbols, &flat)
+
+	var target *DocumentSymbol
+	for i := range flat {
+		if strings.EqualFold(flat[i].Name, name) {
+			target = &flat[i]
+			break
+		}
+	}
+
+	if target == nil {
+		return fmt.Sprintf("Symbol %q not found in file.", name), nil
+	}
+
+	filePath := uriToPath(uri)
+	contentBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return formatError("get_code_item", err), nil
+	}
+
+	lines := strings.Split(string(contentBytes), "\n")
+	startLine := target.Range.Start.Line
+	endLine := target.Range.End.Line
+	if startLine < 0 || endLine >= len(lines) || startLine > endLine {
+		return "Invalid symbol range returned by LSP server.", nil
+	}
+
+	selected := lines[startLine : endLine+1]
+	return strings.Join(selected, "\n"), nil
+}
+
+func (t *LSPTool) doGotoDefinitionByName(ctx context.Context, c *Client, query string) (string, error) {
+	if query == "" {
+		return `{"error": "query (symbol name) is required"}`, nil
+	}
+	symbols, err := c.WorkspaceSymbols(ctx, query)
+	if err != nil {
+		return formatError("goto_definition_by_name", err), nil
+	}
+
+	var bestSymbols []SymbolInformation
+	for _, s := range symbols {
+		if strings.EqualFold(s.Name, query) || strings.Contains(strings.ToLower(s.Name), strings.ToLower(query)) {
+			bestSymbols = append(bestSymbols, s)
+		}
+	}
+	if len(bestSymbols) == 0 {
+		bestSymbols = symbols // Fall back to all returned symbols if no close matches
+	}
+
+	if len(bestSymbols) == 0 {
+		return fmt.Sprintf("No symbols found matching %q in workspace.", query), nil
+	}
+
+	type matchPreview struct {
+		Name    string `json:"name"`
+		Kind    string `json:"kind"`
+		File    string `json:"file"`
+		Line    int    `json:"line"`
+		Preview string `json:"preview"`
+	}
+	var previews []matchPreview
+
+	// Show previews for at most the top 5 matches to keep token usage small
+	limit := len(bestSymbols)
+	if limit > 5 {
+		limit = 5
+	}
+
+	for i := 0; i < limit; i++ {
+		sym := bestSymbols[i]
+
+		// Follow the definition just in case the symbol location points to declaration/reference
+		defURI := sym.Location.URI
+		defPos := sym.Location.Range.Start
+
+		// Attempt goto definition
+		locs, defErr := c.GotoDefinition(ctx, sym.Location.URI, sym.Location.Range.Start)
+		if defErr == nil && len(locs) > 0 {
+			defURI = locs[0].URI
+			defPos = locs[0].Range.Start
+		}
+
+		defPath := uriToPath(defURI)
+		contentBytes, err := os.ReadFile(defPath)
+		var previewText string
+		var previewLine int
+		if err == nil {
+			lines := strings.Split(string(contentBytes), "\n")
+			targetLine := defPos.Line
+			previewLine = targetLine + 1
+			start := targetLine - 5
+			if start < 0 {
+				start = 0
+			}
+			end := targetLine + 15
+			if end >= len(lines) {
+				end = len(lines) - 1
+			}
+			var snippet []string
+			for lineIdx := start; lineIdx <= end; lineIdx++ {
+				prefix := "   "
+				if lineIdx == targetLine {
+					prefix = "-> "
+				}
+				snippet = append(snippet, fmt.Sprintf("%s%d: %s", prefix, lineIdx+1, lines[lineIdx]))
+			}
+			previewText = strings.Join(snippet, "\n")
+		} else {
+			previewText = fmt.Sprintf("Error reading file preview: %v", err)
+			previewLine = defPos.Line + 1
+		}
+
+		previews = append(previews, matchPreview{
+			Name:    sym.Name,
+			Kind:    symbolKindToString(sym.Kind),
+			File:    defPath,
+			Line:    previewLine,
+			Preview: previewText,
+		})
+	}
+
+	data, _ := json.Marshal(map[string]any{
+		"matches": previews,
+		"count":   len(symbols),
+	})
+	return string(data), nil
 }

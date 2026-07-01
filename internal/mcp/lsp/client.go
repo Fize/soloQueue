@@ -490,6 +490,20 @@ func (c *Client) CallHierarchyOutgoing(ctx context.Context, uri string, pos Posi
 	return calls, nil
 }
 
+// Rename requests the server to rename the symbol at the given position and returns the workspace edit.
+func (c *Client) Rename(ctx context.Context, uri string, pos Position, newName string) (*WorkspaceEdit, error) {
+	params := RenameParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     pos,
+		NewName:      newName,
+	}
+	var edit WorkspaceEdit
+	if err := c.call(ctx, "textDocument/rename", params, &edit); err != nil {
+		return nil, fmt.Errorf("rename: %w", err)
+	}
+	return &edit, nil
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 func decodeLocations(result any) ([]Location, error) {
