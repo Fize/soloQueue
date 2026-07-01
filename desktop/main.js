@@ -344,6 +344,9 @@ function createWindow() {
     minHeight: 640,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
+    icon: fs.existsSync(path.join(__dirname, 'dist/logo.png'))
+      ? path.join(__dirname, 'dist/logo.png')
+      : path.join(__dirname, 'public/logo.png'),
     backgroundColor: '#5a2800',
     vibrancy: 'under-window',
     webPreferences: {
