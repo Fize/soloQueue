@@ -44,9 +44,9 @@ export default function RegistrationScene({ onComplete }: RegistrationSceneProps
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 select-none font-retro animate-in fade-in duration-200">
-      <div className="bg-white border border-gray-200 w-full max-w-2xl flex flex-col md:flex-row shadow-2xl overflow-hidden rounded-xl max-h-[560px]">
+      <div className="bg-white border border-gray-200 w-full max-w-2xl flex flex-col md:flex-row shadow-2xl rounded-xl max-h-[90vh] overflow-y-auto">
         {/* Left Side: Dynamic Character Portrait Card */}
-        <div className="w-full md:w-2/5 bg-gray-50 border-r border-gray-200 p-4 flex flex-col items-center justify-center min-h-[200px]">
+        <div className="w-full md:w-2/5 bg-gray-50 border-r border-gray-200 p-4 flex flex-col items-center justify-center min-h-[180px]">
           <h3 className="font-pixel text-[10px] text-primary mb-2 tracking-wide text-center">
             EMPLOYEE PROFILE
           </h3>
@@ -66,7 +66,7 @@ export default function RegistrationScene({ onComplete }: RegistrationSceneProps
         </div>
 
         {/* Right Side: Step Wizard Forms */}
-        <div className="w-full md:w-3/5 p-6 flex flex-col justify-between min-h-[300px] bg-white text-gray-800">
+        <div className="w-full md:w-3/5 p-6 flex flex-col justify-between bg-white text-gray-800">
           {/* Header Progress */}
           <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-2">
             <span className="font-pixel text-[10px] text-primary tracking-wide">NEW SECRETARY REGISTRY</span>
@@ -74,7 +74,7 @@ export default function RegistrationScene({ onComplete }: RegistrationSceneProps
           </div>
 
           {/* Form Content */}
-          <div className="flex-1 flex flex-col justify-center min-h-[220px]">
+          <div className="flex-1 flex flex-col justify-center py-2">
             {/* Step 1: Gender selection */}
             {step === 1 && (
               <div className="animate-in fade-in duration-200">
