@@ -9,6 +9,7 @@ import { sounds } from '../utils/audio'
 declare global {
   interface Window {
     electronAPI?: {
+      backendPort?: number
       startBackend: () => Promise<{ success: boolean; error?: string }>
       stopBackend: () => Promise<{ success: boolean }>
       restartBackend: () => Promise<{ success: boolean; error?: string }>
@@ -42,13 +43,23 @@ export default function OfficeGameLayout() {
       if (status.running) {
         setBackendError('')
         setBackendStatus('running')
-        connectToBackend()
+        const port = window.electronAPI?.backendPort || 8765
+        connectToBackend(`http://127.0.0.1:${port}`)
       } else {
         setBackendStatus('error', 'Backend process exited')
       }
     })
     return unsub
   }, [setBackendStatus, connectToBackend])
+
+  // Listen for Go backend logs and print them to DevTools Console
+  useEffect(() => {
+    if (typeof window.electronAPI?.onBackendLog !== 'function') return
+    const unsub = window.electronAPI.onBackendLog((line) => {
+      console.log('[Go Backend]', line)
+    })
+    return unsub
+  }, [])
 
   // Spawn Go backend asynchronously — called once in background, no waiting screen
   const spawnBackend = useCallback(async () => {

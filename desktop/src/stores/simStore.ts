@@ -202,6 +202,22 @@ export function findPath(
 
 export type BackendConnectionStatus = 'idle' | 'starting' | 'running' | 'error'
 
+const getInitialBackendUrl = () => {
+  if (typeof window !== 'undefined' && window.location?.protocol === 'file:') {
+    const port = (window as any).electronAPI?.backendPort || 57647
+    return `http://127.0.0.1:${port}`
+  }
+  return 'http://127.0.0.1:8765'
+}
+
+const getInitialWsUrl = () => {
+  if (typeof window !== 'undefined' && window.location?.protocol === 'file:') {
+    const port = (window as any).electronAPI?.backendPort || 57647
+    return `ws://127.0.0.1:${port}/ws`
+  }
+  return 'ws://127.0.0.1:8765/ws'
+}
+
 export const useSimStore = create<SimState>((set, get) => ({
   tokens: 1500,
   profile: {
@@ -224,8 +240,8 @@ export const useSimStore = create<SimState>((set, get) => ({
   backendError: '',
   isConnected: false,
   isConnecting: false,
-  backendUrl: 'http://localhost:8765',
-  wsUrl: 'ws://localhost:8765/ws',
+  backendUrl: getInitialBackendUrl(),
+  wsUrl: getInitialWsUrl(),
   sessionMessages: [],
   sessionBusy: false,
   chatOpen: false,
@@ -508,7 +524,7 @@ export const useSimStore = create<SimState>((set, get) => ({
     if (!base) {
       const electronPort = (window as any).electronAPI?.backendPort
       const port = electronPort || 8765
-      base = `http://localhost:${port}`
+      base = `http://127.0.0.1:${port}`
     }
     set({ backendUrl: base, wsUrl: base.replace('http', 'ws') + '/ws', isConnecting: true, backendStatus: 'starting' })
     try {

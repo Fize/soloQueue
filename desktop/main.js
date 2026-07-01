@@ -3,11 +3,35 @@ import path from 'path'
 import fs from 'fs'
 import http from 'http'
 import net from 'net'
-import { spawn } from 'child_process'
+import { spawn, execSync } from 'child_process'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+// Load user shell environment variables (critical for macOS GUI apps to inherit PATH, keys, etc.)
+if (process.platform === 'darwin') {
+  try {
+    const shell = process.env.SHELL || '/bin/zsh'
+    const stdout = execSync(`${shell} -l -c "env"`, {
+      encoding: 'utf-8',
+      timeout: 2000,
+      maxBuffer: 1024 * 1024,
+    })
+    const env = {}
+    stdout.split('\n').forEach((line) => {
+      const parts = line.split('=')
+      if (parts.length >= 2) {
+        const key = parts[0]
+        const val = parts.slice(1).join('=')
+        env[key] = val
+      }
+    })
+    Object.assign(process.env, env)
+  } catch (err) {
+    console.error('[Electron] Failed to load shell environment:', err)
+  }
+}
 
 let mainWindow = null
 let goProcess = null
@@ -329,6 +353,13 @@ function createWindow() {
     },
   })
 
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+}
+
+function loadWindowContent() {
+  if (!mainWindow) return
   const isDev = !app.isPackaged && !process.env.ELECTRON_PROD
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173?platform=electron')
@@ -338,10 +369,6 @@ function createWindow() {
       query: { platform: 'electron' },
     })
   }
-
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
 }
 
 ipcMain.on('backend:get-port-sync', (event) => {
@@ -406,9 +433,12 @@ app.whenReady().then(async () => {
     console.error('[Electron] Failed to start backend on startup:', err)
   }
 
+  loadWindowContent()
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
+      loadWindowContent()
     }
   })
 })

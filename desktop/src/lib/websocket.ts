@@ -50,6 +50,10 @@ type MessageHandler = {
 }
 
 function wsBase(): string {
+  if (window.location.protocol === 'file:') {
+    const port = (window as any).electronAPI?.backendPort || 57647
+    return `ws://127.0.0.1:${port}/ws`
+  }
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}/ws`
 }
