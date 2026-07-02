@@ -143,17 +143,53 @@ func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// getStoreSkills retrieves store skills from local repository folders or fallback to embedded distFS.
-func (m *Mux) getStoreSkills() ([]*skill.Skill, error) {
+// getLocalStoreDir returns the physical local store skills directory if it exists and is not the user skills directory.
+func (m *Mux) getLocalStoreDir() string {
+	userSkillsDir := m.skillDirs["user"]
+	var absUserSkills string
+	if userSkillsDir != "" {
+		if abs, err := filepath.Abs(userSkillsDir); err == nil {
+			absUserSkills = abs
+		}
+	}
+
+	isUserSkillsDir := func(pathToCheck string) bool {
+		if absUserSkills == "" {
+			return false
+		}
+		absCheck, err := filepath.Abs(pathToCheck)
+		if err != nil {
+			return false
+		}
+		return absCheck == absUserSkills
+	}
+
+	// Check "skills"
 	if _, err := os.Stat("skills"); err == nil {
-		return skill.ListStoreSkills("skills")
+		if !isUserSkillsDir("skills") {
+			return "skills"
+		}
 	}
+	// Check "../skills"
 	if _, err := os.Stat("../skills"); err == nil {
-		return skill.ListStoreSkills("../skills")
+		if !isUserSkillsDir("../skills") {
+			return "../skills"
+		}
 	}
+	// Check fallbackStoreDir
 	fallbackStoreDir := filepath.Join(m.workDir, "store", "skills")
 	if _, err := os.Stat(fallbackStoreDir); err == nil {
-		return skill.ListStoreSkills(fallbackStoreDir)
+		if !isUserSkillsDir(fallbackStoreDir) {
+			return fallbackStoreDir
+		}
+	}
+	return ""
+}
+
+// getStoreSkills retrieves store skills from local repository folders or fallback to embedded distFS.
+func (m *Mux) getStoreSkills() ([]*skill.Skill, error) {
+	if localStoreDir := m.getLocalStoreDir(); localStoreDir != "" {
+		return skill.ListStoreSkills(localStoreDir)
 	}
 	return skill.LoadSkillsFromFS(distFS(), "skills")
 }
@@ -164,17 +200,14 @@ func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) e
 	var s *skill.Skill
 	var err error
 
-	if _, statErr := os.Stat(filepath.Join("skills", id, "SKILL.md")); statErr == nil {
-		s, err = skill.ParseSkillMD(filepath.Join("skills", id, "SKILL.md"))
-	} else if _, statErr := os.Stat(filepath.Join("../skills", id, "SKILL.md")); statErr == nil {
-		s, err = skill.ParseSkillMD(filepath.Join("../skills", id, "SKILL.md"))
-	} else {
-		fallbackStoreDir := filepath.Join(m.workDir, "store", "skills")
-		if _, statErr := os.Stat(filepath.Join(fallbackStoreDir, id, "SKILL.md")); statErr == nil {
-			s, err = skill.ParseSkillMD(filepath.Join(fallbackStoreDir, id, "SKILL.md"))
-		} else {
-			s, err = skill.ParseSkillMDFromFS(distFS(), filepath.ToSlash(filepath.Join("skills", id, "SKILL.md")))
+	localStoreDir := m.getLocalStoreDir()
+	if localStoreDir != "" {
+		skillMDPath := filepath.Join(localStoreDir, id, "SKILL.md")
+		if _, statErr := os.Stat(skillMDPath); statErr == nil {
+			s, err = skill.ParseSkillMD(skillMDPath)
 		}
+	} else {
+		s, err = skill.ParseSkillMDFromFS(distFS(), filepath.ToSlash(filepath.Join("skills", id, "SKILL.md")))
 	}
 
 	// If we found the skill and it has an upstream configured, clone it remotely
@@ -182,15 +215,10 @@ func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) e
 		return skill.InstallGithubSkill(ctx, s.Upstream, s.Branch, s.SubPath, userSkillsDir)
 	}
 
-	if _, err := os.Stat(filepath.Join("skills", id)); err == nil {
-		return skill.InstallSkill("skills", userSkillsDir, id)
-	}
-	if _, err := os.Stat(filepath.Join("../skills", id)); err == nil {
-		return skill.InstallSkill("../skills", userSkillsDir, id)
-	}
-	fallbackStoreDir := filepath.Join(m.workDir, "store", "skills")
-	if _, err := os.Stat(filepath.Join(fallbackStoreDir, id)); err == nil {
-		return skill.InstallSkill(fallbackStoreDir, userSkillsDir, id)
+	if localStoreDir != "" {
+		if _, err := os.Stat(filepath.Join(localStoreDir, id)); err == nil {
+			return skill.InstallSkill(localStoreDir, userSkillsDir, id)
+		}
 	}
 	return skill.InstallSkillFromFS(distFS(), "skills", userSkillsDir, id)
 }
@@ -310,15 +338,8 @@ func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
 
 		// 2. Try physical catalog folders
 		if parsed == nil {
-			if _, statErr := os.Stat("skills"); statErr == nil {
-				parsed, err = skill.ParseSkillMD(filepath.Join("skills", id, "SKILL.md"))
-			} else if _, statErr := os.Stat("../skills"); statErr == nil {
-				parsed, err = skill.ParseSkillMD(filepath.Join("../skills", id, "SKILL.md"))
-			} else {
-				fallbackStoreDir := filepath.Join(m.workDir, "store", "skills")
-				if _, statErr := os.Stat(fallbackStoreDir); statErr == nil {
-					parsed, err = skill.ParseSkillMD(filepath.Join(fallbackStoreDir, id, "SKILL.md"))
-				}
+			if localStoreDir := m.getLocalStoreDir(); localStoreDir != "" {
+				parsed, err = skill.ParseSkillMD(filepath.Join(localStoreDir, id, "SKILL.md"))
 			}
 		}
 
@@ -440,14 +461,9 @@ func (m *Mux) handleGetSkillFiles(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Try physical catalog folders
 	var diskDir string
-	if _, statErr := os.Stat(filepath.Join("skills", id)); statErr == nil {
-		diskDir = filepath.Join("skills", id)
-	} else if _, statErr := os.Stat(filepath.Join("../skills", id)); statErr == nil {
-		diskDir = filepath.Join("../skills", id)
-	} else {
-		fallbackStoreDir := filepath.Join(m.workDir, "store", "skills")
-		if _, statErr := os.Stat(filepath.Join(fallbackStoreDir, id)); statErr == nil {
-			diskDir = filepath.Join(fallbackStoreDir, id)
+	if localStoreDir := m.getLocalStoreDir(); localStoreDir != "" {
+		if _, statErr := os.Stat(filepath.Join(localStoreDir, id)); statErr == nil {
+			diskDir = filepath.Join(localStoreDir, id)
 		}
 	}
 
