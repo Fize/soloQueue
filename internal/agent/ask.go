@@ -9,23 +9,23 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// ─── Ask / Submit ─────────────────────────────────────────────────────────--
+// --- Ask / Submit -----------------------------------------------------------
 
-// Ask 向 agent 投递一次 LLM 请求并等结果
+// Ask delivers an LLM request to the agent and waits for the result.
 //
-// 行为：内部走 AskStream 累积所有事件 → 返回最终 content + 首个错误
-//   - 投递阶段：若 mailbox 满，阻塞直到有空位 / ctx 取消 / agent 退出
-//   - 执行阶段：job 在 agent goroutine 中串行执行（一次只处理一条）
-//   - 取消：caller ctx 或 agent ctx 任一取消都会中断在途 LLM 调用
+// Behavior: Internally uses AskStream to accumulate all events → returns final content + the first error.
+//   - Delivery phase: If mailbox is full, blocks until a slot is available / ctx cancelled / agent exits.
+//   - Execution phase: Job executes serially in the agent goroutine (only one job processed at a time).
+//   - Cancellation: Either caller ctx or agent ctx cancellation will interrupt an in-progress LLM call.
 //
-// 错误：
-//   - ErrNotStarted：agent 未 Start
-//   - ErrStopped：投递时或等待时 agent 已退出
-//   - ctx.Err()：caller 主动取消
-//   - LLM 返回的 error 透传
+// Errors:
+//   - ErrNotStarted: Agent not started.
+//   - ErrStopped: Agent exited during delivery or while waiting.
+//   - ctx.Err(): Caller explicitly cancelled.
+//   - LLM-returned error is passed through.
 //
-// 向后兼容：签名不变，原来所有调用都继续工作；但内部路径从
-// "runOnce 同步 Chat" 变为 "runOnceStream 消费事件流"。
+// Backward compatibility: Signature remains unchanged, all existing calls continue to work; however, the internal path changes from
+// "runOnce synchronous Chat" to "runOnceStream consuming event stream".
 func (a *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 	if a.Log != nil {
 		a.Log.InfoContext(ctx, logger.CatActor, "ask: starting synchronous ask",
@@ -101,20 +101,20 @@ func (a *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 	return b.String(), nil
 }
 
-// AskStream 投递一次流式 Ask 并立即返回事件通道
+// AskStream delivers a streaming Ask request and immediately returns an event channel.
 //
-// 返回通道由 agent goroutine 内部的 runOnceStream close。
-// caller 必须持续 range 直到通道关闭；中途放弃 range 会触发背压
-// （runOnceStream 在发送事件时阻塞），因此放弃前必须 cancel ctx。
+// The returned channel is closed by runOnceStream within the agent goroutine.
+// The caller must continuously range until the channel is closed; abandoning the range midway will trigger backpressure
+// (runOnceStream blocks when sending events), so the ctx must be cancelled before abandoning.
 //
-// 错误：
-//   - ErrNotStarted / ErrStopped：入队失败时直接返回 (nil, err)
-//   - 入队后的错误：通过 ErrorEvent 下发（此时第一返回值 non-nil 通道仍可 range）
+// Errors:
+//   - ErrNotStarted / ErrStopped: Returns (nil, err) directly if enqueueing fails.
+//   - Errors after enqueueing: Delivered via ErrorEvent (at this point, the non-nil channel can still be ranged).
 func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// 注入 trace_id（有则用、无则自生）+ actor_id，供全链路日志提取
+	// Injects trace_id (uses existing one if present, generates new one if not) + actor_id, for full-link logging extraction.
 	ctx = ensureTraceID(ctx)
 	ctx = a.ctxWithAgentAttrs(ctx)
 
@@ -125,12 +125,12 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 		)
 	}
 
-	// buffer 64：能缓冲单轮典型的 delta 风暴；满了阻塞（不丢事件）+ ctx 兜底
+	// Buffer 64: can buffer a typical delta storm for a single turn; if full, blocks (events are not lost) + ctx fallback.
 	out := make(chan AgentEvent, 64)
 
 	jb := func(jobCtx context.Context) {
-		// 合并 caller ctx（带 trace_id）和 agent jobCtx（Stop 时 cancel）
-		// ctx 放前面是关键：合并后 ctx 的 value（trace_id / actor_id）仍可读
+		// Merge caller ctx (with trace_id) and agent jobCtx (cancelled on Stop).
+		// Putting ctx first is crucial: the merged ctx's values (trace_id / actor_id) remain readable.
 		merged, cancel := mergeCtx(ctx, jobCtx)
 		defer cancel()
 
@@ -156,8 +156,8 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 				"err", err.Error(),
 			)
 		}
-		// submit 失败（ErrNotStarted / ErrStopped / ctx.Err）→ 关闭 out 后返回 err
-		// 关闭是为了防止 caller 误以为 channel 还会有事件来而悬挂
+		// If submit fails (ErrNotStarted / ErrStopped / ctx.Err) → close 'out' and return err.
+		// Closing is to prevent the caller from mistakenly thinking the channel will still have events and hanging.
 		close(out)
 		return nil, err
 	}
@@ -173,18 +173,18 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 
 // Submit sends an arbitrary job to the agent's mailbox.
 //
-// fn 接收 agent 的 ctx（Stop 时会被 cancel）。
-// Submit 只等入队，不等 fn 完成；返回 nil 表示成功入队。
-// 要同步等待结果，请用 Ask；或在 fn 内部使用 caller 的 chan。
+// fn receives the agent's ctx (which will be cancelled on Stop).
+// Submit only waits for enqueueing, not for fn to complete; returns nil on successful enqueue.
+// To wait for results synchronously, use Ask; or use the caller's channel inside fn.
 //
-// caller ctx 语义：
-//   - 仅控制"入队等待"：mailbox 满时 caller ctx 取消会让 Submit 返回 ctx.Err()
-//   - 不控制 fn 执行：fn 运行时完全由 agent ctx 控制（Stop 时取消）
-//   - trace_id / actor_id 会从 caller ctx 拷贝到 fn ctx，保持跨 goroutine 日志链路
+// Caller ctx semantics:
+//   - Only controls "enqueue waiting": if the mailbox is full, cancellation of the caller ctx will cause Submit to return ctx.Err().
+//   - Does not control fn execution: fn execution is fully controlled by the agent ctx (cancelled on Stop).
+//   - trace_id / actor_id are copied from caller ctx to fn ctx to maintain log traceability across goroutines.
 //
-// 错误：
+// Errors:
 //   - ErrNotStarted / ErrStopped
-//   - ctx.Err()：caller 在入队等待中取消
+//   - ctx.Err(): Caller cancelled during enqueue waiting.
 func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -192,7 +192,7 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 	if fn == nil {
 		return fmt.Errorf("agent: nil fn")
 	}
-	// 注入 trace_id + actor_id（供入队等待日志用，同时用于拷贝到 fn ctx）
+	// Injects trace_id + actor_id (for enqueue waiting logs, and also for copying to fn ctx).
 	ctx = ensureTraceID(ctx)
 	ctx = a.ctxWithAgentAttrs(ctx)
 	traceID := logger.TraceIDFromContext(ctx)
@@ -204,8 +204,8 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 	}
 
 	jb := func(jobCtx context.Context) {
-		// 把 trace_id / actor_id 拷到 jobCtx（actor_id 已由 Start 注入 a.ctx）
-		// jobCtx 源自 a.ctx，所以 actor_id 已有；trace_id 从 caller ctx 补上
+		// Copies trace_id / actor_id to jobCtx (actor_id already injected into a.ctx by Start).
+		// jobCtx originates from a.ctx, so actor_id is already present; trace_id is added from the caller ctx.
 		fnCtx := jobCtx
 		if traceID != "" {
 			fnCtx = logger.WithTraceID(fnCtx, traceID)
@@ -247,7 +247,7 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 	return nil
 }
 
-// submit 是 Ask / Submit 共享的入队实现
+// submit is the shared enqueueing implementation for Ask / Submit.
 func (a *Agent) submit(ctx context.Context, jb job) error {
 	a.mu.Lock()
 	mailbox := a.mailbox
@@ -259,20 +259,20 @@ func (a *Agent) submit(ctx context.Context, jb job) error {
 		return ErrNotStarted
 	}
 
-	// 快速路径：agent 已退出
+	// Fast path: agent already exited.
 	select {
 	case <-agentDone:
 		return ErrStopped
 	default:
 	}
 
-	// 使用 PriorityMailbox（L1 模式）
+	// Use PriorityMailbox (L1 mode).
 	if pm != nil {
 		pm.SubmitNormal(jb)
 		return nil
 	}
 
-	// 使用普通 mailbox（L2/L3 模式）
+	// Use regular mailbox (L2/L3 mode).
 	if mailbox == nil {
 		return ErrNotStarted
 	}
@@ -286,10 +286,10 @@ func (a *Agent) submit(ctx context.Context, jb job) error {
 	}
 }
 
-// submitHighPriority 投递高优先级 job（委托回传、超时事件）
+// submitHighPriority delivers high-priority jobs (delegation callbacks, timeout events).
 //
-// 仅当 Agent 启用了 PriorityMailbox 时有效。
-// 异步委托结果通过此路径投递，确保不被普通用户消息阻塞。
+// Only effective when Agent has PriorityMailbox enabled.
+// Asynchronous delegation results are delivered via this path to ensure they are not blocked by normal user messages.
 func (a *Agent) submitHighPriority(jb job) error {
 	a.mu.Lock()
 	pm := a.priorityMailbox
@@ -305,20 +305,20 @@ func (a *Agent) submitHighPriority(jb job) error {
 		return nil
 	}
 
-	// 未启用 PriorityMailbox：降级为普通 submit
+	// PriorityMailbox not enabled: falls back to regular submit.
 	return a.submit(context.Background(), jb)
 }
 
-// ─── AskWithHistory / AskStreamWithHistory ──────────────────────────────────
+// --- AskWithHistory / AskStreamWithHistory -----------------------------------
 
-// AskWithHistory 向 agent 投递一次带有上下文历史的 LLM 请求并等结果
+// AskWithHistory delivers an LLM request with conversational history to the agent and waits for the result.
 //
-// 与 Ask 不同的是，此方法使用 ContextWindow 提供完整对话历史，
-// 并在工具循环中将中间消息 push 到 ContextWindow。
-// 返回 content 和 reasoningContent（DeepSeek thinking mode 跨轮必须回传）。
+// Unlike Ask, this method uses ContextWindow to provide complete conversation history,
+// and pushes intermediate messages to the ContextWindow during tool calls.
+// Returns content and reasoningContent (DeepSeek thinking mode must be returned across turns).
 //
-// ⚠️ 调用方（通常是 Session）应在调用前将 user prompt push 到 cw，
-// 调用成功后将 assistant reply（含 reasoningContent）push 到 cw，失败时 PopLast 移除 user prompt。
+// ⚠️ The caller (typically Session) should push the user prompt to cw before calling,
+// push the assistant reply (including reasoningContent) to cw upon successful call, and PopLast to remove the user prompt if it fails.
 func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (content string, reasoningContent string, err error) {
 	if a.Log != nil {
 		ctxCurrent, _, _ := cw.TokenUsage()
@@ -405,9 +405,9 @@ func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, pr
 	return b.String(), finalReasoning, nil
 }
 
-// AskStreamWithHistory 投递一次带有上下文历史的流式 Ask
+// AskStreamWithHistory delivers a streaming Ask request with conversational history.
 //
-// 返回通道由 agent goroutine 内部的 runOnceStreamWithHistory close。
+// The returned channel is closed by runOnceStreamWithHistory within the agent goroutine.
 func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan AgentEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()

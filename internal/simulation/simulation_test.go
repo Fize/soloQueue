@@ -408,8 +408,8 @@ func TestBuildOutlinePrompt(t *testing.T) {
 	if !strings.Contains(prompt, "4-6") {
 		t.Error("should specify section count range")
 	}
-	if !strings.Contains(prompt, "大纲") {
-		t.Error("should contain 大纲 in zh mode")
+	if !strings.Contains(prompt, "Outline") {
+		t.Error("should contain Outline in zh mode")
 	}
 }
 

@@ -155,9 +155,9 @@ func (dp *DailyPlan) NextPendingActivity(now time.Time) *PlanItem {
 func (dp *DailyPlan) FormatForPrompt(now time.Time, language string) string {
 	var b strings.Builder
 	if language == "zh" {
-		b.WriteString("## 你的每日日程\n\n")
-		b.WriteString("| 时间 | 活动 | 地点 | 状态 |\n")
-		b.WriteString("|------|------|------|------|\n")
+		b.WriteString("## Your Daily Schedule\n\n")
+		b.WriteString("| Time | Activity | Location | Status |\n")
+		b.WriteString("|------|----------|----------|--------|\n")
 	} else {
 		b.WriteString("## Your Daily Schedule\n\n")
 		b.WriteString("| Time | Activity | Location | Status |\n")
@@ -173,10 +173,10 @@ func (dp *DailyPlan) FormatForPrompt(now time.Time, language string) string {
 		statusStr := item.Status
 		if language == "zh" {
 			statusStr = map[string]string{
-				"pending":     "等待中",
-				"in_progress": "进行中",
-				"completed":   "已完成",
-				"cancelled":   "已取消",
+				"pending":     "Pending",
+				"in_progress": "In Progress",
+				"completed":   "Completed",
+				"cancelled":   "Cancelled",
 			}[item.Status]
 		}
 		
@@ -194,7 +194,7 @@ func (dp *DailyPlan) FormatForPrompt(now time.Time, language string) string {
 
 	if current := dp.GetCurrentActivity(now); current != nil {
 		if language == "zh" {
-			b.WriteString(fmt.Sprintf("\n**当前活动**: %s，在 %s。%s\n", current.Activity, current.Location, current.Description))
+			b.WriteString(fmt.Sprintf("\n**Current activity**: %s at %s. %s\n", current.Activity, current.Location, current.Description))
 		} else {
 			b.WriteString(fmt.Sprintf("\n**Current activity**: %s at %s. %s\n", current.Activity, current.Location, current.Description))
 		}
@@ -381,7 +381,7 @@ func ClassifyActivity(item *PlanItem) ActivityDensity {
 	combined := act + " " + loc
 
 	// Sleep/rest keywords → lowest density
-	sleepKeys := []string{"睡觉", "休息", "睡眠", "打坐", "冥想", "sleep", "rest", "nap", "寝", "休憩"}
+	sleepKeys := []string{"sleep", "rest", "slumber", "meditate", "meditation", "nap"}
 	for _, kw := range sleepKeys {
 		if strings.Contains(combined, kw) {
 			return DensitySleep
@@ -389,7 +389,7 @@ func ClassifyActivity(item *PlanItem) ActivityDensity {
 	}
 
 	// Conflict/fight keywords → highest density
-	conflictKeys := []string{"冲突", "打架", "战斗", "追杀", "追逐", "conflict", "fight", "battle", "chase", "对决", "围攻"}
+	conflictKeys := []string{"conflict", "fight", "battle", "chase", "pursue", "duel", "siege"}
 	for _, kw := range conflictKeys {
 		if strings.Contains(combined, kw) {
 			return DensityConflict
@@ -397,7 +397,7 @@ func ClassifyActivity(item *PlanItem) ActivityDensity {
 	}
 
 	// Interactive/collaborative keywords → high density
-	interactKeys := []string{"讨论", "商量", "对质", "合作", "协作", "discuss", "collaborate", "negotiate", "plan", "商议", "密谋"}
+	interactKeys := []string{"discuss", "consult", "confront", "cooperate", "collaborate", "negotiate", "plan", "deliberate", "plot"}
 	for _, kw := range interactKeys {
 		if strings.Contains(combined, kw) {
 			return DensityInteractive
@@ -405,7 +405,7 @@ func ClassifyActivity(item *PlanItem) ActivityDensity {
 	}
 
 	// Social/public area keywords → medium density
-	socialKeys := []string{"聊天", "吃饭", "逛街", "聚会", "cafe", "market", "restaurant", "pub", "social", "chat", "lunch", "dinner", "咖啡", "市场", "餐厅", "酒馆"}
+	socialKeys := []string{"chat", "eat", "shop", "party", "cafe", "market", "restaurant", "pub", "social", "lunch", "dinner"}
 	for _, kw := range socialKeys {
 		if strings.Contains(combined, kw) {
 			return DensitySocial

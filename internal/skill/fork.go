@@ -8,28 +8,28 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ─── Fork 模式 ─────────────────────────────────────────────────────────────
+// ─── Fork Mode ─────────────────────────────────────────────────────────────
 
-// SkillForkSpawnFn 创建一个临时子 agent 用于 fork 模式执行 skill。
+// SkillForkSpawnFn creates a temporary child agent for executing a skill in fork mode.
 //
-// 由 Factory 注入具体的 agent 创建逻辑，避免 skill 包循环依赖 agent 包。
-// 参数：
-//   - ctx: 上下文
-//   - s: 被调用的 skill
-//   - content: 预处理后的 skill instructions（作为子 agent system prompt）
-//   - args: 用户传入的参数（作为子 agent user message）
+// The concrete agent creation logic is injected by the Factory to avoid circular dependencies between the skill and agent packages.
+// Parameters:
+//   - ctx: context
+//   - s: the skill being called
+//   - content: pre-processed skill instructions (as the child agent's system prompt)
+//   - args: user-provided arguments (as the child agent's user message)
 //
-// 返回子 agent 的 Locatable 接口和清理函数。
+// Returns the child agent's Locatable interface and a cleanup function.
 type SkillForkSpawnFn func(ctx context.Context, s *Skill, content, args string) (iface.Locatable, func(), error)
 
-// ExecuteFork 在隔离子 agent 中执行 fork 模式的 skill
+// ExecuteFork executes a skill in fork mode within an isolated child agent.
 //
-// 由 SkillTool 调用。spawnFn 由 Factory 注入。
-// 执行流程：
-//  1. 调用 spawnFn 创建子 agent
-//  2. 发送 AskStream 请求
-//  3. 累积 content 事件
-//  4. 清理子 agent
+// Called by SkillTool. The spawnFn is injected by the Factory.
+// Execution flow:
+//  1. Call spawnFn to create a child agent
+//  2. Send an AskStream request
+//  3. Accumulate content events
+//  4. Clean up the child agent
 func ExecuteFork(ctx context.Context, s *Skill, content, args string, spawnFn SkillForkSpawnFn) (string, error) {
 	child, cleanup, err := spawnFn(ctx, s, content, args)
 	if err != nil {
@@ -37,7 +37,7 @@ func ExecuteFork(ctx context.Context, s *Skill, content, args string, spawnFn Sk
 	}
 	defer cleanup()
 
-	// args 为空时给一个默认 prompt
+	// Provide a default prompt if args is empty
 	prompt := args
 	if prompt == "" {
 		prompt = "Execute the skill instructions above."
@@ -60,16 +60,16 @@ func ExecuteFork(ctx context.Context, s *Skill, content, args string, spawnFn Sk
 	return result.String(), nil
 }
 
-// ─── allowed-tools 过滤 ────────────────────────────────────────────────────
+// ─── allowed-tools filtering ────────────────────────────────────────────────────
 
-// FilterTools 根据 allowed-tools 白名单过滤工具
+// FilterTools filters tools based on the allowed-tools whitelist.
 //
-// 支持模式：
-//   - "Bash" — 匹配 Bash 工具
-//   - "Bash(git:*)" — 匹配 Bash 工具（命令前缀约束暂不强制，仅匹配工具名）
-//   - "Edit(src/**/*.ts)" — 匹配 Edit 工具（路径约束暂不强制，仅匹配工具名）
-//   - "mcp__server" — 匹配该 MCP server 的所有工具
-//   - "mcp__server__tool" — 匹配特定 MCP 工具
+// Supported patterns:
+//   - "Bash" — matches the Bash tool
+//   - "Bash(git:*)" — matches the Bash tool (command prefix constraints are not enforced for now, only the tool name is matched)
+//   - "Edit(src/**/*.ts)" — matches the Edit tool (path constraints are not enforced for now, only the tool name is matched)
+//   - "mcp__server" — matches all tools for that MCP server
+//   - "mcp__server__tool" — matches a specific MCP tool
 func FilterTools(allTools []tools.Tool, allowed []string) []tools.Tool {
 	var filtered []tools.Tool
 	for _, t := range allTools {
@@ -80,26 +80,26 @@ func FilterTools(allTools []tools.Tool, allowed []string) []tools.Tool {
 	return filtered
 }
 
-// ToolMatchesAllowed 检查 toolName 是否匹配 allowed 列表中的任一模式
+// ToolMatchesAllowed checks if toolName matches any pattern in the allowed list.
 func ToolMatchesAllowed(toolName string, allowed []string) bool {
 	for _, pattern := range allowed {
-		// 提取工具名部分（括号前）
+		// Extract the tool name part (before the parenthesis)
 		baseName := pattern
 		if idx := strings.Index(pattern, "("); idx > 0 {
 			baseName = pattern[:idx]
 		}
 
-		// 精确匹配
+		// Exact match
 		if toolName == baseName {
 			return true
 		}
 
-		// MCP 前缀匹配：mcp__server 匹配 mcp__server__tool
+		// MCP prefix match: mcp__server matches mcp__server__tool
 		if strings.HasPrefix(baseName, "mcp__") && strings.HasPrefix(toolName, baseName+"__") {
 			return true
 		}
 
-		// MCP 精确匹配
+		// MCP exact match
 		if toolName == pattern {
 			return true
 		}

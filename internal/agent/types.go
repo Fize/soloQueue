@@ -13,13 +13,13 @@ const (
 type Kind string
 
 const (
-	KindCustom   Kind = "custom"
+	KindCustom Kind = "custom"
 )
 
-// Definition 是 agent 的静态配置
+// Definition is the static configuration of an agent
 //
-// 所有字段都是"起 agent 时一次性写入"的不可变数据。
-// 不含 supervision / restart policy —— 本 phase agent 不自管生命周期。
+// All fields are immutable data "written once when the agent starts".
+// Does not include supervision / restart policy — in this phase, the agent does not manage its own lifecycle.
 type Definition struct {
 	ID           string
 	Name         string
@@ -31,22 +31,22 @@ type Definition struct {
 	Temperature  float64
 	MaxTokens    int
 
-	// ReasoningEffort 推理努力等级，用于支持思考模式 of V4 模型
-	// "high" | "max" | ""（空表示不发送此参数）
+	// ReasoningEffort is the reasoning effort level, used to support thinking mode of V4 models
+	// "high" | "max" | "" (empty means this parameter is not sent)
 	ReasoningEffort string
 
-	// ThinkingEnabled 是否启用思考模式（DeepSeek V4 模型）
+	// ThinkingEnabled indicates whether thinking mode is enabled (DeepSeek V4 models)
 	ThinkingEnabled bool
 
-	// MaxIterations 是 tool-use 循环的最大轮数（一次 Ask 内允许的 LLM.Chat 次数）
+	// MaxIterations is the maximum number of tool-use loop iterations (LLM.Chat calls allowed within one Ask)
 	//
-	// <= 0 使用 DefaultMaxIterations（100）。
-	// 无 tools 时循环第一轮就退出（LLM 不返回 tool_calls），此值不生效。
+	// If <= 0, DefaultMaxIterations (100) is used.
+	// If no tools are present, the loop exits after the first round (LLM returns no tool_calls), making this value ineffective.
 	MaxIterations int
 
-	// ContextWindow 是模型的上下文窗口大小（token 数），用于 Overflow 硬限检查。
-	// 对应 config.LLMModel.ContextWindow。
-	// <= 0 时使用兜底默认值 1048576 (1M tokens)。
+	// ContextWindow is the model's context window size (in tokens), used for overflow hard limit checks.
+	// Corresponds to config.LLMModel.ContextWindow.
+	// If <= 0, the fallback default value 1048576 (1M tokens) is used.
 	ContextWindow int
 
 	// ExplicitModel indicates this agent's model was explicitly configured
@@ -64,24 +64,24 @@ type Definition struct {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-// State 是 agent 运行时的观察态
+// State is the observable runtime state of an agent
 //
-// 仅供外部观察（UI / metrics），内部并不基于 State 做分支决策
-// —— 代码流本身即状态机，不存在"迁移表"。
+// For external observation only (UI / metrics), internally no branching decisions are made based on State
+// — the code flow itself is the state machine; there is no "transition table".
 type State int32
 
 const (
-	// StateIdle 等待 mailbox 有 job 或 Stop 信号
+	// StateIdle waits for a job in the mailbox or a Stop signal
 	StateIdle State = iota
-	// StateProcessing 当前正在执行某个 job（Ask 或 Submit 投递的）
+	// StateProcessing is currently executing a job (submitted via Ask or Submit)
 	StateProcessing
-	// StateStopping 已请求 Stop，正在 drain mailbox
+	// StateStopping Stop has been requested, draining mailbox
 	StateStopping
-	// StateStopped run goroutine 已退出
+	// StateStopped run goroutine has exited
 	StateStopped
 )
 
-// String 便于日志输出
+// String provides a convenient string representation for logging
 func (s State) String() string {
 	switch s {
 	case StateIdle:
@@ -99,10 +99,10 @@ func (s State) String() string {
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
-// DefaultMailboxCap 是 mailbox 默认容量
+// DefaultMailboxCap is the default mailbox capacity
 //
-// 值的选择：8 足够吸收短时突发；满了的 Ask 会阻塞（有 ctx 兜底），不丢消息。
-// 需要更大容量的场景通过 WithMailboxCap(N) 指定。
+// Value choice: 8 is sufficient to absorb short-term bursts; a full Ask will block (with ctx fallback), no messages are lost.
+// For scenarios requiring larger capacity, specify via WithMailboxCap(N).
 const DefaultMailboxCap = 16
 
 // DefaultMaxIterations is the default maximum number of tool-use loop
@@ -174,11 +174,11 @@ type ModelParams struct {
 // sync.RWMutex. This replaces the previous scattered atomic fields and adds
 // work-tracking fields for the inspect_agent tool and Watch() method.
 type agentRuntime struct {
-	state              State
-	errCount           int32
-	lastErr            string
+	state               State
+	errCount            int32
+	lastErr             string
 	consecutiveFailures int32
-	exitErr            error
+	exitErr             error
 
 	prompt    string
 	iter      int32

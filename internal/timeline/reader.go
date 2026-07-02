@@ -15,7 +15,7 @@ import (
 
 // ─── Segment ─────────────────────────────────────────────────────────────────
 
-// Segment 是两个 /clear 之间的消息集合
+// Segment is a collection of messages between two /clear events.
 type Segment struct {
 	Messages []MessagePayload
 }
@@ -177,22 +177,24 @@ func readTailCursor(msgs []MessagePayload) *time.Time {
 
 // ─── ReplayInto ──────────────────────────────────────────────────────────────
 
-// ReplayInto 将 segments 回放到 ContextWindow
+// ReplayInto replays segments into the ContextWindow.
 //
-// 跳过 system prompt（factory 已 push），将其余消息按顺序 Push 到 ContextWindow。
-// 调用方应确保 ContextWindow 处于 replayMode（禁用 Push Hook）。
+// It skips system prompts (already pushed by factory) and pushes the remaining messages
+// in order to the ContextWindow. The caller should ensure ContextWindow is in
+// replayMode (disabling Push Hook).
 //
-// Orphaned tool_calls 修复：如果 assistant 消息带有 tool_calls 但缺少对应的
-// tool result 消息（例如 async delegation yield 后 session 退出），整个
-// assistant(tool_calls) + 已到达的 partial tool results 都会被跳过，
-// 防止 LLM API 因 "insufficient tool messages" 返回 HTTP 400。
+// Orphaned tool_calls fix: If an assistant message has tool_calls but lacks
+// corresponding tool result messages (e.g., session exited after async delegation
+// yield), the entire assistant(tool_calls) + any partial tool results that arrived
+// are skipped. This prevents the LLM API from returning HTTP 400 due to
+// "insufficient tool messages".
 func ReplayInto(cw *ctxwin.ContextWindow, segments []Segment) {
 	for _, seg := range segments {
 		replaySegment(cw, seg.Messages)
 	}
 }
 
-// replaySegment 回放一段消息，跳过 orphaned tool_calls。
+// replaySegment replays a segment of messages, skipping orphaned tool_calls.
 func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 	type pendingGroup struct {
 		assistant   *MessagePayload
@@ -280,7 +282,7 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 	flushPending()
 }
 
-// pushMessage 将单条消息 push 到 ContextWindow
+// pushMessage pushes a single message to the ContextWindow.
 func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 	opts := make([]ctxwin.PushOption, 0, 5)
 	if msg.ReasoningContent != "" {
@@ -318,9 +320,9 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 	cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)
 }
 
-// ─── 内部方法 ────────────────────────────────────────────────────────────────
+// ─── Internal Methods ────────────────────────────────────────────────────────────────
 
-// readFile 读取单个 JSONL 文件中的所有事件
+// readFile reads all events from a single JSONL file.
 func readFile(path string) ([]Event, error) {
 	f, err := os.Open(path)
 	if err != nil {

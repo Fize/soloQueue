@@ -10,9 +10,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ─── Test fixtures ───────────────────────────────────────────────────────────
+// --- Test fixtures -----------------------------------------------------------
 
-// fakeTool 是仅用于测试的极简 Tool 实现
+// fakeTool is a minimalist Tool implementation for testing purposes only.
 type fakeTool struct {
 	name        string
 	description string
@@ -53,7 +53,7 @@ func newFakeTool(name string) *fakeTool {
 	}
 }
 
-// emptyNameTool 一个 Name() 返回空的 Tool，用于测试 tools.ErrToolNameEmpty
+// emptyNameTool is a Tool whose Name() method returns an empty string, used to test tools.ErrToolNameEmpty.
 type emptyNameTool struct{}
 
 func (emptyNameTool) Name() string                                    { return "" }
@@ -61,7 +61,7 @@ func (emptyNameTool) Description() string                             { return "
 func (emptyNameTool) Parameters() json.RawMessage                     { return nil }
 func (emptyNameTool) Execute(context.Context, string) (string, error) { return "", nil }
 
-// ─── Register / Get ──────────────────────────────────────────────────────────
+// --- Register / Get ----------------------------------------------------------
 
 func TestToolRegistry_Register_Get(t *testing.T) {
 	r := tools.NewToolRegistry()
@@ -111,7 +111,7 @@ func TestToolRegistry_Get_NotFound(t *testing.T) {
 	}
 }
 
-// ─── Specs ───────────────────────────────────────────────────────────────────
+// --- Specs -------------------------------------------------------------------
 
 func TestToolRegistry_Specs_Format(t *testing.T) {
 	r := tools.NewToolRegistry()
@@ -121,7 +121,7 @@ func TestToolRegistry_Specs_Format(t *testing.T) {
 	if len(specs) != 2 {
 		t.Fatalf("len = %d, want 2", len(specs))
 	}
-	// 字典序：alpha, bravo
+	// Lexicographical order: alpha, bravo
 	if specs[0].Function.Name != "alpha" || specs[1].Function.Name != "bravo" {
 		t.Errorf("order wrong: %q %q", specs[0].Function.Name, specs[1].Function.Name)
 	}
@@ -146,7 +146,7 @@ func TestToolRegistry_Specs_Empty(t *testing.T) {
 	}
 }
 
-// ─── Len / Names ─────────────────────────────────────────────────────────────
+// --- Len / Names -------------------------------------------------------------
 
 func TestToolRegistry_Len(t *testing.T) {
 	r := tools.NewToolRegistry()
@@ -184,7 +184,7 @@ func TestToolRegistry_Names_Empty(t *testing.T) {
 	}
 }
 
-// ─── safeGet（nil receiver）─────────────────────────────────────────────────
+// --- safeGet (nil receiver) ------------------------------------------------
 
 func TestToolRegistry_SafeGet_NilReceiver(t *testing.T) {
 	var r *tools.ToolRegistry // nil
@@ -203,9 +203,9 @@ func TestToolRegistry_SafeGet_Existing(t *testing.T) {
 	}
 }
 
-// ─── Concurrency ─────────────────────────────────────────────────────────────
+// --- Concurrency -------------------------------------------------------------
 
-// TestToolRegistry_Concurrent_ReadWrite 并发 Register + Get + Specs，验证 -race 无数据竞争
+// TestToolRegistry_Concurrent_ReadWrite concurrently registers + gets + specs, verifying no data races with -race.
 func TestToolRegistry_Concurrent_ReadWrite(t *testing.T) {
 	r := tools.NewToolRegistry()
 	var wg sync.WaitGroup
@@ -237,7 +237,7 @@ func TestToolRegistry_Concurrent_ReadWrite(t *testing.T) {
 }
 
 func tname(i int) string {
-	// 简单唯一名：t-00, t-01, ...
+	// Simple unique name: t-00, t-01, ...
 	return "t-" + itoa2(i)
 }
 
@@ -245,6 +245,6 @@ func itoa2(i int) string {
 	if i < 10 {
 		return "0" + string(rune('0'+i))
 	}
-	// 只需要支持 N=20
+	// Only needs to support N=20
 	return string(rune('0'+i/10)) + string(rune('0'+i%10))
 }

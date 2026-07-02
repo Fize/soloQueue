@@ -57,7 +57,7 @@ func TestRunWithRetry_GivesUp(t *testing.T) {
 	if !errors.Is(err, myErr) {
 		t.Errorf("err = %v, want %v", err, myErr)
 	}
-	// MaxRetries=2 → 总尝试次数 3（1 original + 2 retries）
+	// MaxRetries=2 → total attempts 3 (1 original + 2 retries)
 	if got := calls.Load(); got != 3 {
 		t.Errorf("calls = %d, want 3", got)
 	}
@@ -85,7 +85,7 @@ func TestRunWithRetry_CtxCancelDuringBackoff(t *testing.T) {
 	var calls atomic.Int32
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 前 2 次失败后，第 3 次前取消 ctx
+	// Cancel ctx before the 3rd call after 2 failures
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- RunWithRetry(ctx,
@@ -94,7 +94,7 @@ func TestRunWithRetry_CtxCancelDuringBackoff(t *testing.T) {
 			func(ctx context.Context) error {
 				n := calls.Add(1)
 				if n == 2 {
-					// 2nd call 后马上 cancel；此时会进 backoff
+					// Cancel immediately after the 2nd call; this will lead to backoff
 					go cancel()
 				}
 				return errors.New("transient")
@@ -106,14 +106,14 @@ func TestRunWithRetry_CtxCancelDuringBackoff(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error")
 		}
-		// 应保留最后一次 fn 的 error（不是 ctx.Err）
+		// Should retain the error from the last fn call (not ctx.Err)
 		if errors.Is(err, context.Canceled) {
 			t.Errorf("expected last fn error, got ctx.Canceled: %v", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("RunWithRetry did not return after ctx cancel")
 	}
-	// 不应尝试超过 3 次（第 3 次 backoff 时被 cancel）
+	// Should not attempt more than 3 times (cancelled during the 3rd backoff)
 	if got := calls.Load(); got > 3 {
 		t.Errorf("calls = %d, want ≤ 3", got)
 	}
@@ -152,7 +152,7 @@ func TestRunWithRetry_ZeroMaxRetries_NoRetry(t *testing.T) {
 }
 
 func TestRunWithRetry_BackoffBoundedByMax(t *testing.T) {
-	// 观察 delay 不会超过 MaxDelay
+	// Observe that delay does not exceed MaxDelay
 	var delays []time.Duration
 	lastCall := time.Now()
 
@@ -161,7 +161,7 @@ func TestRunWithRetry_BackoffBoundedByMax(t *testing.T) {
 			MaxRetries:   4,
 			InitialDelay: 10 * time.Millisecond,
 			MaxDelay:     20 * time.Millisecond,
-			Multiplier:   10, // 会迅速超过 MaxDelay
+			Multiplier:   10, // Will quickly exceed MaxDelay
 		},
 		nil,
 		func(ctx context.Context) error {
@@ -171,7 +171,7 @@ func TestRunWithRetry_BackoffBoundedByMax(t *testing.T) {
 			return errors.New("transient")
 		})
 
-	// 第一个 delay 约为 0（first call），其他都应 ≤ MaxDelay + tolerance
+	// The first delay is approximately 0 (first call), others should be ≤ MaxDelay + tolerance
 	for i := 1; i < len(delays); i++ {
 		if delays[i] > 60*time.Millisecond {
 			t.Errorf("delay[%d] = %v, want ≤ MaxDelay (+ tolerance)", i, delays[i])
@@ -180,7 +180,7 @@ func TestRunWithRetry_BackoffBoundedByMax(t *testing.T) {
 }
 
 func TestRunWithRetry_NilShouldRetry_RetriesAll(t *testing.T) {
-	// shouldRetry nil 时，任何 error 都应重试
+	// If shouldRetry is nil, any error should be retried
 	var calls atomic.Int32
 	_ = RunWithRetry(context.Background(),
 		RetryPolicy{MaxRetries: 2, InitialDelay: 1 * time.Millisecond},
@@ -195,7 +195,7 @@ func TestRunWithRetry_NilShouldRetry_RetriesAll(t *testing.T) {
 }
 
 func TestRetryPolicy_Normalize_ZeroValue(t *testing.T) {
-	// 确认 zero-value policy 也能跑（normalize 填入默认值）
+	// Confirm that a zero-value policy also runs (normalize fills in default values)
 	var calls atomic.Int32
 	err := RunWithRetry(context.Background(), RetryPolicy{},
 		nil,

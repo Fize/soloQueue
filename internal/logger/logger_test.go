@@ -89,14 +89,14 @@ func TestTeamLogger_NowSystemPath(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	// 验证目录是 logs/system/
+	// Verify the directory is logs/system/
 	teamFile := filepath.Join(dir, "logs", "system", "team-"+today()+".jsonl")
 	checkJSONLFile(t, teamFile, 1)
 
 	agentFile := filepath.Join(dir, "logs", "system", "agent-"+today()+".jsonl")
 	checkJSONLFile(t, agentFile, 1)
 
-	// 验证 layer 字段不再出现
+	// Verify the layer field no longer appears
 	entry := readFirstEntry(t, teamFile)
 	if _, has := entry["layer"]; has {
 		t.Errorf("layer field should not appear, got: %v", entry["layer"])
@@ -221,7 +221,7 @@ func TestLogger_InvalidCategory_FallbackAndNoPanic(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	// 不 fallback：日志按原始 category 写入对应文件
+	// No fallback: logs are written to the corresponding file based on the original category
 	bogusFile := filepath.Join(dir, "logs", "system", "bogus-"+today()+".jsonl")
 	if _, err := os.Stat(bogusFile); err != nil {
 		t.Errorf("expected log in bogus-*.jsonl (category used as-is), stat err: %v", err)
@@ -239,7 +239,7 @@ func TestLogger_EmptyCategory_Fallback(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	// 应 fallback 到 app（system 层第一个 category）
+	// Should fallback to app (the first category in the system layer)
 	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
 	if _, err := os.Stat(appFile); err != nil {
 		t.Errorf("empty category should fallback to app; stat err: %v", err)
@@ -270,7 +270,7 @@ func TestChildLogger_NestedInheritance(t *testing.T) {
 	dir := t.TempDir()
 	log, _ := System(dir, WithConsole(false))
 
-	// 嵌套 child
+	// Nested child
 	c1 := log.Child(slog.String("actor_id", "worker-1"))
 	c2 := c1.WithTraceID("trace-xyz")
 	c2.Info(CatApp, "nested child")
@@ -332,19 +332,19 @@ func TestLogger_FieldPlacement(t *testing.T) {
 
 	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
 
-	// 顶层保留字段
+	// Top-level reserved fields
 	if entry["trace_id"] != "t1" {
 		t.Errorf("trace_id not at top level: %v", entry)
 	}
 	if entry["actor_id"] != "a1" {
 		t.Errorf("actor_id not at top level: %v", entry)
 	}
-	// duration_ms 顶层（数字可能反序列化为 float64）
+	// duration_ms top level (numbers might deserialize to float64)
 	if v, ok := entry["duration_ms"].(float64); !ok || v != 42 {
 		t.Errorf("duration_ms not at top level or wrong value: %v", entry["duration_ms"])
 	}
 
-	// 自定义字段进 ctx
+	// Custom fields go into ctx
 	ctx, ok := entry["ctx"].(map[string]any)
 	if !ok {
 		t.Fatalf("ctx field missing or wrong type: %v", entry["ctx"])
@@ -356,7 +356,7 @@ func TestLogger_FieldPlacement(t *testing.T) {
 		t.Errorf("count not in ctx or wrong: %v", ctx["count"])
 	}
 
-	// 自定义字段不应出现在顶层
+	// Custom fields should not appear at the top level
 	if _, exists := entry["custom_field"]; exists {
 		t.Errorf("custom_field should not be at top level")
 	}
@@ -398,7 +398,7 @@ func TestLogError_IncludesErrField(t *testing.T) {
 	if errField["message"] != "something went wrong" {
 		t.Errorf("err.message = %v", errField["message"])
 	}
-	// 额外参数进 ctx
+	// Additional parameters go into ctx
 	ctx, _ := entry["ctx"].(map[string]any)
 	if ctx["op"] != "create" {
 		t.Errorf("ctx.op = %v, want create", ctx)
@@ -503,7 +503,7 @@ func TestRotateWriter_ByDate_FileNameFormat(t *testing.T) {
 func TestRotateWriter_Cleanup_OldFiles(t *testing.T) {
 	dir := t.TempDir()
 
-	// 创建 40 天前的旧文件 + 1 天前的新文件
+	// Create an old file from 40 days ago + a new file from 1 day ago
 	oldFile := filepath.Join(dir, "app-2020-01-01.jsonl")
 	newFile := filepath.Join(dir, "app-"+today()+".jsonl")
 	if err := os.WriteFile(oldFile, []byte("{}"), 0o644); err != nil {
@@ -517,7 +517,7 @@ func TestRotateWriter_Cleanup_OldFiles(t *testing.T) {
 		t.Fatalf("create new: %v", err)
 	}
 
-	// 启动时触发 cleanup（maxDays=30）
+	// Trigger cleanup on startup (maxDays=30)
 	rw, err := newRotateWriter(dir, "app", true, 50, 30, 0)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
@@ -539,7 +539,7 @@ func TestRotateWriter_Cleanup_MaxDaysZero_Skips(t *testing.T) {
 	oldTime := time.Now().AddDate(0, 0, -100)
 	_ = os.Chtimes(oldFile, oldTime, oldTime)
 
-	// maxDays=0 应跳过 cleanup
+	// maxDays=0 should skip cleanup
 	rw, err := newRotateWriter(dir, "app", true, 50, 0, 0)
 	if err != nil {
 		t.Fatalf("newRotateWriter: %v", err)
@@ -560,7 +560,7 @@ func TestRotateWriter_ReopenAppends(t *testing.T) {
 	_, _ = rw.Write([]byte(`{"a":1}`))
 	_ = rw.Close()
 
-	// 重新打开应追加而非覆盖
+	// Reopening should append instead of overwrite
 	rw2, err := newRotateWriter(dir, "test", true, 50, 30, 0)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -636,7 +636,7 @@ func TestLogger_ConcurrentWrites_MultipleCategories(t *testing.T) {
 }
 
 func TestLogger_ConcurrentChildLogger(t *testing.T) {
-	// 不同 child logger 共享底层 writer 应是安全的
+	// Different child loggers sharing the underlying writer should be safe
 	dir := t.TempDir()
 	log, _ := System(dir, WithConsole(false))
 
@@ -689,7 +689,7 @@ func TestLogger_FileDisabled_NoFileCreated(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	// 无文件应被创建
+	// No file should be created
 	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
 	if _, err := os.Stat(appFile); !os.IsNotExist(err) {
 		t.Errorf("file should NOT exist when WithFile(false), err: %v", err)
@@ -714,7 +714,7 @@ func TestLogger_BothDisabled_NoPanic(t *testing.T) {
 // ─── slog.With / slog.WithGroup passthrough ──────────────────────────────────
 
 func TestLogger_SlogWith_PropagatesAttrs(t *testing.T) {
-	// 通过 Child 注入的 attrs 应透传到 WithAttrs → FileHandler
+	// Attributes injected via Child should be propagated to WithAttrs → FileHandler
 	dir := t.TempDir()
 	log, _ := System(dir, WithConsole(false))
 
@@ -730,17 +730,17 @@ func TestLogger_SlogWith_PropagatesAttrs(t *testing.T) {
 }
 
 func TestLogger_SlogWith_CategoryInjected(t *testing.T) {
-	// Child 中注入 category 也应被正确路由
+	// Category injected in Child should also be correctly routed
 	dir := t.TempDir()
 	log, _ := System(dir, WithConsole(false))
 
 	c := log.Child(slog.String("category", string(CatConfig)))
-	// 显式传 CatApp，record 里的 category 应覆盖
+	// Explicitly passing CatApp, the category in the record should override
 	c.Info(CatApp, "category routing")
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	// 显式参数 CatApp 应胜出（record attrs 优先）
+	// Explicit parameter CatApp should win (record attrs take precedence)
 	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
 	if _, err := os.Stat(appFile); err != nil {
 		t.Errorf("app file missing: %v", err)
@@ -748,7 +748,7 @@ func TestLogger_SlogWith_CategoryInjected(t *testing.T) {
 }
 
 func TestLogger_SlogWithGroup_NoPanic(t *testing.T) {
-	// 用户直接在 inner 上调用 WithGroup 不应导致文件 handler 崩溃
+	// Calling WithGroup directly on inner should not cause the file handler to crash
 	dir := t.TempDir()
 	log, _ := System(dir, WithConsole(false))
 	defer log.Close()
@@ -875,7 +875,7 @@ func TestLogger_InfoContext_InjectsTraceID(t *testing.T) {
 	if entry["trace_id"] != "trace-abc123" {
 		t.Errorf("trace_id = %v, want trace-abc123", entry["trace_id"])
 	}
-	// 没有 actor_id 时不应出现
+	// Should not appear when actor_id is absent
 	if _, has := entry["actor_id"]; has {
 		t.Error("actor_id should not appear when not set in ctx")
 	}
@@ -924,8 +924,8 @@ func TestLogger_InfoContext_BothTraceAndActor(t *testing.T) {
 }
 
 func TestLogger_InfoContext_UserAttrOverridesCtx(t *testing.T) {
-	// slog 语义：后者覆盖前者
-	// ctx 注入的 trace_id 在前，用户显式传的 trace_id 在后，应覆盖
+	// slog semantics: latter overrides former
+	// trace_id injected by ctx comes first, user-explicit trace_id comes second, should override
 	dir := t.TempDir()
 	log, err := System(dir, WithConsole(false))
 	if err != nil {
@@ -939,16 +939,16 @@ func TestLogger_InfoContext_UserAttrOverridesCtx(t *testing.T) {
 	path := filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	entry := readFirstEntry(t, path)
 
-	// 注意：顶层 trace_id 是第一次写入的值（from-ctx）
-	// 因为 FileHandler.applyAttr 里 entry[key] = val 只要 key 相同就覆盖
-	// 实际行为：后者覆盖前者（from-user 覆盖 from-ctx）
+	// Note: The top-level trace_id is the first written value (from-ctx)
+	// Because in FileHandler.applyAttr, entry[key] = val will overwrite if the key is the same
+	// Actual behavior: latter overrides former (from-user overrides from-ctx)
 	if entry["trace_id"] != "from-user" {
 		t.Errorf("user-provided trace_id should win, got %v", entry["trace_id"])
 	}
 }
 
 func TestLogger_InfoContext_NoInjection_WhenCtxBackground(t *testing.T) {
-	// ctx.Background() 无 trace_id/actor_id，日志里不应出现这些字段
+	// ctx.Background() has no trace_id/actor_id, these fields should not appear in the logs
 	dir := t.TempDir()
 	log, err := System(dir, WithConsole(false))
 	if err != nil {
@@ -970,7 +970,7 @@ func TestLogger_InfoContext_NoInjection_WhenCtxBackground(t *testing.T) {
 }
 
 func TestLogger_AllLevelsContext(t *testing.T) {
-	// Debug / Info / Warn / Error 的 *Context 都工作
+	// Debug / Info / Warn / Error's *Context all work
 	dir := t.TempDir()
 	log, err := System(dir, WithConsole(false), WithLevel(slog.LevelDebug))
 	if err != nil {

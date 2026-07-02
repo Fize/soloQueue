@@ -8,41 +8,41 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// ─── 常量 ───────────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────────
 
 const (
-	// ephemeralTruncateThreshold 是触发中间截断的最低 token 数阈值
+	// ephemeralTruncateThreshold is the minimum token count threshold to trigger middle-out truncation
 	ephemeralTruncateThreshold = 1500
 
-	// largeFieldTokenThreshold 是 JSON 对象中大字段触发截断的最低 token 数阈值
+	// largeFieldTokenThreshold is the minimum token count threshold for a large field in a JSON object to trigger truncation
 	largeFieldTokenThreshold = 500
 
-	// minArrayElements 是 JSON 数组触发截断的最低元素数阈值
+	// minArrayElements is the minimum number of elements for a JSON array to trigger truncation
 	minArrayElements = 10
 )
 
-// largeFields 是 JSON 工具输出中通常包含大段文本的字段名集合
+// largeFields is a set of field names in JSON utility output that typically contain large blocks of text.
 //
-// 这些字段的内容通常是文件全文/命令输出/HTTP body，适合截断。
-// 其他字段（如 exit_code, path, size, truncated 等元数据）通常很短，不需要截断。
+// The content of these fields is usually full file content / command output / HTTP body, suitable for truncation.
+// Other fields (like exit_code, path, size, truncated, etc. metadata) are usually short and do not need truncation.
 var largeFields = map[string]bool{
-	"content":      true,
-	"stdout":       true,
-	"stderr":       true,
-	"body":         true,
-	"text":         true,
-	"output":       true,
-	"base64_data":  true,
-	"data":         true,
-	"image":        true,
+	"content":     true,
+	"stdout":      true,
+	"stderr":      true,
+	"body":        true,
+	"text":        true,
+	"output":      true,
+	"base64_data": true,
+	"data":        true,
+	"image":       true,
 }
 
-// ─── Step 1: 中间截断法 (Middle-Out Truncation) ─────────────────────────────
+// ─── Step 1: Middle-Out Truncation ─────────────────────────────
 
-// truncateMiddleOut 扫描所有 IsEphemeral 且 Tokens > 阈值的消息，
-// 对其内容执行 JSON 感知截断或字符级截断
+// truncateMiddleOut scans all messages that are IsEphemeral and have Tokens > threshold,
+// performing JSON-aware truncation or character-level truncation on their content.
 //
-// 返回 true 如果有任何消息被截断。
+// Returns true if any message was truncated.
 func (cw *ContextWindow) truncateMiddleOut() bool {
 	truncated := false
 	truncatedCount := 0
@@ -65,13 +65,13 @@ func (cw *ContextWindow) truncateMiddleOut() bool {
 
 		newContent := tryJSONTruncate(msg.Content, cw.tokenizer)
 		if newContent == "" {
-			// JSON 解析失败或無需截斷，回退到字符級截斷
+			// JSON parsing failed or no truncation needed, fall back to character-level truncation
 			newContent = charLevelTruncate(msg.Content, 0.10, 0.20)
 		}
 		msg.Content = newContent
 
-		// 重新估算 token（用字符长度快速估算，避免截断路径上的 BPE 开销）
-		// Calibrate 会在下次 API 调用时用精确值校准
+		// Re-estimate tokens (quick estimation by character length to avoid BPE overhead on truncation path)
+		// Calibrate will recalibrate with precise values on the next API call.
 		oldTokens := msg.Tokens
 		newTokens := cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
 		savedTokens := oldTokens - newTokens
@@ -105,20 +105,20 @@ func (cw *ContextWindow) truncateMiddleOut() bool {
 	return truncated
 }
 
-// ─── JSON 感知截断 ──────────────────────────────────────────────────────────
+// ─── JSON-aware Truncation ──────────────────────────────────────────────────────────
 
-// tryJSONTruncate 尝试对 JSON 格式的内容做"骨架保留"截断
+// tryJSONTruncate attempts "skeleton-preserving" truncation for JSON formatted content.
 //
-// 策略：
-//  1. 优先尝试 JSON 对象 (map[string]any)：对大字符串字段做掐头去尾
-//  2. 其次尝试 JSON 数组 ([]any)：保留头尾元素，中间省略
-//  3. 都失败 → 返回 ""，由调用方走字符级截断
+// Strategy:
+//  1. First try JSON objects (map[string]any): truncate large string fields by keeping head and tail.
+//  2. Next try JSON arrays ([]any): preserve head and tail elements, omit elements in between.
+//  3. If both fail → return "", letting the caller proceed with character-level truncation.
 //
-// v1 限制：
-//   - 嵌套对象内的大字段不会被截断（如 {"files": [{"content": "超长"}]}，
-//     files 是数组，其内部 content 不被处理）
-//   - 大数组内的元素如果是对象，保留的是完整对象（不做递归截断）
-//   - 这些场景下回退到字符级截断，DeepSeek 通常能容错理解
+// v1 Limitations:
+//   - Large fields within nested objects will not be truncated (e.g., {"files": [{"content": "very long"}]},
+//     `files` is an array, its internal `content` is not processed).
+//   - If elements within large arrays are objects, the full object is preserved (no recursive truncation).
+//   - In these scenarios, it falls back to character-level truncation, which DeepSeek usually tolerates.
 func tryJSONTruncate(content string, tokenizer *Tokenizer) string {
 	if result := tryJSONObjectTruncate(content, tokenizer); result != "" {
 		return result
@@ -129,11 +129,11 @@ func tryJSONTruncate(content string, tokenizer *Tokenizer) string {
 	return ""
 }
 
-// tryJSONObjectTruncate 处理 {"key": "value", ...} 格式的 JSON
+// tryJSONObjectTruncate processes JSON in the format {"key": "value", ...}.
 //
-// 对顶层大字符串字段（在 largeFields 中且 token 数 > largeFieldTokenThreshold）
-// 执行掐头去尾，保留 JSON 骨架。
-// 返回 "" 表示 JSON 解析失败或无需截断。
+// It truncates top-level large string fields (those in largeFields and with token count > largeFieldTokenThreshold)
+// by keeping the head and tail, preserving the JSON structure.
+// Returns "" if JSON parsing fails or no truncation is needed.
 func tryJSONObjectTruncate(content string, tokenizer *Tokenizer) string {
 	var obj map[string]any
 	if err := json.Unmarshal([]byte(content), &obj); err != nil {
@@ -164,11 +164,11 @@ func tryJSONObjectTruncate(content string, tokenizer *Tokenizer) string {
 	return string(result)
 }
 
-// tryJSONArrayTruncate 处理 [item1, item2, ...] 格式的 JSON
+// tryJSONArrayTruncate processes JSON in the format [item1, item2, ...].
 //
-// 保留前 10% + 后 20% 的元素，中间替换为省略标记字符串。
-// v1 限制：数组元素如果是对象，保留完整对象，不做递归截断。
-// 返回 "" 表示 JSON 解析失败、元素太少或无需截断。
+// It retains the first 10% + last 20% of elements, replacing the middle with an omission marker string.
+// v1 Limitation: If array elements are objects, the full object is preserved, no recursive truncation.
+// Returns "" if JSON parsing fails, there are too few elements, or no truncation is needed.
 func tryJSONArrayTruncate(content string, _ *Tokenizer) string {
 	var arr []any
 	if err := json.Unmarshal([]byte(content), &arr); err != nil {
@@ -199,12 +199,12 @@ func tryJSONArrayTruncate(content string, _ *Tokenizer) string {
 	return string(b)
 }
 
-// ─── 字符级截断 ─────────────────────────────────────────────────────────────
+// ─── Character-level Truncation ─────────────────────────────────────────────────────────────
 
-// charLevelTruncate 对字符串做字符级掐头去尾
+// charLevelTruncate truncates a string at the character level, keeping the head and tail.
 //
-// 保留前 headRatio 和后 tailRatio 比例的字符，中间替换为省略标记。
-// 对于 headRatio + tailRatio >= 1.0 的情况，原样返回。
+// It retains characters from the first `headRatio` and last `tailRatio` proportions, replacing the middle with an omission marker.
+// For cases where `headRatio + tailRatio >= 1.0`, the original string is returned.
 func charLevelTruncate(s string, headRatio, tailRatio float64) string {
 	runes := []rune(s)
 	n := len(runes)
@@ -219,18 +219,18 @@ func charLevelTruncate(s string, headRatio, tailRatio float64) string {
 	return head + fmt.Sprintf("\n[...omitted %d characters...]\n", omitted) + tail
 }
 
-// ─── Step 2: Turn 粒度 FIFO 滑动窗口 ────────────────────────────────────────
+// ─── Step 2: Turn-level FIFO Sliding Window ────────────────────────────────────────
 
-// slideFIFO 以"对话轮次 (Turn)"为单位删除最老的消息，直到 currentTokens <= targetTokens
+// slideFIFO deletes the oldest messages in "conversation turns" until currentTokens <= targetTokens.
 //
-// Turn 定义：从 user 消息开始，到下一个 user 消息之前的所有消息。
-// 即：Turn = [user, (assistant+tool_calls, tool, ..., assistant+tool_calls, tool)*, assistant]
+// Turn definition: all messages from a user message up to the next user message.
+// i.e., Turn = [user, (assistant+tool_calls, tool, ..., assistant+tool_calls, tool)*, assistant]
 //
-// 保证：
-//   - system prompt（索引 0）永远不被删除
-//   - 每次删除一个完整 Turn，保证上下文始终是完整的"问答对"序列
-//   - 只剩一个 Turn 时不删除（否则只剩 system prompt，LLM 无法工作）
-//   - 删除 Turn 时同步清理后续 Turn 中引用了被删 tool_call_ids 的孤 tool 消息
+// Guarantees:
+//   - The system prompt (index 0) is never deleted.
+//   - Each deletion removes a complete turn, ensuring the context always consists of complete "Q&A" sequences.
+//   - No deletion occurs if only one turn remains (otherwise only the system prompt would remain, making the LLM unusable).
+//   - When a turn is deleted, any subsequent orphan tool messages that reference `tool_call_ids` from the deleted turn are also cleaned up.
 func (cw *ContextWindow) slideFIFO(targetTokens int) {
 	turnsRemoved := 0
 	totalTokensFreed := 0
@@ -244,7 +244,7 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 					"total_tokens_freed", totalTokensFreed,
 				)
 			}
-			break // 只剩 system prompt
+			break // Only system prompt left
 		}
 		turnEnd := cw.findTurnEnd(1)
 		if turnEnd <= 1 {
@@ -255,10 +255,10 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 					"total_tokens_freed", totalTokensFreed,
 				)
 			}
-			break // 没有 Turn 可删
+			break // No turn to delete
 		}
-		// 只剩一个 Turn 时，不能删除整个 Turn（否则只剩 system prompt，LLM 无法工作）。
-		// 改为对该 Turn 内部的消息做更激进的截断。
+		// If only one turn remains, the entire turn cannot be deleted (otherwise only the system prompt would remain, making the LLM unusable).
+		// Instead, apply more aggressive truncation to messages within this turn.
 		if turnEnd >= len(cw.messages) {
 			aggressiveSaved := cw.aggressiveTruncateLastTurn(targetTokens)
 			if aggressiveSaved > 0 {
@@ -270,7 +270,7 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 						"target_tokens", targetTokens,
 					)
 				}
-				continue // 截断后重新检查容量
+				continue // Recheck capacity after truncation
 			}
 			if cw.log != nil {
 				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: cannot remove more turns",
@@ -282,8 +282,8 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 			break
 		}
 
-		// 收集被删 Turn 中所有 assistant 消息的 tool_call_ids
-		// 后续需清理后续 Turn 中引用了这些 ID 的孤 tool 消息
+		// Collect `tool_call_ids` from all assistant messages in the turn to be deleted
+		// These will be used to clean up orphan tool messages in subsequent turns.
 		orphanIDs := make(map[string]bool)
 		for i := 1; i < turnEnd; i++ {
 			for _, tc := range cw.messages[i].ToolCalls {
@@ -291,7 +291,7 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 			}
 		}
 
-		// 计算被删 Turn 的 token 数
+		// Calculate tokens for the turn to be deleted
 		removedTokens := 0
 		removedCount := 0
 		for i := 1; i < turnEnd; i++ {
@@ -310,13 +310,13 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 			)
 		}
 
-		// 删除 messages[1:turnEnd]
+		// Delete messages[1:turnEnd]
 		cw.messages = append(cw.messages[:1], cw.messages[turnEnd:]...)
 		cw.currentTokens -= removedTokens
 		turnsRemoved++
 		totalTokensFreed += removedTokens
 
-		// 清理后续 Turn 中的孤 tool 消息（引用了被删 assistant 的 tool_call_id）
+		// Clean up orphan tool messages in subsequent turns (referencing `tool_call_id`s from the deleted assistant)
 		if len(orphanIDs) > 0 {
 			orphanRemoved := 0
 			cleaned := cw.messages[:1]
@@ -350,12 +350,12 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 	}
 }
 
-// aggressiveTruncateLastTurn 对最后一个 Turn 内部的消息做激进截断。
-// 按以下优先级尝试：
-//   1. 对 IsEphemeral 消息做更激进的掐头去尾（保留 5% 头 + 5% 尾）
-//   2. 对非 ephemeral 的长消息做激进截断（保留 10% 头 + 10% 尾）
-//   3. 如果还超，将最长消息的内容替换为占位符 "[content omitted]"
-// 返回实际节省的 token 数。
+// aggressiveTruncateLastTurn aggressively truncates messages within the last turn.
+// It attempts in the following priority:
+//   1. More aggressive head-tail truncation for IsEphemeral messages (keeping 5% head + 5% tail).
+//   2. Aggressive truncation for non-ephemeral long messages (keeping 10% head + 10% tail).
+//   3. If still exceeding, replace the content of the longest message with a placeholder "[content omitted]".
+// Returns the actual number of tokens saved.
 func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 	initialTokens := cw.currentTokens
 
@@ -433,10 +433,10 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 	return initialTokens - cw.currentTokens
 }
 
-// findTurnEnd 找到从 start 开始的 Turn 的结束位置
+// findTurnEnd finds the end position of the turn starting from `start`.
 //
-// Turn 结束于下一个 user 消息的位置。
-// 如果没有下一个 user 消息，返回 len(messages)。
+// A turn ends at the position of the next user message.
+// If there is no next user message, it returns `len(messages)`.
 func (cw *ContextWindow) findTurnEnd(start int) int {
 	for i := start + 1; i < len(cw.messages); i++ {
 		if cw.messages[i].Role == RoleUser {
@@ -446,15 +446,15 @@ func (cw *ContextWindow) findTurnEnd(start int) int {
 	return len(cw.messages)
 }
 
-// pruneOlderTurnsEphemeralContent 找出受保护轮次的起始边界（倒数第 protectTurns 个 user 消息所在的索引）。
-// 针对该边界之前的 IsEphemeral 消息，剥离其大字段内容（如果是 JSON 则把 largeFields 中的键替换为 "[evicted]"，
-// 如果不是则整个替换为 "[evicted to save space]"），并更新 token 计数。
+// pruneOlderTurnsEphemeralContent identifies the start boundary of protected turns (the index of the `protectTurns`-th user message from the end).
+// For IsEphemeral messages before this boundary, it strips their large field content (if JSON, keys in `largeFields` are replaced with "[evicted]";
+// otherwise, the entire content is replaced with "[evicted to save space]"), and updates the token count.
 func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
 	if len(cw.messages) <= 1 {
 		return
 	}
 
-	// 寻找边界：受保护的倒数第 protectTurns 个 user 消息的索引。
+	// Find the boundary: the index of the protectTurns-th user message from the end.
 	boundaryIdx := -1
 	userCount := 0
 	for i := len(cw.messages) - 1; i >= 0; i-- {
@@ -467,7 +467,7 @@ func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
 		}
 	}
 
-	// 如果没有足够的 user 轮次，说明当前还不需要对老轮次进行剪裁
+	// If there are not enough user turns, it means no older turns need pruning yet.
 	if boundaryIdx < 0 {
 		return
 	}
@@ -488,7 +488,7 @@ func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
 		oldTokens := msg.Tokens
 		newContent := ""
 
-		// 尝试解析为 JSON 对象
+		// Attempt to parse as a JSON object
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(msg.Content), &obj); err == nil {
 			modified := false
@@ -509,7 +509,7 @@ func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
 		}
 
 		if newContent == "" {
-			// 如果不是 JSON 或 JSON 处理失败，则直接全量替换为占位符
+			// If not JSON or JSON processing failed, replace the entire content with a placeholder
 			newContent = "[evicted to save space]"
 		}
 
@@ -534,4 +534,3 @@ func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
 		)
 	}
 }
-

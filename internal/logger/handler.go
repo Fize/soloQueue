@@ -11,7 +11,7 @@ import (
 
 // ─── MultiHandler ───────────────────────────────────────────────────────────
 
-// MultiHandler 同时写 console（stderr）和文件
+// MultiHandler writes to both console (stderr) and a file simultaneously.
 type MultiHandler struct {
 	console slog.Handler
 	file    *FileHandler
@@ -79,14 +79,14 @@ func (h *MultiHandler) close() error {
 
 // ─── FileHandler ─────────────────────────────────────────────────────────────
 
-// writerPool 是共享的 category→rotateWriter 映射
-// 通过指针在 FileHandler 的 clone 之间共享，避免 mutex 被值拷贝
+// writerPool is a shared category→rotateWriter map.
+// It's shared by pointer between FileHandler clones to avoid mutex value copying.
 type writerPool struct {
 	mu      sync.Mutex
 	writers map[Category]*rotateWriter
 }
 
-// FileHandler 将日志按 category 路由到对应的 rotateWriter
+// FileHandler routes logs by category to the corresponding rotateWriter.
 type FileHandler struct {
 	baseDir   string
 	subdir    string
@@ -96,7 +96,7 @@ type FileHandler struct {
 	maxDays   int
 	maxFiles  int
 
-	pool *writerPool // 共享指针：clone 后多个 handler 共用同一 writer pool
+	pool *writerPool // Shared pointer: multiple handlers use the same writer pool after cloning.
 }
 
 func newFileHandler(baseDir, subdir string, levelVar *slog.LevelVar, maxSizeMB, maxDays, maxFiles int) *FileHandler {
@@ -157,7 +157,7 @@ func (h *FileHandler) withGroup(_ string) *FileHandler {
 func (h *FileHandler) clone() *FileHandler {
 	newH := *h
 	newH.preAttrs = append([]slog.Attr{}, h.preAttrs...)
-	// pool 指针已通过值拷贝共享，无需额外处理
+	// The pool pointer is already shared through value copying; no additional handling needed.
 	return &newH
 }
 
@@ -173,7 +173,7 @@ func (h *FileHandler) close() error {
 	return firstErr
 }
 
-// buildEntry 构造 JSONL 条目
+// buildEntry constructs a JSONL entry.
 func (h *FileHandler) buildEntry(r slog.Record, cat Category) map[string]any {
 	entry := map[string]any{
 		"ts":       r.Time.Local().Format(time.RFC3339Nano),
@@ -184,12 +184,12 @@ func (h *FileHandler) buildEntry(r slog.Record, cat Category) map[string]any {
 
 	ctx := map[string]any{}
 
-	// 合并 preAttrs（来自 WithAttrs）
+	// Merge preAttrs (from WithAttrs)
 	for _, a := range h.preAttrs {
 		applyAttr(entry, ctx, a)
 	}
 
-	// 合并 record attrs
+	// Merge record attrs
 	r.Attrs(func(a slog.Attr) bool {
 		applyAttr(entry, ctx, a)
 		return true
@@ -201,12 +201,12 @@ func (h *FileHandler) buildEntry(r slog.Record, cat Category) map[string]any {
 	return entry
 }
 
-// applyAttr 将 slog.Attr 写入 entry 顶层或 ctx 子对象
+// applyAttr writes slog.Attr to the top level of entry or to the ctx sub-object.
 func applyAttr(entry, ctx map[string]any, a slog.Attr) {
 	key := a.Key
 	val := a.Value.Any()
 
-	// 顶层保留字段
+	// Top-level reserved fields
 	switch key {
 	case "trace_id", "actor_id", "team_id", "session_id", "duration_ms", "err", "category":
 		entry[key] = val
@@ -215,7 +215,7 @@ func applyAttr(entry, ctx map[string]any, a slog.Attr) {
 	}
 }
 
-// extractCategory 从 record attrs 提取 category
+// extractCategory extracts the category from record attrs.
 func (h *FileHandler) extractCategory(r slog.Record) Category {
 	var cat Category
 	r.Attrs(func(a slog.Attr) bool {
@@ -225,7 +225,7 @@ func (h *FileHandler) extractCategory(r slog.Record) Category {
 		}
 		return true
 	})
-	// 也检查 preAttrs
+	// Also check preAttrs
 	if cat == "" {
 		for _, a := range h.preAttrs {
 			if a.Key == "category" {
@@ -237,7 +237,7 @@ func (h *FileHandler) extractCategory(r slog.Record) Category {
 	return cat
 }
 
-// defaultCategory 返回第一个 category 作为兜底
+// defaultCategory returns the first category as a fallback.
 func (h *FileHandler) defaultCategory() Category {
 	if len(systemCategories) == 0 {
 		return CatApp
@@ -245,7 +245,7 @@ func (h *FileHandler) defaultCategory() Category {
 	return systemCategories[0]
 }
 
-// getOrCreateWriter 按 category 惰性创建 rotateWriter
+// getOrCreateWriter lazily creates a rotateWriter by category.
 func (h *FileHandler) getOrCreateWriter(cat Category) (*rotateWriter, error) {
 	h.pool.mu.Lock()
 	defer h.pool.mu.Unlock()
@@ -263,7 +263,7 @@ func (h *FileHandler) getOrCreateWriter(cat Category) (*rotateWriter, error) {
 	return w, nil
 }
 
-// logDir 返回日志目录路径：{baseDir}/logs/{subdir}/
+// logDir returns the log directory path: {baseDir}/logs/{subdir}/
 func (h *FileHandler) logDir() string {
 	return filepath.Join(h.baseDir, "logs", h.subdir)
 }

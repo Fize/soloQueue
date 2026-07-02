@@ -12,7 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
-// SeedExtraction holds the structured output from LLM seed analysis.
+// SuggestedAgent holds the structured output from LLM seed analysis.
 type SuggestedAgent struct {
 	Name        string   `json:"name"`
 	Role        string   `json:"role"`
@@ -523,7 +523,7 @@ func buildBasicExtractionPrompt(text string) string {
 	b.WriteString("  Include all locations (cities, mountains, valleys, realms, sects) as type \"location\".\n")
 	b.WriteString("  Include all factions, sects, alliances as type \"faction\".\n")
 	b.WriteString("  rel_type must be one of: mention, agree, rebuttal, propose\n")
-	b.WriteString("- `world_state`: MUST be a JSON object (NOT a string). Flat key-value pairs describing the world setting, e.g. {\"era\": \"玄黄纪元\", \"location\": \"永宁城\"}. If no world state, return {}.\n")
+	b.WriteString("- `world_state`: MUST be a JSON object (NOT a string). Flat key-value pairs describing the world setting, e.g. {\"era\": \"Mystic Yellow Era\", \"location\": \"Eternal Peace City\"}. If no world state, return {}.\n")
 	b.WriteString("- `key_topics`: array of main topic strings (max 3)\n")
 	b.WriteString("- `conflict_areas`: array of debated or controversial aspects (max 3)\n\n")
 	b.WriteString("Rules:\n")
@@ -566,7 +566,7 @@ func buildCharacterExtractionPrompt(seedText string, merged *SeedExtraction, sim
 	}
 
 	// Tell the LLM the total simulation duration so it can map narrative
-	// timeline events ("卷二登场" etc.) to simulation clock offsets.
+	// timeline events (e.g. "appears in volume 2") to simulation clock offsets.
 	if simulatedHours > 0 {
 		b.WriteString(fmt.Sprintf("\n## Simulation Duration\n"))
 		b.WriteString(fmt.Sprintf("The total simulation will run for **%d hours** (approximately %.1f days).\n", simulatedHours, float64(simulatedHours)/24.0))
@@ -595,11 +595,11 @@ func buildCharacterExtractionPrompt(seedText string, merged *SeedExtraction, sim
 	b.WriteString("  IMPORTANT for goal_transition: When the seed describes staged character arcs with different objectives at different points, create goal_transition events with sim_time triggers. Map narrative phases to appropriate sim_time values (early story → low hours, midpoint → mid hours, late story → high hours). The new_goals should reflect what the character wants at that new phase.\n")
 	b.WriteString("- `initial_relationships`: array of social relationships between characters. Each MUST have: `subject_name`, `target_name`, `kind` (one of: parent, child, sibling, spouse, friend, rival, colleague, mentor, mentee, neighbor), and optionally `familiarity` (0.0-1.0) and `affinity` (-1.0 to 1.0).\n")
 	b.WriteString("  Directional kinds (parent, child, mentor, mentee): subject_name IS the parent/mentor, target_name IS the child/mentee.\n")
-	b.WriteString("  Extract from text clues: \"父子\" → kind=parent (subject=father), \"兄弟\" → kind=sibling, \"师徒\" → kind=mentor (subject=master), \"仇敌\" → kind=rival, \"夫妻\" → kind=spouse.\n\n")
+	b.WriteString("  Extract from text clues: \"father-son\" → kind=parent (subject=father), \"brothers\" → kind=sibling, \"master-disciple\" → kind=mentor (subject=master), \"enemy\" → kind=rival, \"husband-wife\" → kind=spouse.\n\n")
 	b.WriteString("IMPORTANT:\n")
 	b.WriteString("- Use the EXACT character names from the entities above. Do not invent new names.\n")
 	b.WriteString("- Extract ALL relationships explicitly stated or implied in the seed text.\n")
-	b.WriteString("- For directional relationships, set subject_name correctly (e.g. for \"杨烨是杨凡的父亲\", use subject_name=\"杨烨\", target_name=\"杨凡\", kind=\"parent\").\n\n")
+	b.WriteString("- For directional relationships, set subject_name correctly (e.g. for \"John is Mary's father\", use subject_name=\"John\", target_name=\"Mary\", kind=\"parent\").\n\n")
 	b.WriteString("Output ONLY valid JSON, no markdown fences.")
 
 	return b.String()

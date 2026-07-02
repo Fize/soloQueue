@@ -191,7 +191,7 @@ func (dc *DefaultClassifier) applyHybridLogic(result ClassificationResult, prior
 
 	// Complex task session continuity: prevent accidental downgrade to L0
 	// when the user asks follow-up questions about an ongoing complex task.
-	// Follow-up questions naturally contain L0 keywords (解释,为什么,etc.)
+	// Follow-up questions naturally contain L0 keywords (explain, why, etc.)
 	// that score high enough to falsely trigger L0. Require a very strong
 	// conversation signal (confidence >= 96) to override a complex session.
 	if priorLevel >= LevelSimpleSingleFile && result.Level <= LevelConversation {

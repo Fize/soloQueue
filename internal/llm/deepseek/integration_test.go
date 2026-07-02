@@ -1,13 +1,13 @@
 //go:build integration
 
-// integration_test.go — 使用真实 DeepSeek API 的集成测试
+// integration_test.go — Integration tests using the real DeepSeek API
 //
-// 运行方式（需要 API Key）：
+// How to run (requires API Key):
 //
 //	DEEPSEEK_API_KEY=sk-xxx \
 //	  go test -v -tags integration -timeout 120s ./internal/llm/deepseek/
 //
-// 或加载 .env 后运行：
+// Or run after loading .env:
 //
 //	set -a && source ../../.env && set +a && \
 //	  go test -v -tags integration -timeout 120s ./internal/llm/deepseek/
@@ -25,7 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 )
 
-// resolveKey 读取 DEEPSEEK_API_KEY
+// resolveKey reads DEEPSEEK_API_KEY
 func resolveKey(t *testing.T) string {
 	t.Helper()
 	v := os.Getenv("DEEPSEEK_API_KEY")
@@ -142,7 +142,7 @@ func TestIntegration_ChatStream_Streaming(t *testing.T) {
 	if full == "" {
 		t.Error("expected non-empty streamed content")
 	}
-	// 简单检查是否包含数字
+	// Simple check to ensure it contains numbers
 	for _, digit := range []string{"1", "2", "3"} {
 		if !strings.Contains(full, digit) {
 			t.Errorf("expected %q in response, got: %q", digit, full)
@@ -229,7 +229,7 @@ func TestIntegration_ChatStream_Cancellation(t *testing.T) {
 	outerCtx, outerCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer outerCancel()
 
-	// 用一个可提前取消的子 ctx 来中断流
+	// Use a cancellable child context to interrupt the stream
 	streamCtx, cancelStream := context.WithCancel(outerCtx)
 
 	req := agent.LLMRequest{
@@ -251,16 +251,16 @@ func TestIntegration_ChatStream_Cancellation(t *testing.T) {
 		if ev.Type == llm.EventDelta && ev.ContentDelta != "" {
 			deltaCount++
 			if deltaCount >= 3 {
-				cancelStream() // 收到 3 个 delta 后立即取消
+				cancelStream() // Cancel immediately after receiving 3 deltas
 			}
 		}
 		if ev.Type == llm.EventError {
-			// context.Canceled 是预期错误
+			// context.Canceled is an expected error
 			break
 		}
 	}
 
-	// 排空 channel
+	// Drain the channel
 	for range evCh {
 	}
 
@@ -268,4 +268,3 @@ func TestIntegration_ChatStream_Cancellation(t *testing.T) {
 		t.Error("expected at least one delta before cancel")
 	}
 	t.Logf("received %d deltas before cancel", deltaCount)
-}

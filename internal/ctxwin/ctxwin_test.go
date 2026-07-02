@@ -39,7 +39,7 @@ func TestPushBasic(t *testing.T) {
 	if current <= 0 {
 		t.Errorf("currentTokens = %d, want > 0", current)
 	}
-	// Calibrate 前：sum(messages.Tokens) == currentTokens
+	// Before Calibrate: sum(messages.Tokens) == currentTokens
 	if cw.Recalculate() != current {
 		t.Errorf("Recalculate() = %d, currentTokens = %d, want equal (before Calibrate)", cw.Recalculate(), current)
 	}
@@ -57,7 +57,7 @@ func TestPushWithReasoningContent(t *testing.T) {
 	if !ok {
 		t.Fatal("MessageAt(0) returned false")
 	}
-	// Tokens 应该包含 Content + ReasoningContent
+	// Tokens should include Content + ReasoningContent
 	contentTokens := cw.tokenizer.Count("The answer is 42.")
 	reasoningTokens := cw.tokenizer.Count(reasoning)
 	expectedMin := contentTokens + reasoningTokens
@@ -78,7 +78,7 @@ func TestPushWithToolCalls(t *testing.T) {
 	if len(msg.ToolCalls) != 1 {
 		t.Errorf("ToolCalls len = %d, want 1", len(msg.ToolCalls))
 	}
-	// Tokens 应该包含 ToolCalls 的 JSON 表示
+	// Tokens should include the JSON representation of ToolCalls
 	if msg.Tokens <= 0 {
 		t.Errorf("Tokens = %d, want > 0", msg.Tokens)
 	}
@@ -119,7 +119,7 @@ func TestBuildPayload(t *testing.T) {
 	if payload[2].ReasoningContent != "thinking..." {
 		t.Errorf("payload[2].ReasoningContent = %q, want %q", payload[2].ReasoningContent, "thinking...")
 	}
-	// 返回的切片是拷贝，修改不影响原数据
+	// The returned slice is a copy; modifications do not affect the original data.
 	payload[0].Content = "modified"
 	orig, _ := cw.MessageAt(0)
 	if orig.Content == "modified" {
@@ -132,19 +132,19 @@ func TestCalibrate(t *testing.T) {
 	cw.Push(RoleUser, "Hello")
 	cw.Push(RoleAssistant, "Hi there")
 
-	// Calibrate 前：sum == currentTokens
+	// Before Calibrate: sum == currentTokens
 	current, _, _ := cw.TokenUsage()
 	if cw.Recalculate() != current {
 		t.Errorf("Before Calibrate: Recalculate()=%d != currentTokens=%d", cw.Recalculate(), current)
 	}
 
-	// Calibrate 后：currentTokens 被精确值覆盖，sum(msg.Tokens) 应等于 currentTokens
+	// After Calibrate: currentTokens is overwritten with the exact value, sum(msg.Tokens) should equal currentTokens
 	cw.Calibrate(42)
 	current, _, _ = cw.TokenUsage()
 	if current != 42 {
 		t.Errorf("After Calibrate: currentTokens = %d, want 42", current)
 	}
-	// Calibrate 现在会按比例更新 msg.Tokens，sum(msg.Tokens) 应约等于 currentTokens
+	// Calibrate now updates msg.Tokens proportionally, sum(msg.Tokens) should approximately equal currentTokens
 	if cw.Recalculate() != current {
 		t.Errorf("After Calibrate: Recalculate()=%d != currentTokens=%d (rounding diff only)", cw.Recalculate(), current)
 	}
@@ -344,24 +344,24 @@ func TestBuildPayload_MixedCompleteAndIncomplete(t *testing.T) {
 }
 
 func TestPushTriggersEviction(t *testing.T) {
-	// 小窗口：maxTokens=100, bufferTokens=20, 有效容量=80
+	// Small window: maxTokens=100, bufferTokens=20, effective capacity=80
 	cw := newTestCW(100, 20)
 
-	// Push system prompt（占一点 token）
+	// Push system prompt (takes a few tokens)
 	cw.Push(RoleSystem, "You are helpful.")
 
-	// Push 足够多的 user/assistant 消息触发淘汰
+	// Push enough user/assistant messages to trigger eviction
 	for i := 0; i < 20; i++ {
 		cw.Push(RoleUser, "Tell me a long story about programming and software engineering.")
 		cw.Push(RoleAssistant, "Once upon a time in a far away land, there was a programmer who loved to code all day long.")
 	}
 
 	current, _, _ := cw.TokenUsage()
-	// 淘汰后应该低于有效容量
+	// After eviction, should be below effective capacity
 	if current > 100 {
 		t.Errorf("After eviction: currentTokens=%d, should be <= maxTokens=100", current)
 	}
-	// system prompt 应该还在
+	// system prompt should still be present
 	if cw.Len() == 0 {
 		t.Error("Messages should not be empty after eviction")
 	}
@@ -486,4 +486,3 @@ func TestStripRecalledMemoryBlocks(t *testing.T) {
 		t.Errorf("stripped[2] content = %q, want %q", stripped[2].Content, "plain user message")
 	}
 }
-

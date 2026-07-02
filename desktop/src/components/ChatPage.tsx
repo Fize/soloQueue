@@ -491,10 +491,10 @@ export function ChatPage() {
               <Bot className="h-8 w-8 animate-pulse" />
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight text-foreground bg-gradient-to-r from-foreground to-foreground/75 bg-clip-text">
-              欢迎使用 SoloQueue 协作空间
+              Welcome to SoloQueue Workspace
             </h1>
             <p className="text-sm text-muted-foreground max-w-md mx-auto text-center">
-              选择团队和项目，与多智能体系统开始协同编程。
+              Select a team and project to start collaborative programming with a multi-agent system.
             </p>
           </div>
 
@@ -539,12 +539,12 @@ export function ChatPage() {
                   <div className="space-y-1.5">
                     <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
                       <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                      <span className="tracking-wider uppercase">{group} 团队</span>
+                      <span className="tracking-wider uppercase">{group} Team</span>
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       {groupProjects.length > 0
-                        ? `关联项目: ${groupProjects.map(p => p.name).join(', ')}`
-                        : '无关联项目'}
+                        ? `Associated projects: ${groupProjects.map(p => p.name).join(', ')}`
+                        : 'No associated projects'}
                     </p>
                   </div>
                 </div>
@@ -572,19 +572,19 @@ export function ChatPage() {
           )}>
             <div className="flex items-center gap-2 min-w-0">
               <h1 className="text-xs font-bold text-foreground truncate font-mono">
-                {activeSession?.name || (isL1Session ? '通用问答 (L1)' : `${activeGroup} 团队`)}
+                {activeSession?.name || (isL1Session ? 'General Q&A (L1)' : `${activeGroup} Team`)}
               </h1>
               {connectionStatus === 'reconnecting' && (
                 <span className="flex items-center gap-1 text-[10px] text-amber-500 font-medium animate-pulse shrink-0">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping absolute inline-flex h-1.5 w-1.5 rounded-full opacity-75" />
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500" />
-                  连接中...
+                  Connecting...
                 </span>
               )}
               {connectionStatus === 'disconnected' && (
                 <span className="flex items-center gap-1 text-[10px] text-destructive font-medium animate-pulse shrink-0">
                   <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-                  未连接
+                  Disconnected
                 </span>
               )}
             </div>
@@ -593,7 +593,7 @@ export function ChatPage() {
                 <button
                   onClick={() => toggleInspector(true)}
                   className="p-1.5 rounded-md hover:bg-foreground/5 transition-all cursor-pointer text-muted-foreground"
-                  title="显示任务状态面板"
+                  title="Show Task Status Panel"
                 >
                   <PanelRight className="h-4 w-4" />
                 </button>
@@ -618,7 +618,7 @@ export function ChatPage() {
                   )}
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
-                  文件
+                  Files
                 </button>
                 <button
                   onClick={() => setInspectorTab('changes')}
@@ -630,13 +630,13 @@ export function ChatPage() {
                   )}
                 >
                   <Layers className="h-3.5 w-3.5" />
-                  变更
+                  Changes
                 </button>
               </div>
               <button
                 onClick={() => toggleInspector(false)}
                 className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
-                title="关闭面板"
+                title="Close Panel"
               >
                 <PanelRight className="h-3.5 w-3.5" />
               </button>
@@ -699,7 +699,7 @@ export function ChatPage() {
                     {activeSessionId && historyLoading[activeSessionId] && (
                       <div className="flex items-center justify-center py-4">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground font-mono ml-2">正在载入历史...</span>
+                        <span className="text-xs text-muted-foreground font-mono ml-2">Loading history...</span>
                       </div>
                     )}
                     
@@ -710,7 +710,7 @@ export function ChatPage() {
                     {delegating && (
                       <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
                         <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
-                        <span>团队正在协作分发中，请稍候...</span>
+                        <span>Team is collaborating and delegating, please wait...</span>
                       </div>
                     )}
                     
@@ -763,7 +763,7 @@ export function ChatPage() {
                       <SessionFilePanel projectPath={activeSession.project_path} panelWidth={panelWidth} />
                     ) : (
                       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                        当前会话未关联项目
+                        Current session not associated with a project
                       </div>
                     )
                   ) : (

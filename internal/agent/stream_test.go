@@ -746,7 +746,7 @@ func TestAskStream_ToolTimeout_OtherToolsUnaffected(t *testing.T) {
 func TestWithToolTimeout_ZeroDeletes(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil,
 		WithToolTimeout("foo", 5*time.Second),
-		WithToolTimeout("foo", 0), // 删除
+		WithToolTimeout("foo", 0), // delete
 	)
 	if _, ok := a.toolTimeouts["foo"]; ok {
 		t.Error("WithToolTimeout(name, 0) should delete entry")
@@ -1189,7 +1189,6 @@ func TestAskStream_LLMPanic_EmitsErrorEvent(t *testing.T) {
 		t.Error("a.Err() = nil after panic")
 	}
 }
-
 
 // ─── FakeLLM call counters ──────────────────────────────────────────────────
 

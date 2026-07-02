@@ -209,11 +209,11 @@ func TestWriter_Rotation(t *testing.T) {
 		w.AppendMessage(&MessagePayload{Role: "user", Content: "hello world"})
 	}
 
-	// 主文件应存在
+	// Active file should exist
 	if _, err := os.Stat(timelineFile(dir)); err != nil {
 		t.Errorf("active file missing: %v", err)
 	}
-	// 至少有一个轮转文件
+	// At least one rotated file should exist
 	if _, err := os.Stat(timelineRotatedFile(dir, 2)); err != nil {
 		t.Errorf("rotated file missing: %v", err)
 	}
@@ -767,7 +767,7 @@ func TestWriteThenReplay_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
 
-	// 写入完整的对话流程
+	// Write the complete conversation flow
 	w.AppendMessage(&MessagePayload{Role: "system", Content: "system"})
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
 	w.AppendMessage(&MessagePayload{
@@ -793,19 +793,19 @@ func TestWriteThenReplay_RoundTrip(t *testing.T) {
 		t.Fatalf("cw.Len() = %d, want 5", cw.Len())
 	}
 
-	// 验证 system
+	// Verify system message
 	m0, _ := cw.MessageAt(0)
 	if m0.Role != ctxwin.RoleSystem || m0.Content != "system" {
 		t.Errorf("msg[0] = %+v", m0)
 	}
 
-	// 验证 user
+	// Verify user message
 	m1, _ := cw.MessageAt(1)
 	if m1.Role != ctxwin.RoleUser || m1.Content != "q1" {
 		t.Errorf("msg[1] = %+v", m1)
 	}
 
-	// 验证 assistant with tool_calls
+	// Verify assistant with tool_calls
 	m2, _ := cw.MessageAt(2)
 	if len(m2.ToolCalls) != 1 {
 		t.Fatalf("msg[2] tool_calls len = %d", len(m2.ToolCalls))
@@ -814,13 +814,13 @@ func TestWriteThenReplay_RoundTrip(t *testing.T) {
 		t.Errorf("msg[2] tool_call = %+v", m2.ToolCalls[0])
 	}
 
-	// 验证 tool result
+	// Verify tool result
 	m3, _ := cw.MessageAt(3)
 	if m3.Role != ctxwin.RoleTool || m3.ToolCallID != "tc-1" {
 		t.Errorf("msg[3] = %+v", m3)
 	}
 
-	// 验证 assistant with reasoning
+	// Verify assistant with reasoning
 	m4, _ := cw.MessageAt(4)
 	if m4.Content != "a1" || m4.ReasoningContent != "thinking..." {
 		t.Errorf("msg[4] = %+v", m4)
@@ -833,7 +833,7 @@ func TestReadFile_SkipsCorruptedLines(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.jsonl")
 
-	// 写入混合内容：有效行 + 损坏行 + 空行
+	// Write mixed content: valid lines + corrupted lines + empty lines
 	f, _ := os.Create(path)
 	f.WriteString(`{"ts":"2025-01-01T00:00:00Z","type":"message","msg":{"role":"user","content":"q1"}}` + "\n")
 	f.WriteString("this is not json\n")

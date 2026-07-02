@@ -39,20 +39,20 @@ interface AgentDetailPanelProps {
 // ─── Relationship style mapping (matches SimulationGraph) ────────────────
 // Keep in sync with SimulationGraph.tsx RELATION_STYLES
 const RELATION_STYLES: Record<string, { color: string; label: string }> = {
-  parent: { color: '#ec4899', label: '父母' },
-  child: { color: '#ec4899', label: '子女' },
-  sibling: { color: '#a855f7', label: '兄弟姐妹' },
-  spouse: { color: '#ec4899', label: '配偶' },
-  friend: { color: '#14b8a6', label: '朋友' },
-  rival: { color: '#9a3412', label: '竞争对手' },
-  colleague: { color: '#64748b', label: '同事' },
-  mentor: { color: '#d97706', label: '导师' },
-  mentee: { color: '#d97706', label: '徒弟' },
-  neighbor: { color: '#94a3b8', label: '邻居' },
-  stranger: { color: '#cbd5e1', label: '陌生人' },
+  parent: { color: '#ec4899', label: 'Parent' },
+  child: { color: '#ec4899', label: 'Child' },
+  sibling: { color: '#a855f7', label: 'Sibling' },
+  spouse: { color: '#ec4899', label: 'Spouse' },
+  friend: { color: '#14b8a6', label: 'Friend' },
+  rival: { color: '#9a3412', label: 'Rival' },
+  colleague: { color: '#64748b', label: 'Colleague' },
+  mentor: { color: '#d97706', label: 'Mentor' },
+  mentee: { color: '#d97706', label: 'Mentee' },
+  neighbor: { color: '#94a3b8', label: 'Neighbor' },
+  stranger: { color: '#cbd5e1', label: 'Stranger' },
 }
 
-const DEFAULT_STYLE = { color: '#9e9e9e', label: '熟人' }
+const DEFAULT_STYLE = { color: '#9e9e9e', label: 'Acquaintance' }
 
 export function AgentDetailPanel({
   persona,
@@ -103,10 +103,10 @@ export function AgentDetailPanel({
           const data = await res.json()
           setPlan(data.plan || null)
         } else {
-          setPlanError('加载日程计划失败')
+          setPlanError('Failed to load daily plan')
         }
       } catch (err) {
-        setPlanError('网络错误')
+        setPlanError('Network error')
       } finally {
         setPlanLoading(false)
       }
@@ -120,10 +120,10 @@ export function AgentDetailPanel({
           const data = await res.json()
           setMemories(data.memories || [])
         } else {
-          setMemoriesError('加载记忆失败')
+          setMemoriesError('Failed to load memories')
         }
       } catch (err) {
-        setMemoriesError('网络错误')
+        setMemoriesError('Network error')
       } finally {
         setMemoriesLoading(false)
       }
@@ -137,10 +137,10 @@ export function AgentDetailPanel({
           const data = await res.json()
           setReflections(data.reflections || [])
         } else {
-          setReflectionsError('加载高阶反思失败')
+          setReflectionsError('Failed to load higher-order reflections')
         }
       } catch (err) {
-        setReflectionsError('网络错误')
+        setReflectionsError('Network error')
       } finally {
         setReflectionsLoading(false)
       }
@@ -155,7 +155,7 @@ export function AgentDetailPanel({
     if (planLoading) {
       return (
         <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> 正在加载每日计划...
+          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> Loading daily plan...
         </div>
       )
     }
@@ -166,7 +166,7 @@ export function AgentDetailPanel({
       return (
         <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed border-border/80 rounded-xl bg-card/5">
           <Info className="h-6 w-6 opacity-30" />
-          <span className="text-xs">未找到每日日程计划。计划将在仿真启动时生成。</span>
+          <span className="text-xs">No daily schedule plan found. Plans will be generated when the simulation starts.</span>
         </div>
       )
     }
@@ -175,7 +175,7 @@ export function AgentDetailPanel({
       <div className="space-y-4">
         <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
           <Clock className="h-3.5 w-3.5" />
-          今日日程
+          Today's Schedule
         </h4>
         <div className="relative border-l border-border/80 ml-2.5 pl-5 space-y-5">
           {plan.schedule.map((item: any, idx: number) => {
@@ -200,10 +200,10 @@ export function AgentDetailPanel({
             }
 
             const PLAN_STATUS_LABELS: Record<string, string> = {
-              pending: '等待中',
-              in_progress: '进行中',
-              completed: '已完成',
-              cancelled: '已取消',
+              pending: 'Pending',
+              in_progress: 'In Progress',
+              completed: 'Completed',
+              cancelled: 'Cancelled',
             }
 
             return (
@@ -246,7 +246,7 @@ export function AgentDetailPanel({
     if (memoriesLoading) {
       return (
         <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> 正在加载记忆...
+          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> Loading memories...
         </div>
       )
     }
@@ -257,7 +257,7 @@ export function AgentDetailPanel({
       return (
         <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed border-border/80 rounded-xl bg-card/5">
           <Info className="h-6 w-6 opacity-30" />
-          <span className="text-xs">暂无记忆记录。</span>
+          <span className="text-xs">No memory records found.</span>
         </div>
       )
     }
@@ -278,7 +278,7 @@ export function AgentDetailPanel({
         <div className="flex gap-2 shrink-0">
           <input
             type="text"
-            placeholder="搜索记忆..."
+            placeholder="Search memories..."
             value={memorySearch}
             onChange={(e) => setMemorySearch(e.target.value)}
             className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none transition-all"
@@ -288,19 +288,19 @@ export function AgentDetailPanel({
             onChange={(e) => setMemoryTypeFilter(e.target.value)}
             className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all font-mono"
           >
-            <option value="all">所有类型</option>
-            <option value="observation">观察 (Observation)</option>
-            <option value="action">行动 (Action)</option>
-            <option value="dialogue">对话 (Dialogue)</option>
-            <option value="reflection">反思 (Reflection)</option>
-            <option value="plan">计划 (Plan)</option>
+            <option value="all">All Types</option>
+            <option value="observation">Observation</option>
+            <option value="action">Action</option>
+            <option value="dialogue">Dialogue</option>
+            <option value="reflection">Reflection</option>
+            <option value="plan">Plan</option>
           </select>
         </div>
 
         <div className="space-y-3">
           {filtered.length === 0 ? (
             <div className="text-center text-xs font-mono text-muted-foreground py-6">
-              没有符合当前过滤器条件的记忆。
+              No memories matching current filter criteria.
             </div>
           ) : (
             filtered.map((m, idx) => {
@@ -320,11 +320,11 @@ export function AgentDetailPanel({
                 : ''
 
               const RECORD_TYPE_LABELS: Record<string, string> = {
-                observation: '观察',
-                action: '行动',
-                dialogue: '对话',
-                reflection: '反思',
-                plan: '计划',
+                observation: 'Observation',
+                action: 'Action',
+                dialogue: 'Dialogue',
+                reflection: 'Reflection',
+                plan: 'Plan',
               }
 
               return (
@@ -349,7 +349,7 @@ export function AgentDetailPanel({
                       <span
                         className={`px-1.5 py-0.5 rounded border font-semibold ${importanceColor}`}
                       >
-                        重要度: {m.importance.toFixed(1)}
+                        Importance: {m.importance.toFixed(1)}
                       </span>
                     )}
                   </div>
@@ -369,7 +369,7 @@ export function AgentDetailPanel({
     if (reflectionsLoading) {
       return (
         <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> 正在加载高阶反思...
+          <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> Loading higher-order reflections...
         </div>
       )
     }
@@ -382,7 +382,7 @@ export function AgentDetailPanel({
       return (
         <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed border-border/80 rounded-xl bg-card/5">
           <Info className="h-6 w-6 opacity-30" />
-          <span className="text-xs">暂无已生成的反思。反思会在仿真运行中周期性触发。</span>
+          <span className="text-xs">No reflections generated yet. Reflections are periodically triggered during simulation runtime.</span>
         </div>
       )
     }
@@ -391,7 +391,7 @@ export function AgentDetailPanel({
       <div className="space-y-4">
         <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
           <Award className="h-3.5 w-3.5" />
-          智能体反思与洞察
+          Agent Reflections & Insights
         </h4>
         <div className="space-y-3">
           {reflections.map((r, idx) => {
@@ -409,11 +409,11 @@ export function AgentDetailPanel({
               >
                 <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground border-b border-border/20 pb-1 mt-0.5">
                   <span>
-                    轮次 {r.round} {timeStr && `• 🕒 ${timeStr}`}
+                    Round {r.round} {timeStr && `• 🕒 ${timeStr}`}
                   </span>
                   {r.importance && (
                     <span className="bg-amber-500/10 text-amber-500 font-bold px-1.5 py-0.2 rounded border border-amber-500/20">
-                      重要度: {r.importance.toFixed(1)}
+                      Importance: {r.importance.toFixed(1)}
                     </span>
                   )}
                 </div>
@@ -464,7 +464,7 @@ export function AgentDetailPanel({
       setChatHistory((prev) => {
         const copy = [...prev]
         const idx = copy.findIndex((h) => h.q === q && h.loading)
-        if (idx >= 0) copy[idx] = { q, a: answer || '无回复。' }
+        if (idx >= 0) copy[idx] = { q, a: answer || 'No reply.' }
         return copy
       })
     } catch (err: any) {
@@ -509,31 +509,31 @@ export function AgentDetailPanel({
             value="profile"
             className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
           >
-            智能体画像
+            Agent Profile
           </TabsTrigger>
           <TabsTrigger
             value="plan"
             className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
           >
-            今日计划
+            Daily Plan
           </TabsTrigger>
           <TabsTrigger
             value="memory"
             className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
           >
-            记忆数据库
+            Memory Database
           </TabsTrigger>
           <TabsTrigger
             value="reflections"
             className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
           >
-            高阶反思
+            Reflections
           </TabsTrigger>
           <TabsTrigger
             value="logs"
             className="flex-1 py-1.5 text-center text-[9px] font-bold font-mono border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
           >
-            原始日志
+            Raw Logs
           </TabsTrigger>
         </TabsList>
 
@@ -544,14 +544,14 @@ export function AgentDetailPanel({
           {/* Metadata badges: Age, Gender, MBTI, Country, Profession */}
           <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
             {persona.age && (
-              <span className="px-2 py-1 rounded bg-muted text-foreground">{persona.age} 岁</span>
+              <span className="px-2 py-1 rounded bg-muted text-foreground">{persona.age} years old</span>
             )}
             {persona.gender && (
               <span className="px-2 py-1 rounded bg-muted text-foreground uppercase">
                 {persona.gender === 'male'
-                  ? '男'
+                  ? 'Male'
                   : persona.gender === 'female'
-                    ? '女'
+                    ? 'Female'
                     : persona.gender}
               </span>
             )}
@@ -577,7 +577,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <User className="h-3.5 w-3.5" />
-                背景故事
+                Backstory
               </h4>
               <p className="text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40 italic">
                 &ldquo;{persona.bio}&rdquo;
@@ -590,7 +590,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <Bot className="h-3.5 w-3.5" />
-                详细画像
+                Detailed Persona
               </h4>
               <div className="rounded-xl border border-border bg-muted/10 p-4 prose prose-sm dark:prose-invert max-w-none text-xs text-foreground/90 max-h-48 overflow-y-auto">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{persona.persona}</ReactMarkdown>
@@ -603,7 +603,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <Award className="h-3.5 w-3.5" />
-                智能体目标
+                Agent Goals
               </h4>
               <ul className="list-disc list-inside space-y-1 text-xs text-foreground/90 pl-1">
                 {persona.goals.map((g, i) => (
@@ -620,7 +620,7 @@ export function AgentDetailPanel({
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
                 <Info className="h-3.5 w-3.5" />
-                特质属性
+                Traits & Attributes
               </h4>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(persona.traits)
@@ -641,10 +641,10 @@ export function AgentDetailPanel({
           <div className="space-y-4">
             <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
               <Users className="h-3.5 w-3.5" />
-              社会关系
+              Social Relationships
             </h4>
             {agentRels.length === 0 ? (
-              <div className="text-xs text-muted-foreground italic pl-1">暂无社会关系。</div>
+              <div className="text-xs text-muted-foreground italic pl-1">No social relationships found.</div>
             ) : (
               <TooltipProvider>
                 <div className="flex flex-wrap gap-2">
@@ -670,17 +670,17 @@ export function AgentDetailPanel({
                         >
                           <div className="font-semibold text-foreground text-xs">{otherName}</div>
                           <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-                            <span>类型:</span>
+                            <span>Type:</span>
                             <span className="font-semibold text-foreground px-1 py-0.2 rounded bg-muted border border-border/30">
                               {style.label}
                             </span>
                             <span className="text-[9px] font-mono text-muted-foreground">
-                              {isSubject ? '(主动)' : '(被动)'}
+                              {isSubject ? '(Active)' : '(Passive)'}
                             </span>
                           </div>
                           <div className="space-y-1">
                             <div className="flex justify-between text-[9px] font-mono text-muted-foreground">
-                              <span>熟悉度</span>
+                              <span>Familiarity</span>
                               <span>{(rel.familiarity * 100).toFixed(0)}%</span>
                             </div>
                             <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
@@ -695,7 +695,7 @@ export function AgentDetailPanel({
                           </div>
                           <div className="space-y-1">
                             <div className="flex justify-between text-[9px] font-mono text-muted-foreground">
-                              <span>好感度</span>
+                              <span>Affinity</span>
                               <span
                                 className={
                                   rel.affinity > 0
@@ -715,7 +715,6 @@ export function AgentDetailPanel({
                                 style={{
                                   left: `${affinityToPercent(rel.affinity)}%`,
                                   transform: 'translateX(-50%)',
-                                  // Wait, is affinityToPercent defined? Yes, we saw it's at line 491: const affinityToPercent = (affinity: number) => ((affinity + 1) / 2) * 100
                                 }}
                               />
                             </div>
@@ -774,12 +773,12 @@ export function AgentDetailPanel({
           <div className="space-y-4">
             <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
               <Activity className="h-3.5 w-3.5" />
-              活动日志
+              Activity Log
             </h4>
             {agentMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed rounded-xl">
                 <Activity className="h-6 w-6 opacity-30" />
-                <span className="text-xs">该智能体在此仿真中暂无活动日志。</span>
+                <span className="text-xs">This agent has no activity logs in this simulation yet.</span>
               </div>
             ) : (
               <div className="space-y-3">
@@ -802,7 +801,7 @@ export function AgentDetailPanel({
                     {msg.reasoning && (
                       <details className="mt-2">
                         <summary className="text-[9px] text-muted-foreground cursor-pointer hover:text-foreground font-mono transition-colors">
-                          思考过程
+                          Reasoning Process
                         </summary>
                         <div className="mt-2 pl-3 border-l-2 border-border prose prose-sm dark:prose-invert max-w-none text-muted-foreground/80 leading-relaxed italic select-text">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.reasoning}</ReactMarkdown>
@@ -824,11 +823,11 @@ export function AgentDetailPanel({
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
               <span className="text-xs font-bold font-mono tracking-wide uppercase text-foreground">
-                智能体访谈 (In-Character)
+                Agent Interview (In-Character)
               </span>
             </div>
             <span className="text-[10px] text-muted-foreground">
-              可提问智能体关于辩论的立场或想法
+              Ask the agent about its stance or thoughts on the debate.
             </span>
           </div>
 
@@ -838,7 +837,7 @@ export function AgentDetailPanel({
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
                 <MessageSquare className="h-8 w-8 opacity-20" />
                 <div className="text-xs text-center max-w-[320px] leading-relaxed">
-                  与 {persona.name} 启动一场关于仿真事件的角色访谈。
+                  Start an in-character interview with {persona.name} about simulation events.
                 </div>
               </div>
             ) : (
@@ -856,7 +855,7 @@ export function AgentDetailPanel({
                       {chat.loading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          思考中...
+                          Thinking...
                         </div>
                       ) : (
                         <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-foreground select-text">
@@ -878,7 +877,7 @@ export function AgentDetailPanel({
             <input
               type="text"
               required
-              placeholder={`向 ${persona.name} 提问...`}
+              placeholder={`Ask ${persona.name} a question...`}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:ring-1 focus:ring-primary/20 focus:outline-none transition-all"
@@ -895,7 +894,7 @@ export function AgentDetailPanel({
       ) : (
         <div className="h-[120px] border-t border-border shrink-0 flex flex-col bg-card/25 items-center justify-center p-4">
           <span className="text-xs text-muted-foreground text-center">
-            角色访谈功能仅在仿真运行中或已完成时可用。
+            In-character interview functionality is only available when the simulation is running or completed.
           </span>
         </div>
       )}

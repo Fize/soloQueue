@@ -304,7 +304,7 @@ func TestGAAgentLoop_PerceptionCheck(t *testing.T) {
 
 	foundInMem := false
 	for _, rec := range loop.sa.Memory().Records() {
-		if strings.Contains(rec.Content, "发现") && strings.Contains(rec.Content, "Bob") {
+		if strings.Contains(rec.Content, "discovered") && strings.Contains(rec.Content, "Bob") {
 			foundInMem = true
 			break
 		}
@@ -356,7 +356,7 @@ func TestGAAgentLoop_SneakAttack(t *testing.T) {
 
 	foundDraw := false
 	for _, rec := range loop.sa.Memory().Records() {
-		if strings.Contains(rec.Content, "平手") {
+		if strings.Contains(rec.Content, "draw") {
 			foundDraw = true
 			break
 		}
@@ -379,7 +379,7 @@ func TestGAAgentLoop_SneakAttack(t *testing.T) {
 
 	foundDraw = false
 	for _, rec := range loop.sa.Memory().Records() {
-		if strings.Contains(rec.Content, "平手") {
+		if strings.Contains(rec.Content, "draw") {
 			foundDraw = true
 			break
 		}
@@ -434,12 +434,12 @@ func TestGAAgentLoop_GroupConflict(t *testing.T) {
 	// Scenario A: Charlie is NOT Alice's ally (affinity = 0).
 	// Alice strength = 20, Bob strength = 50. Diff = 20 - 50 = -30.
 	// Bob wins (diff <= -30), Alice/initiator loses.
-	// B's memory will record a victory: "你方大获全胜"
+	// B's memory will record a victory: "You won a crushing victory"
 	loop.resolveConflictState(context.Background(), "alice", "Alice", "bob", "Bob", &Action{Type: ActionConflict}, false, 1, SimTimeEvent{SimTime: clock.Now()})
 
 	foundVictory := false
 	for _, rec := range loop.sa.Memory().Records() {
-		if strings.Contains(rec.Content, "大获全胜") {
+		if strings.Contains(rec.Content, "won a great victory") {
 			foundVictory = true
 			break
 		}
@@ -457,12 +457,12 @@ func TestGAAgentLoop_GroupConflict(t *testing.T) {
 
 	// Alice faction strength = 20 + 40 (Charlie) = 60. Bob strength = 50.
 	// Diff = 60 - 50 = 10.
-	// Results in a Draw. B's memory will record: "双方旗鼓相当"
+	// Results in a Draw. B's memory will record: "The two sides are evenly matched"
 	loop.resolveConflictState(context.Background(), "alice", "Alice", "bob", "Bob", &Action{Type: ActionConflict}, false, 2, SimTimeEvent{SimTime: clock.Now()})
 
 	foundDraw := false
 	for _, rec := range loop.sa.Memory().Records() {
-		if strings.Contains(rec.Content, "平手") {
+		if strings.Contains(rec.Content, "draw") {
 			foundDraw = true
 			break
 		}

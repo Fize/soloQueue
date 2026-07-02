@@ -706,7 +706,7 @@ func TestSession_AskStream_InterceptsCron(t *testing.T) {
 	}
 
 	delta, ok := events[0].(agent.ContentDeltaEvent)
-	if !ok || !strings.Contains(delta.Delta, "定时任务已成功创建") {
+	if !ok || !strings.Contains(delta.Delta, "Scheduled task successfully created!") {
 		t.Errorf("unexpected first event: %+v", events[0])
 	}
 
@@ -735,7 +735,7 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 			t.Fatalf("expected at least 2 events, got %d", len(events))
 		}
 		delta, ok := events[0].(agent.ContentDeltaEvent)
-		if !ok || !strings.Contains(delta.Delta, "可用命令：") {
+		if !ok || !strings.Contains(delta.Delta, "Available commands:") {
 			t.Errorf("unexpected event content: %+v", events[0])
 		}
 	})
@@ -771,7 +771,7 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 			t.Fatalf("expected at least 2 events, got %d", len(events))
 		}
 		delta, ok := events[0].(agent.ContentDeltaEvent)
-		if !ok || !strings.Contains(delta.Delta, "对话历史已清空") {
+		if !ok || !strings.Contains(delta.Delta, "Dialogue history cleared") {
 			t.Errorf("unexpected event content: %+v", events[0])
 		}
 	})
@@ -789,7 +789,7 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 			t.Fatalf("expected at least 2 events, got %d", len(events))
 		}
 		delta, ok := events[0].(agent.ContentDeltaEvent)
-		if !ok || !strings.Contains(delta.Delta, "取消失败：") {
+		if !ok || !strings.Contains(delta.Delta, "Cancellation failed:") {
 			t.Errorf("unexpected event content: %+v", events[0])
 		}
 	})
@@ -813,7 +813,7 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 			t.Fatalf("expected at least 2 events, got %d", len(events))
 		}
 		delta, ok := events[0].(agent.ContentDeltaEvent)
-		if !ok || !strings.Contains(delta.Delta, "已取消当前任务") {
+		if !ok || !strings.Contains(delta.Delta, "Current task has been cancelled") {
 			t.Errorf("unexpected event content: %+v", events[0])
 		}
 		if !cancelCalled {
@@ -944,6 +944,3 @@ func TestSession_BuildRecalledContext(t *testing.T) {
 		t.Fatal("expected to recall memories after Clear, got empty")
 	}
 }
-
-
-

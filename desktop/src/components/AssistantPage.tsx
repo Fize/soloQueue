@@ -309,7 +309,7 @@ export function AssistantPage() {
           {streaming && (
             <div className="flex items-center gap-1.5 text-[10px] text-violet-500/70">
               <Loader2 className="h-3 w-3 animate-spin" />
-              生成中...
+              Generating...
             </div>
           )}
         </header>
@@ -322,7 +322,7 @@ export function AssistantPage() {
           {messages.length === 0 && historyLoading ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
               <Loader2 className="h-7 w-7 animate-spin text-violet-500/70" />
-              <p className="text-xs text-muted-foreground font-mono">正在载入历史...</p>
+              <p className="text-xs text-muted-foreground font-mono">Loading history...</p>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
@@ -331,7 +331,7 @@ export function AssistantPage() {
               </div>
               <h2 className="text-lg font-semibold text-foreground/80">{agentName}</h2>
               <p className="max-w-xs text-center text-xs text-muted-foreground">
-                向 L1 智能体发送消息，获取即时响应。
+                Send a message to the L1 agent for an instant response.
               </p>
             </div>
           ) : (
@@ -339,7 +339,7 @@ export function AssistantPage() {
               {historyLoadingMore && (
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-mono ml-2">正在载入更多历史...</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-2">Loading more history...</span>
                 </div>
               )}
               {messages.map((msg) => (

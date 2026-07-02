@@ -46,11 +46,11 @@ func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 
 // ─── run goroutine ──────────────────────────────────────────────────────────
 
-// run 是 agent 的主循环
+// run is the agent's main loop
 //
-// 接受 ctx / mailbox / done 作为参数（而非从 receiver 读）：
-// Start 构造它们并作为局部参数传入，run 就不需要和 Start/Stop 抢锁；
-// 即使 Stop 重置了 a.mailbox，这里的局部 mailbox 还指向同一个 chan。
+// Accepts ctx / mailbox / done as parameters (instead of reading from the receiver):
+// Start constructs them and passes them as local parameters, so run doesn't need to contend for locks with Start/Stop;
+// even if Stop resets a.mailbox, this local mailbox still points to the same channel.
 func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{}) {
 	a.logInfo(ctx, logger.CatActor, "agent run goroutine started")
 	defer func() {
@@ -60,8 +60,8 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 			a.logError(ctx, logger.CatActor, "agent run goroutine panic", err)
 			a.setRuntimeState(StateStopped)
 			close(done)
-			// panic 已记录到 exitErr，caller 通过 Err() 可获取；
-			// 不再 re-panic：re-panic 会跳过 close(done)，导致 caller 永远阻塞在 Done()
+			// Panic is already recorded in exitErr, caller can retrieve it via Err();
+			// no re-panic: re-panic would skip close(done), causing the caller to block indefinitely on Done()
 		} else {
 			a.logInfo(ctx, logger.CatActor, "agent run goroutine stopped")
 			a.setRuntimeState(StateStopped)
@@ -87,10 +87,10 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 	}
 }
 
-// runWithPriorityMailbox 是启用 PriorityMailbox 时的主循环
+// runWithPriorityMailbox is the main loop when PriorityMailbox is enabled
 //
-// 优先消费 highCh（委托回传、超时事件），再消费 normalCh（用户 Ask/Submit）。
-// 保证异步委托结果不被普通消息阻塞。
+// Prioritizes consuming highCh (delegation callbacks, timeout events), then normalCh (user Ask/Submit).
+// Ensures that asynchronous delegation results are not blocked by normal messages.
 func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox, done chan<- struct{}) {
 	a.logInfo(ctx, logger.CatActor, "agent run goroutine started")
 	defer func() {
@@ -108,7 +108,7 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 	}()
 
 	for {
-		// 优先检查 highCh（非阻塞）
+		// First check highCh (non-blocking)
 		select {
 		case <-ctx.Done():
 			a.setRuntimeState(StateStopping)
@@ -126,7 +126,7 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 		default:
 		}
 
-		// highCh 无消息时，同时等 highCh + normalCh
+		// When highCh has no messages, wait for both highCh + normalCh simultaneously
 		select {
 		case <-ctx.Done():
 			a.setRuntimeState(StateStopping)
@@ -149,10 +149,10 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 	}
 }
 
-// drainPriorityMailbox 把已入队的 job 全部以已 canceled 的 ctx 调用一遍
+// drainPriorityMailbox invokes all enqueued jobs with an already canceled ctx
 func (a *Agent) drainPriorityMailbox(ctx context.Context, pm *PriorityMailbox) int {
 	n := 0
-	// 先 drain highCh
+	// First drain highCh
 	for {
 		select {
 		case pj := <-pm.HighCh():
@@ -163,7 +163,7 @@ func (a *Agent) drainPriorityMailbox(ctx context.Context, pm *PriorityMailbox) i
 		}
 	}
 drainNormal:
-	// 再 drain normalCh
+	// Then drain normalCh
 	for {
 		select {
 		case pj := <-pm.NormalCh():
@@ -175,14 +175,13 @@ drainNormal:
 	}
 }
 
-// drainMailbox 把已入队的 job 全部以已 canceled 的 ctx 调用一遍
+// drainMailbox invokes all enqueued jobs with an already canceled ctx
 //
-// 目的：让每个 caller 的 Ask 能从 replyCh 拿到结果（通常是 ctx.Canceled），
-// 不会永远卡住。
-// 不会再从 mailbox 之外读（mailbox 永不 close，send 方会看到 agentDone
-// 已 close 后直接返回 ErrStopped）。
+// Purpose: To allow each caller's Ask to receive a result from replyCh (usually ctx.Canceled),
+// preventing it from getting stuck indefinitely.
+// No further reads from outside the mailbox (the mailbox is never closed; senders will return ErrStopped directly after seeing agentDone is closed).
 //
-// 返回 drain 的 job 数量，用于日志统计。
+// Returns the number of drained jobs for logging statistics.
 func (a *Agent) drainMailbox(ctx context.Context, mailbox <-chan job) int {
 	n := 0
 	for {

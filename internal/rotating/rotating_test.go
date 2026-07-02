@@ -160,14 +160,14 @@ func TestRotation_MultipleRollover(t *testing.T) {
 	}
 	defer w.Close()
 
-	// 写入大量数据触发多次轮转
+	// Write a large amount of data to trigger multiple rotations
 	for i := 0; i < 20; i++ {
 		if _, err := w.Write([]byte("data")); err != nil {
 			t.Fatalf("Write %d: %v", i, err)
 		}
 	}
 
-	// 应有 .1, .2 等轮转文件
+	// Rotated files like .1, .2, etc. should exist
 	found := 0
 	for n := 1; n <= 10; n++ {
 		p := filepath.Join(dir, fmt.Sprintf("test.jsonl.%d", n))
@@ -190,15 +190,15 @@ func TestTrimFiles_DeletesOldFiles(t *testing.T) {
 	}
 	defer w.Close()
 
-	// 写入大量数据触发多次轮转
+	// Write a large amount of data to trigger multiple rotations
 	for i := 0; i < 30; i++ {
 		if _, err := w.Write([]byte("dat")); err != nil {
 			t.Fatalf("Write %d: %v", i, err)
 		}
 	}
 
-	// 超过 maxFiles 的文件应被删除
-	// 允许 .1 和 .2 存在，.3 及以上应被删除
+	// Files exceeding maxFiles should be deleted
+	// .1 and .2 are allowed to exist; .3 and higher should be deleted
 	for n := 3; n <= 10; n++ {
 		p := filepath.Join(dir, fmt.Sprintf("test.jsonl.%d", n))
 		if _, err := os.Stat(p); err == nil {
@@ -209,7 +209,7 @@ func TestTrimFiles_DeletesOldFiles(t *testing.T) {
 
 func TestTrimFiles_MaxFilesZero_NoTrim(t *testing.T) {
 	dir := t.TempDir()
-	// 先手动创建一些编号文件
+	// First, manually create some numbered files
 	for n := 1; n <= 5; n++ {
 		p := filepath.Join(dir, fmt.Sprintf("test.jsonl.%d", n))
 		if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
@@ -223,13 +223,13 @@ func TestTrimFiles_MaxFilesZero_NoTrim(t *testing.T) {
 	}
 	defer w.Close()
 
-	// 手动写一条触发 trimFiles 路径
+	// Manually write a line to trigger the trimFiles path
 	w.SetMaxSize(1)
 	if _, err := w.Write([]byte("x")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
-	// 所有 5 个编号文件应保留
+	// All 5 numbered files should be retained
 	for n := 1; n <= 5; n++ {
 		p := filepath.Join(dir, fmt.Sprintf("test.jsonl.%d", n))
 		if _, err := os.Stat(p); err != nil {
@@ -248,21 +248,21 @@ func TestSetMaxSize_TriggersRotation(t *testing.T) {
 	}
 	defer w.Close()
 
-	// 写入一些数据
+	// Write some data
 	for i := 0; i < 5; i++ {
 		if _, err := w.Write([]byte("line")); err != nil {
 			t.Fatalf("Write %d: %v", i, err)
 		}
 	}
 
-	// 设置极小的 maxSize，下次写入应触发轮转
+	// Set a very small maxSize; the next write should trigger rotation
 	w.SetMaxSize(5)
 
 	if _, err := w.Write([]byte("trigger")); err != nil {
 		t.Fatalf("Write after SetMaxSize: %v", err)
 	}
 
-	// 应有轮转文件
+	// A rotated file should exist
 	if _, err := os.Stat(filepath.Join(dir, "test.jsonl.1")); err != nil {
 		t.Errorf("rolled .1 file missing after SetMaxSize: %v", err)
 	}
@@ -301,12 +301,12 @@ func TestReopen_AppendsNotOverwrites(t *testing.T) {
 
 func TestListFiles_Order(t *testing.T) {
 	dir := t.TempDir()
-	// 创建轮转文件 + 活跃文件（实际命名: baseName.jsonl.N）
+	// Create rotated files + active file (actual naming: baseName.jsonl.N)
 	os.WriteFile(filepath.Join(dir, "tl.jsonl.3"), []byte{}, 0o644)
 	os.WriteFile(filepath.Join(dir, "tl.jsonl.1"), []byte{}, 0o644)
 	os.WriteFile(filepath.Join(dir, "tl.jsonl.2"), []byte{}, 0o644)
 	os.WriteFile(filepath.Join(dir, "tl.jsonl"), []byte{}, 0o644)
-	// 不相关文件
+	// Irrelevant file
 	os.WriteFile(filepath.Join(dir, "other.jsonl"), []byte{}, 0o644)
 
 	files, err := ListFiles(dir, "tl")
@@ -314,7 +314,7 @@ func TestListFiles_Order(t *testing.T) {
 		t.Fatalf("ListFiles: %v", err)
 	}
 
-	// 顺序：编号大的（老）→ 编号小的（新）→ 活跃文件（最新）
+	// Order: largest number (oldest) → smallest number (newest) → active file (latest)
 	expected := []string{
 		filepath.Join(dir, "tl.jsonl.3"),
 		filepath.Join(dir, "tl.jsonl.2"),
@@ -363,7 +363,7 @@ func TestListFiles_OnlyMatchesBaseName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListFiles: %v", err)
 	}
-	// 不应匹配 timeline-other.jsonl
+	// Should not match timeline-other.jsonl
 	if len(files) != 2 {
 		t.Errorf("expected 2 files, got %d: %v", len(files), files)
 	}
@@ -412,7 +412,7 @@ func TestWriter_ConcurrentWrites(t *testing.T) {
 	}
 	wg.Wait()
 
-	// 读取并统计行数
+	// Read and count the lines
 	content, err := os.ReadFile(filepath.Join(dir, "test.jsonl"))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -444,7 +444,7 @@ func TestZeroMaxSize_NoRotation(t *testing.T) {
 		}
 	}
 
-	// 不应有轮转文件
+	// No rotated files should exist
 	entries, _ := os.ReadDir(dir)
 	rotated := 0
 	for _, e := range entries {

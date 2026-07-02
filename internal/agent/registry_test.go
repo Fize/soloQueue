@@ -124,7 +124,7 @@ func TestRegistry_Unregister(t *testing.T) {
 	if _, ok := r.Get(a.InstanceID); ok {
 		t.Error("agent should be removed")
 	}
-	// 再次 Unregister 返回 false
+	// Unregistering again returns false
 	if r.Unregister(a.InstanceID) {
 		t.Error("Unregister non-existing should return false")
 	}
@@ -158,7 +158,7 @@ func TestRegistry_List_IndependentSlice(t *testing.T) {
 		t.Fatalf("List len = %d, want 2", len(list))
 	}
 
-	// 修改返回的 slice 不应影响 registry
+	// Modifying the returned slice should not affect the registry
 	list[0] = nil
 	if r.Len() != 2 {
 		t.Errorf("registry affected by slice mutation")
@@ -182,7 +182,7 @@ func TestRegistry_ConcurrentRegisterGet(t *testing.T) {
 	const N = 100
 	var wg sync.WaitGroup
 
-	// N 并发 Register 不同 InstanceID
+	// N concurrent Register operations for different InstanceIDs
 	var registered atomic.Int32
 	for i := 0; i < N; i++ {
 		wg.Add(1)
@@ -195,7 +195,7 @@ func TestRegistry_ConcurrentRegisterGet(t *testing.T) {
 		}(i)
 	}
 
-	// 并发 Get（可能命中/未命中）
+	// Concurrent Get (may hit or miss)
 	for i := 0; i < N*2; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -204,7 +204,7 @@ func TestRegistry_ConcurrentRegisterGet(t *testing.T) {
 		}(i)
 	}
 
-	// 并发 List
+	// Concurrent List
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
@@ -253,7 +253,7 @@ func TestRegistry_ConcurrentRegisterSameTemplate(t *testing.T) {
 }
 
 func TestRegistry_ConcurrentRegisterUnregister(t *testing.T) {
-	// 反复 Register / Unregister 不崩、race 干净
+	// Repeated Register / Unregister should not crash and be race-free
 	r := NewRegistry(nil)
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
@@ -277,7 +277,7 @@ func TestRegistry_ConcurrentRegisterUnregister(t *testing.T) {
 		}(i)
 	}
 
-	// 稍跑一会儿
+	// Run for a while
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -321,7 +321,7 @@ func TestRegistry_LocateIdle(t *testing.T) {
 
 // ─── Batch lifecycle ────────────────────────────────────────────────────────
 
-// newAgentForReg 构造一个带 FakeLLM、未启动的 Agent
+// newAgentForReg creates an Agent with FakeLLM, not yet started.
 func newAgentForReg(id string) *Agent {
 	return NewAgent(Definition{ID: id}, &FakeLLM{Responses: []string{"r"}}, nil)
 }
@@ -336,7 +336,7 @@ func TestRegistry_StartAll_StopAll(t *testing.T) {
 	if len(errs) != 0 {
 		t.Errorf("StartAll errors: %v", errs)
 	}
-	// 每个 agent 应都运行中（状态观察）
+	// Every agent should be running (state observation)
 	for _, a := range r.List() {
 		waitForState(t, a, 200*time.Millisecond, StateIdle)
 	}
@@ -377,7 +377,7 @@ func TestRegistry_StartAll_AlreadyStarted_Errors(t *testing.T) {
 }
 
 func TestRegistry_StopAll_SkipNotStarted(t *testing.T) {
-	// 未 Start 的 agent 被 StopAll 时 ErrNotStarted 应被静默跳过
+	// Agents that haven't been Started should have ErrNotStarted silently skipped during StopAll
 	r := NewRegistry(nil)
 	_ = r.Register(newAgentForReg("never-started"))
 
@@ -406,20 +406,20 @@ func TestRegistry_Shutdown_UnregistersAndStops(t *testing.T) {
 }
 
 func TestRegistry_Shutdown_ReturnsJoinedErrors(t *testing.T) {
-	// 一个不响应 ctx 的 agent：Stop 会超时
+	// An agent that doesn't respond to ctx: Stop will time out
 	r := NewRegistry(nil)
 	a := NewAgent(Definition{ID: "blocked"}, &FakeLLM{}, nil)
 	_ = r.Register(a)
 	_ = a.Start(context.Background())
 
-	// 投递一个卡死 job
+	// Submit a stuck job
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
 	_ = a.Submit(context.Background(), func(ctx context.Context) error {
 		<-block
 		return nil
 	})
-	// 等 job 开始
+	// Wait for job to start
 	waitForState(t, a, 500*time.Millisecond, StateProcessing)
 
 	err := r.Shutdown(50 * time.Millisecond)
@@ -429,13 +429,13 @@ func TestRegistry_Shutdown_ReturnsJoinedErrors(t *testing.T) {
 	if !errors.Is(err, ErrStopTimeout) {
 		t.Errorf("err = %v, should wrap ErrStopTimeout", err)
 	}
-	// registry 仍应被清空
+	// The registry should still be cleared
 	if r.Len() != 0 {
 		t.Errorf("after Shutdown, Len = %d, want 0 (even if Stop errored)", r.Len())
 	}
 }
 
-// waitForState 轮询 agent 状态直到等于 want 或超时
+// waitForState polls the agent's state until it equals 'want' or a timeout occurs
 func waitForState(t *testing.T, a *Agent, timeout time.Duration, want State) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -450,8 +450,8 @@ func waitForState(t *testing.T, a *Agent, timeout time.Duration, want State) {
 
 // ─── Logging ────────────────────────────────────────────────────────────────
 
-// TestRegistry_LogsRegisterUnregister 验证 Registry 带 logger 时记录
-// Register / Unregister / Shutdown 的结构化事件
+// TestRegistry_LogsRegisterUnregister verifies that the Registry logs
+// structured events for Register / Unregister / Shutdown when a logger is provided.
 func TestRegistry_LogsRegisterUnregister(t *testing.T) {
 	dir := t.TempDir()
 	log, err := logger.System(dir, logger.WithConsole(false))
@@ -469,7 +469,7 @@ func TestRegistry_LogsRegisterUnregister(t *testing.T) {
 		t.Fatal("Unregister should succeed")
 	}
 
-	// Shutdown 空 registry，验证它也产生日志
+	// Shut down an empty registry and verify it also produces logs
 	if err := r.Shutdown(time.Second); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}

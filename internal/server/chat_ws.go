@@ -67,13 +67,13 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 						Data:     b64,
 						MimeType: mimeType,
 					})
-					blocks = append(blocks, fmt.Sprintf("- %s: %s (图片, 已通过视觉模型识别)", f.Name, f.Path))
+					blocks = append(blocks, fmt.Sprintf("- %s: %s (image, recognized by visual model)", f.Name, f.Path))
 					continue
 				}
 			}
 			blocks = append(blocks, fmt.Sprintf("- %s: %s", f.Name, f.Path))
 		}
-		finalPrompt = fmt.Sprintf("%s\n\n[上传文件:\n%s\n]", msg.Prompt, strings.Join(blocks, "\n"))
+		finalPrompt = fmt.Sprintf("%s\n\n[Uploaded files:\n%s\n]", msg.Prompt, strings.Join(blocks, "\n"))
 	}
 
 	// Create a derived context from client ctx so disconnect cancels this request.

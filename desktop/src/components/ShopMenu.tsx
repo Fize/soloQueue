@@ -69,7 +69,7 @@ export default function ShopMenu({ onClose }: ShopMenuProps) {
                 : 'text-gray-400 hover:text-gray-700 hover:bg-white'
             }`}
           >
-            ⚙️ UPGRADES (升级)
+            ⚙️ UPGRADES
           </button>
           <button 
             onClick={() => { sounds.playSelect(); setActiveTab('hire'); }}
@@ -79,7 +79,7 @@ export default function ShopMenu({ onClose }: ShopMenuProps) {
                 : 'text-gray-400 hover:text-gray-700 hover:bg-white'
             }`}
           >
-            👥 HIRE STAFF (招聘)
+            👥 HIRE STAFF
           </button>
         </div>
 

@@ -8,7 +8,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
-// ─── buildWireRequest ────────────────────────────────────────────────────────
+// --- buildWireRequest --------------------------------------------------------
 
 func TestBuildWireRequest_Minimal(t *testing.T) {
 	req := agent.LLMRequest{
@@ -128,18 +128,18 @@ func TestBuildWireRequest_MessagesWithToolCalls(t *testing.T) {
 func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 	msgs := []agent.LLMMessage{
 		{Role: "user", Content: "hello"},
-		// assistant 有 tool_calls + reasoning_content：应出现在 JSON 中
+		// assistant with tool_calls + reasoning_content: should appear in JSON
 		{Role: "assistant", Content: "thinking...", ReasoningContent: "let me think", ToolCalls: []llm.ToolCall{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "f", Arguments: "{}"}},
 		}},
-		// assistant 无 tool_calls 但有 reasoning_content：也应回传（DeepSeek 跨轮要求）
+		// assistant without tool_calls but with reasoning_content: should also be returned (DeepSeek cross-turn requirement)
 		{Role: "assistant", Content: "done", ReasoningContent: "my reasoning"},
-		// assistant 无 reasoning_content：不应出现
+		// assistant without reasoning_content: should not appear
 		{Role: "assistant", Content: "no reasoning"},
 	}
 	wired := buildWireMessages(msgs, false, false)
 
-	// 第 2 条消息（index=1）：有 tool_calls + reasoning_content
+	// 2nd message (index=1): has tool_calls + reasoning_content
 	b1, err := json.Marshal(wired[1])
 	if err != nil {
 		t.Fatalf("marshal msg[1]: %v", err)
@@ -148,7 +148,7 @@ func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 		t.Errorf("msg[1] should have reasoning_content, got: %s", b1)
 	}
 
-	// 第 3 条消息（index=2）：无 tool_calls 但有 reasoning_content，也应含
+	// 3rd message (index=2): no tool_calls but has reasoning_content, should also be included
 	b2, err := json.Marshal(wired[2])
 	if err != nil {
 		t.Fatalf("marshal msg[2]: %v", err)
@@ -157,7 +157,7 @@ func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 		t.Errorf("msg[2] should have reasoning_content, got: %s", b2)
 	}
 
-	// 第 4 条消息（index=3）：无 reasoning_content，不应含
+	// 4th message (index=3): no reasoning_content, should not be included
 	b3, err := json.Marshal(wired[3])
 	if err != nil {
 		t.Fatalf("marshal msg[3]: %v", err)
@@ -168,7 +168,7 @@ func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 }
 
 func TestBuildWireRequest_JSONOmitEmpty(t *testing.T) {
-	// 零值字段不应出现在 JSON 里（验证 omitempty）
+	// Zero-value fields should not appear in JSON (verify omitempty)
 	req := agent.LLMRequest{
 		Model:    "m",
 		Messages: []agent.LLMMessage{{Role: "user", Content: "hi"}},
@@ -179,19 +179,19 @@ func TestBuildWireRequest_JSONOmitEmpty(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	s := string(data)
-	// 这些零值字段应被 omitempty 省略
+	// These zero-value fields should be omitted by omitempty
 	for _, not := range []string{"top_p", "max_tokens", "tools", "tool_choice", "response_format", "reasoning_effort"} {
 		if contains(s, `"`+not+`"`) {
 			t.Errorf("JSON should omit %q, got: %s", not, s)
 		}
 	}
-	// stream 应出现（总是显式）
+	// stream should appear (always explicit)
 	if !contains(s, `"stream":true`) {
 		t.Errorf(`JSON should include "stream":true, got: %s`, s)
 	}
 }
 
-// ─── reasoning_effort ────────────────────────────────────────────────────────
+// --- reasoning_effort --------------------------------------------------------
 
 func TestBuildWireRequest_ReasoningEffort(t *testing.T) {
 	req := agent.LLMRequest{
@@ -204,7 +204,7 @@ func TestBuildWireRequest_ReasoningEffort(t *testing.T) {
 		t.Errorf("ReasoningEffort = %v, want \"high\"", w.ReasoningEffort)
 	}
 
-	// 验证 JSON 输出包含 reasoning_effort
+	// Verify JSON output includes reasoning_effort
 	data, err := json.Marshal(w)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -239,7 +239,7 @@ func TestBuildWireRequest_ReasoningEffort_Empty(t *testing.T) {
 	}
 }
 
-// ─── chunkToEvents ───────────────────────────────────────────────────────────
+// --- chunkToEvents -----------------------------------------------------------
 
 func strPtr(s string) *string { return &s }
 
@@ -271,7 +271,7 @@ func TestChunkToEvents_ReasoningContentDelta(t *testing.T) {
 }
 
 func TestChunkToEvents_ContentAndReasoning_CombineOneEvent(t *testing.T) {
-	// reasoning 和 content 在同一 delta 里应合并为一个 Event
+	// Reasoning and content in the same delta should be merged into one Event
 	c := wireChunk{
 		Choices: []wireChoice{
 			{Delta: &wireDelta{
@@ -358,7 +358,7 @@ func TestChunkToEvents_UsageMergedWithDone(t *testing.T) {
 }
 
 func TestChunkToEvents_UsageWithoutFinish_CreatesDone(t *testing.T) {
-	// include_usage=true 时，DeepSeek 会在最后发一个只含 usage 的 chunk
+	// When include_usage=true, DeepSeek will send a final chunk containing only usage
 	c := wireChunk{
 		Choices: []wireChoice{},
 		Usage: &wireUsage{
@@ -375,7 +375,7 @@ func TestChunkToEvents_UsageWithoutFinish_CreatesDone(t *testing.T) {
 }
 
 func TestChunkToEvents_EmptyDelta_NoEvent(t *testing.T) {
-	// 第一个 chunk 通常只有 role="assistant"，没有 content；不应产生 Event
+	// The first chunk usually only has role="assistant" and no content; should not produce an Event
 	c := wireChunk{
 		Choices: []wireChoice{
 			{Delta: &wireDelta{Role: "assistant"}},
@@ -407,7 +407,7 @@ func TestChunkToEvents_MultipleToolCallsInOneDelta(t *testing.T) {
 	}
 }
 
-// ─── wireUsageToLLM ──────────────────────────────────────────────────────────
+// --- wireUsageToLLM ----------------------------------------------------------
 
 func TestWireUsageToLLM(t *testing.T) {
 	wu := &wireUsage{
@@ -438,7 +438,7 @@ func TestWireUsageToLLM_NilCompletionDetails(t *testing.T) {
 	}
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// --- Helpers -----------------------------------------------------------------
 
 func contains(haystack, needle string) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {

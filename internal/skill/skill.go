@@ -1,18 +1,18 @@
-// Package skill 实现可执行的技能系统
+// Package skill implements an executable skill system.
 //
-// Skill 是 Agent 可调用的技能定义，LLM 通过 Skill 内置工具激活。
-// 重构后的设计对齐 Claude Code 的 Skill 机制：
+// A Skill is a callable skill definition for an Agent, activated by the LLM via built-in Skill tools.
+// The refactored design aligns with Claude Code's Skill mechanism:
 //
-//   - Skill 是不可变的数据定义（导出字段 struct，非接口）
-//   - SkillTool 实现 tools.Tool，LLM 通过 function calling 调用
-//   - 支持 inline（指令注入当前对话）和 fork（隔离子 agent）两种执行模式
-//   - 支持 allowed-tools 白名单、$ARGUMENTS 替换、!`command` shell 执行、@file 引用
+//   - A Skill is an immutable data definition (exported fields struct, not an interface)
+//   - SkillTool implements tools.Tool, called by LLM via function calling
+//   - Supports two execution modes: inline (injecting instructions into the current conversation) and fork (isolated sub-agent)
+//   - Supports allowed-tools whitelist, $ARGUMENTS replacement, !`command` shell execution, @file references
 //
-// 依赖方向：
+// Dependency direction:
 //
-//	tools 不依赖任何人（定义 Tool 接口）
-//	skill → tools（SkillTool 实现 Tool 接口）
-//	agent → skill + tools（同时持有两个 Registry）
+//	tools does not depend on anyone (defines Tool interface)
+//	skill → tools (SkillTool implements Tool interface)
+//	agent → skill + tools (holds both Registries)
 package skill
 
 import (
@@ -21,123 +21,123 @@ import (
 	"sync"
 )
 
-// ─── Skill 类型 ────────────────────────────────────────────────────────────
+// ─── Skill Type ────────────────────────────────────────────────────────────
 
-// SkillCategory 区分内置与外置 Skill
+// SkillCategory distinguishes between built-in and external Skills.
 type SkillCategory string
 
 const (
-	// SkillBuiltin 内置 Skill（Go 代码注册）
+	// SkillBuiltin represents a built-in Skill (registered by Go code).
 	SkillBuiltin SkillCategory = "builtin"
-	// SkillUser 用户外置 Skill（SKILL.md 文件加载）
+	// SkillUser represents a user-defined external Skill (loaded from SKILL.md files).
 	SkillUser SkillCategory = "user"
 )
 
-// Skill 是一个不可变的技能定义（构造后不修改）
+// Skill is an immutable skill definition (not modified after construction).
 //
-// 对齐 Claude Code 的 Skill 机制：Skill 是 LLM 可调用的可执行技能，
-// 包含指令内容、工具白名单、执行模式等配置。
-// LLM 通过 Skill 内置工具激活 skill，而非手动 Read SKILL.md。
+// It aligns with Claude Code's Skill mechanism: a Skill is an executable capability callable by an LLM,
+// containing instruction content, tool whitelist, execution mode, and other configurations.
+// The LLM activates the skill via built-in Skill tools, rather than manually reading SKILL.md.
 type Skill struct {
-	// ID 唯一标识（如 "commit", "deploy"），必须非空
+	// ID is a unique identifier (e.g., "commit", "deploy"), must not be empty.
 	ID string
 
-	// Name 人类可读名称
+	// Name is a human-readable name.
 	Name string
 
-	// Description 给 LLM 看的自然语言描述（简要说明）
+	// Description is a natural language description for the LLM (brief explanation).
 	Description string
 
-	// WhenToUse 额外触发条件描述，附加到 Description 后供 LLM 判断何时调用
+	// WhenToUse describes additional trigger conditions, appended to Description for the LLM to decide when to call.
 	WhenToUse string
 
-	// Instructions 完整指令内容
+	// Instructions contains the full instruction content.
 	//
-	// 对于从 SKILL.md 加载的 skill，这是 body 部分；
-	// 对于内置 skill，这是 Go 代码中定义的指令文本。
+	// For skills loaded from SKILL.md, this is the body part;
+	// for built-in skills, this is the instruction text defined in Go code.
 	Instructions string
 
-	// AllowedTools 工具白名单；nil 表示不限制
+	// AllowedTools is a tool whitelist; nil means no restrictions.
 	//
-	// 支持模式：Bash(git:*), Edit(src/**/*.ts), mcp__server__tool
+	// Supported patterns: Bash(git:*), Edit(src/**/*.ts), mcp__server__tool
 	AllowedTools []string
 
-	// DisableModelInvocation 为 true 时不出现在 Skill tool description 中
-	// 只能通过 /skill-name 斜杠命令手动触发
+	// DisableModelInvocation, when true, prevents the skill from appearing in the Skill tool description.
+	// It can only be manually triggered via the /skill-name slash command.
 	DisableModelInvocation bool
 
-	// UserInvocable 为 false 时不出现在 / 菜单中
-	// 仅供 AI 内部调用或其他 skill 引用
+	// UserInvocable, when false, prevents the skill from appearing in the / menu.
+	// It is only for internal AI calls or references by other skills.
 	UserInvocable bool
 
-	// Context 执行模式："fork" 表示隔离子 agent，"" 表示 inline
+	// Context is the execution mode: "fork" for an isolated sub-agent, "" for inline.
 	Context string
 
-	// Agent fork 时的子 agent 类型（如 "general-purpose", "Explore"）
+	// Agent is the type of sub-agent when forking (e.g., "general-purpose", "Explore").
 	Agent string
 
-	// Category 返回 Skill 分类（builtin 或 user）
+	// Category returns the Skill's classification (builtin or user).
 	Category SkillCategory
 
-	// FilePath SKILL.md 的绝对路径（内置 skill 为空）
+	// FilePath is the absolute path to SKILL.md (empty for built-in skills).
 	FilePath string
 
-	// Dir SKILL.md 所在目录（支持文件引用解析）
+	// Dir is the directory containing SKILL.md (supports file reference resolution).
 	Dir string
 
-	// Triggers 触发词
+	// Triggers are keywords that can trigger the skill.
 	Triggers []string
 
-	// Disabled 是否被禁用
+	// Disabled indicates whether the skill is disabled.
 	Disabled bool
 
-	// Upstream 远程 Git 仓库地址
+	// Upstream is the remote Git repository address.
 	Upstream string
 
-	// Branch 远程 Git 分支名称
+	// Branch is the remote Git branch name.
 	Branch string
 
-	// SubPath 远程 Git 仓库中的子目录路径
+	// SubPath is the sub-directory path within the remote Git repository.
 	SubPath string
 
 	// RequiredEnv required environment variables for the skill
 	RequiredEnv []string
 }
 
-// ─── 构造函数 ──────────────────────────────────────────────────────────────
+// ─── Constructors ──────────────────────────────────────────────────────────────
 
-// SkillOption 是 Skill 的可选配置
+// SkillOption is an optional configuration for a Skill.
 type SkillOption func(*Skill)
 
-// WithAllowedTools 设置工具白名单
+// WithAllowedTools sets the tool whitelist.
 func WithAllowedTools(tools []string) SkillOption {
 	return func(s *Skill) { s.AllowedTools = tools }
 }
 
-// WithDisableModelInvocation 禁止 AI 自动调用
+// WithDisableModelInvocation prevents AI from automatically calling the skill.
 func WithDisableModelInvocation() SkillOption {
 	return func(s *Skill) { s.DisableModelInvocation = true }
 }
 
-// WithUserInvocable 设置是否出现在 / 菜单
+// WithUserInvocable sets whether the skill appears in the / menu.
 func WithUserInvocable(v bool) SkillOption {
 	return func(s *Skill) { s.UserInvocable = v }
 }
 
-// WithContext 设置执行模式（"fork" 或 ""）
+// WithContext sets the execution mode ("fork" or "").
 func WithContext(ctx string) SkillOption {
 	return func(s *Skill) { s.Context = ctx }
 }
 
-// WithAgent 设置 fork 时的子 agent 类型
+// WithAgent sets the sub-agent type when forking.
 func WithAgent(agent string) SkillOption {
 	return func(s *Skill) { s.Agent = agent }
 }
 
-// NewBuiltinSkill 构造内置 Skill
+// NewBuiltinSkill constructs a built-in Skill.
 //
-// id 不能为空（注册时报错）。
-// instructions 为 skill 的完整指令。
+// id must not be empty (will cause an error during registration).
+// instructions is the full instruction for the skill.
 func NewBuiltinSkill(id, desc, instructions string, opts ...SkillOption) *Skill {
 	s := &Skill{
 		ID:            id,
@@ -153,15 +153,15 @@ func NewBuiltinSkill(id, desc, instructions string, opts ...SkillOption) *Skill 
 	return s
 }
 
-// maxSkillDescriptionChars 是 combined description 的最大字符数，对齐 Claude Code
+// maxSkillDescriptionChars is the maximum character count for the combined description, aligning with Claude Code.
 const maxSkillDescriptionChars = 1536
 
-// CombinedDescription 合并 Description 和 WhenToUse，截断至 maxSkillDescriptionChars
+// CombinedDescription merges Description and WhenToUse, truncated to maxSkillDescriptionChars.
 //
-// 对齐 Claude Code 行为：
-//   - when_to_use 追加到 description 后
-//   - 合并文本上限 1536 字符
-//   - 优先保留开头内容（关键用例放在 description 前面）
+// Aligns with Claude Code behavior:
+//   - when_to_use is appended after description
+//   - Combined text limit is 1536 characters
+//   - Prioritizes preserving initial content (key use cases are placed at the beginning of the description)
 func (s *Skill) CombinedDescription() string {
 	if s.WhenToUse == "" {
 		return s.Description
@@ -170,7 +170,7 @@ func (s *Skill) CombinedDescription() string {
 	if len(combined) <= maxSkillDescriptionChars {
 		return combined
 	}
-	// 截断：优先保留 description 完整，剩余配额给 when_to_use 的开头部分
+	// Truncate: prioritize preserving the full description, remaining quota for the beginning of when_to_use
 	descLen := len(s.Description)
 	if descLen >= maxSkillDescriptionChars {
 		return s.Description[:maxSkillDescriptionChars]
@@ -184,35 +184,35 @@ func (s *Skill) CombinedDescription() string {
 
 // ─── SkillRegistry ─────────────────────────────────────────────────────────
 
-// Skill 相关错误
+// Skill related errors.
 var (
-	// ErrSkillIDEmpty Register 时 Skill.ID 为空
+	// ErrSkillIDEmpty indicates Skill.ID is empty during registration.
 	ErrSkillIDEmpty = fmt.Errorf("skill: skill id is empty")
-	// ErrSkillAlreadyRegistered 同名 Skill 重复注册
+	// ErrSkillAlreadyRegistered indicates a skill with the same ID is already registered.
 	ErrSkillAlreadyRegistered = fmt.Errorf("skill: skill already registered")
-	// ErrSkillNil Register(nil)
+	// ErrSkillNil indicates Register(nil) was called.
 	ErrSkillNil = fmt.Errorf("skill: skill is nil")
 )
 
-// SkillRegistry 管理 Skill 的注册和查找
+// SkillRegistry manages Skill registration and lookup.
 type SkillRegistry struct {
 	mu     sync.RWMutex
 	skills map[string]*Skill // skillID → Skill
 }
 
-// NewSkillRegistry 构造空 SkillRegistry
+// NewSkillRegistry constructs an empty SkillRegistry.
 func NewSkillRegistry() *SkillRegistry {
 	return &SkillRegistry{
 		skills: make(map[string]*Skill),
 	}
 }
 
-// Register 注册一个 Skill
+// Register registers a Skill.
 //
-// 错误：
+// Errors:
 //   - s == nil      → ErrSkillNil
 //   - s.ID == ""    → ErrSkillIDEmpty
-//   - 同名已注册    → ErrSkillAlreadyRegistered
+//   - duplicate ID  → ErrSkillAlreadyRegistered
 func (r *SkillRegistry) Register(s *Skill) error {
 	if s == nil {
 		return ErrSkillNil
@@ -232,7 +232,7 @@ func (r *SkillRegistry) Register(s *Skill) error {
 	return nil
 }
 
-// GetSkill 按 ID 查找
+// GetSkill looks up a skill by its ID.
 func (r *SkillRegistry) GetSkill(id string) (*Skill, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -240,7 +240,7 @@ func (r *SkillRegistry) GetSkill(id string) (*Skill, bool) {
 	return s, ok
 }
 
-// Skills 返回所有已注册 Skill 的快照（按 ID 字典序）
+// Skills returns a snapshot of all registered Skills (sorted by ID alphabetically).
 func (r *SkillRegistry) Skills() []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -269,7 +269,7 @@ func (r *SkillRegistry) Rebuild(dirs map[string]string) error {
 	return nil
 }
 
-// Len 当前 Skill 数量
+// Len returns the current number of skills.
 func (r *SkillRegistry) Len() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

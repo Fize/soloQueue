@@ -9,10 +9,10 @@ import (
 
 // ─── Lifecycle ──────────────────────────────────────────────────────────────
 
-// Start 启动 agent 的 run goroutine
+// Start launches the agent's run goroutine.
 //
-// 重复 Start 返回 ErrAlreadyStarted。Stop 后可以再次 Start（重置 mailbox 和 exitErr）。
-// parent 通常是 context.Background() 或进程级 ctx；parent 取消会让 agent 自动退出。
+// Calling Start repeatedly returns ErrAlreadyStarted. After Stop, it can be Started again (resetting mailbox and exitErr).
+// parent is typically context.Background() or a process-level context; if parent is canceled, the agent will automatically exit.
 func (a *Agent) Start(parent context.Context) error {
 	if parent == nil {
 		parent = context.Background()
@@ -21,27 +21,27 @@ func (a *Agent) Start(parent context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// 如果上次的 done 还没 close 并且 ctx 非 nil，说明 agent 还在运行
+	// If the previous 'done' is not yet closed and 'ctx' is not nil, it means the agent is still running.
 	if a.ctx != nil {
 		select {
 		case <-a.done:
-			// 上次已退出，可以重启
+			// Previously exited, can restart.
 		default:
 			return ErrAlreadyStarted
 		}
 	}
 
 	a.ctx, a.cancel = context.WithCancel(parent)
-	// agent 自己的 ctx 也注入 actor_id，这样 run/drain 的日志也自动带
+	// The agent's own ctx also injects actor_id, so run/drain logs automatically include it.
 	a.ctx = a.ctxWithAgentAttrs(a.ctx)
 	a.done = make(chan struct{})
 	a.setRuntimeExitErr(nil)
 	a.setRuntimeState(StateIdle)
 
-	// 每次 Start 清空会话级确认白名单（对应新 session）
+	// Clear session-level confirmation whitelist on each Start (corresponds to a new session).
 	a.confirmStore.Clear()
 
-	// 根据是否启用 PriorityMailbox 选择 run 函数
+	// Choose run function based on whether PriorityMailbox is enabled.
 	if a.priorityMailbox != nil {
 		go a.runWithPriorityMailbox(a.ctx, a.priorityMailbox, a.done)
 	} else {
@@ -59,21 +59,21 @@ func (a *Agent) Start(parent context.Context) error {
 	return nil
 }
 
-// Stop 请求 agent 停止
+// Stop requests the agent to stop.
 //
-//  1. cancel agent ctx → run goroutine 下轮 select 退出
-//  2. 正在执行的 job 其 ctx 也被取消（job 应监听 ctx.Done）
-//  3. 已入队的 pending job 会被 drain（每个 job 以已 canceled 的 ctx 调用）
-//     使得卡在 reply chan 的 Ask 能返回 ctx.Canceled
-//  4. 等待 run goroutine 退出；timeout <= 0 表示无限等待
+//  1. Cancels agent ctx → the run goroutine exits in the next select iteration.
+//  2. The ctx of the currently executing job is also canceled (job should listen to ctx.Done).
+//  3. Enqueued pending jobs will be drained (each job called with an already canceled ctx),
+//     allowing Ask calls stuck on the reply channel to return ctx.Canceled.
+//  4. Waits for the run goroutine to exit; timeout <= 0 means infinite wait.
 //
-// 超时返回 ErrStopTimeout，但 goroutine 仍会最终退出。
-// 未 Start 直接调 Stop 返回 ErrNotStarted。
+// Returns ErrStopTimeout on timeout, but the goroutine will eventually exit.
+// Calling Stop without Start first returns ErrNotStarted.
 func (a *Agent) Stop(timeout time.Duration) error {
 	a.mu.Lock()
 	cancel := a.cancel
 	done := a.done
-	// 快照 a.ctx：cancel 之后它的 value（actor_id）仍可读，用于 Stop 日志
+	// Snapshot a.ctx: its value (actor_id) is still readable after cancel, used for Stop logs.
 	stopCtx := a.ctx
 	a.mu.Unlock()
 
@@ -107,16 +107,16 @@ func (a *Agent) Stop(timeout time.Duration) error {
 	}
 }
 
-// Done 返回一个 channel，run goroutine 退出后 close
+// Done returns a channel that is closed after the run goroutine exits.
 //
-// 语义类似 context.Context.Done：可用于 select 等待 agent 退出。
-// 未 Start 时返回一个已 close 的 channel（立即可读）。
+// Semantically similar to context.Context.Done: can be used in a select statement to wait for the agent to exit.
+// When not Started, returns an already closed channel (immediately readable).
 func (a *Agent) Done() <-chan struct{} {
 	a.mu.Lock()
 	d := a.done
 	a.mu.Unlock()
 	if d == nil {
-		// 未 Start：返回一个已 close 的 channel
+		// Not Started: return an already closed channel.
 		closed := make(chan struct{})
 		close(closed)
 		return closed
@@ -124,12 +124,12 @@ func (a *Agent) Done() <-chan struct{} {
 	return d
 }
 
-// Err 返回 agent 退出原因
+// Err returns the reason for the agent's exit.
 //
-//   - nil：未 Start / 正在运行 / 已正常 Stop
-//   - non-nil：run goroutine 内部 panic，值为封装的 error
+//   - nil: Not Started / Running / Successfully Stopped.
+//   - non-nil: an internal panic occurred in the run goroutine, the value is a wrapped error.
 //
-// 仅在 <-Done() 之后读取才有定论。
+// Only definitive after <-Done() returns.
 func (a *Agent) Err() error {
 	a.runtimeMu.RLock()
 	defer a.runtimeMu.RUnlock()

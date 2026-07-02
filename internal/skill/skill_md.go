@@ -11,33 +11,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ─── 包级 Logger ────────────────────────────────────────────────────────────
+// --- Package-level Logger ---------------------------------------------------
 
-// pkgLogger 是 skill 包的可选日志实例，通过 SetPackageLogger 设置。
-// 用于记录 Skill 加载过程中的非致命错误（如单个 SKILL.md 解析失败）。
+// pkgLogger is an optional logger instance for the skill package, set via SetPackageLogger.
+// Used to log non-fatal errors during Skill loading (e.g., failure to parse a single SKILL.md).
 var pkgLogger *logger.Logger
 
-// SetPackageLogger 设置 skill 包的全局日志实例。
-// 在程序启动时调用一次即可。
+// SetPackageLogger sets the global logger instance for the skill package.
+// Should be called once at program startup.
 func SetPackageLogger(l *logger.Logger) {
 	pkgLogger = l
 }
 
-// ─── SKILL.md 文件加载器 ──────────────────────────────────────────────────
+// --- SKILL.md File Loader ---------------------------------------------------
 
-// SkillMDConfig 是 SKILL.md 的 YAML frontmatter
+// SkillMDConfig is the YAML frontmatter for SKILL.md
 //
-// 对齐 Claude Code 的 Skill frontmatter 字段。
-// SkillMDConfig 是 SKILL.md 的 YAML frontmatter
+// Aligns with Claude Code's Skill frontmatter fields.
+// SkillMDConfig is the YAML frontmatter for SKILL.md
 //
-// 对齐 Claude Code 的 Skill frontmatter 字段。
+// Aligns with Claude Code's Skill frontmatter fields.
 type SkillMDConfig struct {
 	Name                   string   `yaml:"name"`
 	Description            string   `yaml:"description"`
 	WhenToUse              string   `yaml:"when_to_use"`
 	AllowedTools           string   `yaml:"allowed-tools"`
 	DisableModelInvocation bool     `yaml:"disable-model-invocation"`
-	UserInvocable          *bool          `yaml:"user-invocable"` // 指针区分"未设置"和"false"
+	UserInvocable          *bool          `yaml:"user-invocable"` // Pointer distinguishes between "unset" and "false"
 	Context                string         `yaml:"context"`
 	Agent                  string         `yaml:"agent"`
 	Triggers               []string       `yaml:"triggers"`
@@ -49,9 +49,9 @@ type SkillMDConfig struct {
 	RequiredEnvDash        []string       `yaml:"required-env"`
 }
 
-// ParseSkillMD 解析单个 SKILL.md 文件
+// ParseSkillMD parses a single SKILL.md file.
 //
-// 文件格式：
+// File format:
 //
 //	---
 //	name: my-skill
@@ -75,31 +75,31 @@ func ParseSkillMD(path string) (*Skill, error) {
 		return nil, fmt.Errorf("parse frontmatter %s: %w", path, err)
 	}
 
-	// name: frontmatter > 目录名
+	// name: frontmatter > directory name
 	name := cfg.Name
 	if name == "" {
 		name = skillNameFromPath(path)
 	}
 
-	// description: frontmatter > body 首段
+	// description: frontmatter > first paragraph of body
 	desc := cfg.Description
 	if desc == "" {
 		desc = firstParagraph(body)
 	}
 
-	// user-invocable: 默认 true，*bool 区分"未设置"和"false"
+	// user-invocable: defaults to true, *bool distinguishes between "unset" and "false"
 	userInvocable := true
 	if cfg.UserInvocable != nil {
 		userInvocable = *cfg.UserInvocable
 	}
 
-	// allowed-tools: 解析逗号分隔的模式字符串
+	// allowed-tools: parses comma-separated pattern string
 	var allowedTools []string
 	if cfg.AllowedTools != "" {
 		allowedTools = ParseAllowedTools(cfg.AllowedTools)
 	}
 
-	// filePath: 绝对路径
+	// filePath: absolute path
 	absPath, _ := filepath.Abs(path)
 
 	disabled := false
@@ -130,9 +130,9 @@ func ParseSkillMD(path string) (*Skill, error) {
 	}, nil
 }
 
-// LoadSkillsFromDir 从目录加载所有 SKILL.md
+// LoadSkillsFromDir loads all SKILL.md files from a directory.
 //
-// 目录结构：
+// Directory structure:
 //
 //	dir/
 //	  <skill-name>/
@@ -140,8 +140,8 @@ func ParseSkillMD(path string) (*Skill, error) {
 //	  <another-skill>/
 //	    SKILL.md
 //
-// 只扫描一级子目录中的 SKILL.md 文件。
-// 目录不存在时返回 nil, nil。
+// Only scans SKILL.md files in immediate subdirectories.
+// Returns nil, nil if the directory does not exist.
 func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -169,7 +169,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 
 		md, err := ParseSkillMD(skillFile)
 		if err != nil {
-			// 单个 skill 加载失败不阻塞其他
+			// Failure to load a single skill does not block others.
 			if pkgLogger != nil {
 				pkgLogger.Warn(logger.CatApp, "skill: load failed",
 					"path", skillFile, "err", err.Error())
@@ -187,11 +187,11 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	return skills, nil
 }
 
-// LoadSkillsFromDirs 按优先级从多个目录加载 skill
+// LoadSkillsFromDirs loads skills from multiple directories by priority.
 //
-// dirs 的 key 为作用域标识（"plugin", "user", "project"），value 为目录路径。
-// 低优先级先加载，高优先级后加载覆盖同名 skill。
-// 优先级顺序：plugin → user → project（project 最高）。
+// The keys of 'dirs' are scope identifiers ("plugin", "user", "project"), and values are directory paths.
+// Lower priority skills are loaded first, higher priority skills loaded later will overwrite skills with the same name.
+// Priority order: plugin → user → project (project has the highest priority).
 func LoadSkillsFromDirs(dirs map[string]string) ([]*Skill, error) {
 	order := []string{"plugin", "user", "project"}
 	seen := make(map[string]*Skill)
@@ -205,7 +205,7 @@ func LoadSkillsFromDirs(dirs map[string]string) ([]*Skill, error) {
 			continue
 		}
 		for _, s := range skills {
-			seen[s.ID] = s // 后加载覆盖先加载
+			seen[s.ID] = s // Later loads overwrite earlier ones
 		}
 	}
 	result := make([]*Skill, 0, len(seen))
@@ -215,21 +215,21 @@ func LoadSkillsFromDirs(dirs map[string]string) ([]*Skill, error) {
 	return result, nil
 }
 
-// ─── 内部辅助 ──────────────────────────────────────────────────────────────
+// --- Internal Helpers -------------------------------------------------------
 
-// parseFrontmatter 从 SKILL.md 内容中解析 YAML frontmatter 和 body
+// parseFrontmatter parses the YAML frontmatter and body from SKILL.md content.
 func parseFrontmatter(data []byte) (SkillMDConfig, string, error) {
 	var cfg SkillMDConfig
 
 	content := string(data)
 
-	// 检测 --- 分隔符
+	// Detect --- separator
 	if !strings.HasPrefix(content, "---") {
-		// 无 frontmatter，整个内容作为 body
+		// No frontmatter, treat entire content as body
 		return cfg, content, nil
 	}
 
-	// 按行拆分，查找单独占一行的第二个 "---"
+	// Split by line, find the second "---" on a line by itself
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
 		return cfg, content, nil
@@ -244,15 +244,15 @@ func parseFrontmatter(data []byte) (SkillMDConfig, string, error) {
 	}
 
 	if endLineIdx < 0 {
-		// 未找到闭合的 ---
+		// Closing --- not found
 		return cfg, content, nil
 	}
 
-	// 拼接 frontmatter 的各行
+	// Join frontmatter lines
 	fmLines := lines[1:endLineIdx]
 	fm := strings.Join(fmLines, "\n")
 
-	// 拼接 body 的各行
+	// Join body lines
 	bodyLines := lines[endLineIdx+1:]
 	body := strings.Join(bodyLines, "\n")
 
@@ -263,20 +263,20 @@ func parseFrontmatter(data []byte) (SkillMDConfig, string, error) {
 	return cfg, body, nil
 }
 
-// skillNameFromPath 从文件路径提取 skill 名（父目录名）
+// skillNameFromPath extracts the skill name (parent directory name) from the file path.
 //
 //	/home/user/.soloqueue/skills/commit/SKILL.md → "commit"
 func skillNameFromPath(path string) string {
 	return filepath.Base(filepath.Dir(path))
 }
 
-// firstParagraph 提取 markdown body 的第一段作为 description
+// firstParagraph extracts the first paragraph of the markdown body as the description.
 func firstParagraph(body string) string {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return ""
 	}
-	// 取第一个空行或标题前的内容
+	// Take content before the first empty line or heading
 	lines := strings.Split(body, "\n")
 	var para []string
 	for _, line := range lines {
@@ -284,7 +284,7 @@ func firstParagraph(body string) string {
 		if trimmed == "" && len(para) > 0 {
 			break
 		}
-		// 跳过标题行
+		// Skip heading lines
 		if strings.HasPrefix(trimmed, "#") {
 			if len(para) > 0 {
 				break
@@ -296,7 +296,7 @@ func firstParagraph(body string) string {
 		}
 	}
 	desc := strings.Join(para, " ")
-	// 截断过长描述
+	// Truncate overly long descriptions
 	if len(desc) > 200 {
 		desc = desc[:197] + "..."
 	}
@@ -415,5 +415,3 @@ func getRequiredEnv(cfg SkillMDConfig) []string {
 	}
 	return uniqueEnvs
 }
-
-

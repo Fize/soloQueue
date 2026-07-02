@@ -186,7 +186,7 @@ func extractSoulName(content string) string {
 		return ""
 	}
 	after := content[idx+len(youPrefix):]
-	// e.g. "You are 小Q, a personal assistant" or "You are one of 小Q,大Q, an assistant"
+	// e.g. "You are AgentX, a personal assistant" or "You are one of AgentX,AgentY, an assistant"
 	for _, sep := range []string{", a ", ", an "} {
 		if commaIdx := strings.Index(after, sep); commaIdx != -1 {
 			name := strings.TrimSpace(after[:commaIdx])

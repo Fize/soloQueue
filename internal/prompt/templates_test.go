@@ -34,14 +34,14 @@ func TestBuildProfile_Defaults(t *testing.T) {
 
 func TestBuildProfile_Custom(t *testing.T) {
 	answers := ProfileAnswers{
-		Name:        "小Q",
+		Name:        "Small Q",
 		Gender:      "female",
 		Personality: "playful",
 		CommStyle:   "detailed",
 	}
 	result := BuildProfile(answers)
 
-	if !strings.Contains(result, "You are 小Q") {
+	if !strings.Contains(result, "You are Small Q") {
 		t.Error("should contain custom name")
 	}
 	if !strings.Contains(result, "vivid language") {
@@ -56,12 +56,12 @@ func TestBuildProfile_CustomPersonality(t *testing.T) {
 	answers := ProfileAnswers{
 		Name:        "SoloQueue",
 		Gender:      "female",
-		Personality: "像一个老朋友一样交流",
+		Personality: "Communicate like an old friend",
 		CommStyle:   "casual",
 	}
 	result := BuildProfile(answers)
 
-	if !strings.Contains(result, "像一个老朋友一样交流") {
+	if !strings.Contains(result, "Communicate like an old friend") {
 		t.Error("custom personality should be used as-is for description")
 	}
 	if !strings.Contains(result, "conversational") {
@@ -89,4 +89,3 @@ func TestDefaultRules(t *testing.T) {
 		t.Error("DefaultRules should reference need_clarification status")
 	}
 }
-

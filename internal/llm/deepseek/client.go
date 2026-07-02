@@ -18,35 +18,35 @@ import (
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-// Config 是 DeepSeek client 的构造参数
+// Config are the construction parameters for the DeepSeek client.
 //
-// 所有字段都可零值 —— 有合理默认值。
+// All fields can be zero-valued — they have reasonable default values.
 type Config struct {
-	// BaseURL 默认 "https://api.deepseek.com"。内部自动补 /chat/completions。
+	// BaseURL defaults to "https://api.deepseek.com". Internally, "/chat/completions" is automatically appended.
 	BaseURL string
 
-	// APIKey 必填，作为 Authorization: Bearer <key>
+	// APIKey is required, used as Authorization: Bearer <key>
 	APIKey string
 
-	// Headers 额外 HTTP header（通常用于代理 / 自定义路由）
+	// Headers for additional HTTP headers (typically for proxy / custom routing)
 	Headers map[string]string
 
-	// TimeoutMs HTTP 请求超时（毫秒）；0 默认 600_000 (10min)
+	// TimeoutMs HTTP request timeout (milliseconds); 0 defaults to 600_000 (10min)
 	TimeoutMs int
 
-	// Retry 重试策略；零值不重试
+	// Retry policy; zero value means no retries
 	Retry llm.RetryPolicy
 
-	// Log 可选 logger（nil-safe）
+	// Log optional logger (nil-safe)
 	Log *logger.Logger
 
-	// HTTPClient 可选；nil 时用 &http.Client{Timeout}
+	// HTTPClient optional; if nil, &http.Client{Timeout} is used
 	//
-	// 测试可传入 httptest.Server 的 client 避免真实网络
+	// For testing, an httptest.Server client can be passed to avoid real network calls.
 	HTTPClient *http.Client
 }
 
-// Client 实现 agent.LLMClient 接口
+// Client implements the agent.LLMClient interface
 type Client struct {
 	baseURL string
 	apiKey  string
@@ -57,8 +57,8 @@ type Client struct {
 	timeout time.Duration // per-request timeout, applied via context (not http.Client.Timeout)
 }
 
-// NewClient 构造 DeepSeek client
-// APIKey 不做校验，允许用户先进入程序，调用时报错由 API 侧返回。
+// NewClient constructs a DeepSeek client.
+// APIKey is not validated here; allows the user to proceed into the program, with errors returned by the API during calls.
 func NewClient(cfg Config) (*Client, error) {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
@@ -91,15 +91,15 @@ func NewClient(cfg Config) (*Client, error) {
 
 // ─── Interface ───────────────────────────────────────────────────────────────
 
-// 确保 *Client 实现 agent.LLMClient
+// Ensure *Client implements agent.LLMClient
 var _ agent.LLMClient = (*Client)(nil)
 
-// Chat 同步调用，内部使用 streaming 拼装完整响应
+// Chat makes a synchronous call, internally assembling the full response using streaming.
 //
-// 策略：所有 HTTP 调用都走 stream=true 路径，Chat 是对 ChatStream 的累积。
-// 好处：HTTP 逻辑、retry 逻辑、错误处理只写一次。
+// Strategy: All HTTP calls follow the stream=true path; Chat is an accumulation of ChatStream.
+// Benefit: HTTP logic, retry logic, and error handling are written only once.
 func (c *Client) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResponse, error) {
-	// 强制 include_usage，方便 Chat 汇总 Usage
+	// Force include_usage to facilitate Usage aggregation in Chat
 	req.IncludeUsage = true
 
 	start := time.Now()
@@ -127,7 +127,7 @@ func (c *Client) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResp
 				resp.Usage = *ev.Usage
 			}
 			resp.ToolCalls = acc.collect()
-			// 尝试 drain 剩余 events（通常 Done 之后 channel 立即关闭）
+			// Attempt to drain remaining events (channel usually closes immediately after Done)
 			for range events {
 			}
 			c.logChatDone(ctx, req, &resp, deltaCount, time.Since(start))
@@ -137,22 +137,22 @@ func (c *Client) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResp
 			return nil, ev.Err
 		}
 	}
-	// channel 关闭但没收到 Done —— 异常
+	// Channel closed but no Done received — abnormal.
 	err = errors.New("deepseek: stream ended without done event")
 	c.logChatFailed(ctx, req, err, time.Since(start))
 	return nil, err
 }
 
-// ChatStream 启动流式请求，返回 Event channel
+// ChatStream initiates a streaming request and returns an Event channel.
 //
-// 行为保证：
-//   - 返回的 channel 总会被 close（无泄漏）
-//   - 正常流：一系列 Delta → 一个 Done → channel close
-//   - 出错：一个 Error（包装原始 err）→ channel close
-//   - ctx 取消：一个 Error（ctx.Err()）→ channel close
+// Guaranteed behavior:
+//   - The returned channel will always be closed (no leaks).
+//   - Normal flow: a series of Delta events → one Done event → channel close.
+//   - Error: one Error event (wrapping the original err) → channel close.
+//   - ctx cancellation: one Error event (ctx.Err()) → channel close.
 //
-// HTTP 阶段的错误（4xx/5xx/网络）走 retry 后还失败则直接作为 err 从
-// ChatStream 返回（不进 channel）；只有 200 之后读 SSE body 时的错误才走 channel。
+// Errors during the HTTP phase (4xx/5xx/network) that fail even after retries are returned directly as `err` from
+// ChatStream (not sent to the channel); only errors encountered while reading the SSE body after a 200 OK response are sent to the channel.
 func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan llm.Event, error) {
 	body, err := json.Marshal(buildWireRequest(req, true, req.IncludeUsage))
 	if err != nil {
@@ -202,7 +202,7 @@ func (c *Client) streamLoop(ctx context.Context, resp *http.Response, ch chan<- 
 	reader := newSSEReader(resp.Body)
 
 	for {
-		// Check ctx first（避免在 Scanner 阻塞前就已取消）
+		// Check ctx first (to avoid blocking on Scanner if already canceled)
 		if err := ctx.Err(); err != nil {
 			sendErrEvent(ctx, ch, err)
 			return
@@ -211,7 +211,7 @@ func (c *Client) streamLoop(ctx context.Context, resp *http.Response, ch chan<- 
 		payload, err := reader.Next()
 		if err != nil {
 			if errors.Is(err, errSSEDone) {
-				return // 正常 DONE
+				return // Normal DONE
 			}
 			if errors.Is(err, io.EOF) {
 				// EOF without [DONE] is abnormal unless the server sent it
@@ -244,16 +244,16 @@ func (c *Client) streamLoop(ctx context.Context, resp *http.Response, ch chan<- 
 	}
 }
 
-// sendErrEvent 尽力发送一个 Error event；ctx 取消时放弃
+// sendErrEvent attempts to send an Error event; gives up if ctx is canceled.
 func sendErrEvent(ctx context.Context, ch chan<- llm.Event, err error) {
 	ev := llm.Event{Type: llm.EventError, Err: err}
-	// 先尝试非阻塞（buffer 通常有位）
+	// First, try non-blocking (buffer usually has capacity)
 	select {
 	case ch <- ev:
 		return
 	default:
 	}
-	// 否则阻塞等待或 ctx 取消
+	// Otherwise, block or give up if ctx is canceled.
 	select {
 	case ch <- ev:
 	case <-ctx.Done():
@@ -271,7 +271,7 @@ func (c *Client) doWithRetry(ctx context.Context, body []byte) (*http.Response, 
 
 	err := llm.RunWithRetryHooks(ctx, c.retry, llm.IsRetryableErr, onRetry,
 		func(ctx context.Context) error {
-			// 每次尝试都要新建 request（Body 只能读一次）
+			// A new request must be created for each attempt (Body can only be read once).
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 				c.baseURL+"/chat/completions",
 				bytes.NewReader(body))
@@ -301,7 +301,7 @@ func (c *Client) doWithRetry(ctx context.Context, body []byte) (*http.Response, 
 	return resp, err
 }
 
-// parseAPIError 从 error 响应体解析 APIError
+// parseAPIError parses APIError from the error response body.
 func parseAPIError(r *http.Response) *llm.APIError {
 	apiErr := &llm.APIError{StatusCode: r.StatusCode}
 
@@ -318,21 +318,21 @@ func parseAPIError(r *http.Response) *llm.APIError {
 		apiErr.Param = env.Error.Param
 		return apiErr
 	}
-	// body 不是标准 envelope：用原始文本
+	// Body is not a standard envelope: use raw text.
 	apiErr.Message = truncate(string(body), 500)
 	return apiErr
 }
 
 // ─── Tool call accumulator ──────────────────────────────────────────────────
 
-// toolCallAccumulator 按 index 累积 streaming tool_call deltas
+// toolCallAccumulator accumulates streaming tool_call deltas by index.
 //
-// 使用方式：
+// Usage:
 //
 //	var acc toolCallAccumulator
 //	acc.add(delta1)
 //	acc.add(delta2)
-//	tools := acc.collect() // 按 index 排序的完整 ToolCall 切片
+//	tools := acc.collect() // A slice of complete ToolCalls, sorted by index.
 type toolCallAccumulator struct {
 	slots map[int]*llm.ToolCall // key = delta.Index
 }
@@ -355,12 +355,12 @@ func (a *toolCallAccumulator) add(d llm.ToolCallDelta) {
 	tc.Function.Arguments += d.Arguments
 }
 
-// collect 按 index 顺序返回累积的 ToolCall 列表
+// collect returns the accumulated ToolCall list in index order.
 func (a *toolCallAccumulator) collect() []llm.ToolCall {
 	if len(a.slots) == 0 {
 		return nil
 	}
-	// index 可能稀疏；按升序收集
+	// Indices might be sparse; collect in ascending order.
 	maxIdx := -1
 	for i := range a.slots {
 		if i > maxIdx {
@@ -397,7 +397,7 @@ func (c *Client) logError(ctx context.Context, msg string, err error) {
 	c.log.LogError(ctx, logger.CatLLM, "deepseek: "+msg, err)
 }
 
-// logRetry 在 retry 即将发生时触发（backoff 开始前）
+// logRetry is triggered when a retry is about to occur (before backoff begins).
 func (c *Client) logRetry(ctx context.Context, attempt int, delay time.Duration, err error) {
 	if c.log == nil {
 		return
@@ -407,7 +407,7 @@ func (c *Client) logRetry(ctx context.Context, attempt int, delay time.Duration,
 		"delay_ms", delay.Milliseconds(),
 		"err", err.Error(),
 	}
-	// 如果是结构化 APIError，额外带上 status / type / code
+	// If it's a structured APIError, include status / type / code as extra attributes.
 	var apiErr *llm.APIError
 	if errors.As(err, &apiErr) {
 		attrs = append(attrs,
@@ -419,7 +419,7 @@ func (c *Client) logRetry(ctx context.Context, attempt int, delay time.Duration,
 	c.log.WarnContext(ctx, logger.CatLLM, "deepseek retry", attrs...)
 }
 
-// logChatDone 在 Chat 完整响应拼装完成后触发
+// logChatDone is triggered after the full Chat response has been assembled.
 func (c *Client) logChatDone(ctx context.Context, req agent.LLMRequest, resp *agent.LLMResponse, deltaCount int, dur time.Duration) {
 	if c.log == nil {
 		return
@@ -440,7 +440,7 @@ func (c *Client) logChatDone(ctx context.Context, req agent.LLMRequest, resp *ag
 	)
 }
 
-// logChatFailed 在 Chat 失败时触发（区别于 HTTP 阶段的 request failed）
+// logChatFailed is triggered when Chat fails (distinct from "request failed" during the HTTP phase).
 func (c *Client) logChatFailed(ctx context.Context, req agent.LLMRequest, err error, dur time.Duration) {
 	if c.log == nil {
 		return

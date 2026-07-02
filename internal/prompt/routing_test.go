@@ -3,14 +3,12 @@ package prompt
 import (
 	"strings"
 	"testing"
-
-
 )
 
 func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 	leaders := []LeaderInfo{
-		{Name: "dev", Description: "全栈开发工程师", Group: "DevOps"},
-		{Name: "EditorInChief", Description: "总编辑，负责内容策划", Group: "NovelCreationTeam"},
+		{Name: "dev", Description: "Full-stack developer", Group: "DevOps"},
+		{Name: "EditorInChief", Description: "Editor-in-chief, responsible for content planning", Group: "NovelCreationTeam"},
 	}
 
 	result := buildRoutingTable(leaders, nil)
@@ -21,7 +19,7 @@ func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 	if !strings.Contains(result, "EditorInChief (NovelCreationTeam)") {
 		t.Error("missing EditorInChief leader entry")
 	}
-	if !strings.Contains(result, "全栈开发工程师") {
+	if !strings.Contains(result, "Full-stack developer") {
 		t.Error("missing dev description")
 	}
 }
@@ -36,12 +34,12 @@ func TestBuildRoutingTable_Empty(t *testing.T) {
 
 func TestBuildRoutingTable_NoGroup(t *testing.T) {
 	leaders := []LeaderInfo{
-		{Name: "assistant", Description: "通用助手", Group: ""},
+		{Name: "assistant", Description: "General assistant", Group: ""},
 	}
 
 	result := buildRoutingTable(leaders, nil)
 
-	if !strings.Contains(result, "assistant: 通用助手") {
+	if !strings.Contains(result, "assistant: General assistant") {
 		t.Errorf("leader without group should not show parentheses, got: %q", result)
 	}
 }

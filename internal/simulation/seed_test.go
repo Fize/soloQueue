@@ -296,8 +296,8 @@ func TestParseExtraction_WithInitialRelationships(t *testing.T) {
 		"key_topics": ["5G debate"],
 		"conflict_areas": [],
 		"initial_relationships": [
-			{"subject_name": "陈镇长", "target_name": "张店主", "kind": "friend", "familiarity": 0.9, "affinity": 0.8},
-			{"subject_name": "陈镇长", "target_name": "王医生", "kind": "neighbor", "familiarity": 0.2}
+			{"subject_name": "Mayor Chen", "target_name": "Shopkeeper Zhang", "kind": "friend", "familiarity": 0.9, "affinity": 0.8},
+			{"subject_name": "Mayor Chen", "target_name": "Doctor Wang", "kind": "neighbor", "familiarity": 0.2}
 		]
 	}`
 	ext, err := parseExtraction(raw)
@@ -308,15 +308,15 @@ func TestParseExtraction_WithInitialRelationships(t *testing.T) {
 		t.Fatalf("expected 2 initial_relationships, got %d", len(ext.InitialRelationships))
 	}
 	r1 := ext.InitialRelationships[0]
-	if r1.SubjectName != "陈镇长" || r1.TargetName != "张店主" || r1.Kind != RelationFriend {
-		t.Errorf("first relationship: expected 陈镇长→张店主 friend, got %+v", r1)
+	if r1.SubjectName != "Mayor Chen" || r1.TargetName != "Shopkeeper Zhang" || r1.Kind != RelationFriend {
+		t.Errorf("first relationship: expected Mayor Chen→Shopkeeper Zhang friend, got %+v", r1)
 	}
 	if r1.Familiarity != 0.9 {
 		t.Errorf("expected familiarity 0.9, got %f", r1.Familiarity)
 	}
 	r2 := ext.InitialRelationships[1]
-	if r2.SubjectName != "陈镇长" || r2.TargetName != "王医生" || r2.Kind != RelationNeighbor {
-		t.Errorf("second relationship: expected 陈镇长→王医生 neighbor, got %+v", r2)
+	if r2.SubjectName != "Mayor Chen" || r2.TargetName != "Doctor Wang" || r2.Kind != RelationNeighbor {
+		t.Errorf("second relationship: expected Mayor Chen→Doctor Wang neighbor, got %+v", r2)
 	}
 }
 
@@ -416,21 +416,21 @@ func TestParseExtraction_RawNewlineInString(t *testing.T) {
 	// The raw content below contains literal \n bytes (not escaped) inside
 	// the "description" field of suggested_agents, matching the actual
 	// error from the logs.
-	raw := "{\n  \"entities\": [\n    {\"name\": \"杨凡\", \"type\": \"person\", \"confidence\": 1.0}\n  ],\n  \"suggested_agents\": [\n    {\"name\": \"杨凡\", \"role\": \"protagonist\", \"description\": \"杨凡是一个\n年轻的剑客\n他追求力量\", \"traits\": [\"勇敢\", \"执着\"]}\n  ],\n  \"key_topics\": [\"修炼\"],\n  \"conflict_areas\": [],\n  \"world_state\": {}\n}"
+	raw := "{\n  \"entities\": [\n    {\"name\": \"Yang Fan\", \"type\": \"person\", \"confidence\": 1.0}\n  ],\n  \"suggested_agents\": [\n    {\"name\": \"Yang Fan\", \"role\": \"protagonist\", \"description\": \"Yang Fan is a\nyoung swordsman\nHe seeks strength\", \"traits\": [\"brave\", \"persistent\"]}\n  ],\n  \"key_topics\": [\"cultivation\"],\n  \"conflict_areas\": [],\n  \"world_state\": {}\n}"
 
 	ext, err := parseExtraction(raw)
 	if err != nil {
 		t.Fatalf("parseExtraction should handle raw newlines in strings, got: %v", err)
 	}
-	if len(ext.Entities) != 1 || ext.Entities[0].Name != "杨凡" {
-		t.Errorf("expected 1 entity '杨凡', got %+v", ext.Entities)
+	if len(ext.Entities) != 1 || ext.Entities[0].Name != "Yang Fan" {
+		t.Errorf("expected 1 entity 'Yang Fan', got %+v", ext.Entities)
 	}
 	if len(ext.SuggestedAgents) != 1 {
 		t.Fatalf("expected 1 suggested agent, got %d", len(ext.SuggestedAgents))
 	}
 	// The description should contain the text with newlines (now properly escaped)
-	if !strings.Contains(ext.SuggestedAgents[0].Description, "年轻的剑客") {
-		t.Errorf("description should contain '年轻的剑客', got: %q", ext.SuggestedAgents[0].Description)
+	if !strings.Contains(ext.SuggestedAgents[0].Description, "young swordsman") {
+		t.Errorf("description should contain 'young swordsman', got: %q", ext.SuggestedAgents[0].Description)
 	}
 }
 

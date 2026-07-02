@@ -29,7 +29,7 @@ func TestFastTrackClassifier_Classify(t *testing.T) {
 		},
 		{
 			name:          "L0: Chinese explanation",
-			prompt:        "解释一下什么是依赖注入",
+			prompt:        "Explain what dependency injection is",
 			expectedLevel: LevelConversation,
 			minConfidence: 60,
 		},
@@ -41,7 +41,7 @@ func TestFastTrackClassifier_Classify(t *testing.T) {
 		},
 		{
 			name:          "L0: Chinese question pattern",
-			prompt:        "微服务和单体架构有什么区别",
+			prompt:        "What is the difference between microservices and monolithic architecture",
 			expectedLevel: LevelConversation,
 			minConfidence: 60,
 		},
@@ -60,7 +60,7 @@ func TestFastTrackClassifier_Classify(t *testing.T) {
 		},
 		{
 			name:          "L1: Chinese simple task",
-			prompt:        "修复 auth.go 里的空指针问题",
+			prompt:        "Fix the null pointer issue in auth.go",
 			expectedLevel: LevelSimpleSingleFile,
 			minConfidence: 60,
 		},
@@ -85,7 +85,7 @@ func TestFastTrackClassifier_Classify(t *testing.T) {
 		},
 		{
 			name:          "L2: Chinese refactor",
-			prompt:        "重构数据层，实现功能模块化",
+			prompt:        "Refactor the data layer to modularize functions",
 			expectedLevel: LevelMediumMultiFile,
 			minConfidence: 60,
 		},
@@ -110,7 +110,7 @@ func TestFastTrackClassifier_Classify(t *testing.T) {
 		},
 		{
 			name:          "L3: Chinese complex",
-			prompt:        "从零开始重新设计整个系统的分布式架构",
+			prompt:        "Redesign the entire system's distributed architecture from scratch",
 			expectedLevel: LevelComplexRefactoring,
 			minConfidence: 60,
 		},
@@ -240,8 +240,8 @@ func TestFastTrackClassifier_Escalation(t *testing.T) {
 		expectedLevel ClassificationLevel
 	}{
 		{
-			name:          "Escalation: Chinese 仔细想 bumps L1→L2",
-			prompt:        "仔细想一下怎么修复 auth.go 里的 bug",
+			name:          "Escalation: Chinese 'think carefully' bumps L1→L2",
+			prompt:        "Think carefully about how to fix the bug in auth.go",
 			expectedLevel: LevelMediumMultiFile, // L1 + 1 = L2
 		},
 		{
@@ -260,8 +260,8 @@ func TestFastTrackClassifier_Escalation(t *testing.T) {
 			expectedLevel: LevelConversation, // L1 - 1 = L0 (clamped)
 		},
 		{
-			name:          "De-escalation: Chinese 简单",
-			prompt:        "简单改改这个文件的格式",
+			name:          "De-escalation: Chinese 'simple'",
+			prompt:        "Simply modify the format of this file",
 			expectedLevel: LevelConversation, // L1 - 1 = L0
 		},
 	}

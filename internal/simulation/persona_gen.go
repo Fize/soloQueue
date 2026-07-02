@@ -234,7 +234,7 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 		}
 		if len(p.Goals) == 0 {
 			if language == "zh" {
-				p.Goals = []string{"从你的角度讨论该话题"}
+				p.Goals = []string{"Discuss the topic from your perspective"}
 			} else {
 				p.Goals = []string{"Discuss the topic from your perspective"}
 			}
@@ -263,7 +263,7 @@ func (g *PersonaGenerator) generateFromKG(ctx context.Context, extraction *SeedE
 		// Append topic context for backward compatibility with topic-based simulations
 		if topic != "" {
 			if language == "zh" {
-				personas[i].SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)
+				personas[i].SystemPrompt += fmt.Sprintf("\nThe current thematic background is: %s\n", topic)
 			} else {
 				personas[i].SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
 			}
@@ -396,7 +396,7 @@ func (g *PersonaGenerator) generateLegacyBatched(ctx context.Context, extraction
 			language, allPersonas[i], allPersonas, nil, nil, nil, nil, nil, nil, nil)
 		if topic != "" {
 			if language == "zh" {
-				allPersonas[i].SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)
+				allPersonas[i].SystemPrompt += fmt.Sprintf("\nThe current thematic background is: %s\n", topic)
 			} else {
 				allPersonas[i].SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
 			}
@@ -722,7 +722,7 @@ func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *S
 		}
 		if len(p.Goals) == 0 {
 			if language == "zh" {
-				p.Goals = []string{"从你的角度讨论该话题"}
+				p.Goals = []string{"Discuss the topic from your perspective"}
 			} else {
 				p.Goals = []string{"Discuss the topic from your perspective"}
 			}
@@ -734,7 +734,7 @@ func (g *PersonaGenerator) buildPersonas(result *PersonaGenResult, extraction *S
 		p.SystemPrompt = BuildGenerativeAgentSystemPrompt(language, p, allPersonas, nil, nil, nil, nil, nil, nil, nil)
 		if topic != "" {
 			if language == "zh" {
-				p.SystemPrompt += fmt.Sprintf("\n当前的主题背景是： %s\n", topic)
+				p.SystemPrompt += fmt.Sprintf("\nThe current thematic background is: %s\n", topic)
 			} else {
 				p.SystemPrompt += fmt.Sprintf("\nThe current overarching context is: %s\n", topic)
 			}

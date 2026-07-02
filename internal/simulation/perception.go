@@ -9,10 +9,10 @@ import (
 // PerceptionSystem collects observations from the environment and formats
 // them for injection into each agent's decision prompt.
 type PerceptionSystem struct {
-	env    *Environment
-	bus    *MessageBus
-	clock  *SimClock
-	logFn  func(format string, args ...any)
+	env   *Environment
+	bus   *MessageBus
+	clock *SimClock
+	logFn func(format string, args ...any)
 }
 
 // NewPerceptionSystem creates a perception system.
@@ -71,22 +71,22 @@ func (ps *PerceptionSystem) CollectObservations(agentID, personaName string) []O
 func FormatObservations(observations []Observation, language string) string {
 	if len(observations) == 0 {
 		if language == "zh" {
-			return "## 当前感知\n（本轮无新观察）"
+			return "## Current Perceptions\n(no new observations this tick)"
 		}
 		return "## Current Perceptions\n(no new observations this tick)"
 	}
 
 	result := "## Current Perceptions\n\n"
 	if language == "zh" {
-		result = "## 当前感知\n\n"
+		result = "## Current Perceptions\n\n"
 	}
-	
+
 	envHeader := "### Environment\n"
 	if language == "zh" {
-		envHeader = "### 周边环境\n"
+		envHeader = "### Environment\n"
 	}
 	result += envHeader
-	
+
 	hasEnv := false
 	hasMessages := false
 	var msgBlock string
@@ -106,7 +106,7 @@ func FormatObservations(observations []Observation, language string) string {
 			if !hasMessages {
 				hasMessages = true
 				if language == "zh" {
-					msgBlock += "### 最近消息\n"
+					msgBlock += "### Recent Messages\n"
 				} else {
 					msgBlock += "### Recent Messages\n"
 				}
@@ -115,17 +115,13 @@ func FormatObservations(observations []Observation, language string) string {
 		case "time_event":
 			hasTime = true
 			if language == "zh" {
-				// Translate "Current time:" to "当前时间：" and "Day" to "第 ... 天"
-				// Usually the observation content from CollectObservations is: "Current time: 08:00 (Day 1)."
-				// We can translate it if it starts with "Current time:"
 				content := o.Content
 				if strings.HasPrefix(content, "Current time: ") {
-					// We can replace the substrings
-					content = strings.Replace(content, "Current time: ", "当前时间：", 1)
-					content = strings.Replace(content, " (Day ", " (第 ", 1)
-					content = strings.Replace(content, ").", " 天).", 1)
+					content = strings.Replace(content, "Current time: ", "Current time: ", 1)
+					content = strings.Replace(content, " (Day ", " (Day ", 1)
+					content = strings.Replace(content, ").", ").", 1)
 				}
-				timeBlock = fmt.Sprintf("### 时间\n%s\n", content)
+				timeBlock = fmt.Sprintf("### Time\n%s\n", content)
 			} else {
 				timeBlock = fmt.Sprintf("### Time\n%s\n", o.Content)
 			}

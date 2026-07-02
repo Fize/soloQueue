@@ -9,12 +9,12 @@ import (
 func TestParseAgentFile(t *testing.T) {
 	content := `---
 name: dev
-description: 全栈开发工程师
+description: Full-stack developer
 model: glm-5.0-ioa
 group: DevOps
 is_leader: true
 ---
-这是 dev 的 system prompt body。
+This is dev's system prompt body.
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dev.md")
@@ -28,8 +28,8 @@ is_leader: true
 	if af.Frontmatter.Name != "dev" {
 		t.Errorf("Name = %q, want %q", af.Frontmatter.Name, "dev")
 	}
-	if af.Frontmatter.Description != "全栈开发工程师" {
-		t.Errorf("Description = %q, want %q", af.Frontmatter.Description, "全栈开发工程师")
+	if af.Frontmatter.Description != "Full-stack developer" {
+		t.Errorf("Description = %q, want %q", af.Frontmatter.Description, "Full-stack developer")
 	}
 	if !af.Frontmatter.IsLeader {
 		t.Error("IsLeader = false, want true")
@@ -37,7 +37,7 @@ is_leader: true
 	if af.Frontmatter.Group != "DevOps" {
 		t.Errorf("Group = %q, want %q", af.Frontmatter.Group, "DevOps")
 	}
-	if af.Body != "这是 dev 的 system prompt body。" {
+	if af.Body != "This is dev's system prompt body." {
 		t.Errorf("Body = %q, unexpected", af.Body)
 	}
 }
@@ -59,7 +59,7 @@ func TestLoadLeaders(t *testing.T) {
 	// Leader agent
 	os.WriteFile(filepath.Join(dir, "dev.md"), []byte(`---
 name: dev
-description: 全栈开发工程师
+description: Full-stack developer
 is_leader: true
 group: DevOps
 ---
@@ -68,7 +68,7 @@ body`), 0o644)
 	// Non-leader agent
 	os.WriteFile(filepath.Join(dir, "helper.md"), []byte(`---
 name: helper
-description: 辅助助手
+description: Assistant helper
 is_leader: false
 group: DevOps
 ---
@@ -106,7 +106,7 @@ func TestLoadLeaders_WithGroups(t *testing.T) {
 	agentsDir := t.TempDir()
 	groupsDir := t.TempDir()
 
-	// 创建 group 文件
+	// Create group file
 	os.WriteFile(filepath.Join(groupsDir, "DevOps.md"), []byte(`---
 name: DevOps
 workspaces:
@@ -118,19 +118,19 @@ workspaces:
       postTaskCooldownMinutes: 30
       maxIntervalsPerDay: 24
 ---
-开发团队，专注前后端开发
+Development team, focused on front-end and back-end development
 `), 0o644)
 
-	// 创建 leader agent
+	// Create leader agent
 	os.WriteFile(filepath.Join(agentsDir, "dev.md"), []byte(`---
 name: dev
-description: 全栈开发工程师
+description: Full-stack developer
 is_leader: true
 group: DevOps
 ---
 body`), 0o644)
 
-	// 加载 groups
+	// Load groups
 	groups, err := LoadGroups(groupsDir)
 	if err != nil {
 		t.Fatalf("LoadGroups: %v", err)
@@ -138,11 +138,11 @@ body`), 0o644)
 	if len(groups) != 1 {
 		t.Fatalf("len(groups) = %d, want 1", len(groups))
 	}
-	if groups["DevOps"].Body != "开发团队，专注前后端开发" {
-		t.Errorf("GroupBody = %q, want %q", groups["DevOps"].Body, "开发团队，专注前后端开发")
+	if groups["DevOps"].Body != "Development team, focused on front-end and back-end development" {
+		t.Errorf("GroupBody = %q, want %q", groups["DevOps"].Body, "Development team, focused on front-end and back-end development")
 	}
 
-	// 加载 leaders（传入 groups）
+	// Load leaders (passing groups)
 	leaders, err := LoadLeaders(agentsDir, groups)
 	if err != nil {
 		t.Fatalf("LoadLeaders: %v", err)
@@ -152,8 +152,8 @@ body`), 0o644)
 		t.Fatalf("len(leaders) = %d, want 1", len(leaders))
 	}
 	l := leaders[0]
-	if l.GroupDescription != "开发团队，专注前后端开发" {
-		t.Errorf("GroupDescription = %q, want %q", l.GroupDescription, "开发团队，专注前后端开发")
+	if l.GroupDescription != "Development team, focused on front-end and back-end development" {
+		t.Errorf("GroupDescription = %q, want %q", l.GroupDescription, "Development team, focused on front-end and back-end development")
 	}
 }
 
@@ -166,13 +166,13 @@ workspaces:
   - name: kumquat
     path: /Users/test/kumquat
 ---
-开发团队
+Development team
 `), 0o644)
 
 	os.WriteFile(filepath.Join(dir, "Design.md"), []byte(`---
 name: Design
 ---
-设计师团队
+Designer team
 `), 0o644)
 
 	groups, err := LoadGroups(dir)
@@ -182,14 +182,14 @@ name: Design
 	if len(groups) != 2 {
 		t.Fatalf("len(groups) = %d, want 2", len(groups))
 	}
-	if groups["DevOps"].Body != "开发团队" {
-		t.Errorf("DevOps body = %q, want %q", groups["DevOps"].Body, "开发团队")
+	if groups["DevOps"].Body != "Development team" {
+		t.Errorf("DevOps body = %q, want %q", groups["DevOps"].Body, "Development team")
 	}
 	if len(groups["DevOps"].Frontmatter.Workspaces) != 1 {
 		t.Errorf("DevOps workspaces len = %d, want 1", len(groups["DevOps"].Frontmatter.Workspaces))
 	}
-	if groups["Design"].Body != "设计师团队" {
-		t.Errorf("Design body = %q, want %q", groups["Design"].Body, "设计师团队")
+	if groups["Design"].Body != "Designer team" {
+		t.Errorf("Design body = %q, want %q", groups["Design"].Body, "Designer team")
 	}
 }
 

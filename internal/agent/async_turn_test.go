@@ -38,7 +38,7 @@ func (m *mockAsyncTool) ExecuteAsync(ctx context.Context, args string) (*tools.A
 // ─── TestExecToolsWithAsync_SingleAsyncTool ────────────────────────────────
 
 func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
-	// 创建目标 Agent（模拟 L2）
+	// Create target Agent (simulating L2)
 	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
 			time.Sleep(50 * time.Millisecond)
@@ -46,7 +46,7 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 		},
 	}
 
-	// 创建 AsyncTool
+	// Create AsyncTool
 	asyncTool := &mockAsyncTool{
 		name: "delegate",
 		action: &tools.AsyncAction{
@@ -56,7 +56,7 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 		},
 	}
 
-	// 创建 Agent with PriorityMailbox
+	// Create Agent with PriorityMailbox
 	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
 		WithTools(asyncTool),
 		WithPriorityMailbox(),
@@ -66,14 +66,14 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	// 创建 ContextWindow
+	// Create ContextWindow
 	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleUser, "start")
 
-	// 创建 out channel
+	// Create out channel
 	out := make(chan AgentEvent, 64)
 
-	// 构造 tool calls
+	// Construct tool calls
 	calls := []llm.ToolCall{
 		{
 			Type: "function",
@@ -85,15 +85,15 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 		},
 	}
 
-	// 调用 execToolsWithAsync
+	// Call execToolsWithAsync
 	results := a.execToolsWithAsync(context.Background(), 0, calls, out, cw)
 
-	// 验证结果占位符（异步工具返回空字符串作为占位）
+	// Verify result placeholder (async tool returns empty string as placeholder)
 	if results[0] != "" {
 		t.Errorf("results[0] = %q, want empty (placeholder)", results[0])
 	}
 
-	// 验证 asyncTurns 已注册
+	// Verify asyncTurns is registered
 	a.turnMu.RLock()
 	_, hasAsync := a.asyncTurns[0]
 	a.turnMu.RUnlock()
@@ -102,10 +102,10 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 		t.Error("asyncTurns[0] not registered")
 	}
 
-	// 等待异步任务完成（watchDelegatedTask 会填充结果并触发 resumeTurn）
+	// Wait for async tasks to complete (watchDelegatedTask will fill results and trigger resumeTurn)
 	time.Sleep(200 * time.Millisecond)
 
-	// 验证 asyncTurns 已清理
+	// Verify asyncTurns has been cleaned up
 	a.turnMu.RLock()
 	_, stillHas := a.asyncTurns[0]
 	a.turnMu.RUnlock()
@@ -190,10 +190,10 @@ func TestExecToolsWithAsync_MultipleAsyncTools(t *testing.T) {
 
 	a.execToolsWithAsync(context.Background(), 0, calls, out, cw)
 
-	// 等待所有异步任务完成
+	// Wait for all async tasks to complete
 	time.Sleep(300 * time.Millisecond)
 
-	// 验证两个任务都被调用
+	// Verify both tasks were invoked
 	mu.Lock()
 	if callCount != 2 {
 		t.Errorf("callCount = %d, want 2", callCount)
@@ -248,12 +248,12 @@ func TestExecToolsWithAsync_MixedSyncAndAsync(t *testing.T) {
 
 	results := a.execToolsWithAsync(context.Background(), 0, calls, out, cw)
 
-	// 验证同步工具立即有结果
+	// Verify sync tool returns result immediately
 	if results[0] != "sync-result" {
 		t.Errorf("results[0] (sync) = %q, want 'sync-result'", results[0])
 	}
 
-	// 验证异步工具是占位符
+	// Verify async tool is a placeholder
 	if results[1] != "" {
 		t.Errorf("results[1] (async) = %q, want empty (placeholder)", results[1])
 	}
@@ -292,7 +292,7 @@ func TestExecToolsWithAsync_AsyncToolError(t *testing.T) {
 
 	results := a.execToolsWithAsync(context.Background(), 0, calls, out, cw)
 
-	// 验证错误结果
+	// Verify error result
 	if results[0] == "" {
 		t.Error("expected error result, got empty")
 	}
@@ -304,7 +304,7 @@ func TestExecToolsWithAsync_AsyncToolError(t *testing.T) {
 // ─── TestExecToolsWithAsync_PendingCount ─────────────────────────────────
 
 func TestExecToolsWithAsync_PendingCount(t *testing.T) {
-	// 验证 pending 计数正确
+	// Verify pending count is correct
 	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
 			time.Sleep(100 * time.Millisecond)
@@ -346,10 +346,10 @@ func TestExecToolsWithAsync_PendingCount(t *testing.T) {
 
 	a.execToolsWithAsync(context.Background(), 0, calls, out, cw)
 
-	// 等待异步任务完成
+	// Wait for async tasks to complete
 	time.Sleep(200 * time.Millisecond)
 
-	// 验证 asyncTurns 已清理
+	// Verify asyncTurns has been cleaned up
 	a.turnMu.RLock()
 	_, exists := a.asyncTurns[0]
 	a.turnMu.RUnlock()
@@ -362,8 +362,8 @@ func TestExecToolsWithAsync_PendingCount(t *testing.T) {
 // ─── TestWatchDelegatedTask_ContextCancel ────────────────────────────────
 
 func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
-	// 验证 caller context 取消时，watchDelegatedTask 填入错误结果并触发 resumeTurn
-	// （新行为：不再简单删除 asyncTurns，而是通过 submitHighPriority 让 resumeTurn 处理清理和 close(out)）
+	// Verify that when caller context is cancelled, watchDelegatedTask fills error result and triggers resumeTurn
+	// (New behavior: instead of simply deleting asyncTurns, use submitHighPriority to let resumeTurn handle cleanup and close(out))
 	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
 		WithPriorityMailbox(),
 	)
@@ -372,14 +372,14 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 	}
 	defer a.Stop(time.Second)
 
-	// 创建未完成的 replyCh
+	// Create unfinished replyCh
 	replyCh := make(chan delegateResult)
 
-	// 创建已取消的 context
+	// Create cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // 立即取消
+	cancel() // Cancel immediately
 
-	// 创建 asyncTurnState
+	// Create asyncTurnState
 	var pending atomic.Int32
 	pending.Store(1)
 
@@ -394,12 +394,12 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 	}
 	turnState.pending.Store(1)
 
-	// 注册到 agent
+	// Register with agent
 	a.turnMu.Lock()
 	a.asyncTurns[0] = turnState
 	a.turnMu.Unlock()
 
-	// 创建 task
+	// Create task
 	task := &delegatedTask{
 		correlationID: "test-1",
 		targetAgentID: "l2",
@@ -409,21 +409,21 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 		turn:          turnState,
 	}
 
-	// 启动 watchDelegatedTask
+	// Start watchDelegatedTask
 	done := make(chan struct{})
 	go func() {
 		a.watchDelegatedTask(task)
 		close(done)
 	}()
 
-	// 等待 watchDelegatedTask 完成（包括 100ms grace period）
+	// Wait for watchDelegatedTask to complete (including 100ms grace period)
 	select {
 	case <-done:
-		// 验证：结果已填入错误信息
+		// Verify: result has been filled with error message
 		if turnState.results[0] != "error: delegation cancelled" {
 			t.Errorf("results[0] = %q, want %q", turnState.results[0], "error: delegation cancelled")
 		}
-		// 验证：pending 已归零（触发了 resumeTurn 投递）
+		// Validation: pending has gone to zero (triggered resumeTurn dispatch)
 		if turnState.pending.Load() != 0 {
 			t.Errorf("pending = %d, want 0", turnState.pending.Load())
 		}
@@ -435,7 +435,7 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 // ─── TestResumeTurn_CleansUpAndContinues ────────────────────────────────
 
 func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
-	// 创建 FakeLLM that returns a final answer after resume
+	// Create FakeLLM that returns a final answer after resume
 	fakeLLM := &FakeLLM{
 		StreamDeltas: [][]string{{"final answer"}},
 	}
@@ -450,10 +450,10 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 	cw.Push(ctxwin.RoleUser, "start")
 
-	// 创建 out channel
+	// Create out channel
 	out := make(chan AgentEvent, 64)
 
-	// 创建 asyncTurnState（pending=0 表示所有异步任务已完成）
+	// Create asyncTurnState (pending=0 means all async tasks are complete)
 	turnState := &asyncTurnState{
 		agentID: "l1",
 		out:     out,
@@ -473,15 +473,15 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 		callerCtx: context.Background(),
 	}
 
-	// 注册到 agent
+	// Register with agent
 	a.turnMu.Lock()
 	a.asyncTurns[0] = turnState
 	a.turnMu.Unlock()
 
-	// 调用 resumeTurn（它会清理 asyncTurns 并继续工具循环）
+	// Call resumeTurn (it will clean up asyncTurns and continue the tool loop)
 	a.resumeTurn(turnState)
 
-	// 验证 asyncTurns 已清理
+	// Verify asyncTurns are cleaned up
 	a.turnMu.RLock()
 	_, exists := a.asyncTurns[0]
 	a.turnMu.RUnlock()
@@ -490,7 +490,7 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 		t.Error("asyncTurns[0] should be deleted after resumeTurn")
 	}
 
-	// 验证 out channel 收到事件
+	// Verify out channel receives events
 	select {
 	case ev := <-out:
 		t.Logf("received event: %T", ev)
@@ -522,15 +522,15 @@ func TestContinueToolLoop_ResumesFromIter(t *testing.T) {
 
 	out := make(chan AgentEvent, 64)
 
-	// 从 iter=1 开始（模拟恢复）
+	// Start from iter=1 (simulating a resume)
 	a.continueToolLoop(context.Background(), out, cw, 1)
 
-	// 验证 LLM 被调用
+	// Verify LLM is called
 	if callCount == 0 {
 		t.Error("LLM should be called by continueToolLoop")
 	}
 
-	// 验证 out channel 收到 DoneEvent 或 ContentDeltaEvent
+	// Verify out channel receives DoneEvent or ContentDeltaEvent
 	select {
 	case ev := <-out:
 		t.Logf("received event: %T", ev)
@@ -542,9 +542,9 @@ func TestContinueToolLoop_ResumesFromIter(t *testing.T) {
 // ─── TestEndToEnd_AsyncDelegation ────────────────────────────────────────
 
 func TestEndToEnd_AsyncDelegation(t *testing.T) {
-	// 端到端测试：L1 异步委托 -> L2 执行 -> 结果返回
-	// 使用 FakeLLM with ToolCallDeltasByTurn 模拟 L1 返回 delegate tool call
-	// 然后模拟 L2 返回最终结果
+	// End-to-end test: L1 async delegation -> L2 execution -> results return
+	// Use FakeLLM with ToolCallDeltasByTurn to simulate L1 returning a delegate tool call
+	// Then simulate L2 returning the final result
 
 	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
@@ -561,7 +561,7 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 		},
 	}
 
-	// L1 的 FakeLLM：第一轮返回 tool call (via ToolCallDeltasByTurn)，第二轮返回最终答案
+	// L1's FakeLLM: first round returns tool call (via ToolCallDeltasByTurn), second round returns final answer
 	fakeLLM := &FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
@@ -583,7 +583,7 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 
-	// 使用 AskStreamWithHistory 触发完整流程
+	// Use AskStreamWithHistory to trigger the full flow
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -592,14 +592,14 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 		t.Fatalf("AskStreamWithHistory: %v", err)
 	}
 
-	// 收集事件
+	// Collect events
 	var events []AgentEvent
 	for ev := range ch {
 		events = append(events, ev)
 		t.Logf("event: %T", ev)
 	}
 
-	// 验证收到 DelegationStartedEvent
+	// Verify DelegationStartedEvent is received
 	hasStarted := false
 	for _, ev := range events {
 		if _, ok := ev.(DelegationStartedEvent); ok {
@@ -611,7 +611,7 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 		t.Error("should receive DelegationStartedEvent")
 	}
 
-	// 验证最终有回答
+	// Verify a final answer is given
 	hasContent := false
 	for _, ev := range events {
 		if e, ok := ev.(ContentDeltaEvent); ok {
@@ -854,9 +854,9 @@ func TestEndToEnd_AsyncDelegation_L2Failure(t *testing.T) {
 
 // ─── TestResumeTurn_TruncatedToolCalls ────────────────────────────────
 func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
-	// 模拟场景：L2 委托给 L3，L3 的 LLM 响应被截断（finish_reason="length"）
-	// 导致 L3 返回不完整的结果，但 resumeTurn() 仍然推送所有 tool results
-	// 这应该被检测到并正确处理
+	// Simulated scenario: L2 delegates to L3, L3's LLM response is truncated (finish_reason="length")
+	// Causing L3 to return an incomplete result, but resumeTurn() still pushes all tool results
+	// This should be detected and handled correctly
 
 	fakeLLM := &FakeLLM{
 		StreamDeltas: [][]string{{"final answer"}},
@@ -872,7 +872,7 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 	cw.Push(ctxwin.RoleUser, "start")
 
-	// 模拟 L2 的 tool_calls（委托给 L3）
+	// Simulate L2's tool_calls (delegation to L3)
 	toolCalls := []llm.ToolCall{
 		{
 			Type: "function",
@@ -884,10 +884,10 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 		},
 	}
 
-	// 模拟 L3 返回的结果（可能不完整或包含错误）
+	// Simulate L3's returned results (may be incomplete or contain errors)
 	results := []string{"error: L3 response truncated due to max_tokens"}
 
-	// 创建 asyncTurnState
+	// Create asyncTurnState
 	turnState := &asyncTurnState{
 		agentID:   "l2",
 		out:       make(chan AgentEvent, 64),
@@ -898,19 +898,19 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 		callerCtx: context.Background(),
 	}
 
-	// 注册到 agent
+	// Register with agent
 	a.turnMu.Lock()
 	a.asyncTurns[0] = turnState
 	a.turnMu.Unlock()
 
-	// 调用 resumeTurn
+	// Call resumeTurn
 	a.resumeTurn(turnState)
 
-	// 验证：ContextWindow 应该包含完整的消息序列
-	// 即使 tool result 包含错误，它仍然是一个有效的 tool message
+	// Verification: ContextWindow should contain the complete message sequence
+	// Even if the tool result contains errors, it is still a valid tool message
 	payload := cw.BuildPayload()
 
-	// 检查 payload 是否包含完整的 tool_call/tool_result 对
+	// Check if the payload contains the complete tool_call/tool_result pair
 	hasAssistantWithToolCalls := false
 	hasToolResult := false
 
@@ -923,12 +923,12 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 		}
 	}
 
-	// 即使 tool result 包含错误，消息序列也应该是完整的
+	// Even if the tool result contains errors, the message sequence should still be complete
 	if hasAssistantWithToolCalls && !hasToolResult {
 		t.Error("incomplete tool_call/tool_result pair: assistant has tool_calls but no tool result")
 	}
 
-	// 验证 asyncTurns 已清理
+	// Verify asyncTurns has been cleaned up
 	a.turnMu.RLock()
 	_, exists := a.asyncTurns[0]
 	a.turnMu.RUnlock()
@@ -940,8 +940,8 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 
 // ─── TestResumeTurn_MismatchedToolCallsAndResults ──────────────────────
 func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
-	// 模拟场景：toolCalls 和 results 长度不匹配
-	// 这应该被检测到并正确处理
+	// Simulated scenario: toolCalls and results length mismatch
+	// This should be detected and handled correctly
 
 	fakeLLM := &FakeLLM{
 		StreamDeltas: [][]string{{"final answer"}},
@@ -957,7 +957,7 @@ func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 	cw.Push(ctxwin.RoleUser, "start")
 
-	// 模拟 L2 的 tool_calls（2 个 tool calls）
+	// Simulate L2's tool_calls (2 tool calls)
 	toolCalls := []llm.ToolCall{
 		{
 			Type: "function",
@@ -977,10 +977,10 @@ func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
 		},
 	}
 
-	// 模拟 results（只有 1 个结果，不匹配）
+	// Simulate results (only 1 result, mismatch)
 	results := []string{"result1"}
 
-	// 创建 asyncTurnState
+	// Creating asyncTurnState
 	turnState := &asyncTurnState{
 		agentID:   "l2",
 		out:       make(chan AgentEvent, 64),
@@ -991,35 +991,35 @@ func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
 		callerCtx: context.Background(),
 	}
 
-	// 调用 resumeTurn（这应该处理不匹配的情况）
+	// Calling resumeTurn (this should handle the mismatch)
 	a.resumeTurn(turnState)
 
-	// 验证：ContextWindow 应该仍然有效（不会损坏）
+	// Verification: ContextWindow should still be valid (not corrupted)
 	payload := cw.BuildPayload()
 
-	// 检查 payload 是否包含完整的消息序列
-	// 注意：filterCompletePairs() 会过滤掉不完整对
-	// 所以如果 tool_calls 和 tool_results 不匹配，整个对会被过滤掉
+	// Check if the payload contains a complete message sequence
+	// Note: filterCompletePairs() filters out incomplete pairs
+	// So if tool_calls and tool_results do not match, the entire pair will be filtered out
 	t.Logf("payload length: %d", len(payload))
 
-	// 验证没有 panic 或错误
-	// 实际的过滤逻辑由 filterCompletePairs() 处理
+	// Verify no panics or errors
+	// The actual filtering logic is handled by filterCompletePairs()
 }
 
 // ─── TestBuildPayload_FiltersIncompleteToolCallPairs ──────────────────────
 func TestBuildPayload_FiltersIncompleteToolCallPairs(t *testing.T) {
-	// 验证：当 ContextWindow 包含不完整的 tool_call/tool_result 对时，
-	// BuildPayload() 会过滤掉不完整对，防止 API 400 错误
+	// Verification: When ContextWindow contains incomplete tool_call/tool_result pairs,
+	// BuildPayload() filters out incomplete pairs, preventing API 400 errors
 
 	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 
-	// 推送系统消息
+	// Push system message
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 
-	// 推送用户消息
+	// Push user message
 	cw.Push(ctxwin.RoleUser, "start")
 
-	// 推送 assistant 消息（包含 2 个 tool_calls）
+	// Push assistant message (containing 2 tool_calls)
 	cw.Push(ctxwin.RoleAssistant, "I'll delegate these tasks",
 		ctxwin.WithToolCalls([]llm.ToolCall{
 			{
@@ -1041,25 +1041,25 @@ func TestBuildPayload_FiltersIncompleteToolCallPairs(t *testing.T) {
 		}),
 	)
 
-	// 只推送 1 个 tool result（不完整！）
+	// Push only 1 tool result (incomplete!)
 	cw.Push(ctxwin.RoleTool, "result1",
 		ctxwin.WithToolCallID("call_1"),
 		ctxwin.WithToolName("delegate"),
 	)
 
-	// 调用 BuildPayload()
+	// Calling BuildPayload()
 	payload := cw.BuildPayload()
 
-	// 验证：不完整的 tool_call/tool_result 对应该被过滤掉
-	// 所以 payload 不应该包含 assistant(tool_calls) 和 不完整 tool result
+	// Verification: Incomplete tool_call/tool_result pairs should be filtered out
+	// So the payload should not contain assistant(tool_calls) and the incomplete tool result
 	t.Logf("payload length: %d", len(payload))
 
-	// 检查 payload 中的消息
+	// Check the messages in the payload
 	hasIncompletePair := false
 	for _, msg := range payload {
 		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			// 检查是否所有 tool_calls 都有对应的 tool_results
-			// 这由 filterCompletePairs() 处理
+			// Check if all tool_calls have corresponding tool_results
+			// This is handled by filterCompletePairs()
 			t.Logf("assistant message with %d tool_calls", len(msg.ToolCalls))
 		}
 		if msg.Role == "tool" {
@@ -1067,8 +1067,8 @@ func TestBuildPayload_FiltersIncompleteToolCallPairs(t *testing.T) {
 		}
 	}
 
-	// 关键验证：BuildPayload() 不应该返回不完整对
-	// 如果 filterCompletePairs() 工作正常，不完整的对会被过滤掉
+	// Key verification: BuildPayload() should not return incomplete pairs
+	// If filterCompletePairs() works correctly, incomplete pairs will be filtered out
 	if hasIncompletePair {
 		t.Error("BuildPayload() returned incomplete tool_call/tool_result pair")
 	}
@@ -1076,19 +1076,19 @@ func TestBuildPayload_FiltersIncompleteToolCallPairs(t *testing.T) {
 
 // ─── TestEndToEnd_TruncatedDelegateResponse ──────────────────────
 func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
-	// 端到端测试：模拟 L2 委托给 L3，L3 的响应被截断
-	// 导致 L2 的 ContextWindow 损坏，API 请求返回 400 错误
+	// End-to-end test: Simulate L2 delegating to L3, L3's response gets truncated
+	// Causing L2's ContextWindow to be corrupted, API request returns a 400 error
 
-	// 创建 L3（目标 Agent），它的响应会被截断
+	// Create L3 (target Agent), its response will be truncated
 	l3Target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
-			// 模拟 L3 的 LLM 响应被截断
-			// 返回错误结果
+			// Simulate L3's LLM response being truncated
+			// Return error result
 			return "", fmt.Errorf("llm: finish_reason=length, output truncated")
 		},
 	}
 
-	// L2 的 delegate 工具
+	// L2's delegate tool
 	delegateTool := &mockAsyncTool{
 		name: "delegate",
 		action: &tools.AsyncAction{
@@ -1098,9 +1098,9 @@ func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
 		},
 	}
 
-	// L2 的 FakeLLM：
-	// 第一轮：返回 tool call（委托给 L3）
-	// 第二轮：返回最终答案（或错误）
+	// L2's FakeLLM:
+	// First round: return tool call (delegate to L3)
+	// Second round: return final answer (or error)
 	l2LLM := &FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
@@ -1110,7 +1110,7 @@ func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
 		StreamDeltas: [][]string{{"recovered after L3 error"}},
 	}
 
-	// 创建 L2 Agent
+	// Create L2 Agent
 	l2Agent := NewAgent(Definition{ID: "l2"}, l2LLM, newTestLogger(t),
 		WithTools(delegateTool),
 		WithPriorityMailbox(),
@@ -1120,11 +1120,11 @@ func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
 	}
 	defer l2Agent.Stop(2 * time.Second)
 
-	// 创建 L2 的 ContextWindow
+	// Create L2's ContextWindow
 	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleSystem, "you are helpful")
 
-	// 使用 AskStreamWithHistory 触发完整流程
+	// Trigger the full flow using AskStreamWithHistory
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1133,14 +1133,14 @@ func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
 		t.Fatalf("AskStreamWithHistory: %v", err)
 	}
 
-	// 收集事件
+	// Collect events
 	var events []AgentEvent
 	for ev := range ch {
 		events = append(events, ev)
 		t.Logf("event: %T", ev)
 	}
 
-	// 验证：应该收到 DelegationStartedEvent
+	// Verify: should receive DelegationStartedEvent
 	hasDelegation := false
 	for _, ev := range events {
 		if _, ok := ev.(DelegationStartedEvent); ok {
@@ -1152,7 +1152,7 @@ func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
 		t.Error("should receive DelegationStartedEvent")
 	}
 
-	// 验证：L2 应该恢复并返回最终答案（即使 L3 失败）
+	// Verify: L2 should recover and return the final answer (even if L3 fails)
 	hasContent := false
 	for _, ev := range events {
 		if e, ok := ev.(ContentDeltaEvent); ok {

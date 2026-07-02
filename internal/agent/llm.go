@@ -8,23 +8,23 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
-// LLMMessage 是传给 LLM 的一条消息
+// LLMMessage is a message passed to the LLM
 //
-// 支持 tool-calling 协议：
-//   - role="system" / "user"：填 Content；user 可选带 Images（多模态）
-//   - role="assistant"：Content + 可选 ToolCalls（允许 Content 为空，仅有 tool_calls）
-//   - role="tool"：ToolCallID + Content（工具执行结果）
+// Supports tool-calling protocol:
+//   - role="system" / "user": Fill Content; user can optionally include Images (multimodal)
+//   - role="assistant": Content + optional ToolCalls (allows empty Content, with only tool_calls)
+//   - role="tool": ToolCallID + Content (tool execution result)
 type LLMMessage struct {
 	Role             string
 	Content          string
-	Images           []llm.ImageContent // 多模态图片（仅 user 消息使用）
-	ReasoningContent string             // DeepSeek thinking mode；有 tool_calls 时必须回传
+	Images           []llm.ImageContent // Multimodal images (used only in user messages)
+	ReasoningContent string             // DeepSeek thinking mode; must be returned when tool_calls are present
 	Name             string
-	ToolCallID       string             // role="tool" 时必填
-	ToolCalls        []llm.ToolCall      // role="assistant" 可选
+	ToolCallID       string             // Required when role="tool"
+	ToolCalls        []llm.ToolCall      // Optional for role="assistant"
 }
 
-// LLMRequest 是 LLMClient.Chat / ChatStream 的输入
+// LLMRequest is the input for LLMClient.Chat / ChatStream
 type LLMRequest struct {
 	ProviderID  string
 	Model       string
@@ -32,122 +32,122 @@ type LLMRequest struct {
 	Temperature float64
 	MaxTokens   int
 
-	// 扩展采样参数
+	// Extended sampling parameters
 	TopP             float64
 	FrequencyPenalty float64
 	PresencePenalty  float64
 	StopSequences    []string
 
-	// 推理努力等级（V4 模型思考模式）
-	// "high" | "max" | ""（空表示不发送此参数）
+	// Reasoning effort level (V4 model thinking mode)
+	// "high" | "max" | "" (empty means this parameter is not sent)
 	ReasoningEffort string
 
-	// ThinkingEnabled 是否启用思考模式
+	// ThinkingEnabled enables thinking mode
 	ThinkingEnabled bool
 
 	// Tool-calling
-	Tools      []llm.ToolDef // 空表示无 tool
+	Tools      []llm.ToolDef // Empty means no tool
 	ToolChoice string        // "" | "none" | "auto" | "required"
 
-	// 输出格式
-	ResponseJSON bool // 对应 response_format: json_object
+	// Output format
+	ResponseJSON bool // Corresponds to response_format: json_object
 
-	// Streaming 选项（仅 ChatStream 生效）
-	IncludeUsage bool // 对应 stream_options.include_usage
+	// Streaming options (only effective for ChatStream)
+	IncludeUsage bool // Corresponds to stream_options.include_usage
 
-	// Vision 指示模型是否支持多模态 image_url 内容。
-	// 为 false 时，wire 层会丢弃图片数据并回退为纯文本。
+	// Vision indicates whether the model supports multimodal image_url content.
+	// If false, the wire layer will discard image data and fall back to plain text.
 	Vision bool
 }
 
-// LLMResponse 是 LLMClient.Chat 的返回
+// LLMResponse is the return value of LLMClient.Chat
 type LLMResponse struct {
 	Content          string
-	ReasoningContent string // deepseek-reasoner 专用
+	ReasoningContent string // For deepseek-reasoner only
 	ToolCalls        []llm.ToolCall
 	FinishReason     llm.FinishReason
 	Usage            llm.Usage
 }
 
-// LLMClient 是 LLM 调用的最小接口
+// LLMClient is the minimal interface for LLM calls
 //
-// 实现必须并发安全（多 goroutine 可能同时调 Chat / ChatStream）。
-// ctx 取消时应尽快返回 ctx.Err()。
+// Implementations must be concurrent-safe (multiple goroutines may call Chat / ChatStream simultaneously).
+// When ctx is cancelled, it should return ctx.Err() as soon as possible.
 type LLMClient interface {
-	// Chat 同步调用：阻塞直到完整响应（内部可能是 streaming 累积）
+	// Chat is a synchronous call: blocks until a complete response (internally may be accumulated from streaming)
 	Chat(ctx context.Context, req LLMRequest) (*LLMResponse, error)
 
-	// ChatStream 返回 Event channel
-	// channel 被关闭时表示流结束（正常或异常）；error 事件会先投递再 close
+	// ChatStream returns an Event channel
+	// When the channel is closed, it means the stream has ended (normally or abnormally); an error event will be delivered before closing
 	ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Event, error)
 }
 
-// ─── FakeLLM ─────────────────────────────────────────────────────────────────
+// --- FakeLLM -----------------------------------------------------------------
 
-// FakeLLM 是供测试 / demo 使用的 LLMClient 实现
+// FakeLLM is an LLMClient implementation for testing / demo purposes
 //
-// Chat 行为：
-//   - Err 非 nil：直接返回该 error
-//   - Delay > 0：发响应前等待 Delay；期间 ctx 可取消
-//   - ToolCallsByTurn 非空：按顺序消费 —— 第 i 次 Chat 若 i < len 且该 turn 非空，
-//     返回 ToolCalls=ToolCallsByTurn[i] + FinishReason=FinishToolCalls；
-//     空 turn（nil / 长度 0）fall through 到 Responses 路径
-//   - Responses 为空：content 空；否则按顺序循环返回
+// Chat behavior:
+//   - Err not nil: Directly returns the error
+//   - Delay > 0: Waits for Delay before sending a response; ctx can be cancelled during this time
+//   - ToolCallsByTurn not empty: Consumed in order - if the i-th Chat call has i < len and the turn is not empty,
+//     returns ToolCalls=ToolCallsByTurn[i] + FinishReason=FinishToolCalls;
+//     empty turn (nil / length 0) falls through to the Responses path
+//   - Responses is empty: content is empty; otherwise, returns in a circular order
 //
-// ChatStream 行为（P1 新）：
-//   - 按轮切片（turn idx 独立于 Chat 的 idx）：第 i 次 ChatStream 调用按
-//     序消费 StreamDeltas / ReasoningDeltasByTurn / ToolCallDeltasByTurn 的
-//     第 i 项，最后发 EventDone（FinishReason 取自 FinishByTurn[i] 或默认）
-//   - 若所有 per-turn 字段都为空，**回退**到旧行为：把 Responses 当前 slot
-//     作为一个 EventDelta + 一个 EventDone（保持向后兼容）
-//   - Err 非 nil：发 EventError 再 close
-//   - Delay > 0：发第一条事件前等待
+// ChatStream behavior (P1 new):
+//   - Sliced by turn (turn idx independent of Chat's idx): The i-th ChatStream call consumes in
+//     order StreamDeltas / ReasoningDeltasByTurn / ToolCallDeltasByTurn's
+//     i-th item, finally sending EventDone (FinishReason from FinishByTurn[i] or default)
+//   - If all per-turn fields are empty, **falls back** to old behavior: treats the current Responses slot
+//     as one EventDelta + one EventDone (maintains backward compatibility)
+//   - Err not nil: Sends EventError then closes
+//   - Delay > 0: Waits before sending the first event
 //
-// 并发安全：idx / toolIdx / streamIdx 由 mu 保护。
+// Concurrency safe: idx / toolIdx / streamIdx are protected by mu.
 type FakeLLM struct {
 	Responses []string
 	Delay     time.Duration
 	Err       error
 
-	// ToolCallsByTurn 按调用顺序预设 tool_calls（仅 Chat 路径使用）
-	// 支持测试脚本化多轮 tool-use 场景；默认 nil 时行为与旧 FakeLLM 完全一致
+	// ToolCallsByTurn presets tool_calls in call order (used only by Chat path)
+	// Supports scripted multi-turn tool-use scenarios for testing; when nil, behavior is identical to old FakeLLM
 	ToolCallsByTurn [][]llm.ToolCall
 
-	// ─── ChatStream per-turn 脚本（P1）──────────────────────────────────
+	// --- ChatStream per-turn script (P1) ---------------------------------
 	//
-	// 设计原则：
-	//   - 每个字段都是 "[][]X"：外层 index 对应"第几次 ChatStream 调用"，
-	//     内层是该次调用发出的增量序列
-	//   - 同一轮内 content / reasoning / tool_call 的增量按 "round-robin"
-	//     交错发出：先 content[0] / reasoning[0] / 各 tool_call[0]，再
-	//     content[1] / ...（直到所有内层序列用尽）—— 更贴近真实 LLM
-	//     先出 role / 再交错出 content 和 tool_call 的流模式
-	//   - 任一轮索引溢出（i >= len）时只发 Done 事件
+	// Design principles:
+	//   - Each field is "[][]X": the outer index corresponds to "which ChatStream call",
+	//     the inner is the sequence of deltas emitted by that call
+	//   - Within the same turn, content / reasoning / tool_call deltas are emitted in a "round-robin"
+	//     interleaved manner: first content[0] / reasoning[0] / each tool_call[0], then
+	//     content[1] / ... (until all inner sequences are exhausted) - closer to real LLM
+	//     streaming mode where role comes first, then content and tool_call are interleaved
+	//   - If any turn index overflows (i >= len), only a Done event is sent
 
-	// StreamDeltas[i] 是第 i 次 ChatStream 要依次发出的 content 增量
+	// StreamDeltas[i] is the sequence of content deltas to be emitted by the i-th ChatStream call
 	StreamDeltas [][]string
 
-	// ReasoningDeltasByTurn[i] 是第 i 次要发的 reasoning_content 增量
+	// ReasoningDeltasByTurn[i] is the sequence of reasoning_content deltas to be emitted by the i-th call
 	ReasoningDeltasByTurn [][]string
 
-	// ToolCallDeltasByTurn[i] 是第 i 次要发的 tool_call 增量
-	// 单个 delta 按 llm.ToolCallDelta 原样投递；Index 字段决定 slot 归位
+	// ToolCallDeltasByTurn[i] is the sequence of tool_call deltas to be emitted by the i-th call
+	// Each delta is delivered as an llm.ToolCallDelta; the Index field determines slot assignment
 	ToolCallDeltasByTurn [][]llm.ToolCallDelta
 
-	// FinishByTurn[i] 指定第 i 次流式结束时的 FinishReason
-	// 未设置时：若本轮有 tool_call deltas 则 FinishToolCalls，否则 FinishStop
+	// FinishByTurn[i] specifies the FinishReason when the i-th stream ends
+	// If not set: if there are tool_call deltas in this turn, then FinishToolCalls, otherwise FinishStop
 	FinishByTurn []llm.FinishReason
 
-	// Hook 可选：每次调用（Chat 或 ChatStream）被触发
+	// Hook optional: triggered on each call (Chat or ChatStream)
 	Hook func(req LLMRequest)
 
 	mu        sync.Mutex
-	idx       int // Responses 下一个消费位置
-	toolIdx   int // ToolCallsByTurn 下一个消费位置
-	streamIdx int // ChatStream per-turn 脚本的下一个消费位置
+	idx       int // Next consumption position in Responses
+	toolIdx   int // Next consumption position in ToolCallsByTurn
+	streamIdx int // Next consumption position for ChatStream per-turn script
 }
 
-// Chat 返回预设响应
+// Chat returns a preset response
 func (f *FakeLLM) Chat(ctx context.Context, req LLMRequest) (*LLMResponse, error) {
 	if f.Hook != nil {
 		f.Hook(req)
@@ -172,7 +172,7 @@ func (f *FakeLLM) Chat(ctx context.Context, req LLMRequest) (*LLMResponse, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// 优先走 tool_calls 预设：本次 turn 非空 → 返回 tool_calls，不消费 Responses
+	// Prioritize tool_calls preset: if this turn is not empty → return tool_calls, do not consume Responses
 	if f.toolIdx < len(f.ToolCallsByTurn) {
 		tcs := f.ToolCallsByTurn[f.toolIdx]
 		f.toolIdx++
@@ -182,7 +182,7 @@ func (f *FakeLLM) Chat(ctx context.Context, req LLMRequest) (*LLMResponse, error
 				FinishReason: llm.FinishToolCalls,
 			}, nil
 		}
-		// 空 turn：fall-through 到 Responses 路径（允许"第 n 轮不发 tool_call"）
+		// Empty turn: fall-through to Responses path (allows "not sending tool_call in the n-th turn")
 	}
 
 	var content string
@@ -196,17 +196,17 @@ func (f *FakeLLM) Chat(ctx context.Context, req LLMRequest) (*LLMResponse, error
 	}, nil
 }
 
-// ChatStream 返回一个事件通道
+// ChatStream returns an event channel
 //
-// 行为路径（按优先级）：
-//  1. Err 非 nil → 发一个 EventError 后 close
-//  2. per-turn 脚本（StreamDeltas / ReasoningDeltasByTurn / ToolCallDeltasByTurn
-//     任一非空）→ 按 streamIdx 取本轮脚本；按 round-robin 交错发增量；
-//     最后发 EventDone（FinishReason 见 FinishByTurn 或推导）
-//  3. 回退路径：从 Responses 拿一条作为整段 EventDelta + EventDone
-//     （保持向后兼容旧 FakeLLM 的测试）
+// Behavior path (by priority):
+//  1. Err not nil → send an EventError then close
+//  2. per-turn script (StreamDeltas / ReasoningDeltasByTurn / ToolCallDeltasByTurn
+//     any non-empty) → take this turn's script by streamIdx; send deltas interleaved in round-robin;
+//     finally send EventDone (FinishReason from FinishByTurn or inferred)
+//  3. Fallback path: take one item from Responses as a full EventDelta + EventDone
+//     (maintains backward compatibility for old FakeLLM tests)
 //
-// Delay 应用在发第一条事件**之前**；期间 ctx 取消会产出 EventError 再 close。
+// Delay is applied **before** sending the first event; if ctx is cancelled during this time, an EventError will be produced before closing.
 func (f *FakeLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Event, error) {
 	if f.Hook != nil {
 		f.Hook(req)
@@ -233,7 +233,7 @@ func (f *FakeLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Ev
 			return
 		}
 
-		// 本轮脚本快照
+		// Snapshot of this turn's script
 		f.mu.Lock()
 		turn := f.streamIdx
 		f.streamIdx++
@@ -268,9 +268,9 @@ func (f *FakeLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Ev
 			finish = f.FinishByTurn[turn]
 		}
 
-		// 兼容旧脚本：当 per-turn 为空但 ToolCallsByTurn 有内容时，
-		// 把本轮 ToolCalls 合成为 ToolCallDelta 序列。
-		// 共享 toolIdx 与 Chat 路径，使 ToolCallCount() 行为对齐。
+		// Backward compatibility for old scripts: when per-turn is empty but ToolCallsByTurn has content,
+		// compose this turn's ToolCalls into a ToolCallDelta sequence.
+		// Share toolIdx with Chat path to align ToolCallCount() behavior.
 		if !hasPerTurn && f.toolIdx < len(f.ToolCallsByTurn) {
 			tcs := f.ToolCallsByTurn[f.toolIdx]
 			f.toolIdx++
@@ -288,10 +288,10 @@ func (f *FakeLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Ev
 					finish = llm.FinishToolCalls
 				}
 			}
-			// 若 tcs 为空（显式 nil turn）：fall-through 到 Responses 路径
+			// If tcs is empty (explicit nil turn): fall-through to Responses path
 		}
 
-		// 回退路径：per-turn 全部为空 → 按旧行为用 Responses
+		// Fallback path: if all per-turn are empty → use Responses as per old behavior
 		var fallbackContent string
 		if !hasPerTurn {
 			if len(f.Responses) > 0 {
@@ -315,8 +315,8 @@ func (f *FakeLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Ev
 			return
 		}
 
-		// 按 round-robin 交错发：第 i 轮把 content[i] / reasoning[i] / toolDelta[i]
-		// 都发出去（任何一个 index 溢出就跳过，直到所有序列用完）
+		// Send interleaved in round-robin: in the i-th round, send content[i] / reasoning[i] / toolDelta[i]
+		// (skip if any index overflows, until all sequences are exhausted)
 		maxLen := len(contentDeltas)
 		if n := len(reasoningDeltas); n > maxLen {
 			maxLen = n
@@ -357,7 +357,7 @@ func (f *FakeLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Ev
 			}
 		}
 
-		// FinishReason 推导：未显式指定时，有 tool_call deltas 用 FinishToolCalls
+		// FinishReason inference: if not explicitly specified, use FinishToolCalls if there are tool_call deltas
 		if finish == "" {
 			if len(toolDeltas) > 0 {
 				finish = llm.FinishToolCalls
@@ -370,11 +370,11 @@ func (f *FakeLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Ev
 	return ch, nil
 }
 
-// sendEvent 尝试向 ch 发送 ev
+// sendEvent attempts to send ev to ch
 //
-// 优先非阻塞发送（buffer 有空位时直接进，不管 ctx 状态）；
-// 失败（buffer 满）才阻塞等待 caller 消费或 ctx 取消。
-// 返回 false 表示 ctx 取消且 ch 满，事件被丢弃。
+// Prioritizes non-blocking send (if buffer has space, send directly, regardless of ctx status);
+// only if it fails (buffer full) does it block, waiting for caller to consume or ctx to cancel.
+// Returns false if ctx is cancelled and ch is full, meaning the event was dropped.
 func sendEvent(ctx context.Context, ch chan<- llm.Event, ev llm.Event) bool {
 	select {
 	case ch <- ev:
@@ -389,21 +389,21 @@ func sendEvent(ctx context.Context, ch chan<- llm.Event, ev llm.Event) bool {
 	}
 }
 
-// CallCount 返回成功响应的次数（仅 fake 使用，测试辅助）
+// CallCount returns the number of successful responses (for fake usage only, testing utility)
 func (f *FakeLLM) CallCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.idx
 }
 
-// ToolCallCount 返回 ToolCallsByTurn 已被消费的次数（含空 turn）
+// ToolCallCount returns the number of times ToolCallsByTurn has been consumed (including empty turns)
 func (f *FakeLLM) ToolCallCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.toolIdx
 }
 
-// StreamCallCount 返回 ChatStream 已被调用的次数（用于测试断言）
+// StreamCallCount returns the number of times ChatStream has been called (for testing assertions)
 func (f *FakeLLM) StreamCallCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -32,70 +32,70 @@ const MESSAGE_TYPE_CONFIG: Record<string, {
     borderColor: 'border-l-blue-500/50',
     badgeBg: 'bg-blue-500/10',
     badgeText: 'text-blue-600 dark:text-blue-400',
-    label: '对话',
+    label: 'Dialogue',
   },
   private_speak: {
     icon: Lock,
     borderColor: 'border-l-violet-500/50',
     badgeBg: 'bg-violet-500/10',
     badgeText: 'text-violet-600 dark:text-violet-400',
-    label: '私语',
+    label: 'Whisper',
   },
   agent_move: {
     icon: MapPin,
     borderColor: 'border-l-amber-500/50',
     badgeBg: 'bg-amber-500/10',
     badgeText: 'text-amber-600 dark:text-amber-400',
-    label: '移动',
+    label: 'Move',
   },
   reflection: {
     icon: Lightbulb,
     borderColor: 'border-l-emerald-500/50',
     badgeBg: 'bg-emerald-500/10',
     badgeText: 'text-emerald-600 dark:text-emerald-400',
-    label: '反思',
+    label: 'Reflection',
   },
   conflict: {
     icon: AlertTriangle,
     borderColor: 'border-l-rose-500/50',
     badgeBg: 'bg-rose-500/10',
     badgeText: 'text-rose-600 dark:text-rose-400',
-    label: '冲突',
+    label: 'Conflict',
   },
   rebuttal: {
     icon: AlertCircle,
     borderColor: 'border-l-rose-400/50',
     badgeBg: 'bg-rose-400/10',
     badgeText: 'text-rose-500 dark:text-rose-400',
-    label: '反驳',
+    label: 'Rebuttal',
   },
   question: {
     icon: MessageCircle,
     borderColor: 'border-l-cyan-500/50',
     badgeBg: 'bg-cyan-500/10',
     badgeText: 'text-cyan-600 dark:text-cyan-400',
-    label: '提问',
+    label: 'Question',
   },
   auto_pass: {
     icon: SkipForward,
     borderColor: 'border-l-gray-400/30 border-dashed',
     badgeBg: 'bg-gray-400/10',
     badgeText: 'text-gray-500 dark:text-gray-400',
-    label: '例行',
+    label: 'Auto-pass',
   },
   agent_exit: {
     icon: LogOut,
     borderColor: 'border-l-gray-500/40',
     badgeBg: 'bg-gray-500/10',
     badgeText: 'text-gray-600 dark:text-gray-400',
-    label: '退场',
+    label: 'Exit',
   },
   agent_death_announcement: {
     icon: Skull,
     borderColor: 'border-l-red-600/50',
     badgeBg: 'bg-red-600/10',
     badgeText: 'text-red-600 dark:text-red-400',
-    label: '死亡',
+    label: 'Death',
   },
 }
 
@@ -110,8 +110,8 @@ function getTypeConfig(type: string) {
 }
 
 function formatRound(round: number): string {
-  if (round === 0) return '初始化'
-  return `第 ${round} 轮`
+  if (round === 0) return 'Initialization'
+  return `Round ${round}`
 }
 
 interface SimulationProgressPanelProps {
@@ -134,12 +134,12 @@ export function SimulationProgressPanel({
   }, [messages, selectedAgentId])
 
   const phaseSteps = [
-    { key: 'initializing', label: '环境准备' },
-    { key: 'generating_plans', label: '生成计划' },
-    { key: 'building_prompts', label: '构建提示' },
-    { key: 'running', label: '运行中' },
-    { key: 'generating_report', label: '生成报告' },
-    { key: 'completed', label: '完成' },
+    { key: 'initializing', label: 'Environment Setup' },
+    { key: 'generating_plans', label: 'Generating Plans' },
+    { key: 'building_prompts', label: 'Building Prompts' },
+    { key: 'running', label: 'Running' },
+    { key: 'generating_report', label: 'Generating Report' },
+    { key: 'completed', label: 'Completed' },
   ] as const
 
   // Map any backend phase to the closest step index
@@ -357,7 +357,7 @@ export function SimulationProgressPanel({
                   <details className="mt-2 group">
                     <summary className="text-[8px] text-muted-foreground/50 cursor-pointer select-none hover:text-foreground font-mono tracking-wide flex items-center gap-1">
                       <span className="inline-block w-0 h-0 border-l-4 border-l-transparent border-t-4 border-t-current border-r-4 border-r-transparent group-open:rotate-90 transition-transform" />
-                      LLM 推理过程
+                      LLM Reasoning Process
                     </summary>
                     <p className="mt-1 text-[8px] text-muted-foreground/70 italic bg-background/40 p-2 rounded border border-border/30 leading-relaxed whitespace-pre-wrap">
                       {msg.reasoning}
@@ -389,15 +389,15 @@ export function SimulationProgressPanel({
               )}
               <span className="font-semibold">
                 {progress.phase === 'completed'
-                  ? '仿真已完成'
+                  ? 'Simulation Completed'
                   : progress.phase === 'failed'
-                    ? '仿真失败'
-                    : '仿真已暂停'}
+                    ? 'Simulation Failed'
+                    : 'Simulation Paused'}
               </span>
             </div>
             {progress.phase === 'completed' && progress.elapsed_seconds > 0 && (
               <div className="mt-1 text-[8px] text-muted-foreground/60 font-mono">
-                耗时 {formatTime(progress.elapsed_seconds)}，共 {progress.current_actions} 次动作
+                Time elapsed {formatTime(progress.elapsed_seconds)}, total {progress.current_actions} actions
               </div>
             )}
           </div>

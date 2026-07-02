@@ -103,7 +103,7 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	
 	// Write the exact 3 events from the user's real log
 	events := []string{
-		`{"ts":"2026-06-19T09:03:39.426975+08:00","type":"message","msg":{"role":"user","content":"根据这最新的新闻，分析下节后可能的市场走势"}}`,
+		`{"ts":"2026-06-19T09:03:39.426975+08:00","type":"message","msg":{"role":"user","content":"Based on this latest news, analyze the possible market trends after the holiday."}}`,
 		`{"ts":"2026-06-19T09:03:49.08664+08:00","type":"message","msg":{"role":"assistant","content":"","reasoning":"thinking...","tool_calls":[{"id":"call_00_CK1ys6vCGZLpb9JPW7S42530","type":"function","name":"delegate_ray-dalio","arguments":"{\"task\":\"## Task: Post-Holiday Market Outlook\",\"work_dir\":\"/InvestLab\"}"}]}}`,
 		`{"ts":"2026-06-19T09:03:49.086726+08:00","type":"message","msg":{"role":"tool","content":"","name":"delegate_ray-dalio","tool_call_id":"call_00_CK1ys6vCGZLpb9JPW7S42530","ephemeral":true}}`,
 	}
@@ -178,7 +178,7 @@ func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	
 	// Write the exact 4 events (with completion)
 	events := []string{
-		`{"ts":"2026-06-19T09:03:39.426975+08:00","type":"message","msg":{"role":"user","content":"根据这最新的新闻，分析下节后可能的市场走势"}}`,
+		`{"ts":"2026-06-19T09:03:39.426975+08:00","type":"message","msg":{"role":"user","content":"Based on this latest news, analyze the possible market trends after the holiday."}}`,
 		`{"ts":"2026-06-19T09:03:49.08664+08:00","type":"message","msg":{"role":"assistant","content":"","reasoning":"thinking...","tool_calls":[{"id":"call_00_CK1ys6vCGZLpb9JPW7S42530","type":"function","name":"delegate_ray-dalio","arguments":"{\"task\":\"## Task: Post-Holiday Market Outlook\",\"work_dir\":\"/InvestLab\"}"}]}}`,
 		`{"ts":"2026-06-19T09:03:49.086726+08:00","type":"message","msg":{"role":"tool","content":"","name":"delegate_ray-dalio","tool_call_id":"call_00_CK1ys6vCGZLpb9JPW7S42530","ephemeral":true}}`,
 		`{"ts":"2026-06-19T09:04:12.123456+08:00","type":"message","msg":{"role":"user","content":"[Delegation Completed]\n\nTask: ## Task: Post-Holiday Market Outlook\nCallID: call_00_CK1ys6vCGZLpb9JPW7S42530\nResult:\nHere is the market outlook: bullish.\n\n","ephemeral":true}}`,
@@ -334,7 +334,7 @@ func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
 	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
 
 	events := []string{
-		`{"ts":"2026-06-20T11:44:55.315425+08:00","type":"message","msg":{"role":"user","content":"执行一个简单的算数任务"}}`,
+		`{"ts":"2026-06-20T11:44:55.315425+08:00","type":"message","msg":{"role":"user","content":"Perform a simple arithmetic task."}}`,
 		`{"ts":"2026-06-20T11:45:03.704948+08:00","type":"message","msg":{"role":"assistant","content":"","tool_calls":[{"id":"call_00_inbtvPNrbk6b2fdC2Bq77560","type":"function","name":"delegate_agent","arguments":"{\"name\": \"arithmetic-agent\", \"task\": \"Calculate: (37 × 24) + (156 ÷ 12) − 89\", \"work_dir\": \"/Users/xiaobaitu/.soloqueue\"}"}]}}`,
 		`{"ts":"2026-06-20T11:45:03.70509+08:00","type":"message","msg":{"role":"tool","content":"**Calculation**: (37 × 24) = 888, (156 ÷ 12) = 13, 888 + 13 = 901, 901 − 89 = 812  \n**Result**: 812","name":"delegate_agent","tool_call_id":"call_00_inbtvPNrbk6b2fdC2Bq77560","ephemeral":true}}`,
 	}
@@ -413,9 +413,9 @@ func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
 
 	// Write two duplicate user inputs with timestamp diff less than 5 seconds
 	events := []string{
-		`{"ts":"2026-06-29T14:50:24.000000+08:00","type":"message","msg":{"role":"user","content":"分析下兆易创新怎么样"}}`,
-		`{"ts":"2026-06-29T14:50:24.300000+08:00","type":"message","msg":{"role":"user","content":"分析下兆易创新怎么样"}}`,
-		`{"ts":"2026-06-29T14:50:28.000000+08:00","type":"message","msg":{"role":"user","content":"不同的问题"}}`,
+		`{"ts":"2026-06-29T14:50:24.000000+08:00","type":"message","msg":{"role":"user","content":"Analyze GigaDevice, how is it doing?"}}`,
+		`{"ts":"2026-06-29T14:50:24.300000+08:00","type":"message","msg":{"role":"user","content":"Analyze GigaDevice, how is it doing?"}}`,
+		`{"ts":"2026-06-29T14:50:28.000000+08:00","type":"message","msg":{"role":"user","content":"Different question."}}`,
 	}
 
 	f, err := os.Create(timelinePath)

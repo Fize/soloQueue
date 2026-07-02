@@ -18,17 +18,17 @@ import (
 
 // ─── delegatedTask ─────────────────────────────────────────────────────────
 
-// delegatedTask 单个委托追踪（单一职责）
+// delegatedTask represents a single delegation task (single responsibility)
 //
-// 每个异步 tool_call 对应一个 delegatedTask，由框架在 execTools 中创建。
-// 它不直接管理聚合——聚合由 asyncTurnState 负责。
+// Each asynchronous tool_call corresponds to one delegatedTask, created by the framework in execTools.
+// It does not directly manage aggregation – aggregation is handled by asyncTurnState.
 type delegatedTask struct {
 	correlationID string
 	targetAgentID string
 	replyCh       chan delegateResult
-	callID        string          // 属于哪个 tool_call
-	callIndex     int             // 在 toolCalls 中的位置
-	turn          *asyncTurnState // 反向引用所属轮次
+	callID        string          // which tool_call it belongs to
+	callIndex     int             // position in toolCalls
+	turn          *asyncTurnState // reverse reference to the owning turn
 }
 
 type delegateResult struct {
@@ -39,11 +39,11 @@ type delegateResult struct {
 
 // ─── asyncTurnState ────────────────────────────────────────────────────────
 
-// asyncTurnState 一轮异步状态（聚合层）
+// asyncTurnState represents an asynchronous turn state (aggregation layer)
 //
-// 当一轮 tool_calls 中有至少一个异步工具时，execTools 创建此结构。
-// 它追踪本轮所有 tool_call 的结果（同步的立即填，异步的回传时填），
-// 并在最后一个异步结果到达时触发 tool loop 恢复。
+// This struct is created by execTools when there is at least one asynchronous tool in a round of tool_calls.
+// It tracks the results of all tool_calls in this turn (synchronous results are filled immediately, asynchronous results are filled upon callback),
+// and triggers the tool loop resumption when the last asynchronous result arrives.
 type asyncTurnState struct {
 	agentID   string
 	out       chan<- AgentEvent
@@ -66,7 +66,7 @@ type asyncTurnState struct {
 	// writes to different indices of a fixed-size slice.
 	results   []string
 	durations []time.Duration
-	pending   atomic.Int32 // 还剩几个异步调用未完成
+	pending   atomic.Int32 // number of pending asynchronous calls
 	callerCtx context.Context
 
 	// cancelMerged holds the cancel function for the merged context.
@@ -103,19 +103,19 @@ func (t *asyncTurnState) setDuration(index int, d time.Duration) {
 	t.durations[index] = d
 }
 
-// ─── execTools 异步路径 ────────────────────────────────────────────────────
+// ─── execTools asynchronous path ────────────────────────────────────────────────────
 
-// execToolsWithAsync 是 execTools 的异步感知版本
+// execToolsWithAsync is the async-aware version of execTools
 //
-// 流程：
-//  1. 遍历所有 toolCalls，识别 AsyncTool
-//  2. 对 AsyncTool 调用 ExecuteAsync 获取意图（不启动 goroutine）
-//  3. 组装 asyncTurnState（所有上下文 100% 就位）
-//  4. 注册 asyncTurnState 到 Agent
-//  5. 启动所有异步 goroutine
-//  6. 同步工具正常执行
+// Process:
+//  1. Iterate through all toolCalls, identify AsyncTool
+//  2. Call ExecuteAsync on AsyncTool to get the intent (without starting a goroutine)
+//  3. Assemble asyncTurnState (all contexts are 100% ready)
+//  4. Register asyncTurnState to Agent
+//  5. Start all asynchronous goroutines
+//  6. Synchronous tools execute normally
 //
-// 返回的 results 中，异步工具的位置为占位空字符串（""）。
+// In the returned results, the positions for asynchronous tools are placeholder empty strings ("").
 func (a *Agent) execToolsWithAsync(
 	ctx context.Context,
 	iter int,
@@ -125,10 +125,10 @@ func (a *Agent) execToolsWithAsync(
 ) []string {
 	results := make([]string, len(calls))
 
-	// 第一阶段：识别异步工具 + 预创建 asyncTurnState
+	// Phase 1: Identify asynchronous tools + pre-create asyncTurnState
 	var (
 		turnState    *asyncTurnState
-		asyncActions []func() // 收集需要异步启动的闭包
+		asyncActions []func() // collect closures that need to be started asynchronously
 		tasks        []*delegatedTask
 	)
 
@@ -144,15 +144,15 @@ func (a *Agent) execToolsWithAsync(
 			continue
 		}
 
-		// 检查是否为 AsyncTool
+		// Check if it's an AsyncTool
 		at, isAsync := tool.(tools.AsyncTool)
 		if !isAsync {
-			// 同步工具：正常执行
+			// Synchronous tool: execute normally
 			results[i] = a.execToolStream(ctx, iter, tc, out)
 			continue
 		}
 
-		// 懒初始化 turnState（第一个异步工具时创建）
+		// Lazy initialize turnState (created for the first asynchronous tool)
 		if turnState == nil {
 			turnState = &asyncTurnState{
 				agentID:   a.Def.ID,
@@ -166,7 +166,7 @@ func (a *Agent) execToolsWithAsync(
 			}
 		}
 
-		// 注入 model override + workDir 到 context，使 DelegateTool 能传播给子 Agent
+		// Inject model override + workDir into the context so DelegateTool can propagate to child Agents
 		asyncCtx := ctx
 		if a.WorkDir != "" {
 			asyncCtx = iface.ContextWithWorkDir(asyncCtx, a.WorkDir)
@@ -182,7 +182,7 @@ func (a *Agent) execToolsWithAsync(
 			})
 		}
 
-		// 调用 ExecuteAsync 获取意图（不启动 goroutine）
+		// Call ExecuteAsync to get the intent (without starting a goroutine)
 		action, err := at.ExecuteAsync(asyncCtx, tc.Function.Arguments)
 		if err != nil {
 			results[i] = "error: " + err.Error()
@@ -215,7 +215,7 @@ func (a *Agent) execToolsWithAsync(
 		turnState.pending.Add(1)
 		replyCh := make(chan delegateResult, 1)
 
-		// 组装 delegatedTask（此时 turnState 100% 就位）
+		// Assemble delegatedTask (turnState is 100% ready at this point)
 		task := &delegatedTask{
 			correlationID: generateCorrID(),
 			targetAgentID: action.TargetID(),
@@ -226,7 +226,7 @@ func (a *Agent) execToolsWithAsync(
 		}
 		tasks = append(tasks, task)
 
-		// 收集异步启动闭包（还没 go！）
+		// Collect asynchronous start closures (not yet 'go'd!)
 		asyncActions = append(asyncActions, func() {
 			timeout := action.Timeout
 			if timeout <= 0 {
@@ -241,7 +241,7 @@ func (a *Agent) execToolsWithAsync(
 				"timeout", timeout,
 			)
 
-			// --- 注入 confirm relay（与 execToolStream 同步路径对齐） ---
+			// --- Inject confirm relay (aligned with execToolStream synchronous path) ---
 			relayCh := make(chan iface.AgentEvent, 16)
 
 			forwarder := iface.ConfirmForwarder(func(fwdCtx context.Context, callID string, child iface.Locatable) (string, error) {
@@ -304,7 +304,7 @@ func (a *Agent) execToolsWithAsync(
 				}
 			}()
 
-			// --- 用 AskStream + 手动消费替代 Ask ---
+			// --- Use AskStream + manual consumption instead of Ask ---
 			start := time.Now()
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
@@ -395,10 +395,10 @@ func (a *Agent) execToolsWithAsync(
 			replyCh <- delegateResult{content: content, err: finalErr, duration: dur}
 		})
 
-		results[i] = "" // 占位
+		results[i] = "" // placeholder
 	}
 
-	// 第二阶段：如果有异步工具，注册状态 + 启动 goroutine
+	// Phase 2: If there are asynchronous tools, register state + start goroutines
 	if turnState != nil && turnState.pending.Load() > 0 {
 		a.logInfo(ctx, logger.CatTool, "execToolsWithAsync: registering async turn and starting goroutines",
 			"agent_id", a.Def.ID,
@@ -409,7 +409,7 @@ func (a *Agent) execToolsWithAsync(
 		a.asyncTurns[iter] = turnState
 		a.turnMu.Unlock()
 
-		// 启动所有异步 goroutine（状态已绝对安全落盘）
+		// Start all asynchronous goroutines (state is now safely persisted)
 		for _, action := range asyncActions {
 			go func(act func()) {
 				defer func() {
@@ -421,7 +421,7 @@ func (a *Agent) execToolsWithAsync(
 			}(action)
 		}
 
-		// 启动结果回收 goroutine（每个 delegatedTask 一个）
+		// Start result collection goroutines (one for each delegatedTask)
 		for _, task := range tasks {
 			go func(t *delegatedTask) {
 				defer func() {
@@ -437,16 +437,16 @@ func (a *Agent) execToolsWithAsync(
 	return results
 }
 
-// watchDelegatedTask 监听单个委托的结果
+// watchDelegatedTask listens for the result of a single delegation
 //
-// 在 goroutine 中运行，结果到达后：
-//  1. 填入 results[callIndex]
+// Runs in a goroutine. After the result arrives:
+//  1. Fill results[callIndex]
 //  2. pending.Add(-1)
-//  3. 如果 pending == 0（全部完成），投递高优先级 job 恢复 tool loop
+//  3. If pending == 0 (all completed), submit a high-priority job to resume the tool loop
 func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 	select {
 	case result := <-task.replyCh:
-		// 填入结果
+		// Fill result
 		toolResult := result.content
 		if result.err != nil {
 			toolResult = "error: " + result.err.Error()
@@ -455,9 +455,9 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 		task.turn.results[task.callIndex] = toolResult
 		task.turn.setDuration(task.callIndex, result.duration)
 
-		// 检查是否全部完成
+		// Check if all completed
 		if task.turn.pending.Add(-1) == 0 {
-			// 全部异步结果已到齐，投递高优先级 job 恢复 tool loop
+			// All asynchronous results have arrived, submit a high-priority job to resume the tool loop
 			a.submitHighPriority(func(ctx context.Context) {
 				a.resumeTurn(task.turn)
 			})
@@ -494,28 +494,28 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 	}
 }
 
-// resumeTurn 恢复 tool loop
+// resumeTurn resumes the tool loop
 //
-// 由高优先级 job 调用。此时所有异步结果已到齐：
-//  1. 清理 asyncTurns 注册
-//  2. 将实际委托结果格式化为 user 消息 push 到 cw
-//  3. 发射 DelegationCompletedEvent
-//  4. 继续工具循环
+// Called by a high-priority job. At this point, all asynchronous results have arrived:
+//  1. Clean up asyncTurns registration
+//  2. Format the actual delegation results as a user message and push to cw
+//  3. Emit DelegationCompletedEvent
+//  4. Continue the tool loop
 func (a *Agent) resumeTurn(turn *asyncTurnState) {
-	// 清理 asyncTurns 注册
+	// Clean up asyncTurns registration
 	a.turnMu.Lock()
 	delete(a.asyncTurns, turn.iter)
 	a.turnMu.Unlock()
 
-	// 将实际委托结果格式化为 user 消息 push 到 cw
-	// 通过 wrapInToolPair 包裹为 assistant(tool_calls) + tool(result) + user(result) 的结构，
-	// 确保 LLM 能正确理解这是一次工具调用的返回结果。
+	// Format the actual delegation results as a user message and push to cw
+	// Wrap into an assistant(tool_calls) + tool(result) + user(result) structure,
+	// to ensure the LLM correctly understands this as a tool call return result.
 	resultMsg := formatDelegationCompleted(turn.toolCalls, turn.results)
 	if resultMsg != "" {
 		turn.cw.Push(ctxwin.RoleUser, resultMsg, ctxwin.WithEphemeral(true))
 	}
 
-	// 发射 DelegationCompletedEvent
+	// Emit DelegationCompletedEvent
 	resultContent := ""
 	if len(turn.results) > 0 {
 		resultContent = turn.results[0]
@@ -526,8 +526,8 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 		ResultContent: resultContent,
 	})
 
-	// 为每个异步委托工具发射 ToolExecDoneEvent，使前端能将
-	// ToolExecStartEvent 创建的 tool_call segment 标记为完成。
+	// Emit ToolExecDoneEvent for each asynchronous delegated tool, allowing the frontend to mark
+	// the tool_call segment created by ToolExecStartEvent as complete.
 	for i, tc := range turn.toolCalls {
 		if !strings.HasPrefix(tc.Function.Name, "delegate_") {
 			continue
@@ -563,7 +563,7 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 		return
 	}
 
-	// 继续工具循环
+	// Continue tool loop
 	yielded := a.continueToolLoop(turn.callerCtx, turn.out, turn.cw, turn.iter+1)
 
 	// Manage the merged context lifecycle.
@@ -586,9 +586,9 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	}
 }
 
-// continueToolLoop 从指定 iter 开始继续工具循环
+// continueToolLoop continues the tool loop from the specified iter
 //
-// 逻辑与 runOnceStreamWithHistory 的 for 循环一致，但从 startIter 开始。
+// The logic is consistent with the for loop in runOnceStreamWithHistory, but starting from startIter.
 // Returns true if the stream loop yielded (another async delegation started).
 func (a *Agent) continueToolLoop(
 	ctx context.Context,
@@ -596,11 +596,11 @@ func (a *Agent) continueToolLoop(
 	cw *ctxwin.ContextWindow,
 	startIter int,
 ) bool {
-	// 复用 runOnceStreamWithHistory 的循环体
+	// Reuse the loop body of runOnceStreamWithHistory
 	return a.runOnceStreamWithHistoryFromIter(ctx, cw, out, startIter)
 }
 
-// generateCorrID 生成一个唯一的 correlation ID
+// generateCorrID generates a unique correlation ID
 func generateCorrID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
@@ -625,7 +625,7 @@ func (a *Agent) saveAsyncCancel(ctx context.Context, cancel context.CancelFunc) 
 	cancel()
 }
 
-// delegationArgs 委托工具的参数结构
+// delegationArgs is the parameter structure for delegation tools
 type delegationArgs struct {
 	Task string `json:"task"`
 }

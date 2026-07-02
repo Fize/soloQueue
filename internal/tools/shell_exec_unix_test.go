@@ -176,7 +176,7 @@ func TestShell_MetadataInterface(t *testing.T) {
 	}
 }
 
-// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+// ─── Confirmable Interface Tests ────────────────────────────────────────────────────
 
 func TestShell_CheckConfirmation_NeedsConfirm(t *testing.T) {
 	tool := newShellExecTool(Config{
@@ -220,7 +220,7 @@ func TestShell_ConfirmationOptions(t *testing.T) {
 
 func TestShell_ConfirmArgs(t *testing.T) {
 	tool := newShellExecTool(Config{})
-	// choice == "yes" 时注入 confirmed=true
+	// Inject confirmed=true when choice == "yes"
 	out := tool.ConfirmArgs(`{"command":"rm -rf /"}`, "yes")
 	var m map[string]any
 	if err := json.Unmarshal([]byte(out), &m); err != nil {
@@ -230,7 +230,7 @@ func TestShell_ConfirmArgs(t *testing.T) {
 		t.Errorf("confirmed = %v, want true", m["confirmed"])
 	}
 
-	// choice != "yes" 时不注入
+	// Do not inject when choice != "yes"
 	out2 := tool.ConfirmArgs(`{"command":"rm -rf /"}`, "")
 	var m2 map[string]any
 	if err := json.Unmarshal([]byte(out2), &m2); err != nil {
@@ -242,7 +242,7 @@ func TestShell_ConfirmArgs(t *testing.T) {
 }
 
 func TestShell_Confirmable_CompileTimeCheck(t *testing.T) {
-	// 编译时检查：shellExecTool 实现了 Confirmable
+	// Compile-time check: shellExecTool implements Confirmable
 	var _ Confirmable = (*shellExecTool)(nil)
 }
 

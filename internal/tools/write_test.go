@@ -288,7 +288,7 @@ func TestWriteFile_MetadataInterface(t *testing.T) {
 	}
 }
 
-// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+// ─── Confirmable interface tests ────────────────────────────────────────────────────
 
 func TestWriteFile_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
 	tool, _ := mkWriteFileTool(t, 1024)
@@ -342,7 +342,7 @@ func TestWriteFile_SupportsSessionWhitelist(t *testing.T) {
 	}
 }
 
-// ─── MultiWrite Confirmable 测试 ────────────────────────────────────────────
+// ─── MultiWrite Confirmable tests ────────────────────────────────────────────
 
 func TestMultiWrite_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
 	tool, _ := mkMultiWriteTool(t, 10, 1024)
