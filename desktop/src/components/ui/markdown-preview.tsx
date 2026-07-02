@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import { getFileUrl } from '@/lib/api'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -51,6 +52,8 @@ interface MarkdownPreviewProps {
   content: string
   className?: string
   onToggleCheckbox?: (index: number) => void
+  /** Absolute path to the .md file on disk, used to resolve relative image paths. */
+  basePath?: string
 }
 
 function CodeBlock({
@@ -98,7 +101,7 @@ function CodeBlock({
   )
 }
 
-export function MarkdownPreview({ content, className, onToggleCheckbox }: MarkdownPreviewProps) {
+export function MarkdownPreview({ content, className, onToggleCheckbox, basePath }: MarkdownPreviewProps) {
   if (!content) return null
 
   let checkboxIndex = 0
@@ -108,6 +111,22 @@ export function MarkdownPreview({ content, className, onToggleCheckbox }: Markdo
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          img({ src, alt }) {
+            if (!src) return null
+            let resolvedSrc = src
+            if (basePath && !/^(https?:\/\/|data:|blob:|#|\/\/)/.test(src)) {
+              const resolved = resolveRelativePath(basePath, src)
+              resolvedSrc = getFileUrl(resolved)
+            }
+            return (
+              <img
+                src={resolvedSrc}
+                alt={alt || ''}
+                className="max-w-full h-auto rounded-lg my-2"
+                loading="lazy"
+              />
+            )
+          },
           code({ node, className: codeClass, children, ...props }) {
             const match = /language-(\w+)/.exec(codeClass || '')
             const isInline = !match && !String(children).includes('\n')
@@ -160,4 +179,29 @@ export function MarkdownPreview({ content, className, onToggleCheckbox }: Markdo
       </ReactMarkdown>
     </div>
   )
+}
+
+/**
+ * Resolve a relative path (e.g. `./images/foo.png` or `../other.md`) against an
+ * absolute base path (the .md file on disk). Returns a normalized absolute path
+ * suitable for passing to getFileUrl().
+ */
+function resolveRelativePath(basePath: string, relativePath: string): string {
+  const baseDir = basePath.endsWith('/')
+    ? basePath
+    : basePath.includes('/')
+      ? basePath.substring(0, basePath.lastIndexOf('/') + 1)
+      : '/'
+  const stack = baseDir.split('/').filter(Boolean)
+  const parts = relativePath.split('/')
+  for (const part of parts) {
+    if (part === '..') {
+      if (stack.length > 0) stack.pop()
+    } else if (part !== '.' && part !== '') {
+      stack.push(part)
+    }
+  }
+  const result = stack.join('/')
+  // Ensure it starts with /
+  return result.startsWith('/') ? result : '/' + result
 }
