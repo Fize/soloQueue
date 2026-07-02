@@ -229,14 +229,32 @@ func parseFrontmatter(data []byte) (SkillMDConfig, string, error) {
 		return cfg, content, nil
 	}
 
-	// 找到结束 ---
-	end := strings.Index(content[3:], "---")
-	if end < 0 {
+	// 按行拆分，查找单独占一行的第二个 "---"
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
 		return cfg, content, nil
 	}
 
-	fm := strings.TrimSpace(content[3 : end+3])
-	body := strings.TrimSpace(content[end+6:])
+	endLineIdx := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimRight(lines[i], "\r") == "---" {
+			endLineIdx = i
+			break
+		}
+	}
+
+	if endLineIdx < 0 {
+		// 未找到闭合的 ---
+		return cfg, content, nil
+	}
+
+	// 拼接 frontmatter 的各行
+	fmLines := lines[1:endLineIdx]
+	fm := strings.Join(fmLines, "\n")
+
+	// 拼接 body 的各行
+	bodyLines := lines[endLineIdx+1:]
+	body := strings.Join(bodyLines, "\n")
 
 	if err := yaml.Unmarshal([]byte(fm), &cfg); err != nil {
 		return cfg, body, fmt.Errorf("yaml unmarshal: %w", err)
