@@ -298,14 +298,11 @@ export function ChatInput({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
-      {/* Main card wrapper */}
-      <div className="relative flex flex-col rounded-3xl border border-border/60 bg-muted/20 dark:bg-muted/10 p-2 shadow-sm transition-all focus-within:shadow-md focus-within:border-primary/30">
-        
-        {/* Upper Card Area: input text area */}
-        <div className="w-full bg-background rounded-2xl border border-border/40 shadow-sm flex flex-col p-2.5">
+      {/* Input card */}
+      <div className="relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all focus-within:border-primary/30">
           {/* Thumbnails preview */}
           {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-2xl">
+            <div className="flex flex-wrap gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-xl">
               {attachments.map((att) => (
                 <div
                   key={att.id}
@@ -350,7 +347,7 @@ export function ChatInput({
             />
 
             {/* Inner action buttons row */}
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/30">
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/15">
               {/* Left actions: plus and selectors */}
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <button
@@ -359,7 +356,7 @@ export function ChatInput({
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0"
                   title="Add context"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-3.5 w-3.5" />
                 </button>
 
                 {showL2Selectors && (
@@ -379,7 +376,7 @@ export function ChatInput({
                             : "cursor-pointer hover:text-foreground hover:bg-muted/40"
                         )}
                       >
-                        <Users className="h-3 w-3 text-muted-foreground/60" />
+                        <Users className="h-2.5 w-2.5 text-muted-foreground/60" />
                         <span className="text-foreground/80">{selectedGroup || 'Select Group'}</span>
                         {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                       </button>
@@ -425,7 +422,7 @@ export function ChatInput({
                                 : "cursor-pointer hover:text-foreground hover:bg-muted/40"
                             )}
                           >
-                            <Laptop className="h-3 w-3 text-muted-foreground/60" />
+                            <Laptop className="h-2.5 w-2.5 text-muted-foreground/60" />
                             <span className="text-foreground/80 truncate max-w-[120px]">
                               {projects.find((p) => p.path === selectedProjectPath)?.name || 'Select Project'}
                             </span>
@@ -475,7 +472,7 @@ export function ChatInput({
                                 : "cursor-pointer hover:text-foreground hover:bg-muted/40"
                             )}
                           >
-                            <GitBranch className="h-3 w-3 text-muted-foreground/60" />
+                            <GitBranch className="h-2.5 w-2.5 text-muted-foreground/60" />
                             <span className="text-foreground/80">{branch}</span>
                             {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                           </button>
@@ -519,7 +516,10 @@ export function ChatInput({
                       </span>
                     )}
                     {modelName && (
-                      <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground/70 bg-muted/30 border border-border/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap max-w-[120px] truncate">
+                      <span
+                        className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground/70 bg-muted/30 border border-border/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap max-w-[220px] truncate"
+                        title={modelName}
+                      >
                         <Cpu className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
                         <span className="truncate">{modelName}</span>
                       </span>
@@ -573,7 +573,7 @@ export function ChatInput({
                     onClick={onCancel}
                     className="flex items-center gap-1 px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
                   >
-                    <StopCircle className="h-4 w-4" />
+                    <StopCircle className="h-3.5 w-3.5" />
                     <span>Stop</span>
                   </button>
                 ) : (
@@ -581,15 +581,14 @@ export function ChatInput({
                     type="button"
                     onClick={handleSubmit}
                     disabled={disabled || attachments.some((att) => att.status === 'uploading')}
-                    className="flex items-center justify-center h-8 w-8 rounded-full bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex items-center justify-center h-7 w-7 rounded-lg bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
                   >
-                    <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+                    <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
                   </button>
                 )}
               </div>
             </div>
           </div>
-        </div>
       </div>
 
       {disabled && !showL2Selectors && (
