@@ -204,6 +204,10 @@ export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
 // ─── File APIs ──────────────────────────────────────────────────────────────────
 
 export function getFileUrl(path: string): string {
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+    const port = (window as any).electronAPI?.backendPort || 57647
+    return `http://127.0.0.1:${port}${API_BASE}/files/content?path=${encodeURIComponent(path)}`
+  }
   return `${API_BASE}/files/content?path=${encodeURIComponent(path)}`
 }
 

@@ -301,6 +301,8 @@ export function ChatPage() {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null
   }, [groupAgents])
 
+  const isAgentProcessing = activeAgent?.state === 'processing'
+
   const agentDisplayName = useMemo(() => {
     if (isL1Session) return 'L1 Agent'
     return activeSession?.agent_name || activeAgent?.name || 'Assistant'
@@ -505,7 +507,7 @@ export function ChatPage() {
               onCancel={cancel}
               streaming={streaming}
               delegating={delegating}
-              disabled={streaming || delegating || connectionStatus !== 'connected'}
+              disabled={delegating || connectionStatus !== 'connected'}
               activeSessionId={undefined}
               showL2Selectors={true}
               groups={l2Groups}
@@ -517,6 +519,8 @@ export function ChatPage() {
               onProjectChange={setSelectedProjectPath}
               ctxwinUsed={0}
               ctxwinLimit={0}
+              taskLevel={isAgentProcessing ? (activeAgent?.task_level || activeAgent?.last_level) : undefined}
+              modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
             />
           </div>
 
@@ -673,7 +677,7 @@ export function ChatPage() {
                       onCancel={cancel}
                       streaming={streaming}
                       delegating={delegating}
-                      disabled={streaming || delegating || connectionStatus !== 'connected'}
+                      disabled={delegating || connectionStatus !== 'connected'}
                       activeSessionId={activeSessionId || undefined}
                       showL2Selectors={!isL1Session}
                       groups={l2Groups}
@@ -685,6 +689,8 @@ export function ChatPage() {
                       onProjectChange={setSelectedProjectPath}
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
+                      taskLevel={isAgentProcessing ? (activeAgent?.task_level || activeAgent?.last_level) : undefined}
+                      modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
                     />
                   </div>
                 </div>
@@ -723,7 +729,7 @@ export function ChatPage() {
                   onCancel={cancel}
                   streaming={streaming}
                   delegating={delegating}
-                  disabled={streaming || delegating || connectionStatus !== 'connected'}
+                  disabled={delegating || connectionStatus !== 'connected'}
                   activeSessionId={activeSessionId || undefined}
                   showL2Selectors={!isL1Session}
                   readOnlySelectors={true}
@@ -736,6 +742,8 @@ export function ChatPage() {
                   onProjectChange={setSelectedProjectPath}
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
+                  taskLevel={isAgentProcessing ? (activeAgent?.task_level || activeAgent?.last_level) : undefined}
+                  modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
                 />
               </>
             )}

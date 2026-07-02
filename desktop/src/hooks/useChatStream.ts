@@ -32,12 +32,8 @@ export function useChatStream() {
       const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
 
-      const requestId = generateRequestId()
-      activeRequestIdRef.current = requestId
-
+      // Add user message — always show in the UI.
       const msgId = `msg-${Date.now()}`
-
-      // Add user message.
       addMessage({
         id: msgId,
         role: 'user',
@@ -45,6 +41,23 @@ export function useChatStream() {
         timestamp: new Date().toISOString(),
         files,
       })
+
+      // If already streaming on this session, just queue server-side.
+      // The server's PendingQueue will inject it into the context window
+      // on the next agent iteration. No new handler or assistant needed.
+      if (state.streaming && state.streamingSessionId === sid) {
+        wsManager.send({
+          type: 'chat_send',
+          request_id: generateRequestId(),
+          session_id: sid,
+          prompt,
+          files,
+        })
+        return
+      }
+
+      const requestId = generateRequestId()
+      activeRequestIdRef.current = requestId
 
       // Add empty assistant message placeholder.
       const asstId = `msg-${Date.now() + 1}`

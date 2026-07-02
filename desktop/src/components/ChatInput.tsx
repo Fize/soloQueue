@@ -2,7 +2,7 @@ import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo }
 import { toast } from 'sonner'
 import { 
   ArrowUp, StopCircle, X, Loader2, Plus, ChevronDown, 
-  Check, Laptop, GitBranch, Users
+  Check, Laptop, GitBranch, Users, Cpu
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
@@ -33,6 +33,10 @@ export interface ChatInputProps {
   readOnlySelectors?: boolean
   ctxwinUsed?: number
   ctxwinLimit?: number
+
+  // Agent status display (left of context ring)
+  taskLevel?: string
+  modelName?: string
 }
 
 interface Attachment {
@@ -63,6 +67,8 @@ export function ChatInput({
   readOnlySelectors = false,
   ctxwinUsed = 0,
   ctxwinLimit = 0,
+  taskLevel,
+  modelName,
 }: ChatInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
@@ -248,7 +254,7 @@ export function ChatInput({
       .filter((att) => att.status === 'done' && att.path)
       .map((att) => ({ name: att.name, path: att.path! }))
 
-    if ((!text && uploadedFiles.length === 0) || (streaming && !delegating) || disabled) return
+    if ((!text && uploadedFiles.length === 0) || disabled) return
 
     // Fallback prompt to satisfy backend non-empty check
     const finalPrompt =
@@ -270,7 +276,7 @@ export function ChatInput({
 
     // Reset height
     if (inputRef.current) inputRef.current.style.height = 'auto'
-  }, [streaming, disabled, onSend, attachments, selectedGroup, selectedProjectPath, delegating])
+  }, [disabled, onSend, attachments, selectedGroup, selectedProjectPath])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -337,7 +343,7 @@ export function ChatInput({
               className="w-full resize-none bg-transparent px-3 py-1 text-[15px] leading-normal text-foreground placeholder:text-muted-foreground/45 focus:outline-none min-h-[32px] max-h-[160px] overflow-y-auto rounded-lg"
               placeholder="Ask anything..."
               rows={1}
-              disabled={(streaming && !delegating) || disabled}
+              disabled={disabled}
               onKeyDown={handleKeyDown}
               onInput={autoResize}
               onPaste={handlePaste}
@@ -502,8 +508,25 @@ export function ChatInput({
                 )}
               </div>
 
-              {/* Right actions: context window ring, send/stop */}
+              {/* Right actions: task/model status, context window ring, send/stop */}
               <div className="flex items-center gap-2">
+                {/* Task level + model badge (left of context ring) */}
+                {(taskLevel || modelName) && (
+                  <div className="flex items-center gap-1.5 shrink-0 select-none">
+                    {taskLevel && (
+                      <span className="text-[10px] font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap">
+                        {taskLevel.split('-')[0]}
+                      </span>
+                    )}
+                    {modelName && (
+                      <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground/70 bg-muted/30 border border-border/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap max-w-[120px] truncate">
+                        <Cpu className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+                        <span className="truncate">{modelName}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {ctxwinLimit > 0 && (
                   <div className="relative group/cw flex items-center">
                     <svg
