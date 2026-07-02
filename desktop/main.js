@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -397,10 +397,10 @@ function writeL1Config(modelRef) {
 // ── Window creation ────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1440,
+    height: 960,
+    minWidth: 1024,
+    minHeight: 768,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     icon: fs.existsSync(path.join(__dirname, 'dist/logo.png'))
@@ -413,6 +413,19 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
+  })
+
+  // Register shortcut to toggle DevTools (Cmd+Option+I on Mac, Ctrl+Shift+I on other platforms)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const isMac = process.platform === 'darwin'
+    const toggleDevTools = isMac
+      ? (input.meta && input.alt && input.code.toLowerCase() === 'keyi')
+      : (input.control && input.shift && input.code.toLowerCase() === 'keyi')
+
+    if (toggleDevTools && input.type === 'keyDown') {
+      mainWindow.webContents.toggleDevTools()
+      event.preventDefault()
+    }
   })
 
   mainWindow.on('closed', () => {
@@ -484,9 +497,63 @@ ipcMain.handle('maximize-window', () => {
   }
 })
 
+function createMenu() {
+  const isMac = process.platform === 'darwin'
+  const template = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' },
+              { type: 'separator' },
+              { role: 'services' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { role: 'quit' },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+  ]
+
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
+}
+
 // ── App lifecycle ──────────────────────────────────────────
 app.whenReady().then(async () => {
   createWindow()
+  createMenu()
 
   // Start backend on startup
   try {

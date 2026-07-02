@@ -134,7 +134,7 @@ export function MarkdownPreview({ content, className, onToggleCheckbox, basePath
             if (isInline) {
               return (
                 <code
-                  className="px-1.5 py-0.5 rounded-md bg-muted/60 text-[0.85em] font-mono text-amber-600 dark:text-amber-400"
+                  className="px-1.5 py-0.5 mx-[0.1em] rounded-md bg-muted text-[0.85em] font-mono text-foreground border border-border/40 shadow-sm"
                   {...props}
                 >
                   {children}

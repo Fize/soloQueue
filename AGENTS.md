@@ -5,10 +5,13 @@ Tactical guidance for AI coding agents working in this repository.
 ## Build
 
 ```bash
-make build        # pnpm build + cp dist + cp skills → internal/server/dist → go build
-make build-go     # go build only (needs internal/server/dist already in place)
-make build-web    # pnpm build + cp dist + cp skills to internal/server/dist
-make clean        # rm soloqueue desktop/dist portal/dist internal/server/dist
+make build            # Build Go binary with portal embedded (Default binary build)
+make build-all        # Build Go binary (with portal) AND desktop web UI
+make build-go         # Build Go binary only (assumes portal dist is already built)
+make build-web        # Build lightweight web portal (for Go embed)
+make build-desktop    # Build rich web UI (for Electron desktop client)
+make package-desktop  # Package Electron desktop client (specify platform via PLATFORM=mac|win|linux, defaults to current OS)
+make clean            # Remove all build artifacts
 ```
 
 The Go binary embeds `internal/server/dist/` via `//go:embed`. `make build-web` also copies `skills/` into dist.

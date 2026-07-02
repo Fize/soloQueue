@@ -57,7 +57,7 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
           {/* Role label */}
           <div className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end' : ''}`}>
             <span
-              className={`text-[11px] font-medium ${isUser ? 'text-primary/60' : 'text-violet-500/60'}`}
+              className={`text-[11px] font-medium text-muted-foreground/80`}
             >
               {isUser ? 'You' : agentName}
             </span>
@@ -67,13 +67,13 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
           <div
             className={
               isUser
-                ? 'rounded-2xl px-4 py-2.5 bg-gradient-to-br from-violet-600 to-indigo-600 dark:from-violet-500 dark:to-indigo-500 text-white rounded-br-md shadow-sm border border-violet-500/10'
+                ? 'rounded-2xl px-4 py-2.5 bg-muted/60 text-foreground rounded-br-md shadow-sm border border-border/40'
                 : 'w-full text-foreground'
             }
           >
             {/* Message body */}
             {isEmpty ? (
-              <LoadingIndicator isUser={isUser} />
+              <LoadingIndicator />
             ) : (
               <div className="space-y-2">
                 {groupSegments(message.segments).map((item) => {
@@ -161,22 +161,22 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
   )
 }
 
-function LoadingIndicator({ isUser }: { isUser?: boolean }) {
+function LoadingIndicator() {
   return (
     <div className="flex items-center gap-2 py-1">
       <span className="inline-flex gap-0.5">
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:0ms] ${isUser ? 'bg-primary-foreground/60' : 'bg-violet-400'}`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:0ms] bg-violet-400`}
         />
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:150ms] ${isUser ? 'bg-primary-foreground/60' : 'bg-violet-400'}`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:150ms] bg-violet-400`}
         />
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:300ms] ${isUser ? 'bg-primary-foreground/60' : 'bg-violet-400'}`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:300ms] bg-violet-400`}
         />
       </span>
       <span
-        className={`text-sm ${isUser ? 'text-primary-foreground/60' : 'text-muted-foreground/60'}`}
+        className={`text-sm text-muted-foreground/60`}
       >
         Thinking...
       </span>
@@ -279,15 +279,15 @@ function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boole
   return (
     <details className="group/worked" open={!isDone} key={doneKey}>
       <summary
-        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 ${isUser ? 'text-primary-foreground/60 hover:text-primary-foreground/80' : 'text-muted-foreground hover:text-foreground/70'}`}
+        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 text-muted-foreground hover:text-foreground/70`}
       >
         {!isDone ? (
           <span className="relative flex h-2 w-2 shrink-0">
             <span
-              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${isUser ? 'bg-primary-foreground/40' : 'bg-violet-400'}`}
+              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping bg-violet-400`}
             />
             <span
-              className={`relative inline-flex h-2 w-2 rounded-full ${isUser ? 'bg-primary-foreground/60' : 'bg-violet-500'}`}
+              className={`relative inline-flex h-2 w-2 rounded-full bg-violet-500`}
             />
           </span>
         ) : (
@@ -303,14 +303,14 @@ function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boole
         <ChevronDown className="h-3 w-3 ml-auto hidden group-open/worked:block" />
       </summary>
       <div
-        className={`mt-1.5 ml-2.5 pl-3.5 border-l-2 space-y-3 ${isUser ? 'border-primary-foreground/15' : 'border-muted-foreground/20'}`}
+        className={`mt-1.5 ml-2.5 pl-3.5 border-l-2 space-y-3 border-muted-foreground/20`}
       >
         {group.segments.map(({ segment }, idx) => {
           if (segment.type === 'thinking') {
             return (
               <div
                 key={idx}
-                className={`text-xs whitespace-pre-wrap leading-relaxed ${isUser ? 'text-primary-foreground/65' : 'text-muted-foreground/75'}`}
+                className={`text-xs whitespace-pre-wrap leading-relaxed text-muted-foreground/75`}
               >
                 {segment.text}
               </div>
@@ -347,15 +347,11 @@ function SegmentView({
       return (
         <MarkdownPreview
           content={segment.text}
-          className={
-            isUser
-              ? 'text-primary-foreground [&_a]:text-primary-foreground/80 [&_code]:bg-primary-foreground/20 [&_pre]:bg-primary-foreground/10'
-              : ''
-          }
+          className=""
         />
       )
     case 'thinking':
-      return <ThinkingSegment segment={segment} isUser={isUser} isLastSegment={isLastSegment} />
+      return <ThinkingSegment segment={segment} isLastSegment={isLastSegment} />
     case 'tool_call':
       if (segment.name.startsWith('delegate_')) {
         const teamName = segment.name.substring(9).replace(/_/g, ' ')
@@ -569,11 +565,9 @@ function SubagentCard({
 
 function ThinkingSegment({
   segment,
-  isUser,
   isLastSegment = true,
 }: {
   segment: Extract<ChatMessage['segments'][number], { type: 'thinking' }>
-  isUser?: boolean
   isLastSegment?: boolean
 }) {
   const streaming = useChatStore((s) => s.streaming)
@@ -596,15 +590,15 @@ function ThinkingSegment({
   return (
     <details className="group/thinking" open={!isDone} key={doneKey}>
       <summary
-        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 ${isUser ? 'text-primary-foreground/60 hover:text-primary-foreground/80' : 'text-muted-foreground hover:text-foreground/70'}`}
+        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 text-muted-foreground hover:text-foreground/70`}
       >
         {!isDone ? (
           <span className="relative flex h-2 w-2 shrink-0">
             <span
-              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${isUser ? 'bg-primary-foreground/40' : 'bg-violet-400'}`}
+              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping bg-violet-400`}
             />
             <span
-              className={`relative inline-flex h-2 w-2 rounded-full ${isUser ? 'bg-primary-foreground/60' : 'bg-violet-500'}`}
+              className={`relative inline-flex h-2 w-2 rounded-full bg-violet-500`}
             />
           </span>
         ) : (
@@ -617,7 +611,7 @@ function ThinkingSegment({
         <ChevronDown className="h-3 w-3 ml-auto hidden group-open/thinking:block" />
       </summary>
       <div
-        className={`mt-1 ml-5 pl-3 border-l-2 text-xs whitespace-pre-wrap leading-relaxed ${isUser ? 'border-primary-foreground/15 text-primary-foreground/65' : 'border-muted-foreground/20 text-muted-foreground/75'}`}
+        className={`mt-1 ml-5 pl-3 border-l-2 text-xs whitespace-pre-wrap leading-relaxed border-muted-foreground/20 text-muted-foreground/75`}
       >
         {segment.text}
       </div>
@@ -637,11 +631,11 @@ function ToolCallSegment({
 
   return (
     <div
-      className={`text-xs border rounded-xl overflow-hidden w-full ${isUser ? 'border-primary-foreground/15 bg-primary-foreground/5' : 'border-border/60 bg-muted/20'}`}
+      className={`text-xs border rounded-xl overflow-hidden w-full border-border/60 bg-muted/20`}
     >
       <button
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-2 w-full px-3 py-2 transition-colors ${isUser ? 'text-primary-foreground/70 hover:text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+        className={`flex items-center gap-2 w-full px-3 py-2 transition-colors text-muted-foreground hover:text-foreground`}
       >
         {running ? (
           <Loader2
@@ -660,13 +654,13 @@ function ToolCallSegment({
         <div className="flex items-center gap-2 text-xs shrink-0 select-none">
           {segment.durationMs != null && (
             <span
-              className={`tabular-nums text-[10px] ${isUser ? 'text-primary-foreground/50' : 'text-muted-foreground/50'}`}
+              className={`tabular-nums text-[10px] text-muted-foreground/50`}
             >
               {(segment.durationMs / 1000).toFixed(1)}s
             </span>
           )}
           <span
-            className={`text-[10px] uppercase tracking-wider ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/40'}`}
+            className={`text-[10px] uppercase tracking-wider text-muted-foreground/40`}
           >
             {running ? 'Running' : segment.error ? 'Failed' : 'Done'}
           </span>
@@ -679,17 +673,17 @@ function ToolCallSegment({
       </button>
       {expanded && (
         <div
-          className={`px-3 pb-2 space-y-2 border-t pt-2 ${isUser ? 'border-primary-foreground/10' : 'border-border/30'}`}
+          className={`px-3 pb-2 space-y-2 border-t pt-2 border-border/30`}
         >
           {segment.args && (
             <div>
               <div
-                className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/50'}`}
+                className={`text-[10px] font-semibold uppercase tracking-wider mb-1 text-muted-foreground/50`}
               >
                 Arguments
               </div>
               <pre
-                className={`text-[11px] leading-relaxed whitespace-pre-wrap overflow-x-auto rounded-lg p-2 max-h-[150px] overflow-y-auto font-mono ${isUser ? 'bg-primary-foreground/10' : 'bg-muted/40'}`}
+                className={`text-[11px] leading-relaxed whitespace-pre-wrap overflow-x-auto rounded-lg p-2 max-h-[150px] overflow-y-auto font-mono bg-muted/40`}
               >
                 {tryPrettify(segment.args)}
               </pre>
@@ -698,7 +692,7 @@ function ToolCallSegment({
           {(segment.result || segment.error) && (
             <div>
               <div
-                className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/50'}`}
+                className={`text-[10px] font-semibold uppercase tracking-wider mb-1 text-muted-foreground/50`}
               >
                 {segment.error ? 'Error' : 'Result'}
               </div>
@@ -706,9 +700,7 @@ function ToolCallSegment({
                 className={`text-[11px] leading-relaxed whitespace-pre-wrap overflow-x-auto rounded-lg p-2 max-h-[250px] overflow-y-auto font-mono ${
                   segment.error
                     ? 'bg-destructive/5 text-destructive/90'
-                    : isUser
-                      ? 'bg-primary-foreground/10'
-                      : 'bg-muted/40'
+                    : 'bg-muted/40'
                 }`}
               >
                 {segment.error || segment.result}

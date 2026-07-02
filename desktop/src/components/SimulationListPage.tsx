@@ -97,7 +97,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
   const [language, setLanguage] = useState('zh')
   const [maxWallClockMs, setMaxWallClockMs] = useState(18 * 60 * 1000)
 
-  const fileInputRef = useRef<HTMLInputElement | null>(fileInputRef)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const MAX_FILE_SIZE = 50 * 1024 * 1024
 
   useEffect(() => {
