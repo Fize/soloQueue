@@ -112,14 +112,14 @@ function MetricCard({ title, icon, iconColor, mainValue, subValue, detail, progr
           {isEmpty ? (
             <span className="inline-flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-base font-normal opacity-60">等待连接...</span>
+              <span className="text-base font-normal opacity-60">Waiting for connection...</span>
             </span>
           ) : (
             mainValue
           )}
         </span>
         <span className="text-xs" style={{ color: 'var(--md-on-surface-variant)' }}>
-          {isEmpty ? '启动后自动回连' : subValue}
+          {isEmpty ? 'Auto-reconnect after startup' : subValue}
         </span>
       </div>
 
@@ -166,7 +166,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
           />
         </span>
         <Wifi className="h-3.5 w-3.5" />
-        已连接
+        Connected
       </span>
     )
   }
@@ -181,7 +181,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
         }}
       >
         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-        重连中...
+        Reconnecting...
       </span>
     )
   }
@@ -195,7 +195,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
       }}
     >
       <WifiOff className="h-3.5 w-3.5" />
-      未连接
+      Disconnected
     </span>
   )
 }
@@ -218,7 +218,7 @@ function AgentStateBadge({ state }: { state: AgentState }) {
           />
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--md-primary)' }} />
         </span>
-        运行中
+        Processing
       </span>
     )
   }
@@ -233,7 +233,7 @@ function AgentStateBadge({ state }: { state: AgentState }) {
         }}
       >
         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--md-outline)' }} />
-        空闲
+        Idle
       </span>
     )
   }
@@ -247,7 +247,7 @@ function AgentStateBadge({ state }: { state: AgentState }) {
       }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--md-error)' }} />
-      已停止
+      Stopped
     </span>
   )
 }
@@ -396,10 +396,10 @@ export default function App() {
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-bold tracking-tight truncate" style={{ color: 'var(--md-on-surface)' }}>
-              SoloQueue 状态中心
+              SoloQueue Status Center
             </h1>
             <p className="text-xs font-mono truncate" style={{ color: 'var(--md-on-surface-variant)' }}>
-              本地只读监控面板
+              Local Read-Only Monitoring Dashboard
             </p>
           </div>
         </div>
@@ -415,7 +415,7 @@ export default function App() {
         {/* ─── Metric Cards ─── */}
         <section className="metric-grid">
           <MetricCard
-            title="活跃智能体"
+            title="Active Agents"
             icon={<Bot className="h-5 w-5" />}
             iconColor="color: var(--md-primary)"
             mainValue={
@@ -423,27 +423,27 @@ export default function App() {
                 ? `${runningAgents}`
                 : undefined
             }
-            subValue={isConnected ? `共 ${totalAgents} 个注册智能体` : undefined}
-            detail={isConnected ? `运行中: ${runningAgents} · 空闲: ${runtime?.idle_agents ?? 0}` : undefined}
+            subValue={isConnected ? `${totalAgents} registered agents in total` : undefined}
+            detail={isConnected ? `Running: ${runningAgents} · Idle: ${runtime?.idle_agents ?? 0}` : undefined}
             isEmpty={!isConnected}
           />
 
           <MetricCard
-            title="Token 消耗"
+            title="Token Usage"
             icon={<Cpu className="h-5 w-5" />}
             iconColor="color: var(--md-tertiary)"
             mainValue={isConnected ? formatTokenCount(totalTokens) : undefined}
-            subValue={isConnected ? '累计 Token 总量' : undefined}
-            detail={isConnected ? `输入: ${formatTokenCount(promptTokens)} · 输出: ${formatTokenCount(outputTokens)}` : undefined}
+            subValue={isConnected ? 'Total Tokens Consumed' : undefined}
+            detail={isConnected ? `Input: ${formatTokenCount(promptTokens)} · Output: ${formatTokenCount(outputTokens)}` : undefined}
             isEmpty={!isConnected}
           />
 
           <MetricCard
-            title="上下文占用"
+            title="Context Occupancy"
             icon={<FileText className="h-5 w-5" />}
             iconColor="color: var(--md-secondary)"
             mainValue={isConnected ? `${contextPct}%` : undefined}
-            subValue={isConnected ? '当前上下文窗口使用率' : undefined}
+            subValue={isConnected ? 'Current Context Window Usage' : undefined}
             progress={isConnected ? contextPct : undefined}
             progressColor={
               contextPct > 85
@@ -456,14 +456,14 @@ export default function App() {
           />
 
           <MetricCard
-            title="系统异常"
+            title="System Errors"
             icon={<AlertCircle className="h-5 w-5" />}
             iconColor={totalErrors > 0 ? 'color: var(--md-error)' : 'color: var(--md-outline)'}
             mainValue={isConnected ? totalErrors : undefined}
-            subValue={isConnected ? '智能体执行异常次数' : undefined}
+            subValue={isConnected ? 'Agent Execution Error Count' : undefined}
             detail={
               isConnected && totalErrors > 0 && runtime?.phase
-                ? `当前阶段: ${runtime.phase}`
+                ? `Current Phase: ${runtime.phase}`
                 : undefined
             }
             isEmpty={!isConnected}
@@ -478,12 +478,12 @@ export default function App() {
               style={{ color: 'var(--md-on-surface-variant)' }}
             >
               <Terminal className="h-4 w-4" style={{ color: 'var(--md-primary)' }} />
-              实时推理流
+              Live Inference Stream
               <span
                 className="text-xs font-normal normal-case"
                 style={{ color: 'var(--md-outline)' }}
               >
-                · {activeStreams.length} 个活跃智能体
+                · {activeStreams.length} active agents
               </span>
             </h2>
 
@@ -528,7 +528,7 @@ export default function App() {
                         {agentName}
                       </span>
                       <span className="text-xs font-mono" style={{ color: 'var(--md-on-surface-variant)' }}>
-                        第 #{stream.iteration} 轮
+                        Iteration #{stream.iteration}
                       </span>
                     </div>
 
@@ -540,7 +540,7 @@ export default function App() {
                           style={{ borderColor: 'color-mix(in srgb, var(--md-primary) 50%, transparent)' }}
                         >
                           <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--md-primary)' }}>
-                            ── 思考过程 ──
+                            ── Thinking Process ──
                           </span>
                           <span className="whitespace-pre-wrap" style={{ color: 'var(--md-on-surface-variant)' }}>
                             {thinkingSegments}
@@ -553,7 +553,7 @@ export default function App() {
                           style={{ borderColor: 'color-mix(in srgb, var(--md-tertiary) 50%, transparent)' }}
                         >
                           <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--md-tertiary)' }}>
-                            ── 生成内容 ──
+                            ── Generated Content ──
                           </span>
                           <span className="whitespace-pre-wrap" style={{ color: 'var(--md-on-surface)' }}>
                             {contentSegments}
@@ -563,7 +563,7 @@ export default function App() {
                       {!thinkingSegments && !contentSegments && (
                         <div className="flex items-center gap-2 h-full justify-center" style={{ color: 'var(--md-on-surface-variant)' }}>
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>等待推理输出...</span>
+                          <span>Waiting for inference output...</span>
                         </div>
                       )}
                     </div>
@@ -589,10 +589,10 @@ export default function App() {
           >
             <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--md-on-surface)' }}>
               <Database className="h-4 w-4" style={{ color: 'var(--md-primary)' }} />
-              智能体状态总览
+              Agent Status Overview
             </h2>
             <span className="text-xs font-mono" style={{ color: 'var(--md-on-surface-variant)' }}>
-              注册总数：{isConnected ? agents.length : '--'}
+              Total Registered: {isConnected ? agents.length : '--'}
             </span>
           </div>
 
@@ -602,14 +602,14 @@ export default function App() {
               <div className="flex flex-col items-center justify-center py-16 gap-3">
                 <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--md-on-surface-variant)' }} />
                 <span className="text-sm" style={{ color: 'var(--md-on-surface-variant)' }}>
-                  正在连接服务器...
+                  Connecting to server...
                 </span>
               </div>
             ) : agents.length === 0 ? (
               <EmptyState
                 icon={<Bot className="h-6 w-6" />}
-                title="暂无已注册的智能体"
-                description="启动 SoloQueue 服务器后，已注册的智能体将自动显示在此处。"
+                title="No registered agents yet"
+                description="Registered agents will automatically appear here after the SoloQueue server starts."
               />
             ) : (
               <table className="w-full text-left text-sm border-collapse">
@@ -619,37 +619,37 @@ export default function App() {
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      智能体名称
+                      Agent Name
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      状态
+                      Status
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden sm:table-cell"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      所属组
+                      Group
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden md:table-cell"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      模型
+                      Model
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden lg:table-cell"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      任务级别
+                      Task Level
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap text-right"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      异常
+                      Errors
                     </th>
                   </tr>
                 </thead>
@@ -682,7 +682,7 @@ export default function App() {
                                 color: 'var(--md-warning)',
                               }}
                             >
-                              队长
+                              Leader
                             </span>
                           )}
                         </div>
@@ -694,7 +694,7 @@ export default function App() {
                         className="px-4 sm:px-6 py-4 text-xs font-mono hidden sm:table-cell"
                         style={{ color: 'var(--md-on-surface-variant)' }}
                       >
-                        {agent.group || '全局'}
+                        {agent.group || 'Global'}
                       </td>
                       <td
                         className="px-4 sm:px-6 py-4 text-xs font-mono hidden md:table-cell max-w-[160px] truncate"
@@ -750,11 +750,11 @@ export default function App() {
           >
             <span className="flex items-center gap-1">
               <Layers className="h-3 w-3" />
-              阶段: {runtime.phase || '运行中'}
+              Phase: {runtime.phase || 'Running'}
             </span>
             <span className="flex items-center gap-1">
               <Database className="h-3 w-3" />
-              Cache: 命中 {formatTokenCount(runtime.cache_hit_tokens)} / 未命中 {formatTokenCount(runtime.cache_miss_tokens)}
+              Cache: Hit {formatTokenCount(runtime.cache_hit_tokens)} / Miss {formatTokenCount(runtime.cache_miss_tokens)}
             </span>
           </div>
         )}
@@ -766,10 +766,10 @@ export default function App() {
         style={{ borderColor: 'var(--md-outline-variant)', color: 'var(--md-outline)' }}
       >
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1">
-          <span>SoloQueue 状态中心 · 仅限本地访问 · 只读模式</span>
+          <span>SoloQueue Status Center · Local Access Only · Read-Only Mode</span>
           <span>
-            智能体 {isConnected ? totalAgents : '--'} ·{' '}
-            {isConnected ? `Token ${formatTokenCount(totalTokens)}` : '未连接'}
+            Agents {isConnected ? totalAgents : '--'} ·{' '}
+            {isConnected ? `Token ${formatTokenCount(totalTokens)}` : 'Disconnected'}
           </span>
         </div>
       </footer>

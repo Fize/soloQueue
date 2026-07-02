@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// assembleWithXML 将各段 prompt 内容用 XML 标签组装为最终系统提示词。
-// userCtx 为空时跳过 <user_context> 段。
-// recentMemory 为短期记忆目录路径（非空时注入文件位置 + Read/Grep 工具使用说明，不注入实际内容）。
-// permanentMemory 非空时注入长时记忆的 RecallMemory/Remember 工具使用说明（不注入实际内容）。
+// assembleWithXML assembles various prompt content sections into a final system prompt using XML tags.
+// If userCtx is empty, the <user_context> section is skipped.
+// recentMemory is the path to the short-term memory directory (if not empty, injects file location + Read/Grep tool instructions, but not actual content).
+// If permanentMemory is not empty, injects instructions for RecallMemory/Remember long-term memory tools (but not actual content).
 func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir string, mcpServers []string) string {
 	var b strings.Builder
 
@@ -56,5 +56,3 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 
 	return b.String()
 }
-
-

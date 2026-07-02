@@ -240,9 +240,9 @@ func (r *Registry) Len() int {
 
 // StartAll calls Start on all registered agents
 //
-// 返回所有 Start 报错（每个 agent 最多一条）；nil slice 表示全部成功。
-// 已在运行的 agent 返回 ErrAlreadyStarted 会被跳过收集？不 —— 如实收集，
-// 让 caller 自己决定是否视为错误。
+// Returns all Start errors (at most one per agent); a nil slice indicates complete success.
+// If an agent is already running and returns ErrAlreadyStarted, should it be skipped from collection? No — collect it faithfully,
+// and let the caller decide whether to treat it as an error.
 func (r *Registry) StartAll(parent context.Context) []error {
 	agents := r.List()
 	start := time.Now()
@@ -265,10 +265,10 @@ func (r *Registry) StartAll(parent context.Context) []error {
 	return errs
 }
 
-// StopAll 对所有已注册 agent 调用 Stop
+// StopAll calls Stop on all registered agents
 //
-// timeout 是每个 agent 的单独超时（不是总超时）。
-// 返回所有 Stop 报错；nil 表示全部成功。
+// timeout is the individual timeout for each agent (not the total timeout).
+// Returns all Stop errors; nil indicates complete success.
 func (r *Registry) StopAll(timeout time.Duration) []error {
 	agents := r.List()
 	start := time.Now()
@@ -280,7 +280,7 @@ func (r *Registry) StopAll(timeout time.Duration) []error {
 	var errs []error
 	for _, a := range agents {
 		if err := a.Stop(timeout); err != nil {
-			// 未 Start 的 agent 不算错误
+			// An agent that was not started is not considered an error.
 			if errors.Is(err, ErrNotStarted) {
 				continue
 			}
@@ -296,11 +296,11 @@ func (r *Registry) StopAll(timeout time.Duration) []error {
 	return errs
 }
 
-// Shutdown 依次 Stop 所有 agent 然后清空 registry
+// Shutdown sequentially stops all agents and then clears the registry.
 //
-// timeout 是每个 agent 的单独超时。
-// 所有 agent 都 Stop 完成后 Unregister；即使有 Stop 超时也会继续。
-// 返回 joined error（所有 Stop 错误的合并），nil 表示全部成功。
+// timeout is the individual timeout for each agent.
+// All agents are Unregistered after Stop completes; this continues even if some Stop operations time out.
+// Returns a joined error (a combination of all Stop errors); nil indicates complete success.
 func (r *Registry) Shutdown(timeout time.Duration) error {
 	start := time.Now()
 	r.logInfo(logger.CatActor, "registry shutdown",
@@ -310,7 +310,7 @@ func (r *Registry) Shutdown(timeout time.Duration) error {
 
 	stopErrs := r.StopAll(timeout)
 
-	// 清空 maps
+	// Clear maps
 	r.mu.Lock()
 	r.agents = make(map[string]*Agent)
 	r.byTemplate = make(map[string][]string)

@@ -953,17 +953,17 @@ export default function OfficeScene({
           {backendLoading && (
             <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
               <span className="animate-spin inline-block w-2.5 h-2.5 border-2 border-primary border-t-transparent rounded-full" />
-              <span>启动后端中...</span>
+              <span>Starting backend...</span>
             </div>
           )}
           {backendStatus === 'error' && (
             <div className="flex items-center gap-2 text-[10px] text-red-500">
-              <span>后端异常: {backendError || '连接失败'}</span>
+              <span>Backend error: {backendError || 'Connection failed'}</span>
               <button
                 onClick={onRetryBackend}
                 className="px-2 py-0.5 bg-red-50/50 border border-red-200 rounded text-red-700 hover:bg-red-100 transition-colors"
               >
-                重试
+                Retry
               </button>
             </div>
           )}

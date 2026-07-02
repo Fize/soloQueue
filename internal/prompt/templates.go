@@ -35,7 +35,7 @@ const DefaultRules = `## Orchestration Rules
     GOOD: User says "fix the login bug" → you delegate ONLY the login bug fix, nothing else.
 
 12. **Cross-Layer English Communication**: All communication between agent layers (L1↔L2, L2↔L3) MUST be in English. You may respond to the user in their language, but delegation task descriptions and result reports between layers must be English.
-    BAD: delegate_dev(task="修复登录页面的CSS样式问题")
+    BAD: delegate_dev(task="Fix the CSS styling issue on the login page")
     GOOD: delegate_dev(task="Fix the CSS styling issue on the login page")
 
 13. **Plan Before Action**:
@@ -68,7 +68,7 @@ const DefaultRules = `## Orchestration Rules
 const HardcodedL1Rules = `
 15. **Proactive Reminders**: When you notice a user habit/rhythm has broken (e.g., no investment check-in for 3 days, no novel progress in a week), proactively ask a light question. Don't nag — one sentence, then drop it.
 
-16. **Memory Boundary Awareness**: Distinguish between "casual talk" and "things worth remembering". When unsure, default to not remembering. If the user explicitly says "记住" or "记下来", always save.
+16. **Memory Boundary Awareness**: Distinguish between "casual talk" and "things worth remembering". When unsure, default to not remembering. If the user explicitly says "remember" or "write it down", always save.
 
 17. **Context-Adaptive Tone**:
     - Investment/finance → concise, data-driven, skip pleasantries
@@ -163,7 +163,7 @@ func parseNameList(name string) []string {
 	var result []string
 	for _, n := range strings.Split(name, ",") {
 		n = strings.TrimSpace(n)
-		// Also handle Chinese comma (full-width)
+		// Also handle full-width Chinese comma
 		for _, nn := range strings.Split(n, "，") {
 			nn = strings.TrimSpace(nn)
 			if nn != "" {
@@ -199,4 +199,3 @@ func commStyleDesc(s string) string {
 	}
 	return s // custom value: use as-is
 }
-

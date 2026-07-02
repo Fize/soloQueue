@@ -24,19 +24,19 @@ import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
 
 const mainNav = [
-  { to: '/office', icon: Gamepad2, label: '办公室' },
-  { to: '/assistant', icon: Bot, label: '助手' },
-  { to: '/simulations', icon: Play, label: '模拟推演' },
-  { to: '/cron', icon: Clock, label: '定时任务' },
+  { to: '/office', icon: Gamepad2, label: 'Office' },
+  { to: '/assistant', icon: Bot, label: 'Assistant' },
+  { to: '/simulations', icon: Play, label: 'Simulations' },
+  { to: '/cron', icon: Clock, label: 'Scheduled Tasks' },
 ]
 
 const settingsChildren = [
-  { to: '/settings/config', icon: FileText, label: '配置参数' },
-  { to: '/settings/profile', icon: User, label: '个人资料' },
-  { to: '/settings/skills', icon: Sparkles, label: '智能体技能' },
-  { to: '/settings/mcp', icon: Server, label: 'MCP 服务' },
-  { to: '/settings/teams', icon: Users, label: '团队管理' },
-  { to: '/settings/projects', icon: FolderOpen, label: '工作项目' },
+  { to: '/settings/config', icon: FileText, label: 'Configuration' },
+  { to: '/settings/profile', icon: User, label: 'Profile' },
+  { to: '/settings/skills', icon: Sparkles, label: 'Agent Skills' },
+  { to: '/settings/mcp', icon: Server, label: 'MCP Services' },
+  { to: '/settings/teams', icon: Users, label: 'Team Management' },
+  { to: '/settings/projects', icon: FolderOpen, label: 'Projects' },
 ]
 
 interface SidebarProps {
@@ -116,7 +116,7 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
               ? 'bg-foreground/10 text-foreground'
               : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
           )}
-          title="设置"
+          title="Settings"
         >
           <Settings className="h-3.5 w-3.5" />
         </button>
@@ -128,10 +128,10 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
           className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors duration-150"
           title={
             themeMode === 'light'
-              ? '切换为暗色模式'
+              ? 'Switch to dark mode'
               : themeMode === 'dark'
-                ? '切换为系统设置'
-                : '切换为亮色模式'
+                ? 'Switch to system theme'
+                : 'Switch to light mode'
           }
         >
           {themeMode === 'light' ? (
@@ -170,7 +170,7 @@ function NavView({
     <>
       {/* Navigation list */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
-        {/* 办公室 + 助手 — first two nav items */}
+        {/* Office + Assistant — first two nav items */}
         {mainNav.slice(0, 2).map((item) => {
           const active = location.pathname.startsWith(item.to)
           return (
@@ -193,7 +193,7 @@ function NavView({
           )
         })}
 
-        {/* Session tree — between 助手 and 模拟推演 */}
+        {/* Session tree — between Assistant and Simulations */}
         {showText && (
           <div className="space-y-0.5">
             <button
@@ -213,7 +213,7 @@ function NavView({
               )}
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              <span className="flex-1 text-left">会话</span>
+              <span className="flex-1 text-left">Sessions</span>
               {chatOpen ? (
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
               ) : (
@@ -229,7 +229,7 @@ function NavView({
           </div>
         )}
 
-        {/* 模拟推演 + 定时任务 — remaining nav items */}
+        {/* Simulations + Scheduled Tasks — remaining nav items */}
         {mainNav.slice(2).map((item) => {
           const active = location.pathname.startsWith(item.to)
           return (
@@ -288,10 +288,10 @@ function SettingsView({
             'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer text-muted-foreground hover:text-foreground hover:bg-foreground/5',
             narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2 px-2.5 py-1.5'
           )}
-          title={narrow ? '返回应用' : undefined}
+          title={narrow ? 'Back to App' : undefined}
         >
           <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
-          {showText && <span className="whitespace-nowrap">返回应用</span>}
+          {showText && <span className="whitespace-nowrap">Back to App</span>}
         </button>
       </div>
 
@@ -321,4 +321,3 @@ function SettingsView({
     </>
   )
 }
-

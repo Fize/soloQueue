@@ -22,20 +22,20 @@ import (
 
 // ─── AgentTemplate ─────────────────────────────────────────────────────────
 
-// AgentTemplate 是 Agent 实例化的完整描述
+// AgentTemplate is the complete description of an Agent instance
 //
-// 来源于 ~/.soloqueue/agents/*.md 的 YAML frontmatter + markdown body。
+// Derived from YAML frontmatter + markdown body of ~/.soloqueue/agents/*.md
 type AgentTemplate struct {
-	ID           string            // 唯一标识（如 "dev"、"fe"）
-	Name         string            // 显示名称
-	Description  string            // 给 LLM 看的描述
+	ID           string            // Unique identifier (e.g., "dev", "fe")
+	Name         string            // Display name
+	Description  string            // Description for the LLM
 	SystemPrompt string            // markdown body
-	ModelID      string            // 模型 ID（由全局默认模型填充，不再从配置文件读取）
-	IsLeader     bool              // 是否为 L2 领导者
-	Group        string            // 所属 group name
-	Permission   bool              // 特权模式，跳过工具确认
-	MCPServers   []string          // MCP Server 名称列表
-	SkillIDs     []string          // 该 agent 需要的 skill ID 列表
+	ModelID      string            // Model ID (populated from global default model, no longer read from config file)
+	IsLeader     bool              // Whether it is an L2 leader
+	Group        string            // The group name it belongs to
+	Permission   bool              // Privileged mode, skips tool confirmation
+	MCPServers   []string          // List of MCP Server names
+	SkillIDs     []string          // List of skill IDs required by this agent
 }
 
 // ─── ModelInfo ────────────────────────────────────────────────────────────
@@ -72,42 +72,42 @@ type ModelResolver func(modelID string) (ModelInfo, error)
 
 // ─── AgentFactory ──────────────────────────────────────────────────────────
 
-// AgentFactory 从模板实例化 Agent
+// AgentFactory instantiates an Agent from a template
 type AgentFactory interface {
-	// Create 根据 tmpl 创建并启动一个 Agent 实例
+	// Create creates and starts an Agent instance based on tmpl
 	// workDir is the project working directory for this agent.
 	// Empty string means use the factory's global workDir (~/.soloqueue).
 	Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error)
 
-	// Registry 返回内部的 Agent Registry（供 Supervisor 使用）
+	// Registry returns the internal Agent Registry (for use by Supervisor)
 	Registry() *Registry
 }
 
 // ─── DefaultFactory ────────────────────────────────────────────────────────
 
-// DefaultFactory 是 AgentFactory 的默认实现
+// DefaultFactory is the default implementation of AgentFactory
 //
-// 包含创建 Agent 所需的所有依赖。创建的 Agent 会自动注册到 Registry 并启动。
+// Contains all dependencies needed to create an Agent. Created Agents are automatically registered in the Registry and started.
 type DefaultFactory struct {
 	mu sync.RWMutex
 
 	registry       *Registry
 	llm            LLMClient
 	toolsCfg       tools.Config
-	defaultModelID string // 当 AgentTemplate.ModelID 为空时使用此默认值
+	defaultModelID string // Default value used when AgentTemplate.ModelID is empty
 	skillRegistry  *skill.SkillRegistry
-	workDir        string // ~/.soloqueue, 用于根据 team 计算 planDir
+	workDir        string // ~/.soloqueue, used to compute planDir based on team
 	log            *logger.Logger
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
-	templates      map[string]AgentTemplate    // 按 ID 索引的全量模板，供 buildL2SystemPrompt 查找子 agent 描述
-	groups         map[string]prompt.GroupFile // group 信息，供 L2 prompt 注入团队上下文
+	templates      map[string]AgentTemplate    // Full templates indexed by ID, used by buildL2SystemPrompt to find sub-agent descriptions
+	groups         map[string]prompt.GroupFile // Group information, used to inject team context into L2 prompts
 	bypassConfirm  bool                        // global --bypass: skip all confirmations
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 	exploreDir     string                      // exploration artifact directory (platform-appropriate)
 	teamstore      *teamstore.Store            // DB-backed team/agent store (nil = disabled)
 }
 
-// NewDefaultFactory 创建 DefaultFactory
+// NewDefaultFactory creates a DefaultFactory
 func NewDefaultFactory(
 	registry *Registry,
 	llm LLMClient,
@@ -241,17 +241,17 @@ func (f *DefaultFactory) Log() *logger.Logger {
 	return f.log
 }
 
-// Create 根据 tmpl 创建并启动一个 Agent 实例
+// Create creates and starts an Agent instance based on tmpl
 //
-// 流程：
-//  1. 构建最终 SystemPrompt（L2 使用三段式拼接，L3 直接使用 body/description）
-//  2. Build(toolsCfg) → 内置 tools
-//  3. 加载 skills（LoadSkillsFromDir）
-//  4. 创建 Agent（WithTools, WithSkills, WithParallelTools, WithAgentWorkDir）
-//  5. 创建 ContextWindow，push system prompt + skill catalog
-//  6. Register 到 registry
+// Flow:
+//  1. Build the final SystemPrompt (L2 uses three-part concatenation, L3 uses body/description directly)
+//  2. Build(toolsCfg) → built-in tools
+//  3. Load skills (LoadSkillsFromDir)
+//  4. Create Agent (WithTools, WithSkills, WithParallelTools, WithAgentWorkDir)
+//  5. Create ContextWindow, push system prompt + skill catalog
+//  6. Register to registry
 //  7. Start Agent
-//  8. 返回 (agent, cw, nil)
+//  8. Return (agent, cw, nil)
 //
 // workDir is the project working directory for this agent.
 // If empty, the factory's global workDir (~/.soloqueue) is used.
@@ -263,7 +263,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	defaultModelID := f.defaultModelID
 	f.mu.RUnlock()
 
-	// 1. 构建最终 SystemPrompt
+	// 1. Construct the final SystemPrompt
 	// Compute team-specific planDir: ~/.soloqueue/plan/<group>/
 	// L2/L3 agents use team-isolated plan directories; L1 (no group) falls back to global PlanDir.
 	planDir := toolsCfg.PlanDir
@@ -318,7 +318,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		finalPrompt = finalPrompt + projRes.projectPrompt
 	}
 
-	// 2. 构建 Definition
+	// 2. Construct the Definition
 	def := Definition{
 		ID:              tmpl.ID,
 		Name:            tmpl.Name,
@@ -359,7 +359,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		def.Vision = info.Vision
 	}
 
-	// 2. 构建内置 tools
+	// 2. Build built-in tools
 	var allTools []tools.Tool
 	if !strings.HasPrefix(tmpl.ID, "sim-") {
 		agentToolsCfg := toolsCfg
@@ -390,7 +390,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		}
 	}
 
-	// 3. 加载 skills — 合并全局注册表 + project-level skills（项目级覆盖全局）
+	// 3. Load skills — merge global registry + project-level skills (project-level overrides global)
 	mergedSkillReg := skill.NewSkillRegistry()
 	if f.skillRegistry != nil {
 		for _, s := range f.skillRegistry.Skills() {
@@ -405,7 +405,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		}
 	}
 
-	// 2b. L2 领导者：注入同组 L3 Worker + project-level agents 的 delegate 工具
+	// 2b. L2 leader: inject delegate tools for same-group L3 workers + project-level agents
 	if tmpl.IsLeader {
 		// Inject the generic delegate_agent tool for dynamic L3 delegation
 		dat := tools.NewDelegateAgentTool(f.log, func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
@@ -484,19 +484,19 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 			allTools = append(allTools, dt)
 		}
 
-		// 2c. L2 领导者：注入横向协作工具（list_peer_teams + request_team_help）
-		// 仅当存在其他团队时才注入，避免单团队场景下给 LLM 无意义的工具。
+		// 2c. L2 leader: inject horizontal collaboration tools (list_peer_teams + request_team_help)
+		// Only inject if other teams exist, to avoid giving the LLM meaningless tools in single-team scenarios.
 		peerCatalog := f.peerTeamsCatalog(tmpl)
 		if len(peerCatalog) > 0 {
 			listTool := tools.NewListPeerTeamsTool(peerCatalog, tmpl.ID)
 			allTools = append(allTools, listTool)
 
-			// locateOrSpawn: 复用 LocateIdle 找空闲 peer leader，找不到则 spawn 新实例。
+			// locateOrSpawn: reuse LocateIdle to find an idle peer leader; spawn a new instance if not found.
 			locateOrSpawn := func(ctx context.Context, teamName string) (iface.Locatable, bool, error) {
 				if loc, ok := f.registry.LocateIdle(teamName); ok {
 					return loc, false, nil
 				}
-				// 找不到空闲实例 → spawn 新的 peer leader
+				// No idle instance found → spawn a new peer leader
 				peerTmpl, ok := f.findLeaderTemplate(teamName)
 				if !ok {
 					return nil, false, fmt.Errorf("peer leader %q not found", teamName)
@@ -505,14 +505,14 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 				if err != nil {
 					return nil, false, fmt.Errorf("spawn peer leader %q: %w", teamName, err)
 				}
-				// 新 spawn 的 peer leader 需要自己的 supervisor 来管理它的 L3 children
+				// The newly spawned peer leader needs its own supervisor to manage its L3 children
 				peerSv := NewSupervisor(child, f, f.log)
 				peerSv.WireSpawnFns(f.templatesSlice())
 				peerSv.SetGroup(peerTmpl.Group)
 				return NewSelfReapableAdapter(child, peerSv), true, nil
 			}
-			// reap: 对于 spawn 的新实例，OnDelegationDone 已经由 SelfReapableAdapter
-			// 处理；这里不需要额外 reap（DoneNotifier 路径已经覆盖）。
+			// reap: for spawned new instances, OnDelegationDone is already handled by SelfReapableAdapter
+			// No additional reap needed here (DoneNotifier path already covers it).
 			helpTool := tools.NewRequestTeamHelpTool(tmpl.ID, locateOrSpawn, nil, 25*time.Minute)
 			if f.log != nil {
 				helpTool.SetLogger(f.log)
@@ -531,7 +531,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 			}
 		}
 		if sr.Len() > 0 {
-			// Fork spawn: 创建临时子 agent 执行 fork 模式的 skill
+			// Fork spawn: create a temporary child agent to execute a skill in fork mode
 			forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
 				var basePrompt string
 				if s.Agent != "" {
@@ -603,7 +603,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		}
 	}
 
-	// 4. 构造 Option 列表
+	// 4. Build Option list
 	opts := []Option{
 		WithTools(allTools...),
 		WithSkills(skillList...),
@@ -622,15 +622,15 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		WithToolTimeout("WebSearch", 10*time.Minute),
 	}
 	if tmpl.IsLeader {
-		// L2 可以启用 PriorityMailbox，用于接收 L3 结果的高优先级投递
-		// 暂不启用，L2 同步阻塞等待 L3，不需要优先级
+		// L2 can enable PriorityMailbox for high-priority delivery of L3 results
+		// Not enabled for now; L2 synchronously blocks waiting for L3, so priority is not needed
 	}
 
-	// 5. 创建 Agent
+	// 5. Create Agent
 	a := NewAgent(def, llm, f.log, opts...)
 
-	// 7. 创建 ContextWindow
-	//   使用模型配置的上下文窗口大小；未配置时使用 DefaultContextWindow
+	// 7. Create ContextWindow
+	//   Use the context window size from the model config; fallback to DefaultContextWindow if not configured
 	maxTokens := def.ContextWindow
 	if maxTokens <= 0 {
 		maxTokens = DefaultContextWindow
@@ -640,7 +640,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}
 
-	// 8. Register 到 registry
+	// 8. Register to registry
 	if err := f.registry.Register(a); err != nil {
 		return nil, nil, fmt.Errorf("factory: register agent %q: %w", tmpl.ID, err)
 	}
@@ -723,9 +723,9 @@ func (f *DefaultFactory) loadProjectResources(projectDir string) projectResource
 
 // ─── Template loading ──────────────────────────────────────────────────────
 
-// LoadAgentTemplates 扫描 agents 目录，将所有 .md 文件解析为 AgentTemplate
+// LoadAgentTemplates scans the agents directory and parses all .md files into AgentTemplate
 //
-// 返回所有 agent 模板（不过滤 IsLeader），由调用方决定如何使用。
+// Returns all agent templates (without filtering IsLeader); the caller decides how to use them.
 func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	agentFiles, err := prompt.LoadAgentFiles(agentsDir)
 	if err != nil {
@@ -772,7 +772,7 @@ func LoadSkillAgentTemplate(skillDir string, agentName string) (AgentTemplate, b
 }
 
 
-// workspacePaths 返回 group 配置中所有 workspace 的绝对路径。
+// workspacePaths returns absolute paths for all workspaces in the group config.
 func workspacePaths(gf prompt.GroupFile) []string {
 	paths := make([]string, 0, len(gf.Frontmatter.Workspaces))
 	for _, ws := range gf.Frontmatter.Workspaces {
@@ -783,9 +783,9 @@ func workspacePaths(gf prompt.GroupFile) []string {
 	return paths
 }
 
-// visibleWorkers 返回与 tmpl 同组的全局 agent 模板 + project-level agent 模板的合并列表。
+// visibleWorkers returns the merged list of global agent templates in the same group as tmpl + project-level agent templates.
 // Project-level agents override global agents with the same ID.
-// 用于为 L2 领导者注入 delegate_* 工具。
+// Used to inject delegate_* tools for L2 leaders.
 func (f *DefaultFactory) visibleWorkers(tmpl AgentTemplate, projectAgents []AgentTemplate) []AgentTemplate {
 	merged := make(map[string]AgentTemplate)
 
@@ -873,10 +873,10 @@ func (f *DefaultFactory) templatesSlice() []AgentTemplate {
 	return out
 }
 
-// ─── L2 System Prompt 三段式拼接 ─────────────────────────────────────────────
+// ─── L2 System Prompt three-segment concatenation ─────────────────────────────────────────────
 
-// l2EnforcedDirectives 是 Segment 3 框架强制区常量。
-// 利用"近因效应"放在最末，优先级最高，防止用户越权。
+// l2EnforcedDirectives is the Segment 3 framework-enforced constant.
+// Placed at the very end to leverage the recency effect, giving it the highest priority and preventing user privilege escalation.
 const l2EnforcedDirectivesPart1 = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
@@ -1048,17 +1048,17 @@ All inter-layer communication MUST be in English. This includes:
 - Task descriptions you send to L3 Workers (delegate_* calls)
 - Result summaries you return to L1 (your output)
 - Clarification requests
-BAD (to L3): "检查 /workspace/main.go 第42行的 panic 并修复它"
+BAD (to L3): "Check line 42 of /workspace/main.go for the panic and fix it"
 GOOD (to L3): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
-BAD (to L1): "任务完成，已经修复了登录页面的样式问题"
+BAD (to L1): "Task completed, already fixed the styling issues on the login page"
 GOOD (to L1): "Task completed. The CSS styling issue on the login page has been fixed."
 `
 
-// buildL2SystemPrompt 为 L2 Supervisor 构建三段式 System Prompt。
+// buildL2SystemPrompt builds a three-segment System Prompt for the L2 Supervisor.
 //
-// Segment 1 (用户定义区): 用户的业务 Role + System Prompt
-// Segment 2 (动态能力区): Team Context + 同组 Agents 目录 + MCP Servers
-// Segment 3 (框架强制区): 不可篡改的底层契约
+// Segment 1 (User Defined Area): User's business Role + System Prompt
+// Segment 2 (Dynamic Capability Area): Team Context + Same-Group Agents Directory + MCP Servers
+// Segment 3 (Framework Mandatory Area): Immutable underlying contract
 func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, projectAgents []AgentTemplate, hasPermanentMemory bool) string {
 	var b strings.Builder
 
@@ -1067,9 +1067,9 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	fmt.Fprintf(&b, "You are %s.\n\n", tmpl.Name)
 	b.WriteString("Your responses must be extremely concise and direct. Answer exactly what is asked without any unnecessary fluff, conversational filler, or pleasantries.\n\n")
 
-	// ── Segment 1: 用户定义区 ──────────────────────────────
-	// tmpl.SystemPrompt 是 markdown body，已包含用户自定义的完整 role 定义
-	// tmpl.Description 仅在 SystemPrompt 为空时作为兜底
+	// ── Segment 1: User Defined Area ──────────────────────────────
+	// tmpl.SystemPrompt is a markdown body, containing the user's custom full role definition
+	// tmpl.Description serves as a fallback only when SystemPrompt is empty
 	if tmpl.SystemPrompt != "" {
 		b.WriteString(tmpl.SystemPrompt)
 		b.WriteString("\n\n")
@@ -1079,7 +1079,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("\n\n")
 	}
 
-	// ── Segment 2: 动态能力区 ──────────────────────────────
+	// ── Segment 2: Dynamic Capability Area ──────────────────────────────
 	// 2a. Working Directory
 	b.WriteString("# Working Directory\n\n")
 	fmt.Fprintf(&b, "Your working directory is `%s`. All project files, source code, and configurations reside under this directory. Use this as the base for all file operations.\n", workDir)
@@ -1108,7 +1108,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		}
 	}
 
-	// 2b. 同组 Agents 目录（排除 leader 自身）+ project-level agents 合并
+	// 2b. Same-group Agents Directory (excluding the leader itself) + merged project-level agents
 	mergedWorkers := make(map[string]AgentTemplate)
 	for id, t := range templates {
 		if id == tmpl.ID {
@@ -1170,7 +1170,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("\n")
 	}
 
-	// ── Segment 3: 框架强制区 ──────────────────────────────
+	// ── Segment 3: Framework Mandatory Area ──────────────────────────────
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
 	b.WriteString("\n\n")
 	if hasPermanentMemory {
@@ -1190,7 +1190,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	return b.String()
 }
 
-// ─── L3 System Prompt 两段式拼接 ─────────────────────────────────────────────
+// ─── L3 System Prompt Two-Segment Assembly ─────────────────────────────────────────────
 
 // memoryEngineSection is injected into L2/L3 prompts when the memory engine is enabled.
 const memoryEngineSection = `
@@ -1268,7 +1268,7 @@ GOOD: Task is "fix the null pointer on line 42" → you fix ONLY the null pointe
 
 # 2. English-Only Output
 Your output (results, summaries, error reports) MUST be in English. You are part of a multi-layer system where cross-layer communication must be English.
-BAD: "修复完成，已经把第42行的空指针问题解决了"
+BAD: "Fixed – resolved the null pointer issue on line 42"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
 # 3. Follow the Plan — you MUST execute tasks one at a time and mark each:
 1. Locate the plan file path. If L2 provided a plan path, read that file. If no plan file path was provided, check the workspace for an existing plan or create your own:
@@ -1341,10 +1341,10 @@ LSP tools understand code semantics. Use them BEFORE text-based tools for code t
 - **lsp__diagnostics** — verify code after edits (check for errors)
 `
 
-// buildL3SystemPrompt 为 L3 Worker 构建两段式 System Prompt。
+// buildL3SystemPrompt builds a two-segment System Prompt for the L3 Worker.
 //
-// Segment 1 (用户定义区): 用户的业务 Role + System Prompt
-// Segment 2 (框架强制区): 不可篡改的底层契约
+// Segment 1 (User Defined Area): User's business Role + System Prompt
+// Segment 2 (Framework Mandatory Area): Immutable underlying contract
 func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, hasPermanentMemory bool) string {
 	var b strings.Builder
 
@@ -1353,7 +1353,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	fmt.Fprintf(&b, "You are %s.\n\n", tmpl.Name)
 	b.WriteString("Your responses must be extremely concise and direct. Answer exactly what is asked without any unnecessary fluff, conversational filler, or pleasantries.\n\n")
 
-	// ── Segment 1: 用户定义区 ──────────────────────────────
+	// ── Segment 1: User Defined Area ──────────────────────────────
 	if tmpl.SystemPrompt != "" {
 		b.WriteString(tmpl.SystemPrompt)
 		b.WriteString("\n\n")
@@ -1380,7 +1380,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	}
 	b.WriteString("\n")
 
-	// ── Segment 2: 框架强制区 ──────────────────────────────
+	// ── Segment 2: Framework Mandatory Area ──────────────────────────────
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
 	b.WriteString("\n\n")
 	if hasPermanentMemory {

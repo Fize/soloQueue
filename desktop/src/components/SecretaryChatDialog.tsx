@@ -91,7 +91,7 @@ export default function SecretaryChatDialog({ onClose }: SecretaryChatDialogProp
           <button 
             onClick={onClose}
             className="text-gray-400 hover:text-gray-700 font-bold text-[14px] cursor-pointer p-0.5 line-none transition-colors"
-            title="收起"
+            title="Collapse"
           >
             ✕
           </button>

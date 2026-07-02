@@ -1,8 +1,8 @@
-// Package deepseek 实现 DeepSeek Chat Completions API 的 HTTP 客户端
+// Package deepseek implements an HTTP client for the DeepSeek Chat Completions API.
 //
-// 对外实现 agent.LLMClient（Chat + ChatStream）。
-// 所有 HTTP 调用使用 stream=true 路径 —— Chat 内部累积 streaming event 成完整响应。
-// 这保证只有一份 HTTP 逻辑、一份错误处理、一份 retry 逻辑。
+// It implements agent.LLMClient (Chat + ChatStream) for external use.
+// All HTTP calls use the stream=true path — Chat accumulates streaming events internally into a complete response.
+// This ensures a single HTTP logic, error handling, and retry logic.
 package deepseek
 
 import (
@@ -16,12 +16,12 @@ import (
 
 // ─── Wire-level request types ────────────────────────────────────────────────
 //
-// 这些结构体直接对应 DeepSeek HTTP API 的 JSON shape。
-// 不向外暴露 —— caller 用 agent.LLMRequest / agent.LLMResponse。
+// These structs directly correspond to the JSON shape of the DeepSeek HTTP API.
+// Not exposed externally — callers use agent.LLMRequest / agent.LLMResponse.
 //
-// 所有 optional 字段用指针表示，配合 omitempty，能在 JSON 里完整省略
-// （避免 top_p=0 被误发为 "不填"）。
-// 注意：DeepSeek V4 不再支持 temperature 参数，wireRequest 中已移除。
+// All optional fields are represented by pointers, combined with omitempty, to be fully omitted in JSON
+// (e.g., to avoid top_p=0 being mistakenly sent as "not provided").
+// Note: DeepSeek V4 no longer supports the temperature parameter; it has been removed from wireRequest.
 
 type wireRequest struct {
 	Model            string          `json:"model"`
@@ -40,10 +40,10 @@ type wireRequest struct {
 	Thinking         *wireThinking   `json:"thinking,omitempty"`
 }
 
-// wireContentPart 表示 OpenAI 兼容的 content array 中的一个元素
+// wireContentPart represents an element in an OpenAI-compatible content array
 //
-// 仅用于多模态消息（有图片时），与 Content string 互斥。
-// 不对 caller 暴露。
+// Used only for multimodal messages (when images are present), mutually exclusive with Content string.
+// Not exposed to callers.
 type wireContentPart struct {
 	Type     string          `json:"type"`
 	Text     string          `json:"text,omitempty"`
@@ -51,7 +51,7 @@ type wireContentPart struct {
 }
 
 type wireImageURL struct {
-	URL    string `json:"url"`              // data:image/png;base64,... 或 http(s) URL
+	URL    string `json:"url"`              // data:image/png;base64,... or http(s) URL
 	Detail string `json:"detail,omitempty"` // "auto" | "low" | "high"
 }
 
@@ -100,8 +100,8 @@ type wireRespFormat struct {
 
 // ─── Wire-level response types ───────────────────────────────────────────────
 
-// wireChunk 是 streaming 一条 `data: {...}` 的 JSON
-// 对于 object="chat.completion.chunk" 的流式，每个 delta 是一个 chunk
+// wireChunk represents a single `data: {...}` JSON object in a streaming response
+// For streaming with object="chat.completion.chunk", each delta is a chunk
 type wireChunk struct {
 	ID      string       `json:"id"`
 	Object  string       `json:"object"`
@@ -124,8 +124,8 @@ type wireDelta struct {
 	ToolCalls        []wireDeltaToolCall `json:"tool_calls,omitempty"`
 }
 
-// wireDeltaToolCall 是 streaming 中 tool_call 的一个增量
-// Index 是 tool_call 在 choice 里的槽位号
+// wireDeltaToolCall is an incremental part of a tool_call in streaming
+// Index is the slot number of the tool_call within the choice
 type wireDeltaToolCall struct {
 	Index    int                  `json:"index"`
 	ID       string               `json:"id,omitempty"`
@@ -151,7 +151,7 @@ type wireCompletionDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
-// wireErrorEnvelope 是 HTTP 4xx/5xx 的 body shape
+// wireErrorEnvelope is the body shape for HTTP 4xx/5xx errors
 type wireErrorEnvelope struct {
 	Error wireError `json:"error"`
 }
@@ -165,25 +165,25 @@ type wireError struct {
 
 // ─── Request builder ─────────────────────────────────────────────────────────
 
-// buildWireRequest 把 agent.LLMRequest 转成 wire-level 请求
+// buildWireRequest converts an agent.LLMRequest into a wire-level request
 //
-// stream 参数决定是否设置 stream=true；
-// includeUsage 参数决定 stream_options.include_usage（仅 stream=true 有效）。
+// The stream parameter determines whether stream=true is set;
+// the includeUsage parameter determines stream_options.include_usage (only effective when stream=true).
 func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireRequest {
 	out := wireRequest{
 		Model:    req.Model,
 		Messages: buildWireMessages(req.Messages, req.ThinkingEnabled, req.Vision),
 		Stream:   stream,
 	}
-	// Optional 采样参数：零值也是合法值（top_p=0 有意义），
-	// 所以用指针 + 无脑填 —— caller 不关心就让它用 API 默认值
-	// 注意：DeepSeek V4 不再支持 temperature 参数，因此不再发送
+	// Optional sampling parameters: zero values are also valid (e.g., top_p=0 is meaningful),
+	// so use pointers + unconditionallly fill them — if the caller doesn't care, let it use API defaults.
+	// Note: DeepSeek V4 no longer supports the temperature parameter, so it's no longer sent.
 	if req.TopP > 0 {
 		p := req.TopP
 		out.TopP = &p
 	}
 	if req.MaxTokens > 0 {
-		m := min(req.MaxTokens, 100000) // 输出 token 上限 100k
+		m := min(req.MaxTokens, 100000) // Output token limit 100k
 		out.MaxTokens = &m
 	}
 	if req.FrequencyPenalty != 0 {
@@ -222,7 +222,7 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	if req.ReasoningEffort != "" {
 		out.ReasoningEffort = &req.ReasoningEffort
 	}
-	// DeepSeek V4 thinking 参数：必传，enabled 或 disabled
+	// DeepSeek V4 thinking parameter: required, either enabled or disabled
 	if req.ThinkingEnabled {
 		out.Thinking = &wireThinking{Type: "enabled"}
 	} else {
@@ -231,10 +231,10 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	return out
 }
 
-// buildWireMessages 把 agent.LLMMessage 列表转成 wire-level 消息列表
+// buildWireMessages converts a list of agent.LLMMessage into a list of wire-level messages
 //
-// 当 visionEnabled=false 时，多模态图片被剥离并以文本注释替代，
-// 避免不支持多模态的 API 返回 400 错误。
+// When visionEnabled=false, multimodal images are stripped and replaced with text annotations,
+// to prevent APIs that don't support multimodal input from returning a 400 error.
 func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled, visionEnabled bool) []wireMessage {
 	out := make([]wireMessage, 0, len(msgs))
 	for _, m := range msgs {
@@ -265,7 +265,7 @@ func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled, visionEnabled b
 				if text != "" {
 					text += "\n\n"
 				}
-				text += fmt.Sprintf("[用户附带了 %d 张图片，但当前模型不支持多模态识别，已忽略]", len(m.Images))
+				text += fmt.Sprintf("[The user included %d images, but the current model does not support multimodal recognition and they have been ignored]", len(m.Images))
 				content = text
 			}
 		} else {
@@ -278,9 +278,9 @@ func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled, visionEnabled b
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}
-		// DeepSeek thinking mode：assistant 的 reasoning_content 处理
-		// 当 thinking mode 启用时，所有 assistant 消息必须带 reasoning_content
-		// （即使为空，也需要发送字段以满足 API 校验）
+		// DeepSeek thinking mode: handling reasoning_content for assistant messages
+		// When thinking mode is enabled, all assistant messages must include reasoning_content
+		// (even if empty, the field needs to be sent to satisfy API validation)
 		if m.Role == "assistant" {
 			if m.ReasoningContent != "" {
 				wm.ReasoningContent = m.ReasoningContent
@@ -310,21 +310,21 @@ func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled, visionEnabled b
 
 // ─── chunk → Event ───────────────────────────────────────────────────────────
 
-// chunkToEvents 把一个 wireChunk 转成 0 个或多个 llm.Event
+// chunkToEvents converts a wireChunk into zero or more llm.Event
 //
-// 输出顺序（按 choice 遍历）：
-//  1. tool_call delta（每个 slot 一个 Event）
-//  2. content / reasoning_content delta（一起打包到一个 Event）
-//  3. done（choice 的 finish_reason 非空时；可能带 Usage，见下）
+// Output order (iterating through choices):
+//  1. tool_call delta (one Event per slot)
+//  2. content / reasoning_content delta (packaged together into one Event)
+//  3. done (when choice's finish_reason is non-empty; may include Usage, see below)
 //
-// 如果 chunk 自身带 Usage（include_usage=true 且是 final chunk），
-// 优先合并到末尾的 Done event；若没有 Done 则独立发一条 Done with Usage。
+// If the chunk itself contains Usage (include_usage=true and it's the final chunk),
+// it is preferentially merged into the last Done event; if no Done event exists, a separate Done with Usage is sent.
 func chunkToEvents(c wireChunk) []llm.Event {
 	var events []llm.Event
 
 	for _, ch := range c.Choices {
 		if ch.Delta != nil {
-			// tool_call delta 先出
+			// tool_call delta first
 			for _, tc := range ch.Delta.ToolCalls {
 				events = append(events, llm.Event{
 					Type: llm.EventDelta,
@@ -336,7 +336,7 @@ func chunkToEvents(c wireChunk) []llm.Event {
 					},
 				})
 			}
-			// content / reasoning_content delta 合一个 event
+			// content / reasoning_content delta combined into one event
 			ev := llm.Event{Type: llm.EventDelta}
 			has := false
 			if ch.Delta.Content != nil && *ch.Delta.Content != "" {
@@ -362,7 +362,7 @@ func chunkToEvents(c wireChunk) []llm.Event {
 
 	if c.Usage != nil {
 		u := wireUsageToLLM(c.Usage)
-		// 合并到末尾 Done；否则独立 Done
+		// Merge into the last Done event; otherwise, send a separate Done event.
 		if n := len(events); n > 0 && events[n-1].Type == llm.EventDone {
 			events[n-1].Usage = &u
 		} else {

@@ -1,29 +1,29 @@
-// Package timeline 提供单会话记忆的持久化与回放
+// Package timeline provides persistence and replay for conversational memory within a single session.
 //
-// 基于事件溯源（Event Sourcing）和只追加（Append-Only）的架构思想：
-//   - 底层存储为一条不断延伸的 JSONL 日志流
-//   - 消息事件（Message）记录对话内容
-//   - 控制事件（Control）记录状态干预（如 /clear）
-//   - /clear 不销毁数据，仅追加控制事件并清空活跃内存
+// Based on Event Sourcing and Append-Only architectural principles:
+//   - Underlying storage is an ever-extending JSONL log stream
+//   - Message events record conversational content
+//   - Control events record state interventions (e.g., /clear)
+//   - /clear does not destroy data; it only appends a control event and clears active memory.
 package timeline
 
 import "time"
 
 // ─── EventType ───────────────────────────────────────────────────────────────
 
-// EventType 事件类型
+// EventType defines the type of an event.
 type EventType string
 
 const (
-	// EventMessage 消息事件：标准对话交互
+	// EventMessage represents a message event: standard conversational interaction.
 	EventMessage EventType = "message"
-	// EventControl 控制事件：状态干预指令
+	// EventControl represents a control event: state intervention command.
 	EventControl EventType = "control"
 )
 
 // ─── Event ───────────────────────────────────────────────────────────────────
 
-// Event 是 JSONL 中每一行的顶层结构
+// Event represents the top-level structure of each line in the JSONL file.
 type Event struct {
 	Timestamp string          `json:"ts"`
 	EventType EventType       `json:"type"`
@@ -31,7 +31,7 @@ type Event struct {
 	Control   *ControlPayload `json:"ctrl,omitempty"`
 }
 
-// newEvent 创建一个带当前时间戳的事件
+// newEvent creates an event with the current timestamp.
 func newEvent(et EventType) Event {
 	return Event{
 		Timestamp: time.Now().Format(time.RFC3339Nano),
@@ -41,31 +41,31 @@ func newEvent(et EventType) Event {
 
 // ─── MessagePayload ─────────────────────────────────────────────────────────
 
-// MessagePayload 消息事件载荷
+// MessagePayload represents the payload for a message event.
 type MessagePayload struct {
 	Role             string        `json:"role"`                   // system/user/assistant/tool
-	Content          string        `json:"content"`                // 消息内容
+	Content          string        `json:"content"`                // Message content
 	ReasoningContent string        `json:"reasoning,omitempty"`    // DeepSeek reasoning
-	Name             string        `json:"name,omitempty"`         // 工具名（role=tool）
-	ToolCallID       string        `json:"tool_call_id,omitempty"` // 工具调用 ID（role=tool）
-	ToolCalls        []ToolCallRec `json:"tool_calls,omitempty"`   // role=assistant 时的 tool_calls
-	IsEphemeral      bool          `json:"ephemeral,omitempty"`    // 标记冗长工具输出
-	AgentID          string        `json:"agent_id,omitempty"`     // 多智能体预留
-	Timestamp        string        `json:"ts,omitempty"`           // 消息原始时间（RFC3339Nano）
+	Name             string        `json:"name,omitempty"`         // Tool name (role=tool)
+	ToolCallID       string        `json:"tool_call_id,omitempty"` // Tool call ID (role=tool)
+	ToolCalls        []ToolCallRec `json:"tool_calls,omitempty"`   // tool_calls when role is assistant
+	IsEphemeral      bool          `json:"ephemeral,omitempty"`    // Marks verbose tool output
+	AgentID          string        `json:"agent_id,omitempty"`     // Reserved for multi-agent systems
+	Timestamp        string        `json:"ts,omitempty"`           // Original message timestamp (RFC3339Nano)
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────
 
-// ControlPayload 控制事件载荷
+// ControlPayload represents the payload for a control event.
 type ControlPayload struct {
 	Action  string `json:"action"`            // "clear" | "summary"
-	Reason  string `json:"reason,omitempty"`  // 触发原因
-	Content string `json:"content,omitempty"` // summary 文本（action="summary" 时）
+	Reason  string `json:"reason,omitempty"`  // Reason for trigger
+	Content string `json:"content,omitempty"` // Summary text (when action="summary")
 }
 
 // ─── ToolCallRec ────────────────────────────────────────────────────────────
 
-// ToolCallRec 工具调用记录（从 llm.ToolCall 映射）
+// ToolCallRec represents a tool call record (mapped from llm.ToolCall).
 type ToolCallRec struct {
 	ID        string `json:"id"`
 	Type      string `json:"type"`

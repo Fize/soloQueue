@@ -213,7 +213,7 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
                 >
                   <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                   <span className="text-[10px] text-muted-foreground">
-                    加载中...
+                    Loading...
                   </span>
                 </div>
               )}
@@ -234,14 +234,14 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
           <div className="flex items-center justify-center py-4 gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             <span className="text-[10px] text-muted-foreground">
-              加载中...
+              Loading...
             </span>
           </div>
         )}
         {rootNodes && rootNodes.length === 0 && (
           <div className="flex items-center justify-center py-4">
             <span className="text-[10px] text-muted-foreground">
-              空目录
+              Empty directory
             </span>
           </div>
         )}
@@ -277,7 +277,7 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
       {!isInline && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
           <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0 overflow-hidden rounded-2xl">
-            <DialogTitle className="sr-only">文件预览</DialogTitle>
+            <DialogTitle className="sr-only">File Preview</DialogTitle>
             <div className="flex-1 min-h-0 overflow-hidden">
               <FileContentView
                 path={selectedPath}

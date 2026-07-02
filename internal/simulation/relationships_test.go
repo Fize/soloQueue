@@ -161,16 +161,16 @@ func TestRelationshipManager_KindOf(t *testing.T) {
 func TestRelationshipManager_BulkInit(t *testing.T) {
 	rm := NewRelationshipManager()
 	nameByID := map[string]string{
-		"moderator": "陈镇长",
-		"supporter": "李工程师",
-		"skeptic":   "王医生",
-		"economist": "张店主",
+		"moderator": "Mayor Chen",
+		"supporter": "Engineer Li",
+		"skeptic":   "Doctor Wang",
+		"economist": "Shopkeeper Zhang",
 	}
 
 	rels := []InitialRelationship{
-		{SubjectName: "陈镇长", TargetName: "张店主", Kind: RelationFriend, Familiarity: 0.9, Affinity: 0.8},
-		{SubjectName: "陈镇长", TargetName: "李工程师", Kind: RelationFriend, Familiarity: 0.7, Affinity: 0.6},
-		{SubjectName: "陈镇长", TargetName: "王医生", Kind: RelationNeighbor, Familiarity: 0.2, Affinity: 0.1},
+		{SubjectName: "Mayor Chen", TargetName: "Shopkeeper Zhang", Kind: RelationFriend, Familiarity: 0.9, Affinity: 0.8},
+		{SubjectName: "Mayor Chen", TargetName: "Engineer Li", Kind: RelationFriend, Familiarity: 0.7, Affinity: 0.6},
+		{SubjectName: "Mayor Chen", TargetName: "Doctor Wang", Kind: RelationNeighbor, Familiarity: 0.2, Affinity: 0.1},
 	}
 
 	err := rm.BulkInit(rels, nameByID)
@@ -181,39 +181,39 @@ func TestRelationshipManager_BulkInit(t *testing.T) {
 	// Friend is bidirectional, so both directions should be set
 	r1 := rm.Get("moderator", "economist")
 	if r1 == nil || r1.Kind != RelationFriend {
-		t.Errorf("陈镇长→张店主: expected kind %q, got %v", RelationFriend, r1)
+		t.Errorf("Mayor Chen→Shopkeeper Zhang: expected kind %q, got %v", RelationFriend, r1)
 	}
 	if r1.Familiarity != 0.9 {
-		t.Errorf("陈镇长→张店主: expected familiarity 0.9, got %f", r1.Familiarity)
+		t.Errorf("Mayor Chen→Shopkeeper Zhang: expected familiarity 0.9, got %f", r1.Familiarity)
 	}
 	r1rev := rm.Get("economist", "moderator")
 	if r1rev == nil || r1rev.Kind != RelationFriend {
-		t.Errorf("张店主→陈镇长 (bidirectional): expected kind %q, got %v", RelationFriend, r1rev)
+		t.Errorf("Shopkeeper Zhang→Mayor Chen (bidirectional): expected kind %q, got %v", RelationFriend, r1rev)
 	}
 
 	// Neighbor is also bidirectional
 	r3 := rm.Get("moderator", "skeptic")
 	if r3 == nil || r3.Kind != RelationNeighbor {
-		t.Errorf("陈镇长→王医生: expected kind %q, got %v", RelationNeighbor, r3)
+		t.Errorf("Mayor Chen→Doctor Wang: expected kind %q, got %v", RelationNeighbor, r3)
 	}
 	if r3.Familiarity != 0.2 {
-		t.Errorf("陈镇长→王医生: expected familiarity 0.2, got %f", r3.Familiarity)
+		t.Errorf("Mayor Chen→Doctor Wang: expected familiarity 0.2, got %f", r3.Familiarity)
 	}
 	r3rev := rm.Get("skeptic", "moderator")
 	if r3rev == nil || r3rev.Kind != RelationNeighbor {
-		t.Errorf("王医生→陈镇长 (bidirectional): expected kind %q, got %v", RelationNeighbor, r3rev)
+		t.Errorf("Doctor Wang→Mayor Chen (bidirectional): expected kind %q, got %v", RelationNeighbor, r3rev)
 	}
 }
 
 func TestRelationshipManager_BulkInit_Directional(t *testing.T) {
 	rm := NewRelationshipManager()
 	nameByID := map[string]string{
-		"parent": "陈父",
-		"child":  "陈小明",
+		"parent": "Father Chen",
+		"child":  "Xiao Ming Chen",
 	}
 
 	rels := []InitialRelationship{
-		{SubjectName: "陈父", TargetName: "陈小明", Kind: RelationParent, Familiarity: 1.0, Affinity: 0.9},
+		{SubjectName: "Father Chen", TargetName: "Xiao Ming Chen", Kind: RelationParent, Familiarity: 1.0, Affinity: 0.9},
 	}
 
 	err := rm.BulkInit(rels, nameByID)

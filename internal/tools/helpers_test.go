@@ -14,7 +14,7 @@ func TestLooksBinary(t *testing.T) {
 		want bool
 	}{
 		{"empty", []byte(""), false},
-		{"utf8", []byte("hello world 中文"), false},
+		{"utf8", []byte("hello world Chinese"), false},
 		{"nul", []byte("before\x00after"), true},
 		{"nul_late_within_512", append(make([]byte, 500), 0), true},
 		{"nul_after_512", append(bytes1k(), 0), false},

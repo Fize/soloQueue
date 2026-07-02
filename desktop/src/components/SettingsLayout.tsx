@@ -4,18 +4,18 @@ import { cn } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 
 const tabLabels: Record<string, string> = {
-  '/settings/config': '全局配置参数',
-  '/settings/profile': '开发者个人资料',
-  '/settings/skills': '智能体技能控制',
-  '/settings/mcp': 'MCP 模型上下文服务',
-  '/settings/teams': '团队成员与工作组',
-  '/settings/projects': '项目工作空间',
-  '/settings/proxies': '代理调试器',
+  '/settings/config': 'Global Configuration Parameters',
+  '/settings/profile': 'Developer Profile',
+  '/settings/skills': 'Agent Skill Control',
+  '/settings/mcp': 'MCP Model Context Service',
+  '/settings/teams': 'Team Members & Workgroups',
+  '/settings/projects': 'Project Workspaces',
+  '/settings/proxies': 'Proxy Debugger',
 }
 
 export function SettingsLayout() {
   const location = useLocation()
-  const activeLabel = tabLabels[location.pathname] || '偏好设置'
+  const activeLabel = tabLabels[location.pathname] || 'Preferences'
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
 
   return (

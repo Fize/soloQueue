@@ -47,7 +47,7 @@ IMPORTANT OVERRIDE & HISTORY RULES:
 - Simple single-target actions (fix a bug, add a field, rename something) are level 1.
 - Multi-target changes, migrations, integrations are level 2.
 - Rewrites, architectural decisions, complex debugging, system design are level 3.
-- If user explicitly requests deep thinking or careful analysis (e.g., "仔细想", "think carefully", "thorough"), raise level by 1.
+- If user explicitly requests deep thinking or careful analysis (e.g., "think carefully", "thorough"), raise level by 1.
 - CONTEXT & HISTORY: If the user's message is a follow-up (e.g., asking for tweaks, additions, continuation, or asking questions about a previously established task in the history), maintain the level of that task (level 1, 2, or 3) rather than downgrading to 0. Treat follow-up modifications or corrections as action tasks, not chitchat.
 
 Output format (ONLY this JSON, nothing else):

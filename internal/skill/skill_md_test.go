@@ -66,7 +66,7 @@ Do the thing.
 }
 
 func TestParseSkillMD_BackwardCompatible(t *testing.T) {
-	// 现有 SKILL.md 只有 name 和 description，无新字段
+	// Existing SKILL.md only has name and description, no new fields
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "old-skill")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -88,7 +88,7 @@ Old instructions.
 	if err != nil {
 		t.Fatalf("ParseSkillMD: %v", err)
 	}
-	// 新字段应该有正确的默认值
+	// New fields should have correct default values
 	if md.DisableModelInvocation {
 		t.Error("DisableModelInvocation default should be false")
 	}

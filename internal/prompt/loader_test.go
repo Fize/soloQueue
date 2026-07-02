@@ -8,7 +8,7 @@ import (
 
 func TestEnsureFiles_CreatesRules(t *testing.T) {
 	dir := t.TempDir()
-	// Pre-create soul.md so that EnsureFiles doesn't return SoulNeededError.
+	// Pre-create soul.md so that EnsureFiles does not return SoulNeededError.
 	rolesDir := filepath.Join(dir, "prompts", "roles")
 	os.MkdirAll(rolesDir, 0o755)
 	os.WriteFile(filepath.Join(rolesDir, "soul.md"), []byte("test soul"), 0o644)
@@ -85,10 +85,10 @@ func TestBuildPrompt_Integration(t *testing.T) {
 
 	// Create user.md
 	os.MkdirAll(globalDir, 0o755)
-	os.WriteFile(filepath.Join(globalDir, "user.md"), []byte("测试用户"), 0o644)
+	os.WriteFile(filepath.Join(globalDir, "user.md"), []byte("Test User"), 0o644)
 
 	leaders := []LeaderInfo{
-		{Name: "dev", Description: "开发工程师", Group: "DevOps"},
+		{Name: "dev", Description: "Development Engineer", Group: "DevOps"},
 	}
 
 	result, err := cfg.BuildPrompt(leaders, nil, "", "", "/home/user/.soloqueue/plan", nil)
@@ -112,7 +112,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	if !contains(result, "dev (DevOps)") {
 		t.Error("missing leader in routing table")
 	}
-	if !contains(result, "测试用户") {
+	if !contains(result, "Test User") {
 		t.Error("missing user context")
 	}
 	if !contains(result, "<plan_before_action>") {
@@ -172,13 +172,13 @@ func TestExtractSoulName(t *testing.T) {
 	}{
 		{
 			name:    "custom soul",
-			content: "You are 小Q, a personal assistant and the single point of interaction for the user.",
-			want:    "小Q",
+			content: "You are XiaoQ, a personal assistant and the single point of interaction for the user.",
+			want:    "XiaoQ",
 		},
 		{
 			name:    "preset soul with English name",
-			content: "You are 韩立 (Han Li), a personal assistant and the single point of interaction for the user.",
-			want:    "韩立 (Han Li)",
+			content: "You are Han Li (Han Li), a personal assistant and the single point of interaction for the user.",
+			want:    "Han Li (Han Li)",
 		},
 		{
 			name:    "default name",
@@ -202,8 +202,8 @@ func TestExtractSoulName(t *testing.T) {
 		},
 		{
 			name:    "multi-name with comma separator",
-			content: "You are one of 小Q,大Q (pick whichever fits the moment), a personal assistant",
-			want:    "one of 小Q,大Q (pick whichever fits the moment)",
+			content: "You are one of XiaoQ,DaQ (pick whichever fits the moment), a personal assistant",
+			want:    "one of XiaoQ,DaQ (pick whichever fits the moment)",
 		},
 	}
 
@@ -221,17 +221,17 @@ func TestReadSoulName(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
-	// Soul doesn't exist yet.
+	// Soul does not exist yet.
 	if name := ReadSoulName(cfg); name != "" {
 		t.Errorf("expected empty name for missing soul, got %q", name)
 	}
 
 	// Write a soul.
-	cfg.WriteSoul(ProfileAnswers{Name: "测试助手", Gender: "female", Personality: "playful", CommStyle: "casual"})
+	cfg.WriteSoul(ProfileAnswers{Name: "Test Assistant", Gender: "female", Personality: "playful", CommStyle: "casual"})
 
 	name := ReadSoulName(cfg)
-	if name != "测试助手" {
-		t.Errorf("ReadSoulName() = %q, want %q", name, "测试助手")
+	if name != "Test Assistant" {
+		t.Errorf("ReadSoulName() = %q, want %q", name, "Test Assistant")
 	}
 }
 
@@ -240,7 +240,7 @@ func TestWriteSoul(t *testing.T) {
 	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
 
 	answers := ProfileAnswers{
-		Name:        "小Q",
+		Name:        "XiaoQ",
 		Gender:      "female",
 		Personality: "playful",
 		CommStyle:   "casual",
@@ -254,7 +254,7 @@ func TestWriteSoul(t *testing.T) {
 		t.Fatalf("read soul: %v", err)
 	}
 	content := string(data)
-	if !contains(content, "You are 小Q") {
+	if !contains(content, "You are XiaoQ") {
 		t.Error("soul should contain custom name")
 	}
 }

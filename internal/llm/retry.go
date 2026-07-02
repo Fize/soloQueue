@@ -5,13 +5,13 @@ import (
 	"time"
 )
 
-// RetryPolicy 指数退避配置
+// RetryPolicy Exponential backoff configuration
 //
-// 行为：
-//   - 第一次失败后等 InitialDelay
-//   - 每次翻倍（乘 Multiplier），上限 MaxDelay
-//   - 最多尝试 MaxRetries 次额外重试（即总尝试次数 = MaxRetries + 1）
-//   - MaxRetries = 0 → 不重试
+// Behavior:
+//   - Waits for InitialDelay after the first failure
+//   - Multiplies by Multiplier each time, capped at MaxDelay
+//   - Attempts at most MaxRetries additional retries (total attempts = MaxRetries + 1)
+//   - MaxRetries = 0 → No retries
 type RetryPolicy struct {
 	MaxRetries   int
 	InitialDelay time.Duration
@@ -19,7 +19,7 @@ type RetryPolicy struct {
 	Multiplier   float64
 }
 
-// Valid 返回 policy 是否可用（主要防止 zero value 除零等）
+// normalize normalizes the policy (primarily to prevent issues like zero-value division).
 func (p RetryPolicy) normalize() RetryPolicy {
 	if p.Multiplier <= 1.0 {
 		p.Multiplier = 2.0
@@ -36,19 +36,19 @@ func (p RetryPolicy) normalize() RetryPolicy {
 	return p
 }
 
-// RunWithRetry 执行 fn，按 policy 重试
+// RunWithRetry executes fn, retrying according to the policy.
 //
-// 参数：
+// Parameters:
 //
-//	ctx         caller 的 context；cancel 会立即中止 retry（不等 backoff）
-//	policy      退避策略
-//	shouldRetry 决定某次失败是否 retry；nil = 全部 retry
-//	fn          实际要执行的工作
+//	ctx         The caller's context; a cancellation will immediately stop the retry (without waiting for backoff).
+//	policy      The backoff policy.
+//	shouldRetry Determines whether a specific failure should be retried; nil = retry all.
+//	fn          The actual work to be executed.
 //
-// 返回：最后一次 fn 的 error（成功返回 nil）；ctx 取消返回 ctx.Err()
+// Returns: The error from the last fn execution (returns nil on success); ctx cancellation returns ctx.Err().
 //
-// 幂等性：假设 fn 幂等 —— client 必须只在 retry-safe 的阶段（HTTP 响应前）
-// 调用这个 helper；body 开始读之后不该再 retry。
+// Idempotency: Assumes fn is idempotent — the client must only call this helper during retry-safe phases (e.g., before an HTTP response).
+// Calling this helper; retrying should not occur after the request body has started being read.
 func RunWithRetry(
 	ctx context.Context,
 	policy RetryPolicy,
@@ -58,15 +58,15 @@ func RunWithRetry(
 	return RunWithRetryHooks(ctx, policy, shouldRetry, nil, fn)
 }
 
-// RunWithRetryHooks 与 RunWithRetry 相同，但允许注入 onRetry 回调
+// RunWithRetryHooks is similar to RunWithRetry but allows injecting an onRetry callback.
 //
-// onRetry(attempt, delay, err)：在决定 retry 且 backoff 开始前调用
-//   - attempt：刚失败的那次是第几次尝试（从 1 计）
-//   - delay：下一次尝试前的 backoff 时长
-//   - err：该次失败的 error
+// onRetry(attempt, delay, err): Called after deciding to retry and before backoff starts.
+//   - attempt: The current attempt number that just failed (1-indexed).
+//   - delay: The backoff duration before the next attempt.
+//   - err: The error from the failed attempt.
 //
-// 回调只在"确定 retry"的路径触发；若 shouldRetry=false 或 attempt==MaxRetries
-// 不再重试，不调用 onRetry。
+// The callback is only triggered on the "decided to retry" path; if shouldRetry=false or attempt==MaxRetries
+// no further retries will occur, and onRetry will not be called.
 func RunWithRetryHooks(
 	ctx context.Context,
 	policy RetryPolicy,
@@ -92,21 +92,21 @@ func RunWithRetryHooks(
 		}
 		lastErr = err
 
-		// 最后一次尝试：不再 retry
+		// Last attempt: no more retries.
 		if attempt == p.MaxRetries {
 			break
 		}
-		// 不可重试
+		// Not retryable.
 		if shouldRetry != nil && !shouldRetry(err) {
 			break
 		}
 
-		// 回调：告知 caller 本次将 retry，供记录日志 / 指标
+		// Callback: inform the caller that a retry will occur, for logging / metrics.
 		if onRetry != nil {
 			onRetry(attempt+1, delay, err)
 		}
 
-		// 等待 delay 或 ctx cancel
+		// Wait for delay or ctx cancel.
 		timer := time.NewTimer(delay)
 		select {
 		case <-timer.C:
@@ -115,7 +115,7 @@ func RunWithRetryHooks(
 			return lastErr
 		}
 
-		// 下一轮的 delay（指数递增，cap 在 MaxDelay）
+		// Delay for the next round (exponential increase, capped at MaxDelay).
 		next := time.Duration(float64(delay) * p.Multiplier)
 		if next > p.MaxDelay {
 			next = p.MaxDelay

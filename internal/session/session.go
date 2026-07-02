@@ -1,12 +1,12 @@
-// Package session 提供"对话会话"抽象，封装 agent + 上下文窗口
+// Package session provides the "Dialogue Session" abstraction, wrapping agent + context window.
 //
-// 设计原则：
+// Design principles:
 //
-//   - 一个 Session 对应"一次独立的对话"：绑定一个 *agent.Agent，持有
-//     *ctxwin.ContextWindow 管理完整对话历史（含工具调用中间消息）。
-//   - 同一 Session 内 Ask/AskStream **串行**：上一轮未结束时新 Ask 直接返回
-//     ErrSessionBusy（避免上下文窗口错序）。agent 本身也串行，双重保护。
-//   - SessionManager 管理唯一的活跃 session；全局只有一个会话。
+//   - A Session corresponds to "a single independent conversation": bound to an *agent.Agent, holding
+//     *ctxwin.ContextWindow to manage full conversation history (including intermediate tool call messages).
+//   - Ask/AskStream within the same Session is serial: new Ask returns directly if the previous round is not finished
+//     ErrSessionBusy (avoids context window out-of-order). The agent itself is also serial, offering double protection.
+//   - SessionManager manages the unique active session; globally there is only one session.
 package session
 
 import (
@@ -35,16 +35,16 @@ import (
 // ─── Errors ────────────────────────────────────────────────────────────────
 
 var (
-	// ErrSessionBusy Session 内已有 Ask 在跑，新 Ask 被拒绝
+	// ErrSessionBusy is returned when the session is busy with another Ask
 	ErrSessionBusy = errors.New("session: busy (another Ask in flight)")
 
-	// ErrQueued 消息已进入 pending 队列，将在下一次 LLM API 调用前合并发送
+	// ErrQueued is returned when the message is queued in the pending queue
 	ErrQueued = errors.New("session: message queued")
 
-	// ErrSessionClosed Session 已被 Close / Shutdown
+	// ErrSessionClosed is returned when the session is closed
 	ErrSessionClosed = errors.New("session: closed")
 
-	// ErrNoActiveTask CancelCurrent 时无活跃任务
+	// ErrNoActiveTask is returned when there is no active task to cancel
 	ErrNoActiveTask = errors.New("session: no active task")
 )
 
@@ -96,45 +96,45 @@ type CronHandler func(ctx context.Context, expression, instruction string) (stri
 
 // ─── Session ──────────────────────────────────────────────────────────────
 
-// Session 是一个对话会话
+// Session represents a conversation session.
 type Session struct {
 	ID      string
 	TeamID  string
 	Agent   *agent.Agent
-	Router  TaskRouterFunc // 可选：任务路由分类器（nil = 不做路由，使用默认模型）
+	Router  TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
 	Created time.Time
 
 	mu     sync.Mutex
-	cw     *ctxwin.ContextWindow // 替代原 history，管理完整对话上下文
-	tl     *timeline.Writer      // 时间线持久化（可为 nil，表示不持久化）
-	logger *logger.Logger        // 会话级日志
+	cw     *ctxwin.ContextWindow // Replaces original history, manages full conversation context
+	tl     *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
+	logger *logger.Logger        // Session-level logger
 
-	// pending 排队消息：当 session busy 时新消息入队，在 agent 的 tool loop 下一次
-	// LLM API 调用前一次性取出并注入 ContextWindow，实现连续消息合并
+	// pending queue: new messages enqueue when session is busy, popped and injected
+	// into ContextWindow before the agent's next LLM API call in the tool loop, merging consecutive messages
 	pending *PendingQueue
 
-	// inFlight 并发 Ask 的 CAS 锁：0 → 1 入场；失败返回 ErrSessionBusy
+	// inFlight CAS lock for concurrent Asks: 0 -> 1 enter; returns ErrSessionBusy on failure
 	inFlight atomic.Int32
 
-	// closed 标志 Session 是否已 Delete
+	// closed indicates if the Session has been deleted
 	closed atomic.Bool
 
-	// lastActive 供 reaper 清理；每次 Ask 更新
+	// lastActive for reaper cleanup; updated on every Ask
 	lastActive atomic.Int64 // unix nanos
 
-	// delegationPending 标志是否有异步委派正在进行
-	// 当 DelegationStartedEvent 到达时设为 true，表示 L1 已委派任务给 L2
-	// 此时 inFlight 会被释放，允许用户发送新消息
-	// 新消息的 CW push 会被延迟到 turnDone 信号后，保证 CW 顺序正确
+	// delegationPending indicates if an async delegation is in progress
+	// Set to true when DelegationStartedEvent arrives, indicating L1 has delegated a task to L2
+	// At this point, inFlight is released, allowing the user to send new messages
+	// New message CW pushes are delayed until turnDone signal, ensuring correct CW message order
 	delegationPending atomic.Bool
-	turnMu            sync.Mutex    // 保护 turnDone 的创建和关闭
-	turnDone          chan struct{} // 当异步委派所在轮次完成时关闭
-	turnDoneClosed    bool          // 防止重复关闭 turnDone
+	turnMu            sync.Mutex    // protects turnDone creation and closing
+	turnDone          chan struct{} // closed when the async delegation turn completes
+	turnDoneClosed    bool          // prevents duplicate close of turnDone
 
-	// cancel 支持：CancelCurrent 取消正在执行的 AskStream
+	// cancel support: CancelCurrent cancels the currently executing AskStream
 	cancelMu     sync.Mutex
-	activeCancel context.CancelFunc // 当前 AskStream 的取消函数（forwarder 管理生命周期）
-	cancelled    atomic.Bool       // forwarder 在检测到取消时设置，由适配器消耗并重置
+	activeCancel context.CancelFunc // Cancel function of the current AskStream (forwarder manages lifecycle)
+	cancelled    atomic.Bool       // forwarder sets this when cancelled, consumed and reset by the adapter
 
 	lastLevel       string       // last classified task level (L0-L3)
 	lastLevelMu     sync.RWMutex // protects lastLevel and levelLocked
@@ -152,11 +152,11 @@ type Session struct {
 	isQBot          atomic.Bool
 }
 
-// NewSession 构造并启动一个 session（agent 已应 Start）
+// NewSession constructs and starts a session (agent should already have started)
 //
-// cw 应已包含 system prompt（在 factory 中 push）。
-// tl 可为 nil（不持久化）。
-// logger 为会话级日志记录器（nil 时会创建默认记录器）。
+// cw should already contain system prompt (pushed in factory).
+// tl can be nil (no persistence).
+// logger is the session-level logger (creates default logger if nil).
 func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl *timeline.Writer, l *logger.Logger) *Session {
 	if l == nil {
 		var err error
@@ -250,7 +250,7 @@ func StripRecalledMemories(s string) string {
 	return remainder
 }
 
-// ContextWindow 返回底层 ContextWindow（供需要直接访问的场景）
+// ContextWindow returns the underlying ContextWindow (for scenarios requiring direct access)
 func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -335,9 +335,9 @@ func (s *Session) SetMemoryEngine(e *memoryengine.Engine) {
 	s.memoryEngine = e
 }
 
-// Clear 执行软清除：追加 /clear 控制事件到 timeline，重置 ContextWindow
+// Clear performs a soft clear: appends /clear control event to timeline, resets ContextWindow
 //
-// 不删除任何持久化数据。ContextWindow 仅保留 system prompt。
+// Does not delete any persistent data. ContextWindow only retains the system prompt.
 func (s *Session) Clear() error {
 	s.mu.Lock()
 
@@ -356,7 +356,7 @@ func (s *Session) Clear() error {
 		}
 	}
 
-	// 追加 /clear 控制事件到 timeline
+	// Append /clear control event to timeline
 	if s.tl != nil {
 		if err := s.tl.AppendControl(&timeline.ControlPayload{
 			Action: "clear",
@@ -368,7 +368,7 @@ func (s *Session) Clear() error {
 		}
 	}
 
-	// 重置 ContextWindow（保留 system prompt）
+	// Reset ContextWindow (retaining system prompt)
 	s.cw.Reset()
 	s.recalledHashes = make(map[string]struct{})
 	s.mu.Unlock()
@@ -560,15 +560,15 @@ func (s *Session) checkAutoClear() {
 		"summary_len", len(summary))
 }
 
-// Ask 发送一轮 prompt，返回最终 content
+// Ask sends a round of prompt and returns the final content
 //
-// 语义：
-//   - 同一 session 内 Ask 串行（inFlight CAS 0→1，否则 ErrSessionBusy）
-//   - 先 push user prompt 到 ContextWindow
-//   - 调用 Agent.AskWithHistory（携带完整历史）
-//   - 成功：push assistant reply 到 ContextWindow
-//   - 失败：PopLast 移除刚 push 的 user prompt
-//   - ctx 取消透传到 agent；Session 不代管超时。
+// Semantics:
+//   - Ask is serialized within the same session (inFlight CAS 0→1, otherwise ErrSessionBusy)
+//   - First push user prompt to ContextWindow
+//   - Call Agent.AskWithHistory (with full history)
+//   - Success: push assistant reply to ContextWindow
+//   - Failure: PopLast removes the user prompt just pushed
+//   - ctx cancellation propagates to agent; Session does not manage timeout.
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session closed")
@@ -655,15 +655,15 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	return reply, nil
 }
 
-// AskStream 流式版本；caller 必须 range 返回的通道直到关闭
+// AskStream streaming version; caller must range over the returned channel until closed
 //
-// 上下文窗口在收到 DoneEvent 时 push user + assistant；
-// 收到 ErrorEvent 时 PopLast 移除 user prompt。
-// caller 放弃 range 必须 cancel ctx。
+// Context window pushes user + assistant upon receiving DoneEvent;
+// removes user prompt via PopLast upon receiving ErrorEvent.
+// caller abandoning range must cancel ctx.
 //
-// 异步委派支持：当 L1 委派任务给 L2 时，DelegationStartedEvent 会释放 inFlight，
-// 允许用户在此期间发送新消息。新消息的 CW push 会等待委派轮次完成后执行，
-// 以保证 ContextWindow 中的消息顺序正确（先完成委派回复，再出现新用户消息）。
+// Async delegation support: when L1 delegates a task to L2, DelegationStartedEvent releases inFlight,
+// allowing the user to send new messages during this time. The CW push of new messages will wait until the delegation round is completed,
+// to guarantee the correct message order in ContextWindow (delegation reply finishes first, then new user message appears).
 func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session closed")
@@ -680,10 +680,10 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			defer close(out)
 			err := s.CancelCurrent("User requested cancellation")
 			if err != nil {
-				out <- agent.ContentDeltaEvent{Delta: "取消失败：" + err.Error()}
+				out <- agent.ContentDeltaEvent{Delta: "Cancellation failed: " + err.Error()}
 				out <- agent.DoneEvent{Content: "Cancel failed: " + err.Error()}
 			} else {
-				out <- agent.ContentDeltaEvent{Delta: "已取消当前任务"}
+				out <- agent.ContentDeltaEvent{Delta: "Current task has been cancelled"}
 				out <- agent.DoneEvent{Content: "Task cancelled."}
 			}
 		}()
@@ -723,32 +723,32 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 					out <- agent.ErrorEvent{Err: err}
 					return
 				}
-				out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("定时任务已成功创建！\n- **任务ID**: %s\n- **计划**: %s\n- **任务**: %s\n- **下次执行**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
+				out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("Scheduled task successfully created!\n- **Task ID**: %s\n- **Schedule**: %s\n- **Task**: %s\n- **Next Execution**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
 				out <- agent.DoneEvent{Content: "Cron task created."}
 				return
 			}
 
 			switch lowerTrimmed {
 			case "/help", "/?":
-				text := "可用命令：\n" +
-					"- `/help` 或 `/?` — 查看可用命令\n" +
-					"- `/cancel` — 取消当前任务\n" +
-					"- `/clear` — 清空对话历史\n" +
-					"- `/version` — 查看版本号\n" +
-					"- `/cron <计划表达式/时间> <任务指令>` — 创建定时任务\n" +
-					"- `/l0` 或 `/chat` — 锁定路由级别为 L0 (日常对话)\n" +
-					"- `/l1` — 锁定路由级别为 L1 (单文件修改)\n" +
-					"- `/l2` — 锁定路由级别为 L2 (多文件修改)\n" +
-					"- `/l3`、`/max` 或 `/expert` — 锁定路由级别为 L3 (复杂架构重构)"
+				text := "Available commands:\n" +
+					"- `/help` or `/?` — View available commands\n" +
+					"- `/cancel` — Cancel current task\n" +
+					"- `/clear` — Clear dialogue history\n" +
+					"- `/version` — View version number\n" +
+					"- `/cron <cron_expression/time> <task_instruction>` — Create scheduled task\n" +
+					"- `/l0` or `/chat` — Lock routing level to L0 (conversational)\n" +
+					"- `/l1` — Lock routing level to L1 (single file modification)\n" +
+					"- `/l2` — Lock routing level to L2 (multi-file modification)\n" +
+					"- `/l3`, `/max`, or `/expert` — Lock routing level to L3 (complex architecture refactoring)"
 				out <- agent.ContentDeltaEvent{Delta: text}
 				out <- agent.DoneEvent{Content: text}
 
 			case "/clear":
 				if err := s.Clear(); err != nil {
-					out <- agent.ContentDeltaEvent{Delta: "清空失败：" + err.Error()}
+					out <- agent.ContentDeltaEvent{Delta: "Clear failed: " + err.Error()}
 					out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
 				} else {
-					out <- agent.ContentDeltaEvent{Delta: "对话历史已清空"}
+					out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared"}
 					out <- agent.DoneEvent{Content: "Session history cleared."}
 				}
 
@@ -766,14 +766,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		return out, nil
 	}
 
-	// 重置 cancelled 标志，防止前一次 AskStream 的残留标志泄漏到本次调用。
-	// 见 isCancelledAndReset — forwarder goroutine 在 askCtx 取消时设置此标志，
-	// 由适配器（如 qqbot_adapter）在事件循环后消耗。如果适配器因 ErrorEvent
-	// 提前返回而未消耗，残留标志会导致下次 AskStream 错误地报告取消。
+	// Reset cancelled flag to prevent leakage of the residual flag from previous AskStream to this call.
+	// See isCancelledAndReset - forwarder goroutine sets this flag when askCtx is cancelled,
+	// consumed by the adapter (e.g. qqbot_adapter) after the event loop. If the adapter
+	// returns early due to ErrorEvent and does not consume it, the residual flag causes the next AskStream to incorrectly report cancellation.
 	s.cancelled.Store(false)
 
-	// L1 异步委派期间不阻塞新消息。Agent mailbox 保证 job 串行执行：
-	// resumeTurn（高优先级）会先于新消息 job 执行，CW 排序自然正确。
+	// L1 async delegation does not block new messages. Agent mailbox guarantees serial execution of jobs:
+	// resumeTurn (high priority) executes before new message jobs, keeping CW order naturally correct.
 
 	if !s.inFlight.CompareAndSwap(0, 1) {
 		s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
@@ -783,8 +783,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		s.pending.Enqueue(prompt)
 		return nil, ErrQueued
 	}
-	// 注意：inFlight 的释放由下面的 forwarder goroutine 负责
-	// checkAutoClear 必须在 touch 之前（此时 lastActive 是上次 Ask 结束的时间）
+	// Note: the release of inFlight is handled by the forwarder goroutine below
+	// checkAutoClear must happen before touch (here lastActive is the end time of the previous Ask)
 	s.checkAutoClear()
 	s.touch()
 
@@ -881,7 +881,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		)
 	}
 
-	// ── 创建可取消 of askCtx ──
+	// -- Create cancellable askCtx --
 	askCtx, askCancel := context.WithTimeout(ctx, 20*time.Minute)
 	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
 
@@ -903,14 +903,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		"recalled", recalled != "",
 	)
 
-	// 存储取消函数（必须在启动 goroutine 之前，确保 CancelCurrent 可以立即工作）
+	// Store cancel function (must be before starting goroutine, ensuring CancelCurrent can work immediately)
 	s.cancelMu.Lock()
 	s.activeCancel = askCancel
 	s.cancelMu.Unlock()
 
 	srcCh, err := s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
 	if err != nil {
-		// Agent 已停止：尝试重启后重试一次
+		// Agent stopped: attempt to restart and retry once
 		if errors.Is(err, agent.ErrStopped) || errors.Is(err, agent.ErrNotStarted) {
 			s.logger.InfoContext(ctx, logger.CatApp, "askstream: agent not running, attempting restart",
 				"session_id", s.ID,
@@ -922,7 +922,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 					"err", startErr.Error(),
 				)
 			} else {
-				// 重试一次
+				// Retry once
 				srcCh, err = s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
 				if err == nil {
 					goto enqueued
@@ -930,7 +930,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			}
 		}
 
-		// 入队失败：清理
+		// Enqueue failure: cleanup
 		s.cancelMu.Lock()
 		s.activeCancel = nil
 		s.cancelMu.Unlock()
@@ -952,7 +952,7 @@ enqueued:
 
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
-		// 清理：goroutine 结束时清除 activeCancel 并释放 askCtx
+		// Cleanup: clear activeCancel and release askCtx when goroutine ends
 		defer func() {
 			s.cancelMu.Lock()
 			s.activeCancel = nil
@@ -986,9 +986,9 @@ enqueued:
 				}
 				ev = e
 			case <-askCtx.Done():
-				// askCtx 取消：移除 user prompt，标记 cancelled
-				// 注意：不停 agent。agent 内部的 merged ctx 已随 askCtx 取消，
-				// streamLoop 会在下一轮迭代检测到 ctx.Err() 并自动退出。
+				// askCtx cancelled: remove user prompt, mark cancelled
+				// Note: do not stop agent. Agent's internal merged ctx is already cancelled with askCtx,
+				// streamLoop will detect ctx.Err() in the next iteration and exit automatically.
 				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
@@ -1005,7 +1005,7 @@ enqueued:
 			case out <- ev:
 				eventCount++
 			case <-askCtx.Done():
-				// askCtx 取消：移除 user prompt，标记 cancelled
+				// askCtx cancelled: remove user prompt, mark cancelled
 				s.cancelled.Store(true)
 				s.mu.Lock()
 				s.cw.PopLast()
@@ -1027,7 +1027,7 @@ enqueued:
 					"tool_name", e.Name,
 				)
 			case agent.DelegationStartedEvent:
-				// 异步委派开始：释放 inFlight，允许用户发送新消息
+				// Async delegation started: release inFlight, allowing user to send new messages
 				s.logger.DebugContext(ctx, logger.CatApp, "delegation started",
 					"session_id", s.ID,
 				)
@@ -1043,7 +1043,7 @@ enqueued:
 					"reasoning_len", len(e.ReasoningContent),
 				)
 			case agent.ErrorEvent:
-				// 错误：移除 user prompt
+				// Error: remove user prompt
 				s.mu.Lock()
 				s.cw.PopLast()
 				s.mu.Unlock()
@@ -1055,7 +1055,7 @@ enqueued:
 			}
 		}
 	done:
-		// 检查是否在 goto done 和此标签之间发生了取消（极窄竞态窗口）
+		// Check if cancellation occurred between goto done and this label (narrow race window)
 		if askCtx.Err() != nil {
 			s.cancelled.Store(true)
 			s.mu.Lock()
@@ -1080,7 +1080,7 @@ enqueued:
 				)
 			}
 		}
-		// 委派轮次完成：关闭 turnDone 通道，通知等待的新消息
+		// Delegation round completed: close turnDone channel, notify waiting new messages
 		s.closeTurnDone()
 
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream complete",
@@ -1092,7 +1092,7 @@ enqueued:
 	return out, nil
 }
 
-// Close 标记 session 为 closed，阻止新 Ask；不停 agent
+// Close marks session as closed, preventing new Asks; does not stop agent
 func (s *Session) Close() {
 	s.closed.Store(true)
 
@@ -1101,19 +1101,19 @@ func (s *Session) Close() {
 		"lifetime_sec", time.Since(s.Created).Seconds(),
 	)
 
-	// 关闭 timeline Writer，刷盘并释放文件句柄
+	// Close timeline Writer, flush to disk and release file handle
 	if s.tl != nil {
 		s.tl.Close()
 	}
 
-	// 关闭 session 日志
+	// Close session logger
 	if err := s.logger.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "session close: logger close error: %v\n", err)
 	}
 }
 
-// closeTurnDone 安全关闭 turnDone 通道并清理状态。
-// 可安全多次调用（幂等）。
+// closeTurnDone safely closes turnDone channel and cleans up state.
+// Can be safely called multiple times (idempotent).
 func (s *Session) closeTurnDone() {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
@@ -1127,7 +1127,7 @@ func (s *Session) closeTurnDone() {
 	s.delegationPending.Store(false)
 }
 
-// newTurnDone 创建一个新的 turnDone 通道。
+// newTurnDone creates a new turnDone channel.
 func (s *Session) newTurnDone() {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
@@ -1140,14 +1140,14 @@ func (s *Session) touch() {
 	s.lastActive.Store(time.Now().UnixNano())
 }
 
-// LastActive 返回会话的最后活跃时间。
+// LastActive returns the last active time of the session.
 func (s *Session) LastActive() time.Time {
 	return time.Unix(0, s.lastActive.Load())
 }
 
-// CancelCurrent 取消当前正在执行的 AskStream（如果有）。
-// 取消通过 askCtx 传播到 agent 的 streamLoop，进而中断 LLM 调用和工具执行。
-// 幂等安全：无活跃任务时返回 ErrNoActiveTask。
+// CancelCurrent cancels the currently executing AskStream (if any).
+// Cancellation propagates through askCtx to agent's streamLoop, thereby interrupting LLM calls and tool execution.
+// Idempotent safe: returns ErrNoActiveTask when there is no active task.
 func (s *Session) CancelCurrent(reason string) error {
 	s.cancelMu.Lock()
 	cancel := s.activeCancel
@@ -1157,10 +1157,10 @@ func (s *Session) CancelCurrent(reason string) error {
 		return ErrNoActiveTask
 	}
 
-	// 仅调用 cancel() — 不主动设 cancelled 标志。
-	// cancelled 由 forwarder goroutine 在检测到 <-askCtx.Done() 时设置，
-	// 确保只有在 forwarder 真正被取消时适配器才会收到 ErrCancelled，
-	// 避免任务正常完成后误报取消。
+	// Only call cancel() - does not actively set the cancelled flag.
+	// cancelled is set by the forwarder goroutine when detecting <-askCtx.Done(),
+	// ensuring the adapter only receives ErrCancelled when the forwarder is truly cancelled,
+	// avoiding false cancellation reports after normal task completion.
 	cancel()
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session task cancelled",
@@ -1170,25 +1170,25 @@ func (s *Session) CancelCurrent(reason string) error {
 	return nil
 }
 
-// isCancelledAndReset 检查 forwarder 是否因取消而退出。
-// 消耗一次性的 cancelled 标志并重置为 false，确保 ErrCancelled 只返回一次。
-// 由 SessionAskAdapter 在 AskStream 事件循环后调用。
+// isCancelledAndReset checks if the forwarder exited due to cancellation.
+// Consumes the one-time cancelled flag and resets it to false, ensuring ErrCancelled is returned only once.
+// Called by SessionAskAdapter after the AskStream event loop.
 func (s *Session) isCancelledAndReset() bool {
 	return s.cancelled.CompareAndSwap(true, false)
 }
 
 // ─── SessionManager ──────────────────────────────────────────────────────
 
-// AgentFactory 给定 teamID 构造并 Start 一个新 agent，同时返回 ContextWindow 和可选的 TimelineWriter
+// AgentFactory constructs and starts a new agent given teamID, returning ContextWindow and optional TimelineWriter
 //
-// **重要**：传入的 ctx **不应**被直接传给 agent.Start —— agent 生命周期独立于
-// 单次 Init 调用。factory 应使用 context.Background() 作为 agent 的 parent ctx。
-// 这里 ctx 仅供 factory 内部短暂使用（比如网络配置加载、超时检查）。
+// **Important**: the passed ctx should NOT be directly passed to agent.Start -- agent lifecycle is independent of
+// a single Init call. The factory should use context.Background() as the agent's parent ctx.
+// Here ctx is only for brief internal use within the factory (e.g. loading network configs, timeout checks).
 //
-// 返回的 *timeline.Writer 在 Session.Close 时自动关闭；不需要时可返回 nil。
+// The returned *timeline.Writer is closed automatically when Session.Close; can return nil if not needed.
 type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error)
 
-// SessionManager 管理唯一的活跃 session
+// SessionManager manages the unique active session
 type SessionManager struct {
 	factory       AgentFactory
 	routerFunc    TaskRouterFunc
@@ -1206,7 +1206,7 @@ type SessionManager struct {
 	closed  atomic.Bool
 }
 
-// NewSessionManager 构造 manager
+// NewSessionManager constructs the manager
 func NewSessionManager(factory AgentFactory, l *logger.Logger) *SessionManager {
 	if l == nil {
 		var err error
@@ -1264,7 +1264,7 @@ func (m *SessionManager) SetIdleReaper(idleTimeout time.Duration, compactThresho
 	m.compactThreshold = compactThreshold
 }
 
-// Init 创建唯一 session；重复调用返回已存在的 session
+// Init creates the unique session; repeated calls return the existing session
 func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, error) {
 	initStart := time.Now()
 	m.mu.Lock()
@@ -1338,14 +1338,14 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	return s, nil
 }
 
-// Session 返回当前 session；未初始化时返回 nil
+// Session returns the current session; returns nil if uninitialized
 func (m *SessionManager) Session() *Session {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.session
 }
 
-// Shutdown 关闭 session 并阻止新 Init
+// Shutdown closes the session and blocks new Init
 func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 	m.closed.Store(true)
 	m.mu.Lock()
@@ -1551,7 +1551,7 @@ func (s *Session) handleCronCommand(ctx context.Context, command string) (<-chan
 		}
 
 		// Send success message to chat UI
-		out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("定时任务已成功创建！\n- **任务ID**: %s\n- **计划**: %s\n- **任务**: %s\n- **下次执行**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
+		out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("Scheduled task successfully created!\n- **Task ID**: %s\n- **Schedule**: %s\n- **Task**: %s\n- **Next Execution**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
 		out <- agent.DoneEvent{Content: "Cron task created."}
 	}()
 	return out, nil

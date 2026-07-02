@@ -202,7 +202,7 @@ export function SimulationSection({
             value={config.language || 'zh'}
             onChange={(v) => onChange({ ...config, language: v })}
             options={[
-              { value: 'zh', label: '中文 (Chinese)' },
+              { value: 'zh', label: 'Chinese' },
               { value: 'en', label: 'English' },
             ]}
           />

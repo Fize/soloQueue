@@ -33,7 +33,7 @@ func TestPreprocessContent_MultipleArguments(t *testing.T) {
 func TestPreprocessContent_ShellExecution(t *testing.T) {
 	content := "Current dir: !`pwd`"
 	result := PreprocessContent(content, "", "/tmp")
-	// 应该替换为实际输出，不是原始 !`pwd`
+	// Should be replaced with actual output, not the original !`pwd`
 	if result == content {
 		t.Errorf("shell command was not executed, got %q", result)
 	}
@@ -45,7 +45,7 @@ func TestPreprocessContent_ShellExecution(t *testing.T) {
 func TestPreprocessContent_ShellExecutionFailed(t *testing.T) {
 	content := "Result: !`nonexistent_command_xyz_123`"
 	result := PreprocessContent(content, "", "/tmp")
-	// 失败时应替换为空字符串
+	// Should be replaced with an empty string on failure
 	if result != "Result: " {
 		t.Errorf("failed shell should produce empty, got %q", result)
 	}
@@ -68,7 +68,7 @@ func TestPreprocessContent_FileRef(t *testing.T) {
 func TestPreprocessContent_FileRefNotFound(t *testing.T) {
 	content := "Data: @nonexistent.txt"
 	result := PreprocessContent(content, "", "/tmp")
-	// 文件不存在时应包含错误提示
+	// Should contain an error message when the file does not exist
 	if result == "Data: @nonexistent.txt" {
 		t.Error("file ref should have been expanded or replaced with error")
 	}
@@ -79,8 +79,8 @@ func TestPreprocessContent_FileRefNotFound(t *testing.T) {
 
 func TestPreprocessContent_PipelineOrder(t *testing.T) {
 	dir := t.TempDir()
-	// $ARGUMENTS 替换在 shell 执行之前
-	// 所以 !`echo $ARGUMENTS` 中的 $ARGUMENTS 应该已经被替换
+	// $ARGUMENTS substitution happens before shell execution
+	// So $ARGUMENTS in !`echo $ARGUMENTS` should already be replaced
 	content := "!`echo hello`"
 	result := PreprocessContent(content, "", dir)
 	if result != "hello" {
@@ -90,7 +90,7 @@ func TestPreprocessContent_PipelineOrder(t *testing.T) {
 
 func TestPreprocessContent_ArgumentsInShell(t *testing.T) {
 	dir := t.TempDir()
-	// $ARGUMENTS 先被替换，然后 shell 执行
+	// $ARGUMENTS is replaced first, then shell executed
 	content := "!`echo $ARGUMENTS`"
 	result := PreprocessContent(content, "test-value", dir)
 	if result != "test-value" {
@@ -99,7 +99,7 @@ func TestPreprocessContent_ArgumentsInShell(t *testing.T) {
 }
 
 func TestExpandShellCommands_Timeout(t *testing.T) {
-	// 验证 shell 执行不会无限阻塞
+	// Verify that shell execution does not block indefinitely
 	content := "!`sleep 0.1 && echo done`"
 	result := PreprocessContent(content, "", "/tmp")
 	if result != "done" {

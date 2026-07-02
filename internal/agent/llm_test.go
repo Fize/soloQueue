@@ -78,7 +78,7 @@ func TestFakeLLM_Delay_CancelledCtx(t *testing.T) {
 }
 
 func TestFakeLLM_AlreadyCancelledCtx(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"x"}} // 无 Delay
+	f := &FakeLLM{Responses: []string{"x"}} // No Delay
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -102,7 +102,7 @@ func TestFakeLLM_Err(t *testing.T) {
 }
 
 func TestFakeLLM_Err_OverridesCtx(t *testing.T) {
-	// Err 情况仍尊重 ctx 取消
+	// Error condition still honors context cancellation
 	myErr := errors.New("boom")
 	f := &FakeLLM{Err: myErr}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -112,7 +112,7 @@ func TestFakeLLM_Err_OverridesCtx(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	// 优先返回 ctx.Err（Err 还没到）
+	// Prioritize returning context.Err (error not yet reached)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want Canceled (ctx takes priority)", err)
 	}
@@ -175,7 +175,7 @@ func TestFakeLLM_Concurrent(t *testing.T) {
 		}
 	}
 	if got := int32(f.CallCount()); got != int32(N) {
-		// 用 atomic 只是为了 race detector；实际用 CallCount
+		// Using atomic is just for the race detector; use CallCount in practice.
 		t.Errorf("CallCount = %d, want %d", got, N)
 	}
 	_ = atomic.Int32{} // silence import if other uses removed
@@ -206,7 +206,7 @@ func TestFakeLLM_ChatStream_DeltaThenDone(t *testing.T) {
 }
 
 func TestFakeLLM_ChatStream_EmptyResponses_OnlyDone(t *testing.T) {
-	// 空 Responses 不应发 Delta，只发 Done
+	// Empty Responses should not send Delta events, only Done events.
 	f := &FakeLLM{}
 	ch, _ := f.ChatStream(context.Background(), LLMRequest{})
 	var got []llm.Event
@@ -268,7 +268,7 @@ func TestFakeLLM_ChatStream_CtxCancel_DuringDelay(t *testing.T) {
 }
 
 func TestFakeLLM_ChatStream_CtxAlreadyCancelled(t *testing.T) {
-	// ctx 已取消：Delay=0 时应走 "else if err := ctx.Err()" 分支
+	// Context already cancelled: when Delay is 0, the 'else if err := ctx.Err()' branch should be taken.
 	f := &FakeLLM{Responses: []string{"x"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -301,7 +301,7 @@ func TestFakeLLM_ChatStream_Hook(t *testing.T) {
 // ─── ToolCallsByTurn ─────────────────────────────────────────────────────────
 
 func TestFakeLLM_ToolCallsByTurn_Happy(t *testing.T) {
-	// 第 1 次 Chat 返回 tool_calls；第 2 次走 Responses
+	// First Chat returns tool_calls; second time uses Responses
 	tcs := []llm.ToolCall{{
 		ID: "call_1", Type: "function",
 		Function: llm.FunctionCall{Name: "echo", Arguments: `{"x":1}`},
@@ -312,7 +312,7 @@ func TestFakeLLM_ToolCallsByTurn_Happy(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	// 第 1 次：tool_calls
+	// First turn: tool_calls
 	resp1, err := f.Chat(ctx, LLMRequest{})
 	if err != nil {
 		t.Fatalf("Chat 1: %v", err)
@@ -327,7 +327,7 @@ func TestFakeLLM_ToolCallsByTurn_Happy(t *testing.T) {
 		t.Errorf("resp1.Content should be empty, got %q", resp1.Content)
 	}
 
-	// 第 2 次：Responses 路径
+	// Second turn: Responses path
 	resp2, _ := f.Chat(ctx, LLMRequest{})
 	if resp2.Content != "final" {
 		t.Errorf("resp2.Content = %q, want final", resp2.Content)
@@ -345,7 +345,7 @@ func TestFakeLLM_ToolCallsByTurn_Happy(t *testing.T) {
 }
 
 func TestFakeLLM_ToolCallsByTurn_EmptyTurn_FallsThrough(t *testing.T) {
-	// 第 1 轮的 tool_calls 为 nil → fall-through 到 Responses
+	// If the first turn's tool_calls is nil, it falls through to Responses.
 	f := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{nil},
 		Responses:       []string{"hello"},
@@ -366,7 +366,7 @@ func TestFakeLLM_ToolCallsByTurn_EmptyTurn_FallsThrough(t *testing.T) {
 }
 
 func TestFakeLLM_ToolCallsByTurn_MultiTurn(t *testing.T) {
-	// 连续两轮 tool_calls + 最终答复
+	// Two consecutive turns of tool_calls + final reply
 	f := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{{ID: "c1", Function: llm.FunctionCall{Name: "t1"}}},
@@ -392,7 +392,7 @@ func TestFakeLLM_ToolCallsByTurn_MultiTurn(t *testing.T) {
 }
 
 func TestFakeLLM_ToolCallsByTurn_Concurrent(t *testing.T) {
-	// 并发 Chat（-race）无数据竞争
+	// Concurrent Chat (-race) without data race
 	f := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{{ID: "c1"}},

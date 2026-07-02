@@ -131,10 +131,10 @@ func TestHybridLogic_LowConfidenceInheritsPrior(t *testing.T) {
 	config.FastTrackConfidenceThreshold = 85
 	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
-	// "再次测试" alone would classify as L1 with low confidence
+	// "Retest" alone would classify as L1 with low confidence
 	// But with priorLevel=L3, it should inherit L3
 	ctx := context.Background()
-	result, err := classifier.Classify(ctx, "再次测试", LevelComplexRefactoring, nil)
+	result, err := classifier.Classify(ctx, "Retest", LevelComplexRefactoring, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -178,17 +178,17 @@ func TestHybridLogic_ComplexSessionL0Blocked(t *testing.T) {
 	}{
 		{
 			name:     "follow-up question in L3 session blocked",
-			prompt:   "你能解释一下为什么这样实现",
+			prompt:   "Can you explain why this is implemented this way",
 			expected: LevelSimpleSingleFile, // L0 blocked → min L1
 		},
 		{
 			name:     "casual question in L2 session blocked",
-			prompt:   "这个是什么意思",
+			prompt:   "What does this mean",
 			expected: LevelSimpleSingleFile, // L0 blocked → min L1
 		},
 		{
 			name:     "explicit complex task is not blocked",
-			prompt:   "重新设计整个系统的架构",
+			prompt:   "Redesign the architecture of the entire system",
 			expected: LevelComplexRefactoring, // L3 wins naturally
 		},
 	}
@@ -212,10 +212,10 @@ func TestHybridLogic_MediumConfidenceKeepsHigherPrior(t *testing.T) {
 	config.FastTrackConfidenceThreshold = 85
 	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
-	// "run the tests" has medium confidence for L1
+	// "Run tests" has medium confidence for L1
 	// With priorLevel=L3, it should stay at L3
 	ctx := context.Background()
-	result, err := classifier.Classify(ctx, "运行测试", LevelComplexRefactoring, nil)
+	result, err := classifier.Classify(ctx, "Run tests", LevelComplexRefactoring, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestHybridLogic_NoPriorLevelNormalClassify(t *testing.T) {
 
 	// Without prior level, normal classification applies
 	ctx := context.Background()
-	result, err := classifier.Classify(ctx, "再次测试", LevelUnknown, nil)
+	result, err := classifier.Classify(ctx, "Retest", LevelUnknown, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,8 +271,8 @@ func TestHybridLogic_L1SessionL0Blocked(t *testing.T) {
 	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 
 	ctx := context.Background()
-	// "这个是什么意思" has L0 intent
-	result, err := classifier.Classify(ctx, "这个是什么意思", LevelSimpleSingleFile, nil)
+	// "What does this mean" has L0 intent
+	result, err := classifier.Classify(ctx, "What does this mean", LevelSimpleSingleFile, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -287,21 +287,21 @@ func TestFastTrack_NewKeywords(t *testing.T) {
 	classifier := NewDefaultClassifier(config, nil, "deepseek", "", nil)
 	ctx := context.Background()
 
-	// "微调" should be classified as L1
-	res, err := classifier.Classify(ctx, "微调一下这个函数", LevelUnknown, nil)
+	// "Fine-tune" should be classified as L1
+	res, err := classifier.Classify(ctx, "Fine-tune this function", LevelUnknown, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if res.Level != LevelSimpleSingleFile {
-		t.Errorf("expected L1 for '微调', got %v", res.Level)
+		t.Errorf("expected L1 for 'fine-tune', got %v", res.Level)
 	}
 
-	// "接着" in a task context should boost L1 confidence/level
-	res2, err := classifier.Classify(ctx, "接着修改", LevelSimpleSingleFile, nil)
+	// "Next" in a task context should boost L1 confidence/level
+	res2, err := classifier.Classify(ctx, "Next, modify", LevelSimpleSingleFile, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if res2.Level < LevelSimpleSingleFile {
-		t.Errorf("expected at least L1 for '接着修改', got %v", res2.Level)
+		t.Errorf("expected at least L1 for 'next, modify', got %v", res2.Level)
 	}
 }

@@ -11,31 +11,31 @@ import (
 
 // ─── SkillTool ─────────────────────────────────────────────────────────────
 
-// SkillTool 让 LLM 通过 function calling 调用 Skill
+// SkillTool enables LLMs to invoke Skills via function calling.
 //
-// 对齐 Claude Code 的 Skill 机制：LLM 调用 Skill(skill="commit", args="...")
-// 时，SkillTool 从 SkillRegistry 查找 skill，执行预处理管道，
-// 然后根据 skill.Context 决定 inline 还是 fork 执行。
+// Aligns with Claude Code's Skill mechanism: When an LLM calls a Skill (e.g., skill="commit", args="..."),
+// SkillTool looks up the skill from the SkillRegistry, executes the preprocessing pipeline,
+// and then decides whether to execute it inline or fork based on skill.Context.
 //
-// SkillTool 的 Description 动态编译所有非 disable-model-invocation 的 skill 列表，
-// 让 LLM 知道何时该用哪个 skill。
+// SkillTool's Description dynamically compiles a list of all skills not marked for disable-model-invocation,
+// letting the LLM know when to use which skill.
 type SkillTool struct {
 	registry  *SkillRegistry
-	forkSpawn SkillForkSpawnFn // nil 时 fork 模式降级为 inline
+	forkSpawn SkillForkSpawnFn // If nil, fork mode degrades to inline
 	logger    *logger.Logger
 }
 
-// SkillToolOption 是 SkillTool 的可选配置
+// SkillToolOption is an optional configuration for SkillTool
 type SkillToolOption func(*SkillTool)
 
-// WithSkillLogger 设置 SkillTool 的日志实例
+// WithSkillLogger sets the logger instance for SkillTool
 func WithSkillLogger(l *logger.Logger) SkillToolOption {
 	return func(st *SkillTool) { st.logger = l }
 }
 
-// NewSkillTool 构造 SkillTool
+// NewSkillTool constructs a SkillTool
 //
-// registry 不能为 nil。forkSpawn 可以为 nil（此时 fork 模式降级为 inline）。
+// registry cannot be nil. forkSpawn can be nil (in which case fork mode degrades to inline).
 func NewSkillTool(registry *SkillRegistry, forkSpawn SkillForkSpawnFn, opts ...SkillToolOption) *SkillTool {
 	st := &SkillTool{
 		registry:  registry,
@@ -47,7 +47,7 @@ func NewSkillTool(registry *SkillRegistry, forkSpawn SkillForkSpawnFn, opts ...S
 	return st
 }
 
-// skillToolArgs 是 SkillTool 的参数结构
+// skillToolArgs is the argument structure for SkillTool
 type skillToolArgs struct {
 	Skill string `json:"skill"`
 	Args  string `json:"args,omitempty"`
@@ -55,7 +55,7 @@ type skillToolArgs struct {
 
 func (SkillTool) Name() string { return "Skill" }
 
-// Description 动态生成 skill 列表供 LLM 判断何时使用
+// Description dynamically generates a list of skills for the LLM to decide when to use
 func (t *SkillTool) Description() string {
 	skills := t.registry.Skills()
 	if len(skills) == 0 {
@@ -88,15 +88,15 @@ func (SkillTool) Parameters() json.RawMessage {
 	}`)
 }
 
-// Execute 执行 skill 调用
+// Execute performs a skill invocation
 //
-// 流程：
-//  1. 解析参数（skill name + optional args）
-//  2. 从 registry 查找 skill
-//  3. 执行预处理管道（$ARGUMENTS 替换等）
-//  4. 根据 skill.Context 决定执行模式：
-//     inline → 返回预处理后的内容，LLM 据此继续调用工具执行
-//     fork   → 创建子 agent 执行，返回子 agent 结果
+// Process:
+//  1. Parse arguments (skill name + optional args)
+//  2. Look up the skill from the registry
+//  3. Execute the preprocessing pipeline (e.g., $ARGUMENTS replacement)
+//  4. Determine execution mode based on skill.Context:
+//     inline → Return the preprocessed content, LLM continues to call tools based on this.
+//     fork   → Create a sub-agent for execution, return the sub-agent's result.
 func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error) {
 	var args skillToolArgs
 	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
@@ -117,10 +117,10 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 		return fmt.Sprintf("error: skill %q not found", args.Skill), nil
 	}
 
-	// 预处理管道
+	// Preprocessing pipeline
 	content := PreprocessContent(s.Instructions, args.Args, s.Dir)
 
-	// 执行模式
+	// Execution mode
 	switch s.Context {
 	case "fork":
 		if t.forkSpawn != nil {
@@ -138,15 +138,15 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 			}
 			return result, nil
 		}
-		// forkSpawn 未设置，降级为 inline
+		// forkSpawn not set, degrade to inline
 		fallthrough
 	default:
 		if t.logger != nil {
 			t.logger.InfoContext(ctx, logger.CatTool, "skill: inline completed",
 				"skill_id", s.ID, "content_len", len(content))
 		}
-		// inline 模式：返回预处理后的 skill content
-		// LLM 将此作为 tool result 消费，然后根据 skill instructions 继续行动
+		// Inline mode: return the preprocessed skill content
+		// The LLM will consume this as a tool result and continue to act based on the skill instructions.
 		return content, nil
 	}
 }

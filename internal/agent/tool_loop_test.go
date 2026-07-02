@@ -20,7 +20,7 @@ import (
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
-// startedAgentWithTools 启动一个带 tools 的 agent，自动 Stop
+// startedAgentWithTools starts an agent with tools, automatically stopping it.
 func startedAgentWithTools(t *testing.T, fake *FakeLLM, ts ...tools.Tool) *Agent {
 	t.Helper()
 	a := NewAgent(Definition{ID: "a1"}, fake, nil, WithTools(ts...))
@@ -31,10 +31,10 @@ func startedAgentWithTools(t *testing.T, fake *FakeLLM, ts ...tools.Tool) *Agent
 	return a
 }
 
-// ─── 无 tools：循环第一轮就退出（向后兼容）──────────────────────────────
+// ─── No tools: exit on first iteration (backward compatibility) ──────────────
 
 func TestAgent_Ask_NoTools_SingleChat(t *testing.T) {
-	// 未 WithTools；FakeLLM 返回单条 Responses；Ask 行为完全等价旧版
+	// No WithTools; FakeLLM returns a single Response; Ask behaves exactly like the old version
 	fake := &FakeLLM{Responses: []string{"final"}}
 	a := startedAgent(t, fake)
 
@@ -57,7 +57,7 @@ func TestAgent_ToolSpecs_NilSafe(t *testing.T) {
 	}
 }
 
-// ─── 单次 tool_call → 最终答复 ───────────────────────────────────────────
+// ─── Single tool_call → Final reply ───────────────────────────────────────────
 
 func TestAgent_Ask_SingleToolCall_ThenFinal(t *testing.T) {
 	echo := newFakeTool("echo")
@@ -82,13 +82,13 @@ func TestAgent_Ask_SingleToolCall_ThenFinal(t *testing.T) {
 	if echo.CallCount() != 1 {
 		t.Errorf("tool called %d times, want 1", echo.CallCount())
 	}
-	// LLM 被调 2 次（一次要工具、一次最终答复）
+	// LLM called 2 times (once for tool, once for final reply)
 	if total := fake.CallCount() + fake.ToolCallCount(); total != 2 {
 		t.Errorf("LLM total calls = %d, want 2", total)
 	}
 }
 
-// ─── 一轮多个 tool_call：顺序执行 ────────────────────────────────────────
+// ─── Multiple tool_calls in one turn: sequential execution ──────────────────
 
 func TestAgent_Ask_MultipleToolCalls_PerTurn(t *testing.T) {
 	a1 := newFakeTool("t1")
@@ -104,7 +104,7 @@ func TestAgent_Ask_MultipleToolCalls_PerTurn(t *testing.T) {
 		}},
 		Responses: []string{"done"},
 		Hook: func(req LLMRequest) {
-			// 最后一次 Chat 的 msgs 应含 2 条 role=tool
+			// The last Chat's msgs should contain 2 role=tool messages
 			capturedMsgs = req.Messages
 		},
 	}
@@ -118,7 +118,7 @@ func TestAgent_Ask_MultipleToolCalls_PerTurn(t *testing.T) {
 		t.Errorf("tool calls: t1=%d t2=%d, want 1,1", a1.CallCount(), a2.CallCount())
 	}
 
-	// 验证第二次 Chat 的 msgs：倒数 3 条应是 assistant(tool_calls) + tool(c1) + tool(c2)
+	// Verify the second Chat's msgs: the last 3 should be assistant(tool_calls) + tool(c1) + tool(c2)
 	if len(capturedMsgs) < 4 {
 		t.Fatalf("captured msgs = %d, want >= 4", len(capturedMsgs))
 	}
@@ -136,7 +136,7 @@ func TestAgent_Ask_MultipleToolCalls_PerTurn(t *testing.T) {
 	}
 }
 
-// ─── Tool 未找到：反馈 "error: ..." 给 LLM，不中断循环 ──────────────────
+// ─── Tool not found: feedback "error: ..." to LLM, do not interrupt loop ──
 
 func TestAgent_Ask_ToolNotFound_FedBackAsError(t *testing.T) {
 	var capturedContent string
@@ -147,13 +147,13 @@ func TestAgent_Ask_ToolNotFound_FedBackAsError(t *testing.T) {
 		}}},
 		Responses: []string{"ok"},
 		Hook: func(req LLMRequest) {
-			// 第 2 次 Chat 的最后一条消息应是 tool role 带 "error: ..."
+			// The last message of the 2nd Chat should be a tool role with "error: ..."
 			if n := len(req.Messages); n > 0 && req.Messages[n-1].Role == "tool" {
 				capturedContent = req.Messages[n-1].Content
 			}
 		},
 	}
-	a := startedAgentWithTools(t, fake) // 无工具注册
+	a := startedAgentWithTools(t, fake) // No tools registered
 
 	reply, err := a.Ask(context.Background(), "call ghost")
 	if err != nil {
@@ -170,7 +170,7 @@ func TestAgent_Ask_ToolNotFound_FedBackAsError(t *testing.T) {
 	}
 }
 
-// ─── Tool Execute 错误：反馈给 LLM，不中断循环 ─────────────────────────
+// ─── Tool Execute error: feedback to LLM, do not interrupt loop ─────────
 
 func TestAgent_Ask_ToolExecError_FedBack(t *testing.T) {
 	boom := newFakeTool("boom")
@@ -205,10 +205,10 @@ func TestAgent_Ask_ToolExecError_FedBack(t *testing.T) {
 	}
 }
 
-// ─── MaxIterations 兜底 ────────────────────────────────────────────────
+// ─── MaxIterations fallback ────────────────────────────────────────────────
 
 func TestAgent_Ask_MaxIterations(t *testing.T) {
-	// LLM 无限要 tool_calls；MaxIterations=3 应在 3 轮后抛 ErrMaxIterations
+	// LLM infinitely requests tool_calls; MaxIterations=3 should throw ErrMaxIterations after 3 turns
 	tool := newFakeTool("loop")
 	turns := make([][]llm.ToolCall, 10)
 	for i := range turns {
@@ -271,10 +271,10 @@ func TestAgent_Ask_DefaultMaxIterations(t *testing.T) {
 	}
 }
 
-// ─── ctx cancel 中断循环 ──────────────────────────────────────────────
+// ─── ctx cancel interrupts the loop ──────────────────────────────────────
 
 func TestAgent_Ask_CtxCancel_BeforeTool(t *testing.T) {
-	// 用一个会 block 的 tool，从中间取消 ctx
+	// Use a blocking tool and cancel ctx in the middle
 	blockedTool := newBlockingTool()
 	defer close(blockedTool.ch)
 
@@ -290,9 +290,9 @@ func TestAgent_Ask_CtxCancel_BeforeTool(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Go routine：等 tool 开始执行后 cancel
+	// Go routine: cancel after the tool starts executing
 	go func() {
-		// 等 tool 进入 Execute
+		// Wait for the tool to enter Execute
 		<-blockedTool.started
 		cancel()
 	}()
@@ -303,7 +303,7 @@ func TestAgent_Ask_CtxCancel_BeforeTool(t *testing.T) {
 	}
 }
 
-// ─── LLM error 透传 ───────────────────────────────────────────────────
+// ─── LLM error propagation ───────────────────────────────────────────────────
 
 func TestAgent_Ask_LLMError_Propagates(t *testing.T) {
 	want := errors.New("llm down")
@@ -316,7 +316,7 @@ func TestAgent_Ask_LLMError_Propagates(t *testing.T) {
 	}
 }
 
-// ─── WithTools panic 场景 ─────────────────────────────────────────────
+// ─── WithTools panic scenarios ─────────────────────────────────────────────
 
 func TestAgent_WithTools_DuplicatePanic(t *testing.T) {
 	defer func() {
@@ -330,14 +330,14 @@ func TestAgent_WithTools_DuplicatePanic(t *testing.T) {
 }
 
 func TestAgent_WithTools_EmptyIsNoop(t *testing.T) {
-	// WithTools() 无参不应分配 registry
+	// WithTools() with no arguments should not allocate registry
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil, WithTools())
 	if a.tools != nil {
 		t.Error("empty WithTools should not allocate registry")
 	}
 }
 
-// ─── End-to-end：日志中 trace_id / actor_id / tool_name 完整串联 ────────
+// ─── End-to-end: full correlation of trace_id / actor_id / tool_name in logs ────────
 
 func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 	dir := t.TempDir()
@@ -368,7 +368,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Stop(time.Second) })
 
-	// 注入已知 trace_id 验证贯穿
+	// Inject known trace_id to verify propagation
 	ctx := logger.WithTraceID(context.Background(), "trace-xyz")
 	reply, err := a.Ask(ctx, "echo hi")
 	if err != nil {
@@ -382,7 +382,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 
 	base := filepath.Join(dir, "logs", "system")
 
-	// tool.jsonl：应含 tool_name / tool_call_id / trace_id / actor_id
+	// tool.jsonl: should contain tool_name / tool_call_id / trace_id / actor_id
 	toolData, err := os.ReadFile(filepath.Join(base, "tool-"+today()+".jsonl"))
 	if err != nil {
 		t.Fatalf("read tool.jsonl: %v", err)
@@ -398,7 +398,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 		}
 	}
 
-	// llm.jsonl：应有 2 条 "llm chat done"（iter=0 含 tool_calls=1，iter=1 tool_calls=0）
+	// llm.jsonl: should have 2 "llm chat done" entries (iter=0 contains tool_calls=1, iter=1 tool_calls=0)
 	llmData, err := os.ReadFile(filepath.Join(base, "llm-"+today()+".jsonl"))
 	if err != nil {
 		t.Fatalf("read llm.jsonl: %v", err)
@@ -410,7 +410,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 
 // ─── blockingTool ────────────────────────────────────────────────────────────
 
-// blockingTool 在 Execute 里 block 直到 ctx 取消或 ch close
+// blockingTool blocks in Execute until ctx is canceled or ch is closed
 type blockingTool struct {
 	started chan struct{}
 	once    sync.Once

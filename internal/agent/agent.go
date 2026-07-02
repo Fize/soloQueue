@@ -17,59 +17,59 @@ import (
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-// job 是 mailbox 里流动的"一单活"
+// job is a "unit of work" flowing in the mailbox
 //
-// 它是闭包，封装了"这次要做什么"（包括调用方的数据和 reply chan）。
-// 所有上层 API（Ask / Submit / 未来的 Session）都构造不同语义的 job 投递。
-// 不对外暴露。
+// It is a closure, encapsulating "what needs to be done this time" (including caller data and reply channel).
+// All upper-layer APIs (Ask / Submit / future Session) construct and deliver jobs with different semantics.
+// Not exposed externally.
 type job func(ctx context.Context)
 
 // ─── Agent ───────────────────────────────────────────────────────────────────
 
-// Agent 是一个绑定 LLM + 配置 + 日志的长期运行单元
+// Agent is a long-running unit bound with LLM + configuration + logs
 //
-// 生命周期：
+// Lifecycle:
 //
 //	NewAgent → Start → [ Ask / Submit ]* → Stop → Stopped
 //	                                                 ↓
-//	                                                 Start 可重启
+//	                                                 Restartable after Stop
 //
-// 并发安全：
-//   - Ask / Submit / State / Done / Err / Stop 可被多个 goroutine 并发调用
-//   - mailbox 里的 job 在 run goroutine 中串行执行（天然互斥）
-//   - Start 和 Stop 互斥（同一时刻只有一个在改生命周期字段）
+// Concurrency safety:
+//   - Ask / Submit / State / Done / Err / Stop can be called concurrently by multiple goroutines
+//   - Jobs in the mailbox are executed serially within the run goroutine (naturally mutually exclusive)
+//   - Start and Stop are mutually exclusive (only one modifies the lifecycle field at a time)
 type Agent struct {
 	Def Definition
 	LLM LLMClient
 	Log *logger.Logger
 
-	// 配置（构造后不变）
+	// Configuration (immutable after construction)
 	mailboxCap    int
-	tools         *tools.ToolRegistry  // 底层执行原语
-	skills        *skill.SkillRegistry // 上下文注入机制
-	parallelTools bool                 // true 时一轮多个 tool_call 用 errgroup 并发执行
+	tools         *tools.ToolRegistry  // Underlying execution primitives
+	skills        *skill.SkillRegistry // Context injection mechanism
+	parallelTools bool                 // When true, multiple tool_calls in one turn are executed concurrently using errgroup
 
-	// toolTimeouts 按 tool.Name() 指定 Execute 的超时时长（0/nil = 无单 tool 超时）
-	// execToolStream 会用 context.WithTimeout 包裹 ctx，超时错误被格式化
-	// 为 "error: tool timeout after Xs" 喂回 LLM（不中断循环）。
+	// toolTimeouts specifies the timeout duration for Execute by tool.Name() (0/nil = no single tool timeout)
+	// execToolStream wraps ctx with context.WithTimeout; timeout errors are formatted
+	// as "error: tool timeout after Xs" and fed back to LLM (without interrupting the loop).
 	toolTimeouts map[string]time.Duration
 
-	// runtime 字段：Start 时分配，Stop 后保留 done 直到下次 Start 覆盖
-	// mu 仅在 Start/Stop 路径上互斥；热路径（Ask/Submit）通过快照读取
+	// runtime fields: allocated at Start, 'done' retained after Stop until next Start overwrites it
+	// mu is only for mutual exclusion on Start/Stop paths; hot paths (Ask/Submit) read via snapshot
 	mu      sync.Mutex
 	ctx     context.Context
 	cancel  context.CancelFunc
 	mailbox chan job
 	done    chan struct{}
 
-	// 确认状态机：execToolStream 阻塞等待，外部通过 Confirm 注入结果
+	// Confirmation state machine: execToolStream blocks, waiting for external Confirm to inject results
 	confirmMu      sync.RWMutex
 	pendingConfirm map[string]*confirmSlot
 
-	// bypassConfirm 跳过所有工具确认；来自 agent 模板 permission 字段或全局 --bypass。
+	// bypassConfirm skips all tool confirmations; either from the agent template's permission field or global --bypass.
 	bypassConfirm bool
 
-	// confirmStore 是会话级工具放行存储；默认内存实现，可通过 WithConfirmStore 替换。
+	// confirmStore is a session-level tool permission store; defaults to in-memory implementation, can be replaced via WithConfirmStore.
 	confirmStore SessionConfirmStore
 
 	// WorkDir is the working directory for this agent's tool execution.
@@ -79,15 +79,15 @@ type Agent struct {
 	// loaded relative to this directory.
 	WorkDir string
 
-	// InstanceID 是 Agent 实例的唯一标识（UUID），与 Def.ID（模板/角色标识）分离。
-	// 支持同一模板的多个 Agent 实例共存（并行调度）。
+	// InstanceID is the unique identifier (UUID) for an Agent instance, separate from Def.ID (template/role identifier).
+	// Supports multiple Agent instances of the same template coexisting (parallel scheduling).
 	InstanceID string
 
-	// 异步委托追踪（L1 专用）
+	// Asynchronous delegation tracking (L1 specific)
 	turnMu     sync.RWMutex
-	asyncTurns map[int]*asyncTurnState // iter → 轮次异步状态
+	asyncTurns map[int]*asyncTurnState // iter → turn asynchronous state
 
-	// 优先级 mailbox（L1 启用；nil 表示普通 chan job）
+	// Priority mailbox (L1 enabled; nil means a regular job channel)
 	priorityMailbox *PriorityMailbox
 
 	// modelOverride is a per-ask model parameter override.
@@ -109,17 +109,17 @@ type Agent struct {
 	onStateChange func(State) // called after every state transition
 }
 
-// confirmSlot 是单次 tool_call 的待确认槽位
+// confirmSlot is a pending confirmation slot for a single tool_call
 type confirmSlot struct {
 	done atomic.Bool
-	ch   chan string // 用户选择的选项值；"" 表示拒绝/取消
+	ch   chan string // User-selected option value; "" indicates rejection/cancellation
 }
 
-// Option 是 NewAgent 的 functional option
+// Option is a functional option for NewAgent
 type Option func(*Agent)
 
-// WithMailboxCap 设置 mailbox 容量（默认 DefaultMailboxCap = 8）
-// cap <= 0 会被忽略（使用默认值）
+// WithMailboxCap sets the mailbox capacity (default DefaultMailboxCap = 8)
+// cap <= 0 will be ignored (uses default value)
 func WithMailboxCap(cap int) Option {
 	return func(a *Agent) {
 		if cap > 0 {
@@ -128,10 +128,10 @@ func WithMailboxCap(cap int) Option {
 	}
 }
 
-// WithSkills 注册一批 Skill 到 agent 的 SkillRegistry
+// WithSkills registers a batch of Skills to the agent's SkillRegistry
 //
-// Skill 是可执行的技能定义，LLM 通过 Skill 内置工具调用。
-// 多次调用 WithSkills 会累加（同一 SkillRegistry），同名 Skill 仍会 panic。
+// A Skill is an executable skill definition, called by the LLM via built-in tools.
+// Multiple calls to WithSkills accumulate (on the same SkillRegistry); a Skill with the same name will still panic.
 func WithSkills(skills ...*skill.Skill) Option {
 	return func(a *Agent) {
 		if len(skills) == 0 {
@@ -148,13 +148,13 @@ func WithSkills(skills ...*skill.Skill) Option {
 	}
 }
 
-// WithTools 注册一批 Tool 到 agent 的 ToolRegistry
+// WithTools registers a batch of Tools to the agent's ToolRegistry
 //
-// Tool 是底层执行原语，LLM 通过 function calling 调用。
-// 重名 / Tool.Name() 为空 / nil tool 会 panic —— 属于构造期编程错误，
-// 必须早炸。生产代码应保证 tool name 唯一。
+// A Tool is an underlying execution primitive, called by the LLM via function calling.
+// Duplicate name / empty Tool.Name() / nil tool will panic — this is a build-time programming error,
+// must fail early. Production code should ensure tool names are unique.
 //
-// 多次调用 WithTools 会累加（同一 registry），同名仍会 panic。
+// Multiple calls to WithTools accumulate (on the same registry); a tool with the same name will still panic.
 func WithTools(ts ...tools.Tool) Option {
 	return func(a *Agent) {
 		if len(ts) == 0 {
@@ -171,37 +171,37 @@ func WithTools(ts ...tools.Tool) Option {
 	}
 }
 
-// WithParallelTools 打开/关闭同一轮多个 tool_call 的并发执行
+// WithParallelTools enables/disables concurrent execution of multiple tool_calls in the same turn
 //
-// 默认 false（串行，保持现状行为）。
+// Defaults to false (sequential, maintaining current behavior).
 //
-// 打开后：runOnceStream 内 len(toolCalls) > 1 时走 errgroup 并发路径；
-// 单个 tool_call 仍走串行（无并发收益，省 goroutine 创建）。
+// When enabled: if len(toolCalls) > 1 in runOnceStream, it uses the errgroup concurrent path;
+// a single tool_call still executes sequentially (no concurrency benefit, saves goroutine creation).
 //
-// 事件顺序保证：
-//   - 并发场景下各 `ToolExecStart` / `ToolExecDone` 事件相对顺序
-//     由 goroutine 调度决定；对任一 `call_id`，`Start` 一定先于 `Done`。
-//   - 塞回 LLM 的 `role=tool` 消息**严格按 LLM 原始 tool_calls 顺序**，
-//     不被 goroutine 完成次序打乱。
+// Event order guarantee:
+//   - In concurrent scenarios, the relative order of `ToolExecStart` / `ToolExecDone` events
+//     is determined by goroutine scheduling; for any given `call_id`, `Start` always precedes `Done`.
+//   - The `role=tool` messages fed back to the LLM are **strictly in the original LLM tool_calls order**,
+//     not disrupted by goroutine completion order.
 //
-// 错误语义与串行一致：tool 执行错误（含 panic / ctx 取消）被格式化为
-// `"error: ..."` 喂回 LLM，不中断循环；errgroup 永不短路。
+// Error semantics are consistent with sequential execution: tool execution errors (including panic / ctx cancellation) are formatted as
+// `"error: ..."` and fed back to the LLM, without interrupting the loop; errgroup never short-circuits.
 func WithParallelTools(enabled bool) Option {
 	return func(a *Agent) {
 		a.parallelTools = enabled
 	}
 }
 
-// WithToolTimeout 给指定 tool.Name() 设置 Execute 的超时时长
+// WithToolTimeout sets the timeout duration for Execute for a given tool.Name()
 //
-// 语义：
-//   - d > 0：在 execToolStream 内用 context.WithTimeout 包裹 ctx；超时触发
-//     后被 **格式化为** `"error: tool timeout after <d>"` 喂回 LLM，
-//     不中断整个 Ask 循环（与普通 tool 错误一致）
-//   - d <= 0：删除该 tool 的超时配置（回退到无超时，继承上游 ctx）
-//   - 同一 name 多次调用：以最后一次为准
+// Semantics:
+//   - d > 0: wraps ctx with context.WithTimeout inside execToolStream; upon timeout,
+//     it is **formatted as** `"error: tool timeout after <d>"` and fed back to LLM,
+//     without interrupting the entire Ask loop (consistent with regular tool errors)
+//   - d <= 0: removes the timeout configuration for this tool (reverts to no timeout, inherits upstream ctx)
+//   - Multiple calls for the same name: the last call takes precedence
 //
-// 例：
+// Example:
 //
 //	agent.NewAgent(def, llm, log,
 //	    agent.WithTools(tools...),
@@ -209,8 +209,8 @@ func WithParallelTools(enabled bool) Option {
 //	    agent.WithToolTimeout("WebFetch", 10*time.Second),
 //	)
 //
-// 不影响 ctx 取消路径：caller ctx 取消（Stop / Ask ctx）仍按原语义
-// 立即传播到当前 tool（WithTimeout 是**附加** deadline，不覆盖父 ctx）。
+// Does not affect ctx cancellation path: caller ctx cancellation (Stop / Ask ctx) still propagates according to original semantics
+// immediately to the current tool (WithTimeout is an **additional** deadline, not overwriting the parent ctx).
 func WithToolTimeout(name string, d time.Duration) Option {
 	return func(a *Agent) {
 		if a.toolTimeouts == nil {
@@ -224,12 +224,12 @@ func WithToolTimeout(name string, d time.Duration) Option {
 	}
 }
 
-// WithPriorityMailbox 启用优先级 mailbox（L1 专用）
+// WithPriorityMailbox enables priority mailbox (L1 specific)
 //
-// 启用后：
-//   - 高优先级 job（委托回传、超时事件）通过 highCh 投递
-//   - 普通优先级 job（用户 Ask/Submit）通过 normalCh 投递
-//   - run goroutine 优先消费 highCh，确保委托结果不被新消息阻塞
+// When enabled:
+//   - High-priority jobs (delegation callbacks, timeout events) are delivered via highCh
+//   - Normal-priority jobs (user Ask/Submit) are delivered via normalCh
+//   - The run goroutine prioritizes consuming from highCh to ensure delegation results are not blocked by new messages
 func WithPriorityMailbox() Option {
 	return func(a *Agent) {
 		a.priorityMailbox = NewPriorityMailbox()
@@ -285,17 +285,17 @@ func (a *Agent) RegisterTool(t tools.Tool) error {
 	return a.tools.Register(t)
 }
 
-// PendingDelegations 返回当前等待中的异步委托轮次数量
+// PendingDelegations returns the number of pending asynchronous delegation turns
 func (a *Agent) PendingDelegations() int {
 	a.turnMu.RLock()
 	defer a.turnMu.RUnlock()
 	return len(a.asyncTurns)
 }
 
-// MailboxDepth 返回 mailbox 队列深度
+// MailboxDepth returns the mailbox queue depth
 //
-// 对 PriorityMailbox 返回 (high, normal)；对普通 mailbox 返回 (0, len(mailbox))。
-// 值为近似值（channel 长度非精确锁定）。
+// For PriorityMailbox, returns (high, normal); for a regular mailbox, returns (0, len(mailbox)).
+// The values are approximate (channel length is not precisely locked).
 func (a *Agent) MailboxDepth() (high, normal int) {
 	a.mu.Lock()
 	pm := a.priorityMailbox
@@ -575,10 +575,10 @@ func (a *Agent) emitToWatchers(ev AgentEvent) {
 	}
 }
 
-// NewAgent 构造未 Start 的 agent
+// NewAgent constructs an agent that is not yet Started
 //
-// log 可以为 nil（此时日志调用被跳过）。
-// 必须调用 Start 才能开始接收 Ask / Submit。
+// log can be nil (in which case log calls are skipped).
+// Start must be called before it can begin receiving Ask / Submit.
 func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option) *Agent {
 	a := &Agent{
 		Def:            def,

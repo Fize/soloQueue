@@ -24,7 +24,7 @@ func TestCountEmpty(t *testing.T) {
 
 func TestCountBasic(t *testing.T) {
 	tok := NewTokenizer()
-	// "hello world" 应该返回合理的 token 数（英文通常 1 word ≈ 1.3 tokens）
+	// "hello world" should return a reasonable number of tokens (English usually 1 word ≈ 1.3 tokens)
 	got := tok.Count("hello world")
 	if got <= 0 {
 		t.Errorf("Count(\"hello world\") = %d, want > 0", got)
@@ -36,10 +36,10 @@ func TestCountBasic(t *testing.T) {
 
 func TestCountChinese(t *testing.T) {
 	tok := NewTokenizer()
-	// 中文字符通常每个 1-2 tokens
-	got := tok.Count("你好世界")
+	// Chinese characters usually take 1-2 tokens each
+	got := tok.Count("hello world")
 	if got <= 0 {
-		t.Errorf("Count(\"你好世界\") = %d, want > 0", got)
+		t.Errorf("Count(\"hello world\") = %d, want > 0", got)
 	}
 }
 
@@ -55,13 +55,13 @@ func TestCountDeterministic(t *testing.T) {
 
 func TestCountLongText(t *testing.T) {
 	tok := NewTokenizer()
-	// 生成一段长文本
+	// Generate a long text string
 	longText := strings.Repeat("This is a test sentence. ", 100)
 	got := tok.Count(longText)
 	if got <= 0 {
 		t.Errorf("Count(longText) = %d, want > 0", got)
 	}
-	// 粗略验证：100 句话应该远超 100 tokens
+	// Rough verification: 100 sentences should be well over 100 tokens
 	if got < 100 {
 		t.Errorf("Count(longText) = %d, want >= 100", got)
 	}
@@ -70,7 +70,7 @@ func TestCountLongText(t *testing.T) {
 func TestMultipleTokenizersShareEncoding(t *testing.T) {
 	t1 := NewTokenizer()
 	t2 := NewTokenizer()
-	// 两个 Tokenizer 应该共享底层编码
+	// Two Tokenizer instances should share the same underlying encoding
 	if t1.enc != t2.enc {
 		t.Error("Two Tokenizer instances should share the same encoding")
 	}

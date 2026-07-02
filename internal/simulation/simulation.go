@@ -282,7 +282,7 @@ func (e *SimulationEngine) CreateFromSeed(
 	}
 
 	// Resolve simulated_hours early so Phase 2 extraction can map narrative
-	// timeline events (e.g. "卷二登场") to simulation clock offsets.
+	// timeline events (e.g. "Volume 2 debut") to simulation clock offsets.
 	simulatedHours := 168
 	if opts.SimulatedHours > 0 {
 		simulatedHours = opts.SimulatedHours
@@ -341,7 +341,7 @@ func (e *SimulationEngine) CreateFromSeed(
 			topic = extraction.KeyTopics[0]
 		} else {
 			// Fall back to first line of seed text as topic
-			topic = "世界模拟"
+			topic = "World Simulation"
 		}
 	}
 
@@ -362,7 +362,7 @@ func (e *SimulationEngine) CreateFromSeed(
 				seenLoc[entity.Name] = true
 				desc := entity.Name
 				if entity.Confidence > 0 {
-					desc = fmt.Sprintf("%s — %s区域", entity.Name, entity.Type)
+					desc = fmt.Sprintf("%s — %s area", entity.Name, entity.Type)
 				}
 				seedLocs = append(seedLocs, map[string]any{"name": entity.Name, "desc": desc})
 			}
@@ -1139,7 +1139,7 @@ func (e *SimulationEngine) runSimulation(ctx context.Context, state *SimulationS
 				ProgressPercent: float64(i) / float64(len(simAgents)) * 100,
 				CurrentActions:  i + 1,
 				MaxActions:      len(simAgents),
-				RecentLogs:      []string{fmt.Sprintf("正在为 %s 生成计划... (%d/%d)", persona.Name, i+1, len(simAgents))},
+				RecentLogs:      []string{fmt.Sprintf("Generating plan for %s... (%d/%d)", persona.Name, i+1, len(simAgents))},
 				AgentStates:     map[string]*AgentProgressState{},
 				GraphEdges:      []EdgeDTO{},
 			},
@@ -1537,8 +1537,8 @@ func buildZonesFromConfig(env *Environment, config SimulationConfig) {
 						if name, ok := lm["name"].(string); ok {
 							env.AddObject(name, &EnvObject{
 								ID:           name + "_marker",
-								Name:         name + "标记",
-								Description:  "这个地点的标志性特征。",
+								Name:         name + " Mark",
+								Description:  "A signature feature of this location.",
 								IsInteractive: true,
 								State:        map[string]any{},
 							})
@@ -1852,7 +1852,7 @@ func (e *SimulationEngine) generateReport(ctx context.Context, config Simulation
 	// ── Pass 3: Self-review (detect gaps, don't overwrite) ──
 	review, reviewErr := e.selfReviewReport(ctx, config, report)
 	if reviewErr == nil && review != "" {
-		report += "\n\n---\n## 质量审查意见\n" + review
+		report += "\n\n---\n## Quality Review Comments\n" + review
 	} else if reviewErr != nil && e.log != nil {
 		e.log.WarnContext(ctx, logger.CatSimulation, "report: self-review failed",
 			"err", reviewErr.Error())
@@ -1871,13 +1871,13 @@ func (e *SimulationEngine) selfReviewReport(ctx context.Context, config Simulati
 
 	var b strings.Builder
 	if config.Language == "zh" {
-		b.WriteString("你是报告质量审查员。审查以下仿真分析报告，回答三个问题：\n\n")
-		b.WriteString("1. **无据论断**：报告中是否有任何论断没有数据支撑？列出具体句子和原因。\n")
-		b.WriteString("2. **遗漏分析**：报告中是否遗漏了重要角色或关键事件？列出被遗漏的内容。\n")
-		b.WriteString("3. **引用格式**：报告的引用格式是否符合规范（引用独立成段、标注角色和轮次）？\n\n")
-		b.WriteString("只输出审查结果，不要输出修改后的报告。如果发现问题，用简洁的语言指出；如果报告质量良好，明确说明\"审查通过\"。\n\n")
-		b.WriteString(fmt.Sprintf("主题: %s\n\n", config.Topic))
-		b.WriteString("## 待审查报告\n\n")
+		b.WriteString("You are a report quality reviewer. Review the following simulation analysis report and answer three questions:\n\n")
+		b.WriteString("1. **Unsubstantiated Assertions**: Are there any assertions in the report not supported by data? List specific sentences and reasons.\n")
+		b.WriteString("2. **Omissions**: Are any key characters or crucial events missing from the report? List them.\n")
+		b.WriteString("3. **Citation Formatting**: Does the report's citation format comply with specifications (independent paragraphs, character name and round)?\n\n")
+		b.WriteString("Only output review results, do not output modified report. If issues are found, state them briefly; if quality is good, state 'Review Passed'.\n\n")
+		b.WriteString(fmt.Sprintf("Topic: %s\n\n", config.Topic))
+		b.WriteString("## Report Under Review\n\n")
 	} else {
 		b.WriteString("You are a report quality reviewer. Review the simulation analysis report below and answer three questions:\n\n")
 		b.WriteString("1. **Unsupported claims**: Are there any claims without data support? List specific sentences and why.\n")
@@ -1890,7 +1890,7 @@ func (e *SimulationEngine) selfReviewReport(ctx context.Context, config Simulati
 
 	// Truncate report if too long (keep last ~8000 chars which has the most content)
 	if len(report) > 12000 {
-		b.WriteString("(报告较长，以下为后半部分)\n\n")
+		b.WriteString("(Report is long, the following is the second half)\n\n")
 		b.WriteString(report[len(report)-8000:])
 	} else {
 		b.WriteString(report)

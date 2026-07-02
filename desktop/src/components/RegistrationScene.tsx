@@ -34,10 +34,10 @@ export default function RegistrationScene({ onComplete }: RegistrationSceneProps
 
   // Work styles
   const styles = [
-    { id: 'friendly', name: 'Friendly & Supportive (友善热情)', desc: 'Friendly, encouraging, and detailed feedback.' },
-    { id: 'professional', name: 'Professional & Direct (专业严谨)', desc: 'Formal, accurate, and concise documentation.' },
-    { id: 'sarcastic', name: 'Witty & Sarcastic (幽默风趣)', desc: 'Lighthearted, joking, and clever prompts.' },
-    { id: 'cold', name: 'Cold & Efficient (冷酷高效)', desc: 'Direct, emotionless, pure code logic output.' }
+    { id: 'friendly', name: 'Friendly & Supportive', desc: 'Friendly, encouraging, and detailed feedback.' },
+    { id: 'professional', name: 'Professional & Direct', desc: 'Formal, accurate, and concise documentation.' },
+    { id: 'sarcastic', name: 'Witty & Sarcastic', desc: 'Lighthearted, joking, and clever prompts.' },
+    { id: 'cold', name: 'Cold & Efficient', desc: 'Direct, emotionless, pure code logic output.' }
   ]
 
   const totalSteps = 3
@@ -90,7 +90,7 @@ export default function RegistrationScene({ onComplete }: RegistrationSceneProps
                         : 'border-gray-200 text-gray-450 hover:text-gray-700 hover:bg-gray-50'
                     }`}
                   >
-                    👩 FEMALE (女性)
+                    👩 FEMALE
                   </button>
                   <button
                     onClick={() => { setGender('male'); try { sounds.playSelect() } catch {} }}
@@ -100,7 +100,7 @@ export default function RegistrationScene({ onComplete }: RegistrationSceneProps
                         : 'border-gray-200 text-gray-450 hover:text-gray-700 hover:bg-gray-50'
                     }`}
                   >
-                    👨 MALE (男性)
+                    👨 MALE
                   </button>
                 </div>
                 <p className="text-gray-450 text-[12px] mt-4 leading-normal">

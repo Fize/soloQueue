@@ -215,7 +215,7 @@ func (gal *GAAgentLoop) ProcessRound(ctx context.Context, round int, timeEvt Sim
 			if rand.Float64() < pDiscover {
 				discObs := Observation{
 					Type:       "agent_present",
-					Content:    fmt.Sprintf("你凭着敏锐的洞察力，发现了躲在暗处的 %s。", otherPersona.Name),
+					Content:    fmt.Sprintf("With your sharp insight, you discovered %s hiding in the dark.", otherPersona.Name),
 					Source:     otherID,
 					Importance: 5,
 					At:         gal.clock.Now(),
@@ -434,7 +434,7 @@ func (gal *GAAgentLoop) autoPassMemory(timeEvt SimTimeEvent) {
 	}
 
 	// Build a natural continuation message based on current activity type
-	content := fmt.Sprintf("继续在 %s %s。", current.Location, current.Activity)
+	content := fmt.Sprintf("Continue to %s in %s.", current.Location, current.Activity)
 
 	gal.sa.Memory().Record(MemoryRecord{
 		Round:         int(gal.actionSeq),
@@ -641,7 +641,7 @@ func (gal *GAAgentLoop) executeAction(ctx context.Context, action Action, person
 		gal.sa.Memory().Record(MemoryRecord{
 			Round:         seq,
 			Role:          "action",
-			Content:       "你隐蔽了身形，进入了隐藏状态。",
+			Content:       "You concealed yourself and entered a hidden state.",
 			RecordType:    "hide",
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
@@ -681,12 +681,12 @@ func (gal *GAAgentLoop) executeAction(ctx context.Context, action Action, person
 			gal.emit(SimulationEvent{
 				Type:  "error",
 				Round: seq,
-				Error: fmt.Sprintf("%s: Spawn failed. Adventure (奇遇) is disabled and character %s is not in your background/relationships.", personaName, targetName),
+				Error: fmt.Sprintf("%s: Spawn failed. Adventure is disabled and character %s is not in your background/relationships.", personaName, targetName),
 			})
 			gal.sa.Memory().Record(MemoryRecord{
 				Round:         seq,
 				Role:          "observation",
-				Content:       fmt.Sprintf("因为奇遇（adventure）未开启，且你与 %s 并不相识，你无法引入这名角色。", targetName),
+				Content:       fmt.Sprintf("Because adventure is disabled and you do not know %s, you cannot spawn this character.", targetName),
 				RecordType:    "spawn_failed",
 				SimulatedTime: timeEvt.SimTime,
 				Timestamp:     time.Now(),
@@ -837,7 +837,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 				gal.sa.Memory().Record(MemoryRecord{
 					Round:         round,
 					Role:          "observation",
-					Content:       fmt.Sprintf("你成功摆脱了 %s 的纠缠，逃到了 %s。", initiatorName, action.Target),
+					Content:       fmt.Sprintf("You successfully broke free from %s and escaped to %s.", initiatorName, action.Target),
 					RecordType:    "conflict_result",
 					SimulatedTime: timeEvt.SimTime,
 					Timestamp:     time.Now(),
@@ -869,7 +869,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 				gal.bus.Send(initiatorID, Message{
 					From:    "System",
 					To:      initiatorID,
-					Content: fmt.Sprintf("%s 成功摆脱了你的纠缠，逃到了 %s。", targetName, action.Target),
+					Content: fmt.Sprintf("%s successfully broke free from you and escaped to %s.", targetName, action.Target),
 					Type:    "system",
 					Round:   round,
 				})
@@ -879,7 +879,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 			gal.sa.Memory().Record(MemoryRecord{
 				Round:         round,
 				Role:          "observation",
-				Content:       fmt.Sprintf("你试图逃往 %s，但被实力更强（实力估算: %.0f）的 %s（你方实力: %.0f）强行拦截，被迫进入群体打架！", action.Target, aFactionStrength, initiatorName, bFactionStrength),
+				Content:       fmt.Sprintf("You tried to escape to %s, but were intercepted by the stronger (estimated strength: %.0f) %s (your faction strength: %.0f), forcing you into a group conflict!", action.Target, aFactionStrength, initiatorName, bFactionStrength),
 				RecordType:    "conflict_result",
 				SimulatedTime: timeEvt.SimTime,
 				Timestamp:     time.Now(),
@@ -888,7 +888,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 			gal.bus.Send(initiatorID, Message{
 				From:    "System",
 				To:      initiatorID,
-				Content: fmt.Sprintf("%s 试图逃往 %s，被你方强行拦截，双方爆发群体冲突和打架！", targetName, action.Target),
+				Content: fmt.Sprintf("%s tried to escape to %s but was intercepted by your faction, leading to a group conflict!", targetName, action.Target),
 				Type:    "system",
 				Round:   round,
 			})
@@ -902,7 +902,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 		gal.sa.Memory().Record(MemoryRecord{
 			Round:         round,
 			Role:          "observation",
-			Content:       fmt.Sprintf("面对 %s 的冲突挑衅，你果断召集盟友迎战！", initiatorName),
+			Content:       fmt.Sprintf("Faced with provocation from %s, you resolutely gathered allies to fight!", initiatorName),
 			RecordType:    "conflict_result",
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
@@ -911,7 +911,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
-			Content: fmt.Sprintf("面对你的挑衅，%s 出手反击，双方爆发群体冲突与打架！", targetName),
+			Content: fmt.Sprintf("Faced with your provocation, %s fought back, leading to a group conflict!", targetName),
 			Type:    "system",
 			Round:   round,
 		})
@@ -924,7 +924,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 		gal.sa.Memory().Record(MemoryRecord{
 			Round:         round,
 			Role:          "observation",
-			Content:       fmt.Sprintf("面对 %s 的冲突挑衅，你没有动手反抗，而是选择妥协/交谈/顺从。", initiatorName),
+			Content:       fmt.Sprintf("Faced with provocation from %s, you did not fight back but chose to compromise/talk/submit.", initiatorName),
 			RecordType:    "conflict_result",
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
@@ -933,7 +933,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
-			Content: fmt.Sprintf("面对你的挑衅，%s 没有动手反抗，而是选择了妥协/交谈/顺从。", targetName),
+			Content: fmt.Sprintf("Faced with your provocation, %s did not fight back but chose to compromise/talk/submit.", targetName),
 			Type:    "system",
 			Round:   round,
 		})
@@ -950,7 +950,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 		gal.sa.Memory().Record(MemoryRecord{
 			Round:         round,
 			Role:          "observation",
-			Content:       fmt.Sprintf("在与 %s 阵营的激烈冲突和打架中，你方由于实力不足（实力值: %.0f，对方: %.0f）被打败并受了轻伤。", initiatorName, bStrength, aStrength),
+			Content:       fmt.Sprintf("In the fierce conflict with %s's faction, your side was defeated due to insufficient strength (strength: %.0f, opponent: %.0f) and suffered minor injuries.", initiatorName, bStrength, aStrength),
 			RecordType:    "conflict_result",
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
@@ -959,7 +959,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
-			Content: fmt.Sprintf("在与 %s 的冲突打架中，你方凭着绝对实力（实力值: %.0f，对方: %.0f）彻底击败了对方，占了上风！", targetName, aStrength, bStrength),
+			Content: fmt.Sprintf("In the conflict with %s, your faction completely defeated the opponent with absolute strength (strength: %.0f, opponent: %.0f) and gained the upper hand!", targetName, aStrength, bStrength),
 			Type:    "system",
 			Round:   round,
 		})
@@ -980,7 +980,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 		gal.sa.Memory().Record(MemoryRecord{
 			Round:         round,
 			Role:          "observation",
-			Content:       fmt.Sprintf("在与 %s 阵营的冲突打架中，你方大获全胜，凭借实力（实力值: %.0f，对方: %.0f）将对方彻底击败！", initiatorName, bStrength, aStrength),
+			Content:       fmt.Sprintf("In the conflict with %s's faction, your side won a great victory, completely defeating the opponent with strength (strength: %.0f, opponent: %.0f)!", initiatorName, bStrength, aStrength),
 			RecordType:    "conflict_result",
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
@@ -989,7 +989,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
-			Content: fmt.Sprintf("在与 %s 的冲突打架中，对方反抗剧烈且实力强劲（实力值: %.0f，你方: %.0f），你方被打败了！", targetName, bStrength, aStrength),
+			Content: fmt.Sprintf("In the conflict with %s, the opponent resisted fiercely and was very strong (strength: %.0f, your strength: %.0f), and your side was defeated!", targetName, bStrength, aStrength),
 			Type:    "system",
 			Round:   round,
 		})
@@ -1010,7 +1010,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 		gal.sa.Memory().Record(MemoryRecord{
 			Round:         round,
 			Role:          "observation",
-			Content:       fmt.Sprintf("在与 %s 阵营的打架冲突中，双方旗鼓相当，互有胜负，最终打成平手，各自受伤退开。", initiatorName),
+			Content:       fmt.Sprintf("In the conflict with %s's faction, both sides were evenly matched, resulting in a draw, with both sides injured and backing off.", initiatorName),
 			RecordType:    "conflict_result",
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
@@ -1019,7 +1019,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
-			Content: fmt.Sprintf("在与 %s 的冲突打架中，双方打得难解难分，最终平手，互有轻伤，不欢而散。", targetName),
+			Content: fmt.Sprintf("In the conflict with %s, the fight was close, resulting in a draw with minor injuries on both sides, ending on a sour note.", targetName),
 			Type:    "system",
 			Round:   round,
 		})
@@ -1046,7 +1046,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			Data: &RoundMessage{
 				AgentID:   deadAgentID,
 				AgentName: deadAgentName,
-				Content:   fmt.Sprintf("⚠️ %s 不幸在与 %s 的激烈冲突中被打死/意外身亡了！", deadAgentName, killerName),
+				Content:   fmt.Sprintf("⚠️ %s was unfortunately killed in the fierce conflict with %s!", deadAgentName, killerName),
 				To:        "*",
 				Type:      "agent_death_announcement",
 				SeqNum:    round,
@@ -1063,7 +1063,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 		gal.bus.Send(killerID, Message{
 			From:    "System",
 			To:      killerID,
-			Content: fmt.Sprintf("系统通知：%s 已经在冲突打架中身亡/被击杀。", deadAgentName),
+			Content: fmt.Sprintf("System Notification: %s has died/been killed in the conflict.", deadAgentName),
 			Type:    "system",
 			Round:   round,
 		})
@@ -1089,7 +1089,7 @@ func getAgentStrength(p *Persona) float64 {
 	if p == nil {
 		return 50.0
 	}
-	keys := []string{"combat_strength", "strength", "power", "武功", "实力", "武力值", "战斗力", "武力", "influence", "地位", "wealth", "财富"}
+	keys := []string{"combat_strength", "strength", "power", "martial_arts", "capability", "force_value", "combat_effectiveness", "martial_force", "influence", "status", "wealth", "fortune"}
 	for _, k := range keys {
 		if valStr, ok := p.Traits[k]; ok {
 			return parseTraitValue(valStr)
@@ -1102,7 +1102,7 @@ func getAgentPerception(p *Persona) float64 {
 	if p == nil {
 		return 50.0
 	}
-	keys := []string{"perception", "detection", "感知", "洞察", "发现", "侦察", "灵觉"}
+	keys := []string{"perception", "detection", "insight", "discovery", "reconnaissance", "spiritual_sense"}
 	for _, k := range keys {
 		if valStr, ok := p.Traits[k]; ok {
 			return parseTraitValue(valStr)
@@ -1115,7 +1115,7 @@ func getAgentStealth(p *Persona) float64 {
 	if p == nil {
 		return 50.0
 	}
-	keys := []string{"stealth", "stealth_level", "潜行", "隐藏", "躲藏", "隐蔽", "隐匿"}
+	keys := []string{"stealth", "stealth_level", "stealthing", "hiding", "concealment", "secrecy"}
 	for _, k := range keys {
 		if valStr, ok := p.Traits[k]; ok {
 			return parseTraitValue(valStr)
@@ -1134,11 +1134,11 @@ func parseTraitValue(valStr string) float64 {
 		return val
 	}
 	switch valStr {
-	case "master", "expert", "high", "strong", "绝顶", "高", "强", "精通", "神乎其技", "震古烁今", "世所罕见":
+	case "master", "expert", "high", "strong", "unrivaled", "high_lvl", "strong_lvl", "proficient", "superb", "epoch_making", "rare_in_world":
 		return 85.0
-	case "medium", "average", "normal", "中", "普通", "一般", "中等":
+	case "medium", "average", "normal", "mid", "ordinary", "common", "moderate":
 		return 50.0
-	case "low", "weak", "poor", "低", "弱", "差", "手无缚鸡之力", "不会武功":
+	case "low", "weak", "poor", "low_lvl", "weak_lvl", "poor_lvl", "powerless", "cannot_martial":
 		return 20.0
 	}
 	return 50.0
@@ -1148,13 +1148,13 @@ func (gal *GAAgentLoop) isAdventureEnabled() bool {
 	if gal.worldState == nil {
 		return false
 	}
-	for _, k := range []string{"adventure", "enable_adventure", "奇遇", "允许奇遇"} {
+	for _, k := range []string{"adventure", "enable_adventure", "fate_encounter", "allow_fate"} {
 		if val, ok := gal.worldState.Get(k); ok {
 			if b, ok := val.(bool); ok {
 				return b
 			}
 			if s, ok := val.(string); ok {
-				return strings.ToLower(s) == "true" || s == "是"
+				return strings.ToLower(s) == "true" || s == "yes" || s == "y"
 			}
 		}
 	}

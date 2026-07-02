@@ -46,13 +46,13 @@ function getStatusDot(status: string) {
 
 function getStatusLabel(status: string) {
   const map: Record<string, string> = {
-    idle: '空闲',
-    pending: '等待中',
-    running: '运行中',
-    paused: '已暂停',
-    completed: '已完成',
-    failed: '已失败',
-    cancelled: '已取消',
+    idle: 'Idle',
+    pending: 'Pending',
+    running: 'Running',
+    paused: 'Paused',
+    completed: 'Completed',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
   }
   return map[status] ?? status
 }
@@ -97,7 +97,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
   const [language, setLanguage] = useState('zh')
   const [maxWallClockMs, setMaxWallClockMs] = useState(18 * 60 * 1000)
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(fileInputRef)
   const MAX_FILE_SIZE = 50 * 1024 * 1024
 
   useEffect(() => {
@@ -133,7 +133,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > MAX_FILE_SIZE) {
-      setCreateError(`文件 "${file.name}" 超过 50MB 限制`)
+      setCreateError(`File "${file.name}" exceeds 50MB limit`)
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
@@ -148,7 +148,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
         }
       }
     }
-    reader.onerror = () => setCreateError(`读取文件 "${file.name}" 失败，请重试`)
+    reader.onerror = () => setCreateError(`Failed to read file "${file.name}", please try again`)
     reader.readAsText(file)
   }
 
@@ -177,12 +177,12 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '从种子文档生成失败')
+        throw new Error(errData.error || 'Failed to generate from seed document')
       }
       const data = await res.json()
       onCreated(data.simulation_id)
     } catch (err: any) {
-      setCreateError(err.message || '创建仿真失败')
+      setCreateError(err.message || 'Failed to create simulation')
     } finally {
       setCreating(false)
     }
@@ -216,7 +216,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
               <Sparkles className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-foreground">新建模拟推演</h2>
+              <h2 className="text-sm font-semibold text-foreground">New Simulation</h2>
               <p className="text-[10px] text-muted-foreground font-mono">Auto-Generate Sandbox</p>
             </div>
           </div>
@@ -233,7 +233,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
         {/* Sheet Body */}
         <div className="flex-1 overflow-y-auto p-6">
           <p className="mb-5 text-xs text-muted-foreground leading-relaxed">
-            注入种子文档，AI 将自动提取关键实体并生成持有不同立场的虚拟角色，构建自主多 Agent 沙盒。
+            Inject a seed document, and AI will automatically extract key entities, generate virtual characters with different stances, and build an autonomous multi-agent sandbox.
           </p>
 
           <form id="create-sim-form" onSubmit={handleSubmit} className="space-y-4">
@@ -241,7 +241,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  种子材料 *
+                  Seed Material *
                 </label>
                 <button
                   type="button"
@@ -249,7 +249,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   className="flex items-center gap-1 text-[10px] text-primary hover:underline font-mono cursor-pointer"
                 >
                   <Upload className="h-3 w-3" />
-                  导入文件
+                  Import File
                 </button>
                 <input
                   type="file"
@@ -262,7 +262,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
               <Textarea
                 required
                 rows={8}
-                placeholder="粘贴新闻文章、政策文件、研究报告或任何需要模拟推演的背景材料..."
+                placeholder="Paste news articles, policy documents, research reports, or any background material for simulation..."
                 value={seedText}
                 onChange={(e) => setSeedText(e.target.value)}
                 className="resize-none font-sans text-xs"
@@ -270,13 +270,13 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
               <div className="flex items-center justify-between mt-1.5">
                 {topic ? (
                   <p className="text-[10px] text-muted-foreground/60 font-mono">
-                    主题自动检测：<span className="text-foreground/80">{topic}</span>
+                    Topic auto-detected: <span className="text-foreground/80">{topic}</span>
                   </p>
                 ) : (
                   <span />
                 )}
                 <span className="text-[10px] text-muted-foreground/50 font-mono">
-                  {seedText.length} 字符
+                  {seedText.length} characters
                 </span>
               </div>
             </div>
@@ -288,7 +288,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                 onClick={() => setShowAdvanced(!showAdvanced)}
                 className="flex w-full items-center justify-between px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer select-none"
               >
-                <span>高级配置</span>
+                <span>Advanced Configuration</span>
                 {showAdvanced ? (
                   <ChevronDown className="h-3.5 w-3.5" />
                 ) : (
@@ -301,25 +301,25 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Provider & Model */}
                   <div className="grid grid-cols-2 gap-3">
                     <Select
-                      label="大模型服务商"
+                      label="LLM Provider"
                       value={selectedProvider}
                       onChange={(v) => {
                         setSelectedProvider(v)
                         setSelectedModel('')
                       }}
-                      placeholder="(默认)"
+                      placeholder="(Default)"
                       options={[
-                        { value: '', label: '(默认快速服务商)' },
+                        { value: '', label: '(Default Fast Provider)' },
                         ...providers.map((p) => ({ value: p.id, label: p.name })),
                       ]}
                     />
                     <Select
-                      label="大模型"
+                      label="LLM Model"
                       value={selectedModel}
                       onChange={setSelectedModel}
-                      placeholder="(默认)"
+                      placeholder="(Default)"
                       options={[
-                        { value: '', label: '(默认快速模型)' },
+                        { value: '', label: '(Default Fast Model)' },
                         ...models
                           .filter((m) => !selectedProvider || m.providerId === selectedProvider)
                           .map((m) => ({ value: m.id, label: m.name })),
@@ -330,7 +330,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Simulated Hours */}
                   <div>
                     <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                      虚拟仿真时间：<span className="text-primary">{simHours} 小时</span>
+                      Simulated Time: <span className="text-primary">{simHours} hours</span>
                     </label>
                     <input
                       type="range"
@@ -346,7 +346,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Max Wall Clock */}
                   <div>
                     <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                      最大运行时间：<span className="text-primary">{Math.round(maxWallClockMs / 60000)} 分钟</span>
+                      Max Wall Clock Time: <span className="text-primary">{Math.round(maxWallClockMs / 60000)} minutes</span>
                     </label>
                     <input
                       type="range"
@@ -362,23 +362,23 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Time Scale & Reflection */}
                   <div className="grid grid-cols-2 gap-3">
                     <Select
-                      label="时间流速"
+                      label="Time Scale"
                       value={String(timeScale)}
                       onChange={(v) => setTimeScale(parseInt(v) || 300)}
                       options={[
-                        { value: '60', label: '1秒 = 1分钟' },
-                        { value: '300', label: '1秒 = 5分钟' },
-                        { value: '600', label: '1秒 = 10分钟' },
-                        { value: '1800', label: '1秒 = 30分钟' },
-                        { value: '3600', label: '1秒 = 1小时' },
+                        { value: '60', label: '1s = 1min' },
+                        { value: '300', label: '1s = 5min' },
+                        { value: '600', label: '1s = 10min' },
+                        { value: '1800', label: '1s = 30min' },
+                        { value: '3600', label: '1s = 1hr' },
                       ]}
                     />
                     <Select
-                      label="仿真语言"
+                      label="Simulation Language"
                       value={language}
                       onChange={setLanguage}
                       options={[
-                        { value: 'zh', label: '中文 (Chinese)' },
+                        { value: 'zh', label: 'Chinese' },
                         { value: 'en', label: 'English' },
                       ]}
                     />
@@ -387,7 +387,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Reflection toggle */}
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                      高阶反思 (Reflection)
+                      Advanced Reflection
                     </label>
                     <button
                       type="button"
@@ -428,17 +428,17 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
             {creating ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                AI 正在提取实体并生成角色...
+                AI is extracting entities and generating personas...
               </>
             ) : (
               <>
                 <Sparkles className="h-4 w-4" />
-                生成并启动推演
+                Generate and Start Simulation
               </>
             )}
           </button>
           <p className="text-center text-[10px] text-muted-foreground/50 mt-2 font-mono">
-            通常需要 15–60 秒完成初始化
+            Usually takes 15–60 seconds to initialize
           </p>
         </div>
       </div>
@@ -482,7 +482,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
 
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate leading-tight">
-            {sim.config?.topic || '未命名推演'}
+            {sim.config?.topic || 'Untitled Simulation'}
           </h3>
         </div>
 
@@ -490,7 +490,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
           <button
             onClick={onDelete}
             className="rounded-lg p-1.5 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
-            title="删除推演"
+            title="Delete Simulation"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -503,19 +503,19 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
         {personas.length > 0 && (
           <span className="flex items-center gap-1">
             <Users className="h-3 w-3" />
-            {personas.length} 个角色
+            {personas.length} personas
           </span>
         )}
         {sim.started_at && (
           <span className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
-            {new Date(sim.started_at).toLocaleDateString('zh-CN')}
+            {new Date(sim.started_at).toLocaleDateString('en-US')}
           </span>
         )}
         {isRunning && sim.current_round > 0 && (
           <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
             <Activity className="h-3 w-3" />
-            第 {sim.current_round} 轮
+            Round {sim.current_round}
           </span>
         )}
       </div>
@@ -544,7 +544,7 @@ export function SimulationListPage() {
     try {
       setLoading(true)
       const res = await fetch('/api/simulations')
-      if (!res.ok) throw new Error('获取推演列表失败')
+      if (!res.ok) throw new Error('Failed to fetch simulations')
       const data = await res.json()
       const mapped = (data || []).map((sim: any) => ({
         ...sim,
@@ -558,7 +558,7 @@ export function SimulationListPage() {
       setSimulations(mapped)
       setError(null)
     } catch (err: any) {
-      setError(err.message || '发生错误')
+      setError(err.message || 'An error occurred')
     } finally {
       setLoading(false)
     }
@@ -578,11 +578,11 @@ export function SimulationListPage() {
     setDeleting(true)
     try {
       const res = await fetch(`/api/simulations/${deleteTarget}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('删除推演失败')
+      if (!res.ok) throw new Error('Failed to delete simulation')
       setSimulations((prev) => prev.filter((s) => s.id !== deleteTarget))
-      toast.success('推演已删除')
+      toast.success('Simulation deleted')
     } catch (err: any) {
-      toast.error(err.message || '删除失败')
+      toast.error(err.message || 'Deletion failed')
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
@@ -605,9 +605,9 @@ export function SimulationListPage() {
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between border-b border-border/60 px-8 py-5 bg-card/20 backdrop-blur-sm">
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">模拟推演</h1>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">Simulations</h1>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              构建自主多智能体沙盒，预测社会动态并分析复杂议题
+              Build autonomous multi-agent sandboxes, predict societal dynamics, and analyze complex issues
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -617,14 +617,14 @@ export function SimulationListPage() {
               className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
             >
               <Loader2 className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-              刷新
+              Refresh
             </button>
             <button
               onClick={() => setSheetOpen(true)}
               className="flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-all shadow-md shadow-primary/20 cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              新建推演
+              New Simulation
             </button>
           </div>
         </div>
@@ -642,7 +642,7 @@ export function SimulationListPage() {
                     <span className="absolute inset-0.5 rounded-full bg-emerald-500" />
                   </span>
                   <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                    进行中 ({runningSims.length})
+                    In Progress ({runningSims.length})
                   </h2>
                 </div>
                 <div className="space-y-2">
@@ -662,7 +662,7 @@ export function SimulationListPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  历史记录 ({otherSims.length})
+                  History ({otherSims.length})
                 </h2>
               </div>
 
@@ -684,7 +684,7 @@ export function SimulationListPage() {
                     onClick={fetchSimulations}
                     className="mt-4 rounded-lg bg-muted hover:bg-muted/80 px-4 py-1.5 text-xs text-foreground transition-colors"
                   >
-                    重试
+                    Retry
                   </button>
                 </div>
               ) : otherSims.length === 0 && runningSims.length === 0 ? (
@@ -693,16 +693,16 @@ export function SimulationListPage() {
                   <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
                     <Zap className="h-8 w-8 text-primary/60" />
                   </div>
-                  <h3 className="text-base font-semibold text-foreground mb-1">还没有任何推演</h3>
+                  <h3 className="text-base font-semibold text-foreground mb-1">No simulations yet</h3>
                   <p className="text-sm text-muted-foreground max-w-xs mb-6">
-                    注入种子材料，AI 将自动生成虚拟角色并构建自主多智能体沙盒
+                    Inject seed material, and AI will automatically generate virtual characters and build an autonomous multi-agent sandbox
                   </p>
                   <button
                     onClick={() => setSheetOpen(true)}
                     className="flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 px-6 py-3 text-sm font-semibold text-primary-foreground transition-all shadow-md shadow-primary/20"
                   >
                     <Sparkles className="h-4 w-4" />
-                    创建第一个沙盒
+                    Create First Sandbox
                   </button>
                 </div>
               ) : otherSims.length === 0 ? null : (
@@ -724,11 +724,11 @@ export function SimulationListPage() {
               <div className="flex items-center gap-6 pt-2 text-[10px] text-muted-foreground/60 font-mono">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  共 {simulations.length} 次推演
+                  Total {simulations.length} simulations
                 </span>
                 <span className="flex items-center gap-1">
                   <Users className="h-3 w-3" />
-                  {simulations.reduce((acc, s) => acc + (s.config?.personas?.length || 0), 0)} 个虚拟角色
+                  {simulations.reduce((acc, s) => acc + (s.config?.personas?.length || 0), 0)} virtual personas
                 </span>
               </div>
             )}
@@ -750,11 +750,11 @@ export function SimulationListPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
-        title="删除推演"
-        message="确定要永久删除此推演吗？此操作无法撤销。"
+        title="Delete Simulation"
+        message="Are you sure you want to permanently delete this simulation? This action cannot be undone."
         destructive
         onConfirm={confirmDelete}
-        confirmLabel="删除"
+        confirmLabel="Delete"
         loading={deleting}
       />
     </>

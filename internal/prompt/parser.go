@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// AgentFrontmatter 对应 ~/.soloqueue/agents/*.md 的 YAML frontmatter。
+// AgentFrontmatter corresponds to the YAML frontmatter of ~/.soloqueue/agents/*.md.
 type AgentFrontmatter struct {
 	ID           string            `yaml:"id,omitempty"`
 	Name         string            `yaml:"name"`
@@ -24,7 +24,7 @@ type AgentFrontmatter struct {
 	UpdatedAt    string            `yaml:"updated_at,omitempty"`
 }
 
-// GroupFrontmatter 对应 ~/.soloqueue/groups/*.md 的 YAML frontmatter。
+// GroupFrontmatter corresponds to the YAML frontmatter of ~/.soloqueue/groups/*.md.
 type GroupFrontmatter struct {
 	ID         string      `yaml:"id,omitempty"`
 	Name       string      `yaml:"name"`
@@ -34,14 +34,14 @@ type GroupFrontmatter struct {
 	UpdatedAt  string      `yaml:"updated_at,omitempty"`
 }
 
-// Workspace 描述团队关联的工作空间。
+// Workspace describes a team's associated workspace.
 type Workspace struct {
 	Name     string         `yaml:"name"`
 	Path     string         `yaml:"path"`
 	AutoWork AutoWorkConfig `yaml:"autoWork"`
 }
 
-// AutoWorkConfig 描述自动工作配置。
+// AutoWorkConfig describes the automatic work configuration.
 type AutoWorkConfig struct {
 	Enabled                 bool `yaml:"enabled"`
 	InitialCooldownMinutes  int  `yaml:"initialCooldownMinutes"`
@@ -49,19 +49,19 @@ type AutoWorkConfig struct {
 	MaxIntervalsPerDay      int  `yaml:"maxIntervalsPerDay"`
 }
 
-// GroupFile 解析结果：frontmatter + markdown body（团队描述）。
+// GroupFile parse result: frontmatter + markdown body (group description).
 type GroupFile struct {
 	Frontmatter GroupFrontmatter
 	Body        string
 }
 
-// AgentFile 解析结果：frontmatter + markdown body。
+// AgentFile parse result: frontmatter + markdown body.
 type AgentFile struct {
 	Frontmatter AgentFrontmatter
 	Body        string
 }
 
-// ParseAgentFile 解析单个 agent markdown 文件（YAML frontmatter + body）。
+// ParseAgentFile parses a single agent markdown file (YAML frontmatter + body).
 func ParseAgentFile(path string) (*AgentFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -70,7 +70,7 @@ func ParseAgentFile(path string) (*AgentFile, error) {
 
 	content := string(data)
 
-	// 提取 --- 之间的 frontmatter
+	// Extract the frontmatter between ---
 	if !strings.HasPrefix(content, "---") {
 		return nil, fmt.Errorf("agent file %s: missing frontmatter delimiter", path)
 	}
@@ -91,9 +91,9 @@ func ParseAgentFile(path string) (*AgentFile, error) {
 	return &AgentFile{Frontmatter: fm, Body: body}, nil
 }
 
-// LoadLeaders 扫描 agents 目录，返回所有 is_leader=true 的 agent。
-// 仅提取 Name/Description/Group，不提取 Skills（主 Agent 不需要知道工具细节）。
-// 如果传入 groups，会填充 GroupDescription。
+// LoadLeaders scans the agents directory and returns all agents with is_leader=true.
+// Only extracts Name/Description/Group, not Skills (main Agent doesn't need to know tool details).
+// If groups are provided, GroupDescription will be populated.
 func LoadLeaders(agentsDir string, groups map[string]GroupFile) ([]LeaderInfo, error) {
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
@@ -109,7 +109,7 @@ func LoadLeaders(agentsDir string, groups map[string]GroupFile) ([]LeaderInfo, e
 		path := filepath.Join(agentsDir, entry.Name())
 		af, err := ParseAgentFile(path)
 		if err != nil {
-			continue // 跳过解析失败的文件
+			continue // Skip files that failed to parse
 		}
 
 		if af.Frontmatter.IsLeader {
@@ -119,7 +119,7 @@ func LoadLeaders(agentsDir string, groups map[string]GroupFile) ([]LeaderInfo, e
 				Group:       af.Frontmatter.Group,
 			}
 
-			// 填充 group 信息
+			// Populate group information
 			if gf, ok := groups[af.Frontmatter.Group]; ok {
 				li.GroupDescription = gf.Body
 			}
@@ -131,9 +131,9 @@ func LoadLeaders(agentsDir string, groups map[string]GroupFile) ([]LeaderInfo, e
 	return leaders, nil
 }
 
-// LoadAgentFiles 扫描 agents 目录，返回所有解析后的 AgentFile
+// LoadAgentFiles scans the agents directory and returns all parsed AgentFiles.
 //
-// 不过滤 IsLeader，返回所有 .md 文件。解析失败的文件被跳过（不打断流程）。
+// Does not filter by IsLeader, returns all .md files. Files that failed to parse are skipped (does not interrupt the process).
 func LoadAgentFiles(agentsDir string) ([]AgentFile, error) {
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
@@ -149,7 +149,7 @@ func LoadAgentFiles(agentsDir string) ([]AgentFile, error) {
 		path := filepath.Join(agentsDir, entry.Name())
 		af, err := ParseAgentFile(path)
 		if err != nil {
-			continue // 跳过解析失败的文件
+			continue // Skip files that failed to parse
 		}
 
 		files = append(files, *af)
@@ -158,7 +158,7 @@ func LoadAgentFiles(agentsDir string) ([]AgentFile, error) {
 	return files, nil
 }
 
-// ParseGroupFile 解析单个 group markdown 文件（YAML frontmatter + body）。
+// ParseGroupFile parses a single group markdown file (YAML frontmatter + body).
 func ParseGroupFile(path string) (*GroupFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -187,8 +187,8 @@ func ParseGroupFile(path string) (*GroupFile, error) {
 	return &GroupFile{Frontmatter: fm, Body: body}, nil
 }
 
-// LoadGroups 扫描 groups 目录，返回 name -> GroupFile 的映射。
-// 如果目录不存在，返回空 map 而非错误（向后兼容）。
+// LoadGroups scans the groups directory and returns a map of name -> GroupFile.
+// If the directory does not exist, an empty map is returned instead of an error (for backward compatibility).
 func LoadGroups(groupsDir string) (map[string]GroupFile, error) {
 	entries, err := os.ReadDir(groupsDir)
 	if err != nil {
@@ -207,12 +207,12 @@ func LoadGroups(groupsDir string) (map[string]GroupFile, error) {
 		path := filepath.Join(groupsDir, entry.Name())
 		gf, err := ParseGroupFile(path)
 		if err != nil {
-			continue // 跳过解析失败的文件
+			continue // Skip files that failed to parse
 		}
 
 		name := gf.Frontmatter.Name
 		if name == "" {
-			// 用文件名（去掉 .md）作为 fallback
+			// Use the filename (without .md) as a fallback
 			name = strings.TrimSuffix(entry.Name(), ".md")
 		}
 		groups[name] = *gf

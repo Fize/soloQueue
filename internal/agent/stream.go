@@ -27,9 +27,9 @@ func WithBypassConfirmCtx(ctx context.Context) context.Context {
 
 // ─── Context Keys for Tool Execution ───────────────────────────────────────
 //
-// 注意：toolEventChannelCtxKey 和 confirmForwarderCtxKey 统一定义在 tools 包中，
-// 由 tools.WithToolEventChannel / tools.WithConfirmForwarder 提供注入。
-// agent 包通过这些导出 helper 使用，避免跨包 context key 类型不匹配。
+// Note: toolEventChannelCtxKey and confirmForwarderCtxKey are defined together in the tools package,
+// and are injected via tools.WithToolEventChannel / tools.WithConfirmForwarder.
+// The agent package uses them through these exported helpers to avoid cross-package context key type mismatches.
 
 // ─── Stream Event Accumulator ───────────────────────────────────────────────
 //
@@ -674,28 +674,28 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 	return yielded
 }
 
-// emit 向 out 发送一个 AgentEvent；ctx 取消时放弃发送并返回 false
+// emit sends an AgentEvent to out; if ctx is cancelled, it aborts the send and returns false.
 //
-// 关键语义（见 plan R10：防止 AskStream 泄漏 goroutine）：
-//   - buffer 有空位时立即发送（不阻塞，不检查 ctx）
-//   - buffer 满时 select { ch <- ev; <-ctx.Done() } —— 任一就绪都退出
-//   - 返回 false 表示 ctx 取消；调用方应立刻 return（通常配合 defer close(out)）
+// Key semantics (see plan R10: prevent goroutine leak in AskStream):
+//   - If buffer has space, send immediately (non-blocking, no ctx check)
+//   - If buffer is full, select { ch <- ev; <-ctx.Done() } — exit when either is ready
+//   - Returning false means ctx is cancelled; the caller should return immediately (usually paired with defer close(out))
 func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) bool {
 	// Fan-out to watchers (non-blocking, drop if slow).
 	a.emitToWatchers(ev)
 
-	// 非阻塞快速路径（不检查 ctx，优先把事件发出去）
+	// Non-blocking fast path (no ctx check, prioritize sending the event)
 	select {
 	case out <- ev:
 		return true
 	default:
 	}
-	// 阻塞路径：优先发送事件，ctx 取消作为兜底
+	// Blocking path: prioritize sending the event, ctx cancellation as a fallback
 	select {
 	case out <- ev:
 		return true
 	case <-ctx.Done():
-		// ctx 已取消，但仍尝试最后一次非阻塞发送
+		// ctx already cancelled, but still attempt one final non-blocking send
 		select {
 		case out <- ev:
 			return true
@@ -705,11 +705,11 @@ func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) 
 	}
 }
 
-// accumulateToolCall 把 streaming ToolCallDelta 按 Index 归位到 slots
+// accumulateToolCall groups streaming ToolCallDelta by Index into slots
 //
-// 规则（与 llm.ToolCallDelta 文档一致）：
-//   - 首次出现该 Index 时初始化 slot；携带 ID/Name
-//   - 后续只把 Arguments 片段追加到 slot.Function.Arguments
+// Rules (consistent with llm.ToolCallDelta documentation):
+//   - First occurrence of an Index initializes the slot; carries ID/Name
+//   - Subsequent occurrences only append Arguments fragments to slot.Function.Arguments
 func accumulateToolCall(slots map[int]*llm.ToolCall, d *llm.ToolCallDelta) {
 	tc, ok := slots[d.Index]
 	if !ok {
@@ -727,9 +727,9 @@ func accumulateToolCall(slots map[int]*llm.ToolCall, d *llm.ToolCallDelta) {
 	}
 }
 
-// sortedToolCalls 按 Index 升序输出 slots 中的完整 ToolCall 列表
+// sortedToolCalls returns the complete ToolCall list from slots sorted by Index in ascending order
 //
-// 保证：结果顺序严格等于 LLM 原始 tool_calls 顺序（即使 slot map 乱序）
+// Guarantee: result order exactly matches the LLM's original tool_calls order (even if slot map is unordered)
 func sortedToolCalls(slots map[int]*llm.ToolCall) []llm.ToolCall {
 	if len(slots) == 0 {
 		return nil
@@ -749,22 +749,22 @@ func sortedToolCalls(slots map[int]*llm.ToolCall) []llm.ToolCall {
 	return out
 }
 
-// execTools 执行本轮所有 tool_call，返回与 calls 同序的结果切片
+// execTools executes all tool_calls in the current round and returns a result slice in the same order as calls
 //
-// 分派策略：
-//   - len(calls) <= 1 或 parallelTools=false → 串行执行
-//     （单 tool 并发无收益；串行简化是共识路径）
-//   - 否则走 errgroup 并发：每个 call 一个 goroutine，
-//     gctx 由 errgroup 共享（任一 ctx 取消传播到所有未完成的 tool）
+// Dispatch strategy:
+//   - len(calls) <= 1 or parallelTools=false → sequential execution
+//     (concurrency yields no benefit for a single tool; sequential execution is the consensus path)
+//   - Otherwise, use errgroup for concurrency: one goroutine per call,
+//     gctx is shared by errgroup (cancellation of any ctx propagates to all unfinished tools)
 //
-// 错误语义：
-//   - execToolStream 已经把 tool 错误格式化为 "error: ..." 字符串返回，
-//     所以每个 goroutine 返回 nil —— errgroup **永不短路**
-//   - 即使某个 tool 失败或超时，其他 tool 继续跑完
-//   - 上游 ctx 取消时：**正在跑的** tool 会收到 ctx.Done（由 gctx 传播），
-//     但未完成的 slot 会被 execToolStream 写 "error: ..." 字符串占位
+// Error semantics:
+//   - execToolStream already formats tool errors as "error: ..." strings before returning,
+//     so each goroutine returns nil — errgroup **never short-circuits**
+//   - Even if a tool fails or times out, other tools continue to completion
+//   - When the upstream ctx is cancelled: **running** tools will receive ctx.Done (propagated via gctx),
+//     but unfinished slots will be filled with "error: ..." placeholder strings by execToolStream
 //
-// 结果顺序保证：results[i] 严格对应 calls[i]，与 goroutine 完成顺序无关。
+// Result order guarantee: results[i] strictly corresponds to calls[i], independent of goroutine completion order
 func (a *Agent) execTools(
 	ctx context.Context,
 	iter int,
@@ -773,7 +773,7 @@ func (a *Agent) execTools(
 ) []string {
 	results := make([]string, len(calls))
 
-	// 串行路径：单 tool、或未启用 parallel
+	// Serial path: single tool, or parallel not enabled
 	if len(calls) <= 1 || !a.parallelTools {
 		for i, tc := range calls {
 			if err := ctx.Err(); err != nil {
@@ -785,8 +785,8 @@ func (a *Agent) execTools(
 		return results
 	}
 
-	// 并行路径：errgroup，**永不返回非 nil error**
-	// 理由见上：tool 错误是 "LLM 要处理的业务态"，不是 agent 要终止的系统态。
+	// Parallel path: errgroup, **never returns a non-nil error**
+	// Reason as above: tool errors are "business-level states for the LLM to handle", not system-level states for the agent to terminate.
 	g, gctx := errgroup.WithContext(ctx)
 	for i, tc := range calls {
 		i, tc := i, tc // capture loop vars
@@ -795,17 +795,17 @@ func (a *Agent) execTools(
 			return nil
 		})
 	}
-	_ = g.Wait() // 永不会 return 非 nil
+	_ = g.Wait() // will never return non-nil
 	return results
 }
 
-// execToolStream 执行一个 tool_call 并沿 out 发 Start/Done 事件
+// execToolStream executes a tool_call and sends Start/Done events along out
 //
-// 总返回 string（塞回 LLM 的 tool-role 消息内容）：
-//   - 成功：tool.Execute 的 result
-//   - 工具不存在 / Execute 返回 error：`"error: " + err.Error()`，LLM 自行决定是否重试
+// Always returns a string (to be placed back into the LLM's tool-role message):
+//   - On success: result of tool.Execute
+//   - On tool not found / Execute returns error: `"error: " + err.Error()`, LLM decides whether to retry
 //
-// 错误**不中断循环** —— 这是"tool error 反馈给 LLM"策略。
+// Errors **do not break the loop** — this is the "feedback tool errors to the LLM" strategy.
 func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, out chan<- AgentEvent) string {
 	name := tc.Function.Name
 	args := tc.Function.Arguments
@@ -857,11 +857,11 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	})
 	a.setWorkTool(name, args)
 
-	// ── Confirmable 检查 ───────────────────────────────────────────────
-	// 若工具实现了 Confirmable：
-	//   1. 先查会话级白名单，命中则跳过确认直接注入 confirmed=true；
-	//   2. 否则 CheckConfirmation，需要确认时发 ToolNeedsConfirmEvent 并阻塞等待；
-	//   3. 用户选择 ChoiceAllowInSession → 加入白名单并按 ChoiceApprove 处理。
+	// ── Confirmable check ───────────────────────────────────────────────
+	// If the tool implements Confirmable:
+	//   1. First check the session-level whitelist; if hit, skip confirmation and inject confirmed=true;
+	//   2. Otherwise, call CheckConfirmation; if confirmation is needed, send ToolNeedsConfirmEvent and block until response;
+	//   3. User selects ChoiceAllowInSession → add to whitelist and handle as ChoiceApprove.
 	if c, ok := tool.(tools.Confirmable); ok {
 		if a.bypassConfirm || iface.BypassConfirmFromContext(ctx) {
 			args = c.ConfirmArgs(args, choiceApprove)
@@ -1065,9 +1065,9 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	dur := time.Since(start)
 
 	if err != nil {
-		// 超时检测：
-		//   - 只有当 **父 ctx 未取消** 且 execCtx 已 DeadlineExceeded 时，才归因为 tool timeout
-		//   - 父 ctx 取消（Stop / caller cancel）走普通错误路径，保持原错误文本
+		// Timeout detection:
+		//   - Only if **parent ctx is not canceled** and execCtx has exceeded DeadlineExceeded, attribute it as tool timeout
+		//   - Parent ctx cancellation (Stop / caller cancel) follows the normal error path, preserving the original error text
 		isToolTimeout := timeoutDur > 0 &&
 			ctx.Err() == nil &&
 			execCtx.Err() == context.DeadlineExceeded

@@ -55,23 +55,23 @@ func defaultOptions() options {
 
 // ─── Logger ───────────────────────────────────────────────────────────────────
 
-// Logger 封装 slog.Logger，所有日志统一写入 system 目录
+// Logger wraps slog.Logger, with all logs uniformly written to the 'system' directory.
 type Logger struct {
 	inner    *slog.Logger
 	baseDir  string
 	handler  *MultiHandler
-	levelVar *slog.LevelVar // 与 handler 共享，支持运行时动态调整日志级别
+	levelVar *slog.LevelVar // Shared with the handler, supports dynamic log level adjustment at runtime.
 }
 
 // ─── Factory Functions ────────────────────────────────────────────────────────
 
-// New 创建 Logger，所有日志统一写入 {baseDir}/logs/system/
+// New creates a Logger instance, with all logs uniformly written to {baseDir}/logs/system/.
 func New(baseDir string, opts ...Option) (*Logger, error) {
 	return newLogger(baseDir, opts...)
 }
 
-// System 创建 system 层 Logger（别名，等价于 New）
-// Deprecated: 使用 New 代替
+// System creates a system-level Logger (an alias, equivalent to New).
+// Deprecated: Use New instead.
 func System(baseDir string, opts ...Option) (*Logger, error) {
 	return newLogger(baseDir, opts...)
 }
@@ -118,7 +118,7 @@ func (l *Logger) Slog() *slog.Logger {
 	return l.inner
 }
 
-// Child 返回携带额外属性的子 Logger
+// Child returns a child Logger with additional attributes.
 func (l *Logger) Child(attrs ...slog.Attr) *Logger {
 	args := make([]any, len(attrs))
 	for i, a := range attrs {
@@ -132,18 +132,18 @@ func (l *Logger) Child(attrs ...slog.Attr) *Logger {
 	}
 }
 
-// WithTraceID 返回携带指定 trace_id 的子 Logger
+// WithTraceID returns a child Logger with the specified trace_id.
 func (l *Logger) WithTraceID(id string) *Logger {
 	return l.Child(slog.String("trace_id", id))
 }
 
-// NewTraceID 返回携带随机 8 位 hex trace_id 的子 Logger
+// NewTraceID returns a child Logger with a random 8-character hex trace_id.
 func (l *Logger) NewTraceID() *Logger {
 	return l.WithTraceID(randomHex(4))
 }
 
-// SetLevel 运行时动态调整日志级别，用于配置热重载。
-// levelVar 与 handler 共享，修改立即生效，并发安全。
+// SetLevel dynamically adjusts the log level at runtime, useful for hot-reloading configurations.
+// levelVar is shared with the handler, changes take effect immediately and are concurrency-safe.
 func (l *Logger) SetLevel(level slog.Level) {
 	if l.levelVar != nil {
 		l.levelVar.Set(level)
@@ -170,11 +170,11 @@ func (l *Logger) Error(cat Category, msg string, args ...any) {
 
 // ─── Context Log Methods ──────────────────────────────────────────────────────
 
-// DebugContext / InfoContext / WarnContext / ErrorContext 从 ctx 中自动提取
-// trace_id / actor_id 注入到日志，与 slog 标准 idiom 对齐
+// DebugContext / InfoContext / WarnContext / ErrorContext automatically extract
+// trace_id / actor_id from ctx and inject them into logs, aligning with slog's standard idiom.
 //
-// 注入顺序：先放 ctx 提取的字段，再放用户传的 args
-// 这样用户显式传的同名字段会覆盖 ctx 的（符合 slog 语义：后者覆盖前者）
+// Injection order: context-extracted fields first, then user-provided args.
+// This way, explicitly provided fields by the user will override those from the context (consistent with slog semantics: latter overrides former).
 func (l *Logger) DebugContext(ctx context.Context, cat Category, msg string, args ...any) {
 	l.logCtx(ctx, slog.LevelDebug, cat, msg, args...)
 }
@@ -191,9 +191,9 @@ func (l *Logger) ErrorContext(ctx context.Context, cat Category, msg string, arg
 	l.logCtx(ctx, slog.LevelError, cat, msg, args...)
 }
 
-// LogError 记录 error 级别日志，自动将 err 序列化到 "err" 字段
+// LogError logs an error-level message, automatically serializing the error to the "err" field.
 //
-// 接受 ctx，从中自动提取 trace_id / actor_id 等标准字段。
+// Accepts ctx, automatically extracting standard fields like trace_id / actor_id from it.
 func (l *Logger) LogError(ctx context.Context, cat Category, msg string, err error, args ...any) {
 	errAttr := slog.Any("err", map[string]string{
 		"message": err.Error(),
@@ -202,10 +202,10 @@ func (l *Logger) LogError(ctx context.Context, cat Category, msg string, err err
 	l.logCtx(ctx, slog.LevelError, cat, msg, allArgs...)
 }
 
-// LogDuration 执行 fn 并记录耗时到 "duration_ms" 字段
+// LogDuration executes fn and logs the elapsed time to the "duration_ms" field.
 //
-// 接受 ctx，会传给 fn 并用于日志（从中提取 trace_id / actor_id）。
-// 成功时写 info 级日志；失败时写 error 级日志（含 err 字段）。
+// Accepts ctx, which is passed to fn and used for logging (extracting trace_id / actor_id from it).
+// Logs at info level on success; logs at error level on failure (including the err field).
 func (l *Logger) LogDuration(ctx context.Context, cat Category, msg string, fn func(ctx context.Context) error) error {
 	start := time.Now()
 	err := fn(ctx)
@@ -219,37 +219,37 @@ func (l *Logger) LogDuration(ctx context.Context, cat Category, msg string, fn f
 	return err
 }
 
-// Close 关闭文件 handler（刷新缓冲）
+// Close closes the file handler (flushes buffer).
 func (l *Logger) Close() error {
 	return l.handler.close()
 }
 
-// CloseAndCleanup 关闭文件 handler
-// Deprecated: 使用 Close 代替
+// CloseAndCleanup closes the file handler.
+// Deprecated: Use Close instead.
 func (l *Logger) CloseAndCleanup() error {
 	return l.Close()
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
-// logCtx 是所有 log 方法的内部实现
+// logCtx is the internal implementation for all log methods.
 //
-// 从 ctx 中提取 trace_id / actor_id 注入到 attrs 前面
-// 用户显式传入的同名 args 会覆盖 ctx 的（符合 slog 语义）
+// Extracts trace_id / actor_id from ctx and injects them before other attributes.
+// Explicitly passed args with the same name will override those from ctx (consistent with slog semantics).
 func (l *Logger) logCtx(ctx context.Context, level slog.Level, cat Category, msg string, args ...any) {
 	if !l.inner.Enabled(ctx, level) {
 		return
 	}
 
-	// 构建 record（跳过 logger.go 自身的 caller 帧）
+	// Build record (skip logger.go's own caller frame)
 	var pcs [1]uintptr
 	runtime.Callers(3, pcs[:])
 	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
 
-	// 追加 category attr
+	// Append category attr
 	r.AddAttrs(slog.String("category", string(cat)))
 
-	// 从 ctx 中自动提取标准字段注入；在用户 args 之前，用户可覆盖
+	// Automatically extract standard fields from ctx and inject them; before user args, allowing user override.
 	if id := TraceIDFromContext(ctx); id != "" {
 		r.AddAttrs(slog.String("trace_id", id))
 	}
@@ -257,16 +257,16 @@ func (l *Logger) logCtx(ctx context.Context, level slog.Level, cat Category, msg
 		r.AddAttrs(slog.String("actor_id", id))
 	}
 
-	// 追加用户传入的 args（支持 slog.Attr 和 key/value 对）
+	// Append user-provided args (supports slog.Attr and key/value pairs)
 	r.Add(args...)
 
 	if err := l.inner.Handler().Handle(ctx, r); err != nil {
-		// 日志写入失败时回退到 stderr，避免静默丢日志
+		// Fallback to stderr if log writing fails to avoid silently losing logs.
 		fmt.Fprintf(os.Stderr, "logger Handle error: %v\n", err)
 	}
 }
 
-// randomHex 生成 n 字节的随机 hex 字符串（长度 2n）
+// randomHex generates a random hex string of n bytes (length 2n).
 func randomHex(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

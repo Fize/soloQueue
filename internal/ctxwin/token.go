@@ -1,7 +1,7 @@
-// Package ctxwin 提供纯内存态、基于规则的线性上下文截断器
+// Package ctxwin provides an in-memory, rule-based linear context truncator.
 //
-// 包名用 ctxwin（非 context），避免与 Go 标准库 context 包冲突。
-// 本项目大量导入 "context" 用于 context.Context，同名会导致必须 alias。
+// The package name uses ctxwin (not context) to avoid conflicts with the Go standard library's context package.
+// This project heavily imports "context" for context.Context, and a name collision would necessitate aliasing.
 package ctxwin
 
 import (
@@ -10,11 +10,11 @@ import (
 	tiktoken "github.com/pkoukk/tiktoken-go"
 )
 
-// Tokenizer 封装 tiktoken-go，提供 token 计数能力
+// Tokenizer wraps tiktoken-go to provide token counting capability.
 //
-// 线程安全：内部 enc 是只读的，Count 可以并发调用。
-// 使用 cl100k_base 编码，与 DeepSeek 分词近似。
-// 仅用于估算新 push 消息的 token 数，大部分计数由 API 精确校准。
+// Thread-safe: The internal `enc` is read-only, so Count can be called concurrently.
+// It uses cl100k_base encoding, which approximates DeepSeek tokenization.
+// This is primarily used to estimate the token count of new push messages; most counts are precisely calibrated by the API.
 type Tokenizer struct {
 	enc *tiktoken.Tiktoken
 }
@@ -24,10 +24,10 @@ var (
 	defaultEnc    *tiktoken.Tiktoken
 )
 
-// NewTokenizer 创建 Tokenizer（cl100k_base 编码）
+// NewTokenizer creates a Tokenizer (using cl100k_base encoding).
 //
-// 内部使用 sync.Once 确保编码只加载一次（BPE rank 文件 I/O），
-// 多次调用返回的 Tokenizer 共享同一个底层编码实例。
+// It uses sync.Once internally to ensure the encoding is loaded only once (BPE rank file I/O).
+// Multiple calls will return Tokenizers sharing the same underlying encoding instance.
 func NewTokenizer() *Tokenizer {
 	tokenizerOnce.Do(func() {
 		defaultEnc, _ = tiktoken.EncodingForModel("gpt-4")
@@ -35,11 +35,11 @@ func NewTokenizer() *Tokenizer {
 	return &Tokenizer{enc: defaultEnc}
 }
 
-// Count 返回 text 的 token 数估算
+// Count returns an estimation of the token count for the given text.
 //
-// 对于空字符串返回 0。
-// 注意：cl100k_base 对 DeepSeek 是近似值，误差通常在 5-15% 以内。
-// 通过 Calibrate 机制，每次 API 调用后用精确值校准，估算误差不累积。
+// Returns 0 for an empty string.
+// Note: cl100k_base is an approximation for DeepSeek, with errors typically within 5-15%.
+// Through the Calibrate mechanism, each API call recalibrates with the exact value, so estimation errors do not accumulate.
 func (t *Tokenizer) Count(text string) int {
 	if text == "" || t.enc == nil {
 		return 0
@@ -47,15 +47,15 @@ func (t *Tokenizer) Count(text string) int {
 	return len(t.enc.Encode(text, nil, nil))
 }
 
-// EstimateByLen 基于字符长度快速估算 token 数，不调用 BPE 编码。
+// EstimateByLen quickly estimates the token count based on character length, without calling BPE encoding.
 //
-// 用于截断后重新估算 token 数等对精度要求不高的场景。
-// 比率：每 token ≈ 3.3 bytes（cl100k_base 对中英混合的经验值）。
-// 误差可接受，因为 Calibrate 会在下次 API 调用时校准。
+// This is used for scenarios where high precision is not required, such as re-estimating token counts after truncation.
+// Ratio: Approximately 3.3 bytes per token (an empirical value for cl100k_base with mixed Chinese and English text).
+// The error is acceptable because Calibrate will recalibrate on the next API call.
 func (t *Tokenizer) EstimateByLen(text string) int {
 	if text == "" {
 		return 0
 	}
-	// 3.3 bytes/token，向上取整避免低估
+	// 3.3 bytes/token, round up to avoid underestimation
 	return (len(text) + 2) / 3
 }

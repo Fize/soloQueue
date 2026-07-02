@@ -1,13 +1,13 @@
-// Package llm 定义跨 provider 共享的类型和工具：
+// Package llm defines types and utilities shared across providers:
 //
-//   - 消息 / 请求 / 响应里用到的 ToolCall / ToolDef / FunctionCall / Usage 等共享结构
-//   - Streaming 用的 Event（tagged struct）
-//   - Provider-无关的 APIError（实现 error + IsRetryable）
-//   - RunWithRetry：指数退避的通用 retry helper
+//   - Shared structures like ToolCall / ToolDef / FunctionCall / Usage used in messages / requests / responses
+//   - Event (tagged struct) for streaming
+//   - Provider-agnostic APIError (implements error + IsRetryable)
+//   - RunWithRetry: A general-purpose retry helper with exponential backoff
 //
-// 具体 provider 实现（如 DeepSeek）放在子包（如 llm/deepseek/）。
+// Specific provider implementations (e.g., DeepSeek) are placed in sub-packages (e.g., llm/deepseek/).
 //
-// 本包本身不引入 net/http —— HTTP 客户端由子包自己实现。
+// This package itself does not introduce net/http — HTTP clients are implemented by sub-packages.
 package llm
 
 import (
@@ -19,10 +19,10 @@ import (
 
 // ─── Multimodal types ────────────────────────────────────────────────────────
 
-// ImageContent 表示一条图片内容（base64 编码）
+// ImageContent represents a piece of image content (base64 encoded)
 //
-// 用于多模态模型（Kimi K2.6 等），以 OpenAI 兼容的 image_url 格式发送。
-// Data 是不含 "data:image/...;base64," 前缀的纯 base64 字节。
+// Used for multimodal models (e.g., Kimi K2.6), sent in an OpenAI-compatible image_url format.
+// Data is the raw base64 bytes without the "data:image/...;base64," prefix.
 type ImageContent struct {
 	Data     string // base64-encoded image bytes
 	MimeType string // e.g., "image/png", "image/jpeg"
@@ -30,51 +30,51 @@ type ImageContent struct {
 
 // ─── Tool-calling shared types ───────────────────────────────────────────────
 
-// ToolCall 是 assistant 消息里的一次工具调用请求。
+// ToolCall is a single tool call request within an assistant message.
 //
-// 请求和响应两个方向通用：
-//   - 响应：LLM 告诉我们它想调哪个 tool
-//   - 请求：assistant 历史消息里回放 LLM 之前的 tool_calls
+// Universal for both request and response directions:
+//   - Response: LLM tells us which tool it wants to call
+//   - Request: Replays previous LLM tool_calls in assistant history messages
 //
-// Function.Arguments 是 JSON 编码后的字符串（**不是 JSON object**），
-// 按 OpenAI-compat 规范原样透传。
+// Function.Arguments is a JSON-encoded string (**not a JSON object**),
+// passed through as-is according to OpenAI-compat specification.
 type ToolCall struct {
 	ID       string       `json:"id"`
-	Type     string       `json:"type"` // 固定 "function"
+	Type     string       `json:"type"` // Fixed to "function"
 	Function FunctionCall `json:"function"`
 }
 
-// FunctionCall 是一次具体的 function 调用
+// FunctionCall is a specific function call
 type FunctionCall struct {
 	Name      string `json:"name"`
-	Arguments string `json:"arguments"` // JSON 字符串；由 caller 解析为具体对象
+	Arguments string `json:"arguments"` // JSON string; parsed into a concrete object by the caller
 }
 
-// ToolDef 是请求里告诉 LLM 有哪些 tool 可用
+// ToolDef tells the LLM which tools are available in the request
 type ToolDef struct {
-	Type     string       `json:"type"` // 固定 "function"
+	Type     string       `json:"type"` // Fixed to "function"
 	Function FunctionDecl `json:"function"`
 }
 
-// FunctionDecl 是 function 的声明（不含运行时数据）
+// FunctionDecl is the declaration of a function (without runtime data)
 type FunctionDecl struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"` // JSON Schema，client 不做验证
+	Parameters  json.RawMessage `json:"parameters,omitempty"` // JSON Schema; client does not perform validation
 }
 
 // ─── Usage ───────────────────────────────────────────────────────────────────
 
-// Usage 是 token 计数
+// Usage represents token counts
 //
-// 标准字段（PromptTokens/CompletionTokens/TotalTokens）所有 provider 都有；
-// 后面几个是 DeepSeek 特有，其他 provider 留零即可。
+// Standard fields (PromptTokens/CompletionTokens/TotalTokens) are present for all providers;
+// the following are DeepSeek-specific; other providers can leave them as zero.
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 
-	// DeepSeek 特有
+	// DeepSeek specific
 	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens,omitempty"`
 	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens,omitempty"`
 	ReasoningTokens       int `json:"reasoning_tokens,omitempty"`
@@ -82,15 +82,15 @@ type Usage struct {
 
 // ─── FinishReason ────────────────────────────────────────────────────────────
 
-// FinishReason 是响应的终止原因
+// FinishReason is the termination reason for a response
 //
-// 标准值：
+// Standard values:
 //
-//	"stop"                           正常结束
-//	"length"                         达到 max_tokens
-//	"tool_calls"                     LLM 产生了 tool_call，等待 caller 执行
-//	"content_filter"                 被内容过滤拦截
-//	"insufficient_system_resource"   DeepSeek 特有，服务资源不足
+//	"stop"                           Normal termination
+//	"length"                         Reached max_tokens
+//	"tool_calls"                     LLM generated a tool_call, waiting for caller execution
+//	"content_filter"                 Intercepted by content filter
+//	"insufficient_system_resource"   DeepSeek specific, insufficient service resources
 type FinishReason string
 
 const (
@@ -102,19 +102,19 @@ const (
 
 // ─── Streaming Event ─────────────────────────────────────────────────────────
 
-// EventType 是 Event 的判别字段
+// EventType is the discriminant field for Event
 type EventType int
 
 const (
-	// EventDelta 增量内容（content / reasoning_content / tool_call 增量）
+	// EventDelta Incremental content (content / reasoning_content / tool_call delta)
 	EventDelta EventType = iota
-	// EventDone 流正常结束；带 FinishReason，可能带 Usage
+	// EventDone Stream ended normally; includes FinishReason, possibly Usage
 	EventDone
-	// EventError 流中途出错；带 Err
+	// EventError Stream encountered an error midway; includes Err
 	EventError
 )
 
-// String 便于调试
+// String for debugging purposes
 func (t EventType) String() string {
 	switch t {
 	case EventDelta:
@@ -128,15 +128,15 @@ func (t EventType) String() string {
 	}
 }
 
-// Event 是 streaming channel 上流动的事件
+// Event is an event flowing on a streaming channel
 //
-// 用 tagged struct（Type 字段 + 按类型填字段）而非 interface —— 零分配、
-// 调用方 switch 就行，且零值安全。
+// Uses a tagged struct (Type field + fields filled according to type) instead of an interface — zero allocation,
+// caller can just switch, and it's zero-value safe.
 //
-// 字段规则：
-//   - Delta  事件：只读 ContentDelta / ReasoningContentDelta / ToolCallDelta
-//   - Done   事件：只读 FinishReason / Usage
-//   - Error  事件：只读 Err
+// Field rules:
+//   - Delta  event: Read only ContentDelta / ReasoningContentDelta / ToolCallDelta
+//   - Done   event: Read only FinishReason / Usage
+//   - Error  event: Read only Err
 type Event struct {
 	Type EventType
 
@@ -153,12 +153,12 @@ type Event struct {
 	Err error
 }
 
-// ToolCallDelta 是 streaming 中 tool_call 的一个增量
+// ToolCallDelta is an incremental part of a tool_call in streaming
 //
-// 累积规则（caller 实现）：
-//   - 按 Index 作为 slot 归位
-//   - 第一次出现带 ID + Name；后续仅带 Arguments 片段
-//   - Arguments 字符串连接成完整 JSON
+// Accumulation rules (caller implementation):
+//   - Position by Index as a slot
+//   - First occurrence includes ID + Name; subsequent occurrences only include Arguments fragments
+//   - Arguments strings are concatenated to form the complete JSON
 type ToolCallDelta struct {
 	Index     int
 	ID        string
@@ -168,9 +168,9 @@ type ToolCallDelta struct {
 
 // ─── APIError ────────────────────────────────────────────────────────────────
 
-// APIError 是 provider 返回的结构化错误
+// APIError is a structured error returned by the provider
 //
-// 对应 OpenAI / DeepSeek 共同的错误体：
+// Corresponds to the common error body for OpenAI / DeepSeek:
 //
 //	{"error": {"message": ..., "type": ..., "code": ..., "param": ...}}
 type APIError struct {
@@ -181,7 +181,7 @@ type APIError struct {
 	Param      string
 }
 
-// Error 实现 error
+// Error implements the error interface
 func (e *APIError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -199,15 +199,15 @@ func (e *APIError) Error() string {
 	return parts
 }
 
-// IsRetryable 判断该错误是否值得 retry
+// IsRetryable checks if this error is worth retrying
 //
-// 策略：
-//   - 5xx：服务端问题，应 retry
-//   - 429：限流，应 retry（指数退避）
-//   - 4xx（非 429）：客户端错误，不 retry
+// Strategy:
+//   - 5xx: Server-side issue, should retry
+//   - 429: Rate limit, should retry (exponential backoff)
+//   - 4xx (non-429): Client-side error, do not retry
 //
-// 未知 status（0，网络错误）默认不当作 APIError —— 调用方若用 errors.As 拿不出
-// APIError，走另一条路径（通常网络错误也该 retry）。
+// Unknown status (0, network error) is not treated as APIError by default — if the caller cannot extract
+// an APIError using errors.As, it follows another path (usually network errors should also retry).
 func (e *APIError) IsRetryable() bool {
 	if e == nil {
 		return false
@@ -218,9 +218,9 @@ func (e *APIError) IsRetryable() bool {
 	return e.StatusCode >= 500 && e.StatusCode < 600
 }
 
-// IsRetryableErr 是通用判断：网络错误 retryable；APIError 看 status；其他不 retry
+// IsRetryableErr is a general check: network errors are retryable; APIError depends on status; others are not retryable
 //
-// 这是 provider client 给 RunWithRetry 的标配 shouldRetry 实现。
+// This is the standard shouldRetry implementation for RunWithRetry provided by a provider client.
 func IsRetryableErr(err error) bool {
 	if err == nil {
 		return false
@@ -229,6 +229,6 @@ func IsRetryableErr(err error) bool {
 	if errors.As(err, &apiErr) {
 		return apiErr.IsRetryable()
 	}
-	// 其他（网络 / EOF / timeout）默认 retry
+	// Others (network / EOF / timeout) default to retry
 	return true
 }

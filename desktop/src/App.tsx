@@ -93,7 +93,7 @@ function App() {
             onMouseEnter={handleHoverEnter}
             onMouseLeave={handleHoverLeave}
             className="flex items-center justify-center rounded-md p-1.5 transition-colors duration-150 hover:bg-foreground/10 text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
-            title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {sidebarCollapsed ? (
               <PanelRightOpen className="h-4 w-4 pointer-events-none" />

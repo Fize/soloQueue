@@ -11,27 +11,27 @@ import (
 
 // ─── SessionConfirmStore ────────────────────────────────────────────────────
 
-// SessionConfirmStore 是会话级工具放行存储的抽象。
+// SessionConfirmStore is an abstraction for session-level tool approval storage.
 type SessionConfirmStore interface {
-	// IsConfirmed 检查 toolName 是否已被当前会话放行。
+	// IsConfirmed checks if toolName has been approved for the current session.
 	IsConfirmed(toolName string) bool
 
-	// Confirm 将 toolName 标记为已放行。
+	// Confirm marks toolName as approved.
 	Confirm(toolName string)
 
-	// Clear 清空所有放行标记；Agent.Start 时调用，保证每新 session 从零开始。
+	// Clear clears all approval marks; called at Agent.Start to ensure each new session starts from scratch.
 	Clear()
 }
 
 // ─── memoryConfirmStore ─────────────────────────────────────────────────────
 
-// memoryConfirmStore 是 SessionConfirmStore 的内存实现。
+// memoryConfirmStore is an in-memory implementation of SessionConfirmStore.
 type memoryConfirmStore struct {
 	mu    sync.RWMutex
 	tools map[string]struct{}
 }
 
-// NewMemoryConfirmStore 返回基于内存的 SessionConfirmStore 实现。
+// NewMemoryConfirmStore returns an in-memory implementation of SessionConfirmStore.
 func NewMemoryConfirmStore() SessionConfirmStore {
 	return &memoryConfirmStore{
 		tools: make(map[string]struct{}),
@@ -60,7 +60,7 @@ func (s *memoryConfirmStore) Clear() {
 	s.mu.Unlock()
 }
 
-// Confirm 向 agent 注入用户对某个待确认 tool_call 的响应。
+// Confirm injects a user's response to a pending tool_call confirmation into the agent.
 func (a *Agent) Confirm(callID string, choice string) error {
 	a.confirmMu.RLock()
 	slot, ok := a.pendingConfirm[callID]
@@ -79,7 +79,7 @@ func (a *Agent) Confirm(callID string, choice string) error {
 	}
 }
 
-// ToolSpecs 返回当前 agent 注册的所有 tool 的 llm.ToolDef 快照
+// ToolSpecs returns a snapshot of all llm.ToolDef for tools registered with the current agent.
 func (a *Agent) ToolSpecs() []llm.ToolDef {
 	if a.tools == nil {
 		return nil
@@ -99,7 +99,7 @@ func (a *Agent) ToolSpecs() []llm.ToolDef {
 	return filtered
 }
 
-// isToolPruned 匹配剪裁映射逻辑，决定某个工具在当前级别是否被剪裁
+// isToolPruned matches the pruning map logic to determine if a tool is pruned at the current level.
 func isToolPruned(level string, name string) bool {
 	if level == "" {
 		return false
@@ -132,5 +132,4 @@ const (
 	choiceAllowInSession = tools.ChoiceAllowInSession
 )
 
-// Agent 不直接实现 tools.Locatable；由 locatableAdapter 包装提供适配
-
+// Agent does not directly implement tools.Locatable; it is wrapped by locatableAdapter for adaptation.

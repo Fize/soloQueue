@@ -1,6 +1,6 @@
 package logger
 
-// Category 定义日志分类
+// Category defines log categories
 type Category string
 
 const (
@@ -18,14 +18,14 @@ const (
 	CatSimulation Category = "simulation"
 )
 
-// systemCategories 定义所有合法的日志分类（统一写入 system 目录）
+// systemCategories defines all valid log categories (all written to the 'system' directory)
 var systemCategories = []Category{
 	CatApp, CatConfig, CatHTTP, CatWS, CatLLM,
 	CatTeam, CatAgent,
 	CatActor, CatTool, CatMessages, CatMCP, CatSimulation,
 }
 
-// ValidCategory 检查 category 是否合法
+// ValidCategory checks if the category is valid
 func ValidCategory(cat Category) bool {
 	for _, c := range systemCategories {
 		if c == cat {

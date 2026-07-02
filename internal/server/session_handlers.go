@@ -130,7 +130,7 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if isImage {
-				block := fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 图片 (已通过视觉模型识别)", f.Name, absPath, size)
+				block := fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)\n  Type: Image (identified by vision model)", f.Name, absPath, size)
 				fileBlocks = append(fileBlocks, block)
 			} else {
 				isText := true
@@ -139,15 +139,15 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 				}
 				var block string
 				if isText {
-					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+					block = fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)\n  Type: Text (please prioritize using the Read tool to read the contents of this text file to proceed with the task.)", f.Name, absPath, size)
 				} else {
-					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+					block = fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)\n  Type: Binary (this file is in binary format and cannot be read directly with the Read tool. You can use other tools like shell to process it.)", f.Name, absPath, size)
 				}
 				fileBlocks = append(fileBlocks, block)
 			}
 		}
 		if len(fileBlocks) > 0 {
-			finalPrompt = fmt.Sprintf("%s\n\n[用户已上传文件，已保存至本地：\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
+			finalPrompt = fmt.Sprintf("%s\n\n[User has uploaded a file, saved locally at:\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
 		}
 	}
 
@@ -246,7 +246,7 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if isImage {
-				block := fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 图片 (已通过视觉模型识别)", f.Name, absPath, size)
+				block := fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)\n  Type: Image (identified by vision model)", f.Name, absPath, size)
 				fileBlocks = append(fileBlocks, block)
 			} else {
 				isText := true
@@ -255,15 +255,15 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 				}
 				var block string
 				if isText {
-					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 文本 (请优先使用 Read 工具读取该文本文件的内容以继续任务。)", f.Name, absPath, size)
+					block = fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)\n  Type: Text (please prioritize using the Read tool to read the contents of this text file to proceed with the task.)", f.Name, absPath, size)
 				} else {
-					block = fmt.Sprintf("- 文件名: %s\n  保存路径: %s (大小: %d 字节)\n  类型: 二进制 (该文件为二进制格式，无法使用 Read 工具直接读取。您可以使用 shell 等其他工具进行处理。)", f.Name, absPath, size)
+					block = fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)\n  Type: Binary (this file is in binary format and cannot be read directly with the Read tool. You can use other tools like shell to process it.)", f.Name, absPath, size)
 				}
 				fileBlocks = append(fileBlocks, block)
 			}
 		}
 		if len(fileBlocks) > 0 {
-			finalPrompt = fmt.Sprintf("%s\n\n[用户已上传文件，已保存至本地：\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
+			finalPrompt = fmt.Sprintf("%s\n\n[User has uploaded a file, saved locally at:\n%s]\n", trimmed, strings.Join(fileBlocks, "\n"))
 		}
 	}
 

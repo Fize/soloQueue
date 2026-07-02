@@ -18,10 +18,10 @@ import (
 // ─── LoadAgentTemplates tests ──────────────────────────────────────
 
 func TestLoadAgentTemplates_ValidDir(t *testing.T) {
-	// 创建临时目录，写入测试 agent 文件
+	// Create temporary directory, write test agent file
 	dir := t.TempDir()
 
-	// agent1.md - 有效的 leader
+	// agent1.md - valid leader
 	agent1 := `---
 name: dev
 description: Dev agent
@@ -34,7 +34,7 @@ You are a dev agent.
 		t.Fatalf("write agent1: %v", err)
 	}
 
-	// agent2.md - 有效的非 leader
+	// agent2.md - valid non-leader
 	agent2 := `---
 name: test
 description: Test agent
@@ -46,7 +46,7 @@ You are a test agent.
 		t.Fatalf("write agent2: %v", err)
 	}
 
-	// 无效文件 - 应该被跳过
+	// Invalid file - should be skipped
 	agent3 := `---
 invalid yaml
 ---
@@ -55,7 +55,7 @@ invalid yaml
 		t.Fatalf("write agent3: %v", err)
 	}
 
-	// 非 .md 文件 - 应该被跳过
+	// Non-.md file - should be skipped
 	if err := os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hello"), 0644); err != nil {
 		t.Fatalf("write txt: %v", err)
 	}
@@ -65,12 +65,12 @@ invalid yaml
 		t.Fatalf("LoadAgentTemplates: %v", err)
 	}
 
-	// 应该只返回成功解析的文件（agent1 和 agent2）
+	// Should only return successfully parsed files (agent1 and agent2)
 	if len(templates) != 2 {
 		t.Errorf("len(templates) = %d, want 2", len(templates))
 	}
 
-	// 验证模板内容
+	// Verify template content
 	found := map[string]bool{}
 	for _, tmpl := range templates {
 		found[tmpl.ID] = true
@@ -120,7 +120,7 @@ func TestLoadAgentTemplates_MissingFrontmatter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAgentTemplates: %v", err)
 	}
-	// 解析失败的文件应该被跳过
+	// Files that fail parsing should be skipped
 	if len(templates) != 0 {
 		t.Errorf("len(templates) = %d, want 0 (parse failure skipped)", len(templates))
 	}
@@ -129,7 +129,7 @@ func TestLoadAgentTemplates_MissingFrontmatter(t *testing.T) {
 // ─── DefaultFactory.Create tests ────────────────────────────────────
 
 func TestDefaultFactory_Create_Success(t *testing.T) {
-	// 创建临时目录用于日志
+	// Create temporary directory for logs
 	dir := t.TempDir()
 	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
@@ -137,15 +137,15 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 	}
 	defer log.Close()
 
-	// 创建 registry
+	// Create registry
 	registry := NewRegistry(log)
 
-	// 创建 FakeLLM
+	// Create FakeLLM
 	fakeLLM := &FakeLLM{
 		Responses: []string{"hello"},
 	}
 
-	// 创建 factory
+	// Create factory
 	factory := NewDefaultFactory(
 		registry,
 		fakeLLM,
@@ -153,7 +153,7 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 		log,
 	)
 
-	// 创建 agent template
+	// Create agent template
 	tmpl := AgentTemplate{
 		ID:           "test-agent",
 		Name:         "Test Agent",
@@ -161,7 +161,7 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 		SystemPrompt: "You are a test agent.",
 	}
 
-	// 创建 agent
+	// Create agent
 	agent, cw, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
@@ -174,17 +174,17 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 		t.Fatal("cw is nil")
 	}
 
-	// 验证 agent 已注册
+	// Verify agent is registered
 	if _, ok := registry.Get(agent.InstanceID); !ok {
 		t.Error("agent should be registered")
 	}
 
-	// 验证 agent 已启动
+	// Verify agent has started
 	if agent.State() != StateIdle {
 		t.Errorf("agent state = %s, want idle", agent.State())
 	}
 
-	// 清理
+	// Clean up
 	_ = agent.Stop(time.Second)
 }
 
@@ -208,21 +208,21 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 		log,
 	)
 
-	// 创建子 agent template
+	// Create sub-agent template
 	subTmpl := AgentTemplate{
 		ID:           "sub-agent",
 		Name:         "Sub Agent",
 		SystemPrompt: "You are a sub agent.",
 	}
 
-	// 先创建子 agent（这样 registry 中会有）
+	// Create sub-agent first (so it exists in the registry)
 	subAgent, _, err := factory.Create(context.Background(), subTmpl, "")
 	if err != nil {
 		t.Fatalf("create sub agent: %v", err)
 	}
 	defer subAgent.Stop(time.Second)
 
-	// 创建主 agent
+	// Create main agent
 	mainTmpl := AgentTemplate{
 		ID:           "main-agent",
 		Name:         "Main Agent",
@@ -235,7 +235,7 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	}
 	defer mainAgent.Stop(time.Second)
 
-	// 验证 tools 已注册
+	// Verify tools are registered
 	if mainAgent.tools == nil {
 		t.Fatal("tools is nil")
 	}
@@ -275,7 +275,7 @@ func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
 	}
 	defer agent.Stop(time.Second)
 
-	// 验证 agent 创建成功（Ephemeral 功能已移除，但 agent 仍能正常创建）
+	// Verify agent created successfully (Ephemeral functionality removed, but agent can still be created normally)
 	if agent == nil {
 		t.Fatal("agent is nil")
 	}
@@ -331,10 +331,10 @@ func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 }
 
 func TestDefaultFactory_Create_StartError(t *testing.T) {
-	// 测试 Start 失败的情况（通过 nil LLM？）
-	// 实际上 factory.Create 会调用 a.Start()，如果 LLM 是 nil 会报错吗？
-	// 看代码：Start 不检查 LLM，所以不会报错
-	// 我们需要 mock 一个会失败的情况
+	// Test Start failure case (via nil LLM?)
+	// Actually factory.Create calls a.Start() — will it error if LLM is nil?
+	// Looking at code: Start doesn't check LLM, so it won't error
+	// We need to mock a case that will fail
 
 	dir := t.TempDir()
 	log, err := logger.System(dir, logger.WithConsole(false))
@@ -366,7 +366,7 @@ func TestDefaultFactory_Create_StartError(t *testing.T) {
 		t.Fatalf("factory.Create: %v", err)
 	}
 
-	// 验证 agent 和 cw 不为 nil
+	// Verify agent and cw are not nil
 	if agent == nil {
 		t.Error("agent should not be nil")
 	}
@@ -379,7 +379,7 @@ func TestDefaultFactory_Create_StartError(t *testing.T) {
 
 // ─── Helper functions for tests ──────────────────────────────────────
 
-// setupTestFactory 创建测试用的 factory 和依赖
+// setupTestFactory creates test factory and dependencies
 func setupTestFactory(t *testing.T) (*DefaultFactory, *Registry, *FakeLLM) {
 	t.Helper()
 
@@ -429,12 +429,12 @@ func TestDefaultFactory_Create_ContextWindow(t *testing.T) {
 	}
 	defer agent.Stop(time.Second)
 
-	// 验证 cw 已 push system prompt
+	// Verify cw has pushed system prompt
 	if cw == nil {
 		t.Fatal("cw is nil")
 	}
 
-	// 可以用 Calibrate 等方法验证 cw 不为空
+	// Can use Calibrate and other methods to verify cw is not empty
 	tokens, _, _ := cw.TokenUsage()
 	if tokens == 0 {
 		t.Error("cw should have tokens (system prompt pushed)")
@@ -442,14 +442,14 @@ func TestDefaultFactory_Create_ContextWindow(t *testing.T) {
 }
 
 func TestDefaultFactory_Create_WithSkills(t *testing.T) {
-	// 创建临时 skill 目录
+	// Create temporary skill directory
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "skills")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	// 写入一个测试 skill 文件
+	// Write a test skill file
 	skillContent := `---
 name: test-skill
 description: A test skill
@@ -467,7 +467,7 @@ This is a test skill.
 	}
 	defer log.Close()
 
-	// 加载 skills 到全局注册表
+	// Load skills into global registry
 	skillReg := skill.NewSkillRegistry()
 	loaded, err := skill.LoadSkillsFromDir(skillDir)
 	if err != nil {
@@ -510,7 +510,7 @@ func TestNewDefaultFactory_NilLogger(t *testing.T) {
 		Responses: []string{"hello"},
 	}
 
-	// 使用 nil logger 创建 factory（应该不 panic）
+	// Create factory with nil logger (should not panic)
 	factory := NewDefaultFactory(
 		registry,
 		fakeLLM,
@@ -522,7 +522,7 @@ func TestNewDefaultFactory_NilLogger(t *testing.T) {
 		t.Fatal("factory should not be nil")
 	}
 
-	// 尝试创建 agent（nil logger 不应该 panic）
+	// Try to create agent (nil logger should not panic)
 	tmpl := AgentTemplate{
 		ID:           "nil-logger",
 		Name:         "Nil Logger",
@@ -760,7 +760,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		Group:       "DevOps",
 	}
 
-	// 不同组的 agent，不应该出现在 dev 的 prompt 中
+	// Agents from different groups should not appear in dev's prompt
 	otherTmpl := AgentTemplate{
 		ID:          "designer",
 		Name:        "Designer",
@@ -782,7 +782,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		t.Error("L2 prompt should contain user-defined system prompt")
 	}
 
-	// Segment 2: 同组 peers（frontend 和 backend 应该在，designer 不应该）
+	// Segment 2: Peers in the same group (frontend and backend should be present, designer should not)
 	if !strings.Contains(prompt, "Frontend") {
 		t.Error("L2 prompt should list peer agent Frontend")
 	}
@@ -878,7 +878,7 @@ func TestBuildL2SystemPrompt_ContainsExploreDirPath(t *testing.T) {
 	exploreDir := "/home/user/.soloqueue/explore"
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", exploreDir, nil, false)
 
-	// 验证 L2 prompt 中包含 explore 目录路径
+	// Verify L2 prompt contains explore directory path
 	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
 		t.Errorf("L2 prompt should contain explore directory path %q", exploreDir)
 	}
@@ -902,7 +902,7 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
-	// 空 planDir 时，plan 相关规则不应出现
+	// When planDir is empty, plan-related rules should not appear
 	if strings.Contains(prompt, "MANDATORY Plan Before Execution") {
 		t.Error("L2 prompt should not contain 'MANDATORY Plan Before Execution' when planDir is empty")
 	}
@@ -938,7 +938,7 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	planDir := "/home/user/.soloqueue/plan"
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
-	// 验证 Tasks 结构约定在 L2 prompt 中体现
+	// Verify Tasks structure convention is reflected in L2 prompt
 	if !strings.Contains(prompt, "Tasks") {
 		t.Error("L2 prompt should contain 'Tasks' in checklist structure")
 	}
@@ -955,12 +955,12 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	planDir := "/home/user/.soloqueue/plan"
 	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
-	// 验证 L3 prompt 中包含 "Follow the Plan" 规则
+	// Verify L3 prompt contains "Follow the Plan" rule
 	if !strings.Contains(prompt, "Follow the Plan") {
 		t.Error("L3 prompt should contain 'Follow the Plan' rule")
 	}
 
-	// 验证 L3 prompt 中包含 Exploration Artifacts 规则
+	// Verify L3 prompt contains Exploration Artifacts rule
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L3 prompt should contain exploration artifacts rule")
 	}
@@ -983,7 +983,7 @@ func TestBuildL3SystemPrompt_ContainsExploreDirPath(t *testing.T) {
 	exploreDir := "/home/user/.soloqueue/explore"
 	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", exploreDir, false)
 
-	// 验证 L3 prompt 中包含 explore 目录路径
+	// Verify L3 prompt contains explore directory path
 	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
 		t.Errorf("L3 prompt should contain explore directory path, got: %s", prompt)
 	}
@@ -999,7 +999,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
-	// 空 planDir 时，不要出现未替换的占位符
+	// When planDir is empty, unreplaced placeholders should not appear
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
 		t.Error("L3 prompt should not contain unreplaced {{PLAN_DIR}} placeholder")
 	}
@@ -1024,7 +1024,7 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	planDir := "/home/user/.soloqueue/plan"
 	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
-	// 验证 Tasks 结构约定在 L3 prompt 中体现
+	// Verify Tasks structure convention is reflected in L3 prompt
 	if !strings.Contains(prompt, "Tasks") {
 		t.Error("L3 prompt should contain 'Tasks' in checklist structure")
 	}

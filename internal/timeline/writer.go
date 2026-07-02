@@ -10,23 +10,23 @@ import (
 
 // ─── Writer ──────────────────────────────────────────────────────────────────
 
-// Writer 是 append-only JSONL 时间线写入器。
+// Writer is an append-only JSONL timeline writer.
 type Writer struct {
 	rw     *rotating.DateSizeWriter
 	logger *logger.Logger
 }
 
-// WriterOption 是 Writer 的可选配置
+// WriterOption is an optional configuration for Writer.
 type WriterOption func(*Writer)
 
-// WithWriterLogger 设置时间线写入器的日志实例
+// WithWriterLogger sets the logger instance for the timeline writer.
 func WithWriterLogger(l *logger.Logger) WriterOption {
 	return func(w *Writer) { w.logger = l }
 }
 
-// NewWriter 创建时间线写入器。
-// dir 为文件所在目录，baseName 为文件名前缀（如 "timeline"）。
-// maxBytes 为单文件最大字节数（0=不限），maxDays 为保留天数（0=不限）。
+// NewWriter creates a timeline writer.
+// dir is the directory where the files will be stored, baseName is the file name prefix (e.g., "timeline").
+// maxBytes is the maximum size of a single file (0=unlimited), maxDays is the number of days to retain files (0=unlimited).
 func NewWriter(dir, baseName string, maxBytes int64, maxDays int, opts ...WriterOption) (*Writer, error) {
 	rw, err := rotating.OpenDateSize(dir, baseName, maxBytes, maxDays)
 	if err != nil {
@@ -39,7 +39,7 @@ func NewWriter(dir, baseName string, maxBytes int64, maxDays int, opts ...Writer
 	return w, nil
 }
 
-// AppendMessage 追加消息事件
+// AppendMessage appends a message event.
 func (w *Writer) AppendMessage(msg *MessagePayload) error {
 	evt := newEvent(EventMessage)
 	msg.Timestamp = evt.Timestamp
@@ -47,14 +47,14 @@ func (w *Writer) AppendMessage(msg *MessagePayload) error {
 	return w.writeEvent(evt)
 }
 
-// AppendControl 追加控制事件
+// AppendControl appends a control event.
 func (w *Writer) AppendControl(ctrl *ControlPayload) error {
 	evt := newEvent(EventControl)
 	evt.Control = ctrl
 	return w.writeEvent(evt)
 }
 
-// Close 关闭写入器
+// Close closes the writer.
 func (w *Writer) Close() error {
 	if w.logger != nil {
 		w.logger.Debug(logger.CatMessages, "timeline: writer closed")
@@ -62,7 +62,7 @@ func (w *Writer) Close() error {
 	return w.rw.Close()
 }
 
-// writeEvent 序列化并写入事件
+// writeEvent serializes and writes an event.
 func (w *Writer) writeEvent(evt Event) error {
 	data, err := json.Marshal(evt)
 	if err != nil {

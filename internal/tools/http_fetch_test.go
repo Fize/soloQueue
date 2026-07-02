@@ -267,7 +267,7 @@ func TestHTTP_MetadataInterface(t *testing.T) {
 	}
 }
 
-// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+// Confirmable Interface Tests
 
 func TestHTTPFetch_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
 	tool := mkHTTPTool(t, nil)

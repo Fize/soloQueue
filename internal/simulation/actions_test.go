@@ -106,7 +106,7 @@ func TestAction_String(t *testing.T) {
 		{Action{Type: ActionInteract, Target: "menu", Content: "read"}, "[INTERACT menu: read]"},
 		{Action{Type: ActionWait, Duration: "30m"}, "[WAIT 30m]"},
 		{Action{Type: ActionPass}, "[PASS]"},
-		{Action{Type: ActionConflict, Target: "bob", Content: "挑衅他"}, "[CONFLICT @bob]: 挑衅他"},
+		{Action{Type: ActionConflict, Target: "bob", Content: "provoke him"}, "[CONFLICT @bob]: provoke him"},
 		{Action{Type: ActionHide}, "[HIDE]"},
 	}
 

@@ -13,7 +13,7 @@ import (
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
 
-// fakeConfirmableTool 是一个实现 Confirmable 接口的测试工具
+// fakeConfirmableTool is a test utility that implements the Confirmable interface
 type fakeConfirmableTool struct {
 	fakeTool
 	needsConfirm bool
@@ -59,7 +59,7 @@ func (f *fakeConfirmableTool) ConfirmArgs(original string, choice tools.ConfirmC
 
 func (*fakeConfirmableTool) SupportsSessionWhitelist() bool { return true }
 
-// ─── 单个 Confirmable tool：用户确认后继续执行 ────────────────────────────
+// ─── Single Confirmable tool: continues execution after user confirmation ──
 
 func TestAgent_Confirmable_Approved(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
@@ -115,7 +115,7 @@ func TestAgent_Confirmable_Approved(t *testing.T) {
 	}
 }
 
-// ─── 单个 Confirmable tool：用户拒绝 ───────────────────────────────────────
+// ─── Single Confirmable tool: user rejects ─────────────────────────────────
 
 func TestAgent_Confirmable_Denied(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
@@ -169,7 +169,7 @@ func TestAgent_Confirmable_Denied(t *testing.T) {
 	}
 }
 
-// ─── 非 Confirmable 工具不受影响 ────────────────────────────────────────────
+// ─── Non-Confirmable tools are unaffected ──────────────────────────────────
 
 func TestAgent_NonConfirmable_NoEvent(t *testing.T) {
 	regularTool := newFakeTool("echo")
@@ -214,7 +214,7 @@ func TestAgent_NonConfirmable_NoEvent(t *testing.T) {
 	}
 }
 
-// ─── Confirm 对已响应的 callID 返回错误 ────────────────────────────────────
+// ─── Confirm returns error for an already responded callID ─────────────────
 
 func TestAgent_Confirm_Duplicate(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
@@ -242,7 +242,7 @@ func TestAgent_Confirm_Duplicate(t *testing.T) {
 			if err := a.Confirm(callID, "yes"); err != nil {
 				t.Errorf("first Confirm: %v", err)
 			}
-			// 第二次重复调用应报错
+			// A second duplicate call should report an error
 			if err := a.Confirm(callID, "yes"); err == nil {
 				t.Error("second Confirm should error")
 			}
@@ -258,7 +258,7 @@ func TestAgent_Confirm_Duplicate(t *testing.T) {
 	}
 }
 
-// ─── Confirm 对不存在的 callID 返回错误 ────────────────────────────────────
+// ─── Confirm returns error for a non-existent callID ───────────────────────
 
 func TestAgent_Confirm_UnknownCallID(t *testing.T) {
 	fake := &FakeLLM{Responses: []string{"hello"}}
@@ -269,7 +269,7 @@ func TestAgent_Confirm_UnknownCallID(t *testing.T) {
 	}
 }
 
-// ─── Agent Stop 时 pending confirm 通过 ctx 退出 ───────────────────────────
+// ─── Pending confirm exits via ctx when Agent is stopped ───────────────────
 
 func TestAgent_Confirmable_StopCancelsPending(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
@@ -293,7 +293,7 @@ func TestAgent_Confirmable_StopCancelsPending(t *testing.T) {
 		if e, ok := ev.(ToolNeedsConfirmEvent); ok {
 			foundConfirm = true
 			_ = e
-			// 不调用 Confirm，直接 Stop agent
+			// Do not call Confirm, directly Stop agent
 			go func() {
 				time.Sleep(50 * time.Millisecond)
 				_ = a.Stop(time.Second)
@@ -309,13 +309,13 @@ func TestAgent_Confirmable_StopCancelsPending(t *testing.T) {
 	}
 }
 
-// ─── allow-in-session：首次确认后，同 session 后续调用不再触发确认 ─────────
+// ─── allow-in-session: after first confirmation, subsequent calls in the same session skip confirmation ──
 
 func TestAgent_Confirmable_AllowInSession(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
 	confirmTool.result = `{"ok":true}`
 
-	// LLM 两轮都调用 danger tool；第一轮需要确认，第二轮因白名单跳过
+	// LLM calls the danger tool in both rounds; first round requires confirmation, second round skips due to whitelist
 	fake := &FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}}},
@@ -359,13 +359,13 @@ func TestAgent_Confirmable_AllowInSession(t *testing.T) {
 	if finalContent != "done" {
 		t.Errorf("final = %q, want done", finalContent)
 	}
-	// tool 被调用了两次（两次都执行了）
+	// The tool was called twice (both executions happened)
 	if confirmTool.CallCount() != 2 {
 		t.Errorf("tool called %d times, want 2", confirmTool.CallCount())
 	}
 }
 
-// ─── 白名单在 Start 时被清空 ─────────────────────────────────────────────
+// ─── Whitelist is cleared on Start ──────────────────────────────────────────
 
 func TestAgent_Confirmable_WhitelistClearedOnStart(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
@@ -380,7 +380,7 @@ func TestAgent_Confirmable_WhitelistClearedOnStart(t *testing.T) {
 
 	a := NewAgent(Definition{ID: "a1"}, fake, nil, WithTools(confirmTool))
 
-	// 第一次 Start + Ask：用户选择 allow-in-session
+	// First Start + Ask: user selects allow-in-session
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -407,12 +407,12 @@ func TestAgent_Confirmable_WhitelistClearedOnStart(t *testing.T) {
 	}
 	_ = a.Stop(time.Second)
 
-	// 重置 FakeLLM 内部计数器，否则第二次 Ask 不会走 tool_calls 路径
+	// Reset FakeLLM internal counter, otherwise the second Ask won't go through the tool_calls path
 	fake.toolIdx = 0
 	fake.streamIdx = 0
 	fake.idx = 0
 
-	// Stop 后再次 Start（模拟新 session）：白名单应被清空
+	// Start again after Stop (simulating a new session): whitelist should be cleared
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestAgent_Confirmable_WhitelistClearedOnStart(t *testing.T) {
 	for ev := range events {
 		if e, ok := ev.(ToolNeedsConfirmEvent); ok {
 			foundConfirm = true
-			// 必须注入确认，否则 agent 会永远阻塞
+			// Must inject confirmation, otherwise agent will block forever
 			if err := a.Confirm(e.CallID, "yes"); err != nil {
 				t.Fatalf("second Confirm: %v", err)
 			}
@@ -442,7 +442,7 @@ func TestAgent_Confirmable_WhitelistClearedOnStart(t *testing.T) {
 	}
 }
 
-// ─── 并行工具：部分需要确认，部分不需要 ────────────────────────────────────
+// ─── Parallel tools: some require confirmation, some do not ────────────────
 
 func TestAgent_Confirmable_ParallelPartialConfirm(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
@@ -460,7 +460,7 @@ func TestAgent_Confirmable_ParallelPartialConfirm(t *testing.T) {
 	}
 
 	a := startedAgentWithTools(t, fake, confirmTool, echoTool)
-	a.parallelTools = true // 启用并行
+	a.parallelTools = true // Enable parallelism
 
 	events, err := a.AskStream(context.Background(), "do both")
 	if err != nil {
@@ -500,7 +500,7 @@ func TestAgent_Confirmable_ParallelPartialConfirm(t *testing.T) {
 	}
 }
 
-// ─── memoryConfirmStore 独立单元测试 ──────────────────────────────────────
+// ─── memoryConfirmStore standalone unit tests ──────────────────────────────
 
 func TestMemoryConfirmStore(t *testing.T) {
 	s := NewMemoryConfirmStore()
@@ -523,10 +523,10 @@ func TestMemoryConfirmStore(t *testing.T) {
 	}
 }
 
-// ─── 任务级工具剪裁与拦截单元测试 ──────────────────────────────────────────
+// ─── Task-level tool filtering and interception unit tests ─────────────────
 
 func TestAgent_ToolPruningAndInterception(t *testing.T) {
-	// 注册各种工具以涵盖不同剪裁等级
+	// Register various tools to cover different filtering levels
 	readTool := newFakeTool("Read")
 	writeTool := newFakeTool("Write")
 	delegateTool := newFakeTool("delegate_task")
@@ -541,7 +541,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 
 	a := startedAgentWithTools(t, fake, readTool, writeTool, delegateTool, skillTool)
 
-	// 1. 验证 L0-Conversation 下的过滤
+	// 1. Verify filtering under L0-Conversation
 	// At L0 (conversation-only), only a whitelist of read-only tools is allowed.
 	// delegate_* tools are not in this whitelist — they remain pruned at L0.
 	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
@@ -564,7 +564,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 			len(specsL0), hasRead, hasWrite, hasDelegate)
 	}
 
-	// 2. 验证 L1-SimpleSingleFile 下的过滤
+	// 2. Verify filtering under L1-SimpleSingleFile
 	// delegate_* tools are always preserved for supervisors.
 	// Skill is still pruned for L1 level.
 	a.modelOverride.Store(&ModelParams{Level: "L1-SimpleSingleFile"})
@@ -590,22 +590,22 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 			len(specsL1), hasRead, hasWrite, hasDelegate, hasSkill)
 	}
 
-	// 3. 验证 L2 下的过滤 (应该全部保留)
+	// 3. Verify filtering under L2 (all should be retained)
 	a.modelOverride.Store(&ModelParams{Level: "L2"})
 	specsL2 := a.ToolSpecs()
 	if len(specsL2) != 4 {
 		t.Errorf("L2 filter failed: specs count = %d, want 4", len(specsL2))
 	}
 
-	// 4. 验证空级别下的过滤 (应该全部保留)
+	// 4. Verify filtering under empty level (all should be retained)
 	a.modelOverride.Store(&ModelParams{Level: ""})
 	specsEmpty := a.ToolSpecs()
 	if len(specsEmpty) != 4 {
 		t.Errorf("empty level filter failed: specs count = %d, want 4", len(specsEmpty))
 	}
 
-	// 5. 验证 execToolStream 中拦截剪裁的工具调用并返回错误
-	// 我们将等级设为 L0-Conversation 并调用 Write (应被拦截)
+	// 5. Verify that execToolStream intercepts filtered tool calls and returns errors
+	// We set the level to L0-Conversation and call Write (should be intercepted)
 	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
 
 	ch, err := a.AskStream(context.Background(), "write file")
@@ -651,7 +651,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 		t.Errorf("doneResult = %q, want %q", doneResult, expectedResult)
 	}
 
-	// 确保工具从未实际执行过
+	// Ensure the tool never actually executed
 	if writeTool.CallCount() != 0 {
 		t.Errorf("writeTool should not have been executed, got callCount = %d", writeTool.CallCount())
 	}

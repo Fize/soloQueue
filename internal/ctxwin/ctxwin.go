@@ -25,19 +25,19 @@ const ImageContextKey contextKey = "image_context"
 
 // ─── PayloadMessage ─────────────────────────────────────────────────────────
 
-// PayloadMessage 是 BuildPayload 的返回类型
+// PayloadMessage is the return type of BuildPayload
 //
-// 独立于 agent.LLMMessage，避免 ctxwin → agent 的循环依赖。
-// Agent 包负责将 PayloadMessage 转为 agent.LLMMessage。
+// Independent of agent.LLMMessage to avoid circular dependency between ctxwin and agent.
+// The Agent package is responsible for converting PayloadMessage to agent.LLMMessage.
 type PayloadMessage struct {
 	Role             string
 	Content          string
-	Images           []llm.ImageContent // 多模态图片（仅 user 消息使用）
+	Images           []llm.ImageContent // Multimodal images (only used in user messages)
 	ReasoningContent string
 	Name             string
 	ToolCallID       string
 	ToolCalls        []llm.ToolCall
-	Timestamp        time.Time // 消息原始时间戳（用于 memory 等需要时间上下文的场景）
+	Timestamp        time.Time // Original message timestamp (used for memory and other time-sensitive contexts)
 }
 
 // ─── MessageRole ────────────────────────────────────────────────────────────
@@ -53,71 +53,71 @@ const (
 
 // ─── Message ────────────────────────────────────────────────────────────────
 
-// Message 是上下文窗口中的一条消息
+// Message represents a single message in the context window
 //
-// Token 计数说明：
-//   - Tokens 在 Push 时通过 tiktoken 估算并固化
-//   - Calibrate 会按比例修正每个 msg.Tokens，使 sum ≈ currentTokens
-//   - 淘汰策略使用 currentTokens 做决策，msg.Tokens 仅用于增量计算
+// Token count notes:
+//   - Tokens are estimated via tiktoken and fixed at push time
+//   - Calibrate proportionally adjusts each msg.Tokens so that sum ≈ currentTokens
+//   - Eviction strategies use currentTokens for decisions; msg.Tokens is only used for incremental calculations
 type Message struct {
 	Role             MessageRole
 	Content          string
-	Images           []llm.ImageContent // 多模态图片（仅 user 消息使用）
-	Tokens           int                // 插入时估算；Calibrate 后不再保证 sum == currentTokens
-	IsEphemeral      bool               // 标记冗长工具输出（大段报错日志、文件读取结果）
-	ReasoningContent string             // DeepSeek reasoning；API roundtrip 需要
-	Name             string             // 工具名（role=tool）
-	ToolCallID       string             // 工具调用 ID（role=tool）
-	ToolCalls        []llm.ToolCall     // role=assistant 时的 tool_calls
-	Timestamp        time.Time          // 消息 push 时的时间戳；replay 时从 timeline event 恢复
+	Images           []llm.ImageContent // Multimodal images (only used in user messages)
+	Tokens           int                // Estimated on insertion; after Calibrate, sum no longer guarantees == currentTokens
+	IsEphemeral      bool               // Marks verbose tool output (large error logs, file read results)
+	ReasoningContent string             // DeepSeek reasoning; required for API roundtrip
+	Name             string             // Tool name (role=tool)
+	ToolCallID       string             // Tool call ID (role=tool)
+	ToolCalls        []llm.ToolCall     // Tool calls when role=assistant
+	Timestamp        time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
 }
 
 // ─── PushOption ─────────────────────────────────────────────────────────────
 
-// PushOption 配置 Message 的可选字段
+// PushOption configures optional fields of a Message
 type PushOption func(*Message)
 
-// WithEphemeral 设置消息的 IsEphemeral 标记
+// WithEphemeral sets the IsEphemeral flag on the message
 func WithEphemeral(isEphemeral bool) PushOption {
 	return func(m *Message) { m.IsEphemeral = isEphemeral }
 }
 
-// WithReasoningContent 设置 DeepSeek thinking 模式的推理内容
+// WithReasoningContent sets the reasoning content for DeepSeek thinking mode
 func WithReasoningContent(rc string) PushOption {
 	return func(m *Message) { m.ReasoningContent = rc }
 }
 
-// WithToolName 设置工具名（role=tool 时使用）
+// WithToolName sets the tool name (used when role=tool)
 func WithToolName(name string) PushOption {
 	return func(m *Message) { m.Name = name }
 }
 
-// WithToolCallID 设置工具调用 ID（role=tool 时使用）
+// WithToolCallID sets the tool call ID (used when role=tool)
 func WithToolCallID(id string) PushOption {
 	return func(m *Message) { m.ToolCallID = id }
 }
 
-// WithImages 设置多模态图片（仅 user 消息使用）
+// WithImages sets multimodal images (only used in user messages)
 func WithImages(images []llm.ImageContent) PushOption {
 	return func(m *Message) { m.Images = images }
 }
 
-// WithToolCalls 设置工具调用列表（role=assistant 时使用）
+// WithToolCalls sets the tool call list (used when role=assistant)
 func WithToolCalls(tcs []llm.ToolCall) PushOption {
 	return func(m *Message) { m.ToolCalls = tcs }
 }
 
-// WithTimestamp 设置消息的时间戳（用于 timeline replay 恢复原始时间）
+// WithTimestamp sets the message timestamp (for restoring original time during timeline replay)
 func WithTimestamp(ts time.Time) PushOption {
 	return func(m *Message) { m.Timestamp = ts }
 }
 
 // ─── PushHook ───────────────────────────────────────────────────────────────
 
-// PushHook 在 Push 完成后被调用（用于持久化到 timeline）
+// PushHook is called after Push completes (for persisting to the timeline)
 //
-// Hook 在 Session 的 mutex 保护内执行，无需额外同步。
-// replayMode 期间 Hook 不会被调用，避免双重写入。
+// The Hook executes within the Session's mutex protection, no additional synchronization needed.
+// During replayMode, the Hook is not called to avoid double writes.
 type PushHook func(msg Message)
 
 // SummarySegment is one compressed chunk of conversation history,
@@ -128,21 +128,21 @@ type SummarySegment struct {
 	Date    time.Time // the calendar date of the messages (for routing to short vs permanent memory)
 }
 
-// SummaryHook 在压缩完成后被调用，传入所有分段（含已过期和近期）。
-// 调用方负责按 Date 决定存入短期 memory、长期 memory 还是 timeline。
+// SummaryHook is called after compression completes, receiving all segments (including expired and recent ones).
+// The caller is responsible for deciding whether to store in short-term memory, long-term memory, or timeline based on Date.
 type SummaryHook func(segments []SummarySegment)
 
 // ─── Option ─────────────────────────────────────────────────────────────────
 
-// Option 配置 ContextWindow 的可选行为
+// Option configures the optional behavior of ContextWindow
 type Option func(*ContextWindow)
 
-// WithPushHook 设置 Push 完成后的回调
+// WithPushHook sets the callback after Push completes
 func WithPushHook(hook PushHook) Option {
 	return func(cw *ContextWindow) { cw.pushHook = hook }
 }
 
-// WithSummaryHook 设置异步压缩完成后的回调
+// WithSummaryHook sets the callback after asynchronous compression completes
 func WithSummaryHook(hook SummaryHook) Option {
 	return func(cw *ContextWindow) { cw.summaryHook = hook }
 }

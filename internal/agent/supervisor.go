@@ -16,19 +16,19 @@ import (
 
 // ─── Supervisor ────────────────────────────────────────────────────────────
 
-// Supervisor 是 L2 领域主管
+// Supervisor is the L2 domain manager
 //
-// 组合 Agent（而非嵌入），持有 L2 Agent 实例和 AgentFactory，
-// 负责 L3 子 Agent 的生命周期管理（Spawn/Reap）。
+// It composes an Agent (rather than embedding), holding the L2 Agent instance and AgentFactory,
+// responsible for L3 sub-Agent lifecycle management (Spawn/Reap).
 //
-// children 是 templateID → []childSlot 的映射，支持同一模板的多个 L3 实例
-// 并行工作（每个实例拥有独立的 context window 和 mailbox）。
+// 'children' is a map from templateID to []childSlot, supporting multiple L3 instances of the same template
+// working in parallel (each instance having its own context window and mailbox).
 //
-// L2 的 Fan-out/Fan-in 复用现有 execTools 并行机制：
-//   - L2 LLM 返回多个 delegate_* tool_calls
-//   - execTools 并行执行每个 DelegateTool
-//   - 每个 DelegateTool 同步阻塞调用 L3.Ask()
-//   - 全部完成后结果注入 L2 上下文
+// L2's Fan-out/Fan-in reuses the existing execTools parallel mechanism:
+//   - The L2 LLM returns multiple delegate_* tool_calls
+//   - execTools executes each DelegateTool in parallel
+//   - Each DelegateTool synchronously blocks on L3.Ask()
+//   - After all are completed, the results are injected into the L2 context
 type Supervisor struct {
 	agent    *Agent
 	factory  AgentFactory
@@ -38,14 +38,14 @@ type Supervisor struct {
 	log      *logger.Logger
 }
 
-// childSlot 追踪一个 L3 子 Agent
+// childSlot tracks an L3 child Agent
 type childSlot struct {
 	agent     *Agent
 	cw        *ctxwin.ContextWindow
 	createdAt time.Time
 }
 
-// NewSupervisor 创建 Supervisor
+// NewSupervisor creates a Supervisor
 func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supervisor {
 	return &Supervisor{
 		agent:    agent,
@@ -92,12 +92,12 @@ func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate, workDir
 	return child, nil
 }
 
-// ReapChild 回收一个子 Agent（按 InstanceID 查找）
+// ReapChild reaps a child Agent (by InstanceID)
 //
-// 彻底清理：
-//  1. Stop Agent（关闭 mailbox + cancel ctx + 等 goroutine 退出）
-//  2. Unregister from Registry（断开 Locator 引用）
-//  3. 显式释放引用（帮助 GC）
+// Full cleanup:
+//  1. Stop Agent (close mailbox + cancel ctx + wait for goroutines to exit)
+//  2. Unregister from Registry (break Locator reference)
+//  3. Explicitly release references (aid GC)
 func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 	s.childMu.Lock()
 	var tmplID string
@@ -138,7 +138,7 @@ func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 				"instance_id", instanceID,
 			)
 		}
-		// 继续清理，不返回错误（Stop 超时不是致命错误）
+		// Continue cleanup, do not return an error (Stop timeout is not a fatal error)
 	}
 
 	// 2. Unregister from Registry
@@ -146,7 +146,7 @@ func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 		s.factory.Registry().Unregister(instanceID)
 	}
 
-	// 3. 显式释放引用
+	// 3. Explicitly release references
 	slot.cw = nil
 	slot.agent = nil
 
@@ -160,9 +160,9 @@ func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 	return nil
 }
 
-// ReapAll 回收所有子 Agent
+// ReapAll reaps all child Agents
 //
-// 返回每个子 Agent 的回收错误（如有）。即使部分失败，也会尝试回收所有。
+// Returns reaping errors for each child Agent (if any). Even if some fail, it attempts to reap all.
 func (s *Supervisor) ReapAll(timeout time.Duration) []error {
 	s.childMu.Lock()
 	type reapTarget struct {
@@ -185,7 +185,7 @@ func (s *Supervisor) ReapAll(timeout time.Duration) []error {
 	return errs
 }
 
-// Children 返回当前所有子 Agent 的快照，按名称排序以保证稳定显示。
+// Children returns a snapshot of all current child Agents, sorted by name for stable display.
 func (s *Supervisor) Children() []*Agent {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
@@ -225,10 +225,10 @@ func (s *Supervisor) SetGroup(g string) { s.group = g }
 // Group returns the team group name.
 func (s *Supervisor) Group() string { return s.group }
 
-// Agent 返回 Supervisor 管理的 L2 Agent
+// Agent returns the L2 Agent managed by the Supervisor
 func (s *Supervisor) Agent() *Agent { return s.agent }
 
-// ChildCount 返回当前子 Agent 数量
+// ChildCount returns the current number of child Agents
 func (s *Supervisor) ChildCount() int {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
@@ -334,12 +334,12 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 	}
 }
 
-// ─── SpawnFn 闭包注入 ──────────────────────────────────────────────────────
+// ─── SpawnFn closure injection ──────────────────────────────────────────────────────
 
-// SpawnFnFor 为指定 SubAgent 模板创建 SpawnFn 闭包
+// SpawnFnFor creates a SpawnFn closure for the given SubAgent template
 //
-// 注入到 L2 的 DelegateTool.SpawnFn 中，使 DelegateTool 可以动态孵化 L3。
-// DelegateTool 不感知 Supervisor/Factory 的存在，只调用注入的闭包。
+// Injects into the L2's DelegateTool.SpawnFn, allowing the DelegateTool to dynamically spawn L3 agents.
+// The DelegateTool is unaware of the Supervisor/Factory's existence; it only calls the injected closure.
 // workDir is passed through from the delegate tool.
 func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
 	return func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
@@ -354,9 +354,9 @@ func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, ta
 	}
 }
 
-// SpawnFnForID 根据 child ID 查找模板并创建 SpawnFn
+// SpawnFnForID finds a template by child ID and creates a SpawnFn
 //
-// 如果找不到对应模板，返回错误。
+// Returns an error if the corresponding template is not found.
 func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
 	var tmpl *AgentTemplate
 	for i := range allTemplates {

@@ -4,8 +4,8 @@ import "context"
 
 // ─── Context Keys ─────────────────────────────────────────────────────────────
 
-// ctxKey 是 context 中 logger 字段的 key 类型
-// 使用非导出的自定义类型防止 key 冲突
+// ctxKey is the type for logger field keys in a context
+// Using an unexported custom type prevents key collisions
 type ctxKey int
 
 const (
@@ -13,8 +13,8 @@ const (
 	ctxKeyActorID
 )
 
-// WithTraceID 返回携带 trace_id 的新 context
-// logger 的 *Context 方法会自动从 context 中提取 trace_id 注入日志
+// WithTraceID returns a new context carrying the trace_id
+// The logger's *Context method automatically extracts the trace_id from the context and injects it into logs
 func WithTraceID(ctx context.Context, id string) context.Context {
 	if id == "" {
 		return ctx
@@ -22,7 +22,7 @@ func WithTraceID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, ctxKeyTraceID, id)
 }
 
-// WithActorID 返回携带 actor_id 的新 context
+// WithActorID returns a new context carrying the actor_id
 func WithActorID(ctx context.Context, id string) context.Context {
 	if id == "" {
 		return ctx
@@ -30,7 +30,7 @@ func WithActorID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, ctxKeyActorID, id)
 }
 
-// TraceIDFromContext 从 context 中提取 trace_id；不存在返回 ""
+// TraceIDFromContext extracts the trace_id from the context; returns "" if not present
 func TraceIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -39,7 +39,7 @@ func TraceIDFromContext(ctx context.Context) string {
 	return v
 }
 
-// ActorIDFromContext 从 context 中提取 actor_id；不存在返回 ""
+// ActorIDFromContext extracts the actor_id from the context; returns "" if not present
 func ActorIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""

@@ -21,16 +21,16 @@ import (
 
 // ─── Test server helpers ─────────────────────────────────────────────────────
 
-// script 是对单个 HTTP 请求的响应控制
+// script controls the response for a single HTTP request.
 type script struct {
 	Status    int
 	Headers   map[string]string
-	Body      string        // 整段 body（非 SSE）
-	SSE       []string      // 若非空，按 SSE 格式输出
-	DelayBody time.Duration // 开始写 body 前的延迟
+	Body      string        // Full body (non-SSE)
+	SSE       []string      // If non-empty, output in SSE format
+	DelayBody time.Duration // Delay before starting to write the body
 }
 
-// recorder 记录服务端收到的请求
+// recorder records requests received by the server.
 type recorder struct {
 	mu       sync.Mutex
 	requests []recordedReq
@@ -61,8 +61,8 @@ func (r *recorder) Get(i int) recordedReq {
 	return r.requests[i]
 }
 
-// newFakeDeepSeek 按顺序返回 scripts 里的响应；第 i 次请求用 scripts[i]
-// 若请求数超过 scripts 长度，返回 500
+// newFakeDeepSeek returns responses from scripts in order; the i-th request uses scripts[i].
+// If the number of requests exceeds the length of scripts, returns 500.
 func newFakeDeepSeek(t *testing.T, scripts ...script) (*httptest.Server, *recorder) {
 	t.Helper()
 	rec := &recorder{}
@@ -117,7 +117,7 @@ func newFakeDeepSeek(t *testing.T, scripts ...script) (*httptest.Server, *record
 	return srv, rec
 }
 
-// newClient 是测试构造 helper
+// newClient is a test construction helper.
 func newClient(t *testing.T, srv *httptest.Server, opts ...func(*Config)) *Client {
 	t.Helper()
 	cfg := Config{
@@ -135,7 +135,7 @@ func newClient(t *testing.T, srv *httptest.Server, opts ...func(*Config)) *Clien
 	return c
 }
 
-// sseChunk 构造一行 SSE payload
+// sseChunk constructs a single SSE payload line.
 func sseChunk(v any) string {
 	data, _ := json.Marshal(v)
 	return "data: " + string(data) + "\n\n"
@@ -294,7 +294,7 @@ func TestChatStream_MalformedChunk_ProducesErrorEvent(t *testing.T) {
 }
 
 func TestChatStream_CtxCancel_DuringStream(t *testing.T) {
-	// 构造一个每 chunk 间 sleep 的流，caller 中途取消
+	// Constructs a stream that sleeps between chunks, with the caller canceling midway.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, _ := w.(http.Flusher)
 		w.WriteHeader(http.StatusOK)
@@ -356,14 +356,14 @@ func TestChatStream_APIError_401_NotRetried(t *testing.T) {
 	if apiErr.StatusCode != 401 || apiErr.Code != "invalid_api_key" {
 		t.Errorf("apiErr = %+v", apiErr)
 	}
-	// 不 retry：只一次请求
+	// No retry: only one request.
 	if rec.Len() != 1 {
 		t.Errorf("HTTP calls = %d, want 1 (no retry)", rec.Len())
 	}
 }
 
 func TestChatStream_APIError_429_Retried(t *testing.T) {
-	// 前 2 次 429，第 3 次成功
+	// First 2 times 429, 3rd time successful.
 	srv, rec := newFakeDeepSeek(t,
 		script{Status: 429, Body: `{"error":{"message":"rate limit","type":"rate_limit_reached"}}`},
 		script{Status: 429, Body: `{"error":{"message":"rate limit","type":"rate_limit_reached"}}`},
@@ -416,7 +416,7 @@ func TestChatStream_APIError_500_RetriedThenGivesUp(t *testing.T) {
 }
 
 func TestChatStream_RawErrorBody_NonEnvelope(t *testing.T) {
-	// 非标准 envelope，Message 应填原始文本
+	// Non-standard envelope, Message should contain raw text.
 	srv, _ := newFakeDeepSeek(t, script{
 		Status: 502,
 		Body:   "Bad Gateway",
@@ -503,7 +503,7 @@ func TestChat_AccumulatesReasoningContent(t *testing.T) {
 }
 
 func TestChat_AccumulatesToolCalls(t *testing.T) {
-	// 跨 3 个 chunk 拼 tool_call arguments
+	// Concatenates tool_call arguments across 3 chunks.
 	srv, _ := newFakeDeepSeek(t, script{
 		SSE: []string{
 			sseChunk(map[string]any{
@@ -564,7 +564,7 @@ func TestChat_StreamEndedWithoutDone(t *testing.T) {
 			sseChunk(map[string]any{
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": "incomplete"}}},
 			}),
-			// 没有 finish_reason 也没有 [DONE]
+			// No finish_reason and no [DONE].
 		},
 	})
 	c := newClient(t, srv)
@@ -619,7 +619,7 @@ func TestChatStream_RequestBody_StreamAlwaysTrue(t *testing.T) {
 		t.Errorf("Content-Type = %q", got)
 	}
 
-	// 断言 body 包含 stream=true + stream_options.include_usage=true
+	// Assert that the body contains stream=true + stream_options.include_usage=true.
 	var body map[string]any
 	if err := json.Unmarshal(req.Body, &body); err != nil {
 		t.Fatalf("body unmarshal: %v (raw: %s)", err, req.Body)
@@ -677,7 +677,7 @@ func TestClient_ImplementsLLMClient(t *testing.T) {
 	})
 	c := newClient(t, srv)
 
-	// 通过 agent.LLMClient 接口调用
+	// Call via agent.LLMClient interface.
 	var client agent.LLMClient = c
 	resp, err := client.Chat(context.Background(), agent.LLMRequest{
 		Model:    "m",
@@ -694,8 +694,8 @@ func TestClient_ImplementsLLMClient(t *testing.T) {
 // ─── Coverage fill-in ────────────────────────────────────────────────────────
 
 func TestParseAPIError_ReadBodyFail(t *testing.T) {
-	// 响应 Body 读失败：构造一个会在读时出错的 reader
-	// 通过 httptest 很难模拟，这里直接传一个构造好的 response
+	// Response Body read failed: construct a reader that will error during read.
+	// Difficult to simulate with httptest, passing a pre-constructed response directly here.
 	r := &http.Response{
 		StatusCode: 500,
 		Body:       errReader{},
@@ -709,7 +709,7 @@ func TestParseAPIError_ReadBodyFail(t *testing.T) {
 	}
 }
 
-// errReader 每次 Read 都返回 error
+// errReader returns an error on every Read.
 type errReader struct{}
 
 func (errReader) Read(_ []byte) (int, error) { return 0, errors.New("read fail") }
@@ -725,7 +725,7 @@ func TestTruncate(t *testing.T) {
 		t.Errorf("truncated string length = %d", len(got))
 	}
 
-	// short：不截断
+	// short: no truncation.
 	short := "hello"
 	if got := truncate(short, 20); got != "hello" {
 		t.Errorf("short string should not be truncated: %q", got)
@@ -744,7 +744,7 @@ func TestClient_WithTimeoutMs(t *testing.T) {
 }
 
 func TestChatStream_WithLogger(t *testing.T) {
-	// 覆盖 logger 非 nil 的路径（logStart + logError）
+	// Cover the non-nil logger paths (logStart + logError).
 	dir := t.TempDir()
 	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
@@ -781,7 +781,7 @@ func TestSSE_SimpleDataLine(t *testing.T) {
 		t.Errorf("payload = %q", p)
 	}
 
-	// 后续应 EOF
+	// Subsequent calls should be EOF.
 	_, err = r.Next()
 	if !errors.Is(err, io.EOF) {
 		t.Errorf("want EOF, got %v", err)
@@ -821,7 +821,7 @@ func TestSSE_CommentLinesSkipped(t *testing.T) {
 }
 
 func TestSSE_BlankLinesSkipped(t *testing.T) {
-	// 连续空行（SSE event boundary）不报错
+	// Consecutive blank lines (SSE event boundary) should not cause an error.
 	input := "\n\n\n\ndata: x\n\n"
 	r := newSSEReader(strings.NewReader(input))
 	p, err := r.Next()
@@ -852,7 +852,7 @@ func TestSSE_DoneMarker(t *testing.T) {
 }
 
 func TestSSE_DoneMarker_ErrorString(t *testing.T) {
-	// 顺便校验 sentinel 的字符串表示
+	// Also verify the string representation of the sentinel error.
 	got := errSSEDone.Error()
 	if !strings.Contains(got, "[DONE]") {
 		t.Errorf("errSSEDone.Error = %q", got)
@@ -860,7 +860,7 @@ func TestSSE_DoneMarker_ErrorString(t *testing.T) {
 }
 
 func TestSSE_NonDataFieldsIgnored(t *testing.T) {
-	// SSE 规范允许 event: id: retry: 字段，我们都忽略
+	// The SSE specification allows event:, id:, retry: fields, which we ignore.
 	input := "event: message\nid: 123\nretry: 1000\ndata: real\n\n"
 	r := newSSEReader(strings.NewReader(input))
 	p, err := r.Next()
@@ -873,7 +873,7 @@ func TestSSE_NonDataFieldsIgnored(t *testing.T) {
 }
 
 func TestSSE_DataWithoutSpace(t *testing.T) {
-	// "data:xxx" 没有空格也合法
+	// "data:xxx" without a space is also valid.
 	input := "data:hello\n\n"
 	r := newSSEReader(strings.NewReader(input))
 	p, err := r.Next()

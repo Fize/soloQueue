@@ -420,7 +420,7 @@ func TestMultiReplace_MetadataInterface(t *testing.T) {
 	}
 }
 
-// ─── Confirmable 接口测试 ────────────────────────────────────────────────────
+// ─── Confirmable Interface Tests ─────────────────────────────────────────────
 
 func TestReplace_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
 	tool, _ := mkReplaceTool(t, 1024, 1024)
@@ -474,7 +474,7 @@ func TestReplace_SupportsSessionWhitelist(t *testing.T) {
 	}
 }
 
-// ─── MultiReplace Confirmable 测试 ──────────────────────────────────────────
+// ─── MultiReplace Confirmable Tests ──────────────────────────────────────────
 
 func TestMultiReplace_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
 	tool, _ := mkMultiReplaceTool(t, 10, 1024, 1024)

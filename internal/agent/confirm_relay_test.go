@@ -13,7 +13,7 @@ import (
 
 // ─── Test Fixtures ───────────────────────────────────────────────────────────
 
-// confirmBubbleFixture 模拟一个 3-层代理体系来测试 confirm event 冒泡
+// confirmBubbleFixture simulates a 3-layer agent system to test confirm event bubbling.
 type confirmBubbleFixture struct {
 	L1Agent  *Agent
 	L2Agent  *Agent
@@ -27,10 +27,10 @@ type confirmBubbleFixture struct {
 func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 	reg := NewRegistry(nil)
 
-	// L3 agent: 有一个 confirmable tool
+	// L3 agent: has a confirmable tool
 	l3LLM := &FakeLLM{
 		Responses: []string{"task completed"},
-		// L3 需要先调用 dangerous_op（confirmable），后面再返回结果
+		// L3 needs to first call dangerous_op (confirmable), then return the result
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
 				llm.ToolCallDelta{
@@ -56,7 +56,7 @@ func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 		t.Fatalf("failed to register L3: %v", err)
 	}
 
-	// L2 agent: 有 delegate tool，会调用 L3
+	// L2 agent: has a delegate tool, which calls L3
 	l2LLM := &FakeLLM{
 		Responses: []string{"delegated result"},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
@@ -88,7 +88,7 @@ func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 		t.Fatalf("failed to register L2: %v", err)
 	}
 
-	// L1 agent: 顶层 caller，会委托给 L2
+	// L1 agent: top-level caller, will delegate to L2
 	l1LLM := &FakeLLM{
 		Responses: []string{"final result"},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
@@ -136,11 +136,11 @@ func (f *confirmBubbleFixture) Cleanup() {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-// TestConfirmEventBubble_L3DirectConfirm 测试 L3 单层的 confirm 机制
+// TestConfirmEventBubble_L3DirectConfirm tests the L3 single-layer confirm mechanism.
 func TestConfirmEventBubble_L3DirectConfirm(t *testing.T) {
 	reg := NewRegistry(nil)
 
-	// 创建 L3 agent 直接使用 confirmable tool
+	// Create L3 agent to directly use the confirmable tool
 	l3LLM := &FakeLLM{
 		Responses: []string{"completed"},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
@@ -172,7 +172,7 @@ func TestConfirmEventBubble_L3DirectConfirm(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 从 L3 直接投递
+	// Deliver directly from L3
 	eventCh, err := l3Agent.AskStream(ctx, "invoke dangerous op")
 	if err != nil {
 		t.Fatalf("AskStream failed: %v", err)
@@ -191,7 +191,7 @@ func TestConfirmEventBubble_L3DirectConfirm(t *testing.T) {
 			confirmID = e.CallID
 			foundConfirm = true
 
-			// 确认执行
+			// Confirm execution
 			if err := l3Agent.Confirm(e.CallID, "yes"); err != nil {
 				t.Fatalf("L3.Confirm failed: %v", err)
 			}
@@ -223,7 +223,7 @@ func TestConfirmEventBubble_L3DirectConfirm(t *testing.T) {
 	}
 }
 
-// TestConfirmEventBubble_L2Respond_L3Executes 测试 L2→L3 的 confirm 路由
+// TestConfirmEventBubble_L2Respond_L3Executes tests the L2→L3 confirm routing.
 func TestConfirmEventBubble_L2Respond_L3Executes(t *testing.T) {
 	fix := setupConfirmBubbleFixture(t)
 	defer fix.Cleanup()
@@ -232,7 +232,7 @@ func TestConfirmEventBubble_L2Respond_L3Executes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// 从 L2 直接投递（跳过 L1），测试 L2→L3 的 confirm 路由
+	// Deliver directly from L2 (skipping L1), testing L2→L3 confirm routing
 	eventCh, err := fix.L2Agent.AskStream(ctx, "invoke L3 task")
 	if err != nil {
 		t.Fatalf("AskStream failed: %v", err)
@@ -291,7 +291,7 @@ func TestConfirmEventBubble_L2Respond_L3Executes(t *testing.T) {
 	}
 }
 
-// TestConfirmEventBubble_Denied 测试用户拒绝确认时的行为
+// TestConfirmEventBubble_Denied tests the behavior when the user denies confirmation.
 func TestConfirmEventBubble_Denied(t *testing.T) {
 	fix := setupConfirmBubbleFixture(t)
 	defer fix.Cleanup()
@@ -316,7 +316,7 @@ func TestConfirmEventBubble_Denied(t *testing.T) {
 			t.Logf("✓ Got ToolNeedsConfirmEvent: CallID=%s", e.CallID)
 			foundConfirm = true
 
-			// 拒绝（传空字符串）
+			// Deny (pass empty string)
 			if err := fix.L2Agent.Confirm(e.CallID, ""); err != nil {
 				t.Logf("L2.Confirm denied: %v", err)
 			}
@@ -346,9 +346,9 @@ func TestConfirmEventBubble_Denied(t *testing.T) {
 	}
 }
 
-// TestConfirmEventBubble_ContextPropagation 验证 context key 能正确跨包传递
+// TestConfirmEventBubble_ContextPropagation verifies that context keys can be correctly passed across packages.
 func TestConfirmEventBubble_ContextPropagation(t *testing.T) {
-	// 测试 tools 包中的 context helper 函数
+	// Test context helper functions in the tools package
 	ctx := context.Background()
 
 	// Create a typed channel
@@ -358,7 +358,7 @@ func TestConfirmEventBubble_ContextPropagation(t *testing.T) {
 	// Inject via tools package helper
 	ctxWithCh := tools.WithToolEventChannel(ctx, ch)
 
-	// 验证可以提取出来
+	// Verify it can be extracted
 	extracted, ok := tools.ToolEventChannelFromCtx(ctxWithCh)
 	if !ok {
 		t.Fatal("Failed to extract ToolEventChannel from context")
@@ -370,7 +370,7 @@ func TestConfirmEventBubble_ContextPropagation(t *testing.T) {
 
 	t.Log("✓ Context key propagation works correctly")
 
-	// 测试 ConfirmForwarder
+	// Test ConfirmForwarder
 	testForwarder := iface.ConfirmForwarder(func(ctx context.Context, callID string, child iface.Locatable) (string, error) {
 		return "yes", nil
 	})
@@ -388,7 +388,7 @@ func TestConfirmEventBubble_ContextPropagation(t *testing.T) {
 	t.Log("✓ ConfirmForwarder context propagation works correctly")
 }
 
-// TestConfirmEventBubble_EventRelay 验证中继通道能将 AgentEvent 正确转换为 interface{}
+// TestConfirmEventBubble_EventRelay verifies that the relay channel can correctly convert AgentEvent to interface{}.
 func TestConfirmEventBubble_EventRelay(t *testing.T) {
 	fix := setupConfirmBubbleFixture(t)
 	defer fix.Cleanup()
@@ -396,7 +396,7 @@ func TestConfirmEventBubble_EventRelay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 从 L2 投递一个简单的请求
+	// Deliver a simple request from L2
 	eventCh, err := fix.L2Agent.AskStream(ctx, "simple task")
 	if err != nil {
 		t.Fatalf("AskStream failed: %v", err)
@@ -407,7 +407,7 @@ func TestConfirmEventBubble_EventRelay(t *testing.T) {
 		eventTypes = append(eventTypes, fmt.Sprintf("%T", ev))
 	}
 
-	// 应该收到各种事件类型
+	// Should receive various event types
 	if len(eventTypes) == 0 {
 		t.Error("No events received")
 	} else {
@@ -415,12 +415,12 @@ func TestConfirmEventBubble_EventRelay(t *testing.T) {
 	}
 }
 
-// TestConfirmEventBubble_LocatableAdapter 验证 LocatableAdapter 能正确适配接口
+// TestConfirmEventBubble_LocatableAdapter verifies that LocatableAdapter can correctly adapt interfaces.
 func TestConfirmEventBubble_LocatableAdapter(t *testing.T) {
 	fix := setupConfirmBubbleFixture(t)
 	defer fix.Cleanup()
 
-	// 通过 Registry.Locate 获取 LocatableAdapter
+	// Get LocatableAdapter via Registry.Locate
 	locatable, ok := fix.registry.Locate("l3")
 	if !ok {
 		t.Fatal("Failed to locate L3")
@@ -432,7 +432,7 @@ func TestConfirmEventBubble_LocatableAdapter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 调用 AskStream 应该返回 interface{} 通道
+	// Calling AskStream should return an interface{} channel
 	eventCh, err := locatable.AskStream(ctx, "test prompt")
 	if err != nil {
 		t.Fatalf("AskStream failed: %v", err)
@@ -442,10 +442,10 @@ func TestConfirmEventBubble_LocatableAdapter(t *testing.T) {
 		t.Error("AskStream returned nil channel")
 	}
 
-	// 收集一些事件以验证转换成功
+	// Collect some events to verify successful conversion
 	count := 0
 	for ev := range eventCh {
-		_ = ev // interface{} 类型事件
+		_ = ev // interface{} type event
 		count++
 		if count > 10 {
 			break

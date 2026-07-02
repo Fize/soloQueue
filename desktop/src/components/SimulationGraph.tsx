@@ -61,17 +61,17 @@ const RELATION_STYLES: Record<
   string,
   { color: string; dash: number[]; width: number; label: string; arrow: boolean }
 > = {
-  parent: { color: '#ec4899', dash: [], width: 2.5, label: '父母', arrow: true },
-  child: { color: '#ec4899', dash: [4, 4], width: 2, label: '子女', arrow: true },
-  sibling: { color: '#a855f7', dash: [], width: 2, label: '兄弟姐妹', arrow: false },
-  spouse: { color: '#ec4899', dash: [2, 6], width: 2, label: '配偶', arrow: false },
-  friend: { color: '#14b8a6', dash: [], width: 2, label: '朋友', arrow: false },
-  rival: { color: '#9a3412', dash: [6, 3], width: 2.5, label: '竞争对手', arrow: false },
-  colleague: { color: '#64748b', dash: [], width: 1.5, label: '同事', arrow: false },
-  mentor: { color: '#d97706', dash: [3, 3], width: 2, label: '导师', arrow: true },
-  mentee: { color: '#d97706', dash: [6, 3], width: 2, label: '徒弟', arrow: true },
-  neighbor: { color: '#94a3b8', dash: [2, 4], width: 1.5, label: '邻居', arrow: false },
-  stranger: { color: '#cbd5e1', dash: [1, 6], width: 0.5, label: '陌生人', arrow: false },
+  parent: { color: '#ec4899', dash: [], width: 2.5, label: 'Parent', arrow: true },
+  child: { color: '#ec4899', dash: [4, 4], width: 2, label: 'Child', arrow: true },
+  sibling: { color: '#a855f7', dash: [], width: 2, label: 'Sibling', arrow: false },
+  spouse: { color: '#ec4899', dash: [2, 6], width: 2, label: 'Spouse', arrow: false },
+  friend: { color: '#14b8a6', dash: [], width: 2, label: 'Friend', arrow: false },
+  rival: { color: '#9a3412', dash: [6, 3], width: 2.5, label: 'Rival', arrow: false },
+  colleague: { color: '#64748b', dash: [], width: 1.5, label: 'Colleague', arrow: false },
+  mentor: { color: '#d97706', dash: [3, 3], width: 2, label: 'Mentor', arrow: true },
+  mentee: { color: '#d97706', dash: [6, 3], width: 2, label: 'Mentee', arrow: true },
+  neighbor: { color: '#94a3b8', dash: [2, 4], width: 1.5, label: 'Neighbor', arrow: false },
+  stranger: { color: '#cbd5e1', dash: [1, 6], width: 0.5, label: 'Stranger', arrow: false },
 }
 
 export function SimulationGraph({
@@ -572,34 +572,34 @@ export function SimulationGraph({
               className="w-2.5 h-2.5 rounded-full block"
               style={{ backgroundColor: ROLE_COLORS.host }}
             />{' '}
-            主持/调解人
+            Moderator/Mediator
           </span>
           <span className="flex items-center gap-1.5">
             <span
               className="w-2.5 h-2.5 rounded-full block"
               style={{ backgroundColor: ROLE_COLORS.pro }}
             />{' '}
-            支持 (正方)
+            Supporter (Pro)
           </span>
           <span className="flex items-center gap-1.5">
             <span
               className="w-2.5 h-2.5 rounded-full block"
               style={{ backgroundColor: ROLE_COLORS.con }}
             />{' '}
-            反对 (反方)
+            Opponent (Con)
           </span>
           <span className="flex items-center gap-1.5">
             <span
               className="w-2.5 h-2.5 rounded-full block"
               style={{ backgroundColor: ROLE_COLORS.neutral }}
             />{' '}
-            中立
+            Neutral
           </span>
         </div>
         {/* Relationship legend */}
         {relationships.length > 0 && (graphLayer === 'relationship' || graphLayer === 'both') && (
           <div className="mt-1.5 pt-1.5 border-t border-border/40">
-            <div className="text-[9px] text-muted-foreground mb-1">社会关系:</div>
+            <div className="text-[9px] text-muted-foreground mb-1">Social Relationships:</div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
               {getActiveRelationKinds(relationships).map((kind) => {
                 const style = RELATION_STYLES[kind] || RELATION_STYLES.stranger
@@ -627,7 +627,7 @@ export function SimulationGraph({
       </div>
       {/* Controls hint */}
       <div className="absolute bottom-3 right-3 text-[10px] text-muted-foreground/60 font-mono select-none z-10 bg-card/60 backdrop-blur-sm px-2 py-1 rounded border border-border/40">
-        滚轮缩放 • 拖动平移 • 点击选择智能体
+        Scroll to zoom • Drag to pan • Click to select agent
       </div>
     </div>
   )

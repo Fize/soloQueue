@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// ParseLogLevel 将字符串日志级别转为 slog.Level
+// ParseLogLevel Parses a string log level into slog.Level
 func ParseLogLevel(level string) slog.Level {
 	switch strings.ToLower(level) {
 	case "debug":

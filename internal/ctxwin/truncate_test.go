@@ -11,7 +11,7 @@ import (
 // ─── charLevelTruncate ─────────────────────────────────────────────────────
 
 func TestCharLevelTruncate(t *testing.T) {
-	// 100 字符，保留前 10% + 后 20% = 10 + 20 = 30 字符
+	// 100 characters, preserve first 10% + last 20% = 10 + 20 = 30 characters
 	s := strings.Repeat("x", 100)
 	result := charLevelTruncate(s, 0.10, 0.20)
 	if len(result) >= 100 {
@@ -26,7 +26,7 @@ func TestCharLevelTruncate(t *testing.T) {
 }
 
 func TestCharLevelTruncateShort(t *testing.T) {
-	// 单字符不应该被截断（head+tail >= n）
+	// Single character should not be truncated (head+tail >= n)
 	s := "x"
 	result := charLevelTruncate(s, 0.10, 0.20)
 	if result != s {
@@ -35,8 +35,8 @@ func TestCharLevelTruncateShort(t *testing.T) {
 }
 
 func TestCharLevelTruncateChinese(t *testing.T) {
-	// 中文字符，每个 rune 算一个字符
-	s := strings.Repeat("你", 100)
+	// Chinese characters, each rune counts as one character
+	s := strings.Repeat("you", 100)
 	result := charLevelTruncate(s, 0.10, 0.20)
 	if !strings.Contains(result, "omitted") {
 		t.Error("should contain omission marker for Chinese")
@@ -47,7 +47,7 @@ func TestCharLevelTruncateChinese(t *testing.T) {
 
 func TestTryJSONObjectTruncate(t *testing.T) {
 	tok := NewTokenizer()
-	// 构造一个包含大 content 字段的 JSON
+	// Construct a JSON object with a large 'content' field
 	largeContent := strings.Repeat("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n", 50)
 	obj := map[string]any{
 		"path":    "main.go",
@@ -61,21 +61,21 @@ func TestTryJSONObjectTruncate(t *testing.T) {
 		t.Fatal("tryJSONObjectTruncate returned empty string")
 	}
 
-	// 结果应该是合法 JSON
+	// The result should be valid JSON
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
 		t.Fatalf("result is not valid JSON: %v\n%s", err, result)
 	}
 
-	// 小字段应该保留
+	// Small fields should be preserved
 	if parsed["path"] != "main.go" {
 		t.Errorf("path = %v, want main.go", parsed["path"])
 	}
-	// size 应该保留（数字不是字符串，不会被截断）
+	// 'size' should be preserved (numbers are not strings, so they won't be truncated)
 	if parsed["size"] != float64(2048) {
 		t.Errorf("size = %v, want 2048", parsed["size"])
 	}
-	// content 应该被截断
+	// 'content' should be truncated
 	content, ok := parsed["content"].(string)
 	if !ok {
 		t.Fatal("content should be a string")
@@ -90,7 +90,7 @@ func TestTryJSONObjectTruncate(t *testing.T) {
 
 func TestTryJSONObjectTruncateSmallFields(t *testing.T) {
 	tok := NewTokenizer()
-	// 小字段不应该被截断
+	// Small fields should not be truncated
 	obj := map[string]any{
 		"exit_code": 0,
 		"stdout":    "hello",
@@ -99,7 +99,7 @@ func TestTryJSONObjectTruncateSmallFields(t *testing.T) {
 	input, _ := json.Marshal(obj)
 
 	result := tryJSONObjectTruncate(string(input), tok)
-	// 所有字段都很小，应该返回 ""（无需截断）
+	// All fields are small, should return "" (no truncation needed)
 	if result != "" {
 		t.Errorf("small fields should not be truncated, got: %s", result)
 	}
@@ -115,7 +115,7 @@ func TestTryJSONObjectTruncateNonJSON(t *testing.T) {
 
 func TestTryJSONObjectTruncateErrorPrefix(t *testing.T) {
 	tok := NewTokenizer()
-	// "error: ..." 格式的工具错误输出不是 JSON，应该返回 ""
+	// Tool error output in "error: ..." format is not JSON, should return ""
 	result := tryJSONObjectTruncate("error: command not found", tok)
 	if result != "" {
 		t.Errorf("error string should return empty string, got: %s", result)
@@ -126,7 +126,7 @@ func TestTryJSONObjectTruncateErrorPrefix(t *testing.T) {
 
 func TestTryJSONArrayTruncate(t *testing.T) {
 	tok := NewTokenizer()
-	// 构造一个包含 50 个元素的 JSON 数组
+	// Construct a JSON array with 50 elements
 	arr := make([]any, 50)
 	for i := range arr {
 		arr[i] = map[string]any{"file": "test.go", "line": i}
@@ -138,20 +138,20 @@ func TestTryJSONArrayTruncate(t *testing.T) {
 		t.Fatal("tryJSONArrayTruncate returned empty string")
 	}
 
-	// 结果应该是合法 JSON
+	// The result should be valid JSON
 	var parsed []any
 	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
 		t.Fatalf("result is not valid JSON: %v", err)
 	}
 
-	// 应该包含头尾元素 + 一个省略标记
+	// Should contain head and tail elements + an omission marker
 	// head = max(1, 50*0.10) = 5, tail = max(1, 50*0.20) = 10
 	expectedLen := 5 + 1 + 10 // head + omission + tail
 	if len(parsed) != expectedLen {
 		t.Errorf("parsed array len = %d, want %d", len(parsed), expectedLen)
 	}
 
-	// 省略标记应该是一个字符串
+	// Omission marker should be a string
 	marker, ok := parsed[5].(string)
 	if !ok || !strings.Contains(marker, "omitted") {
 		t.Errorf("omission marker should be a string with omitted, got: %v", parsed[5])
@@ -160,7 +160,7 @@ func TestTryJSONArrayTruncate(t *testing.T) {
 
 func TestTryJSONArrayTruncateSmall(t *testing.T) {
 	tok := NewTokenizer()
-	// 少于 10 个元素，不应该截断
+	// Fewer than 10 elements, should not be truncated
 	arr := []any{1, 2, 3, 4, 5}
 	input, _ := json.Marshal(arr)
 
@@ -174,7 +174,7 @@ func TestTryJSONArrayTruncateSmall(t *testing.T) {
 
 func TestTryJSONTruncateObject(t *testing.T) {
 	tok := NewTokenizer()
-	// body 需要超过 largeFieldTokenThreshold=500 tokens
+	// 'body' needs to exceed largeFieldTokenThreshold=500 tokens
 	largeContent := strings.Repeat("This is a paragraph of HTTP response body content that should be long enough to exceed the threshold. ", 50)
 	obj := map[string]any{
 		"status": 200,
@@ -219,7 +219,7 @@ func TestTryJSONTruncateNonJSON(t *testing.T) {
 
 func TestTruncateMiddleOutEphemeral(t *testing.T) {
 	cw := newTestCW(100000, 2000)
-	// Push 一个超长的 ephemeral 消息
+	// Push a very long ephemeral message
 	largeContent := strings.Repeat("This is a line of code that should be truncated. ", 200)
 	cw.Push(RoleTool, largeContent, WithEphemeral(true), WithToolCallID("call_1"))
 
@@ -258,7 +258,7 @@ func TestTruncateMiddleOutSmallEphemeral(t *testing.T) {
 
 func TestTruncateMiddleOutJSONPreservation(t *testing.T) {
 	cw := newTestCW(100000, 2000)
-	// 构造 JSON 格式的工具输出
+	// Construct JSON-formatted tool output
 	largeFileContent := strings.Repeat("package main\n", 200)
 	obj := map[string]any{
 		"path":    "main.go",
@@ -271,12 +271,12 @@ func TestTruncateMiddleOutJSONPreservation(t *testing.T) {
 	cw.truncateMiddleOut()
 
 	msg, _ := cw.MessageAt(0)
-	// 截断后应该仍是合法 JSON
+	// Should still be valid JSON after truncation
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(msg.Content), &parsed); err != nil {
 		t.Fatalf("truncated content should be valid JSON: %v\ncontent: %s", err, msg.Content[:200])
 	}
-	// path 和 size 应该保留
+	// 'path' and 'size' should be preserved
 	if parsed["path"] != "main.go" {
 		t.Errorf("path should be preserved, got: %v", parsed["path"])
 	}
@@ -292,9 +292,9 @@ func TestSlideFIFOPreservesSystemPrompt(t *testing.T) {
 	cw.Push(RoleUser, "Question 2")
 	cw.Push(RoleAssistant, "Answer 2")
 
-	cw.slideFIFO(0) // target=0 应该删除尽可能多的 Turn
+	cw.slideFIFO(0) // target=0 should remove as many turns as possible
 
-	// system prompt 应该保留
+	// The system prompt should be preserved
 	if cw.Len() == 0 {
 		t.Fatal("messages should not be empty")
 	}
@@ -317,8 +317,8 @@ func TestSlideFIFORemovesWholeTurns(t *testing.T) {
 	beforeLen := cw.Len()
 	beforeTokens, _, _ := cw.TokenUsage()
 
-	// 删除到很小的 target，应该删掉最老的 Turn
-	cw.slideFIFO(10) // 极小 target
+	// Deleting to a very small target should remove the oldest turn
+	cw.slideFIFO(10) // very small target
 
 	afterLen := cw.Len()
 	afterTokens, _, _ := cw.TokenUsage()
@@ -330,14 +330,14 @@ func TestSlideFIFORemovesWholeTurns(t *testing.T) {
 		t.Errorf("Tokens should decrease: before=%d, after=%d", beforeTokens, afterTokens)
 	}
 
-	// 验证：剩余消息应该是连续的 Turn（每个 user 后面跟着对应的 assistant）
+	// Verification: remaining messages should be continuous turns (each user followed by a corresponding assistant)
 	payload := cw.BuildPayload()
 	for i := 1; i < len(payload); {
 		if payload[i].Role != "user" {
 			t.Errorf("expected user at index %d, got %q", i, payload[i].Role)
 			break
 		}
-		// 找到这个 Turn 的结束
+		// Find the end of this turn
 		i++
 		for i < len(payload) && payload[i].Role != "user" {
 			i++
@@ -351,10 +351,10 @@ func TestSlideFIFODoesNotDeleteLastTurn(t *testing.T) {
 	cw.Push(RoleUser, "Q1")
 	cw.Push(RoleAssistant, "A1")
 
-	cw.slideFIFO(0) // target=0，但只有一个 Turn
+	cw.slideFIFO(0) // target=0, but only one turn
 
-	// 只有一个 Turn，不应该被删除
-	if cw.Len() < 2 { // 至少 system + user + assistant
+	// Only one turn, should not be deleted
+	if cw.Len() < 2 { // At least system + user + assistant
 		t.Errorf("last Turn should not be deleted, Len=%d", cw.Len())
 	}
 }
@@ -373,14 +373,14 @@ func TestSlideFIFOWithToolCalls(t *testing.T) {
 	cw.Push(RoleUser, "What does it do?")
 	cw.Push(RoleAssistant, "It's a simple Go program.")
 
-	cw.slideFIFO(0) // 删除尽可能多
+	cw.slideFIFO(0) // Delete as much as possible
 
-	// 应该只保留 Turn 2（最新的）
+	// Only Turn 2 (the latest) should be preserved
 	first, _ := cw.MessageAt(0)
 	if first.Role != RoleSystem {
 		t.Errorf("first should be system, got %q", first.Role)
 	}
-	// 第二个应该是 user（Turn 2 的开头）
+	// The second should be a user message (start of Turn 2)
 	if cw.Len() > 1 {
 		second, _ := cw.MessageAt(1)
 		if second.Role != RoleUser {
@@ -389,38 +389,38 @@ func TestSlideFIFOWithToolCalls(t *testing.T) {
 	}
 }
 
-// TestSlideFIFOCleansOrphanToolMessages 验证 slideFIFO 删除 Turn 时会清理
-// 后续 Turn 中引用了被删 tool_call_ids 的孤 tool 消息。
+// TestSlideFIFOCleansOrphanToolMessages verifies that slideFIFO cleans up
+// orphan tool messages in subsequent turns that reference deleted tool_call_ids.
 //
-// 场景复现异步委派导致的孤 tool 消息问题：
+// Scenario reproducing orphan tool message issue due to async delegation:
 //
 //	Turn 1: user, assistant(tool_calls: [call_1, call_2])
-//	Turn 2: user, tool(call_1), tool(call_2)  ← 孤 tool 消息
+//	Turn 2: user, tool(call_1), tool(call_2)  ← Orphan tool messages
 //
-// slideFIFO 删除 Turn 1 后，Turn 2 的 tool 消息也应被清理。
+// After slideFIFO deletes Turn 1, Turn 2's tool messages should also be cleaned up.
 func TestSlideFIFOCleansOrphanToolMessages(t *testing.T) {
 	cw := newTestCW(100000, 2000)
 	cw.Push(RoleSystem, "System")
 
-	// Turn 1: user + assistant(tool_calls: [call_1, call_2])，无 tool 结果
+	// Turn 1: user + assistant(tool_calls: [call_1, call_2]), no tool results
 	cw.Push(RoleUser, "Delegate tasks")
 	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{
 		{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`}},
 		{ID: "call_2", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`}},
 	}))
 
-	// Turn 2: 新 user + 两个孤 tool 消息（引用 Turn 1 的 call_1 和 call_2）
+	// Turn 2: new user + two orphan tool messages (referencing call_1 and call_2 from Turn 1)
 	cw.Push(RoleUser, "Another message")
 	cw.Push(RoleTool, "result 1", WithToolCallID("call_1"), WithToolName("delegate"), WithEphemeral(true))
 	cw.Push(RoleTool, "result 2", WithToolCallID("call_2"), WithToolName("delegate"), WithEphemeral(true))
 
-	// Turn 3: 另一个完整 Turn（不应被删除）
+	// Turn 3: another complete turn (should not be deleted)
 	cw.Push(RoleUser, "Last question")
 	cw.Push(RoleAssistant, "Final answer")
 
 	beforeLen := cw.Len()
 
-	// slideFIFO 删除 Turn 1，应同时清理 Turn 2 中的孤 tool 消息
+	// slideFIFO deleting Turn 1 should also clean up orphan tool messages in Turn 2
 	cw.slideFIFO(0)
 
 	afterLen := cw.Len()
@@ -428,10 +428,10 @@ func TestSlideFIFOCleansOrphanToolMessages(t *testing.T) {
 		t.Errorf("Len should decrease: before=%d, after=%d", beforeLen, afterLen)
 	}
 
-	// 验证 BuildPayload 不包含孤 tool 消息
+	// Verify BuildPayload does not contain orphan tool messages
 	payload := cw.BuildPayload()
 
-	// 检查是否有 tool 消息缺少前置 assistant(tool_calls)
+	// Check if there are tool messages missing preceding assistant(tool_calls)
 	validIDs := make(map[string]bool)
 	for _, p := range payload {
 		for _, tc := range p.ToolCalls {
@@ -445,26 +445,26 @@ func TestSlideFIFOCleansOrphanToolMessages(t *testing.T) {
 	}
 }
 
-// ─── 完整淘汰流程 ───────────────────────────────────────────────────────────
+// ─── Full Eviction Flow ───────────────────────────────────────────────────────────
 
 func TestFullEvictionFlow(t *testing.T) {
-	cw := newTestCW(500, 100) // 小窗口：有效容量=400
+	cw := newTestCW(500, 100) // Small window: effective capacity = 400
 
 	cw.Push(RoleSystem, "System prompt for testing.")
 
-	// Push 大量消息触发淘汰
+	// Push many messages to trigger eviction
 	for i := 0; i < 30; i++ {
 		cw.Push(RoleUser, "Tell me a long story about programming and software engineering practices.")
 		cw.Push(RoleAssistant, "Once upon a time, there was a programmer who wrote clean code every day and refactored with confidence.")
 	}
 
 	current, _, _ := cw.TokenUsage()
-	// 淘汰后应该低于有效容量
+	// After eviction, should be below effective capacity
 	if current > 500 {
 		t.Errorf("After eviction: currentTokens=%d, should be <= maxTokens=500", current)
 	}
 
-	// system prompt 应该保留
+	// The system prompt should be preserved
 	if cw.Len() > 0 {
 		first, _ := cw.MessageAt(0)
 		if first.Role != RoleSystem {
@@ -473,15 +473,15 @@ func TestFullEvictionFlow(t *testing.T) {
 	}
 }
 
-// ─── 漂移场景 ───────────────────────────────────────────────────────────────
+// ─── Drift Scenario ───────────────────────────────────────────────────────────────
 
 func TestDriftAfterCalibrate(t *testing.T) {
 	cw := newTestCW(100000, 2000)
 	cw.Push(RoleUser, "Hello")
 	cw.Push(RoleAssistant, "Hi there")
 
-	// Calibrate 为一个"精确值"，它可能与 sum(messages.Tokens) 不同
-	// 模拟 API 返回的精确值比估算值少 10%
+	// Calibrate to an "exact value", which may differ from sum(messages.Tokens)
+	// Simulate API returning an exact value that is 10% less than the estimated value
 	estimated := cw.Recalculate()
 	calibratedValue := int(float64(estimated) * 0.9)
 	cw.Calibrate(calibratedValue)
@@ -491,15 +491,15 @@ func TestDriftAfterCalibrate(t *testing.T) {
 		t.Errorf("currentTokens = %d, want %d (calibrated value)", current, calibratedValue)
 	}
 
-	// ⚠️ sum(messages.Tokens) != currentTokens 是正常的漂移
+	// sum(messages.Tokens) != currentTokens is normal drift
 	recalculated := cw.Recalculate()
 	if recalculated == current {
-		// 偶然相等是可能的，但通常不等
+		// Coincidental equality is possible, but usually unequal
 		t.Logf("Note: Recalculate() == currentTokens by coincidence (both = %d)", current)
 	}
 
-	// FIFO 减去的是估算值，currentTokens 会产生漂移
-	// 但功能仍然正确：currentTokens 仍用于淘汰决策
+	// FIFO subtraction uses the estimated value, currentTokens will drift
+	// But functionality remains correct: currentTokens is still used for eviction decisions
 }
 
 func TestAggressiveTruncateLastTurn(t *testing.T) {
@@ -632,4 +632,3 @@ func TestPruneOlderTurnsEphemeralContent(t *testing.T) {
 		t.Errorf("Turn 2 tool output should be evicted to save space, got %q", msgB2.Content)
 	}
 }
-

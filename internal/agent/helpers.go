@@ -12,7 +12,7 @@ import (
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// payloadToLLMMessages 将 ctxwin.PayloadMessage 切片转为 LLMMessage 切片
+// payloadToLLMMessages converts a slice of ctxwin.PayloadMessage to a slice of LLMMessage.
 func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 	out := make([]LLMMessage, 0, len(payload))
 	for _, p := range payload {
@@ -33,9 +33,9 @@ func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 	return out
 }
 
-// buildMessages 组装 system + user 两条消息
+// buildMessages assembles system + user messages.
 //
-// 如 systemPrompt 为空，跳过 system 消息（避免 `{"role":"system","content":""}`）
+// If systemPrompt is empty, the system message is skipped (to avoid `{"role":"system","content":""}`).
 func buildMessages(systemPrompt, userPrompt string) []LLMMessage {
 	msgs := make([]LLMMessage, 0, 2)
 	if systemPrompt != "" {
@@ -45,7 +45,7 @@ func buildMessages(systemPrompt, userPrompt string) []LLMMessage {
 	return msgs
 }
 
-// logInfo / logError 是 nil-safe 的日志包装
+// logInfo / logError are nil-safe log wrappers.
 func (a *Agent) logInfo(ctx context.Context, cat logger.Category, msg string, args ...any) {
 	if a.Log == nil {
 		return
@@ -60,10 +60,11 @@ func (a *Agent) logError(ctx context.Context, cat logger.Category, msg string, e
 	a.Log.LogError(ctx, cat, msg, err, args...)
 }
 
-// mergeCtx 返回一个 context，a 或 b 任一取消都会取消返回的 context
+// mergeCtx returns a context that is cancelled if either context a or b is cancelled.
 //
-// 实现：起一个 goroutine 监听两个源；返回的 cancel func 保证 goroutine
-// 总能退出（调用 cancel 或任一源取消都会让 goroutine 退出），无泄漏。
+// Implementation: A goroutine listens to both sources; the returned cancel func
+// ensures the goroutine always exits (either by calling cancel or if any source is
+// cancelled), preventing leaks.
 func mergeCtx(a, b context.Context) (context.Context, context.CancelFunc) {
 	merged, cancel := context.WithCancel(a)
 	if b == nil || b.Done() == nil {
@@ -74,7 +75,7 @@ func mergeCtx(a, b context.Context) (context.Context, context.CancelFunc) {
 		case <-b.Done():
 			cancel()
 		case <-merged.Done():
-			// a 取消或 caller 调 cancel；不需要额外动作，goroutine 退出即可
+			// a is cancelled or caller called cancel; no extra action needed, goroutine can exit.
 		}
 	}()
 	return merged, cancel
@@ -82,10 +83,11 @@ func mergeCtx(a, b context.Context) (context.Context, context.CancelFunc) {
 
 // ─── Trace / actor_id injection ─────────────────────────────────────────────
 
-// ensureTraceID 保证 ctx 里带 trace_id
+// ensureTraceID ensures the context carries a trace_id.
 //
-// 策略（用户确认）：有则用、无则自生
-// 新生成的是 8 字节 hex（16 个字符），足够在单个进程内区分并发 Ask。
+// Policy (user confirmation): Use existing if present, otherwise generate a new one.
+// The newly generated one is an 8-byte hex (16 characters), sufficient to distinguish
+// concurrent Ask calls within a single process.
 func ensureTraceID(ctx context.Context) context.Context {
 	if logger.TraceIDFromContext(ctx) != "" {
 		return ctx
@@ -93,7 +95,7 @@ func ensureTraceID(ctx context.Context) context.Context {
 	return logger.WithTraceID(ctx, newTraceID())
 }
 
-// ctxWithAgentAttrs 把 actor_id 注入 ctx，供后续 Logger 自动从 ctx 提取
+// ctxWithAgentAttrs injects actor_id into the context for subsequent automatic extraction by the Logger.
 //
 // Uses InstanceID as the primary identifier (unique per instance),
 // and Def.ID as the template actor_id for backward-compatible log filtering.
@@ -104,7 +106,7 @@ func (a *Agent) ctxWithAgentAttrs(ctx context.Context) context.Context {
 	return ctx
 }
 
-// newTraceID 返回一个 8 字节 hex 编码的随机 trace ID（16 字符）
+// newTraceID returns an 8-byte hex-encoded random trace ID (16 characters).
 func newTraceID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {

@@ -27,19 +27,7 @@ var englishStopwords = map[string]bool{
 }
 
 var chineseStopwords = map[string]bool{
-	"的": true, "了": true, "在": true, "是": true, "我": true, "有": true,
-	"和": true, "就": true, "不": true, "人": true, "都": true, "一": true,
-	"一个": true, "上": true, "也": true, "很": true, "到": true, "说": true,
-	"要": true, "去": true, "你": true, "会": true, "着": true, "没有": true,
-	"看": true, "好": true, "自己": true, "这": true, "他": true, "她": true,
-	"它": true, "们": true, "那": true, "什么": true, "怎么": true,
-	"为什么": true, "因为": true, "所以": true, "但是": true, "如果": true,
-	"虽然": true, "而且": true, "或者": true, "然后": true, "可以": true,
-	"应该": true, "能": true, "能够": true, "可能": true, "已经": true,
-	"还": true, "又": true, "再": true, "更": true, "最": true, "把": true,
-	"被": true, "让": true, "给": true, "对": true, "从": true, "向": true,
-	"跟": true, "与": true, "及": true, "等等": true, "等": true, "吗": true,
-	"呢": true, "啊": true, "吧": true, "嗯": true, "哦": true, "哈": true,
+	// Map previously used for Chinese stopwords, emptied for English-only mode
 }
 
 func isStopword(word string) bool {

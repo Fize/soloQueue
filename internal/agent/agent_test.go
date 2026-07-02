@@ -15,7 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// newTestLogger 返回一个写到临时目录的 Session 层 logger
+// newTestLogger returns a Session-level logger that writes to a temp directory
 func newTestLogger(t *testing.T) *logger.Logger {
 	t.Helper()
 	dir := t.TempDir()
@@ -34,7 +34,7 @@ func today() string { return time.Now().Format("2006-01-02") }
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
-// startedAgent 是测试辅助：New + Start；t.Cleanup 负责 Stop
+// startedAgent is a test helper: New + Start; t.Cleanup handles Stop
 func startedAgent(t *testing.T, llm LLMClient, opts ...Option) *Agent {
 	t.Helper()
 	a := NewAgent(Definition{ID: "test"}, llm, newTestLogger(t), opts...)
@@ -56,7 +56,7 @@ func TestAgent_StartStop(t *testing.T) {
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// 允许一个 scheduling tick 让 run goroutine 设置 state
+	// Allow one scheduling tick for the run goroutine to set its state
 	waitFor(t, 200*time.Millisecond, func() bool { return a.State() == StateIdle })
 
 	if err := a.Stop(1 * time.Second); err != nil {
@@ -117,29 +117,29 @@ func TestAgent_SubmitNilFn(t *testing.T) {
 }
 
 func TestAgent_StopTimeout(t *testing.T) {
-	// 一个不响应 ctx 的 job：故意用 time.Sleep 不 select ctx
+	// A job that doesn't respond to ctx: intentionally uses time.Sleep, not select on ctx
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// 投递一个不响应 ctx 的长任务
+	// Posts a long-running job that doesn't respond to ctx
 	started := make(chan struct{})
 	block := make(chan struct{})
 	_ = a.Submit(context.Background(), func(ctx context.Context) error {
 		close(started)
-		<-block // 不响应 ctx，等测试结束才释放
+		<-block // doesn't respond to ctx, only released when the test ends
 		return nil
 	})
 
 	<-started
-	// Stop 50ms 超时
+	// Stop with a 50ms timeout
 	err := a.Stop(50 * time.Millisecond)
 	if !errors.Is(err, ErrStopTimeout) {
 		t.Errorf("Stop err = %v, want ErrStopTimeout", err)
 	}
 
-	// 释放 job，让 goroutine 退出
+	// Release the job to let the goroutine exit
 	close(block)
 	waitFor(t, 2*time.Second, func() bool { return a.State() == StateStopped })
 }
@@ -147,7 +147,7 @@ func TestAgent_StopTimeout(t *testing.T) {
 func TestAgent_Restart(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"a", "b"}}, newTestLogger(t))
 
-	// 第一次 Start
+	// First Start
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start 1: %v", err)
 	}
@@ -261,8 +261,8 @@ func TestAgent_Ask_LLMError(t *testing.T) {
 
 // ─── Serialization ───────────────────────────────────────────────────────────
 
-// TestAgent_SerializesAsks：并发 N 个 Ask，用 Hook 记录进出 LLM 的时间戳区间；
-// 断言任意两次 LLM 调用不重叠。
+// TestAgent_SerializesAsks: N concurrent Asks, use Hook to record timestamps of LLM entry and exit;
+// Assert that no two LLM calls overlap.
 func TestAgent_SerializesAsks(t *testing.T) {
 	const N = 10
 
@@ -288,7 +288,7 @@ func TestAgent_SerializesAsks(t *testing.T) {
 			defer wg.Done()
 			_, _ = a.Ask(context.Background(), "hi")
 			mu.Lock()
-			// 给最后一个 interval 盖上 end
+			// Close the end of the last interval
 			intervals[len(intervals)-1].end = time.Now()
 			mu.Unlock()
 		}()
@@ -299,18 +299,18 @@ func TestAgent_SerializesAsks(t *testing.T) {
 		t.Fatalf("intervals len = %d, want %d", len(intervals), N)
 	}
 
-	// Hook 的调用是串行（因为 FakeLLM 内部持锁），所以 intervals[i].start 是严格递增
-	// 关键断言：intervals[i].start >= intervals[i-1].start + Delay（前一次已经完成）
-	// 注：Hook 调用其实在 sleep 之前，但我们的断言目标是"不重叠"，即 N 次总耗时 ≥ N*Delay
+	// Hook calls are serial (because FakeLLM holds an internal lock), so intervals[i].start is strictly increasing
+	// Key assertion: intervals[i].start >= intervals[i-1].start + Delay (previous call already completed)
+	// Note: Hook calls actually happen before sleep, but our assertion targets "no overlap", meaning total time for N calls ≥ N*Delay
 	total := intervals[N-1].end.Sub(intervals[0].start)
 	if total < time.Duration(N-1)*20*time.Millisecond {
 		t.Errorf("total %v too short: likely concurrent (want ≥ %v)", total, (N-1)*20)
 	}
 }
 
-// TestAgent_Ask_OrderPreserved：FakeLLM 按 Responses 顺序返回；agent 串行；
-// 因此不同 Ask 的 reply 必然在 Responses 中是连续不重复的段。但跨 goroutine
-// reply 的接收顺序不保证 —— 我们用 Responses 长度 == 调用次数 + 内容唯一性来验证。
+// TestAgent_Ask_OrderPreserved: FakeLLM returns responses in order; agent is serial;
+// So replies from different Asks must be contiguous, non-overlapping segments in Responses. But across goroutines,
+// the receive order of replies is not guaranteed — we verify using Responses length == call count + content uniqueness.
 func TestAgent_Ask_CallsExactlyOncePerAsk(t *testing.T) {
 	const N = 20
 	fake := &FakeLLM{Responses: []string{"only"}}
@@ -336,8 +336,8 @@ func TestAgent_Ask_CallsExactlyOncePerAsk(t *testing.T) {
 	}
 }
 
-// TestAgent_Ask_MailboxBackpressure：mailboxCap=1 + long-running job → 第二个 Ask 阻塞；
-// 用 ctx.Deadline 让它返回 ctx.DeadlineExceeded。
+// TestAgent_Ask_MailboxBackpressure: mailboxCap=1 + long-running job → second Ask blocks;
+// Use ctx.Deadline to make it return ctx.DeadlineExceeded.
 func TestAgent_Ask_MailboxBackpressure(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"},
 		&FakeLLM{Responses: []string{"r"}, Delay: 500 * time.Millisecond},
@@ -347,19 +347,19 @@ func TestAgent_Ask_MailboxBackpressure(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
 
-	// 第 1 个 Ask 开始占用 run goroutine
+	// The first Ask starts occupying the run goroutine
 	go func() {
 		_, _ = a.Ask(context.Background(), "one")
 	}()
-	// 稍等让第 1 个进入 Processing
+	// Wait briefly for the first one to enter Processing
 	waitFor(t, 200*time.Millisecond, func() bool { return a.State() == StateProcessing })
 
-	// 第 2 个 Ask 进 mailbox（cap=1）
+	// The second Ask enters the mailbox (cap=1)
 	go func() {
 		_, _ = a.Ask(context.Background(), "two")
 	}()
 
-	// 第 3 个 Ask 应阻塞在 mailbox send；用短 ctx 让它返回
+	// The third Ask should block on mailbox send; use a short ctx to make it return
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	_, err := a.Ask(ctx, "three")
@@ -387,11 +387,11 @@ func TestAgent_Ask_CancelledByCaller(t *testing.T) {
 		t.Errorf("cancel too slow: %v", elapsed)
 	}
 
-	// agent 应仍健在
+	// The agent should still be alive
 	if s := a.State(); s == StateStopped {
 		t.Error("agent should still be running after Ask cancel")
 	}
-	// 能继续接受下个 Ask（LLM 换短 delay 不影响这个测试 —— 另起 fake？这里不再测）
+	// It should accept the next Ask (LLM with a short delay doesn't affect this test — create a new fake? No further test here)
 }
 
 func TestAgent_Ask_CancelledByStop(t *testing.T) {
@@ -402,13 +402,13 @@ func TestAgent_Ask_CancelledByStop(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// 起一个慢 Ask
+	// Start a slow Ask
 	errCh := make(chan error, 1)
 	go func() {
 		_, err := a.Ask(context.Background(), "hi")
 		errCh <- err
 	}()
-	// 等它进入 Processing
+	// Wait for it to enter Processing
 	waitFor(t, 500*time.Millisecond, func() bool { return a.State() == StateProcessing })
 
 	// Stop
@@ -416,7 +416,7 @@ func TestAgent_Ask_CancelledByStop(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		// LLM 看到 ctx.Canceled；或 Ask 看到 a.Done() 先到 → ErrStopped
+		// LLM sees ctx.Canceled; or Ask sees a.Done() first → ErrStopped
 		if err == nil {
 			t.Error("Ask should return error after Stop")
 		}
@@ -425,8 +425,8 @@ func TestAgent_Ask_CancelledByStop(t *testing.T) {
 	}
 }
 
-// TestAgent_PendingJobsDrained：mailbox 里 pending 的 Ask 在 Stop 时收到 cancel，
-// 不会永远卡在 reply chan 上
+// TestAgent_PendingJobsDrained: pending Asks in the mailbox receive cancel on Stop
+// Will never get stuck on the reply channel
 func TestAgent_PendingJobsDrained(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"},
 		&FakeLLM{Responses: []string{"r"}, Delay: 2 * time.Second},
@@ -435,11 +435,11 @@ func TestAgent_PendingJobsDrained(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// 第 1 个 Ask 进入 Processing（长任务）
+	// First Ask enters Processing (long task)
 	go func() { _, _ = a.Ask(context.Background(), "processing") }()
 	waitFor(t, 500*time.Millisecond, func() bool { return a.State() == StateProcessing })
 
-	// 再 3 个 Ask 进 mailbox
+	// Then 3 more Asks enter the mailbox
 	const Pending = 3
 	errs := make(chan error, Pending)
 	for i := 0; i < Pending; i++ {
@@ -448,13 +448,13 @@ func TestAgent_PendingJobsDrained(t *testing.T) {
 			errs <- err
 		}()
 	}
-	// 稍等让它们入队
+	// Wait briefly to let them enqueue
 	time.Sleep(100 * time.Millisecond)
 
 	// Stop
 	_ = a.Stop(2 * time.Second)
 
-	// 3 个 pending 都应在 2s 内拿到 error，不会 hang
+	// All 3 pending should receive an error within 2s, will not hang
 	deadline := time.After(3 * time.Second)
 	received := 0
 	for received < Pending {
@@ -480,7 +480,7 @@ func TestAgent_State_IdleProcessingTransition(t *testing.T) {
 		t.Errorf("initial state = %s, want idle", s)
 	}
 
-	// Ask 中
+	// Inside Ask
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -494,20 +494,20 @@ func TestAgent_State_IdleProcessingTransition(t *testing.T) {
 }
 
 func TestAgent_Err_Panic(t *testing.T) {
-	// 构造一个 LLM，让它在 Chat 里 panic
+	// Construct an LLM that panics in Chat
 	a := NewAgent(Definition{ID: "a1"}, &panickyLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// 触发 panic（Ask 会 block，因为 run goroutine 已经死了）
+	// Trigger panic (Ask will block because the run goroutine is already dead)
 	errCh := make(chan error, 1)
 	go func() {
 		_, err := a.Ask(context.Background(), "hi")
 		errCh <- err
 	}()
 
-	// 等 agent 死
+	// Wait for agent to die
 	select {
 	case <-a.Done():
 	case <-time.After(time.Second):
@@ -519,7 +519,7 @@ func TestAgent_Err_Panic(t *testing.T) {
 			t.Error("Ask should error after agent panic")
 		}
 	case <-time.After(time.Second):
-		// Ask 可能还在 replyCh 上，但 a.Done() close 后 Ask 的 select 会走 ErrStopped 分支
+		// Ask may still be on replyCh, but after a.Done() is closed, Ask's select will take the ErrStopped branch
 		t.Error("Ask did not return")
 	}
 
@@ -528,7 +528,7 @@ func TestAgent_Err_Panic(t *testing.T) {
 	}
 }
 
-// panickyLLM 在 Chat 里 panic
+// panickyLLM panics in Chat
 type panickyLLM struct{}
 
 func (p *panickyLLM) Chat(_ context.Context, _ LLMRequest) (*LLMResponse, error) {
@@ -569,7 +569,7 @@ func TestAgent_Submit_CustomJob(t *testing.T) {
 }
 
 func TestAgent_Submit_ReturnsAfterEnqueue(t *testing.T) {
-	// Submit 只等入队，不等 fn 执行完
+	// Submit only waits for enqueue, not for fn to finish executing
 	a := startedAgent(t, &FakeLLM{})
 
 	block := make(chan struct{})
@@ -591,7 +591,7 @@ func TestAgent_Submit_ReturnsAfterEnqueue(t *testing.T) {
 }
 
 func TestAgent_Submit_FnErrorLogged(t *testing.T) {
-	// fn 返回 error 会被日志记录，但不影响 agent 继续
+	// If fn returns an error, it is logged but does not affect the agent's continuation
 	dir := t.TempDir()
 	log, err := logger.System(dir, logger.WithConsole(false))
 	if err != nil {
@@ -612,7 +612,7 @@ func TestAgent_Submit_FnErrorLogged(t *testing.T) {
 	})
 	<-done
 
-	// 下一个 Ask 应仍成功
+	// The next Ask should still succeed
 	reply, err := a.Ask(context.Background(), "hi")
 	if err != nil {
 		t.Fatalf("Ask after failing Submit: %v", err)
@@ -664,8 +664,8 @@ func TestState_String(t *testing.T) {
 	}
 }
 
-// TestAgent_Submit_CallerCtxCancel 覆盖 Submit 入队等待时 caller ctx 取消
-// （mailbox 满时被阻塞）
+// TestAgent_Submit_CallerCtxCancel covers Submit being canceled by the caller context while waiting to enqueue
+// (blocked when mailbox is full)
 func TestAgent_Submit_CallerCtxCancel(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"},
 		&FakeLLM{Responses: []string{"r"}, Delay: 2 * time.Second},
@@ -675,16 +675,16 @@ func TestAgent_Submit_CallerCtxCancel(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
 
-	// 占住 run goroutine
+	// Occupies the run goroutine
 	_ = a.Submit(context.Background(), func(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	})
 	waitFor(t, 200*time.Millisecond, func() bool { return a.State() == StateProcessing })
-	// 占住 mailbox slot（cap=1）
+	// Occupies the mailbox slot (cap=1)
 	_ = a.Submit(context.Background(), func(ctx context.Context) error { return nil })
 
-	// 这次 Submit 应阻塞，caller ctx 50ms 取消
+	// This Submit should block, caller context cancels after 50ms
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	err := a.Submit(ctx, func(ctx context.Context) error { return nil })
@@ -693,8 +693,8 @@ func TestAgent_Submit_CallerCtxCancel(t *testing.T) {
 	}
 }
 
-// TestAgent_Submit_FastPathErrStopped 覆盖 submit 的 fast-path
-// （agentDone 已 close 时立刻返回 ErrStopped）
+// TestAgent_Submit_FastPathErrStopped covers the fast-path of Submit
+// (returns ErrStopped immediately when agentDone is already closed)
 func TestAgent_Submit_FastPathErrStopped(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
@@ -702,14 +702,14 @@ func TestAgent_Submit_FastPathErrStopped(t *testing.T) {
 	}
 	_ = a.Stop(time.Second)
 
-	// 此时 a.done 仍引用已 close 的 chan；mailbox 仍非 nil
+	// At this point a.done still references the closed channel; mailbox is still non-nil
 	err := a.Submit(context.Background(), func(ctx context.Context) error { return nil })
 	if !errors.Is(err, ErrStopped) {
 		t.Errorf("Submit after Stop err = %v, want ErrStopped", err)
 	}
 }
 
-// TestMergeCtx_NilB 覆盖 mergeCtx 当 b 为 nil 或 b.Done() 为 nil 的分支
+// TestMergeCtx_NilB covers the branch in mergeCtx when b is nil or b.Done() is nil
 func TestMergeCtx_NilB(t *testing.T) {
 	parent, cancelParent := context.WithCancel(context.Background())
 	defer cancelParent()
@@ -721,7 +721,7 @@ func TestMergeCtx_NilB(t *testing.T) {
 	}
 	cancel()
 
-	// b.Done() == nil —— Background() 的 Done() 实际上返回 nil
+	// b.Done() == nil — Background()'s Done() actually returns nil
 	merged2, cancel2 := mergeCtx(parent, context.Background())
 	if merged2 == nil {
 		t.Fatal("merged2 is nil")
@@ -729,7 +729,7 @@ func TestMergeCtx_NilB(t *testing.T) {
 	cancel2()
 }
 
-// TestMergeCtx_BCancelFirst 覆盖 mergeCtx goroutine 里 b.Done() 先触发的分支
+// TestMergeCtx_BCancelFirst covers the branch in mergeCtx goroutine where b.Done() fires first
 func TestMergeCtx_BCancelFirst(t *testing.T) {
 	a := context.Background()
 	b, cancelB := context.WithCancel(context.Background())
@@ -748,7 +748,7 @@ func TestMergeCtx_BCancelFirst(t *testing.T) {
 	}
 }
 
-// TestAgent_NilCtx_DefaultsToBackground 覆盖 Ask / Submit 对 nil ctx 的处理
+// TestAgent_NilCtx_DefaultsToBackground covers Ask / Submit handling of nil context
 func TestAgent_Ask_NilCtxHandled(t *testing.T) {
 	a := startedAgent(t, &FakeLLM{Responses: []string{"ok"}})
 	//nolint:staticcheck // intentionally testing nil ctx
@@ -775,7 +775,7 @@ func TestAgent_Submit_NilCtxHandled(t *testing.T) {
 	<-done
 }
 
-// TestAgent_Start_NilParent 覆盖 Start(nil) 默认到 Background
+// TestAgent_Start_NilParent covers Start(nil) defaulting to Background
 func TestAgent_Start_NilParent(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"x"}}, nil)
 	//nolint:staticcheck // intentionally testing nil parent
@@ -788,7 +788,7 @@ func TestAgent_Start_NilParent(t *testing.T) {
 	}
 }
 
-// TestWithMailboxCap_IgnoresNonPositive 覆盖 WithMailboxCap 对非正数的忽略
+// TestWithMailboxCap_IgnoresNonPositive covers WithMailboxCap ignoring non-positive values
 func TestWithMailboxCap_IgnoresNonPositive(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil,
 		WithMailboxCap(0), WithMailboxCap(-5))
@@ -802,7 +802,7 @@ func TestWithMailboxCap_IgnoresNonPositive(t *testing.T) {
 	}
 }
 
-// TestAgent_Stop_ZeroTimeout 覆盖 Stop 的 timeout==0 分支（无限等待）
+// TestAgent_Stop_ZeroTimeout covers the timeout==0 branch of Stop (infinite wait)
 func TestAgent_Stop_ZeroTimeout(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
@@ -813,7 +813,7 @@ func TestAgent_Stop_ZeroTimeout(t *testing.T) {
 	}
 }
 
-// waitFor 轮询 condFn 直到返回 true 或超时
+// waitFor polls condFn until it returns true or times out
 func waitFor(t *testing.T, timeout time.Duration, condFn func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

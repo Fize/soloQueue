@@ -50,7 +50,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      aria-label={isDark ? '切换到浅色模式' : '切换到深色模式'}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       className="relative flex items-center justify-center w-9 h-9 rounded-full
         bg-[var(--md-surface-container-high)] hover:bg-[var(--md-surface-container-highest)]
         border border-[var(--md-outline-variant)] cursor-pointer
