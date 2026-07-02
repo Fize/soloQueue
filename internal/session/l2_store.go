@@ -15,13 +15,14 @@ import (
 
 // L2SessionEntry holds a single L2 session with its metadata.
 type L2SessionEntry struct {
-	ID        string    `json:"id"`         // UUID
-	Name      string    `json:"name"`       // auto-generated from first exchange
-	Group     string    `json:"group"`      // leader template group
-	ProjectID string    `json:"project_id"` // optional project ID
-	WorkDir   string    `json:"work_dir"`   // working directory for agent (defaults to global)
-	Session   *Session  `json:"-"`          // the backing Session (nil if not yet activated)
-	CreatedAt time.Time `json:"created_at"` // creation timestamp
+	ID         string    `json:"id"`         // UUID
+	Name       string    `json:"name"`       // auto-generated from first exchange
+	Group      string    `json:"group"`      // leader template group
+	ProjectID  string    `json:"project_id"` // optional project ID
+	WorkDir    string    `json:"work_dir"`   // working directory for agent (defaults to global)
+	Session    *Session  `json:"-"`          // the backing Session (nil if not yet activated)
+	CreatedAt  time.Time `json:"created_at"` // creation timestamp
+	GitBaseRef string    `json:"-"`          // git HEAD at session start (empty = non-git or not captured)
 }
 
 // L2SessionInfo is the public metadata returned by List().
@@ -59,6 +60,11 @@ func NewL2SessionStore(builder *Builder, workDir string, log *logger.Logger) *L2
 		logger:   log,
 		workDir:  workDir,
 	}
+}
+
+// WorkDir returns the store's working directory (for baseline file paths).
+func (s *L2SessionStore) WorkDir() string {
+	return s.workDir
 }
 
 // Create creates a new L2 session entry (metadata only, agent is lazily built).
@@ -112,17 +118,20 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	group := ""
 	workDir := ""
 	name := ""
+	gitBaseRef := ""
 	metaFile := filepath.Join(tlDir, "meta")
 	if data, rerr := os.ReadFile(metaFile); rerr == nil {
 		var meta struct {
-			Name    string `json:"name"`
-			Group   string `json:"group"`
-			WorkDir string `json:"work_dir"`
+			Name       string `json:"name"`
+			Group      string `json:"group"`
+			WorkDir    string `json:"work_dir"`
+			GitBaseRef string `json:"git_base_ref"`
 		}
 		if json.Unmarshal(data, &meta) == nil {
 			name = meta.Name
 			group = meta.Group
 			workDir = meta.WorkDir
+			gitBaseRef = meta.GitBaseRef
 		}
 	}
 	if group == "" {
@@ -142,12 +151,13 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 		return nil // race: someone else created or restored it already
 	}
 	s.sessions[id] = &L2SessionEntry{
-		ID:        id,
-		Name:      name,
-		Group:     group,
-		WorkDir:   workDir,
-		Session:   nil, // will be built lazily by Activate
-		CreatedAt: time.Now(),
+		ID:         id,
+		Name:       name,
+		Group:      group,
+		WorkDir:    workDir,
+		Session:    nil, // will be built lazily by Activate
+		CreatedAt:  time.Now(),
+		GitBaseRef: gitBaseRef,
 	}
 
 	if s.logger != nil {
@@ -190,6 +200,20 @@ func (s *L2SessionStore) Activate(ctx context.Context, id string) (*Session, err
 	// Re-check entry — it may have been removed or activated concurrently.
 	if e, ok := s.sessions[id]; ok {
 		e.Session = sess
+		// Read back git_base_ref that BuildL2 wrote to the meta file.
+		// This populates the in-memory entry for sessions created fresh
+		// (restored sessions already have it from restoreFromDisk).
+		if e.GitBaseRef == "" {
+			metaFile := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id, "meta")
+			if data, rerr := os.ReadFile(metaFile); rerr == nil {
+				var meta struct {
+					GitBaseRef string `json:"git_base_ref"`
+				}
+				if json.Unmarshal(data, &meta) == nil {
+					e.GitBaseRef = meta.GitBaseRef
+				}
+			}
+		}
 	}
 	s.mu.Unlock()
 
@@ -248,13 +272,15 @@ func (s *L2SessionStore) SetName(id, name string) {
 		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
 		metaFile := filepath.Join(tlDir, "meta")
 		meta := struct {
-			Name    string `json:"name"`
-			Group   string `json:"group"`
-			WorkDir string `json:"work_dir"`
+			Name       string `json:"name"`
+			Group      string `json:"group"`
+			WorkDir    string `json:"work_dir"`
+			GitBaseRef string `json:"git_base_ref"`
 		}{
-			Name:    name,
-			Group:   entry.Group,
-			WorkDir: entry.WorkDir,
+			Name:       name,
+			Group:      entry.Group,
+			WorkDir:    entry.WorkDir,
+			GitBaseRef: entry.GitBaseRef,
 		}
 		if data, err := json.Marshal(meta); err == nil {
 			_ = os.WriteFile(metaFile, data, 0644)
@@ -271,6 +297,36 @@ func (s *L2SessionStore) GetName(id string) string {
 		return entry.Name
 	}
 	return ""
+}
+
+// GetEntry returns a copy of the L2 session entry metadata (without the Session pointer).
+// Returns nil if the session is not found (including after disk restore attempt).
+func (s *L2SessionStore) GetEntry(id string) *L2SessionEntry {
+	s.mu.RLock()
+	entry, ok := s.sessions[id]
+	s.mu.RUnlock()
+	if !ok {
+		// Try restoring from disk.
+		if err := s.restoreFromDisk(context.Background(), id); err != nil {
+			return nil
+		}
+		s.mu.RLock()
+		entry, ok = s.sessions[id]
+		s.mu.RUnlock()
+		if !ok {
+			return nil
+		}
+	}
+	// Return a copy without the Session pointer.
+	return &L2SessionEntry{
+		ID:         entry.ID,
+		Name:       entry.Name,
+		Group:      entry.Group,
+		ProjectID:  entry.ProjectID,
+		WorkDir:    entry.WorkDir,
+		CreatedAt:  entry.CreatedAt,
+		GitBaseRef: entry.GitBaseRef,
+	}
 }
 
 

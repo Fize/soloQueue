@@ -1,12 +1,13 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react'
-import { ChatMessageView } from '@/components/ChatMessage'
-import { ChatInput } from '@/components/ChatInput'
-import { Sparkles, Loader2 } from 'lucide-react'
-import { useChatStore } from '@/stores/chatStore'
-import { useChatStream } from '@/hooks/useChatStream'
-import { useAgentStream } from '@/hooks/useAgentStream'
-import { useAgentStore } from '@/stores/agentStore'
-import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useEffect, useRef, useCallback, useMemo } from "react";
+import { ChatMessageView } from "@/components/ChatMessage";
+import { ChatInput } from "@/components/ChatInput";
+import { Sparkles, Loader2 } from "lucide-react";
+import { useChatStore } from "@/stores/chatStore";
+import { useChatStream } from "@/hooks/useChatStream";
+import { useAgentStream } from "@/hooks/useAgentStream";
+import { useAgentStore } from "@/stores/agentStore";
+import { useRuntimeStore } from "@/stores/runtimeStore";
+import { cn } from "@/lib/utils";
 
 export function AssistantPage() {
   const {
@@ -19,127 +20,155 @@ export function AssistantPage() {
     loadMoreHistory,
     setActiveSession,
     loadHistory,
-  } = useChatStore()
-  
-  const { send, cancel } = useChatStream()
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const loadingMoreRef = useRef(false)
-  const userScrolledUpRef = useRef(false)
+  } = useChatStore();
+
+  const { send, cancel } = useChatStream();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
+  const userScrolledUpRef = useRef(false);
 
   // Set active session to L1 on mount
   useEffect(() => {
-    setActiveSession('l1')
-  }, [setActiveSession])
+    setActiveSession("l1");
+  }, [setActiveSession]);
 
   // Agent name & state from stores
-  const agentsData = useAgentStore((state) => state.agents)
-  const runtimeStatus = useRuntimeStore((state) => state.status)
-  const connectionStatus = useRuntimeStore((state) => state.connectionStatus)
+  const agentsData = useAgentStore((state) => state.agents);
+  const runtimeStatus = useRuntimeStore((state) => state.status);
+  const connectionStatus = useRuntimeStore((state) => state.connectionStatus);
+  const sidebarCollapsed = useRuntimeStore((state) => state.sidebarCollapsed);
 
   const agentName = useMemo(() => {
-    const l1 = agentsData?.agents.find((a) => a.id === 'l1-agent')
-    return l1?.name || 'L1 Agent'
-  }, [agentsData])
+    const l1 = agentsData?.agents.find((a) => a.id === "l1-agent");
+    return l1?.name || "L1 Agent";
+  }, [agentsData]);
 
-  const isL1Session = activeSessionId === 'l1'
+  const isL1Session = activeSessionId === "l1";
   const l1Agent = useMemo(() => {
-    return agentsData?.agents.find((a) => a.id === 'l1-agent') || null
-  }, [agentsData])
-  const l1AgentState = l1Agent?.state
-  const l1AgentInstanceId = l1Agent?.instance_id || null
-  const isL1Processing = l1AgentState === 'processing'
-  const stream = useAgentStream(l1AgentInstanceId)
+    return agentsData?.agents.find((a) => a.id === "l1-agent") || null;
+  }, [agentsData]);
+  const l1AgentState = l1Agent?.state;
+  const l1AgentInstanceId = l1Agent?.instance_id || null;
+  const isL1Processing = l1AgentState === "processing";
+  const stream = useAgentStream(l1AgentInstanceId);
 
   // Context window tokens
-  const ctxwinUsed = runtimeStatus?.current_tokens ?? 0
-  const ctxwinLimit = runtimeStatus?.max_tokens ?? 0
+  const ctxwinUsed = runtimeStatus?.current_tokens ?? 0;
+  const ctxwinLimit = runtimeStatus?.max_tokens ?? 0;
 
   // ── Sync history upon agent state transitions (start/end processing) ──
-  const prevL1AgentState = useRef<string | undefined>(undefined)
+  const prevL1AgentState = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (isL1Session && l1AgentState) {
-      const wasProcessing = prevL1AgentState.current === 'processing'
-      const isProcessing = l1AgentState === 'processing'
-      if (prevL1AgentState.current !== undefined && wasProcessing !== isProcessing) {
-        loadHistory('l1')
+      const wasProcessing = prevL1AgentState.current === "processing";
+      const isProcessing = l1AgentState === "processing";
+      if (
+        prevL1AgentState.current !== undefined &&
+        wasProcessing !== isProcessing
+      ) {
+        loadHistory("l1");
       } else if (prevL1AgentState.current === undefined) {
-        loadHistory('l1')
+        loadHistory("l1");
       }
     }
-    prevL1AgentState.current = l1AgentState
-  }, [isL1Session, l1AgentState, loadHistory])
+    prevL1AgentState.current = l1AgentState;
+  }, [isL1Session, l1AgentState, loadHistory]);
 
   // ── Load more history when scrolling up ───────────────────────────────────
-  const hasMore = historyHasMore['l1'] ?? false
-  const isLoadingMore = historyLoading['l1'] ?? false
+  const hasMore = historyHasMore["l1"] ?? false;
+  const isLoadingMore = historyLoading["l1"] ?? false;
 
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
+    const el = scrollRef.current;
+    if (!el) return;
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-      userScrolledUpRef.current = !isNearBottom
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      userScrolledUpRef.current = !isNearBottom;
 
-      if (scrollTop < 50 && hasMore && !isLoadingMore && !loadingMoreRef.current) {
-        loadingMoreRef.current = true
-        const prevHeight = scrollHeight
-        loadMoreHistory('l1').then(() => {
+      if (
+        scrollTop < 50 &&
+        hasMore &&
+        !isLoadingMore &&
+        !loadingMoreRef.current
+      ) {
+        loadingMoreRef.current = true;
+        const prevHeight = scrollHeight;
+        loadMoreHistory("l1").then(() => {
           if (scrollRef.current) {
-            const diff = scrollRef.current.scrollHeight - prevHeight
-            scrollRef.current.scrollTop = diff
+            const diff = scrollRef.current.scrollHeight - prevHeight;
+            scrollRef.current.scrollTop = diff;
           }
-          loadingMoreRef.current = false
-        })
+          loadingMoreRef.current = false;
+        });
       }
-    }
-    el.addEventListener('scroll', handleScroll)
-    return () => el.removeEventListener('scroll', handleScroll)
-  }, [hasMore, isLoadingMore, loadMoreHistory])
+    };
+    el.addEventListener("scroll", handleScroll);
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [hasMore, isLoadingMore, loadMoreHistory]);
 
   // Auto-scroll to bottom
-  const currentMessages = messages['l1'] || []
+  const currentMessages = messages["l1"] || [];
   const contentSum = currentMessages.reduce((acc, msg) => {
-    let sum = 0
+    let sum = 0;
     for (const seg of msg.segments) {
-      if (seg.type === 'content' || seg.type === 'thinking' || seg.type === 'error') {
-        sum += (seg.text || '').length
-      } else if (seg.type === 'tool_call') {
-        sum += (seg.name || '').length + (seg.args || '').length + (seg.result || '').length + (seg.error || '').length + (seg.done ? 1 : 0)
-      } else if (seg.type === 'delegation') {
-        sum += (seg.agentName || '').length + (seg.task || '').length + (seg.status || '').length + (seg.resultContent || '').length
-      } else if (seg.type === 'tool_confirm') {
-        sum += (seg.name || '').length + (seg.prompt || '').length + (seg.resolved ? 1 : 0) + (seg.choice || '').length
+      if (
+        seg.type === "content" ||
+        seg.type === "thinking" ||
+        seg.type === "error"
+      ) {
+        sum += (seg.text || "").length;
+      } else if (seg.type === "tool_call") {
+        sum +=
+          (seg.name || "").length +
+          (seg.args || "").length +
+          (seg.result || "").length +
+          (seg.error || "").length +
+          (seg.done ? 1 : 0);
+      } else if (seg.type === "delegation") {
+        sum +=
+          (seg.agentName || "").length +
+          (seg.task || "").length +
+          (seg.status || "").length +
+          (seg.resultContent || "").length;
+      } else if (seg.type === "tool_confirm") {
+        sum +=
+          (seg.name || "").length +
+          (seg.prompt || "").length +
+          (seg.resolved ? 1 : 0) +
+          (seg.choice || "").length;
       }
     }
-    return acc + sum + msg.segments.length
-  }, 0)
+    return acc + sum + msg.segments.length;
+  }, 0);
 
   useEffect(() => {
-    if (userScrolledUpRef.current) return
-    bottomRef.current?.scrollIntoView({ behavior: streaming ? 'smooth' : 'auto' })
-  }, [contentSum, streaming])
+    if (userScrolledUpRef.current) return;
+    bottomRef.current?.scrollIntoView({
+      behavior: streaming ? "smooth" : "auto",
+    });
+  }, [contentSum, streaming]);
 
   // ── Send & Cancel ─────────────────────────────────────────────────────────
   const handleSend = useCallback(
     (text: string, files?: { name: string; path: string }[]) => {
-      send(text, files)
+      send(text, files);
     },
-    [send]
-  )
+    [send],
+  );
 
   const handleCancel = useCallback(() => {
-    cancel()
-  }, [cancel])
+    cancel();
+  }, [cancel]);
 
   // ── Live Stream Virtual Message ───────────────────────────────────────────
   const streamChatSegments = useMemo(() => {
-    if (!stream?.segments) return []
+    if (!stream?.segments) return [];
     return stream.segments.map((seg) => {
-      if (seg.type === 'tool_call') {
+      if (seg.type === "tool_call") {
         return {
-          type: 'tool_call' as const,
+          type: "tool_call" as const,
           callId: seg.call_id,
           name: seg.name,
           args: seg.args,
@@ -147,64 +176,83 @@ export function AssistantPage() {
           error: seg.error || undefined,
           durationMs: seg.duration_ms || undefined,
           done: seg.done,
-        }
+        };
       }
-      return seg
-    })
-  }, [stream])
+      return seg;
+    });
+  }, [stream]);
 
   const finalMessages = useMemo(() => {
     if (
       isL1Session &&
-      l1AgentState === 'processing' &&
+      l1AgentState === "processing" &&
       !streaming &&
       streamChatSegments.length > 0
     ) {
-      let base = currentMessages
-      while (base.length > 0 && base[base.length - 1].role === 'assistant') {
-        base = base.slice(0, -1)
+      let base = currentMessages;
+      while (base.length > 0 && base[base.length - 1].role === "assistant") {
+        base = base.slice(0, -1);
       }
       const virtualMessage = {
         id: `msg-virtual-stream`,
-        role: 'assistant' as const,
+        role: "assistant" as const,
         segments: streamChatSegments,
         timestamp: new Date().toISOString(),
-      }
-      return [...base, virtualMessage]
+      };
+      return [...base, virtualMessage];
     }
-    return currentMessages
-  }, [currentMessages, isL1Session, l1AgentState, streaming, streamChatSegments])
+    return currentMessages;
+  }, [
+    currentMessages,
+    isL1Session,
+    l1AgentState,
+    streaming,
+    streamChatSegments,
+  ]);
 
-  const isHistoryLoading = historyLoading['l1'] ?? false
+  const isHistoryLoading = historyLoading["l1"] ?? false;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
       <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
-        {/* Header — matches ChatPage header style */}
-        <header className="flex h-12 shrink-0 items-center border-b border-border/30 bg-card/20 px-6 select-none">
-          <div className="flex flex-1 items-center gap-3">
-            <h1 className="text-xs font-bold text-foreground font-mono truncate">{agentName}</h1>
+        {/* Header — matches ChatPage header style, respects sidebar collapsed state */}
+        <header
+          className={cn(
+            "flex h-12 shrink-0 items-center border-b border-border/30 bg-card/20 select-none",
+            sidebarCollapsed ? "pl-[115px]" : "px-6",
+          )}
+        >
+          <div className="flex flex-1 items-center gap-3 px-6 h-full">
+            <h1 className="text-xs font-bold text-foreground font-mono truncate">
+              {agentName}
+            </h1>
           </div>
         </header>
 
         {/* Messages — conditional overflow to avoid scrollbar when empty */}
         <div
           ref={scrollRef}
-          className={finalMessages.length > 0 ? 'flex-1 overflow-y-auto' : 'flex-1'}
+          className={
+            finalMessages.length > 0 ? "flex-1 overflow-y-auto" : "flex-1"
+          }
         >
           {finalMessages.length === 0 && isHistoryLoading ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
               <Loader2 className="h-7 w-7 animate-spin text-violet-500/70" />
-              <p className="text-xs text-muted-foreground font-mono">Loading history...</p>
+              <p className="text-xs text-muted-foreground font-mono">
+                Loading history...
+              </p>
             </div>
           ) : finalMessages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 border border-violet-500/20">
                 <Sparkles className="h-7 w-7 text-violet-500" />
               </div>
-              <h2 className="text-lg font-semibold text-foreground/80">{agentName}</h2>
+              <h2 className="text-lg font-semibold text-foreground/80">
+                {agentName}
+              </h2>
               <p className="max-w-xs text-center text-xs text-muted-foreground">
                 Send a message to the L1 agent for an instant response.
               </p>
@@ -214,11 +262,17 @@ export function AssistantPage() {
               {isLoadingMore && (
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-mono ml-2">Loading more history...</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-2">
+                    Loading more history...
+                  </span>
                 </div>
               )}
               {finalMessages.map((msg) => (
-                <ChatMessageView key={msg.id} message={msg} agentName={agentName} />
+                <ChatMessageView
+                  key={msg.id}
+                  message={msg}
+                  agentName={agentName}
+                />
               ))}
             </div>
           )}
@@ -231,7 +285,7 @@ export function AssistantPage() {
           onCancel={handleCancel}
           streaming={streaming}
           delegating={delegating}
-          disabled={connectionStatus !== 'connected'}
+          disabled={connectionStatus !== "connected"}
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
@@ -240,5 +294,5 @@ export function AssistantPage() {
         />
       </div>
     </div>
-  )
+  );
 }

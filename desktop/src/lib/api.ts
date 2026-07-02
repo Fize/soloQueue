@@ -35,559 +35,634 @@ import type {
   SessionListResponse,
   CreateL2SessionResponse,
   SessionHistoryResponse,
-} from '@/types'
-import { useAuthStore } from '@/stores/authStore'
+  ChangesResponse,
+} from "@/types";
+import { useAuthStore } from "@/stores/authStore";
 
-const API_BASE = '/api'
+const API_BASE = "/api";
 
 function getAuthHeaders(): Record<string, string> {
-  return {}
+  return {};
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     ...getAuthHeaders(),
-  }
+  };
   const res = await fetch(`${API_BASE}${path}`, {
     headers,
     ...options,
-  })
+  });
   if (res.status === 401) {
-    useAuthStore.getState().logout()
-    throw new Error('Unauthorized')
+    useAuthStore.getState().logout();
+    throw new Error("Unauthorized");
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    console.error('API error:', err)
-    throw new Error(err.error || `HTTP ${res.status}`)
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    console.error("API error:", err);
+    throw new Error(err.error || `HTTP ${res.status}`);
   }
-  return res.json()
+  return res.json();
 }
 
 // ─── Agent APIs ───────────────────────────────────────────────────────────────
 
 export async function getAgentProfile(id: string): Promise<AgentProfile> {
-  return request<AgentProfile>(`/agents/${id}/profile`)
+  return request<AgentProfile>(`/agents/${id}/profile`);
 }
 
 export async function updateAgentProfile(
   id: string,
-  data: UpdateAgentProfileRequest
+  data: UpdateAgentProfileRequest,
 ): Promise<AgentProfile> {
   return request<AgentProfile>(`/agents/${id}/profile`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getAgentConfig(id: string): Promise<AgentConfig> {
-  return request<AgentConfig>(`/agents/${id}/config`)
+  return request<AgentConfig>(`/agents/${id}/config`);
 }
 
 export async function updateAgentConfig(
   id: string,
-  data: UpdateAgentConfigRequest
+  data: UpdateAgentConfigRequest,
 ): Promise<AgentConfig> {
   return request<AgentConfig>(`/agents/${id}/config`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getTeams(): Promise<TeamListResponse> {
-  return request<TeamListResponse>('/teams')
+  return request<TeamListResponse>("/teams");
 }
 
 export async function getLiveAgents(): Promise<AgentListResponse> {
-  return request<AgentListResponse>('/agents/live')
+  return request<AgentListResponse>("/agents/live");
 }
 
 // ─── Config APIs ──────────────────────────────────────────────────────────────
 
 export async function getConfig(): Promise<AppConfig> {
-  return request<AppConfig>('/config')
+  return request<AppConfig>("/config");
 }
 
 // ─── DB-backed Config APIs ──────────────────────────────────────────────────
 
 export async function listProviders(): Promise<LLMProvider[]> {
-  return request<LLMProvider[]>('/config/providers')
+  return request<LLMProvider[]>("/config/providers");
 }
 
 export async function createProvider(data: LLMProvider): Promise<LLMProvider> {
-  return request<LLMProvider>('/config/providers', {
-    method: 'POST',
+  return request<LLMProvider>("/config/providers", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
-export async function updateProvider(id: string, data: LLMProvider): Promise<LLMProvider> {
+export async function updateProvider(
+  id: string,
+  data: LLMProvider,
+): Promise<LLMProvider> {
   return request<LLMProvider>(`/config/providers/${id}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function deleteProvider(id: string): Promise<void> {
-  await request(`/config/providers/${id}`, { method: 'DELETE' })
+  await request(`/config/providers/${id}`, { method: "DELETE" });
 }
 
 export async function listModels(): Promise<LLMModel[]> {
-  return request<LLMModel[]>('/config/models')
+  return request<LLMModel[]>("/config/models");
 }
 
 export async function createModel(data: LLMModel): Promise<LLMModel> {
-  return request<LLMModel>('/config/models', {
-    method: 'POST',
+  return request<LLMModel>("/config/models", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
-export async function updateModel(id: string, data: LLMModel): Promise<LLMModel> {
+export async function updateModel(
+  id: string,
+  data: LLMModel,
+): Promise<LLMModel> {
   return request<LLMModel>(`/config/models/${id}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function deleteModel(id: string): Promise<void> {
-  await request(`/config/models/${id}`, { method: 'DELETE' })
+  await request(`/config/models/${id}`, { method: "DELETE" });
 }
 
 export async function getDefaultModels(): Promise<DefaultModelsConfig> {
-  return request<DefaultModelsConfig>('/config/default-models')
+  return request<DefaultModelsConfig>("/config/default-models");
 }
 
-export async function updateDefaultModels(data: DefaultModelsConfig): Promise<DefaultModelsConfig> {
-  return request<DefaultModelsConfig>('/config/default-models', {
-    method: 'PUT',
+export async function updateDefaultModels(
+  data: DefaultModelsConfig,
+): Promise<DefaultModelsConfig> {
+  return request<DefaultModelsConfig>("/config/default-models", {
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getConfigToml(): Promise<string> {
   const res = await fetch(`${API_BASE}/config/toml`, {
     headers: getAuthHeaders(),
-  })
+  });
   if (res.status === 401) {
-    useAuthStore.getState().logout()
-    throw new Error('Unauthorized')
+    useAuthStore.getState().logout();
+    throw new Error("Unauthorized");
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || `HTTP ${res.status}`)
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
   }
-  return res.text()
+  return res.text();
 }
 
 // ─── Tools & Skills APIs ────────────────────────────────────────────────────
 
 export async function getTools(): Promise<ToolListResponse> {
-  return request<ToolListResponse>('/tools')
+  return request<ToolListResponse>("/tools");
 }
 
 export async function getSkills(): Promise<SkillListResponse> {
-  return request<SkillListResponse>('/skills')
+  return request<SkillListResponse>("/skills");
 }
 
 // ─── MCP APIs ──────────────────────────────────────────────────────────────────
 
 export async function getMCPConfig(): Promise<MCPConfig> {
-  return request<MCPConfig>('/mcp')
+  return request<MCPConfig>("/mcp");
 }
 
 export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
-  return request<MCPConfig>('/mcp', { method: 'PATCH', body: JSON.stringify(config) })
+  return request<MCPConfig>("/mcp", {
+    method: "PATCH",
+    body: JSON.stringify(config),
+  });
 }
 
 // ─── File APIs ──────────────────────────────────────────────────────────────────
 
 export function getFileUrl(path: string): string {
-  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
-    const port = (window as any).electronAPI?.backendPort || 57647
-    return `http://127.0.0.1:${port}${API_BASE}/files/content?path=${encodeURIComponent(path)}`
+  if (typeof window !== "undefined" && window.location.protocol === "file:") {
+    const port = (window as any).electronAPI?.backendPort || 57647;
+    return `http://127.0.0.1:${port}${API_BASE}/files/content?path=${encodeURIComponent(path)}`;
   }
-  return `${API_BASE}/files/content?path=${encodeURIComponent(path)}`
+  return `${API_BASE}/files/content?path=${encodeURIComponent(path)}`;
 }
 
 export async function listFiles(dir: string): Promise<FileInfo[]> {
   const headers = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     ...getAuthHeaders(),
-  }
-  const res = await fetch(`${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`, { headers })
+  };
+  const res = await fetch(
+    `${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`,
+    { headers },
+  );
   if (res.status === 401) {
-    useAuthStore.getState().logout()
-    throw new Error('Unauthorized')
+    useAuthStore.getState().logout();
+    throw new Error("Unauthorized");
   }
-  if (!res.ok) throw new Error(`Failed to list files: ${res.statusText}`)
-  return res.json()
+  if (!res.ok) throw new Error(`Failed to list files: ${res.statusText}`);
+  return res.json();
 }
 
-export async function toggleFileCheckbox(path: string, index: number): Promise<{ status: string }> {
-  return request<{ status: string }>('/files/toggle-checkbox', {
-    method: 'POST',
+export async function toggleFileCheckbox(
+  path: string,
+  index: number,
+): Promise<{ status: string }> {
+  return request<{ status: string }>("/files/toggle-checkbox", {
+    method: "POST",
     body: JSON.stringify({ path, index }),
-  })
+  });
 }
 
 // ─── Dependency APIs ───────────────────────────────────────────────────────────
 
-export async function getDependencies(todoId: string): Promise<DependenciesResponse> {
-  return request<DependenciesResponse>(`/todos/${todoId}/dependencies`)
+export async function getDependencies(
+  todoId: string,
+): Promise<DependenciesResponse> {
+  return request<DependenciesResponse>(`/todos/${todoId}/dependencies`);
 }
 
-export async function setDependencies(todoId: string, data: SetDependenciesRequest): Promise<void> {
+export async function setDependencies(
+  todoId: string,
+  data: SetDependenciesRequest,
+): Promise<void> {
   await request(`/todos/${todoId}/dependencies`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 // ─── Team CRUD APIs ─────────────────────────────────────────────────────────
 
 export async function listTeams(): Promise<TeamResponse[]> {
-  const data = await request<{ teams: TeamResponse[] }>('/teams')
-  return data.teams ?? []
+  const data = await request<{ teams: TeamResponse[] }>("/teams");
+  return data.teams ?? [];
 }
 
 export async function getTeam(name: string): Promise<TeamResponse> {
-  return request<TeamResponse>(`/teams/${encodeURIComponent(name)}`)
+  return request<TeamResponse>(`/teams/${encodeURIComponent(name)}`);
 }
 
-export async function createTeam(data: CreateTeamRequest): Promise<TeamResponse> {
-  return request<TeamResponse>('/teams', {
-    method: 'POST',
+export async function createTeam(
+  data: CreateTeamRequest,
+): Promise<TeamResponse> {
+  return request<TeamResponse>("/teams", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
-export async function updateTeam(name: string, data: UpdateTeamRequest): Promise<TeamResponse> {
+export async function updateTeam(
+  name: string,
+  data: UpdateTeamRequest,
+): Promise<TeamResponse> {
   return request<TeamResponse>(`/teams/${encodeURIComponent(name)}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function deleteTeam(name: string): Promise<void> {
-  await request(`/teams/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  await request(`/teams/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 // ─── Agent CRUD APIs ────────────────────────────────────────────────────────
 
 export async function listAgents(team?: string): Promise<AgentResponse[]> {
-  const query = team ? `?team=${encodeURIComponent(team)}` : ''
-  const data = await request<{ agents: AgentResponse[] }>(`/agents${query}`)
-  return data.agents ?? []
+  const query = team ? `?team=${encodeURIComponent(team)}` : "";
+  const data = await request<{ agents: AgentResponse[] }>(`/agents${query}`);
+  return data.agents ?? [];
 }
 
 export async function getAgent(name: string): Promise<AgentResponse> {
-  return request<AgentResponse>(`/agents/${encodeURIComponent(name)}`)
+  return request<AgentResponse>(`/agents/${encodeURIComponent(name)}`);
 }
 
-export async function createAgent(data: CreateAgentRequest): Promise<AgentResponse> {
-  return request<AgentResponse>('/agents', {
-    method: 'POST',
+export async function createAgent(
+  data: CreateAgentRequest,
+): Promise<AgentResponse> {
+  return request<AgentResponse>("/agents", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
-export async function updateAgent(name: string, data: UpdateAgentRequest): Promise<AgentResponse> {
+export async function updateAgent(
+  name: string,
+  data: UpdateAgentRequest,
+): Promise<AgentResponse> {
   return request<AgentResponse>(`/agents/${encodeURIComponent(name)}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function deleteAgent(name: string): Promise<void> {
-  await request(`/agents/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  await request(`/agents/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 // ─── Cron Task APIs ──────────────────────────────────────────────────────────
 
 export async function listCronTasks(): Promise<CronTask[]> {
-  return request<CronTask[]>('/cron')
+  return request<CronTask[]>("/cron");
 }
 
-export async function createCronTask(data: CreateCronTaskRequest): Promise<CronTask> {
-  return request<CronTask>('/cron', {
-    method: 'POST',
+export async function createCronTask(
+  data: CreateCronTaskRequest,
+): Promise<CronTask> {
+  return request<CronTask>("/cron", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
-export async function updateCronTask(id: string, data: UpdateCronTaskRequest): Promise<CronTask> {
+export async function updateCronTask(
+  id: string,
+  data: UpdateCronTaskRequest,
+): Promise<CronTask> {
   return request<CronTask>(`/cron/${id}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function deleteCronTask(id: string): Promise<void> {
-  await request(`/cron/${id}`, { method: 'DELETE' })
+  await request(`/cron/${id}`, { method: "DELETE" });
 }
 
 // ─── Skill Management & Store APIs ──────────────────────────────────────────
 
 export interface InstallSkillRequest {
-  source: 'store' | 'local' | 'github'
-  id?: string
-  path?: string
-  url?: string
+  source: "store" | "local" | "github";
+  id?: string;
+  path?: string;
+  url?: string;
 }
 
 export interface SkillFileEntry {
-  path: string
-  kind: 'file' | 'directory'
-  size?: number
+  path: string;
+  kind: "file" | "directory";
+  size?: number;
 }
 
 export async function fetchStoreSkills(): Promise<SkillListResponse> {
-  return request<SkillListResponse>('/skills/store')
+  return request<SkillListResponse>("/skills/store");
 }
 
 export async function installSkill(data: InstallSkillRequest): Promise<void> {
-  await request('/skills/install', {
-    method: 'POST',
+  await request("/skills/install", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function fetchSkillDetail(id: string): Promise<SkillInfo> {
-  return request<SkillInfo>(`/skills/${encodeURIComponent(id)}`)
+  return request<SkillInfo>(`/skills/${encodeURIComponent(id)}`);
 }
 
 export async function updateSkill(
   id: string,
-  data: { description: string; body: string; triggers: string[] }
+  data: { description: string; body: string; triggers: string[] },
 ): Promise<void> {
   await request(`/skills/${encodeURIComponent(id)}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function deleteSkill(id: string): Promise<void> {
   await request(`/skills/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  })
+    method: "DELETE",
+  });
 }
 
-export async function fetchSkillFiles(id: string): Promise<{ files: SkillFileEntry[] }> {
-  return request<{ files: SkillFileEntry[] }>(`/skills/${encodeURIComponent(id)}/files`)
+export async function fetchSkillFiles(
+  id: string,
+): Promise<{ files: SkillFileEntry[] }> {
+  return request<{ files: SkillFileEntry[] }>(
+    `/skills/${encodeURIComponent(id)}/files`,
+  );
 }
 
-export async function toggleSkill(id: string): Promise<{ id: string; enabled: boolean }> {
-  return request<{ id: string; enabled: boolean }>(`/skills/${encodeURIComponent(id)}/toggle`, {
-    method: 'POST',
-  })
+export async function toggleSkill(
+  id: string,
+): Promise<{ id: string; enabled: boolean }> {
+  return request<{ id: string; enabled: boolean }>(
+    `/skills/${encodeURIComponent(id)}/toggle`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function toggleSkillAutoUpdate(
   id: string,
-  enabled: boolean
+  enabled: boolean,
 ): Promise<{ id: string; auto_update: boolean }> {
   return request<{ id: string; auto_update: boolean }>(
     `/skills/${encodeURIComponent(id)}/auto-update`,
     {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify({ enabled }),
-    }
-  )
+    },
+  );
 }
 
 export async function importSkill(data: {
-  name: string
-  description: string
-  body: string
-  triggers: string[]
+  name: string;
+  description: string;
+  body: string;
+  triggers: string[];
 }): Promise<void> {
-  await request('/skills', {
-    method: 'POST',
+  await request("/skills", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 // ─── System Settings DB-backed APIs ─────────────────────────────────────────
 
 export async function getToolsConfig(): Promise<ToolsConfig> {
-  return request<ToolsConfig>('/config/tools')
+  return request<ToolsConfig>("/config/tools");
 }
 
-export async function updateToolsConfig(data: ToolsConfig): Promise<ToolsConfig> {
-  return request<ToolsConfig>('/config/tools', {
-    method: 'PUT',
+export async function updateToolsConfig(
+  data: ToolsConfig,
+): Promise<ToolsConfig> {
+  return request<ToolsConfig>("/config/tools", {
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getQQBotConfig(): Promise<QQBotConfig> {
-  return request<QQBotConfig>('/config/qqbot')
+  return request<QQBotConfig>("/config/qqbot");
 }
 
-export async function updateQQBotConfig(data: QQBotConfig): Promise<QQBotConfig> {
-  return request<QQBotConfig>('/config/qqbot', {
-    method: 'PUT',
+export async function updateQQBotConfig(
+  data: QQBotConfig,
+): Promise<QQBotConfig> {
+  return request<QQBotConfig>("/config/qqbot", {
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getLSPMCPConfig(): Promise<LSPMCPConfig> {
-  return request<LSPMCPConfig>('/config/lspmcp')
+  return request<LSPMCPConfig>("/config/lspmcp");
 }
 
-export async function updateLSPMCPConfig(data: LSPMCPConfig): Promise<LSPMCPConfig> {
-  return request<LSPMCPConfig>('/config/lspmcp', {
-    method: 'PUT',
+export async function updateLSPMCPConfig(
+  data: LSPMCPConfig,
+): Promise<LSPMCPConfig> {
+  return request<LSPMCPConfig>("/config/lspmcp", {
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
-  return request<EmbeddingConfig>('/config/embedding')
+  return request<EmbeddingConfig>("/config/embedding");
 }
 
-export async function updateEmbeddingConfig(data: EmbeddingConfig): Promise<EmbeddingConfig> {
-  return request<EmbeddingConfig>('/config/embedding', {
-    method: 'PUT',
+export async function updateEmbeddingConfig(
+  data: EmbeddingConfig,
+): Promise<EmbeddingConfig> {
+  return request<EmbeddingConfig>("/config/embedding", {
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getSessionConfig(): Promise<SessionConfig> {
-  return request<SessionConfig>('/config/session')
+  return request<SessionConfig>("/config/session");
 }
 
-export async function updateSessionConfig(data: SessionConfig): Promise<SessionConfig> {
-  return request<SessionConfig>('/config/session', {
-    method: 'PUT',
+export async function updateSessionConfig(
+  data: SessionConfig,
+): Promise<SessionConfig> {
+  return request<SessionConfig>("/config/session", {
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function getSimulationConfig(): Promise<SimulationConfig> {
-  return request<SimulationConfig>('/config/simulation')
+  return request<SimulationConfig>("/config/simulation");
 }
 
-export async function updateSimulationConfig(data: SimulationConfig): Promise<SimulationConfig> {
-  return request<SimulationConfig>('/config/simulation', {
-    method: 'PUT',
+export async function updateSimulationConfig(
+  data: SimulationConfig,
+): Promise<SimulationConfig> {
+  return request<SimulationConfig>("/config/simulation", {
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 // ─── Project APIs ───────────────────────────────────────────────────────────
 
 export async function listProjects(): Promise<Project[]> {
-  const data = await request<{ projects: Project[] }>('/projects')
-  return data.projects ?? []
+  const data = await request<{ projects: Project[] }>("/projects");
+  return data.projects ?? [];
 }
 
 export async function getProject(id: string): Promise<Project> {
-  return request<Project>(`/projects/${encodeURIComponent(id)}`)
+  return request<Project>(`/projects/${encodeURIComponent(id)}`);
 }
 
 export async function createProject(
-  data: Omit<Project, 'created_at' | 'updated_at'>
+  data: Omit<Project, "created_at" | "updated_at">,
 ): Promise<Project> {
-  return request<Project>('/projects', {
-    method: 'POST',
+  return request<Project>("/projects", {
+    method: "POST",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function updateProject(
   id: string,
-  data: Partial<Omit<Project, 'created_at' | 'updated_at'>>
+  data: Partial<Omit<Project, "created_at" | "updated_at">>,
 ): Promise<Project> {
   return request<Project>(`/projects/${encodeURIComponent(id)}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  await request(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await request(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // ─── Session / Chat APIs ────────────────────────────────────────────────────
 
 export async function listSessions(): Promise<SessionListResponse> {
-  return request<SessionListResponse>('/session/list')
+  return request<SessionListResponse>("/session/list");
 }
 
 export async function createL2Session(
   group: string,
-  workDir?: string
+  workDir?: string,
 ): Promise<CreateL2SessionResponse> {
-  return request<CreateL2SessionResponse>('/session/l2', {
-    method: 'POST',
-    body: JSON.stringify({ group, work_dir: workDir || '' }),
-  })
+  return request<CreateL2SessionResponse>("/session/l2", {
+    method: "POST",
+    body: JSON.stringify({ group, work_dir: workDir || "" }),
+  });
 }
 
 export async function deleteL2Session(id: string): Promise<void> {
-  await request(`/session/l2/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await request(`/session/l2/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function listL2Groups(): Promise<string[]> {
-  const data = await request<{ groups: string[] }>('/session/groups')
-  return data.groups ?? []
+  const data = await request<{ groups: string[] }>("/session/groups");
+  return data.groups ?? [];
 }
 
 export async function fetchSessionHistory(
   sessionId: string,
   before?: string,
-  limit?: number
+  limit?: number,
 ): Promise<SessionHistoryResponse> {
-  const cleanId = sessionId.replace(/^l2:/, '')
-  const params = new URLSearchParams({ session_id: cleanId })
-  if (before) params.set('before', before)
-  if (limit) params.set('limit', String(limit))
-  return request<SessionHistoryResponse>(`/session/history?${params.toString()}`)
+  const cleanId = sessionId.replace(/^l2:/, "");
+  const params = new URLSearchParams({ session_id: cleanId });
+  if (before) params.set("before", before);
+  if (limit) params.set("limit", String(limit));
+  return request<SessionHistoryResponse>(
+    `/session/history?${params.toString()}`,
+  );
 }
 
 export async function confirmSessionTool(
   sessionId: string,
   callId: string,
-  choice: string
+  choice: string,
 ): Promise<void> {
-  await request('/session/confirm', {
-    method: 'POST',
+  await request("/session/confirm", {
+    method: "POST",
     body: JSON.stringify({ session_id: sessionId, call_id: callId, choice }),
-  })
+  });
 }
 
 export async function uploadFile(
   file: File,
-  sessionId?: string
+  sessionId?: string,
 ): Promise<{ name: string; path: string; size: number }> {
-  const formData = new FormData()
-  formData.append('file', file)
+  const formData = new FormData();
+  formData.append("file", file);
   if (sessionId) {
-    formData.append('session_id', sessionId)
+    formData.append("session_id", sessionId);
   }
 
   const headers = {
     ...getAuthHeaders(),
-  }
+  };
 
   const res = await fetch(`${API_BASE}/session/upload`, {
-    method: 'POST',
+    method: "POST",
     headers,
     body: formData,
-  })
+  });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || `Upload failed: ${res.statusText}`)
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Upload failed: ${res.statusText}`);
   }
 
-  return res.json()
+  return res.json();
 }
 
 export async function getProjectBranches(projectId: string): Promise<string[]> {
-  const data = await request<{ branches: string[] }>(`/projects/${encodeURIComponent(projectId)}/branches`)
-  return data.branches ?? []
+  const data = await request<{ branches: string[] }>(
+    `/projects/${encodeURIComponent(projectId)}/branches`,
+  );
+  return data.branches ?? [];
+}
+
+// ─── Session Changes / Diff API ───────────────────────────────────────────────
+
+export async function getSessionChanges(
+  sessionId: string,
+): Promise<ChangesResponse> {
+  // sessionId is "l2:<uuid>" — strip the prefix for the URL.
+  const id = sessionId.startsWith("l2:") ? sessionId.slice(3) : sessionId;
+  return request<ChangesResponse>(
+    `/session/l2/${encodeURIComponent(id)}/changes`,
+  );
 }

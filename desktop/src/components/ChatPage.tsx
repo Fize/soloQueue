@@ -1,22 +1,30 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { ChatMessageView } from '@/components/ChatMessage'
-import { ChatInput } from '@/components/ChatInput'
-import { useChatStore } from '@/stores/chatStore'
-import { useChatStream } from '@/hooks/useChatStream'
-import { useAgentStream } from '@/hooks/useAgentStream'
-import { PanelRight, Loader2, Activity, Bot, Users, FolderOpen, Layers } from 'lucide-react'
-import { useAgentStore } from '@/stores/agentStore'
-import { useRuntimeStore } from '@/stores/runtimeStore'
-import { cn } from '@/lib/utils'
-import type { AgentInfo, Project } from '@/types'
-import { L2SessionStatusPanel } from '@/components/L2SessionStatusPanel'
-import { SessionFilePanel } from '@/components/SessionFilePanel'
-import { listL2Groups, listProjects, getTeams } from '@/lib/api'
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ChatMessageView } from "@/components/ChatMessage";
+import { ChatInput } from "@/components/ChatInput";
+import { useChatStore } from "@/stores/chatStore";
+import { useChatStream } from "@/hooks/useChatStream";
+import { useAgentStream } from "@/hooks/useAgentStream";
+import {
+  PanelRight,
+  Loader2,
+  Activity,
+  Bot,
+  Users,
+  FolderOpen,
+  Layers,
+} from "lucide-react";
+import { useAgentStore } from "@/stores/agentStore";
+import { useRuntimeStore } from "@/stores/runtimeStore";
+import { cn } from "@/lib/utils";
+import type { AgentInfo, Project } from "@/types";
+import { SessionChangesPanel } from "@/components/SessionChangesPanel";
+import { SessionFilePanel } from "@/components/SessionFilePanel";
+import { listL2Groups, listProjects, getTeams } from "@/lib/api";
 
 export function ChatPage() {
-  const { sessionId } = useParams<{ sessionId: string }>()
-  const navigate = useNavigate()
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
   const {
     activeSessionId,
     messages,
@@ -31,310 +39,318 @@ export function ChatPage() {
     loadHistory,
     createL2Session,
     deleteL2Session,
-  } = useChatStore()
-  const { send, cancel } = useChatStream()
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const userScrolledUp = useRef(false)
-  const loadingMore = useRef(false)
-  const connectionStatus = useRuntimeStore((s) => s.connectionStatus)
-  const isProgrammaticScrolling = useRef(false)
+  } = useChatStore();
+  const { send, cancel } = useChatStream();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
+  const loadingMore = useRef(false);
+  const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
+  const isProgrammaticScrolling = useRef(false);
 
   // macOS Inspector state
-  const [showInspector, setShowInspector] = useState(false)
-  const [inspectorTab, setInspectorTab] = useState<'files' | 'changes'>('files')
+  const [showInspector, setShowInspector] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<"files" | "changes">(
+    "files",
+  );
 
   const toggleInspector = (open: boolean) => {
-    useRuntimeStore.getState().setInspectorPanelWidth(open ? panelWidth : 0)
-    setShowInspector(open)
-  }
-  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
+    useRuntimeStore.getState().setInspectorPanelWidth(open ? panelWidth : 0);
+    setShowInspector(open);
+  };
+  const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed);
 
   // Resizable inspector panel
-  const MIN_AREA_WIDTH = 200
-  const [panelWidth, setPanelWidth] = useState(300)
-  const [isResizing, setIsResizing] = useState(false)
-  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const MIN_AREA_WIDTH = 200;
+  const [panelWidth, setPanelWidth] = useState(300);
+  const [isResizing, setIsResizing] = useState(false);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsResizing(true)
-  }, [])
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
 
   useEffect(() => {
-    if (!isResizing) return
+    if (!isResizing) return;
     const handleMouseMove = (e: MouseEvent) => {
-      if (!splitContainerRef.current) return
-      const rect = splitContainerRef.current.getBoundingClientRect()
-      const newWidth = rect.right - e.clientX
-      const maxWidth = Math.floor(rect.width * 0.6)
+      if (!splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const newWidth = rect.right - e.clientX;
+      const maxWidth = Math.floor(rect.width * 0.6);
       const clamped = Math.max(
         MIN_AREA_WIDTH,
-        Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth)
-      )
-      setPanelWidth(clamped)
-      useRuntimeStore.getState().setInspectorPanelWidth(clamped)
-    }
-    const handleMouseUp = () => setIsResizing(false)
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
+        Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth),
+      );
+      setPanelWidth(clamped);
+      useRuntimeStore.getState().setInspectorPanelWidth(clamped);
+    };
+    const handleMouseUp = () => setIsResizing(false);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isResizing])
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing]);
 
   // Track split container width for responsive content sizing
-  const [containerWidth, setContainerWidth] = useState(0)
+  const [containerWidth, setContainerWidth] = useState(0);
   useEffect(() => {
-    const el = splitContainerRef.current
-    if (!el) return
+    const el = splitContainerRef.current;
+    if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
-      setContainerWidth(entry.contentRect.width)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+      setContainerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // L2 redesign states
-  const [l2Groups, setL2Groups] = useState<string[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
-  const [teamProjectsMap, setTeamProjectsMap] = useState<Record<string, Project[]>>({})
+  const [l2Groups, setL2Groups] = useState<string[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [teamProjectsMap, setTeamProjectsMap] = useState<
+    Record<string, Project[]>
+  >({});
 
-  const [selectedGroup, setSelectedGroup] = useState<string>('')
-  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+  const [selectedGroup, setSelectedGroup] = useState<string>("");
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
 
   // Load L2 groups, projects, teams
   useEffect(() => {
-    let active = true
+    let active = true;
     async function loadInitialData() {
       try {
         const [groupNames, projs, teamsData] = await Promise.all([
           listL2Groups(),
           listProjects(),
           getTeams().catch(() => ({ teams: [] })),
-        ])
+        ]);
 
-        if (!active) return
+        if (!active) return;
 
-        setL2Groups(groupNames)
-        setProjects(projs)
+        setL2Groups(groupNames);
+        setProjects(projs);
 
-        const projectMap = new Map(projs.map((p) => [p.id, p]))
-        const groupProjects: Record<string, Project[]> = {}
+        const projectMap = new Map(projs.map((p) => [p.id, p]));
+        const groupProjects: Record<string, Project[]> = {};
         for (const team of (teamsData as any).teams || []) {
           if (team.projects && Array.isArray(team.projects)) {
             for (const pid of team.projects) {
-              const proj = projectMap.get(pid)
+              const proj = projectMap.get(pid);
               if (proj) {
-                if (!groupProjects[team.name]) groupProjects[team.name] = []
-                groupProjects[team.name].push(proj)
+                if (!groupProjects[team.name]) groupProjects[team.name] = [];
+                groupProjects[team.name].push(proj);
               }
             }
           }
         }
-        setTeamProjectsMap(groupProjects)
+        setTeamProjectsMap(groupProjects);
       } catch (err) {
-        console.error('Failed to load welcome screen options:', err)
+        console.error("Failed to load welcome screen options:", err);
       }
     }
-    loadInitialData()
+    loadInitialData();
     return () => {
-      active = false
-    }
-  }, [])
+      active = false;
+    };
+  }, []);
 
-  const agentsData = useAgentStore((state) => state.agents)
-  const teamsData = useAgentStore((state) => state.teams)
-  const fetchLiveAgents = useAgentStore((state) => state.fetchLiveAgents)
-  const fetchTeams = useAgentStore((state) => state.fetchTeams)
-
-  useEffect(() => {
-    fetchLiveAgents()
-    fetchTeams()
-  }, [fetchLiveAgents, fetchTeams])
+  const agentsData = useAgentStore((state) => state.agents);
+  const teamsData = useAgentStore((state) => state.teams);
+  const fetchLiveAgents = useAgentStore((state) => state.fetchLiveAgents);
+  const fetchTeams = useAgentStore((state) => state.fetchTeams);
 
   useEffect(() => {
-    loadSessions()
-  }, [loadSessions])
+    fetchLiveAgents();
+    fetchTeams();
+  }, [fetchLiveAgents, fetchTeams]);
 
   useEffect(() => {
-    if (sessionId && sessionId !== 'l1') {
+    loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
+    if (sessionId && sessionId !== "l1") {
       if (sessionId !== activeSessionId) {
-        setActiveSession(sessionId)
+        setActiveSession(sessionId);
       }
     } else {
       // Find the most recent L2 session
-      const l2Sessions = sessions.filter((s) => s.type === 'l2')
+      const l2Sessions = sessions.filter((s) => s.type === "l2");
       if (l2Sessions.length > 0) {
         const sorted = [...l2Sessions].sort((a, b) => {
-          const timeA = a.createdAt || (a as any).created_at || ''
-          const timeB = b.createdAt || (b as any).created_at || ''
-          return timeB.localeCompare(timeA)
-        })
-        const latest = sorted[0].id
-        setActiveSession(latest)
-        navigate(`/chat/${latest}`, { replace: true })
+          const timeA = a.createdAt || (a as any).created_at || "";
+          const timeB = b.createdAt || (b as any).created_at || "";
+          return timeB.localeCompare(timeA);
+        });
+        const latest = sorted[0].id;
+        setActiveSession(latest);
+        navigate(`/chat/${latest}`, { replace: true });
       } else {
         // No L2 sessions exist
         if (activeSessionId) {
-          setActiveSession('')
+          setActiveSession("");
         }
-        if (sessionId === 'l1') {
-          navigate('/chat', { replace: true })
+        if (sessionId === "l1") {
+          navigate("/chat", { replace: true });
         }
       }
     }
-  }, [sessionId, activeSessionId, sessions, setActiveSession, navigate])
+  }, [sessionId, activeSessionId, sessions, setActiveSession, navigate]);
 
-  const currentMessages = messages[activeSessionId || ''] || []
-  const activeSession = sessions.find((s) => s.id === activeSessionId)
-  const hasActiveSession = activeSession != null
-  const activeGroup = activeSession?.group ?? null
-  const activeProjectPath = activeSession?.project_path ?? null
-  const isL1Session = activeSessionId === 'l1'
+  const currentMessages = messages[activeSessionId || ""] || [];
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const hasActiveSession = activeSession != null;
+  const activeGroup = activeSession?.group ?? null;
+  const activeProjectPath = activeSession?.project_path ?? null;
+  const isL1Session = activeSessionId === "l1";
 
   // Sync selectors from active session when session changes
   useEffect(() => {
     if (activeSession) {
-      setSelectedGroup(activeSession.group || '')
-      setSelectedProjectPath(activeSession.project_path || '')
+      setSelectedGroup(activeSession.group || "");
+      setSelectedProjectPath(activeSession.project_path || "");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
 
   // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
-  const MESSAGE_MAX_W = 768
+  const MESSAGE_MAX_W = 768;
   const messageMaxWidth = useMemo(() => {
-    const panelVisible = showInspector && activeSession
-    const mainContentWidth = containerWidth - (panelVisible ? panelWidth + 4 : 0) // 4px = handle width
-    if (mainContentWidth <= 0) return MESSAGE_MAX_W
-    return Math.max(MIN_AREA_WIDTH - 32, Math.min(mainContentWidth * 0.85, MESSAGE_MAX_W))
-  }, [showInspector, activeSession, containerWidth, panelWidth])
+    const panelVisible = showInspector && activeSession;
+    const mainContentWidth =
+      containerWidth - (panelVisible ? panelWidth + 4 : 0); // 4px = handle width
+    if (mainContentWidth <= 0) return MESSAGE_MAX_W;
+    return Math.max(
+      MIN_AREA_WIDTH - 32,
+      Math.min(mainContentWidth * 0.85, MESSAGE_MAX_W),
+    );
+  }, [showInspector, activeSession, containerWidth, panelWidth]);
 
   // Sync selected group and project path when active session data changes
   useEffect(() => {
     if (hasActiveSession) {
-      setSelectedGroup(activeGroup || '')
-      setSelectedProjectPath(activeProjectPath || '')
+      setSelectedGroup(activeGroup || "");
+      setSelectedProjectPath(activeProjectPath || "");
     } else if (l2Groups.length > 0) {
-      setSelectedGroup(l2Groups[0])
+      setSelectedGroup(l2Groups[0]);
     }
-  }, [hasActiveSession, activeGroup, activeProjectPath, l2Groups])
+  }, [hasActiveSession, activeGroup, activeProjectPath, l2Groups]);
 
   // Sync first project of selected group when selectedGroup changes
   useEffect(() => {
     if (selectedGroup) {
-      const groupProjs = teamProjectsMap[selectedGroup] || []
-      setSelectedProjectPath(prevPath => {
-        const valid = groupProjs.some((p) => p.path === prevPath)
+      const groupProjs = teamProjectsMap[selectedGroup] || [];
+      setSelectedProjectPath((prevPath) => {
+        const valid = groupProjs.some((p) => p.path === prevPath);
         if (!valid) {
-          if (groupProjs.length > 0) return groupProjs[0].path
-          if (projects.length > 0) return projects[0].path
+          if (groupProjs.length > 0) return groupProjs[0].path;
+          if (projects.length > 0) return projects[0].path;
         }
-        return prevPath // same ref → React bails, no re-render
-      })
+        return prevPath; // same ref → React bails, no re-render
+      });
     }
-  }, [selectedGroup, teamProjectsMap, projects])
+  }, [selectedGroup, teamProjectsMap, projects]);
 
-  const selectedProject = projects.find((p) => p.path === selectedProjectPath)
+  const selectedProject = projects.find((p) => p.path === selectedProjectPath);
 
   const groupAgents = useMemo(() => {
     if (isL1Session) {
-      let l1 = null
+      let l1 = null;
       if (agentsData) {
-        l1 = agentsData.agents.find((a) => a.id === 'l1-agent')
+        l1 = agentsData.agents.find((a) => a.id === "l1-agent");
       }
       const fallback: AgentInfo = {
-        id: 'main',
-        instance_id: '',
-        name: 'L1 Agent',
-        state: 'stopped' as const,
-        model_id: 'Expert Model',
-        provider_id: '',
-        group: 'L1',
+        id: "main",
+        instance_id: "",
+        name: "L1 Agent",
+        state: "stopped" as const,
+        model_id: "Expert Model",
+        provider_id: "",
+        group: "L1",
         is_leader: true,
-        task_level: '',
+        task_level: "",
         error_count: 0,
-        last_error: '',
+        last_error: "",
         pending_delegations: 0,
         mailbox_high: 0,
         mailbox_normal: 0,
-      }
-      return [l1 || fallback]
+      };
+      return [l1 || fallback];
     }
 
-    if (!activeGroup) return []
+    if (!activeGroup) return [];
 
-    const team = teamsData?.teams.find((t) => t.name.toLowerCase() === activeGroup.toLowerCase())
+    const team = teamsData?.teams.find(
+      (t) => t.name.toLowerCase() === activeGroup.toLowerCase(),
+    );
     if (!team) {
       return agentsData
-        ? agentsData.agents.filter((a) => a.group?.toLowerCase() === activeGroup.toLowerCase())
-        : []
+        ? agentsData.agents.filter(
+            (a) => a.group?.toLowerCase() === activeGroup.toLowerCase(),
+          )
+        : [];
     }
 
     return team.agents.map((tmpl) => {
-      const live = agentsData?.agents.find((a) => a.id === tmpl.id)
+      const live = agentsData?.agents.find((a) => a.id === tmpl.id);
       const placeholder: AgentInfo = {
         id: tmpl.id,
-        instance_id: '',
+        instance_id: "",
         name: tmpl.name,
-        state: 'stopped' as const,
+        state: "stopped" as const,
         model_id: tmpl.model_id,
-        provider_id: '',
+        provider_id: "",
         group: activeGroup,
         is_leader: tmpl.is_leader,
-        task_level: '',
+        task_level: "",
         error_count: 0,
-        last_error: '',
+        last_error: "",
         pending_delegations: 0,
         mailbox_high: 0,
         mailbox_normal: 0,
-      }
-      return live || placeholder
-    })
-  }, [agentsData, teamsData, activeGroup, isL1Session])
-
-
+      };
+      return live || placeholder;
+    });
+  }, [agentsData, teamsData, activeGroup, isL1Session]);
 
   const activeAgent = useMemo(() => {
-    return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null
-  }, [groupAgents])
+    return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null;
+  }, [groupAgents]);
 
-  const isAgentProcessing = activeAgent?.state === 'processing'
+  const isAgentProcessing = activeAgent?.state === "processing";
 
   const agentDisplayName = useMemo(() => {
-    if (isL1Session) return 'L1 Agent'
-    return activeSession?.agent_name || activeAgent?.name || 'Assistant'
-  }, [isL1Session, activeSession, activeAgent])
+    if (isL1Session) return "L1 Agent";
+    return activeSession?.agent_name || activeAgent?.name || "Assistant";
+  }, [isL1Session, activeSession, activeAgent]);
 
+  const l1Agent = isL1Session ? groupAgents[0] : null;
+  const l1AgentState = l1Agent?.state;
+  const l1AgentInstanceId = l1Agent?.instance_id || null;
+  const stream = useAgentStream(l1AgentInstanceId);
 
-
-  const l1Agent = isL1Session ? groupAgents[0] : null
-  const l1AgentState = l1Agent?.state
-  const l1AgentInstanceId = l1Agent?.instance_id || null
-  const stream = useAgentStream(l1AgentInstanceId)
-
-  const prevL1AgentState = useRef<string | undefined>(undefined)
+  const prevL1AgentState = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (isL1Session && l1AgentState) {
-      const wasProcessing = prevL1AgentState.current === 'processing'
-      const isDoneProcessing = l1AgentState !== 'processing'
+      const wasProcessing = prevL1AgentState.current === "processing";
+      const isDoneProcessing = l1AgentState !== "processing";
       if (wasProcessing && isDoneProcessing) {
-        loadHistory('l1')
+        loadHistory("l1");
       } else if (!prevL1AgentState.current) {
-        loadHistory('l1')
+        loadHistory("l1");
       }
     }
-    prevL1AgentState.current = l1AgentState
-  }, [isL1Session, l1AgentState, loadHistory])
+    prevL1AgentState.current = l1AgentState;
+  }, [isL1Session, l1AgentState, loadHistory]);
 
   const streamChatSegments = useMemo(() => {
-    if (!stream?.segments) return []
+    if (!stream?.segments) return [];
     return stream.segments.map((seg) => {
-      if (seg.type === 'tool_call') {
+      if (seg.type === "tool_call") {
         return {
-          type: 'tool_call' as const,
+          type: "tool_call" as const,
           callId: seg.call_id,
           name: seg.name,
           args: seg.args,
@@ -342,144 +358,169 @@ export function ChatPage() {
           error: seg.error || undefined,
           durationMs: seg.duration_ms || undefined,
           done: seg.done,
-        }
+        };
       }
-      return seg
-    })
-  }, [stream])
+      return seg;
+    });
+  }, [stream]);
 
   const finalMessages = useMemo(() => {
     if (
       isL1Session &&
-      l1AgentState === 'processing' &&
+      l1AgentState === "processing" &&
       !streaming &&
       streamChatSegments.length > 0
     ) {
-      let base = currentMessages
-      while (base.length > 0 && base[base.length - 1].role === 'assistant') {
-        base = base.slice(0, -1)
+      let base = currentMessages;
+      while (base.length > 0 && base[base.length - 1].role === "assistant") {
+        base = base.slice(0, -1);
       }
       const virtualMessage = {
         id: `msg-virtual-stream`,
-        role: 'assistant' as const,
+        role: "assistant" as const,
         segments: streamChatSegments,
         timestamp: new Date().toISOString(),
-      }
-      return [...base, virtualMessage]
+      };
+      return [...base, virtualMessage];
     }
-    return currentMessages
-  }, [currentMessages, isL1Session, l1AgentState, streaming, streamChatSegments])
+    return currentMessages;
+  }, [
+    currentMessages,
+    isL1Session,
+    l1AgentState,
+    streaming,
+    streamChatSegments,
+  ]);
 
   const handleSend = async (
     text: string,
     files?: { name: string; path: string }[],
     group?: string,
-    projectPath?: string
+    projectPath?: string,
   ) => {
-    let targetSessionId = activeSessionId || undefined
+    let targetSessionId = activeSessionId || undefined;
 
     if (!isL1Session && group) {
       if (!activeSessionId) {
         // No session exists — auto-create one on first send
-        const newId = await createL2Session(group, projectPath || '')
+        const newId = await createL2Session(group, projectPath || "");
         if (newId) {
-          targetSessionId = newId
-          navigate(`/chat/${newId}`)
+          targetSessionId = newId;
+          navigate(`/chat/${newId}`);
         }
       } else if (currentMessages.length === 0 && activeSession) {
         // Session exists but no messages — recreate if context changed
-        const currentProjPath = activeSession.project_path || ''
-        const currentGroup = activeSession.group || ''
+        const currentProjPath = activeSession.project_path || "";
+        const currentGroup = activeSession.group || "";
 
         if (group !== currentGroup || projectPath !== currentProjPath) {
-          const newId = await createL2Session(group, projectPath || '')
+          const newId = await createL2Session(group, projectPath || "");
           if (newId) {
             if (activeSessionId !== newId) {
-              await deleteL2Session(activeSessionId)
+              await deleteL2Session(activeSessionId);
             }
-            targetSessionId = newId
-            navigate(`/chat/${newId}`)
+            targetSessionId = newId;
+            navigate(`/chat/${newId}`);
           }
         }
       }
     }
 
-    await send(text, files, targetSessionId)
-  }
+    await send(text, files, targetSessionId);
+  };
 
   const contentSum = finalMessages.reduce((acc, msg) => {
-    let sum = 0
+    let sum = 0;
     for (const seg of msg.segments) {
-      if (seg.type === 'content' || seg.type === 'thinking' || seg.type === 'error') {
-        sum += (seg.text || '').length
-      } else if (seg.type === 'tool_call') {
-        sum += (seg.name || '').length + (seg.args || '').length + (seg.result || '').length + (seg.error || '').length + (seg.done ? 1 : 0)
-      } else if (seg.type === 'delegation') {
-        sum += (seg.agentName || '').length + (seg.task || '').length + (seg.status || '').length + (seg.resultContent || '').length
-      } else if (seg.type === 'tool_confirm') {
-        sum += (seg.name || '').length + (seg.prompt || '').length + (seg.resolved ? 1 : 0) + (seg.choice || '').length
+      if (
+        seg.type === "content" ||
+        seg.type === "thinking" ||
+        seg.type === "error"
+      ) {
+        sum += (seg.text || "").length;
+      } else if (seg.type === "tool_call") {
+        sum +=
+          (seg.name || "").length +
+          (seg.args || "").length +
+          (seg.result || "").length +
+          (seg.error || "").length +
+          (seg.done ? 1 : 0);
+      } else if (seg.type === "delegation") {
+        sum +=
+          (seg.agentName || "").length +
+          (seg.task || "").length +
+          (seg.status || "").length +
+          (seg.resultContent || "").length;
+      } else if (seg.type === "tool_confirm") {
+        sum +=
+          (seg.name || "").length +
+          (seg.prompt || "").length +
+          (seg.resolved ? 1 : 0) +
+          (seg.choice || "").length;
       }
     }
-    return acc + sum + msg.segments.length
-  }, 0)
+    return acc + sum + msg.segments.length;
+  }, 0);
 
-  const lastScrolledSessionId = useRef<string | null>(null)
+  const lastScrolledSessionId = useRef<string | null>(null);
 
   // Reset scroll state on session change
   useEffect(() => {
-    userScrolledUp.current = false
-  }, [activeSessionId])
+    userScrolledUp.current = false;
+  }, [activeSessionId]);
 
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
+    const el = scrollRef.current;
+    if (!el) return;
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
       if (isNearBottom) {
-        userScrolledUp.current = false
+        userScrolledUp.current = false;
       } else if (!isProgrammaticScrolling.current) {
-        userScrolledUp.current = true
+        userScrolledUp.current = true;
       }
 
-      const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false
-      const isLoading = activeSessionId ? historyLoading[activeSessionId] : false
+      const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false;
+      const isLoading = activeSessionId
+        ? historyLoading[activeSessionId]
+        : false;
 
       if (scrollTop < 50 && hasMore && !isLoading && !loadingMore.current) {
-        loadingMore.current = true
-        const prevHeight = scrollHeight
-        loadMoreHistory(activeSessionId || '').then(() => {
+        loadingMore.current = true;
+        const prevHeight = scrollHeight;
+        loadMoreHistory(activeSessionId || "").then(() => {
           if (scrollRef.current) {
-            const diff = scrollRef.current.scrollHeight - prevHeight
-            scrollRef.current.scrollTop = diff
+            const diff = scrollRef.current.scrollHeight - prevHeight;
+            scrollRef.current.scrollTop = diff;
           }
-          loadingMore.current = false
-        })
+          loadingMore.current = false;
+        });
       }
-    }
-    el.addEventListener('scroll', handleScroll)
-    return () => el.removeEventListener('scroll', handleScroll)
-  }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory])
+    };
+    el.addEventListener("scroll", handleScroll);
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory]);
 
   useEffect(() => {
-    if (userScrolledUp.current) return
+    if (userScrolledUp.current) return;
     // Use instant scroll (no animation) when not streaming.
     // During streaming, smooth scroll to follow live content.
-    isProgrammaticScrolling.current = true
+    isProgrammaticScrolling.current = true;
     bottomRef.current?.scrollIntoView({
-      behavior: streaming ? 'smooth' : 'auto',
-    })
-    const delay = streaming ? 800 : 100
+      behavior: streaming ? "smooth" : "auto",
+    });
+    const delay = streaming ? 800 : 100;
     const timer = setTimeout(() => {
-      isProgrammaticScrolling.current = false
-    }, delay)
+      isProgrammaticScrolling.current = false;
+    }, delay);
 
     if (finalMessages.length > 0) {
-      lastScrolledSessionId.current = activeSessionId
+      lastScrolledSessionId.current = activeSessionId;
     }
 
-    return () => clearTimeout(timer)
-  }, [contentSum, streaming, activeSessionId, finalMessages])
+    return () => clearTimeout(timer);
+  }, [contentSum, streaming, activeSessionId, finalMessages]);
 
   if (!activeSessionId) {
     return (
@@ -496,7 +537,8 @@ export function ChatPage() {
               Welcome to SoloQueue Workspace
             </h1>
             <p className="text-sm text-muted-foreground max-w-md mx-auto text-center">
-              Select a team and project to start collaborative programming with a multi-agent system.
+              Select a team and project to start collaborative programming with
+              a multi-agent system.
             </p>
           </div>
 
@@ -507,7 +549,7 @@ export function ChatPage() {
               onCancel={cancel}
               streaming={streaming}
               delegating={delegating}
-              disabled={delegating || connectionStatus !== 'connected'}
+              disabled={delegating || connectionStatus !== "connected"}
               activeSessionId={undefined}
               showL2Selectors={true}
               groups={l2Groups}
@@ -519,7 +561,11 @@ export function ChatPage() {
               onProjectChange={setSelectedProjectPath}
               ctxwinUsed={0}
               ctxwinLimit={0}
-              taskLevel={isAgentProcessing ? (activeAgent?.task_level || activeAgent?.last_level) : undefined}
+              taskLevel={
+                isAgentProcessing
+                  ? activeAgent?.task_level || activeAgent?.last_level
+                  : undefined
+              }
               modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
             />
           </div>
@@ -527,37 +573,41 @@ export function ChatPage() {
           {/* Team cards — click to pre-fill selectors above */}
           <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
             {l2Groups.map((group) => {
-              const groupProjects = teamProjectsMap[group] || []
+              const groupProjects = teamProjectsMap[group] || [];
               return (
                 <div
                   key={group}
                   onClick={() => {
-                    setSelectedGroup(group)
-                    if (groupProjects.length > 0) setSelectedProjectPath(groupProjects[0].path)
+                    setSelectedGroup(group);
+                    if (groupProjects.length > 0)
+                      setSelectedProjectPath(groupProjects[0].path);
                   }}
                   className={cn(
                     "border border-border/45 bg-card/40 rounded-xl p-5 hover:border-border/80 hover:bg-card/60 transition-all cursor-pointer",
-                    selectedGroup === group && "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+                    selectedGroup === group &&
+                      "border-primary/50 bg-primary/5 ring-1 ring-primary/20",
                   )}
                 >
                   <div className="space-y-1.5">
                     <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
                       <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                      <span className="tracking-wider uppercase">{group} Team</span>
+                      <span className="tracking-wider uppercase">
+                        {group} Team
+                      </span>
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       {groupProjects.length > 0
-                        ? `Associated projects: ${groupProjects.map(p => p.name).join(', ')}`
-                        : 'No associated projects'}
+                        ? `Associated projects: ${groupProjects.map((p) => p.name).join(", ")}`
+                        : "No associated projects"}
                     </p>
                   </div>
                 </div>
-              )
+              );
             })}
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -565,27 +615,34 @@ export function ChatPage() {
       {/* Pane 3: Chat conversation bubble stream */}
       <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
         {/* Chat header — split into chat section + panel section when inspector is open */}
-        <header className={cn(
-          "flex h-12 items-center border-b border-border/30 select-none bg-card/20 shrink-0",
-          sidebarCollapsed && "pl-[115px]"
-        )}>
+        <header
+          className={cn(
+            "flex h-12 items-center border-b border-border/30 select-none bg-card/20 shrink-0",
+            sidebarCollapsed && "pl-[115px]",
+          )}
+        >
           {/* Left section: chat header area — fills remaining space */}
-          <div className={cn(
-            "flex items-center gap-3 px-6 h-full",
-            showInspector ? "flex-1 justify-between" : "flex-1 justify-between"
-          )}>
+          <div
+            className={cn(
+              "flex items-center gap-3 px-6 h-full",
+              showInspector
+                ? "flex-1 justify-between"
+                : "flex-1 justify-between",
+            )}
+          >
             <div className="flex items-center gap-2 min-w-0">
               <h1 className="text-xs font-bold text-foreground truncate font-mono">
-                {activeSession?.name || (isL1Session ? 'General Q&A (L1)' : `${activeGroup} Team`)}
+                {activeSession?.name ||
+                  (isL1Session ? "General Q&A (L1)" : `${activeGroup} Team`)}
               </h1>
-              {connectionStatus === 'reconnecting' && (
+              {connectionStatus === "reconnecting" && (
                 <span className="flex items-center gap-1 text-[10px] text-amber-500 font-medium animate-pulse shrink-0">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping absolute inline-flex h-1.5 w-1.5 rounded-full opacity-75" />
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500" />
                   Connecting...
                 </span>
               )}
-              {connectionStatus === 'disconnected' && (
+              {connectionStatus === "disconnected" && (
                 <span className="flex items-center gap-1 text-[10px] text-destructive font-medium animate-pulse shrink-0">
                   <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
                   Disconnected
@@ -613,24 +670,24 @@ export function ChatPage() {
             >
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setInspectorTab('files')}
+                  onClick={() => setInspectorTab("files")}
                   className={cn(
-                    'flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer',
-                    inspectorTab === 'files'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                    "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                    inspectorTab === "files"
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
                   )}
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                   Files
                 </button>
                 <button
-                  onClick={() => setInspectorTab('changes')}
+                  onClick={() => setInspectorTab("changes")}
                   className={cn(
-                    'flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer',
-                    inspectorTab === 'changes'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                    "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                    inspectorTab === "changes"
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
                   )}
                 >
                   <Layers className="h-3.5 w-3.5" />
@@ -649,11 +706,13 @@ export function ChatPage() {
         </header>
 
         {/* Outer container for chat content + inspector split layout */}
-        <div ref={splitContainerRef} className={cn(
-          'flex flex-1 min-h-0 overflow-hidden relative',
-          isResizing && 'select-none'
-        )}>
-          
+        <div
+          ref={splitContainerRef}
+          className={cn(
+            "flex flex-1 min-h-0 overflow-hidden relative",
+            isResizing && "select-none",
+          )}
+        >
           {/* Conversation stream */}
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
             {finalMessages.length === 0 ? (
@@ -664,20 +723,19 @@ export function ChatPage() {
                 >
                   {/* Centered Heading */}
                   <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
-                    {isL1Session 
-                      ? 'What should we build with L1 Orchestrator?' 
-                      : `What should we build in ${selectedProject?.name || 'soloQueue'}?`
-                    }
+                    {isL1Session
+                      ? "What should we build with L1 Orchestrator?"
+                      : `What should we build in ${selectedProject?.name || "soloQueue"}?`}
                   </h1>
 
                   {/* Redesigned Input Card */}
-                    <div className="w-full">
+                  <div className="w-full">
                     <ChatInput
                       onSend={handleSend}
                       onCancel={cancel}
                       streaming={streaming}
                       delegating={delegating}
-                      disabled={delegating || connectionStatus !== 'connected'}
+                      disabled={delegating || connectionStatus !== "connected"}
                       activeSessionId={activeSessionId || undefined}
                       showL2Selectors={!isL1Session}
                       groups={l2Groups}
@@ -689,8 +747,14 @@ export function ChatPage() {
                       onProjectChange={setSelectedProjectPath}
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
-                      taskLevel={isAgentProcessing ? (activeAgent?.task_level || activeAgent?.last_level) : undefined}
-                      modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
+                      taskLevel={
+                        isAgentProcessing
+                          ? activeAgent?.task_level || activeAgent?.last_level
+                          : undefined
+                      }
+                      modelName={
+                        isAgentProcessing ? activeAgent?.model_id : undefined
+                      }
                     />
                   </div>
                 </div>
@@ -705,21 +769,29 @@ export function ChatPage() {
                     {activeSessionId && historyLoading[activeSessionId] && (
                       <div className="flex items-center justify-center py-4">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground font-mono ml-2">Loading history...</span>
+                        <span className="text-xs text-muted-foreground font-mono ml-2">
+                          Loading history...
+                        </span>
                       </div>
                     )}
-                    
+
                     {finalMessages.map((msg) => (
-                      <ChatMessageView key={msg.id} message={msg} agentName={agentDisplayName} />
+                      <ChatMessageView
+                        key={msg.id}
+                        message={msg}
+                        agentName={agentDisplayName}
+                      />
                     ))}
 
                     {delegating && (
                       <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
                         <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
-                        <span>Team is collaborating and delegating, please wait...</span>
+                        <span>
+                          Team is collaborating and delegating, please wait...
+                        </span>
                       </div>
                     )}
-                    
+
                     <div ref={bottomRef} className="h-2" />
                   </div>
                 </div>
@@ -729,7 +801,7 @@ export function ChatPage() {
                   onCancel={cancel}
                   streaming={streaming}
                   delegating={delegating}
-                  disabled={delegating || connectionStatus !== 'connected'}
+                  disabled={delegating || connectionStatus !== "connected"}
                   activeSessionId={activeSessionId || undefined}
                   showL2Selectors={!isL1Session}
                   readOnlySelectors={true}
@@ -742,8 +814,14 @@ export function ChatPage() {
                   onProjectChange={setSelectedProjectPath}
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
-                  taskLevel={isAgentProcessing ? (activeAgent?.task_level || activeAgent?.last_level) : undefined}
-                  modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
+                  taskLevel={
+                    isAgentProcessing
+                      ? activeAgent?.task_level || activeAgent?.last_level
+                      : undefined
+                  }
+                  modelName={
+                    isAgentProcessing ? activeAgent?.model_id : undefined
+                  }
                 />
               </>
             )}
@@ -756,8 +834,8 @@ export function ChatPage() {
               <div
                 onMouseDown={handleResizeStart}
                 className={cn(
-                  'w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors',
-                  isResizing && 'bg-primary/40'
+                  "w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors",
+                  isResizing && "bg-primary/40",
                 )}
               />
               <div
@@ -766,18 +844,19 @@ export function ChatPage() {
               >
                 {/* Panel content */}
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  {inspectorTab === 'files' ? (
+                  {inspectorTab === "files" ? (
                     activeSession.project_path ? (
-                      <SessionFilePanel projectPath={activeSession.project_path} panelWidth={panelWidth} />
+                      <SessionFilePanel
+                        projectPath={activeSession.project_path}
+                        panelWidth={panelWidth}
+                      />
                     ) : (
                       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                         Current session not associated with a project
                       </div>
                     )
                   ) : (
-                    <div className="h-full overflow-y-auto">
-                      <L2SessionStatusPanel session={activeSession} activeAgent={activeAgent} />
-                    </div>
+                    <SessionChangesPanel sessionId={activeSession.id} />
                   )}
                 </div>
               </div>
@@ -786,5 +865,5 @@ export function ChatPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

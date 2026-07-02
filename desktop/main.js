@@ -544,6 +544,16 @@ function createMenu() {
         { role: 'togglefullscreen' },
       ],
     },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'close' },       // Cmd+W
+        { role: 'minimize' },    // Cmd+M
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },       // Bring All to Front
+      ],
+    },
   ]
 
   const menu = Menu.buildFromTemplate(template)

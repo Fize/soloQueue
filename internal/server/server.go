@@ -337,6 +337,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Get("/groups", m.handleListL2Groups)
 		r.Post("/l2", m.handleCreateL2Session)
 		r.Delete("/l2/{id}", m.handleDeleteL2Session)
+		r.Get("/l2/{id}/changes", m.handleGetSessionChanges)
 	})
 
 	// Auth check

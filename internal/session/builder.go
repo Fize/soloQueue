@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -764,9 +765,16 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	// Persist session metadata alongside timeline so past sessions can be
-	// discovered after restart. Minimal JSON: group + work_dir.
-	meta := fmt.Sprintf(`{"group":"%s","work_dir":"%s"}`, group, workDir)
-	_ = os.WriteFile(filepath.Join(tlDir, "meta"), []byte(meta), 0644)
+	// discovered after restart. Includes git_base_ref for the Changes tab.
+	baseline := CaptureBaseline(agentWorkDir)
+	metaJSON, _ := json.Marshal(struct {
+		Group      string `json:"group"`
+		WorkDir    string `json:"work_dir"`
+		GitBaseRef string `json:"git_base_ref"`
+	}{group, workDir, baseline.GitBaseRef})
+	_ = os.WriteFile(filepath.Join(tlDir, "meta"), metaJSON, 0644)
+	// Save non-git snapshot to a separate file (git repos only need the ref).
+	SaveBaseline(b.WorkDir, id, baseline)
 
 	// Context window model config — use the L2 leader's resolved model.
 	effectiveCW := childAgent.Def.ContextWindow
