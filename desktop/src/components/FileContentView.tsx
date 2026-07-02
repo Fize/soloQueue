@@ -346,6 +346,7 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
               {isMarkdown && (
                 <MarkdownPreview
                   content={content}
+                  basePath={path}
                   onToggleCheckbox={async (index) => {
                     if (!path) return
                     try {

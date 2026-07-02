@@ -15,7 +15,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { confirmSessionTool, getFileUrl } from '@/lib/api'
 import { useChatStore } from '@/stores/chatStore'
@@ -142,6 +142,9 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
                     })}
                   </div>
                 )}
+
+                {/* Surface-level image gallery for agent-generated images */}
+                <MessageImageGallery segments={message.segments} isUser={isUser} />
               </div>
             )}
           </div>
@@ -759,6 +762,64 @@ function extractImagePaths(result: string, toolName: string): string[] {
     // Not valid JSON, no images to extract
   }
   return []
+}
+
+/**
+ * Message-level gallery that extracts images from all tool call results in
+ * the message's segments. Provides an easy preview surface without having to
+ * expand individual tool calls.
+ */
+function MessageImageGallery({
+  segments,
+  isUser,
+}: {
+  segments: ChatMessage['segments']
+  isUser?: boolean
+}) {
+  const imagePaths = useMemo(() => {
+    const paths: string[] = []
+    for (const seg of segments) {
+      if (seg.type === 'tool_call' && seg.done && !seg.error && seg.result) {
+        paths.push(...extractImagePaths(seg.result, seg.name))
+      }
+    }
+    return paths
+  }, [segments])
+
+  if (imagePaths.length === 0) return null
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/10">
+      <div
+        className={`text-[10px] font-semibold uppercase tracking-wider mb-2 ${
+          isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/50'
+        }`}
+      >
+        Images ({imagePaths.length})
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {imagePaths.map((path, i) => {
+          const url = getFileUrl(path)
+          return (
+            <a
+              key={i}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-lg overflow-hidden border border-border/40 hover:border-primary/40 transition-colors"
+            >
+              <img
+                src={url}
+                alt={`Image ${i + 1}`}
+                className="w-full h-32 object-cover bg-black/5"
+                loading="lazy"
+              />
+            </a>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function ImageResultPreviews({
