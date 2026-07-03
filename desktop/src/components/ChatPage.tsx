@@ -32,6 +32,12 @@ import {
 import { DesignPreview } from "@/components/DesignPreview";
 import type { ColoredStroke } from "@/components/ui/DrawOverlay";
 
+const DESIGN_MIN_RIGHT_RATIO = 0.5;
+const DESIGN_LEFT_MIN_WIDTH = 320;
+const DESIGN_DEFAULT_LEFT_WIDTH = 420;
+const DESIGN_DEFAULT_LEFT_WIDTH_SMALL = 380;
+const RESIZE_HANDLE_WIDTH = 4;
+
 function updateStrokesInHtml(html: string, strokes: any[]): string {
   const marker = '<script id="sketch-data" type="application/json">';
   const markerEnd = '</script>';
@@ -132,18 +138,18 @@ export function ChatPage() {
     } catch {}
   }, []);
 
-  // designMode persistence: restore from localStorage on mount, save on change
-  const DESIGN_MODE_KEY = 'soloqueue_design_mode';
+  // designMode persistence: restore the click/draw/interact sub-mode separately from the global boolean flag.
+  const DESIGN_SUBMODE_KEY = 'soloqueue_design_submode';
   const [designMode, setDesignModeState] = useState<'click' | 'draw' | 'interact'>(() => {
     try {
-      const saved = localStorage.getItem(DESIGN_MODE_KEY);
+      const saved = localStorage.getItem(DESIGN_SUBMODE_KEY);
       if (saved === 'click' || saved === 'draw' || saved === 'interact') return saved;
     } catch {}
     return 'click';
   });
   // Persist designMode to localStorage
   useEffect(() => {
-    try { localStorage.setItem(DESIGN_MODE_KEY, designMode); } catch {}
+    try { localStorage.setItem(DESIGN_SUBMODE_KEY, designMode); } catch {}
   }, [designMode]);
   const [currentColor, setCurrentColor] = useState<string>("#ef4444");
   const [strokes, setStrokes] = useState<ColoredStroke[]>([]);
@@ -280,45 +286,53 @@ export function ChatPage() {
     }
   };
 
-  // Automatically widen panel when entering design mode
-  useEffect(() => {
-    if (isDesignMode) {
-      const el = splitContainerRef.current;
-      if (el) {
-        const targetWidth = Math.floor(el.getBoundingClientRect().width * 0.55);
-        const clamped = Math.max(400, targetWidth);
-        setPanelWidth(clamped);
-        useRuntimeStore.getState().setInspectorPanelWidth(clamped);
-      }
-    }
-  }, [isDesignMode]);
-
   // Resizable inspector panel
   const MIN_AREA_WIDTH = 200;
   const [panelWidth, setPanelWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
+  const resizeDragRef = useRef<{ startX: number; startPanelWidth: number } | null>(null);
+  const designDefaultAppliedRef = useRef<string | null>(null);
+  const isDesignModeRef = useRef(isDesignMode);
+  useEffect(() => { isDesignModeRef.current = isDesignMode; }, [isDesignMode]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    resizeDragRef.current = { startX: e.clientX, startPanelWidth: panelWidth };
     setIsResizing(true);
-  }, []);
+  }, [panelWidth]);
 
   useEffect(() => {
     if (!isResizing) return;
     const handleMouseMove = (e: MouseEvent) => {
       if (!splitContainerRef.current) return;
       const rect = splitContainerRef.current.getBoundingClientRect();
-      const newWidth = rect.right - e.clientX;
-      const maxWidth = Math.floor(rect.width * 0.6);
-      const clamped = Math.max(
-        MIN_AREA_WIDTH,
-        Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth),
-      );
+      const drag = resizeDragRef.current;
+      if (!drag) return;
+      const newWidth = drag.startPanelWidth - (e.clientX - drag.startX);
+      let clamped: number;
+      if (isDesignModeRef.current) {
+        // Design mode: preview is at least half; keep room for the chat pane and resize handle.
+        const minRight = Math.floor(rect.width * DESIGN_MIN_RIGHT_RATIO);
+        const maxRight = Math.max(minRight, rect.width - DESIGN_LEFT_MIN_WIDTH - RESIZE_HANDLE_WIDTH);
+        clamped = Math.max(minRight, Math.min(newWidth, maxRight));
+      } else {
+        const maxWidth = Math.floor(rect.width * 0.6);
+        clamped = Math.max(
+          MIN_AREA_WIDTH,
+          Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth),
+        );
+      }
       setPanelWidth(clamped);
       useRuntimeStore.getState().setInspectorPanelWidth(clamped);
+      if (clamped !== newWidth) {
+        resizeDragRef.current = { startX: e.clientX, startPanelWidth: clamped };
+      }
     };
-    const handleMouseUp = () => setIsResizing(false);
+    const handleMouseUp = () => {
+      resizeDragRef.current = null;
+      setIsResizing(false);
+    };
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
     return () => {
@@ -331,13 +345,39 @@ export function ChatPage() {
   const [containerWidth, setContainerWidth] = useState(0);
   useEffect(() => {
     const el = splitContainerRef.current;
-    if (!el) return;
+    if (!activeSessionId || !el) {
+      setContainerWidth(0);
+      return;
+    }
+    setContainerWidth(el.getBoundingClientRect().width);
     const ro = new ResizeObserver(([entry]) => {
       setContainerWidth(entry.contentRect.width);
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [activeSessionId]);
+
+  // Design mode defaults to a larger right preview pane, and re-clamps after refresh/window recreation.
+  useEffect(() => {
+    if (!isDesignMode || !activeSessionId || containerWidth <= 0) {
+      designDefaultAppliedRef.current = null;
+      return;
+    }
+    const minRight = Math.floor(containerWidth * DESIGN_MIN_RIGHT_RATIO);
+    const maxRight = Math.max(minRight, containerWidth - DESIGN_LEFT_MIN_WIDTH - RESIZE_HANDLE_WIDTH);
+    const defaultLeft = containerWidth >= 768 ? DESIGN_DEFAULT_LEFT_WIDTH : DESIGN_DEFAULT_LEFT_WIDTH_SMALL;
+    const targetWidth = Math.min(
+      Math.max(containerWidth - defaultLeft - RESIZE_HANDLE_WIDTH, minRight),
+      maxRight,
+    );
+    const shouldApplyDefault = designDefaultAppliedRef.current !== activeSessionId;
+    setPanelWidth((current) => {
+      const next = shouldApplyDefault ? targetWidth : Math.max(minRight, Math.min(current, maxRight));
+      useRuntimeStore.getState().setInspectorPanelWidth(next);
+      return next;
+    });
+    designDefaultAppliedRef.current = activeSessionId;
+  }, [isDesignMode, activeSessionId, containerWidth]);
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([]);
@@ -555,7 +595,6 @@ export function ChatPage() {
   // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
   const MESSAGE_MAX_W = 768;
   const messageMaxWidth = useMemo(() => {
-    if (isDesignMode) return 360;
     const panelVisible = (showInspector || isDesignMode) && activeSession;
     const mainContentWidth =
       containerWidth - (panelVisible ? panelWidth + 4 : 0); // 4px = handle width
@@ -1067,8 +1106,9 @@ export function ChatPage() {
         >
           {/* Conversation stream */}
           <div className={cn(
-            "flex flex-col min-w-0 h-full overflow-hidden bg-background transition-all duration-300",
-            isDesignMode ? "w-[380px] md:w-[420px] border-r border-border/30 shrink-0" : "flex-1"
+            "flex flex-col min-w-0 h-full overflow-hidden bg-background",
+            isResizing ? "transition-none" : "transition-all duration-300",
+            isDesignMode ? "flex-1 min-w-[320px] border-r border-border/30" : "flex-1 min-w-0"
           )}>
             {finalMessages.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
@@ -1162,21 +1202,19 @@ export function ChatPage() {
           {(showInspector || isDesignMode) && activeSession && (
             <>
               {/* Resize handle */}
-              {!isDesignMode && (
-                <div
-                  onMouseDown={handleResizeStart}
-                  className={cn(
-                    "w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors",
-                    isResizing && "bg-primary/40",
-                  )}
-                />
-              )}
+              <div
+                onMouseDown={handleResizeStart}
+                className={cn(
+                  "w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors",
+                  isResizing && "bg-primary/40",
+                )}
+              />
               <div
                 className={cn(
-                  "border-l border-border/30 h-full overflow-hidden bg-card/5 flex flex-col transition-all duration-300",
-                  isDesignMode ? "flex-1 min-w-0" : "shrink-0"
+                  "border-l border-border/30 h-full overflow-hidden bg-card/5 flex flex-col shrink-0",
+                  isResizing ? "transition-none" : "transition-all duration-300",
                 )}
-                style={isDesignMode ? undefined : { width: panelWidth }}
+                style={{ width: panelWidth }}
               >
                 {/* Panel content */}
                 <div className="flex-1 min-h-0 overflow-hidden">

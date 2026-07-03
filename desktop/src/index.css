@@ -29,6 +29,7 @@
   --color-success-foreground: #ffffff;
   --color-warning: #f59e0b;
   --color-warning-foreground: #ffffff;
+  --color-surface-secondary: #f2f2f7;
 
   /* Apple Corner Radii Curvatures */
   --radius-lg: 13px; /* Cards, sheets, dialogs */
@@ -97,6 +98,7 @@
   --color-success-foreground: #ffffff;
   --color-warning: #fbbf24;
   --color-warning-foreground: #ffffff;
+  --color-surface-secondary: #1c1c1e;
 
   color-scheme: dark;
 }

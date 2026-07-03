@@ -15,7 +15,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { FolderOpen, Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { FolderOpen, Plus, Pencil, Trash2, Loader2, FolderSearch } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface ProjectDialogProps {
   open: boolean
@@ -25,7 +26,6 @@ interface ProjectDialogProps {
 }
 
 function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialogProps) {
-  const [id, setId] = useState('')
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
   const [description, setDescription] = useState('')
@@ -34,15 +34,16 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
 
   const isEdit = !!editProject
 
+  // Auto-derive slug from name; only user-editable for new projects
+  const derivedId = name.trim().toLowerCase().replace(/\s+/g, '-')
+
   useEffect(() => {
     if (open) {
       if (editProject) {
-        setId(editProject.id)
         setName(editProject.name)
         setPath(editProject.path)
         setDescription(editProject.description || '')
       } else {
-        setId('')
         setName('')
         setPath('')
         setDescription('')
@@ -51,11 +52,22 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
     }
   }, [open, editProject])
 
-  const handleSave = async () => {
-    if (!id.trim() && !isEdit) {
-      setError('Project ID is required')
+  const handleBrowseDirectory = async () => {
+    if (!window.electronAPI?.selectDirectory) {
+      toast.info('Directory picker is only available in the desktop app. Please type the path manually.')
       return
     }
+    try {
+      const selected = await window.electronAPI.selectDirectory()
+      if (selected) {
+        setPath(selected)
+      }
+    } catch (err) {
+      console.error('[ProjectDialog] Failed to select directory:', err)
+    }
+  }
+
+  const handleSave = async () => {
     if (!name.trim()) {
       setError('Project name is required')
       return
@@ -76,7 +88,7 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
         })
       } else {
         await createProject({
-          id: id.trim().toLowerCase().replace(/\s+/g, '-'),
+          id: derivedId,
           name: name.trim(),
           path: path.trim(),
           description: description.trim(),
@@ -93,7 +105,7 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md w-[95vw]">
+      <DialogContent className="max-w-sm w-[95vw]">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Project' : 'Create Project'}</DialogTitle>
           <DialogDescription>
@@ -104,15 +116,6 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
         </DialogHeader>
 
         <div className="space-y-4 my-2 text-left">
-          {!isEdit && (
-            <Input
-              label="Project ID / Slug"
-              value={id}
-              onChange={(e) => setId(e.target.value)}
-              placeholder="e.g. my-web-app"
-            />
-          )}
-
           <Input
             label="Project Name"
             value={name}
@@ -120,12 +123,26 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
             placeholder="e.g. My Web App"
           />
 
-          <Input
-            label="Working Directory Path"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="e.g. /Users/username/projects/my-web-app"
-          />
+          <div className="flex flex-col gap-1.5">
+            <Label>Working Directory Path</Label>
+            <div className="flex gap-1.5">
+              <Input
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="e.g. /Users/username/projects/my-web-app"
+                className="flex-1"
+              />
+              <Button
+                variant="outline"
+                size="icon-sm"
+                onClick={handleBrowseDirectory}
+                title="Browse local directory"
+                className="shrink-0"
+              >
+                <FolderSearch className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
 
           <div className="flex flex-col gap-1.5">
             <Label>Description</Label>

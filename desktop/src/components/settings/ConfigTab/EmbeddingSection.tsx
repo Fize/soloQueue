@@ -1,4 +1,4 @@
-import { Database, Plus, Trash2 } from 'lucide-react'
+import { Brain, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -33,7 +33,7 @@ export function EmbeddingSection({
       <div className="flex items-center justify-between border-b pb-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-primary" />
+            <Brain className="h-4 w-4 text-primary" />
             <h3 className="font-semibold text-foreground">Embedding (Vector Store) Settings</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
@@ -67,6 +67,17 @@ export function EmbeddingSection({
               { value: 'none', label: 'none — BM25 + KG only' },
               { value: 'openai', label: 'openai — Remote API' },
             ]}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-muted-foreground">
+            API Model Name
+          </label>
+          <Input
+            type="text"
+            placeholder="e.g. text-embedding-3-small"
+            value={config.modelName || ''}
+            onChange={(e) => onChange({ ...config, modelName: e.target.value })}
           />
         </div>
         <div className="flex flex-col gap-1.5">

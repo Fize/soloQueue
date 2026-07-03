@@ -686,7 +686,7 @@ export function ChatInput({
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
       {/* Input card */}
-      <div className="relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all focus-within:border-primary/30">
+      <div className="relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all focus-within:border-primary/30 shadow-sm focus-within:shadow-md">
           {/* Thumbnails preview */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-xl">

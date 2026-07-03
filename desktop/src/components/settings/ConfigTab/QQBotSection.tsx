@@ -1,4 +1,4 @@
-import { Database } from 'lucide-react'
+import { MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -16,7 +16,7 @@ export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
       <div className="flex items-center justify-between border-b pb-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-primary" />
+            <MessageSquare className="h-4 w-4 text-primary" />
             <h3 className="font-semibold text-foreground">QQ Bot WebSocket Config</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
@@ -63,6 +63,13 @@ export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
               onCheckedChange={(val) => onChange({ ...config, enabled: val })}
             />
             <span className="text-xs font-semibold text-foreground">Enabled</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={config.sandbox || false}
+              onCheckedChange={(val) => onChange({ ...config, sandbox: val })}
+            />
+            <span className="text-xs font-semibold text-foreground">Sandbox Mode</span>
           </div>
         </div>
       </div>

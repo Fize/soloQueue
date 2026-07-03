@@ -27,9 +27,9 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textare
         id={id}
         data-slot="textarea"
         className={cn(
-          'flex w-full rounded-md border bg-transparent px-3 py-2 text-sm text-foreground transition-colors outline-none',
+          'flex w-full rounded-md border bg-transparent px-3 py-2 text-sm text-foreground transition-colors outline-none shadow-sm',
           'placeholder:text-muted-foreground/50',
-          'focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50',
+          'focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:shadow-md',
           'disabled:cursor-not-allowed disabled:opacity-50',
           'resize-y',
           error && 'border-destructive',

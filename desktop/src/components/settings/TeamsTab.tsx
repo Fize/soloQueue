@@ -150,7 +150,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="md:max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <DialogTitle>{isEdit ? 'Edit Team' : 'Create Team'}</DialogTitle>
@@ -414,9 +414,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="md:max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <DialogTitle>{isEdit ? 'Edit Agent' : 'Create Agent'}</DialogTitle>
             {isEdit && <Badge variant="outline">{editAgent?.name}</Badge>}
           </div>

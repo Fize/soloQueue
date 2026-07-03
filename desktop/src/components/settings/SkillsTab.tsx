@@ -407,7 +407,7 @@ export function SkillsTab() {
         <button
           onClick={() => handleSubTabChange('installed')}
           className={cn(
-            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all',
+            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2',
             activeSubTab === 'installed'
               ? 'border-primary text-foreground'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -424,7 +424,7 @@ export function SkillsTab() {
         <button
           onClick={() => handleSubTabChange('store')}
           className={cn(
-            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all',
+            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2',
             activeSubTab === 'store'
               ? 'border-primary text-foreground'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -523,8 +523,16 @@ export function SkillsTab() {
                 >
                   {/* Row Header */}
                   <div
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleToggleExpand(skill.id)
+                      }
+                    }}
                     className={cn(
-                      'flex items-center justify-between p-4 cursor-pointer gap-4',
+                      'flex items-center justify-between p-4 cursor-pointer gap-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
                       isExpanded ? 'border-b border-border bg-muted/10' : ''
                     )}
                     onClick={() => handleToggleExpand(skill.id)}
@@ -755,7 +763,7 @@ export function SkillsTab() {
                                 setEditId(null)
                               }}
                               className={cn(
-                                'rounded-[4px] px-2.5 py-1 text-xs font-semibold transition-all',
+                                'rounded-[4px] px-2.5 py-1 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                                 activeEditPaneTab === 'preview' && !isEditing
                                   ? 'bg-background text-foreground shadow-xs'
                                   : 'text-muted-foreground hover:text-foreground'
@@ -767,7 +775,7 @@ export function SkillsTab() {
                               type="button"
                               onClick={() => handleStartEdit(skill)}
                               className={cn(
-                                'rounded-[4px] px-2.5 py-1 text-xs font-semibold transition-all',
+                                'rounded-[4px] px-2.5 py-1 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                                 activeEditPaneTab === 'edit' || isEditing
                                   ? 'bg-background text-foreground shadow-xs'
                                   : 'text-muted-foreground hover:text-foreground'

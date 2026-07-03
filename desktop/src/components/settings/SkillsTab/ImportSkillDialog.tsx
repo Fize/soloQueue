@@ -44,7 +44,7 @@ export function ImportSkillDialog({
 }: ImportSkillDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="md:max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Custom Skill</DialogTitle>
           <DialogDescription>

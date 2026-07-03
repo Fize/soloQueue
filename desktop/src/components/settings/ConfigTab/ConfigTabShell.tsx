@@ -37,8 +37,6 @@ import type {
   SimulationConfig,
   LSPMCPEntry,
 } from '@/types'
-import { Database } from 'lucide-react'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from 'sonner'
 import { LLMSection } from './LLMSection'
@@ -50,11 +48,8 @@ import { SessionSection } from './SessionSection'
 import { SimulationSection } from './SimulationSection'
 
 
-type TabType = 'db'
-
 export function ConfigTabShell() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = (searchParams.get('tab') as TabType) || 'db'
   const subTab = (searchParams.get('subTab') || 'llm') as
     | 'llm'
     | 'tools'
@@ -64,12 +59,8 @@ export function ConfigTabShell() {
     | 'session'
     | 'simulation'
 
-  const handleTabChange = (val: string) => {
-    setSearchParams({ tab: val, subTab })
-  }
-
   const handleSubTabChange = (val: string) => {
-    setSearchParams({ tab: activeTab, subTab: val })
+    setSearchParams({ subTab: val })
   }
 
 
@@ -435,120 +426,104 @@ export function ConfigTabShell() {
   ]
 
   return (
-    <div className="space-y-6">
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="border-b border-border w-full justify-start gap-0 bg-transparent p-0">
-          <TabsTrigger
-            value="db"
-            className="flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-transparent"
+    <div className="space-y-6 pb-10">
+      {/* Sub-tab Switcher */}
+      <div className="flex flex-wrap gap-2 p-1 bg-muted rounded-lg w-full">
+        {subTabButtons.map((btn) => (
+          <button
+            key={btn.key}
+            type="button"
+            onClick={() => handleSubTabChange(btn.key)}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+              subTab === btn.key
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            <Database className="h-4 w-4" />
-            Database Settings
-          </TabsTrigger>
+            {btn.label}
+          </button>
+        ))}
+      </div>
 
-        </TabsList>
+      {/* Sub-tab Content */}
+      <div className="space-y-6">
+        {subTab === 'llm' && (
+          <LLMSection
+            providers={providers}
+            models={models}
+            defaultModels={defaultModels}
+            onSaveDefaults={handleSaveDefaults}
+            onDefaultModelsChange={setDefaultModels}
+            onCreateProvider={handleCreateProvider}
+            onUpdateProvider={handleUpdateProviderAction}
+            onDeleteProvider={handleDeleteProviderAction}
+            onToggleProviderStatus={handleToggleProviderStatus}
+            onSetProviderAsDefault={handleSetProviderAsDefault}
+            onCreateModel={handleCreateModel}
+            onUpdateModel={handleUpdateModelAction}
+            onDeleteModel={handleDeleteModelAction}
+            onToggleModelStatus={handleToggleModelStatus}
+          />
+        )}
 
+        {subTab === 'tools' && toolsConfig && (
+          <ToolsSection
+            config={toolsConfig}
+            onChange={setToolsConfig}
+            onSave={handleSaveTools}
+          />
+        )}
 
-        <TabsContent value="db" className="space-y-6 pb-10">
-          {/* Sub-tab Switcher */}
-          <div className="flex flex-wrap gap-2 p-1 bg-muted rounded-lg w-full mb-6">
-            {subTabButtons.map((btn) => (
-              <button
-                key={btn.key}
-                type="button"
-                onClick={() => handleSubTabChange(btn.key)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                  subTab === btn.key
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {btn.label}
-              </button>
-            ))}
-          </div>
+        {subTab === 'qqbot' && qqbotConfig && (
+          <QQBotSection
+            config={qqbotConfig}
+            onChange={setQqbotConfig}
+            onSave={handleSaveQQBot}
+          />
+        )}
 
-          {/* Sub-tab Content */}
-          <div className="space-y-6">
-            {subTab === 'llm' && (
-              <LLMSection
-                providers={providers}
-                models={models}
-                defaultModels={defaultModels}
-                onSaveDefaults={handleSaveDefaults}
-                onDefaultModelsChange={setDefaultModels}
-                onCreateProvider={handleCreateProvider}
-                onUpdateProvider={handleUpdateProviderAction}
-                onDeleteProvider={handleDeleteProviderAction}
-                onToggleProviderStatus={handleToggleProviderStatus}
-                onSetProviderAsDefault={handleSetProviderAsDefault}
-                onCreateModel={handleCreateModel}
-                onUpdateModel={handleUpdateModelAction}
-                onDeleteModel={handleDeleteModelAction}
-                onToggleModelStatus={handleToggleModelStatus}
-              />
-            )}
+        {subTab === 'lspmcp' && lspmcpConfig && (
+          <LSPMCPSection
+            config={lspmcpConfig}
+            onSave={handleSaveLSPMCP}
+            onAddServer={handleAddLSPServer}
+            onRemoveServer={handleRemoveLSPServer}
+            onUpdateServer={handleUpdateLSPServer}
+          />
+        )}
 
-            {subTab === 'tools' && toolsConfig && (
-              <ToolsSection
-                config={toolsConfig}
-                onChange={setToolsConfig}
-                onSave={handleSaveTools}
-              />
-            )}
+        {subTab === 'embedding' && embeddingConfig && (
+          <EmbeddingSection
+            config={embeddingConfig}
+            onChange={setEmbeddingConfig}
+            onSave={handleSaveEmbedding}
+            onAddProvider={handleAddEmbeddingProvider}
+            onRemoveProvider={handleRemoveEmbeddingProvider}
+            onUpdateProvider={handleUpdateEmbeddingProvider}
+            onAddModel={handleAddEmbeddingModel}
+            onRemoveModel={handleRemoveEmbeddingModel}
+            onUpdateModel={handleUpdateEmbeddingModel}
+          />
+        )}
 
-            {subTab === 'qqbot' && qqbotConfig && (
-              <QQBotSection
-                config={qqbotConfig}
-                onChange={setQqbotConfig}
-                onSave={handleSaveQQBot}
-              />
-            )}
+        {subTab === 'session' && sessionConfig && (
+          <SessionSection
+            config={sessionConfig}
+            onChange={setSessionConfig}
+            onSave={handleSaveSession}
+          />
+        )}
 
-            {subTab === 'lspmcp' && lspmcpConfig && (
-              <LSPMCPSection
-                config={lspmcpConfig}
-                onSave={handleSaveLSPMCP}
-                onAddServer={handleAddLSPServer}
-                onRemoveServer={handleRemoveLSPServer}
-                onUpdateServer={handleUpdateLSPServer}
-              />
-            )}
-
-            {subTab === 'embedding' && embeddingConfig && (
-              <EmbeddingSection
-                config={embeddingConfig}
-                onChange={setEmbeddingConfig}
-                onSave={handleSaveEmbedding}
-                onAddProvider={handleAddEmbeddingProvider}
-                onRemoveProvider={handleRemoveEmbeddingProvider}
-                onUpdateProvider={handleUpdateEmbeddingProvider}
-                onAddModel={handleAddEmbeddingModel}
-                onRemoveModel={handleRemoveEmbeddingModel}
-                onUpdateModel={handleUpdateEmbeddingModel}
-              />
-            )}
-
-            {subTab === 'session' && sessionConfig && (
-              <SessionSection
-                config={sessionConfig}
-                onChange={setSessionConfig}
-                onSave={handleSaveSession}
-              />
-            )}
-
-            {subTab === 'simulation' && simulationConfig && (
-              <SimulationSection
-                config={simulationConfig}
-                onChange={setSimulationConfig}
-                onSave={handleSaveSimulation}
-                providers={providers}
-                models={models}
-              />
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
+        {subTab === 'simulation' && simulationConfig && (
+          <SimulationSection
+            config={simulationConfig}
+            onChange={setSimulationConfig}
+            onSave={handleSaveSimulation}
+            providers={providers}
+            models={models}
+          />
+        )}
+      </div>
 
       <ConfirmDialog
         open={!!deleteProviderTarget}

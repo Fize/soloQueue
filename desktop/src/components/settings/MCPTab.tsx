@@ -105,7 +105,7 @@ export function MCPTab() {
                 <button
                   type="button"
                   onClick={() => toggleExpand(i)}
-                  className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary"
+                  className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded"
                 >
                   {open ? (
                     <ChevronDown className="h-4 w-4" />

@@ -28,4 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Config
   getAvailableModels: () => ipcRenderer.invoke('backend:get-available-models'),
   saveL1Config: (modelRef) => ipcRenderer.invoke('backend:save-l1-config', modelRef),
+
+  // Directory picker
+  selectDirectory: () => ipcRenderer.invoke('dialog:select-directory'),
 })

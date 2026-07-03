@@ -1,4 +1,4 @@
-import { Database, Plus, Trash2 } from 'lucide-react'
+import { Code, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -24,7 +24,7 @@ export function LSPMCPSection({
       <div className="flex items-center justify-between border-b pb-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-primary" />
+            <Code className="h-4 w-4 text-primary" />
             <h3 className="font-semibold text-foreground">LSP MCP Config</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">

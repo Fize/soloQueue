@@ -1,4 +1,11 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { AlertTriangle } from 'lucide-react'
 
@@ -25,23 +32,15 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {destructive && <AlertTriangle className="h-4.5 w-4.5 text-destructive" />}
             {title}
           </DialogTitle>
+          <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">{message}</p>
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-            disabled={loading}
-          >
-            Cancel
-          </Button>
+        <DialogFooter>
           <Button
             variant={destructive ? 'destructive' : 'default'}
             size="sm"
@@ -50,7 +49,15 @@ export function ConfirmDialog({
           >
             {loading ? 'Deleting...' : confirmLabel}
           </Button>
-        </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

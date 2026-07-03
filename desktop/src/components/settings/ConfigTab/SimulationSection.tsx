@@ -1,4 +1,4 @@
-import { Database } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -32,7 +32,7 @@ export function SimulationSection({
       <div className="flex items-center justify-between border-b pb-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-primary" />
+            <Activity className="h-4 w-4 text-primary" />
             <h3 className="font-semibold text-foreground">Simulation Config</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">

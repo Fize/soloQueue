@@ -14,6 +14,14 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { LLMProvider, LLMModel, DefaultModelsConfig } from '@/types'
 
 interface LLMSectionProps {
@@ -234,32 +242,34 @@ export function LLMSection({
               <Database className="h-4 w-4 text-primary" />
               <h3 className="font-semibold text-foreground">LLM Providers</h3>
             </div>
-            {!isAddingProvider && !editingProvider && (
-              <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddProvider}>
-                <Plus className="h-3.5 w-3.5" />
-                Add Provider
-              </Button>
-            )}
+            <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddProvider}>
+              <Plus className="h-3.5 w-3.5" />
+              Add Provider
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
             LLM Providers: Manage API connection settings for Large Language Model providers.
           </p>
         </div>
 
-        {/* Provider Form (inline) */}
-        {(isAddingProvider || editingProvider) && (
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4 shadow-sm animate-in fade-in duration-200">
-            <div className="flex items-center justify-between border-b pb-2">
-              <h4 className="font-semibold text-foreground">
+        {/* Provider Form (modal dialog) */}
+        <Dialog
+          open={isAddingProvider || !!editingProvider}
+          onOpenChange={(open) => {
+            if (!open) cancelProviderForm()
+          }}
+        >
+          <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
                 {isAddingProvider ? 'Add LLM Provider' : `Edit Provider: ${editingProvider?.name}`}
-              </h4>
-              <button
-                onClick={cancelProviderForm}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+              </DialogTitle>
+              <DialogDescription>
+                {isAddingProvider
+                  ? 'Configure a new LLM provider with API connection settings.'
+                  : 'Update the API connection settings for this provider.'}
+              </DialogDescription>
+            </DialogHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
@@ -449,16 +459,16 @@ export function LLMSection({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button variant="outline" size="sm" onClick={cancelProviderForm}>
-                Cancel
-              </Button>
+            <DialogFooter>
               <Button size="sm" onClick={saveProviderForm}>
                 {isAddingProvider ? 'Create Provider' : 'Update Provider'}
               </Button>
-            </div>
-          </div>
-        )}
+              <Button variant="outline" size="sm" onClick={cancelProviderForm}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Provider List */}
         <div className="space-y-2">
@@ -529,28 +539,30 @@ export function LLMSection({
             <Database className="h-4 w-4 text-primary" />
             <h3 className="font-semibold text-foreground">LLM Models</h3>
           </div>
-          {!isAddingModel && !editingModel && (
             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddModel}>
               <Plus className="h-3.5 w-3.5" />
               Add Model
             </Button>
-          )}
         </div>
 
-        {/* Model Form (inline) */}
-        {(isAddingModel || editingModel) && (
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4 shadow-sm animate-in fade-in duration-200">
-            <div className="flex items-center justify-between border-b pb-2">
-              <h4 className="font-semibold text-foreground">
+        {/* Model Form (modal dialog) */}
+        <Dialog
+          open={isAddingModel || !!editingModel}
+          onOpenChange={(open) => {
+            if (!open) cancelModelForm()
+          }}
+        >
+          <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
                 {isAddingModel ? 'Add LLM Model' : `Edit Model: ${editingModel?.name}`}
-              </h4>
-              <button
-                onClick={cancelModelForm}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+              </DialogTitle>
+              <DialogDescription>
+                {isAddingModel
+                  ? 'Configure a new LLM model under a provider.'
+                  : 'Update model configuration parameters.'}
+              </DialogDescription>
+            </DialogHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">Model ID</label>
@@ -693,16 +705,16 @@ export function LLMSection({
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button variant="outline" size="sm" onClick={cancelModelForm}>
-                Cancel
-              </Button>
+            <DialogFooter>
               <Button size="sm" onClick={saveModelForm}>
                 {isAddingModel ? 'Create Model' : 'Update Model'}
               </Button>
-            </div>
-          </div>
-        )}
+              <Button variant="outline" size="sm" onClick={cancelModelForm}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Model List */}
         <div className="space-y-2">

@@ -29,6 +29,25 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
         </Button>
       </div>
 
+      {/* Read Limits */}
+      <div>
+        <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
+          File Read Limits
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">
+              Max File Size (Bytes)
+            </label>
+            <Input
+              type="number"
+              value={config.maxFileSize}
+              onChange={(e) => onChange({ ...config, maxFileSize: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Grep/Search Limits */}
       <div>
         <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">

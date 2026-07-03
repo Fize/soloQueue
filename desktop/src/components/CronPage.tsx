@@ -4,7 +4,7 @@ import type { CronTask } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -632,27 +632,23 @@ export function CronPage() {
             />
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between border-t border-border pt-4 mt-1">
-            {dialogError ? (
-              <p className="text-xs font-medium text-destructive">{dialogError}</p>
-            ) : (
-              <span />
-            )}
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDialogOpen(false)}
-                disabled={dialogSaving}
-              >
-                Cancel
-              </Button>
-              <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving} id="cron-save-btn">
-                {dialogSaving ? 'Saving…' : editingTask ? 'Save Changes' : 'Schedule Task'}
-              </Button>
-            </div>
-          </div>
+          {dialogError && (
+            <p className="text-xs font-medium text-destructive">{dialogError}</p>
+          )}
+
+          <DialogFooter>
+            <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving} id="cron-save-btn">
+              {dialogSaving ? 'Saving…' : editingTask ? 'Save Changes' : 'Schedule Task'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDialogOpen(false)}
+              disabled={dialogSaving}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

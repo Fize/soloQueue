@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { PanelLeftClose, PanelRightOpen } from 'lucide-react'
 import { Sidebar } from '@/components/Sidebar'
@@ -24,8 +24,19 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
 
+const LAST_CHAT_ROUTE_KEY = 'soloqueue_last_chat_route'
+
+function getLastChatRoute() {
+  try {
+    const route = localStorage.getItem(LAST_CHAT_ROUTE_KEY)
+    if (route?.startsWith('/chat/')) return route
+  } catch {}
+  return '/new-chat'
+}
+
 function App() {
   const { isAuthenticated, isLoading } = useAuthStore()
+  const location = useLocation()
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const inspectorPanelWidth = useRuntimeStore((s) => s.inspectorPanelWidth)
@@ -52,6 +63,16 @@ function App() {
     setSidebarCollapsed(!sidebarCollapsed)
     setIsHovered(false)
   }, [sidebarCollapsed, setSidebarCollapsed])
+
+  useEffect(() => {
+    if (!isAuthenticated || !location.pathname.startsWith('/chat/')) return
+    try {
+      localStorage.setItem(
+        LAST_CHAT_ROUTE_KEY,
+        `${location.pathname}${location.search}${location.hash}`,
+      )
+    } catch {}
+  }, [isAuthenticated, location.pathname, location.search, location.hash])
 
   if (isLoading) {
     return (
@@ -147,7 +168,7 @@ function App() {
             {/* Routes */}
             <div className="flex-1 overflow-hidden h-full">
               <Routes>
-                <Route path="/" element={<Navigate to="/new-chat" replace />} />
+                <Route path="/" element={<Navigate to={getLastChatRoute()} replace />} />
                 <Route path="/new-chat" element={<ChatPage />} />
                 <Route path="/assistant" element={<AssistantPage />} />
                 <Route path="/chat" element={<Navigate to="/new-chat" replace />} />

@@ -182,7 +182,7 @@ export interface InitialRelationship {
   affinity?: number;
 }
 
-export interface SimulationConfig {
+export interface SimulationRunConfig {
   id?: string;
   topic: string;
   personas: SimulationPersona[];
@@ -279,7 +279,7 @@ export interface SimulationState {
     | "failed"
     | "paused"
     | "cancelled";
-  config: SimulationConfig;
+  config: SimulationRunConfig;
   current_round: number;
   messages: SimulationMessage[];
   report?: string;
@@ -631,6 +631,7 @@ export interface SimulationConfig {
   simulatedHours?: number;
   tickIntervalMs?: number;
   timeScale?: number;
+  language?: string;
 }
 
 export interface AppConfig {
