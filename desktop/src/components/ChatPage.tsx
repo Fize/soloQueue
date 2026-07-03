@@ -133,7 +133,19 @@ export function ChatPage() {
     } catch {}
   }, []);
 
-  const [designMode, setDesignModeState] = useState<'click' | 'draw' | 'interact'>('click');
+  // designMode persistence: restore from localStorage on mount, save on change
+  const DESIGN_MODE_KEY = 'soloqueue_design_mode';
+  const [designMode, setDesignModeState] = useState<'click' | 'draw' | 'interact'>(() => {
+    try {
+      const saved = localStorage.getItem(DESIGN_MODE_KEY);
+      if (saved === 'click' || saved === 'draw' || saved === 'interact') return saved;
+    } catch {}
+    return 'click';
+  });
+  // Persist designMode to localStorage
+  useEffect(() => {
+    try { localStorage.setItem(DESIGN_MODE_KEY, designMode); } catch {}
+  }, [designMode]);
   const [currentColor, setCurrentColor] = useState<string>("#ef4444");
   const [strokes, setStrokes] = useState<ColoredStroke[]>([]);
 

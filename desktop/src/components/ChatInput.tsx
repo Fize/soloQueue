@@ -988,6 +988,7 @@ export function ChatInput({
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
+                {activeSessionId !== 'l1' && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1005,6 +1006,7 @@ export function ChatInput({
                 >
                   <Palette className="h-3.5 w-3.5" />
                 </button>
+                )}
                 {showL2Selectors && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5 flex-1 min-w-0">
                     {/* L2 Group Select */}

@@ -192,13 +192,15 @@ export function injectSelectionBridge(doc: string): string {
     }
 
     if (mode === 'interact') {
-      // Interact mode: block navigation (<a> & <form>) but allow all other interaction
+      // Interact mode: block navigation (<a> & <form>) but allow all other interaction.
+      // Only allow real in-page anchors like "#section" (length > 1) to keep scrolling.
+      // Block dummy "#" anchors (which scroll to top / reload iframe).
       var a = ev.target.closest && ev.target.closest('a[href]');
       if (a) {
         var href = a.getAttribute('href') || '';
-        // Block navigation links and dummy "#" anchors (which scroll to top / reload iframe).
-        // Allow real in-page anchors like "#section" to keep scrolling functional.
-        if (href !== '#' && href.indexOf('javascript:') !== 0) {
+        var isRealAnchor = href.length > 1 && href.charAt(0) === '#';
+        var isJavascript = href.indexOf('javascript:') === 0;
+        if (!isRealAnchor && !isJavascript) {
           ev.preventDefault();
         }
         return;
