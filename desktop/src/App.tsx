@@ -16,7 +16,6 @@ import TeamsTab from '@/components/settings/TeamsTab'
 import { ProjectsTab } from '@/components/settings/ProjectsTab'
 import { ChatPage } from '@/components/ChatPage'
 import { AssistantPage } from '@/components/AssistantPage'
-import OfficeGameLayout from '@/components/OfficeGameLayout'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
 import { wsManager } from '@/lib/websocket'
@@ -148,8 +147,7 @@ function App() {
             {/* Routes */}
             <div className="flex-1 overflow-hidden h-full">
               <Routes>
-                <Route path="/" element={<Navigate to="/office" replace />} />
-                <Route path="/office" element={<OfficeGameLayout />} />
+                <Route path="/" element={<Navigate to="/assistant" replace />} />
                 <Route path="/assistant" element={<AssistantPage />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/chat/:sessionId" element={<ChatPage />} />

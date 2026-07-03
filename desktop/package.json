@@ -25,7 +25,6 @@
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
     "lucide-react": "^1.14.0",
-    "pixi.js": "^8.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",

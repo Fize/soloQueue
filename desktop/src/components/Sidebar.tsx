@@ -16,7 +16,6 @@ import {
   Moon,
   MessageSquare,
   Play,
-  Gamepad2,
   ArrowLeft,
   Bot,
 } from 'lucide-react'
@@ -24,7 +23,6 @@ import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
 
 const mainNav = [
-  { to: '/office', icon: Gamepad2, label: 'Office' },
   { to: '/assistant', icon: Bot, label: 'Assistant' },
   { to: '/simulations', icon: Play, label: 'Simulations' },
   { to: '/cron', icon: Clock, label: 'Scheduled Tasks' },
@@ -170,8 +168,8 @@ function NavView({
     <>
       {/* Navigation list */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
-        {/* Office + Assistant — first two nav items */}
-        {mainNav.slice(0, 2).map((item) => {
+        {/* Assistant — first nav item */}
+        {mainNav.slice(0, 1).map((item) => {
           const active = location.pathname.startsWith(item.to)
           return (
             <div key={item.to}>
@@ -230,7 +228,7 @@ function NavView({
         )}
 
         {/* Simulations + Scheduled Tasks — remaining nav items */}
-        {mainNav.slice(2).map((item) => {
+        {mainNav.slice(1).map((item) => {
           const active = location.pathname.startsWith(item.to)
           return (
             <div key={item.to}>
