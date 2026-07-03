@@ -4,14 +4,32 @@ Tactical guidance for AI coding agents working in this repository.
 
 ## Build
 
+### Linux / macOS (make)
+
 ```bash
 make build            # Build Go binary with portal embedded (Default binary build)
 make build-all        # Build Go binary (with portal) AND desktop web UI
 make build-go         # Build Go binary only (assumes portal dist is already built)
 make build-web        # Build lightweight web portal (for Go embed)
 make build-desktop    # Build rich web UI (for Electron desktop client)
+make build-win        # Build Go binary for Windows (cross-compile, keeps .exe)
+make build-go-win     # Build Go binary for Windows only
+make build-all-win    # Full build + package for Windows (requires wine on Linux)
 make package-desktop  # Package Electron desktop client (specify platform via PLATFORM=mac|win|linux, defaults to current OS)
 make clean            # Remove all build artifacts
+```
+
+### Windows (PowerShell)
+
+```powershell
+./scripts/build.ps1              # Build Go binary with portal embedded
+./scripts/build.ps1 build-web    # Build web portal
+./scripts/build.ps1 build-desktop# Build desktop web UI
+./scripts/build.ps1 build-all    # Build all + package desktop installer
+./scripts/build.ps1 build-go     # Build Go binary only
+./scripts/build.ps1 build-go-linux # Cross-compile Go for Linux
+./scripts/build.ps1 build-go-mac   # Cross-compile Go for macOS
+./scripts/build.ps1 clean        # Remove all build artifacts
 ```
 
 The Go binary embeds `internal/server/dist/` via `//go:embed`. `make build-web` also copies `skills/` into dist.

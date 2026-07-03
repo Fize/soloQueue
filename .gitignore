@@ -35,6 +35,7 @@ __pycache__
 # Go build artifacts
 .gocache/
 /soloqueue
+soloqueue.exe
 node_modules/
 package-lock.json
 dist
