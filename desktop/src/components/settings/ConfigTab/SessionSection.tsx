@@ -16,15 +16,15 @@ export function SessionSection({ config, onChange, onSave }: SessionSectionProps
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-foreground">Session / Timeline Config</h3>
+            <h3 className="font-semibold text-foreground">Chat / Timeline Config</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-            Session / Timeline Config: Configure session timeline log parameters, including the
+            Chat / Timeline Config: Configure chat timeline log parameters, including the
             maximum log file size before rotation.
           </p>
         </div>
         <Button size="sm" onClick={onSave}>
-          Save Session Settings
+          Save Chat Settings
         </Button>
       </div>
 

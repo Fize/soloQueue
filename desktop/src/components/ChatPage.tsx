@@ -10,7 +10,6 @@ import {
   Loader2,
   Activity,
   Bot,
-  Users,
   FolderOpen,
   Layers,
   Palette,
@@ -416,28 +415,12 @@ export function ChatPage() {
         setActiveSession(sessionId);
       }
     } else {
-      // Find the most recent L2 session
-      const l2Sessions = sessions.filter((s) => s.type === "l2");
-      if (l2Sessions.length > 0) {
-        const sorted = [...l2Sessions].sort((a, b) => {
-          const timeA = a.createdAt || (a as any).created_at || "";
-          const timeB = b.createdAt || (b as any).created_at || "";
-          return timeB.localeCompare(timeA);
-        });
-        const latest = sorted[0].id;
-        setActiveSession(latest);
-        navigate(`/chat/${latest}`, { replace: true });
-      } else {
-        // No L2 sessions exist
-        if (activeSessionId) {
-          setActiveSession("");
-        }
-        if (sessionId === "l1") {
-          navigate("/chat", { replace: true });
-        }
+      // No session selected — show New Chat home (Welcome screen)
+      if (activeSessionId) {
+        setActiveSession("");
       }
     }
-  }, [sessionId, activeSessionId, sessions, setActiveSession, navigate]);
+  }, [sessionId, activeSessionId, setActiveSession]);
 
   const currentMessages = messages[activeSessionId || ""] || [];
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -951,42 +934,6 @@ export function ChatPage() {
               }
               modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
             />
-          </div>
-
-          {/* Team cards — click to pre-fill selectors above */}
-          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
-            {l2Groups.map((group) => {
-              const groupProjects = teamProjectsMap[group] || [];
-              return (
-                <div
-                  key={group}
-                  onClick={() => {
-                    setSelectedGroup(group);
-                    if (groupProjects.length > 0)
-                      setSelectedProjectPath(groupProjects[0].path);
-                  }}
-                  className={cn(
-                    "border border-border/45 bg-card/40 rounded-xl p-5 hover:border-border/80 hover:bg-card/60 transition-all cursor-pointer",
-                    selectedGroup === group &&
-                      "border-primary/50 bg-primary/5 ring-1 ring-primary/20",
-                  )}
-                >
-                  <div className="space-y-1.5">
-                    <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                      <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                      <span className="tracking-wider uppercase">
-                        {group} Team
-                      </span>
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      {groupProjects.length > 0
-                        ? `Associated projects: ${groupProjects.map((p) => p.name).join(", ")}`
-                        : "No associated projects"}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>

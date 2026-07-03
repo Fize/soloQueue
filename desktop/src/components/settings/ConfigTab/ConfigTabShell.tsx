@@ -204,7 +204,7 @@ export function ConfigTabShell() {
     if (!sessionConfig) return
     try {
       await updateSessionConfig(sessionConfig)
-      toast.success('Session configuration updated successfully!')
+      toast.success('Chat configuration updated successfully!')
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -430,7 +430,7 @@ export function ConfigTabShell() {
     { key: 'qqbot', label: 'QQ Bot' },
     { key: 'lspmcp', label: 'LSP MCP' },
     { key: 'embedding', label: 'Embedding' },
-    { key: 'session', label: 'Session Settings' },
+    { key: 'session', label: 'Chat Settings' },
     { key: 'simulation', label: 'Simulation Settings' },
   ]
 

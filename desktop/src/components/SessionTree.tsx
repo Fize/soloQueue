@@ -213,7 +213,7 @@ export function SessionTree() {
                   }}
                   disabled={creating === group.name || streaming}
                   className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/header:opacity-100"
-                  title={`New session in ${group.name || 'this group'}`}
+                  title={`New chat in ${group.name || 'this group'}`}
                 >
                   <Plus className="h-3 w-3" />
                 </button>
@@ -261,7 +261,7 @@ export function SessionTree() {
                                 }}
                                 disabled={creating === projKey || streaming}
                                 className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/proj:opacity-100"
-                                title={`New session in ${proj.name}`}
+                                title={`New chat in ${proj.name}`}
                               >
                                 <Plus className="h-3 w-3" />
                               </button>
@@ -274,7 +274,7 @@ export function SessionTree() {
                                       <TreeItem
                                         key={s.id}
                                         sessionId={s.id}
-                                        label={s.name || 'New session'}
+                                        label={s.name || 'New chat'}
                                         isPast={s.name ? s.name.startsWith('Past') : false}
                                         active={activeSessionId === s.id}
                                         onClick={() => {
@@ -299,7 +299,7 @@ export function SessionTree() {
                         <TreeItem
                           key={s.id}
                           sessionId={s.id}
-                          label={s.name || 'New session'}
+                          label={s.name || 'New chat'}
                           isPast={s.name ? s.name.startsWith('Past') : false}
                           active={activeSessionId === s.id}
                           onClick={() => {
@@ -391,7 +391,7 @@ function TreeItem({
           onClick={onDelete}
           disabled={disabled}
           className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-all cursor-pointer disabled:opacity-0"
-          title="Delete session"
+          title="Delete chat"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>

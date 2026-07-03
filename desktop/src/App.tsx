@@ -147,9 +147,10 @@ function App() {
             {/* Routes */}
             <div className="flex-1 overflow-hidden h-full">
               <Routes>
-                <Route path="/" element={<Navigate to="/assistant" replace />} />
+                <Route path="/" element={<Navigate to="/new-chat" replace />} />
+                <Route path="/new-chat" element={<ChatPage />} />
                 <Route path="/assistant" element={<AssistantPage />} />
-                <Route path="/chat" element={<ChatPage />} />
+                <Route path="/chat" element={<Navigate to="/new-chat" replace />} />
                 <Route path="/chat/:sessionId" element={<ChatPage />} />
                 <Route path="/agents/:id" element={<AgentDetailPage />} />
                 <Route path="/cron" element={<CronPage />} />

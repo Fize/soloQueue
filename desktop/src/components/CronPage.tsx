@@ -443,7 +443,7 @@ export function CronPage() {
 
   return (
     <TooltipProvider delay={400}>
-      {/* Outer wrapper — matches AgentListPage pattern: h-full overflow-y-auto */}
+      {/* Outer wrapper — h-full overflow-y-auto */}
       <div className="h-full overflow-y-auto">
         {/* Centered content with breathing room */}
         <div className="max-w-4xl mx-auto px-4 py-6 md:px-8 md:py-8 space-y-6 pb-12">

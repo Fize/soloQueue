@@ -962,7 +962,7 @@ function ToolConfirmSegment({
             <>
               <div className="h-2 w-2 rounded-full bg-emerald-500" />
               <span className="font-medium text-emerald-500">
-                Approved {choice === 'allow-in-session' ? '(Always allow in this session)' : ''}
+                Approved {choice === 'allow-in-session' ? '(Always allow in this chat)' : ''}
               </span>
             </>
           )}
@@ -980,7 +980,7 @@ function ToolConfirmSegment({
                 className="rounded border-gray-300 text-violet-600 focus:ring-violet-500 h-3.5 w-3.5"
               />
               <span className={isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}>
-                Don't ask again for this tool in the current session
+                Don't ask again for this tool in the current chat
               </span>
             </label>
           )}

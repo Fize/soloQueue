@@ -18,14 +18,15 @@ import {
   Play,
   ArrowLeft,
   Bot,
+  Plus,
 } from 'lucide-react'
 import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
 
 const mainNav = [
-  { to: '/assistant', icon: Bot, label: 'Assistant' },
   { to: '/simulations', icon: Play, label: 'Simulations' },
   { to: '/cron', icon: Clock, label: 'Scheduled Tasks' },
+  { to: '/assistant', icon: Bot, label: 'Assistant' },
 ]
 
 const settingsChildren = [
@@ -168,9 +169,10 @@ function NavView({
     <>
       {/* Navigation list */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
-        {/* Assistant — first nav item */}
-        {mainNav.slice(0, 1).map((item) => {
-          const active = location.pathname.startsWith(item.to)
+        {/* New Chat — top nav item, navigates to home */}
+        {(() => {
+          const item = { to: '/new-chat', icon: Plus, label: 'New Chat' }
+          const active = location.pathname === '/new-chat'
           return (
             <div key={item.to}>
               <button
@@ -189,18 +191,13 @@ function NavView({
               </button>
             </div>
           )
-        })}
+        })()}
 
-        {/* Session tree — between Assistant and Simulations */}
+        {/* Chats tree — toggle only, no navigation */}
         {showText && (
           <div className="space-y-0.5">
             <button
-              onClick={() => {
-                if (!location.pathname.startsWith('/chat') && !location.pathname.startsWith('/agents')) {
-                  onNav('/chat')
-                }
-                setChatOpen(!chatOpen)
-              }}
+              onClick={() => setChatOpen(!chatOpen)}
               className={cn(
                 'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full gap-2 px-2.5 py-1.5',
                 location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')
@@ -211,7 +208,7 @@ function NavView({
               )}
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              <span className="flex-1 text-left">Sessions</span>
+              <span className="flex-1 text-left">Chats</span>
               {chatOpen ? (
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
               ) : (
@@ -227,8 +224,8 @@ function NavView({
           </div>
         )}
 
-        {/* Simulations + Scheduled Tasks — remaining nav items */}
-        {mainNav.slice(1).map((item) => {
+        {/* All nav items: Simulations, Scheduled Tasks, Assistant */}
+        {mainNav.map((item) => {
           const active = location.pathname.startsWith(item.to)
           return (
             <div key={item.to}>
