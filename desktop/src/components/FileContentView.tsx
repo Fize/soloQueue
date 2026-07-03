@@ -2,10 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { getFileUrl, toggleFileCheckbox } from '@/lib/api'
-import { Loader2, FileIcon, Copy, Check } from 'lucide-react'
+import { Loader2, FileIcon, Copy, Check, MousePointer2, Edit3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { DesignPreview } from './DesignPreview'
+import { useRuntimeStore } from '@/stores/runtimeStore'
+import type { PreviewCommentSnapshot } from '@/types/annotation'
 
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
@@ -153,7 +156,10 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview')
+  const [viewMode, setViewMode] = useState<'preview' | 'raw' | 'design'>('preview')
+  const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
+  const [designMode, setDesignMode] = useState<'click' | 'draw' | 'interact'>('interact')
+  const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null)
 
   // Use a ref so we can call the latest onError without adding it to the
   // effect dependency array (avoiding re-fetch when the parent re-renders).
@@ -170,6 +176,8 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
     const ext = getExt(path)
     // Reset view mode when switching files
     setViewMode('preview')
+    setDesignMode('interact')
+    setSelectedTarget(null)
 
     if (
       imageExtensions.includes(ext) ||
@@ -285,6 +293,22 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
             >
               Raw
             </button>
+            {(ext === '.html' || ext === '.htm') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode('design')
+                  setSidebarCollapsed(true)
+                }}
+                className={`px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer border-l border-border/60 ${
+                  viewMode === 'design'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                }`}
+              >
+                Design Mode
+              </button>
+            )}
           </div>
         )}
         {isTextFile && content !== null && (
@@ -339,6 +363,67 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
             <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs font-mono leading-relaxed">
               {content}
             </pre>
+          )}
+
+          {isTextFile && content !== null && viewMode === 'design' && (
+            <div className="flex w-full h-[65vh] md:h-[75vh] border rounded-lg overflow-hidden border-border/60 shadow-sm">
+              {/* Annotation Dialog (Left Side) */}
+              <div className="w-[300px] border-r border-border/40 bg-card/50 flex flex-col shrink-0 overflow-hidden relative z-10">
+                 <div className="p-3 border-b border-border/40 font-semibold text-xs flex items-center justify-between bg-card text-foreground/90 uppercase tracking-wider">
+                   <span>Design Annotations</span>
+                 </div>
+                 <div className="p-3 flex gap-2 border-b border-border/20 bg-muted/20">
+                   <Button 
+                      variant={designMode === 'click' ? 'default' : 'outline'} 
+                      size="sm"
+                      onClick={() => setDesignMode(designMode === 'click' ? 'interact' : 'click')}
+                   >
+                     <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />
+                     Pick Element
+                   </Button>
+                   <Button 
+                      variant={designMode === 'draw' ? 'default' : 'outline'} 
+                      size="sm"
+                      onClick={() => setDesignMode(designMode === 'draw' ? 'interact' : 'draw')}
+                   >
+                     <Edit3 className="w-3.5 h-3.5 mr-1.5" />
+                     Draw Region
+                   </Button>
+                 </div>
+                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                   {selectedTarget ? (
+                     <div className="text-xs bg-muted/30 border border-border/50 p-3 rounded-lg shadow-sm">
+                       <div className="font-semibold mb-1 text-primary">Target Selected</div>
+                       <div className="text-muted-foreground mb-3 break-all font-mono text-[10px]">{selectedTarget.label}</div>
+                       <textarea 
+                         placeholder="Describe the design change..."
+                         className="w-full h-24 bg-background border border-border/40 rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
+                       />
+                       <Button size="sm" className="w-full mt-3 h-8 text-xs font-medium">Send Annotation</Button>
+                     </div>
+                   ) : (
+                     <div className="flex flex-col items-center justify-center text-center h-full text-muted-foreground opacity-70">
+                       <MousePointer2 className="h-8 w-8 mb-3 opacity-20" />
+                       <span className="text-[11px] max-w-[200px] leading-relaxed">
+                         Select an element or draw a region on the right to add an annotation.
+                       </span>
+                     </div>
+                   )}
+                 </div>
+              </div>
+
+              {/* Design Preview (Right Side) */}
+              <div className="flex-1 bg-white overflow-hidden relative">
+                <DesignPreview
+                  htmlContent={content}
+                  mode={designMode}
+                  onSelectTarget={(t) => {
+                     setSelectedTarget(t)
+                     if (t) setDesignMode('interact') // Auto-switch out of mode after picking
+                  }}
+                />
+              </div>
+            </div>
           )}
 
           {isTextFile && content !== null && viewMode === 'preview' && (

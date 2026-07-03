@@ -854,6 +854,7 @@ export interface ChatSession {
   agent_name?: string;
   agent_instance_id?: string;
   project_path?: string;
+  design_dir?: string; // absolute path to design assets directory
   createdAt: string;
   ctxwin_used?: number;
   ctxwin_limit?: number;
@@ -910,6 +911,7 @@ export interface CreateL2SessionResponse {
   group: string;
   agent_name: string;
   project_path?: string;
+  design_dir?: string;
   created_at: string;
 }
 

@@ -2,11 +2,50 @@ import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo }
 import { toast } from 'sonner'
 import { 
   ArrowUp, StopCircle, X, Loader2, Plus, ChevronDown, 
-  Check, Laptop, GitBranch, Users, Cpu
+  Check, Laptop, GitBranch, Users, Cpu, Palette
 } from 'lucide-react'
-import { uploadFile, getProjectBranches } from '@/lib/api'
-import type { Project } from '@/types'
+import { uploadFile, getProjectBranches, listFiles } from '@/lib/api'
+import type { Project, FileInfo } from '@/types'
 import { cn } from '@/lib/utils'
+import { useRuntimeStore } from '@/stores/runtimeStore'
+
+// ─── Autocomplete types ──────────────────────────────────────────────────────
+
+interface AutocompleteItem {
+  label: string        // displayed name (e.g. "l0", "my-skill")
+  description: string  // short hint shown in the popup
+  type: 'command' | 'skill'
+}
+
+// Built-in slash commands with descriptions
+const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
+  // ── Session control ──────────────────────────────────────────────────────
+  { label: 'clear',     description: 'Clear dialogue history',                 type: 'command' },
+  { label: 'cancel',    description: 'Cancel current task',                    type: 'command' },
+  { label: 'help',      description: 'View available commands',                type: 'command' },
+  { label: 'version',   description: 'View version number',                    type: 'command' },
+  { label: 'cron',      description: 'Create scheduled task (cron expression)', type: 'command' },
+  // ── Routing level locks ──────────────────────────────────────────────────
+  { label: 'l0',        description: 'Force conversation level (no tools)',    type: 'command' },
+  { label: 'chat',      description: 'Force conversation level (no tools)',    type: 'command' },
+  { label: 'l1',        description: 'Force simple single-file task level',    type: 'command' },
+  { label: 'l2',        description: 'Force multi-file task level',            type: 'command' },
+  { label: 'l3',        description: 'Force expert / complex level',           type: 'command' },
+  { label: 'max',       description: 'Force expert / complex level',           type: 'command' },
+  { label: 'expert',    description: 'Force expert / complex level',           type: 'command' },
+  { label: 'fast',      description: 'Force fast model (no thinking)',         type: 'command' },
+  // ── File operations ──────────────────────────────────────────────────────
+  { label: 'read',      description: 'Read / view a file',                    type: 'command' },
+  { label: 'cat',       description: 'Read / view a file',                    type: 'command' },
+  { label: 'view',      description: 'Read / view a file',                    type: 'command' },
+  { label: 'write',     description: 'Edit or create a file',                 type: 'command' },
+  { label: 'edit',      description: 'Edit or create a file',                 type: 'command' },
+  { label: 'modify',    description: 'Edit or create a file',                 type: 'command' },
+  { label: 'refactor',  description: 'Refactor code across files',            type: 'command' },
+  { label: 'implement', description: 'Implement a feature',                   type: 'command' },
+  { label: 'test',      description: 'Write or run tests',                    type: 'command' },
+  { label: 'debug',     description: 'Debug an issue',                        type: 'command' },
+]
 
 export interface ChatInputProps {
   onSend: (
@@ -37,6 +76,12 @@ export interface ChatInputProps {
   // Agent status display (left of context ring)
   taskLevel?: string
   modelName?: string
+
+  // Autocomplete: skill names fetched from /api/skills
+  skillNames?: string[]
+
+  // @ file completion: root directory (usually session project_path)
+  atRootDir?: string
 }
 
 interface Attachment {
@@ -69,18 +114,264 @@ export function ChatInput({
   ctxwinLimit = 0,
   taskLevel,
   modelName,
+  skillNames = [],
+  atRootDir = '',
 }: ChatInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
   const projectRef = useRef<HTMLDivElement>(null)
   const branchRef = useRef<HTMLDivElement>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
+  const setDesignMode = useRuntimeStore((s) => s.setDesignMode)
+  const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
+
+  // ─── Slash autocomplete state ────────────────────────────────────────────
+  const autocompleteRef = useRef<HTMLDivElement>(null)
+  const [acQuery, setAcQuery] = useState<string | null>(null)   // null = hidden
+  const [acIndex, setAcIndex] = useState(0)
+
+  // ─── @ file completion state ──────────────────────────────────────────────
+  const atRef = useRef<HTMLDivElement>(null)
+  const [atQuery, setAtQuery] = useState<string | null>(null)   // null = hidden; string = partial path
+  const [atFiles, setAtFiles] = useState<FileInfo[]>([])
+  const [atIndex, setAtIndex] = useState(0)
+  const [atLoading, setAtLoading] = useState(false)
+
+  // ─── Inline highlight (backdrop-textarea) state ───────────────────────────
+  const backdropInnerRef = useRef<HTMLDivElement>(null)
+  const [inputValue, setInputValue] = useState('')
+  // Maps display label (e.g. "src/ChatInput.tsx") → absolute path
+  const [atMentions, setAtMentions] = useState<Map<string, string>>(new Map())
 
   // Selectors State
   const [activeDropdown, setActiveDropdown] = useState<'group' | 'project' | 'branch' | null>(null)
   const [dropdownPos, setDropdownPos] = useState<{ bottom: number; left: number } | null>(null)
   const [branch, setBranch] = useState<string>('main')
   const [branches, setBranches] = useState<string[]>(['main'])
+
+  // Build autocomplete item list from current query
+  const allAcItems = useMemo<AutocompleteItem[]>(() => {
+    const skillItems: AutocompleteItem[] = skillNames.map((n) => ({
+      label: n,
+      description: 'Skill',
+      type: 'skill',
+    }))
+    return [...BUILTIN_SLASH_COMMANDS, ...skillItems]
+  }, [skillNames])
+
+  // Sets for O(1) token-type lookup (used by backdrop highlight)
+  const commandSet = useMemo(() => new Set(BUILTIN_SLASH_COMMANDS.map(c => c.label)), [])
+  const skillSet   = useMemo(() => new Set(skillNames), [skillNames])
+
+  // Build highlighted HTML for backdrop rendering
+  const highlightedHtml = useMemo(() => {
+    if (!inputValue) return ''
+    // 1. HTML escape
+    let result = inputValue
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+
+    // 2. Extract @mention tokens FIRST (placeholder), so slash regex won't
+    //    accidentally match path segments like /components in @src/components/
+    const mentionMap: string[] = []
+    result = result.replace(/(^|\s)(@\S+)/g, (_m, pre, mention) => {
+      const idx = mentionMap.length
+      mentionMap.push(mention) // includes @
+      return `${pre}\x01${idx}\x01`
+    })
+
+    // 3. Highlight /command or /skill tokens (safe: @ paths already removed)
+    result = result.replace(/(^|\s)(\/[a-z][a-z0-9-]*)/gi, (_m, pre, cmd) => {
+      const word = cmd.slice(1).toLowerCase()
+      if (commandSet.has(word)) {
+        return `${pre}<span class="text-violet-700 bg-violet-500/15 dark:text-violet-400">${cmd}</span>`
+      } else if (skillSet.has(word)) {
+        return `${pre}<span class="text-emerald-700 bg-emerald-500/15 dark:text-emerald-400">${cmd}</span>`
+      }
+      return `${pre}${cmd}`
+    })
+
+    // 4. Restore @mentions, highlighting resolved ones in sky-blue
+    result = result.replace(/\x01(\d+)\x01/g, (_m, idxStr) => {
+      const mention = mentionMap[Number(idxStr)] // includes @
+      const label   = mention.slice(1)
+      if (atMentions.has(label)) {
+        return `<span class="text-sky-600 bg-sky-500/15 dark:text-sky-400">${mention}</span>`
+      }
+      return mention
+    })
+
+    // 5. Newlines → <br>, trailing nbsp preserves last-line height
+    return result.replace(/\n/g, '<br>') + '\u00a0'
+  }, [inputValue, commandSet, skillSet, atMentions])
+
+  // Backdrop is needed when any token would be highlighted
+  const hasHighlight = useMemo(() => {
+    // Check for /command or /skill pattern
+    if (/(^|\s)\/[a-z]/i.test(inputValue)) {
+      const tokens = inputValue.match(/(?:^|\s)(\/[a-z][a-z0-9-]*)/gi) || []
+      if (tokens.some(t => {
+        const w = t.trim().slice(1).toLowerCase()
+        return commandSet.has(w) || skillSet.has(w)
+      })) return true
+    }
+    // Check for resolved @mentions
+    return Array.from(atMentions.keys()).some(label => inputValue.includes(`@${label}`))
+  }, [inputValue, commandSet, skillSet, atMentions])
+
+  const acItems = useMemo<AutocompleteItem[]>(() => {
+    if (acQuery === null) return []
+    const q = acQuery.toLowerCase()
+    return allAcItems.filter((item) => item.label.toLowerCase().startsWith(q))
+  }, [acQuery, allAcItems])
+
+  // Reset selected index when list changes
+  useEffect(() => {
+    setAcIndex(0)
+  }, [acItems.length])
+
+  // Scroll selected slash-autocomplete item into view
+  useEffect(() => {
+    if (!autocompleteRef.current) return
+    const el = autocompleteRef.current.querySelector<HTMLElement>(`[data-ac-idx="${acIndex}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [acIndex])
+
+  // Scroll selected @ file item into view
+  useEffect(() => {
+    if (!atRef.current) return
+    const el = atRef.current.querySelector<HTMLElement>(`[data-at-idx="${atIndex}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [atIndex])
+
+
+
+  // Close slash autocomplete when clicking outside
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (
+        autocompleteRef.current &&
+        !autocompleteRef.current.contains(e.target as Node) &&
+        inputRef.current &&
+        !inputRef.current.contains(e.target as Node)
+      ) {
+        setAcQuery(null)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
+
+  // Close @ file popup when clicking outside
+  useEffect(() => {
+    function handleAtOutside(e: MouseEvent) {
+      if (
+        atRef.current &&
+        !atRef.current.contains(e.target as Node) &&
+        inputRef.current &&
+        !inputRef.current.contains(e.target as Node)
+      ) {
+        setAtQuery(null)
+        setAtFiles([])
+      }
+    }
+    document.addEventListener('mousedown', handleAtOutside)
+    return () => document.removeEventListener('mousedown', handleAtOutside)
+  }, [])
+
+  // Fetch files when @ query changes
+  useEffect(() => {
+    if (atQuery === null || !atRootDir) {
+      setAtFiles([])
+      return
+    }
+    const lastSlash = atQuery.lastIndexOf('/')
+    const subDir   = lastSlash >= 0 ? atQuery.slice(0, lastSlash + 1) : ''
+    const prefix   = lastSlash >= 0 ? atQuery.slice(lastSlash + 1) : atQuery
+    const searchDir = subDir ? `${atRootDir}/${subDir}` : atRootDir
+
+    let cancelled = false
+    setAtLoading(true)
+    listFiles(searchDir)
+      .then(files => {
+        if (cancelled) return
+        const filtered = files.filter(f =>
+          f.name.toLowerCase().startsWith(prefix.toLowerCase())
+        )
+        setAtFiles(filtered)
+        setAtIndex(0)
+      })
+      .catch(() => { if (!cancelled) setAtFiles([]) })
+      .finally(() => { if (!cancelled) setAtLoading(false) })
+    return () => { cancelled = true }
+  }, [atQuery, atRootDir])
+
+
+
+  // Apply selected autocomplete item into textarea
+  const applyAutocomplete = useCallback((item: AutocompleteItem) => {
+    const el = inputRef.current
+    if (!el) return
+    const val = el.value
+    const cursor = el.selectionStart ?? val.length
+    // Find the start of the current /word token
+    const slashIdx = val.lastIndexOf('/', cursor)
+    if (slashIdx === -1) return
+    const before = val.slice(0, slashIdx)
+    const after = val.slice(cursor)
+    const newVal = `${before}/${item.label} ${after.trimStart()}`
+    el.value = newVal
+    const newCursor = slashIdx + item.label.length + 2  // after the space
+    el.setSelectionRange(newCursor, newCursor)
+    autoResize()
+    setAcQuery(null)
+    setInputValue(newVal)
+    el.focus()
+  }, [])
+
+  // Apply selected @ file mention into textarea
+  const applyAtMention = useCallback((file: FileInfo) => {
+    const el = inputRef.current
+    if (!el) return
+    const val = el.value
+    const cursor = el.selectionStart ?? val.length
+    // Find the @ token before cursor
+    const segment = val.slice(0, cursor)
+    const atIdx   = segment.lastIndexOf('@')
+    if (atIdx === -1) return
+    const before = val.slice(0, atIdx)
+    const after  = val.slice(cursor)
+
+    if (file.isDir) {
+      // Directory: continue navigating, update query
+      const lastSlash = (atQuery ?? '').lastIndexOf('/')
+      const currentDir = lastSlash >= 0 ? (atQuery ?? '').slice(0, lastSlash + 1) : ''
+      const newQuery = `${currentDir}${file.name}/`
+      const newVal   = `${before}@${newQuery}${after.trimStart()}`
+      el.value = newVal
+      el.setSelectionRange(atIdx + newQuery.length + 1, atIdx + newQuery.length + 1)
+      setAtQuery(newQuery)
+      setInputValue(newVal)
+      autoResize()
+      el.focus()
+    } else {
+      // File: resolve to display label + record absolute path mapping
+      const lastSlash  = (atQuery ?? '').lastIndexOf('/')
+      const currentDir = lastSlash >= 0 ? (atQuery ?? '').slice(0, lastSlash + 1) : ''
+      const displayLabel = `${currentDir}${file.name}`
+      const newVal       = `${before}@${displayLabel} ${after.trimStart()}`
+      el.value = newVal
+      el.setSelectionRange(atIdx + displayLabel.length + 2, atIdx + displayLabel.length + 2)
+      setAtMentions(prev => new Map(prev).set(displayLabel, file.path))
+      setAtQuery(null)
+      setAtFiles([])
+      setInputValue(newVal)
+      autoResize()
+      el.focus()
+    }
+  }, [atQuery])
 
   // Context window ring calculation
   const cwPct = useMemo(() => {
@@ -244,7 +535,7 @@ export function ChatInput({
   }, [])
 
   const handleSubmit = useCallback(() => {
-    const text = inputRef.current?.value.trim() || ''
+    const rawText = inputRef.current?.value.trim() || ''
 
     // Block sending if there are uploads in progress
     const hasUploading = attachments.some((att) => att.status === 'uploading')
@@ -254,7 +545,13 @@ export function ChatInput({
       .filter((att) => att.status === 'done' && att.path)
       .map((att) => ({ name: att.name, path: att.path! }))
 
-    if ((!text && uploadedFiles.length === 0) || disabled) return
+    if ((!rawText && uploadedFiles.length === 0) || disabled) return
+
+    // Replace @displayLabel → absolute path before sending to LLM
+    let text = rawText
+    atMentions.forEach((absPath, label) => {
+      text = text.split(`@${label}`).join(absPath)
+    })
 
     // Fallback prompt to satisfy backend non-empty check
     const finalPrompt =
@@ -262,13 +559,15 @@ export function ChatInput({
       (uploadedFiles.length === 1 ? `Pasted image: ${uploadedFiles[0].name}` : 'Pasted images')
 
     onSend(
-      finalPrompt, 
+      finalPrompt,
       uploadedFiles.length > 0 ? uploadedFiles : undefined,
       selectedGroup || undefined,
       selectedProjectPath || undefined
     )
 
     if (inputRef.current) inputRef.current.value = ''
+    setInputValue('')
+    setAtMentions(new Map())
 
     // Clear and revoke attachments
     attachments.forEach((att) => URL.revokeObjectURL(att.previewUrl))
@@ -276,10 +575,62 @@ export function ChatInput({
 
     // Reset height
     if (inputRef.current) inputRef.current.style.height = 'auto'
-  }, [disabled, onSend, attachments, selectedGroup, selectedProjectPath])
+  }, [disabled, onSend, attachments, selectedGroup, selectedProjectPath, atMentions])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
+
+    // @ file popup keyboard navigation (takes priority)
+    if (atQuery !== null && (atFiles.length > 0 || atLoading)) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setAtIndex(i => Math.min(i + 1, atFiles.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setAtIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (atFiles.length > 0) {
+          e.preventDefault()
+          applyAtMention(atFiles[atIndex])
+          return
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setAtQuery(null)
+        setAtFiles([])
+        return
+      }
+    }
+
+    // Slash autocomplete keyboard navigation
+    if (acQuery !== null && acItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setAcIndex((i) => Math.min(i + 1, acItems.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setAcIndex((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        applyAutocomplete(acItems[acIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setAcQuery(null)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -294,6 +645,42 @@ export function ChatInput({
     el.style.height = nextHeight + 'px'
   }
 
+  // Sync backdrop scroll with textarea scroll
+  const handleScroll = useCallback(() => {
+    if (backdropInnerRef.current && inputRef.current) {
+      backdropInnerRef.current.style.marginTop = `-${inputRef.current.scrollTop}px`
+    }
+  }, [])
+
+  // Update autocomplete query and inputValue on every input change
+  const handleInput = useCallback(() => {
+    autoResize()
+    const el = inputRef.current
+    if (!el) return
+    const val = el.value
+    setInputValue(val)
+
+    const cursor  = el.selectionStart ?? val.length
+    const segment = val.slice(0, cursor)
+
+    // Detect @ file token (takes priority over /)
+    const atMatch = segment.match(/(^|\s)@([^\s]*)$/)
+    if (atMatch && atRootDir) {
+      setAtQuery(atMatch[2])
+      setAcQuery(null)
+      return
+    }
+    setAtQuery(null)
+    setAtFiles([])
+
+    // Detect / slash token
+    const slashMatch = segment.match(/(?:^|\s)\/([a-z0-9-]*)$/i)
+    if (slashMatch) {
+      setAcQuery(slashMatch[1])
+    } else {
+      setAcQuery(null)
+    }
+  }, [atRootDir])
 
 
   return (
@@ -322,9 +709,68 @@ export function ChatInput({
                       <span className="text-[10px] text-white font-medium">Failed</span>
                     </div>
                   )}
+                  {/* Hover action bar: preview / copy / download / remove */}
+                  {att.status === 'done' && (
+                    <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/50 transition-all flex flex-col items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100">
+                      {/* Open with system viewer */}
+                      <button
+                        title="Open with system viewer"
+                        onClick={() => {
+                          if (att.path) {
+                            // Electron: open file with system default app
+                            const api = (window as any).electronAPI
+                            if (api?.openPath) {
+                              api.openPath(att.path)
+                            } else {
+                              window.open(att.previewUrl, '_blank')
+                            }
+                          }
+                        }}
+                        className="h-5 w-5 rounded bg-white/20 hover:bg-white/40 flex items-center justify-center text-white transition-colors"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                          <path d="M6.5 1A1.5 1.5 0 005 2.5V3H2.5A1.5 1.5 0 001 4.5v8A1.5 1.5 0 002.5 14h11A1.5 1.5 0 0015 12.5v-8A1.5 1.5 0 0013.5 3H11v-.5A1.5 1.5 0 009.5 1h-3zm0 1h3a.5.5 0 01.5.5V3H6v-.5a.5.5 0 01.5-.5zm6.5 2a.5.5 0 01.5.5v.634l-4.5 2.25-4.5-2.25V4.5a.5.5 0 01.5-.5h8z"/>
+                        </svg>
+                      </button>
+                      {/* Copy to clipboard */}
+                      <button
+                        title="Copy image"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(att.previewUrl)
+                            const blob = await res.blob()
+                            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+                          } catch {
+                            // fallback: nothing
+                          }
+                        }}
+                        className="h-5 w-5 rounded bg-white/20 hover:bg-white/40 flex items-center justify-center text-white transition-colors"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                          <path d="M4 1.5H3a2 2 0 00-2 2V14a2 2 0 002 2h10a2 2 0 002-2V3.5a2 2 0 00-2-2h-1v1h1a1 1 0 011 1V14a1 1 0 01-1 1H3a1 1 0 01-1-1V3.5a1 1 0 011-1h1v-1z"/><path d="M9.5 1a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h3zm-3-1A1.5 1.5 0 005 1.5v1A1.5 1.5 0 006.5 4h3A1.5 1.5 0 0011 2.5v-1A1.5 1.5 0 009.5 0h-3z"/>
+                        </svg>
+                      </button>
+                      {/* Download */}
+                      <button
+                        title="Download"
+                        onClick={() => {
+                          const a = document.createElement('a')
+                          a.href = att.previewUrl
+                          a.download = att.name
+                          a.click()
+                        }}
+                        className="h-5 w-5 rounded bg-white/20 hover:bg-white/40 flex items-center justify-center text-white transition-colors"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                          <path d="M.5 9.9a.5.5 0 01.5.5v2.1a1 1 0 001 1h12a1 1 0 001-1v-2.1a.5.5 0 011 0v2.1a2 2 0 01-2 2H2a2 2 0 01-2-2v-2.1a.5.5 0 01.5-.5z"/><path d="M7.646 11.854a.5.5 0 00.708 0l3-3a.5.5 0 00-.708-.708L8.5 10.293V1.5a.5.5 0 00-1 0v8.793L5.354 8.146a.5.5 0 10-.708.708l3 3z"/>
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                  {/* Remove button (always visible on hover, top-right) */}
                   <button
                     onClick={() => removeAttachment(att.id)}
-                    className="absolute top-1 right-1 h-4 w-4 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                    className="absolute top-1 right-1 h-4 w-4 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity z-10"
                     title="Remove image"
                   >
                     <X className="h-2.5 w-2.5" />
@@ -335,16 +781,200 @@ export function ChatInput({
           )}
 
           <div className="flex flex-col w-full min-h-[32px]">
-            <textarea
-              ref={inputRef}
-              className="w-full resize-none bg-transparent px-3 py-1 text-[15px] leading-normal text-foreground placeholder:text-muted-foreground/45 focus:outline-none min-h-[32px] max-h-[160px] overflow-y-auto rounded-lg"
-              placeholder="Ask anything..."
-              rows={1}
-              disabled={disabled}
-              onKeyDown={handleKeyDown}
-              onInput={autoResize}
-              onPaste={handlePaste}
-            />
+            {/* Scoped CSS to create macOS-style inset overlay scrollbars */}
+            <style>{`
+              .hig-menu-scroll::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+              }
+              .hig-menu-scroll::-webkit-scrollbar-track {
+                background: transparent;
+              }
+              .hig-menu-scroll::-webkit-scrollbar-thumb {
+                background-color: rgba(120, 120, 128, 0.25);
+                border-radius: 9999px;
+                border: 2px solid transparent;
+                background-clip: padding-box;
+              }
+              .hig-menu-scroll::-webkit-scrollbar-thumb:hover {
+                background-color: rgba(120, 120, 128, 0.45);
+              }
+            `}</style>
+
+            {/* ── Textarea with backdrop highlight layer & absolute popups ── */}
+            <div className="relative w-full">
+              {/* ── / slash command autocomplete popup ─────────────────────── */}
+              {acItems.length > 0 && acQuery !== null && (
+                <div
+                  ref={autocompleteRef}
+                  className="absolute bottom-full left-0 right-0 w-full z-50 rounded-[13px] border border-border/20 bg-background/80 backdrop-blur-[20px] saturate-[1.9] shadow-[0_4px_30px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.02)] overflow-hidden p-1 mb-2 animate-in fade-in slide-in-from-bottom-1 zoom-in-95 duration-150 ease-out"
+                >
+                  {/* Scrollable area inside outer container to prevent scrollbar corner overflow */}
+                  <div
+                    className="overflow-y-auto hig-menu-scroll pr-0.5"
+                    style={{
+                      maxHeight: '210px',
+                    }}
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      {acItems.map((item, idx) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          data-ac-idx={idx}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            applyAutocomplete(item)
+                          }}
+                          onMouseEnter={() => setAcIndex(idx)}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-3 py-1.5 min-h-[40px] rounded-lg text-left transition-all duration-150 ease-out',
+                            idx === acIndex 
+                              ? 'bg-primary/10 text-primary' 
+                              : 'text-foreground hover:bg-primary/5 hover:text-primary'
+                          )}
+                        >
+                          <span className={cn(
+                            'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded shrink-0',
+                            item.type === 'command'
+                              ? 'bg-violet-500/15 text-violet-700 dark:text-violet-400'
+                              : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                          )}>
+                            /{item.label}
+                          </span>
+                          <span className="text-[12px] text-muted-foreground truncate">{item.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {atQuery !== null && (atFiles.length > 0 || atLoading) && (
+                <div
+                  ref={atRef}
+                  className="absolute bottom-full left-0 right-0 w-full z-50 rounded-[13px] border border-border/20 bg-background/80 backdrop-blur-[20px] saturate-[1.9] shadow-[0_4px_30px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.02)] overflow-hidden p-1 mb-2 animate-in fade-in slide-in-from-bottom-1 zoom-in-95 duration-150 ease-out"
+                >
+                  {/* Inner scroll container keeps scrollbar away from outer rounded border */}
+                  <div
+                    className="overflow-y-auto hig-menu-scroll pr-0.5"
+                    style={{
+                      maxHeight: '210px',
+                    }}
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      {atLoading && atFiles.length === 0 && (
+                        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Loading…</span>
+                        </div>
+                      )}
+                      {atFiles.map((file, idx) => (
+                        <button
+                          key={file.path}
+                          type="button"
+                          data-at-idx={idx}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            applyAtMention(file)
+                          }}
+                          onMouseEnter={() => setAtIndex(idx)}
+                          className={cn(
+                            'w-full flex items-center gap-2.5 px-3 py-1.5 min-h-[40px] rounded-lg text-left transition-all duration-150 ease-out',
+                            idx === atIndex 
+                              ? 'bg-primary/10 text-primary' 
+                              : 'text-foreground hover:bg-primary/5 hover:text-primary'
+                          )}
+                        >
+                          {/* Icon */}
+                          <span className="text-[12px] shrink-0 leading-none">
+                            {file.isDir ? '📁' : '📄'}
+                          </span>
+                          {/* Name */}
+                          <span className="text-[13px] font-medium truncate">{file.name}</span>
+                          {/* Dir indicator */}
+                          {file.isDir && (
+                            <span className="ml-auto text-[11px] text-muted-foreground/50 shrink-0">/</span>
+                          )}
+                          {/* File size hint */}
+                          {!file.isDir && file.size > 0 && (
+                            <span className="ml-auto text-[10px] text-muted-foreground/40 shrink-0 font-mono">
+                              {file.size < 1024
+                                ? `${file.size}B`
+                                : file.size < 1024 * 1024
+                                ? `${(file.size / 1024).toFixed(1)}K`
+                                : `${(file.size / 1024 / 1024).toFixed(1)}M`}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Backdrop: renders highlighted tokens behind transparent textarea.
+                  Font size and layout MUST exactly match the textarea to keep text aligned,
+                  which both match the 13px (0.8125rem) / 1.6 font size of the chat area. */}
+              {hasHighlight && (
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-0 pointer-events-none overflow-hidden select-none"
+                  style={{
+                    paddingTop: '6px',
+                    paddingBottom: '6px',
+                    paddingLeft: '12px',
+                    paddingRight: '12px',
+                    border: '1px solid transparent',
+                    margin: '0',
+                    fontSize: '13px',
+                    lineHeight: '1.6',
+                    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
+                    fontWeight: '400',
+                    letterSpacing: 'normal',
+                    wordSpacing: 'normal',
+                    color: 'var(--foreground)',
+                  }}
+                >
+                  <div
+                    ref={backdropInnerRef}
+                    className="whitespace-pre-wrap break-words"
+                    dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                  />
+                </div>
+              )}
+              <textarea
+                ref={inputRef}
+                className={cn(
+                  'w-full resize-none bg-transparent focus:outline-none min-h-[32px] max-h-[160px] overflow-y-auto relative',
+                  hasHighlight ? '' : 'text-foreground'
+                )}
+                style={{
+                  paddingTop: '6px',
+                  paddingBottom: '6px',
+                  paddingLeft: '12px',
+                  paddingRight: '12px',
+                  border: '1px solid transparent',
+                  margin: '0',
+                  fontSize: '13px',
+                  lineHeight: '1.6',
+                  fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
+                  fontWeight: '400',
+                  letterSpacing: 'normal',
+                  wordSpacing: 'normal',
+                  color: hasHighlight ? 'transparent' : 'var(--foreground)',
+                  caretColor: 'var(--foreground)',
+                  scrollbarWidth: 'none',
+                }}
+                placeholder="Ask anything..."
+                rows={1}
+                disabled={disabled}
+                onKeyDown={handleKeyDown}
+                onInput={handleInput}
+                onScroll={handleScroll}
+                onPaste={handlePaste}
+              />
+            </div>
 
             {/* Inner action buttons row */}
             <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/15">
@@ -358,7 +988,23 @@ export function ChatInput({
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
-
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextMode = !isDesignMode
+                    setDesignMode(nextMode)
+                    setSidebarCollapsed(nextMode)
+                  }}
+                  className={cn(
+                    "p-1.5 rounded-lg transition-colors cursor-pointer shrink-0",
+                    isDesignMode 
+                      ? "bg-primary/20 text-primary border border-primary/20" 
+                      : "hover:bg-muted text-muted-foreground/70"
+                  )}
+                  title="Design Mode"
+                >
+                  <Palette className="h-3.5 w-3.5" />
+                </button>
                 {showL2Selectors && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5 flex-1 min-w-0">
                     {/* L2 Group Select */}
@@ -511,7 +1157,7 @@ export function ChatInput({
                 {(taskLevel || modelName) && (
                   <div className="flex items-center gap-1.5 shrink-0 select-none">
                     {taskLevel && (
-                      <span className="text-[10px] font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap">
+                      <span className="text-[10px] font-semibold text-violet-700 bg-violet-500/10 border border-violet-500/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap">
                         {taskLevel.split('-')[0]}
                       </span>
                     )}

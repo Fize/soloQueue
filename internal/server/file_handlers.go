@@ -78,12 +78,27 @@ func (m *Mux) allowedRoots() []string {
 	artifactsDir := filepath.Join(m.workDir, "artifacts")
 	roots = append(roots, artifactsDir)
 
+	// Design files for no-project sessions: agent works in workDir/workspace/<group>/,
+	// so design files are at workDir/workspace/<group>/design/.
+	// Scan all group subdirectories under workspace/ and add their design dirs.
+	workspaceBase := filepath.Join(m.workDir, "workspace")
+	if entries, err := os.ReadDir(workspaceBase); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				roots = append(roots, filepath.Join(workspaceBase, e.Name(), "design"))
+			}
+		}
+	}
+	// Fallback: also allow workDir/design for edge cases.
+	roots = append(roots, filepath.Join(m.workDir, "design"))
+
 	if m.teamstore != nil {
 		projects, err := m.teamstore.ListProjects(context.Background())
 		if err == nil {
 			for _, p := range projects {
 				cleanPath := filepath.Clean(expandTilde(p.Path))
 				if cleanPath != "" {
+					// Project root covers <project>/.soloqueue/design/ as well.
 					roots = append(roots, cleanPath)
 				}
 			}
@@ -105,7 +120,13 @@ func (m *Mux) validatePath(raw string) (string, error) {
 
 	resolved, err := filepath.EvalSymlinks(cleaned)
 	if err != nil {
-		return "", err
+		// If the file does not exist yet, evaluate its parent directory
+		parent := filepath.Dir(cleaned)
+		resolvedParent, errParent := filepath.EvalSymlinks(parent)
+		if errParent != nil {
+			return "", err
+		}
+		resolved = filepath.Join(resolvedParent, filepath.Base(cleaned))
 	}
 
 	for _, root := range m.allowedRoots() {
@@ -259,6 +280,39 @@ func (m *Mux) handleToggleCheckbox(w http.ResponseWriter, r *http.Request) {
 
 	newContent := content[:charIdx] + string(newChar) + content[charIdx+1:]
 	if err := os.WriteFile(absPath, []byte(newContent), 0644); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write file"})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type SaveFileRequest struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+func (m *Mux) handleSaveFile(w http.ResponseWriter, r *http.Request) {
+	var req SaveFileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	absPath, err := m.validatePath(req.Path)
+	if err != nil {
+		m.writeJSON(w, http.StatusForbidden, map[string]string{"error": "access denied"})
+		return
+	}
+
+	// Create parent dirs if they don't exist
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create directory"})
+		return
+	}
+
+	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write file"})
 		return
 	}

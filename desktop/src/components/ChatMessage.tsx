@@ -24,6 +24,7 @@ import { useAgentStream } from '@/hooks/useAgentStream'
 import { AgentStreamView } from '@/components/AgentStreamView'
 import { formatToolCallHeader, cn } from '@/lib/utils'
 import { DelegationCard } from '@/components/DelegationCard'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 
 export interface ChatMessageProps {
   message: ChatMessage
@@ -33,21 +34,23 @@ export interface ChatMessageProps {
 export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
+  const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
+  const compact = isDesignMode
 
   return (
-    <div className={`group/message px-4 py-3 ${isUser ? 'flex justify-end' : ''}`}>
+    <div className={`group/message ${compact ? 'px-2 py-2' : 'px-4 py-3'} ${isUser ? 'flex justify-end' : ''}`}>
       <div
-        className={`flex gap-3 w-full ${isUser ? 'max-w-[80%] sm:max-w-[70%] lg:max-w-[60%] flex-row-reverse' : ''}`}
+        className={`flex ${compact ? 'gap-2' : 'gap-3'} w-full ${isUser ? (compact ? 'max-w-[92%] flex-row-reverse' : 'max-w-[80%] sm:max-w-[70%] lg:max-w-[60%] flex-row-reverse') : ''}`}
       >
         {/* Avatar */}
         <div className="shrink-0 self-start">
           {isUser ? (
-            <div className="h-7 w-7 rounded-full bg-primary/15 flex items-center justify-center">
-              <User className="h-3.5 w-3.5 text-primary/70" />
+            <div className={`${compact ? 'h-5 w-5' : 'h-7 w-7'} rounded-full bg-primary/15 flex items-center justify-center`}>
+              <User className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-primary/70`} />
             </div>
           ) : (
-            <div className="h-7 w-7 rounded-full bg-gradient-to-br from-violet-500/20 to-purple-500/20 flex items-center justify-center">
-              <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+            <div className={`${compact ? 'h-5 w-5' : 'h-7 w-7'} rounded-full bg-gradient-to-br from-violet-500/20 to-purple-500/20 flex items-center justify-center`}>
+              <Sparkles className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-violet-500`} />
             </div>
           )}
         </div>
@@ -67,7 +70,7 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
           <div
             className={
               isUser
-                ? 'rounded-2xl px-4 py-2.5 bg-muted/60 text-foreground rounded-br-md shadow-sm border border-border/40'
+                ? `${compact ? 'rounded-xl px-2.5 py-2' : 'rounded-2xl px-4 py-2.5'} bg-muted/60 text-foreground rounded-br-md shadow-sm border border-border/40`
                 : 'w-full text-foreground'
             }
           >
@@ -253,6 +256,8 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
 
 function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boolean }) {
   const streaming = useChatStore((s) => s.streaming)
+  const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
+  const compact = isDesignMode
   const [doneKey, setDoneKey] = useState(0)
   const prevStreaming = useRef(streaming)
 
@@ -279,7 +284,7 @@ function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boole
   return (
     <details className="group/worked" open={!isDone} key={doneKey}>
       <summary
-        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 text-muted-foreground hover:text-foreground/70`}
+        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors ${compact ? 'py-0.5' : 'py-1'} text-muted-foreground hover:text-foreground/70`}
       >
         {!isDone ? (
           <span className="relative flex h-2 w-2 shrink-0">
@@ -303,7 +308,7 @@ function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boole
         <ChevronDown className="h-3 w-3 ml-auto hidden group-open/worked:block" />
       </summary>
       <div
-        className={`mt-1.5 ml-2.5 pl-3.5 border-l-2 space-y-3 border-muted-foreground/20`}
+        className={`${compact ? 'mt-1 ml-1.5 pl-2 space-y-2' : 'mt-1.5 ml-2.5 pl-3.5 space-y-3'} border-l-2 border-muted-foreground/20`}
       >
         {group.segments.map(({ segment }, idx) => {
           if (segment.type === 'thinking') {
@@ -571,6 +576,8 @@ function ThinkingSegment({
   isLastSegment?: boolean
 }) {
   const streaming = useChatStore((s) => s.streaming)
+  const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
+  const compact = isDesignMode
   const [doneKey, setDoneKey] = useState(0)
   const prevStreaming = useRef(streaming)
 
@@ -590,7 +597,7 @@ function ThinkingSegment({
   return (
     <details className="group/thinking" open={!isDone} key={doneKey}>
       <summary
-        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors py-1 text-muted-foreground hover:text-foreground/70`}
+        className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors ${compact ? 'py-0.5' : 'py-1'} text-muted-foreground hover:text-foreground/70`}
       >
         {!isDone ? (
           <span className="relative flex h-2 w-2 shrink-0">
@@ -611,7 +618,7 @@ function ThinkingSegment({
         <ChevronDown className="h-3 w-3 ml-auto hidden group-open/thinking:block" />
       </summary>
       <div
-        className={`mt-1 ml-5 pl-3 border-l-2 text-xs whitespace-pre-wrap leading-relaxed border-muted-foreground/20 text-muted-foreground/75`}
+        className={`${compact ? 'mt-1 ml-3 pl-2' : 'mt-1 ml-5 pl-3'} border-l-2 text-xs whitespace-pre-wrap leading-relaxed border-muted-foreground/20 text-muted-foreground/75`}
       >
         {segment.text}
       </div>
@@ -627,6 +634,8 @@ function ToolCallSegment({
   isUser?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
+  const compact = isDesignMode
   const running = !segment.done
 
   return (
@@ -635,7 +644,7 @@ function ToolCallSegment({
     >
       <button
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-2 w-full px-3 py-2 transition-colors text-muted-foreground hover:text-foreground`}
+        className={`flex items-center gap-2 w-full ${compact ? 'px-2 py-1.5' : 'px-3 py-2'} transition-colors text-muted-foreground hover:text-foreground`}
       >
         {running ? (
           <Loader2
@@ -673,7 +682,7 @@ function ToolCallSegment({
       </button>
       {expanded && (
         <div
-          className={`px-3 pb-2 space-y-2 border-t pt-2 border-border/30`}
+          className={`${compact ? 'px-2 pb-1.5 pt-1.5' : 'px-3 pb-2 pt-2'} space-y-2 border-t border-border/30`}
         >
           {segment.args && (
             <div>
@@ -768,6 +777,8 @@ function MessageImageGallery({
   segments: ChatMessage['segments']
   isUser?: boolean
 }) {
+  const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
+  const compact = isDesignMode
   const imagePaths = useMemo(() => {
     const paths: string[] = []
     for (const seg of segments) {
@@ -789,7 +800,7 @@ function MessageImageGallery({
       >
         Images ({imagePaths.length})
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className={`grid ${compact ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'} gap-2`}>
         {imagePaths.map((path, i) => {
           const url = getFileUrl(path)
           return (

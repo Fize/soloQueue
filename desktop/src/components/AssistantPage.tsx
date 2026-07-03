@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import { ChatMessageView } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
 import { Sparkles, Loader2 } from "lucide-react";
@@ -8,6 +8,8 @@ import { useAgentStream } from "@/hooks/useAgentStream";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
+import { getSkills } from "@/lib/api";
+import type { SkillInfo } from "@/types";
 
 export function AssistantPage() {
   const {
@@ -27,6 +29,25 @@ export function AssistantPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
   const userScrolledUpRef = useRef(false);
+
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadData() {
+      try {
+        const skillsResp = await getSkills().catch(() => ({ skills: [], total: 0 }));
+        if (!active) return;
+        setSkills(skillsResp.skills || []);
+      } catch (err) {
+        console.error("Failed to load skills", err);
+      }
+    }
+    loadData();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Set active session to L1 on mount
   useEffect(() => {
@@ -52,6 +73,10 @@ export function AssistantPage() {
   const l1AgentInstanceId = l1Agent?.instance_id || null;
   const isL1Processing = l1AgentState === "processing";
   const stream = useAgentStream(l1AgentInstanceId);
+
+  const filteredSkillNames = useMemo(() => {
+    return skills.map((s) => s.name);
+  }, [skills]);
 
   // Context window tokens
   const ctxwinUsed = runtimeStatus?.current_tokens ?? 0;
@@ -291,6 +316,8 @@ export function AssistantPage() {
           ctxwinLimit={ctxwinLimit}
           taskLevel={isL1Processing ? l1Agent?.task_level : undefined}
           modelName={isL1Processing ? l1Agent?.model_id : undefined}
+          skillNames={filteredSkillNames}
+          activeSessionId="l1"
         />
       </div>
     </div>

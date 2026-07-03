@@ -1,10 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml'
+
 import {
-  getConfigToml,
   listProviders,
   createProvider,
   updateProvider,
@@ -40,7 +37,7 @@ import type {
   SimulationConfig,
   LSPMCPEntry,
 } from '@/types'
-import { FileText, Database } from 'lucide-react'
+import { Database } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from 'sonner'
@@ -52,9 +49,8 @@ import { EmbeddingSection } from './EmbeddingSection'
 import { SessionSection } from './SessionSection'
 import { SimulationSection } from './SimulationSection'
 
-SyntaxHighlighter.registerLanguage('toml', toml)
 
-type TabType = 'db' | 'toml'
+type TabType = 'db'
 
 export function ConfigTabShell() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -76,7 +72,7 @@ export function ConfigTabShell() {
     setSearchParams({ tab: activeTab, subTab: val })
   }
 
-  const [tomlContent, setTomlContent] = useState<string | null>(null)
+
   const [loading, setLoading] = useState(true)
 
   // DB settings state
@@ -107,8 +103,6 @@ export function ConfigTabShell() {
   const loadAll = async () => {
     setLoading(true)
     try {
-      const rawToml = await getConfigToml()
-      setTomlContent(rawToml)
 
       const [
         dbProviders,
@@ -451,41 +445,9 @@ export function ConfigTabShell() {
             <Database className="h-4 w-4" />
             Database Settings
           </TabsTrigger>
-          <TabsTrigger
-            value="toml"
-            className="flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-transparent"
-          >
-            <FileText className="h-4 w-4" />
-            settings.toml File (ReadOnly)
-          </TabsTrigger>
+
         </TabsList>
 
-        <TabsContent value="toml" className="space-y-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <FileText className="h-3.5 w-3.5" />
-            <span>~/.soloqueue/settings.toml</span>
-          </div>
-          {tomlContent ? (
-            <div className="overflow-hidden rounded-lg border bg-card">
-              <SyntaxHighlighter
-                language="toml"
-                style={oneLight}
-                customStyle={{
-                  margin: 0,
-                  borderRadius: 0,
-                  fontSize: '13px',
-                  lineHeight: '1.6',
-                  background: 'transparent',
-                }}
-                showLineNumbers
-              >
-                {tomlContent}
-              </SyntaxHighlighter>
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">No content loaded.</div>
-          )}
-        </TabsContent>
 
         <TabsContent value="db" className="space-y-6 pb-10">
           {/* Sub-tab Switcher */}

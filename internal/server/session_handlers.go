@@ -444,10 +444,29 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		AgentName       string    `json:"agent_name,omitempty"`
 		AgentInstanceID string    `json:"agent_instance_id,omitempty"`
 		ProjectPath     string    `json:"project_path,omitempty"`
+		// DesignDir is the absolute path to the design assets directory for this
+		// session. For project sessions: <project_path>/.soloqueue/design/.
+		// For no-project sessions: <workDir>/design/.
+		DesignDir       string    `json:"design_dir,omitempty"`
 		CreatedAt       time.Time `json:"created_at"`
 		IsQBot          bool      `json:"is_qbot"`
 		CtxwinUsed      int       `json:"ctxwin_used"`
 		CtxwinLimit     int       `json:"ctxwin_limit"`
+	}
+
+	// resolveDesignDir computes the design directory for a session.
+	// Mirrors the effectiveWorkDir resolution in agent/factory.go DefaultFactory.Create:
+	//   - projectPath != "": agent works in projectPath → design at <projectPath>/.soloqueue/design/
+	//   - projectPath == "" && group != "": agent works in workDir/workspace/<group>/ → design at same path /design/
+	//   - fallback: workDir/design/
+	resolveDesignDir := func(projectPath, group string) string {
+		if projectPath != "" {
+			return filepath.Join(filepath.Clean(expandTilde(projectPath)), ".soloqueue", "design")
+		}
+		if group != "" {
+			return filepath.Join(m.workDir, "workspace", group, "design")
+		}
+		return filepath.Join(m.workDir, "design")
 	}
 
 	sessions := []sessionInfo{}
@@ -495,6 +514,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				AgentName:       m.leaderAgentName(info.Group),
 				AgentInstanceID: info.AgentInstanceID,
 				ProjectPath:     info.WorkDir,
+				DesignDir:       resolveDesignDir(info.WorkDir, info.Group),
 				CreatedAt:       info.CreatedAt,
 				CtxwinUsed:      info.CtxwinUsed,
 				CtxwinLimit:     info.CtxwinLimit,
@@ -591,6 +611,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				Group:       group,
 				AgentName:   m.leaderAgentName(group),
 				ProjectPath: projectPath,
+				DesignDir:   resolveDesignDir(projectPath, group),
 				CreatedAt:   createdAt,
 				CtxwinLimit: ctxwinLimit,
 			})
@@ -629,12 +650,17 @@ func (m *Mux) handleCreateL2Session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	designDir := filepath.Join(m.workDir, "workspace", info.Group, "design")
+	if info.WorkDir != "" {
+		designDir = filepath.Join(filepath.Clean(expandTilde(info.WorkDir)), ".soloqueue", "design")
+	}
 	m.writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":           info.ID,
 		"name":         info.Name,
 		"group":        info.Group,
 		"agent_name":   m.leaderAgentName(info.Group),
 		"project_path": info.WorkDir,
+		"design_dir":   designDir,
 		"created_at":   info.CreatedAt,
 	})
 }

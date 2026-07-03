@@ -406,6 +406,12 @@ export async function updateSkill(
   });
 }
 
+export async function getHealthInfo(): Promise<{ status: string; work_dir?: string }> {
+  const res = await fetch("/healthz");
+  if (!res.ok) throw new Error("Failed to fetch health info");
+  return res.json();
+}
+
 export async function deleteSkill(id: string): Promise<void> {
   await request(`/skills/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -665,4 +671,11 @@ export async function getSessionChanges(
   return request<ChangesResponse>(
     `/session/l2/${encodeURIComponent(id)}/changes`,
   );
+}
+
+export async function saveFile(path: string, content: string): Promise<void> {
+  await request<void>("/files/save", {
+    method: "POST",
+    body: JSON.stringify({ path, content }),
+  });
 }

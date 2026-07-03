@@ -506,6 +506,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Get("/api/files/content", m.handleGetFileContent)
 	r.Get("/api/files/list", m.handleListFiles)
 	r.Post("/api/files/toggle-checkbox", m.handleToggleCheckbox)
+	r.Post("/api/files/save", m.handleSaveFile)
 
 	// Static file server for embedded web UI (catch-all: only unmatched paths).
 	// SPA fallback: if the path does not exist in the embedded FS,
@@ -558,7 +559,7 @@ func (m *Mux) Close() error {
 // ─── Health ─────────────────────────────────────────────────────────────────
 
 func (m *Mux) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "work_dir": m.workDir})
 }
 
 
