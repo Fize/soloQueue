@@ -477,14 +477,14 @@ export async function updateToolsConfig(
   });
 }
 
-export async function getQQBotConfig(): Promise<QQBotConfig> {
-  return request<QQBotConfig>("/config/qqbot");
+export async function getQQBotsConfig(): Promise<QQBotConfig[]> {
+  return request<QQBotConfig[]>("/config/qqbots");
 }
 
-export async function updateQQBotConfig(
-  data: QQBotConfig,
-): Promise<QQBotConfig> {
-  return request<QQBotConfig>("/config/qqbot", {
+export async function updateQQBotsConfig(
+  data: QQBotConfig[],
+): Promise<QQBotConfig[]> {
+  return request<QQBotConfig[]>("/config/qqbots", {
     method: "PUT",
     body: JSON.stringify(data),
   });

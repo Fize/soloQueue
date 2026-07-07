@@ -137,8 +137,9 @@ func ServeCmd(version string) *cobra.Command {
 				go flusher.Run(context.Background())
 			}
 
-				// ── QQ Bot integration ──
-				qqGateway, qqQueue := StartQQBot(cfg, mgr, cronScheduler, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
+			// ── QQ Bot integration ──
+			qqBotManager := NewQQBotManager(cfg, mgr, l2Store, rt, cronScheduler, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
+			qqBotManager.Reload()
 
 		rootCtx, stop := signal.NotifyContext(context.Background(),
 			os.Interrupt, syscall.SIGTERM)
@@ -190,7 +191,13 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),
 			server.WithTeamStore(rt.TeamStore),
 			server.WithAuthConfig(cfg.Get().Auth),
-			server.WithOnConfigChange(rt.OnConfigChange),
+			server.WithOnConfigChange(func() error {
+				if err := rt.OnConfigChange(); err != nil {
+					return err
+				}
+				qqBotManager.Reload()
+				return nil
+			}),
 			server.WithSimulationEngine(rt.SimulationEngine),
 		)
 
@@ -264,12 +271,8 @@ func ServeCmd(version string) *cobra.Command {
 				}()
 				<-rootCtx.Done()
 				log.Info(logger.CatApp, "shutdown signal received")
-				if qqGateway != nil {
-					qqGateway.Close()
-				}
-				if qqQueue != nil {
-					qqQueue.Stop()
-				}
+				// Shutdown all QQ Bot gateways
+				qqBotManager.Shutdown()
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				_ = srv.Shutdown(shutdownCtx)

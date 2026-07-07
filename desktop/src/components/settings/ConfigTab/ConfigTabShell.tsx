@@ -14,8 +14,8 @@ import {
   updateDefaultModels,
   getToolsConfig,
   updateToolsConfig,
-  getQQBotConfig,
-  updateQQBotConfig,
+  getQQBotsConfig,
+  updateQQBotsConfig,
   getLSPMCPConfig,
   updateLSPMCPConfig,
   getEmbeddingConfig,
@@ -81,7 +81,7 @@ export function ConfigTabShell() {
 
   // DB sub-tabs config state
   const [toolsConfig, setToolsConfig] = useState<ToolsConfig | null>(null)
-  const [qqbotConfig, setQqbotConfig] = useState<QQBotConfig | null>(null)
+  const [qqbotsConfig, setQqbotsConfig] = useState<QQBotConfig[]>([])
   const [lspmcpConfig, setLspmcpConfig] = useState<LSPMCPConfig | null>(null)
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | null>(null)
   const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(null)
@@ -100,7 +100,7 @@ export function ConfigTabShell() {
         dbModels,
         dbDefaults,
         dbTools,
-        dbQqbot,
+        dbQqbots,
         dbLspmcp,
         dbEmbedding,
         dbSession,
@@ -110,7 +110,7 @@ export function ConfigTabShell() {
         listModels(),
         getDefaultModels(),
         getToolsConfig(),
-        getQQBotConfig(),
+        getQQBotsConfig(),
         getLSPMCPConfig(),
         getEmbeddingConfig(),
         getSessionConfig(),
@@ -123,7 +123,7 @@ export function ConfigTabShell() {
         dbDefaults || { expert: '', superior: '', universal: '', fast: '', fallback: '' }
       )
       setToolsConfig(dbTools)
-      setQqbotConfig(dbQqbot)
+      setQqbotsConfig(dbQqbots || [])
       setLspmcpConfig(dbLspmcp)
       setEmbeddingConfig(dbEmbedding)
       setSessionConfig(dbSession)
@@ -158,11 +158,11 @@ export function ConfigTabShell() {
     }
   }
 
-  const handleSaveQQBot = async () => {
-    if (!qqbotConfig) return
+  const handleSaveQQBots = async () => {
+    if (!qqbotsConfig) return
     try {
-      await updateQQBotConfig(qqbotConfig)
-      toast.success('QQ Bot configuration updated successfully!')
+      await updateQQBotsConfig(qqbotsConfig)
+      toast.success('QQ Bots configuration updated successfully!')
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -474,11 +474,11 @@ export function ConfigTabShell() {
           />
         )}
 
-        {subTab === 'qqbot' && qqbotConfig && (
+        {subTab === 'qqbot' && qqbotsConfig && (
           <QQBotSection
-            config={qqbotConfig}
-            onChange={setQqbotConfig}
-            onSave={handleSaveQQBot}
+            config={qqbotsConfig}
+            onChange={setQqbotsConfig}
+            onSave={handleSaveQQBots}
           />
         )}
 

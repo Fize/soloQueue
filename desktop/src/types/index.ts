@@ -610,11 +610,17 @@ export interface DefaultModelsConfig {
 }
 
 export interface QQBotConfig {
+  id?: string;
+  name?: string;
   enabled: boolean;
   appId: string;
   appSecret: string;
   intents: number;
   sandbox: boolean;
+  bind_type?: string;
+  bind_agent?: string;
+  whitelist_enabled?: boolean;
+  whitelist?: string[];
 }
 
 export interface L1AgentSettings {
@@ -642,7 +648,7 @@ export interface AppConfig {
   models: LLMModel[];
   embedding: EmbeddingConfig;
   defaultModels: DefaultModelsConfig;
-  qqbot: QQBotConfig;
+  qqbots: QQBotConfig[];
   agent: L1AgentSettings;
   lspmcp: LSPMCPConfig;
   simulation: SimulationConfig;

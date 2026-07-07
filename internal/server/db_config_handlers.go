@@ -330,27 +330,27 @@ func (m *Mux) handleUpdateToolsConfig(w http.ResponseWriter, r *http.Request) {
 // ─── QQ Bot Config ───────────────────────────────────────────────────────────
 
 // GET /api/config/qqbot
-func (m *Mux) handleGetQQBotConfig(w http.ResponseWriter, r *http.Request) {
+func (m *Mux) handleGetQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil || m.configSvc.GetDB() == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
 		return
 	}
 	settings := m.configSvc.Get()
-	m.writeJSON(w, http.StatusOK, settings.QQBot)
+	m.writeJSON(w, http.StatusOK, settings.QQBots)
 }
 
 // PUT /api/config/qqbot
-func (m *Mux) handleUpdateQQBotConfig(w http.ResponseWriter, r *http.Request) {
+func (m *Mux) handleUpdateQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil || m.configSvc.GetDB() == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
 		return
 	}
-	var cfg config.QQBotConfig
+	var cfg []config.QQBotConfig
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "qqbot", cfg); err != nil {
+	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "qqbots", cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}

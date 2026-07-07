@@ -103,11 +103,13 @@ var ErrTaskCancelled = errors.New("task cancelled")
 // No additional guard is needed here — during async delegation the session
 // correctly releases inFlight, allowing new messages to interleave.
 type SessionBridge struct {
-	sess    SessionProvider
-	api     *APIClient
-	log     *logger.Logger
-	version string
-	queue   *MessageQueue
+	sess             SessionProvider
+	api              *APIClient
+	log              *logger.Logger
+	version          string
+	queue            *MessageQueue
+	whitelistEnabled bool
+	whitelist        map[string]bool
 }
 
 // SessionBridgeOption configures a SessionBridge.
@@ -116,6 +118,17 @@ type SessionBridgeOption func(*SessionBridge)
 // WithVersion sets the version string for /version slash command replies.
 func WithVersion(v string) SessionBridgeOption {
 	return func(b *SessionBridge) { b.version = v }
+}
+
+// WithWhitelist configures the whitelist settings for the QQ bot.
+func WithWhitelist(enabled bool, list []string) SessionBridgeOption {
+	return func(b *SessionBridge) {
+		b.whitelistEnabled = enabled
+		b.whitelist = make(map[string]bool)
+		for _, id := range list {
+			b.whitelist[id] = true
+		}
+	}
 }
 
 // WithMessageQueue sets the rate-limiting message queue for active messages.
@@ -140,6 +153,19 @@ func NewSessionBridge(sess SessionProvider, api *APIClient, log *logger.Logger, 
 
 // OnQQMessage implements EventHandler. Called by the Gateway when a QQ message arrives.
 func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
+	// 1. Intercept /myid or /openid query commands locally
+	trimmed := strings.ToLower(strings.TrimSpace(msg.Content))
+	if trimmed == "/myid" || trimmed == "/openid" {
+		b.sendReply(ctx, msg, MsgTypeText, fmt.Sprintf("您的 OpenID 是：\n%s", msg.OpenID))
+		return
+	}
+
+	// 2. Check whitelist if enabled
+	if b.whitelistEnabled && !b.whitelist[msg.OpenID] {
+		b.log.InfoContext(ctx, logger.CatApp, "qqbot message ignored: user not in whitelist", "open_id", msg.OpenID)
+		return
+	}
+
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot message received",
 		"source", msg.Source,
 		"content_len", len(msg.Content),

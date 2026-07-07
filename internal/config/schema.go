@@ -60,7 +60,7 @@ type Settings struct {
 	Models        []LLMModel          `json:"models" toml:"-"`
 	Embedding     EmbeddingConfig     `json:"embedding" toml:"-"`
 	DefaultModels DefaultModelsConfig `json:"defaultModels" toml:"-"`
-	QQBot         QQBotConfig         `json:"qqbot" toml:"-"`
+	QQBots        []QQBotConfig       `json:"qqbots" toml:"-"`
 	Agent         AgentConfig         `json:"agent" toml:"agent,omitempty"`
 	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"-"`
 	Simulation    SimulationConfig    `json:"simulation" toml:"-"`
@@ -70,11 +70,17 @@ type Settings struct {
 
 // QQBotConfig is the configuration for QQ Bot WebSocket Gateway integration.
 type QQBotConfig struct {
-	Enabled   bool   `json:"enabled"   toml:"enabled,omitempty"`
-	AppID     string `json:"appId"     toml:"app_id,omitempty"`
-	AppSecret string `json:"appSecret" toml:"app_secret,omitempty"`
-	Intents   int    `json:"intents,omitempty"   toml:"intents,omitempty"`
-	Sandbox   bool   `json:"sandbox,omitempty"   toml:"sandbox,omitempty"`
+	ID               string   `json:"id"        toml:"id,omitempty"`
+	Name             string   `json:"name"      toml:"name,omitempty"`
+	Enabled          bool     `json:"enabled"   toml:"enabled,omitempty"`
+	AppID            string   `json:"appId"     toml:"app_id,omitempty"`
+	AppSecret        string   `json:"appSecret" toml:"app_secret,omitempty"`
+	Intents          int      `json:"intents,omitempty"   toml:"intents,omitempty"`
+	Sandbox          bool     `json:"sandbox,omitempty"   toml:"sandbox,omitempty"`
+	BindType         string   `json:"bind_type"  toml:"bind_type,omitempty"` // "l1" or "l2"
+	BindAgent        string   `json:"bind_agent" toml:"bind_agent,omitempty"` // Agent Template ID (for l2)
+	WhitelistEnabled bool     `json:"whitelist_enabled" toml:"whitelist_enabled,omitempty"`
+	Whitelist        []string `json:"whitelist" toml:"whitelist,omitempty"`
 }
 
 // ToQQBotConfig converts config.QQBotConfig to qqbot.Config.

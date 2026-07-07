@@ -45,7 +45,7 @@ func (s *GlobalService) Get() Settings {
 		fileSettings.Models = s.dbSettings.Models
 		fileSettings.DefaultModels = s.dbSettings.DefaultModels
 		fileSettings.Tools = s.dbSettings.Tools
-		fileSettings.QQBot = s.dbSettings.QQBot
+		fileSettings.QQBots = s.dbSettings.QQBots
 		fileSettings.LSPMCP = s.dbSettings.LSPMCP
 		fileSettings.Embedding = s.dbSettings.Embedding
 		fileSettings.Session = s.dbSettings.Session
@@ -142,9 +142,19 @@ func (s *GlobalService) seedDatabaseIfNeeded() error {
 			return fmt.Errorf("seed tools: %w", err)
 		}
 	}
-	if !hasSetting("qqbot") {
-		if err := SaveSystemSetting(ctx, db, "qqbot", defaultSettings.QQBot); err != nil {
-			return fmt.Errorf("seed qqbot: %w", err)
+	if !hasSetting("qqbots") {
+		// Migrate legacy "qqbot" to "qqbots" if it exists, otherwise seed default
+		if hasSetting("qqbot") {
+			var legacyQQBot QQBotConfig
+			if ok, err := LoadSystemSetting(ctx, db, "qqbot", &legacyQQBot); err == nil && ok {
+				legacyQQBot.ID = "default"
+				_ = SaveSystemSetting(ctx, db, "qqbots", []QQBotConfig{legacyQQBot})
+				_, _ = db.ExecContext(ctx, `DELETE FROM system_settings WHERE key = 'qqbot'`)
+			}
+		} else {
+			if err := SaveSystemSetting(ctx, db, "qqbots", defaultSettings.QQBots); err != nil {
+				return fmt.Errorf("seed qqbots: %w", err)
+			}
 		}
 	}
 	if !hasSetting("lspmcp") {
@@ -208,11 +218,18 @@ func (s *GlobalService) ReloadFromDB() error {
 		tools = DefaultSettings().Tools
 	}
 
-	var qqbot QQBotConfig
-	if ok, err := LoadSystemSetting(ctx, db, "qqbot", &qqbot); err != nil {
+	var qqbots []QQBotConfig
+	if ok, err := LoadSystemSetting(ctx, db, "qqbots", &qqbots); err != nil {
 		return err
 	} else if !ok {
-		qqbot = DefaultSettings().QQBot
+		// Fallback for migration if seed didn't run
+		var legacyQQBot QQBotConfig
+		if ok2, _ := LoadSystemSetting(ctx, db, "qqbot", &legacyQQBot); ok2 {
+			legacyQQBot.ID = "default"
+			qqbots = []QQBotConfig{legacyQQBot}
+		} else {
+			qqbots = DefaultSettings().QQBots
+		}
 	}
 
 	var lspmcp LSPMCPConfig
@@ -251,7 +268,7 @@ func (s *GlobalService) ReloadFromDB() error {
 	s.dbSettings.Models = models
 	s.dbSettings.DefaultModels = defaultModels
 	s.dbSettings.Tools = tools
-	s.dbSettings.QQBot = qqbot
+	s.dbSettings.QQBots = qqbots
 	s.dbSettings.LSPMCP = lspmcp
 	s.dbSettings.Embedding = embedding
 	s.dbSettings.Session = session
@@ -274,7 +291,7 @@ func (s *GlobalService) LoadFromDisk() (Settings, error) {
 		settings.Models = s.dbSettings.Models
 		settings.DefaultModels = s.dbSettings.DefaultModels
 		settings.Tools = s.dbSettings.Tools
-		settings.QQBot = s.dbSettings.QQBot
+		settings.QQBots = s.dbSettings.QQBots
 		settings.LSPMCP = s.dbSettings.LSPMCP
 		settings.Embedding = s.dbSettings.Embedding
 		settings.Session = s.dbSettings.Session

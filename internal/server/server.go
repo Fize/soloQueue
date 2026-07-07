@@ -418,9 +418,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Put("/", m.handleUpdateToolsConfig)
 		})
 
-		r.Route("/qqbot", func(r chi.Router) {
-			r.Get("/", m.handleGetQQBotConfig)
-			r.Put("/", m.handleUpdateQQBotConfig)
+		r.Route("/qqbots", func(r chi.Router) {
+			r.Get("/", m.handleGetQQBotsConfig)
+			r.Put("/", m.handleUpdateQQBotsConfig)
 		})
 
 		r.Route("/lspmcp", func(r chi.Router) {
