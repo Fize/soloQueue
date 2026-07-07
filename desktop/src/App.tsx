@@ -54,6 +54,13 @@ function App() {
     if (sidebarCollapsed) setIsHovered(true)
   }, [sidebarCollapsed])
 
+  const handleSidebarHoverEnter = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current)
+      hoverTimeoutRef.current = null
+    }
+  }, [])
+
   const handleHoverLeave = useCallback(() => {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
     hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), 200)
@@ -133,15 +140,9 @@ function App() {
                 ? 'w-0 border-transparent bg-transparent'
                 : 'w-[220px] border-border/40 bg-card/40 backdrop-blur-md overflow-hidden'
             )}
-            onMouseEnter={handleHoverEnter}
+            onMouseEnter={handleSidebarHoverEnter}
             onMouseLeave={handleHoverLeave}
           >
-            {sidebarCollapsed && (
-              <div
-                className="absolute left-0 top-0 bottom-0 w-3 z-30"
-                onMouseEnter={handleHoverEnter}
-              />
-            )}
             <Sidebar narrow={effectivelyCollapsed} floating={floating} />
           </div>
 
