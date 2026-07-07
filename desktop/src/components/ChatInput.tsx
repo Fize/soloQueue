@@ -794,13 +794,13 @@ export function ChatInput({
               ))}
 
               {selectedTarget && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/5 text-primary text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-200">
-                  <span className="font-semibold select-none">🌐 Selected DOM:</span>
-                  <code className="bg-primary/10 px-1 py-0.5 rounded text-[10px] font-mono max-w-[180px] truncate" title={selectedTarget.selector}>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/5 text-primary text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-200 max-w-full min-w-0">
+                  <span className="font-semibold select-none flex-shrink-0">🌐 Selected DOM:</span>
+                  <code className="bg-primary/10 px-1 py-0.5 rounded text-[10px] font-mono max-w-[180px] min-w-0 truncate" title={selectedTarget.selector}>
                     {selectedTarget.selector}
                   </code>
                   {selectedTarget.text && (
-                    <span className="text-muted-foreground truncate max-w-[120px]" title={selectedTarget.text}>
+                    <span className="text-muted-foreground truncate max-w-[120px] min-w-0" title={selectedTarget.text}>
                       ("{selectedTarget.text}")
                     </span>
                   )}
@@ -809,7 +809,7 @@ export function ChatInput({
                       e.preventDefault();
                       onClearSelectedTarget?.();
                     }}
-                    className="p-0.5 hover:bg-primary/15 rounded-full text-primary transition-colors cursor-pointer"
+                    className="p-0.5 hover:bg-primary/15 rounded-full text-primary transition-colors cursor-pointer flex-shrink-0"
                     title="Deselect element"
                   >
                     <X className="h-2.5 w-2.5" />

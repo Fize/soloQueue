@@ -256,6 +256,28 @@ func WithAgentWorkDir(dir string) Option {
 	}
 }
 
+// WithConfirmStore overrides the default memory confirm store with a shared store.
+func WithConfirmStore(store SessionConfirmStore) Option {
+	return func(a *Agent) {
+		if store != nil {
+			a.confirmStore = store
+		}
+	}
+}
+
+// ConfirmStore returns the agent's session confirm store.
+func (a *Agent) ConfirmStore() SessionConfirmStore {
+	return a.confirmStore
+}
+
+// SetConfirmStore overrides the agent's confirm store.
+func (a *Agent) SetConfirmStore(store SessionConfirmStore) {
+	if store != nil {
+		a.confirmStore = store
+	}
+}
+
+
 // SetDelegateSpawnFn replaces the SpawnFn on the DelegateTool with the given
 // leaderID. This is used after Supervisor creation to wire L2→L3 delegation
 // through the Supervisor so spawned L3 children are tracked.

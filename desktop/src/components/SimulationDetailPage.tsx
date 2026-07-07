@@ -148,15 +148,19 @@ export function SimulationDetailPage() {
   }, [])
 
   useEffect(() => {
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
     const handleMouseMove = (e: MouseEvent) => {
+      if (e.buttons === 0) {
+        handleMouseUp()
+        return
+      }
       if (!isResizing) return
       const newWidth = window.innerWidth - e.clientX
       if (newWidth >= 320 && newWidth <= 580) {
         setRightPanelWidth(newWidth)
       }
-    }
-    const handleMouseUp = () => {
-      setIsResizing(false)
     }
     if (isResizing) {
       window.addEventListener('mousemove', handleMouseMove)

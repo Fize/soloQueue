@@ -65,6 +65,7 @@ interface DesignPreviewProps {
   onStrokesChange?: (strokes: ColoredStroke[]) => void;
   strokes?: ColoredStroke[];
   currentColor?: string;
+  onResizeStart?: (e: React.MouseEvent) => void;
 }
 
 export function DesignPreview({
@@ -75,6 +76,7 @@ export function DesignPreview({
   onStrokesChange,
   strokes = [],
   currentColor = 'hsl(var(--destructive))',
+  onResizeStart,
 }: DesignPreviewProps) {
   const [hoveredTarget, setHoveredTarget] = useState<PreviewCommentSnapshot | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null);
@@ -160,7 +162,16 @@ export function DesignPreview({
       if (!win) return;
       if (action === 'back') win.history.back();
       else if (action === 'forward') win.history.forward();
-      else if (action === 'reload') win.location.reload();
+      else if (action === 'reload') {
+        const iframe = iframeRef.current;
+        if (iframe) {
+          const current = iframe.srcdoc;
+          iframe.srcdoc = '';
+          requestAnimationFrame(() => {
+            if (iframe) iframe.srcdoc = current;
+          });
+        }
+      }
     } catch {
       // sandboxed iframe may block navigation
     }
@@ -169,10 +180,17 @@ export function DesignPreview({
   return (
     <div className="relative w-full h-full flex flex-col bg-background">
       {/* ── Browser-style menu bar ─────────────────────────────────────────── */}
-      <div className="h-9 flex items-center gap-1 px-2 border-b border-border/30 bg-muted/20 shrink-0 select-none">
+      <div 
+        onMouseDown={onResizeStart}
+        className={cn(
+          "h-9 flex items-center gap-1 px-2 border-b border-border/30 bg-muted/20 shrink-0 select-none",
+          onResizeStart && "cursor-col-resize active:cursor-col-resize"
+        )}
+      >
         {/* Browser nav cluster */}
         <button
           onClick={() => navigate('back')}
+          onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           title="Back"
         >
@@ -180,6 +198,7 @@ export function DesignPreview({
         </button>
         <button
           onClick={() => navigate('forward')}
+          onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           title="Forward"
         >
@@ -188,6 +207,7 @@ export function DesignPreview({
         <div className="w-px h-4 bg-border/40 mx-0.5" />
         <button
           onClick={() => navigate('reload')}
+          onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           title="Reload"
         >
@@ -202,6 +222,7 @@ export function DesignPreview({
               requestAnimationFrame(() => { iframe.srcdoc = current; });
             }
           }}
+          onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           title="Home (Reset to original)"
         >
@@ -210,9 +231,10 @@ export function DesignPreview({
 
         {/* Divider + Device selector */}
         <div className="w-px h-4 bg-border/40 mx-1" />
-        <div className="relative shrink-0" ref={deviceDropdownRef}>
+        <div className="relative shrink-0" ref={deviceDropdownRef} onMouseDown={(e) => e.stopPropagation()}>
           <button
             onClick={(e) => { e.stopPropagation(); setShowDeviceDropdown(!showDeviceDropdown); }}
+            onMouseDown={(e) => e.stopPropagation()}
             className={cn(
               "flex items-center gap-1 px-2 h-7 rounded text-xs font-medium transition-colors cursor-pointer",
               showDeviceDropdown
@@ -294,6 +316,7 @@ export function DesignPreview({
         {selectedDevice && (
           <button
             onClick={() => setSelectedDevice(null)}
+            onMouseDown={(e) => e.stopPropagation()}
             className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             title="Reset to responsive"
           >

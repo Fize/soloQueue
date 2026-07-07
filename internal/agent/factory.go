@@ -256,6 +256,7 @@ func (f *DefaultFactory) Log() *logger.Logger {
 // workDir is the project working directory for this agent.
 // If empty, the factory's global workDir (~/.soloqueue) is used.
 func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error) {
+	var a *Agent
 	// Snapshot hot-reloadable fields under read lock for a consistent agent creation.
 	f.mu.RLock()
 	llm := f.llm
@@ -575,6 +576,9 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 					WithParallelTools(true),
 					WithAgentWorkDir(effectiveWorkDir),
 				)
+				if a != nil {
+					child.SetConfirmStore(a.ConfirmStore())
+				}
 				if err := child.Start(ctx); err != nil {
 					return nil, nil, fmt.Errorf("start fork agent: %w", err)
 				}
@@ -627,7 +631,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	}
 
 	// 5. Create Agent
-	a := NewAgent(def, llm, f.log, opts...)
+	a = NewAgent(def, llm, f.log, opts...)
 
 	// 7. Create ContextWindow
 	//   Use the context window size from the model config; fallback to DefaultContextWindow if not configured

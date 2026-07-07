@@ -333,7 +333,15 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!isResizing) return;
+    const handleMouseUp = () => {
+      resizeDragRef.current = null;
+      setIsResizing(false);
+    };
     const handleMouseMove = (e: MouseEvent) => {
+      if (e.buttons === 0) {
+        handleMouseUp();
+        return;
+      }
       if (!splitContainerRef.current) return;
       const rect = splitContainerRef.current.getBoundingClientRect();
       const drag = resizeDragRef.current;
@@ -362,10 +370,6 @@ export function ChatPage() {
       if (clamped !== newWidth) {
         resizeDragRef.current = { startX: e.clientX, startPanelWidth: clamped };
       }
-    };
-    const handleMouseUp = () => {
-      resizeDragRef.current = null;
-      setIsResizing(false);
     };
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
@@ -1474,6 +1478,7 @@ export function ChatPage() {
                             onSelectTarget={(t) => {
                               setSelectedTarget(t);
                             }}
+                            onResizeStart={handleResizeStart}
                           />
                         ) : (
                           <div className="relative w-full h-full bg-[#fafafa] dark:bg-[#0b0c0e] overflow-hidden flex items-center justify-center select-none">

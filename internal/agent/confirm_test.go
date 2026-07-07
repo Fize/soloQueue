@@ -657,3 +657,27 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 	}
 }
 
+func TestAgent_SharedConfirmStore(t *testing.T) {
+	store := NewMemoryConfirmStore()
+
+	a1 := NewAgent(Definition{ID: "agent-1"}, nil, nil, WithConfirmStore(store))
+	a2 := NewAgent(Definition{ID: "agent-2"}, nil, nil, WithConfirmStore(store))
+
+	if a1.ConfirmStore() != store || a2.ConfirmStore() != store {
+		t.Error("expected both agents to share the provided confirm store")
+	}
+
+	if a1.confirmStore.IsConfirmed("Bash") || a2.confirmStore.IsConfirmed("Bash") {
+		t.Error("expected Bash not to be confirmed initially")
+	}
+
+	// Confirm Bash on a1
+	a1.confirmStore.Confirm("Bash")
+
+	// Check if a2 also sees it as confirmed
+	if !a2.confirmStore.IsConfirmed("Bash") {
+		t.Error("expected Bash to be confirmed on a2 after confirming on a1")
+	}
+}
+
+

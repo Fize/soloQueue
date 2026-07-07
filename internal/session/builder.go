@@ -45,6 +45,7 @@ func NewBuilder(rt *runtime.Stack, workDir string, cfg *config.GlobalService, co
 // Build creates a new session with its own agent, context window, and
 // timeline writer. Implements AgentFactory signature.
 func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+	var a *agent.Agent
 	// L1 orchestrator uses a fixed agent ID so timeline replays are deterministic
 	// across restarts and never mix with old sessions.
 	agentID := "l1-agent"
@@ -243,6 +244,9 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				agent.WithTools(forkTools...),
 				agent.WithParallelTools(true),
 			)
+			if a != nil {
+				child.SetConfirmStore(a.ConfirmStore())
+			}
 			if err := child.Start(ctx); err != nil {
 				return nil, nil, fmt.Errorf("start fork agent: %w", err)
 			}
@@ -336,7 +340,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}
 	}
 
-	a := agent.NewAgent(def, llmClient, sessLog,
+	a = agent.NewAgent(def, llmClient, sessLog,
 		agent.WithTools(allTools...),
 		agent.WithSkills(skillList...),
 		agent.WithParallelTools(true),

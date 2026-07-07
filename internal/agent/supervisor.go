@@ -71,6 +71,9 @@ func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate, workDir
 		return nil, fmt.Errorf("supervisor: spawn child %q: %w", tmpl.ID, err)
 	}
 
+	// Share/inherit parent's confirmStore
+	child.SetConfirmStore(s.agent.ConfirmStore())
+
 	slot := &childSlot{
 		agent:     child,
 		cw:        cw,
