@@ -926,7 +926,7 @@ function ToolConfirmSegment({
 
   return (
     <div
-      className={`p-4 rounded-xl border flex flex-col gap-3 text-xs leading-relaxed max-w-md my-2 ${
+      className={`p-4 rounded-xl border flex flex-col gap-3 text-xs leading-relaxed w-full max-w-md my-2 ${
         isUser
           ? 'border-primary-foreground/15 bg-primary-foreground/5 text-primary-foreground'
           : 'border-amber-500/25 bg-amber-500/5 text-foreground'
@@ -944,7 +944,7 @@ function ToolConfirmSegment({
 
       {/* Prompt / Message */}
       <div
-        className={`p-3 rounded-lg font-mono text-[11px] whitespace-pre-wrap ${
+        className={`p-3 rounded-lg font-mono text-[11px] whitespace-pre-wrap break-words ${
           isUser ? 'bg-primary-foreground/10' : 'bg-muted/40'
         }`}
       >

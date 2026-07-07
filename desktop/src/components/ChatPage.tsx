@@ -220,14 +220,16 @@ export function ChatPage() {
       // Auto-save blank sketch: create a new .sketch file on first stroke
       hasAutoSavedSketch.current = true;
       let designDir = activeSession?.design_dir;
-      if (!designDir && activeSession) {
-        if (activeSession.project_path) {
-          designDir = `${activeSession.project_path}/.soloqueue/design`;
-        } else if (activeSession.group) {
+      if (!designDir) {
+        const projectPath = activeSession?.project_path || selectedProjectPath;
+        const group = activeSession?.group || selectedGroup;
+        if (projectPath) {
+          designDir = `${projectPath}/.soloqueue/design`;
+        } else if (group) {
           try {
             const health = await getHealthInfo();
             if (health.work_dir) {
-              designDir = `${health.work_dir}/workspace/${activeSession.group}/design`;
+              designDir = `${health.work_dir}/workspace/${group}/design`;
             }
           } catch {}
         }
@@ -254,13 +256,15 @@ export function ChatPage() {
     let designDir = activeSession?.design_dir;
     
     // Fallback logic for designDir
-    if (!designDir && activeSession) {
-      if (activeSession.project_path) {
-        designDir = `${activeSession.project_path}/.soloqueue/design`;
-      } else if (activeSession.group) {
+    if (!designDir) {
+      const projectPath = activeSession?.project_path || selectedProjectPath;
+      const group = activeSession?.group || selectedGroup;
+      if (projectPath) {
+        designDir = `${projectPath}/.soloqueue/design`;
+      } else if (group) {
         const health = await getHealthInfo();
         if (health.work_dir) {
-          designDir = `${health.work_dir}/workspace/${activeSession.group}/design`;
+          designDir = `${health.work_dir}/workspace/${group}/design`;
         }
       }
     }
@@ -292,7 +296,7 @@ export function ChatPage() {
   const [isResizing, setIsResizing] = useState(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const resizeDragRef = useRef<{ startX: number; startPanelWidth: number } | null>(null);
-  const designDefaultAppliedRef = useRef<string | null>(null);
+  const hasManuallyResized = useRef(false);
   const isDesignModeRef = useRef(isDesignMode);
   useEffect(() => { isDesignModeRef.current = isDesignMode; }, [isDesignMode]);
 
@@ -305,6 +309,12 @@ export function ChatPage() {
   useEffect(() => {
     const wasDesignMode = prevIsDesignModeRef.current;
     prevIsDesignModeRef.current = isDesignMode;
+    
+    // When entering design mode, reset the manual resize flag
+    if (!wasDesignMode && isDesignMode) {
+      hasManuallyResized.current = false;
+    }
+    
     // Only act on the transition from design → normal (not on initial mount
     // or normal → design, so we don't interfere with design mode setup).
     if (wasDesignMode && !isDesignMode) {
@@ -326,6 +336,11 @@ export function ChatPage() {
       const rect = splitContainerRef.current.getBoundingClientRect();
       const drag = resizeDragRef.current;
       if (!drag) return;
+
+      if (isDesignModeRef.current) {
+        hasManuallyResized.current = true;
+      }
+
       const newWidth = drag.startPanelWidth - (e.clientX - drag.startX);
       let clamped: number;
       if (isDesignModeRef.current) {
@@ -362,7 +377,7 @@ export function ChatPage() {
   const [containerWidth, setContainerWidth] = useState(0);
   useEffect(() => {
     const el = splitContainerRef.current;
-    if (!activeSessionId || !el) {
+    if (!el) {
       setContainerWidth(0);
       return;
     }
@@ -372,29 +387,35 @@ export function ChatPage() {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [activeSessionId]);
+  }, [activeSessionId, isDesignMode]);
 
-  // Design mode defaults to a larger right preview pane, and re-clamps after refresh/window recreation.
+  // Design mode defaults to a larger right preview pane, and automatically adjusts as the container resizes
+  // (e.g. when the sidebar collapses/expands) to keep the left chat width at its default,
+  // unless the user resizes it manually.
   useEffect(() => {
-    if (!isDesignMode || !activeSessionId || containerWidth <= 0) {
-      designDefaultAppliedRef.current = null;
+    if (!isDesignMode || containerWidth <= 0) {
       return;
     }
     const minRight = Math.floor(containerWidth * DESIGN_MIN_RIGHT_RATIO);
     const maxRight = Math.max(minRight, containerWidth - DESIGN_LEFT_MIN_WIDTH - RESIZE_HANDLE_WIDTH);
+    
+    if (hasManuallyResized.current) {
+      setPanelWidth((current) => {
+        const next = Math.max(minRight, Math.min(current, maxRight));
+        useRuntimeStore.getState().setInspectorPanelWidth(next);
+        return next;
+      });
+      return;
+    }
+
     const defaultLeft = containerWidth >= 768 ? DESIGN_DEFAULT_LEFT_WIDTH : DESIGN_DEFAULT_LEFT_WIDTH_SMALL;
     const targetWidth = Math.min(
       Math.max(containerWidth - defaultLeft - RESIZE_HANDLE_WIDTH, minRight),
       maxRight,
     );
-    const shouldApplyDefault = designDefaultAppliedRef.current !== activeSessionId;
-    setPanelWidth((current) => {
-      const next = shouldApplyDefault ? targetWidth : Math.max(minRight, Math.min(current, maxRight));
-      useRuntimeStore.getState().setInspectorPanelWidth(next);
-      return next;
-    });
-    designDefaultAppliedRef.current = activeSessionId;
-  }, [isDesignMode, activeSessionId, containerWidth]);
+    setPanelWidth(targetWidth);
+    useRuntimeStore.getState().setInspectorPanelWidth(targetWidth);
+  }, [isDesignMode, containerWidth]);
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([]);
@@ -495,10 +516,9 @@ export function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId]);
 
-  // Load design files listing — runs only when isDesignMode or activeSession changes.
-  // activeTab is intentionally omitted from deps to avoid re-running when tab switches.
+  // Load design files listing — runs only when isDesignMode, activeSession or selectedProjectPath changes.
   useEffect(() => {
-    if (!isDesignMode || !activeSession) {
+    if (!isDesignMode) {
       setDesignFiles([]);
       return;
     }
@@ -511,12 +531,14 @@ export function ChatPage() {
         
         // Fallback for older binaries or un-refreshed sessions
         if (!designDir) {
-          if (session!.project_path) {
-            designDir = `${session!.project_path}/.soloqueue/design`;
-          } else if (session!.group) {
+          const projectPath = activeSession?.project_path || selectedProjectPath;
+          const group = activeSession?.group || selectedGroup;
+          if (projectPath) {
+            designDir = `${projectPath}/.soloqueue/design`;
+          } else if (group) {
             const health = await getHealthInfo();
             if (health.work_dir) {
-              designDir = `${health.work_dir}/workspace/${session!.group}/design`;
+              designDir = `${health.work_dir}/workspace/${group}/design`;
             }
           }
         }
@@ -548,7 +570,7 @@ export function ChatPage() {
     }
     loadFiles();
     return () => { cancelled = true; };
-  }, [isDesignMode, activeSession]); // NOTE: activeTab is intentionally omitted
+  }, [isDesignMode, activeSession, selectedProjectPath, selectedGroup]); // NOTE: activeTab is intentionally omitted
 
   // Load HTML for design preview
   useEffect(() => {
@@ -612,7 +634,7 @@ export function ChatPage() {
   // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
   const MESSAGE_MAX_W = 768;
   const messageMaxWidth = useMemo(() => {
-    const panelVisible = (showInspector || isDesignMode) && activeSession;
+    const panelVisible = (showInspector && activeSession) || isDesignMode;
     const mainContentWidth =
       containerWidth - (panelVisible ? panelWidth + 4 : 0); // 4px = handle width
     if (mainContentWidth <= 0) return MESSAGE_MAX_W;
@@ -954,7 +976,7 @@ export function ChatPage() {
     skillNames: filteredSkillNames,
   };
 
-  if (!activeSessionId) {
+  if (!activeSessionId && !isDesignMode) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-background select-none h-full w-full">
         <div
@@ -1050,7 +1072,7 @@ export function ChatPage() {
           </div>
 
           {/* Right section: panel header area — aligned to inspector width */}
-          {showInspector && !isDesignMode && activeSession && (
+          {((showInspector && activeSession) || isDesignMode) && (
             <div
               className="shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3"
               style={{ width: panelWidth }}
@@ -1134,11 +1156,26 @@ export function ChatPage() {
                     style={{ maxWidth: messageMaxWidth }}
                   >
                   {/* Centered Heading */}
-                  <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
-                    {isL1Session
-                      ? "What should we build with L1 Orchestrator?"
-                      : `What should we build in ${selectedProject?.name || "soloQueue"}?`}
-                  </h1>
+                  {!activeSessionId ? (
+                    <div className="text-center space-y-3">
+                      <div className="h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mx-auto mb-2 shadow-inner">
+                        <Bot className="h-8 w-8 animate-pulse" />
+                      </div>
+                      <h1 className="text-3xl font-extrabold tracking-tight text-foreground bg-gradient-to-r from-foreground to-foreground/75 bg-clip-text">
+                        Welcome to SoloQueue Workspace
+                      </h1>
+                      <p className="text-sm text-muted-foreground max-w-md mx-auto text-center font-normal">
+                        Select a team and project to start collaborative programming with
+                        a multi-agent system.
+                      </p>
+                    </div>
+                  ) : (
+                    <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
+                      {isL1Session
+                        ? "What should we build with L1 Orchestrator?"
+                        : `What should we build in ${selectedProject?.name || "soloQueue"}?`}
+                    </h1>
+                  )}
 
                   {/* Redesigned Input Card */}
                   <div className="w-full">
@@ -1216,7 +1253,7 @@ export function ChatPage() {
           </div>
 
           {/* Right Inspector panel or Design Preview */}
-          {(showInspector || isDesignMode) && activeSession && (
+          {((showInspector && activeSession) || isDesignMode) && (
             <>
               {/* Resize handle */}
               <div
@@ -1547,7 +1584,7 @@ export function ChatPage() {
                       </div>
                     </div>
                   ) : inspectorTab === "files" ? (
-                    activeSession.project_path ? (
+                    activeSession?.project_path ? (
                       <SessionFilePanel
                         projectPath={activeSession.project_path}
                         panelWidth={panelWidth}
@@ -1557,9 +1594,9 @@ export function ChatPage() {
                         Current session not associated with a project
                       </div>
                     )
-                  ) : (
+                  ) : activeSession ? (
                     <SessionChangesPanel sessionId={activeSession.id} />
-                  )}
+                  ) : null}
                 </div>
               </div>
             </>
