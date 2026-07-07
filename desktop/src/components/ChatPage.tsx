@@ -296,6 +296,23 @@ export function ChatPage() {
   const isDesignModeRef = useRef(isDesignMode);
   useEffect(() => { isDesignModeRef.current = isDesignMode; }, [isDesignMode]);
 
+  // Guard: when exiting design mode, ensure showInspector is false and
+  // inspectorPanelWidth is reset. This defensive reset handles any race
+  // condition (e.g. resize observer callbacks or stale event handlers)
+  // that might leave showInspector=true, which would erroneously display
+  // the Files/Changes panel after exiting design mode.
+  const prevIsDesignModeRef = useRef(isDesignMode);
+  useEffect(() => {
+    const wasDesignMode = prevIsDesignModeRef.current;
+    prevIsDesignModeRef.current = isDesignMode;
+    // Only act on the transition from design → normal (not on initial mount
+    // or normal → design, so we don't interfere with design mode setup).
+    if (wasDesignMode && !isDesignMode) {
+      setShowInspector(false);
+      useRuntimeStore.getState().setInspectorPanelWidth(0);
+    }
+  }, [isDesignMode]);
+
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     resizeDragRef.current = { startX: e.clientX, startPanelWidth: panelWidth };

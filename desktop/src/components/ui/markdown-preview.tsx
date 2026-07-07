@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -110,6 +111,7 @@ export function MarkdownPreview({ content, className, onToggleCheckbox, basePath
     <div className={cn('markdown-preview', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
         components={{
           img({ src, alt }) {
             if (!src) return null

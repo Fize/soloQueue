@@ -276,12 +276,13 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
       {/* Modal preview — only used when panel is too narrow for inline */}
       {!isInline && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-          <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0 overflow-hidden rounded-2xl">
+          <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0 overflow-hidden rounded-2xl" showCloseButton={false}>
             <DialogTitle className="sr-only">File Preview</DialogTitle>
             <div className="flex-1 min-h-0 overflow-hidden">
               <FileContentView
                 path={selectedPath}
                 onError={handleError}
+                onClose={() => setModalOpen(false)}
               />
             </div>
           </DialogContent>

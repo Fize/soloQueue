@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { getFileUrl, toggleFileCheckbox } from '@/lib/api'
-import { Loader2, FileIcon, Copy, Check, MousePointer2, Edit3 } from 'lucide-react'
+import { Loader2, FileIcon, Copy, Check, MousePointer2, Edit3, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -148,9 +148,10 @@ function getExt(path: string): string {
 interface FileContentViewProps {
   path: string | null
   onError?: (path: string) => void
+  onClose?: () => void
 }
 
-export function FileContentView({ path, onError }: FileContentViewProps) {
+export function FileContentView({ path, onError, onClose }: FileContentViewProps) {
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -311,20 +312,32 @@ export function FileContentView({ path, onError }: FileContentViewProps) {
             )}
           </div>
         )}
-        {isTextFile && content !== null && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleCopy}
-            title={copied ? 'Copied!' : 'Copy content'}
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-[var(--success)]" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        )}
+        <div className="flex items-center gap-0.5">
+          {isTextFile && content !== null && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCopy}
+              title={copied ? 'Copied!' : 'Copy raw content'}
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-[var(--success)]" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              title="Close"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
