@@ -303,16 +303,11 @@ export function DesignPreview({
       </div>
 
       {/* ── Canvas area with device frame ──────────────────────────────────── */}
-      <div className={cn(
-        "flex-1 min-h-0 overflow-auto flex items-center justify-center",
-        selectedDevice && "bg-muted/20 p-4"
-      )}>
+      <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center bg-muted/10 p-1.5">
         <div
           className={cn(
-            "relative shrink-0",
-            selectedDevice
-              ? "shadow-2xl ring-1 ring-border/20 rounded-lg overflow-hidden bg-background"
-              : "w-full h-full"
+            "relative shrink-0 overflow-hidden bg-background shadow-sm ring-1 ring-border/20 rounded",
+            selectedDevice ? "shadow-2xl ring-border/30 rounded-lg" : "w-full h-full"
           )}
           style={selectedDevice ? { width: selectedDevice.width, height: selectedDevice.height } : undefined}
         >

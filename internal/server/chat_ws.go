@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
@@ -74,6 +75,45 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			blocks = append(blocks, fmt.Sprintf("- %s: %s", f.Name, f.Path))
 		}
 		finalPrompt = fmt.Sprintf("%s\n\n[Uploaded files:\n%s\n]", msg.Prompt, strings.Join(blocks, "\n"))
+	}
+
+	if msg.DesignMode {
+		designDir := ""
+		if strings.HasPrefix(msg.SessionID, "l2:") {
+			id := strings.TrimPrefix(msg.SessionID, "l2:")
+			if h.mux.l2Store != nil {
+				if entry := h.mux.l2Store.GetEntry(id); entry != nil {
+					if entry.WorkDir != "" {
+						designDir = filepath.Join(filepath.Clean(expandTilde(entry.WorkDir)), ".soloqueue", "design")
+					} else {
+						designDir = filepath.Join(h.mux.workDir, "workspace", entry.Group, "design")
+					}
+				}
+			}
+		} else {
+			designDir = filepath.Join(h.mux.workDir, "design")
+		}
+
+		if msg.SelectedElement != nil && msg.SelectedElement.Selector != "" {
+			elementBlock := fmt.Sprintf("\n\n[SELECTED DOM ELEMENT:\n- Selector: `%s`\n- Content: `%s`\n- HTML Hint: `%s`\n- File: `%s`]",
+				msg.SelectedElement.Selector,
+				msg.SelectedElement.Text,
+				msg.SelectedElement.HTMLHint,
+				msg.SelectedElement.FilePath,
+			)
+			finalPrompt += elementBlock
+		}
+
+		if msg.HasDrawings && msg.ActiveDesignFile != "" {
+			filename := filepath.Base(msg.ActiveDesignFile)
+			drawingBlock := fmt.Sprintf("\n\n[USER DRAWINGS/ANNOTATIONS DETECTED: The user has drawn visual markings/annotations on the HTML preview for file `%s`. The drawing coordinates/strokes are saved directly in `<script id=\"sketch-data\" type=\"application/json\">` inside that HTML file. You MUST read this file and pay close attention to where the user circled, pointed, or highlighted to correctly address the request.]", filename)
+			finalPrompt += drawingBlock
+		}
+
+		if designDir != "" {
+			directive := fmt.Sprintf("\n\n[CRITICAL DIRECTIVE: Design preview mode is active. You MUST save any previewable HTML, CSS, JS, asset files, or drawings directly to the designated design directory: `%s`. Storing them in any other directory is a STRICT PROTOCOL VIOLATION and will break the user's real-time interface rendering. Ensure your files are generated or modified exactly in this location.]", designDir)
+			finalPrompt += directive
+		}
 	}
 
 	// Create a derived context from client ctx so disconnect cancels this request.

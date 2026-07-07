@@ -228,9 +228,33 @@ func (s *Session) History() []agent.LLMMessage {
 	return out
 }
 
+// StripDesignDirective removes the [CRITICAL DIRECTIVE: ...], [SELECTED DOM ELEMENT: ...] and [USER DRAWINGS/ANNOTATIONS DETECTED: ...] blocks from the end of a message if present.
+func StripDesignDirective(s string) string {
+	const directiveMarker = "\n\n[CRITICAL DIRECTIVE: Design preview mode is active."
+	idx := strings.Index(s, directiveMarker)
+	if idx >= 0 {
+		s = s[:idx]
+	}
+
+	const elementMarker = "\n\n[SELECTED DOM ELEMENT:"
+	idx2 := strings.Index(s, elementMarker)
+	if idx2 >= 0 {
+		s = s[:idx2]
+	}
+
+	const drawingsMarker = "\n\n[USER DRAWINGS/ANNOTATIONS DETECTED:"
+	idx3 := strings.Index(s, drawingsMarker)
+	if idx3 >= 0 {
+		s = s[:idx3]
+	}
+
+	return s
+}
+
 // StripRecalledMemories removes the <recalled_memories>...</recalled_memories>
 // block from the beginning of a message if present.
 func StripRecalledMemories(s string) string {
+	s = StripDesignDirective(s)
 	const startTag = "<recalled_memories>"
 	const endTag = "</recalled_memories>"
 	start := strings.Index(s, startTag)

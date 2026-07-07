@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/stores/chatStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 import { wsManager } from '@/lib/websocket'
 import type { ChatHandler } from '@/lib/websocket'
 
@@ -27,7 +28,14 @@ export function useChatStream() {
   } = useChatStore()
 
   const send = useCallback(
-    async (prompt: string, files?: { name: string; path: string }[], sessionIdOverride?: string) => {
+    async (
+      prompt: string,
+      files?: { name: string; path: string }[],
+      sessionIdOverride?: string,
+      selectedElement?: any,
+      activeDesignFile?: string,
+      hasDrawings?: boolean
+    ) => {
       const state = useChatStore.getState()
       const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
@@ -45,6 +53,7 @@ export function useChatStream() {
       // If already streaming on this session, just queue server-side.
       // The server's PendingQueue will inject it into the context window
       // on the next agent iteration. No new handler or assistant needed.
+      const isDesignMode = useRuntimeStore.getState().isDesignMode
       if (state.streaming && state.streamingSessionId === sid) {
         wsManager.send({
           type: 'chat_send',
@@ -52,6 +61,10 @@ export function useChatStream() {
           session_id: sid,
           prompt,
           files,
+          design_mode: isDesignMode,
+          selected_element: selectedElement,
+          active_design_file: activeDesignFile,
+          has_drawings: hasDrawings,
         })
         return
       }
@@ -154,6 +167,10 @@ export function useChatStream() {
         session_id: sid,
         prompt,
         files,
+        design_mode: isDesignMode,
+        selected_element: selectedElement,
+        active_design_file: activeDesignFile,
+        has_drawings: hasDrawings,
       })
     },
     [

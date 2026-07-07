@@ -463,6 +463,10 @@ export interface ClientChatSend {
   session_id: string;
   prompt: string;
   files?: { name: string; path: string }[];
+  design_mode?: boolean;
+  selected_element?: any;
+  active_design_file?: string;
+  has_drawings?: boolean;
 }
 
 export interface ClientChatCancel {

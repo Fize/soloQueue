@@ -42,15 +42,26 @@ type WSMessage struct {
 	NumTasks         int    `json:"num_tasks,omitempty"`
 }
 
-// ClientMessage is decoded from incoming WebSocket text frames.
 type ClientMessage struct {
-	Type      string       `json:"type"`
-	RequestID string       `json:"request_id,omitempty"`
-	SessionID string       `json:"session_id,omitempty"`
-	Prompt    string       `json:"prompt,omitempty"`
-	Files     []ClientFile `json:"files,omitempty"`
-	CallID    string       `json:"call_id,omitempty"`
-	Choice    string       `json:"choice,omitempty"`
+	Type             string           `json:"type"`
+	RequestID        string           `json:"request_id,omitempty"`
+	SessionID        string           `json:"session_id,omitempty"`
+	Prompt           string           `json:"prompt,omitempty"`
+	Files            []ClientFile     `json:"files,omitempty"`
+	CallID           string           `json:"call_id,omitempty"`
+	Choice           string           `json:"choice,omitempty"`
+	DesignMode       bool             `json:"design_mode,omitempty"`
+	SelectedElement  *SelectedElement `json:"selected_element,omitempty"`
+	ActiveDesignFile string           `json:"active_design_file,omitempty"`
+	HasDrawings      bool             `json:"has_drawings,omitempty"`
+}
+
+// SelectedElement represents a selected DOM element in Design Mode
+type SelectedElement struct {
+	FilePath string `json:"file_path,omitempty"`
+	Selector string `json:"selector,omitempty"`
+	Text     string `json:"text,omitempty"`
+	HTMLHint string `json:"html_hint,omitempty"`
 }
 
 // ClientFile references an uploaded file.

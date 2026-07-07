@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import type { AgentInfo, Project, AgentResponse, SkillInfo, FileInfo } from "@/types";
 import { SessionChangesPanel } from "@/components/SessionChangesPanel";
 import { SessionFilePanel } from "@/components/SessionFilePanel";
+import type { PreviewCommentSnapshot } from "@/types/annotation";
 import { 
   listL2Groups, listProjects, getTeams, getSkills, listAgents,
   listFiles, getFileUrl, getHealthInfo, saveFile
@@ -153,6 +154,7 @@ export function ChatPage() {
   }, [designMode]);
   const [currentColor, setCurrentColor] = useState<string>("#ef4444");
   const [strokes, setStrokes] = useState<ColoredStroke[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null);
 
   // Ref to read latest activeTab inside effects without adding it to deps
   const activeTabRef = useRef(activeTab);
@@ -556,9 +558,23 @@ export function ChatPage() {
         // After loading files, validate current activeTab via ref (latest value).
         // If the restored tab no longer exists in the new file list, fallback.
         const currentTab = activeTabRef.current;
-        const valid = currentTab === 'sketch' || filteredFiles.some(f => f.path === currentTab);
-        if (!valid) {
-          if (filteredFiles.length > 0) {
+        const projectPath = activeSession?.project_path || selectedProjectPath;
+        
+        let targetTab = currentTab;
+        if (projectPath && currentTab === 'sketch' && filteredFiles.length > 0) {
+          const firstHtml = filteredFiles.find(f => f.ext === '.html' || f.ext === '.htm');
+          if (firstHtml) {
+            targetTab = firstHtml.path;
+          } else {
+            targetTab = filteredFiles[0].path;
+          }
+        }
+
+        const valid = targetTab === 'sketch' || filteredFiles.some(f => f.path === targetTab);
+        if (!valid || targetTab !== currentTab) {
+          if (filteredFiles.some(f => f.path === targetTab)) {
+            setActiveTab(targetTab);
+          } else if (filteredFiles.length > 0) {
             setActiveTab(filteredFiles[0].path);
           } else {
             setActiveTab('sketch');
@@ -813,6 +829,7 @@ export function ChatPage() {
     files?: { name: string; path: string }[],
     group?: string,
     projectPath?: string,
+    selectedElement?: any,
   ) => {
     let targetSessionId = activeSessionId || undefined;
 
@@ -842,8 +859,13 @@ export function ChatPage() {
       }
     }
 
-    await send(text, files, targetSessionId);
+    const hasDrawings = !!(activeTab && activeTab !== 'sketch' && strokes.length > 0);
+    const activeDesignFile = activeTab && activeTab !== 'sketch' ? activeTab : undefined;
+
+    await send(text, files, targetSessionId, selectedElement, activeDesignFile, hasDrawings);
+    setSelectedTarget(null);
   };
+
 
   const contentSum = finalMessages.reduce((acc, msg) => {
     let sum = 0;
@@ -974,6 +996,8 @@ export function ChatPage() {
     onGroupChange: setSelectedGroup,
     onProjectChange: setSelectedProjectPath,
     skillNames: filteredSkillNames,
+    selectedTarget,
+    onClearSelectedTarget: () => setSelectedTarget(null),
   };
 
   if (!activeSessionId && !isDesignMode) {
@@ -1447,8 +1471,8 @@ export function ChatPage() {
                             strokes={strokes}
                             currentColor={currentColor}
                             onStrokesChange={(s) => handleStrokesChange(s)}
-                            onSelectTarget={() => {
-                              // Removed toast notification for selection
+                            onSelectTarget={(t) => {
+                              setSelectedTarget(t);
                             }}
                           />
                         ) : (

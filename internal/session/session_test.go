@@ -851,6 +851,26 @@ func TestStripRecalledMemories(t *testing.T) {
 			input:    "<recalled_memories>\n1. memory\n</recalled_memories>",
 			expected: "<recalled_memories>\n1. memory\n</recalled_memories>",
 		},
+		{
+			name:     "with design directive",
+			input:    "real message\n\n[CRITICAL DIRECTIVE: Design preview mode is active. You MUST save any previewable HTML, CSS, JS, asset files, or drawings directly to the designated design directory: `/Users/xiaobaitu/github.com/kumquat/.soloqueue/design`. Storing them in any other directory is a STRICT PROTOCOL VIOLATION and will break the user's real-time interface rendering. Ensure your files are generated or modified exactly in this location.]",
+			expected: "real message",
+		},
+		{
+			name:     "with both memories and design directive",
+			input:    "<recalled_memories>\n1. memory\n</recalled_memories>\n\nreal message\n\n[CRITICAL DIRECTIVE: Design preview mode is active. You MUST save any previewable HTML, CSS, JS, asset files, or drawings directly to the designated design directory: `/Users/xiaobaitu/github.com/kumquat/.soloqueue/design`. Storing them in any other directory is a STRICT PROTOCOL VIOLATION and will break the user's real-time interface rendering. Ensure your files are generated or modified exactly in this location.]",
+			expected: "real message",
+		},
+		{
+			name:     "with drawings block",
+			input:    "real message\n\n[USER DRAWINGS/ANNOTATIONS DETECTED: The user has drawn visual markings/annotations on the HTML preview for file `ui-spec.html`. The drawing coordinates/strokes are saved directly in `<script id=\"sketch-data\" type=\"application/json\">` inside that HTML file. You MUST read this file and pay close attention to where the user circled, pointed, or highlighted to correctly address the request.]",
+			expected: "real message",
+		},
+		{
+			name:     "with all annotations combined",
+			input:    "<recalled_memories>\n1. memory\n</recalled_memories>\n\nreal message\n\n[SELECTED DOM ELEMENT:\n- Selector: `button`]\n\n[USER DRAWINGS/ANNOTATIONS DETECTED: ...]\n\n[CRITICAL DIRECTIVE: ...]",
+			expected: "real message",
+		},
 	}
 
 	for _, tc := range tests {

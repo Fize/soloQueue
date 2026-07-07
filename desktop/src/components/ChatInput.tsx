@@ -52,7 +52,8 @@ export interface ChatInputProps {
     text: string, 
     files?: { name: string; path: string }[],
     group?: string,
-    projectPath?: string
+    projectPath?: string,
+    selectedElement?: any
   ) => void
   onCancel: () => void
   streaming: boolean
@@ -82,6 +83,10 @@ export interface ChatInputProps {
 
   // @ file completion: root directory (usually session project_path)
   atRootDir?: string
+
+  // Selected preview element
+  selectedTarget?: any
+  onClearSelectedTarget?: () => void
 }
 
 interface Attachment {
@@ -116,6 +121,8 @@ export function ChatInput({
   modelName,
   skillNames = [],
   atRootDir = '',
+  selectedTarget,
+  onClearSelectedTarget,
 }: ChatInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
@@ -558,11 +565,19 @@ export function ChatInput({
       text ||
       (uploadedFiles.length === 1 ? `Pasted image: ${uploadedFiles[0].name}` : 'Pasted images')
 
+    const selectedElement = selectedTarget ? {
+      file_path: selectedTarget.filePath,
+      selector: selectedTarget.selector,
+      text: selectedTarget.text,
+      html_hint: selectedTarget.htmlHint
+    } : undefined
+
     onSend(
       finalPrompt,
       uploadedFiles.length > 0 ? uploadedFiles : undefined,
       selectedGroup || undefined,
-      selectedProjectPath || undefined
+      selectedProjectPath || undefined,
+      selectedElement
     )
 
     if (inputRef.current) inputRef.current.value = ''
@@ -687,9 +702,9 @@ export function ChatInput({
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
       {/* Input card */}
       <div className="relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all focus-within:border-primary/30 shadow-sm focus-within:shadow-md">
-          {/* Thumbnails preview */}
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-xl">
+          {/* Thumbnails preview & Selected Element Badge */}
+          {(attachments.length > 0 || selectedTarget) && (
+            <div className="flex flex-wrap items-center gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-xl">
               {attachments.map((att) => (
                 <div
                   key={att.id}
@@ -777,6 +792,30 @@ export function ChatInput({
                   </button>
                 </div>
               ))}
+
+              {selectedTarget && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/5 text-primary text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-200">
+                  <span className="font-semibold select-none">🌐 Selected DOM:</span>
+                  <code className="bg-primary/10 px-1 py-0.5 rounded text-[10px] font-mono max-w-[180px] truncate" title={selectedTarget.selector}>
+                    {selectedTarget.selector}
+                  </code>
+                  {selectedTarget.text && (
+                    <span className="text-muted-foreground truncate max-w-[120px]" title={selectedTarget.text}>
+                      ("{selectedTarget.text}")
+                    </span>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onClearSelectedTarget?.();
+                    }}
+                    className="p-0.5 hover:bg-primary/15 rounded-full text-primary transition-colors cursor-pointer"
+                    title="Deselect element"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
