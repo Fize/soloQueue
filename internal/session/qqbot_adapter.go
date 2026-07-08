@@ -99,6 +99,34 @@ func (a *SessionAskAdapter) Clear(ctx context.Context) error {
 	return sess.Clear()
 }
 
+// Compact implements qqbot.SessionProvider.Compact.
+func (a *SessionAskAdapter) Compact(ctx context.Context) error {
+	sess := a.mgr.Session()
+	if sess == nil {
+		return errors.New("no active session")
+	}
+	err := sess.Compact(ctx)
+	if err != nil {
+		return err
+	}
+	// Reap orphaned super kids after compaction
+	if a.supervisorsFn != nil {
+		for _, sv := range a.supervisorsFn() {
+			for _, child := range sv.Children() {
+				if child.State() == agent.StateProcessing {
+					if reapErr := sv.ReapChild(child.InstanceID, 10*time.Second); reapErr != nil {
+						a.log.WarnContext(context.Background(), logger.CatApp, "compact: reap child failed",
+							"instance_id", child.InstanceID,
+							"err", reapErr.Error(),
+						)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // AskStream implements qqbot.SessionProvider.
 // It calls Session.AskStream, consumes the event stream, and returns
 // the final content and reasoning content.
@@ -409,6 +437,33 @@ func (a *L2QQBotAdapter) Clear(ctx context.Context) error {
 	return sess.Clear()
 }
 
+// Compact implements qqbot.SessionProvider.Compact.
+func (a *L2QQBotAdapter) Compact(ctx context.Context) error {
+	sess, err := a.getSession(ctx)
+	if err != nil {
+		return err
+	}
+	err = sess.Compact(ctx)
+	if err != nil {
+		return err
+	}
+	if a.supervisorsFn != nil {
+		for _, sv := range a.supervisorsFn() {
+			for _, child := range sv.Children() {
+				if child.State() == agent.StateProcessing {
+					if reapErr := sv.ReapChild(child.InstanceID, 10*time.Second); reapErr != nil {
+						a.log.WarnContext(context.Background(), logger.CatApp, "compact: reap child failed",
+							"instance_id", child.InstanceID,
+							"err", reapErr.Error(),
+						)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // AskStream implements qqbot.SessionProvider.
 func (a *L2QQBotAdapter) AskStream(ctx context.Context, prompt string, onIntermediate qqbot.OnIntermediateFunc) (*qqbot.AskStreamResult, error) {
 	sess, err := a.getSession(ctx)
@@ -581,6 +636,11 @@ func (a *ErrorQQBotAdapter) CancelCurrent(reason string) error {
 
 // Clear implements qqbot.SessionProvider.Clear.
 func (a *ErrorQQBotAdapter) Clear(ctx context.Context) error {
+	return nil
+}
+
+// Compact implements qqbot.SessionProvider.Compact.
+func (a *ErrorQQBotAdapter) Compact(ctx context.Context) error {
 	return nil
 }
 

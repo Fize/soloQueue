@@ -68,6 +68,10 @@ type SessionProvider interface {
 	// Clear clears the session context (conversation history).
 	Clear(ctx context.Context) error
 
+	// Compact compacts the context window by summarizing history.
+	// Unlike Clear, it does NOT save the current context to memory first.
+	Compact(ctx context.Context) error
+
 	// CancelCurrent cancels the currently executing AskStream task (if any).
 	// Also reaps orphaned supervisor children as a safety net.
 	// reason is a human-readable description (e.g., "user requested cancellation").
@@ -341,7 +345,7 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 
 	switch name {
 	case "/help", "/?":
-		text := "/help — View available commands\n/cancel — Cancel current task\n/clear — Clear conversation history\n/version — View version number"
+		text := "/help — View available commands\n/cancel — Cancel current task\n/clear — Clear dialogue history\n/compact — Compact context window (no memory save)\n/version — View version number"
 		b.sendReply(ctx, msg, MsgTypeText, text)
 		return true
 
@@ -361,6 +365,14 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 		}
 		return true
 
+	case "/compact":
+		if err := b.sess.Compact(ctx); err != nil {
+			b.sendReply(ctx, msg, MsgTypeText, "Compact failed: "+err.Error())
+		} else {
+			b.sendReply(ctx, msg, MsgTypeText, "Context window compacted (history summarized, no memory save)")
+		}
+		return true
+
 	case "/version":
 		v := b.version
 		if v == "" {
@@ -370,10 +382,6 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 		}
 		b.sendReply(ctx, msg, MsgTypeText, v)
 		return true
-
-	case "/quit", "/exit", "/q":
-		// QQ bot can't be quit via slash command; forward to LLM.
-		return false
 
 	default:
 		// Unknown slash command: forward to LLM as normal input.
