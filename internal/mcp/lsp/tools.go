@@ -45,7 +45,7 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 	var pos Position
 
 	if in.File != "" {
-		client, err = t.manager.clientForFile(in.File)
+		client, err = t.manager.clientForFile(ctx, in.File)
 		if err != nil {
 			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
 			return "", err
@@ -60,7 +60,7 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 			return "", fmt.Errorf("ensureOpen: %w", err)
 		}
 	} else {
-		client, err = t.manager.GetAnyClient()
+		client, err = t.manager.GetAnyClient(ctx)
 		if err != nil {
 			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 			return "", err

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -30,6 +31,21 @@ type Manager struct {
 type docInfo struct {
 	uri     string
 	version int
+	client  *Client
+}
+
+func clientKey(serverID, rootURI string) string {
+	return serverID + "@" + rootURI
+}
+
+func (m *Manager) resolveRootPath(ctx context.Context, filePath string) string {
+	if workDir := iface.WorkDirFromContext(ctx); workDir != "" {
+		return workDir
+	}
+	if filePath != "" {
+		return filepath.Dir(filePath)
+	}
+	return uriToPath(m.rootURI)
 }
 
 // NewManager creates a new LSP manager.
@@ -69,7 +85,7 @@ func (m *Manager) Start(ctx context.Context, defs []ServerDef) error {
 	for ext := range exts {
 		if serverID, ok := m.extToServer[ext]; ok {
 			if !started[serverID] {
-				if err := m.startClient(ctx, serverID); err != nil {
+				if err := m.startClient(ctx, serverID, m.rootURI); err != nil {
 					if m.log != nil {
 						m.log.Warn(logger.CatMCP, "LSP server start failed, will start lazily",
 							"server", serverID, "err", err.Error())
@@ -113,7 +129,7 @@ func (m *Manager) GetTools() []tools.Tool {
 }
 
 // clientForFile returns (or starts) the LSP client for a given file.
-func (m *Manager) clientForFile(filePath string) (*Client, error) {
+func (m *Manager) clientForFile(ctx context.Context, filePath string) (*Client, error) {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	if ext == "" {
 		return nil, fmt.Errorf("no file extension for %q", filePath)
@@ -127,8 +143,12 @@ func (m *Manager) clientForFile(filePath string) (*Client, error) {
 		return nil, fmt.Errorf("no LSP server registered for extension %q (file: %s)", ext, filePath)
 	}
 
+	rootPath := m.resolveRootPath(ctx, filePath)
+	rootURI := PathToURI(rootPath)
+	key := clientKey(serverID, rootURI)
+
 	m.mu.RLock()
-	client, exists := m.servers[serverID]
+	client, exists := m.servers[key]
 	m.mu.RUnlock()
 
 	if exists && client != nil {
@@ -139,43 +159,46 @@ func (m *Manager) clientForFile(filePath string) (*Client, error) {
 	defer m.mu.Unlock()
 
 	// Double-check
-	if client, ok := m.servers[serverID]; ok && client != nil {
+	if client, ok := m.servers[key]; ok && client != nil {
 		return client, nil
 	}
 
-	if err := m.startClient(context.Background(), serverID); err != nil {
-		return nil, fmt.Errorf("start LSP server %q: %w", serverID, err)
+	if err := m.startClient(ctx, serverID, rootURI); err != nil {
+		return nil, fmt.Errorf("start LSP server %q for %s: %w", serverID, rootURI, err)
 	}
-	return m.servers[serverID], nil
+	return m.servers[key], nil
 }
 
 // GetAnyClient returns any currently active client, or attempts to start a default server.
-func (m *Manager) GetAnyClient() (*Client, error) {
+func (m *Manager) GetAnyClient(ctx context.Context) (*Client, error) {
+	rootPath := m.resolveRootPath(ctx, "")
+	rootURI := PathToURI(rootPath)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Try active servers first
-	for _, client := range m.servers {
-		if client != nil {
+	// Try active servers for this rootURI first
+	for key, client := range m.servers {
+		if strings.HasSuffix(key, "@"+rootURI) && client != nil {
 			return client, nil
 		}
 	}
 
 	// Try starting gopls by default
 	if _, ok := m.defs["gopls"]; ok {
-		if err := m.startClient(context.Background(), "gopls"); err == nil {
-			return m.servers["gopls"], nil
+		if err := m.startClient(ctx, "gopls", rootURI); err == nil {
+			return m.servers[clientKey("gopls", rootURI)], nil
 		}
 	}
 
 	// Try starting any defined server
 	for id := range m.defs {
-		if err := m.startClient(context.Background(), id); err == nil {
-			return m.servers[id], nil
+		if err := m.startClient(ctx, id, rootURI); err == nil {
+			return m.servers[clientKey(id, rootURI)], nil
 		}
 	}
 
-	return nil, fmt.Errorf("no active or startable LSP server found")
+	return nil, fmt.Errorf("no active or startable LSP server found for %s", rootURI)
 }
 
 
@@ -202,25 +225,18 @@ func (m *Manager) ensureOpen(client *Client, filePath, uri string) error {
 	}
 
 	client.DidOpen(uri, string(content))
-	m.docs[filePath] = &docInfo{uri: uri, version: 1}
+	m.docs[filePath] = &docInfo{uri: uri, version: 1, client: client}
 	return nil
 }
 
 // NotifyFileChanged tells the LSP server that a file has been modified.
 // Should be called after Write/Edit operations.
 func (m *Manager) NotifyFileChanged(filePath string) error {
-	ext := strings.ToLower(filepath.Ext(filePath))
 	m.mu.RLock()
-	serverID, ok := m.extToServer[ext]
-	if !ok {
-		m.mu.RUnlock()
-		return nil // no LSP server, nothing to notify
-	}
-	client, exists := m.servers[serverID]
-	_, docOpened := m.docs[filePath]
+	doc, docOpened := m.docs[filePath]
 	m.mu.RUnlock()
 
-	if !exists || client == nil || !docOpened {
+	if !docOpened || doc == nil || doc.client == nil {
 		return nil
 	}
 
@@ -230,12 +246,11 @@ func (m *Manager) NotifyFileChanged(filePath string) error {
 	}
 
 	m.mu.Lock()
-	m.docs[filePath].version++
-	ver := m.docs[filePath].version
+	doc.version++
+	ver := doc.version
 	m.mu.Unlock()
 
-	uri := PathToURI(filePath)
-	client.DidChange(uri, string(content), ver)
+	doc.client.DidChange(doc.uri, string(content), ver)
 	return nil
 }
 
@@ -244,12 +259,9 @@ func (m *Manager) NotifyFileClosed(filePath string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.docs[filePath]; ok {
-		ext := strings.ToLower(filepath.Ext(filePath))
-		if serverID, ok := m.extToServer[ext]; ok {
-			if client, ok := m.servers[serverID]; ok && client != nil {
-				client.DidClose(PathToURI(filePath))
-			}
+	if doc, ok := m.docs[filePath]; ok {
+		if doc.client != nil {
+			doc.client.DidClose(doc.uri)
 		}
 		delete(m.docs, filePath)
 	}
@@ -277,7 +289,7 @@ func (m *Manager) RunningServerIDs() []string {
 	return ids
 }
 
-func (m *Manager) startClient(ctx context.Context, serverID string) error {
+func (m *Manager) startClient(ctx context.Context, serverID string, rootURI string) error {
 	def, ok := m.defs[serverID]
 	if !ok {
 		return fmt.Errorf("unknown LSP server: %q", serverID)
@@ -288,12 +300,13 @@ func (m *Manager) startClient(ctx context.Context, serverID string) error {
 		langID = def.Languages[0]
 	}
 
-	rootPath := uriToPath(m.rootURI)
-	client := NewClient(def.ID, langID, m.rootURI, def.Command, def.Args, m.log)
+	rootPath := uriToPath(rootURI)
+	client := NewClient(def.ID, langID, rootURI, def.Command, def.Args, m.log)
 	if err := client.Start(ctx); err != nil {
 		return err
 	}
-	m.servers[serverID] = client
+	key := clientKey(serverID, rootURI)
+	m.servers[key] = client
 	if m.log != nil {
 		m.log.Debug(logger.CatMCP, "LSP server connected",
 			"server", serverID, "command", def.Command, "root", rootPath)
