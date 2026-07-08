@@ -439,6 +439,12 @@ export interface WSPong {
   type: "pong";
 }
 
+export interface WSSessionPlans {
+  type: "session_plans";
+  request_id: string;
+  plans: string[];
+}
+
 export type WSMessage =
   | WSStateMessage
   | WSSimulationEventMessage
@@ -453,6 +459,7 @@ export type WSMessage =
   | WSDelegationStart
   | WSDelegationDone
   | WSSessionName
+  | WSSessionPlans
   | WSConnected
   | WSPong;
 
@@ -869,6 +876,7 @@ export interface ChatSession {
   createdAt: string;
   ctxwin_used?: number;
   ctxwin_limit?: number;
+  plans?: string[];
 }
 
 export interface ChatMessage {
@@ -924,6 +932,7 @@ export interface CreateL2SessionResponse {
   project_path?: string;
   design_dir?: string;
   created_at: string;
+  plans?: string[];
 }
 
 export interface SessionHistorySegment {
@@ -998,4 +1007,5 @@ export interface ChangesResponse {
   total_deletions: number;
   is_git_repo: boolean;
   base_ref?: string;
+  plans?: string[];
 }

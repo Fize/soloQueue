@@ -39,7 +39,8 @@ type WSMessage struct {
 	TargetAgentID    string `json:"target_agent_id,omitempty"`
 	AgentName        string `json:"agent_name,omitempty"`
 	ResultContent    string `json:"result_content,omitempty"`
-	NumTasks         int    `json:"num_tasks,omitempty"`
+	NumTasks         int      `json:"num_tasks,omitempty"`
+	Plans            []string `json:"plans,omitempty"`
 }
 
 type ClientMessage struct {

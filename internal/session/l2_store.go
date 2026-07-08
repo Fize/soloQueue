@@ -23,6 +23,7 @@ type L2SessionEntry struct {
 	Session    *Session  `json:"-"`          // the backing Session (nil if not yet activated)
 	CreatedAt  time.Time `json:"created_at"` // creation timestamp
 	GitBaseRef string    `json:"-"`          // git HEAD at session start (empty = non-git or not captured)
+	Plans      []string  `json:"plans,omitempty"` // list of modified plan files
 }
 
 // L2SessionInfo is the public metadata returned by List().
@@ -36,6 +37,7 @@ type L2SessionInfo struct {
 	CreatedAt       time.Time `json:"created_at"`
 	CtxwinUsed      int       `json:"ctxwin_used"`
 	CtxwinLimit     int       `json:"ctxwin_limit"`
+	Plans           []string  `json:"plans,omitempty"`
 }
 
 // L2SessionStore manages multiple L2 sessions keyed by UUID.
@@ -82,7 +84,7 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 		Name:      "", // auto-generated after first exchange
 		Group:     group,
 		ProjectID: projectID,
-		WorkDir:   workDir,
+		WorkDir:   expandTilde(workDir),
 		Session:   nil, // built lazily on first use
 		CreatedAt: time.Now(),
 	}
@@ -119,19 +121,22 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	workDir := ""
 	name := ""
 	gitBaseRef := ""
+	var plans []string
 	metaFile := filepath.Join(tlDir, "meta")
 	if data, rerr := os.ReadFile(metaFile); rerr == nil {
 		var meta struct {
-			Name       string `json:"name"`
-			Group      string `json:"group"`
-			WorkDir    string `json:"work_dir"`
-			GitBaseRef string `json:"git_base_ref"`
+			Name       string   `json:"name"`
+			Group      string   `json:"group"`
+			WorkDir    string   `json:"work_dir"`
+			GitBaseRef string   `json:"git_base_ref"`
+			Plans      []string `json:"plans,omitempty"`
 		}
 		if json.Unmarshal(data, &meta) == nil {
 			name = meta.Name
 			group = meta.Group
-			workDir = meta.WorkDir
+			workDir = expandTilde(meta.WorkDir)
 			gitBaseRef = meta.GitBaseRef
+			plans = meta.Plans
 		}
 	}
 	if group == "" {
@@ -158,6 +163,7 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 		Session:    nil, // will be built lazily by Activate
 		CreatedAt:  time.Now(),
 		GitBaseRef: gitBaseRef,
+		Plans:      plans,
 	}
 
 	if s.logger != nil {
@@ -272,15 +278,17 @@ func (s *L2SessionStore) SetName(id, name string) {
 		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
 		metaFile := filepath.Join(tlDir, "meta")
 		meta := struct {
-			Name       string `json:"name"`
-			Group      string `json:"group"`
-			WorkDir    string `json:"work_dir"`
-			GitBaseRef string `json:"git_base_ref"`
+			Name       string   `json:"name"`
+			Group      string   `json:"group"`
+			WorkDir    string   `json:"work_dir"`
+			GitBaseRef string   `json:"git_base_ref"`
+			Plans      []string `json:"plans,omitempty"`
 		}{
 			Name:       name,
 			Group:      entry.Group,
 			WorkDir:    entry.WorkDir,
 			GitBaseRef: entry.GitBaseRef,
+			Plans:      entry.Plans,
 		}
 		if data, err := json.Marshal(meta); err == nil {
 			_ = os.WriteFile(metaFile, data, 0644)
@@ -326,6 +334,7 @@ func (s *L2SessionStore) GetEntry(id string) *L2SessionEntry {
 		WorkDir:    entry.WorkDir,
 		CreatedAt:  entry.CreatedAt,
 		GitBaseRef: entry.GitBaseRef,
+		Plans:      append([]string(nil), entry.Plans...),
 	}
 }
 
@@ -403,6 +412,7 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 			CreatedAt:       entry.CreatedAt,
 			CtxwinUsed:      ctxwinUsed,
 			CtxwinLimit:     ctxwinLimit,
+			Plans:           append([]string(nil), entry.Plans...),
 		})
 	}
 
@@ -434,4 +444,68 @@ func (s *L2SessionStore) Shutdown() {
 		}
 	}
 	s.sessions = make(map[string]*L2SessionEntry)
+}
+
+// UpdatePlanStatus adds a path to the session's Plans list if it doesn't already exist.
+func (s *L2SessionStore) UpdatePlanStatus(id, path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, ok := s.sessions[id]
+	if !ok {
+		return
+	}
+
+	for _, p := range entry.Plans {
+		if p == path {
+			return // already exists
+		}
+	}
+
+	entry.Plans = append(entry.Plans, path)
+
+	if s.logger != nil {
+		s.logger.DebugContext(context.Background(), logger.CatApp, "L2 session plan updated",
+			"id", id,
+			"path", path,
+		)
+	}
+
+	// Write meta to disk
+	tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
+	metaFile := filepath.Join(tlDir, "meta")
+	meta := struct {
+		Name       string   `json:"name"`
+		Group      string   `json:"group"`
+		WorkDir    string   `json:"work_dir"`
+		GitBaseRef string   `json:"git_base_ref"`
+		Plans      []string `json:"plans,omitempty"`
+	}{
+		Name:       entry.Name,
+		Group:      entry.Group,
+		WorkDir:    entry.WorkDir,
+		GitBaseRef: entry.GitBaseRef,
+		Plans:      entry.Plans,
+	}
+	if data, err := json.Marshal(meta); err == nil {
+		_ = os.WriteFile(metaFile, data, 0644)
+	}
+}
+
+// expandTilde replaces a leading ~ or ~user with the home directory.
+func expandTilde(path string) string {
+	if !strings.HasPrefix(path, "~") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -172,6 +173,15 @@ func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
 		return true, "Apply edits to file (unable to parse args). Allow?"
 	}
+
+	// Bypass confirmation for plan files
+	if t.cfg.PlanDir != "" {
+		abs, err := absPath(a.Path)
+		if err == nil && strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
+			return false, ""
+		}
+	}
+
 	return true, fmt.Sprintf("Apply %d edit(s) to %q. Allow?", len(a.Edits), a.Path)
 }
 

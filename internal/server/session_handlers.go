@@ -348,7 +348,56 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 			errStr := ""
 			if e.Err != nil {
 				errStr = e.Err.Error()
+			} else if isL2 && m.l2Store != nil {
+				// Parse path for plan tracking
+				var paths []string
+				if e.Name == "Write" || e.Name == "Edit" || e.Name == "MultiEdit" {
+					var res struct {
+						Path string `json:"path"`
+					}
+					if json.Unmarshal([]byte(e.Result), &res) == nil && res.Path != "" {
+						paths = append(paths, res.Path)
+					}
+				} else if e.Name == "MultiWrite" {
+					var res struct {
+						Files []struct {
+							Path string `json:"path"`
+						} `json:"files"`
+					}
+					if json.Unmarshal([]byte(e.Result), &res) == nil {
+						for _, f := range res.Files {
+							if f.Path != "" {
+								paths = append(paths, f.Path)
+							}
+						}
+					}
+				}
+				
+				if len(paths) > 0 {
+					entry := m.l2Store.GetEntry(l2ID)
+					if entry != nil && entry.Group != "" {
+						planDir := filepath.Join(m.workDir, "plan", entry.Group)
+						prefix := planDir + string(filepath.Separator)
+						updated := false
+						for _, p := range paths {
+							if strings.HasPrefix(p, prefix) {
+								m.l2Store.UpdatePlanStatus(l2ID, p)
+								updated = true
+							}
+						}
+						if updated {
+							// Push updated plans to frontend
+							updatedEntry := m.l2Store.GetEntry(l2ID)
+							if updatedEntry != nil {
+								writeSSEEvent(w, flusher, "session_plans", map[string]interface{}{
+									"plans": updatedEntry.Plans,
+								})
+							}
+						}
+					}
+				}
 			}
+
 			writeSSEEvent(w, flusher, "tool_done", map[string]interface{}{
 				"call_id":     e.CallID,
 				"name":        e.Name,
@@ -452,6 +501,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		IsQBot          bool      `json:"is_qbot"`
 		CtxwinUsed      int       `json:"ctxwin_used"`
 		CtxwinLimit     int       `json:"ctxwin_limit"`
+		Plans           []string  `json:"plans,omitempty"`
 	}
 
 	// resolveDesignDir computes the design directory for a session.
@@ -518,6 +568,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:       info.CreatedAt,
 				CtxwinUsed:      info.CtxwinUsed,
 				CtxwinLimit:     info.CtxwinLimit,
+				Plans:           info.Plans,
 			})
 		}
 	}
@@ -545,17 +596,20 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			group := ""
 			projectPath := ""
 			name := ""
+			var plans []string
 			metaFile := filepath.Join(timelinesDir, entry.Name(), "meta")
 			if data, rerr := os.ReadFile(metaFile); rerr == nil {
 				var meta struct {
-					Name    string `json:"name"`
-					Group   string `json:"group"`
-					WorkDir string `json:"work_dir"`
+					Name    string   `json:"name"`
+					Group   string   `json:"group"`
+					WorkDir string   `json:"work_dir"`
+					Plans   []string `json:"plans"`
 				}
 				if json.Unmarshal(data, &meta) == nil {
 					name = meta.Name
 					group = meta.Group
 					projectPath = meta.WorkDir
+					plans = meta.Plans
 				}
 			}
 			if group == "" {
@@ -614,6 +668,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				DesignDir:   resolveDesignDir(projectPath, group),
 				CreatedAt:   createdAt,
 				CtxwinLimit: ctxwinLimit,
+				Plans:       plans,
 			})
 		}
 	}
@@ -662,6 +717,7 @@ func (m *Mux) handleCreateL2Session(w http.ResponseWriter, r *http.Request) {
 		"project_path": info.WorkDir,
 		"design_dir":   designDir,
 		"created_at":   info.CreatedAt,
+		"plans":        []string{},
 	})
 }
 

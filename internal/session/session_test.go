@@ -492,9 +492,9 @@ func TestParseLevelLockCommand(t *testing.T) {
 		{"/l1 fix this bug", "L1-SimpleSingleFile", true},
 		{"/l2 refactor the auth module", "L2-MediumMultiFile", true},
 		{"/l3 redesign the system", "L3-ComplexRefactoring", true},
-		{"/max think hard", "L3-ComplexRefactoring", true},
-		{"/expert analyze", "L3-ComplexRefactoring", true},
-		{"/chat hello", "L0-Conversation", true},
+		{"/l3 do complex work", "L3-ComplexRefactoring", true},
+		{"/l3 analyze", "L3-ComplexRefactoring", true},
+		{"/l0 hello", "L0-Conversation", true},
 		{"hello world", "", false},
 		{"fix this bug", "", false},
 		{"/read main.go", "", false},
@@ -822,6 +822,24 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 
 		// Reset activeCancel
 		s.activeCancel = nil
+	})
+
+	t.Run("compact", func(t *testing.T) {
+		ch, err := s.AskStream(context.Background(), "/compact")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var events []iface.AgentEvent
+		for ev := range ch {
+			events = append(events, ev)
+		}
+		if len(events) < 2 {
+			t.Fatalf("expected at least 2 events, got %d", len(events))
+		}
+		delta, ok := events[0].(agent.ContentDeltaEvent)
+		if !ok || !strings.Contains(delta.Delta, "compacted") {
+			t.Errorf("unexpected event content: %+v", events[0])
+		}
 	})
 }
 

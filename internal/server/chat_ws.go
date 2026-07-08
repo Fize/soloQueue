@@ -125,6 +125,79 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 
 	sess.SetIsQBot(false)
 
+	// ── Pre-AskStream slash command interceptor (bypass LLM) ──
+	trimmed := strings.TrimSpace(finalPrompt)
+	lowerTrimmed := strings.ToLower(trimmed)
+	switch {
+	case lowerTrimmed == "/cancel":
+		_ = sess.CancelCurrent("User requested cancellation")
+		client.sendJSON(WSMessage{
+			Type:      "chat_chunk",
+			RequestID: msg.RequestID,
+			Delta:     "Current task has been cancelled",
+		})
+		client.sendJSON(WSMessage{
+			Type:             "chat_done",
+			RequestID:        msg.RequestID,
+			Content:          "Task cancelled.",
+			ReasoningContent: "",
+		})
+		return
+
+	case lowerTrimmed == "/help" || lowerTrimmed == "/?":
+		text := "Available commands:\n" +
+			"- `/help` or `/?` — View available commands\n" +
+			"- `/cancel` — Cancel current task\n" +
+			"- `/clear` — Clear dialogue history\n" +
+			"- `/compact` — Compact context window (no memory save)\n" +
+			"- `/version` — View version number\n" +
+			"- `/cron <cron_expression/time> <task_instruction>` — Create scheduled task\n" +
+			"- `/l0` — Lock routing level to L0 (conversational)\n" +
+			"- `/l1` — Lock routing level to L1 (single file modification)\n" +
+			"- `/l2` — Lock routing level to L2 (multi-file modification)\n" +
+			"- `/l3` — Lock routing level to L3 (complex architecture refactoring)"
+		client.sendJSON(WSMessage{
+			Type:      "chat_chunk",
+			RequestID: msg.RequestID,
+			Delta:     text,
+		})
+		client.sendJSON(WSMessage{
+			Type:             "chat_done",
+			RequestID:        msg.RequestID,
+			Content:          text,
+			ReasoningContent: "",
+		})
+		return
+
+	// Note: /clear and /compact are handled by session.AskStream's pre-inFlight
+	// interceptor, which properly serializes access via inFlight CAS.
+	// Processing them here bypasses inFlight and causes CW corruption.
+
+	case lowerTrimmed == "/version":
+		v := session.Version
+		if v == "" {
+			v = "SoloQueue"
+		} else {
+			v = "SoloQueue " + v
+		}
+		client.sendJSON(WSMessage{
+			Type:      "chat_chunk",
+			RequestID: msg.RequestID,
+			Delta:     v,
+		})
+		client.sendJSON(WSMessage{
+			Type:             "chat_done",
+			RequestID:        msg.RequestID,
+			Content:          v,
+			ReasoningContent: "",
+		})
+		return
+
+	case strings.HasPrefix(lowerTrimmed, "/cron"):
+		// Cron commands need the cron handler — route through AskStream
+		// fall through to normal AskStream below
+	}
+
 	// Call AskStream.
 	ch, askErr := sess.AskStream(reqCtx, finalPrompt)
 	if askErr != nil {
@@ -211,6 +284,58 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 					title := generateSessionTitle(prompt, doneEv.Content)
 					if title != "" {
 						h.mux.l2Store.SetName(l2ID, title)
+					}
+				}
+			}
+		}
+
+		if toolDoneEv, ok := agEv.(agent.ToolExecDoneEvent); ok && toolDoneEv.Err == nil {
+			if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
+				l2ID := strings.TrimPrefix(sessionID, "l2:")
+				var paths []string
+				if toolDoneEv.Name == "Write" || toolDoneEv.Name == "Edit" || toolDoneEv.Name == "MultiEdit" {
+					var res struct {
+						Path string `json:"path"`
+					}
+					if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil && res.Path != "" {
+						paths = append(paths, res.Path)
+					}
+				} else if toolDoneEv.Name == "MultiWrite" {
+					var res struct {
+						Files []struct {
+							Path string `json:"path"`
+						} `json:"files"`
+					}
+					if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil {
+						for _, f := range res.Files {
+							if f.Path != "" {
+								paths = append(paths, f.Path)
+							}
+						}
+					}
+				}
+
+				if len(paths) > 0 {
+					entry := h.mux.l2Store.GetEntry(l2ID)
+					if entry != nil && entry.Group != "" {
+						planDir := filepath.Join(h.mux.workDir, "plan", entry.Group)
+						prefix := planDir + string(filepath.Separator)
+						updated := false
+						for _, p := range paths {
+							if strings.HasPrefix(p, prefix) {
+								h.mux.l2Store.UpdatePlanStatus(l2ID, p)
+								updated = true
+							}
+						}
+						if updated {
+							updatedEntry := h.mux.l2Store.GetEntry(l2ID)
+							if updatedEntry != nil {
+								client.sendJSON(WSMessage{
+									Type:  "session_plans",
+									Plans: updatedEntry.Plans,
+								})
+							}
+						}
 					}
 				}
 			}

@@ -292,3 +292,71 @@ func TestL2SessionStore_SetName_PersistAndRestore(t *testing.T) {
 		t.Error("session was not restored in the new store")
 	}
 }
+
+func TestL2SessionStore_UpdatePlanStatus_PersistAndRestore(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t, dir)
+
+	id := "test-plan-id"
+	_, err := store.Create(context.Background(), id, "dev", "", "/project/path")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	tlDir := filepath.Join(dir, "logs", "timelines", "l2-"+id)
+	if err := os.MkdirAll(tlDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// 1. Add some plan paths
+	plan1 := "/project/path/plan/dev/task1.md"
+	plan2 := "/project/path/plan/dev/task2.md"
+
+	store.UpdatePlanStatus(id, plan1)
+	store.UpdatePlanStatus(id, plan2)
+	// Deduplicate check
+	store.UpdatePlanStatus(id, plan1)
+
+	// Check in-memory state
+	list := store.List()
+	var currentPlans []string
+	for _, s := range list {
+		if s.ID == id {
+			currentPlans = s.Plans
+		}
+	}
+	if len(currentPlans) != 2 {
+		t.Errorf("expected 2 plans, got %d: %v", len(currentPlans), currentPlans)
+	} else {
+		if currentPlans[0] != plan1 || currentPlans[1] != plan2 {
+			t.Errorf("plans mismatch: %v", currentPlans)
+		}
+	}
+
+	// 2. Restore in a new store and check persistence
+	newStore := newTestStore(t, dir)
+	err = newStore.restoreFromDisk(context.Background(), id)
+	if err != nil {
+		t.Fatalf("restoreFromDisk: %v", err)
+	}
+
+	restoredList := newStore.List()
+	var restoredPlans []string
+	found := false
+	for _, s := range restoredList {
+		if s.ID == id {
+			found = true
+			restoredPlans = s.Plans
+		}
+	}
+	if !found {
+		t.Fatal("session not found after restore")
+	}
+	if len(restoredPlans) != 2 {
+		t.Errorf("expected 2 restored plans, got %d: %v", len(restoredPlans), restoredPlans)
+	} else {
+		if restoredPlans[0] != plan1 || restoredPlans[1] != plan2 {
+			t.Errorf("restored plans mismatch: %v", restoredPlans)
+		}
+	}
+}

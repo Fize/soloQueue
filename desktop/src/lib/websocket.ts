@@ -38,6 +38,8 @@ export interface ChatHandler {
     duration_ms?: number
     result_content?: string
   }) => void
+  onSessionName?: (name: string) => void
+  onSessionPlans?: (plans: string[]) => void
   onClose?: () => void
 }
 
@@ -275,8 +277,14 @@ class WebSocketManager {
         return
       }
       case 'session_name': {
-        // Handled by custom subscription — dispatched below as generic runtime event
-        break
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onSessionName?.(msg.name)
+        return
+      }
+      case 'session_plans': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onSessionPlans?.(msg.plans)
+        return
       }
     }
 

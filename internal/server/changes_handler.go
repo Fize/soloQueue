@@ -46,11 +46,12 @@ type DiffLine struct {
 
 // ChangesResponse is the unified response for the session changes endpoint.
 type ChangesResponse struct {
-	Changes     []FileChange `json:"changes"`
-	TotalAdditions int       `json:"total_additions"`
-	TotalDeletions int       `json:"total_deletions"`
-	IsGitRepo     bool       `json:"is_git_repo"`
-	BaseRef       string     `json:"base_ref,omitempty"` // git commit hash (git repos only)
+	Changes        []FileChange `json:"changes"`
+	TotalAdditions int          `json:"total_additions"`
+	TotalDeletions int          `json:"total_deletions"`
+	IsGitRepo      bool         `json:"is_git_repo"`
+	BaseRef        string       `json:"base_ref,omitempty"` // git commit hash (git repos only)
+	Plans          []string     `json:"plans,omitempty"`
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -75,15 +76,15 @@ func (m *Mux) handleGetSessionChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workDir := entry.WorkDir
+	workDir := expandTilde(entry.WorkDir)
 	if workDir == "" {
-		m.writeJSON(w, http.StatusOK, ChangesResponse{Changes: []FileChange{}})
+		m.writeJSON(w, http.StatusOK, ChangesResponse{Changes: []FileChange{}, Plans: entry.Plans})
 		return
 	}
 
 	// Check if workDir exists.
 	if info, err := os.Stat(workDir); err != nil || !info.IsDir() {
-		m.writeJSON(w, http.StatusOK, ChangesResponse{Changes: []FileChange{}})
+		m.writeJSON(w, http.StatusOK, ChangesResponse{Changes: []FileChange{}, Plans: entry.Plans})
 		return
 	}
 
@@ -104,6 +105,7 @@ func (m *Mux) handleGetSessionChanges(w http.ResponseWriter, r *http.Request) {
 		resp := summarizeChanges(changes)
 		resp.IsGitRepo = true
 		resp.BaseRef = ref
+		resp.Plans = entry.Plans
 		m.writeJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -111,13 +113,14 @@ func (m *Mux) handleGetSessionChanges(w http.ResponseWriter, r *http.Request) {
 	// Non-git: compare against snapshot.
 	snapshot := session.LoadBaseline(m.l2Store.WorkDir(), id)
 	if snapshot == nil {
-		m.writeJSON(w, http.StatusOK, ChangesResponse{Changes: []FileChange{}})
+		m.writeJSON(w, http.StatusOK, ChangesResponse{Changes: []FileChange{}, Plans: entry.Plans})
 		return
 	}
 
 	changes := computeSnapshotDiff(workDir, snapshot)
 	resp := summarizeChanges(changes)
 	resp.IsGitRepo = false
+	resp.Plans = entry.Plans
 	m.writeJSON(w, http.StatusOK, resp)
 }
 

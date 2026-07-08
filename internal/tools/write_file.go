@@ -169,6 +169,15 @@ func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 		}
 		return true, fmt.Sprintf("Write file (truncated args, %d bytes: %v). Allow?", len(raw), err)
 	}
+
+	// Bypass confirmation for plan files
+	if t.cfg.PlanDir != "" {
+		abs, err := absPath(a.Path)
+		if err == nil && strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
+			return false, ""
+		}
+	}
+
 	size := len(a.Content)
 	var sizeStr string
 	if size >= 1<<10 {

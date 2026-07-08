@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -149,6 +150,15 @@ func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
 		return true, fmt.Sprintf("Replace in file (unable to parse args). Allow?")
 	}
+
+	// Bypass confirmation for plan files
+	if t.cfg.PlanDir != "" {
+		abs, err := absPath(a.Path)
+		if err == nil && strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
+			return false, ""
+		}
+	}
+
 	oldPreview := truncateString(a.OldString, 40)
 	newPreview := truncateString(a.NewString, 40)
 	return true, fmt.Sprintf("Replace in %q: %q → %q. Allow?", a.Path, oldPreview, newPreview)

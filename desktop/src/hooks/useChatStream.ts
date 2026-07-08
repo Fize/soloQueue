@@ -22,6 +22,7 @@ export function useChatStream() {
     setStreaming,
     removeLastEmptyAssistantMessage,
     renameSession,
+    updateSessionPlans,
     markTitleGenerated,
     completeLastDelegation,
     setDelegating,
@@ -133,6 +134,12 @@ export function useChatStream() {
             resolved: false,
           })
         },
+        onSessionName: (name) => {
+          renameSession(sid, name)
+        },
+        onSessionPlans: (plans) => {
+          updateSessionPlans(sid, plans)
+        },
         onDone: (_data) => {
           if (shouldGenTitle && prompt.trim()) {
             const title = generateTitle(prompt, finalContent)
@@ -183,6 +190,7 @@ export function useChatStream() {
       updateToolCallResult,
       setStreaming,
       renameSession,
+      updateSessionPlans,
       markTitleGenerated,
       completeLastDelegation,
       setDelegating,

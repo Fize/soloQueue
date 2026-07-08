@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 )
 
 // multiWriteTool writes multiple files in a best-effort, non-atomic manner.
@@ -177,6 +179,22 @@ func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
 		return true, "Write files (unable to parse args). Allow?"
 	}
+
+	// Bypass confirmation if ALL files are plan files
+	if t.cfg.PlanDir != "" && len(a.Files) > 0 {
+		allPlan := true
+		for _, f := range a.Files {
+			abs, err := absPath(f.Path)
+			if err != nil || !strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
+				allPlan = false
+				break
+			}
+		}
+		if allPlan {
+			return false, ""
+		}
+	}
+
 	n := len(a.Files)
 	if n <= 3 {
 		paths := make([]string, n)

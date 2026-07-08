@@ -17,6 +17,7 @@ import {
   Plus,
   ChevronDown,
   List,
+  FileText,
 } from "lucide-react";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
@@ -24,6 +25,7 @@ import { useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
 import type { AgentInfo, Project, AgentResponse, SkillInfo, FileInfo } from "@/types";
 import { SessionChangesPanel } from "@/components/SessionChangesPanel";
+import { SessionPlanPanel } from "@/components/SessionPlanPanel";
 import { SessionFilePanel } from "@/components/SessionFilePanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
 import { 
@@ -107,9 +109,7 @@ export function ChatPage() {
 
   // macOS Inspector state
   const [showInspector, setShowInspector] = useState(false);
-  const [inspectorTab, setInspectorTab] = useState<"files" | "changes">(
-    "files",
-  );
+  const [inspectorTab, setInspectorTab] = useState<"files" | "changes" | "plan">("files");
 
   const toggleInspector = (open: boolean) => {
     useRuntimeStore.getState().setInspectorPanelWidth(open ? panelWidth : 0);
@@ -512,6 +512,13 @@ export function ChatPage() {
   const activeGroup = activeSession?.group ?? null;
   const activeProjectPath = activeSession?.project_path ?? null;
   const isL1Session = activeSessionId === "l1";
+
+  // Safety check: redirect away from plan tab if plans list becomes empty
+  useEffect(() => {
+    if (inspectorTab === "plan" && (!activeSession?.plans || activeSession.plans.length === 0)) {
+      setInspectorTab("files");
+    }
+  }, [activeSession?.plans, inspectorTab]);
 
   // Sync selectors from active session when session changes
   useEffect(() => {
@@ -1149,6 +1156,20 @@ export function ChatPage() {
                       <Layers className="h-3.5 w-3.5" />
                       Changes
                     </button>
+                    {activeSession?.plans && activeSession.plans.length > 0 && (
+                      <button
+                        onClick={() => setInspectorTab("plan")}
+                        className={cn(
+                          "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                          inspectorTab === "plan"
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
+                        )}
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        Plan
+                      </button>
+                    )}
                   </div>
                   <button
                     onClick={() => toggleInspector(false)}
@@ -1623,8 +1644,12 @@ export function ChatPage() {
                         Current session not associated with a project
                       </div>
                     )
+                  ) : inspectorTab === "plan" && activeSession ? (
+                    <SessionPlanPanel
+                      plans={activeSession.plans || []}
+                    />
                   ) : activeSession ? (
-                    <SessionChangesPanel sessionId={activeSession.id} />
+                    <SessionChangesPanel sessionId={activeSession.id} plans={activeSession.plans} />
                   ) : null}
                 </div>
               </div>

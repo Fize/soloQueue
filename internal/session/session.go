@@ -184,6 +184,16 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	if cw != nil {
 		cw.SetPendingDrainer(func() string {
 			if pending := s.pending.Drain(); pending != "" {
+				trimmed := strings.TrimSpace(pending)
+				lower := strings.ToLower(trimmed)
+				switch lower {
+				case "/cancel", "/compact", "/help", "/?", "/clear", "/version":
+					s.logger.WarnContext(context.Background(), logger.CatApp, "pending drain: dropping stale slash command",
+						"session_id", s.ID,
+						"command", lower,
+					)
+					return ""
+				}
 				s.logger.InfoContext(context.Background(), logger.CatApp, "pending messages injected into context window",
 					"session_id", s.ID,
 					"prompt_len", len(pending),
@@ -415,6 +425,30 @@ func (s *Session) Clear() error {
 	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session cleared",
+		"session_id", s.ID,
+	)
+
+	return nil
+}
+
+// Compact compacts the context window by summarizing older messages
+// into a condensed representation using the compactor. Unlike Clear,
+// it preserves the recent context and does NOT save to memory.
+func (s *Session) Compact(ctx context.Context) error {
+	compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	_, err := s.cw.CompactAndReplace(compactCtx)
+	if err != nil {
+		s.logger.LogError(context.Background(), logger.CatApp, "session compact failed", err)
+		return fmt.Errorf("session: compact: %w", err)
+	}
+
+	s.mu.Lock()
+	s.recalledHashes = make(map[string]struct{})
+	s.mu.Unlock()
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session compacted",
 		"session_id", s.ID,
 	)
 
@@ -697,8 +731,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	trimmed := strings.TrimSpace(prompt)
 	lowerTrimmed := strings.ToLower(trimmed)
 
-	// Intercept /cancel slash command immediately (non-blocking, don't wait for inFlight)
-	if lowerTrimmed == "/cancel" {
+	// ── Pre-inFlight slash command intercept (always immediate, never queued) ──
+	switch lowerTrimmed {
+	case "/cancel":
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
@@ -712,82 +747,99 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			}
 		}()
 		return out, nil
-	}
 
-	// Intercept other builtin slash commands: /help, /?, /clear, /version, /cron
-	if lowerTrimmed == "/help" || lowerTrimmed == "/?" || lowerTrimmed == "/clear" || lowerTrimmed == "/version" || strings.HasPrefix(lowerTrimmed, "/cron") {
+	case "/compact":
+		// Acquire inFlight to serialize with forwarder goroutine.
+		// Compact modifies CW state and must not run concurrently with AskStream.
 		if !s.inFlight.CompareAndSwap(0, 1) {
-			s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
+			s.logger.InfoContext(ctx, logger.CatApp, "compact rejected: session busy, message queued",
 				"session_id", s.ID,
-				"prompt_len", len(prompt),
 			)
 			s.pending.Enqueue(prompt)
 			return nil, ErrQueued
 		}
 		s.touch()
-
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
 			defer s.inFlight.Store(0)
 			defer s.touch()
-
-			if strings.HasPrefix(lowerTrimmed, "/cron") {
-				expr, inst, err := parseCronCommandLine(trimmed)
-				if err != nil {
-					out <- agent.ErrorEvent{Err: fmt.Errorf("invalid cron command format: %w", err)}
-					return
-				}
-				if s.cronHandler == nil {
-					out <- agent.ErrorEvent{Err: fmt.Errorf("cron system is not configured")}
-					return
-				}
-				taskID, nextRun, err := s.cronHandler(ctx, expr, inst)
-				if err != nil {
-					out <- agent.ErrorEvent{Err: err}
-					return
-				}
-				out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("Scheduled task successfully created!\n- **Task ID**: %s\n- **Schedule**: %s\n- **Task**: %s\n- **Next Execution**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
-				out <- agent.DoneEvent{Content: "Cron task created."}
-				return
-			}
-
-			switch lowerTrimmed {
-			case "/help", "/?":
-				text := "Available commands:\n" +
-					"- `/help` or `/?` — View available commands\n" +
-					"- `/cancel` — Cancel current task\n" +
-					"- `/clear` — Clear dialogue history\n" +
-					"- `/version` — View version number\n" +
-					"- `/cron <cron_expression/time> <task_instruction>` — Create scheduled task\n" +
-					"- `/l0` or `/chat` — Lock routing level to L0 (conversational)\n" +
-					"- `/l1` — Lock routing level to L1 (single file modification)\n" +
-					"- `/l2` — Lock routing level to L2 (multi-file modification)\n" +
-					"- `/l3`, `/max`, or `/expert` — Lock routing level to L3 (complex architecture refactoring)"
-				out <- agent.ContentDeltaEvent{Delta: text}
-				out <- agent.DoneEvent{Content: text}
-
-			case "/clear":
-				if err := s.Clear(); err != nil {
-					out <- agent.ContentDeltaEvent{Delta: "Clear failed: " + err.Error()}
-					out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
-				} else {
-					out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared"}
-					out <- agent.DoneEvent{Content: "Session history cleared."}
-				}
-
-			case "/version":
-				v := Version
-				if v == "" {
-					v = "SoloQueue"
-				} else {
-					v = "SoloQueue " + v
-				}
-				out <- agent.ContentDeltaEvent{Delta: v}
-				out <- agent.DoneEvent{Content: v}
+			if err := s.Compact(ctx); err != nil {
+				out <- agent.ContentDeltaEvent{Delta: "Compact failed: " + err.Error()}
+				out <- agent.DoneEvent{Content: "Compact failed: " + err.Error()}
+			} else {
+				out <- agent.ContentDeltaEvent{Delta: "Context window compacted (history summarized, no memory save)"}
+				out <- agent.DoneEvent{Content: "Session compacted."}
 			}
 		}()
 		return out, nil
+
+	case "/help", "/?":
+		out := make(chan iface.AgentEvent, 2)
+		go func() {
+			defer close(out)
+			text := "Available commands:\n" +
+				"- `/help` or `/?` — View available commands\n" +
+				"- `/cancel` — Cancel current task\n" +
+				"- `/clear` — Clear dialogue history\n" +
+				"- `/compact` — Compact context window (no memory save)\n" +
+				"- `/version` — View version number\n" +
+				"- `/cron <cron_expression/time> <task_instruction>` — Create scheduled task\n" +
+				"- `/l0` — Lock routing level to L0 (conversational)\n" +
+				"- `/l1` — Lock routing level to L1 (single file modification)\n" +
+				"- `/l2` — Lock routing level to L2 (multi-file modification)\n" +
+				"- `/l3` — Lock routing level to L3 (complex architecture refactoring)"
+			out <- agent.ContentDeltaEvent{Delta: text}
+			out <- agent.DoneEvent{Content: text}
+		}()
+		return out, nil
+
+	case "/clear":
+		// Acquire inFlight to serialize with forwarder goroutine.
+		// Clear modifies CW state and must not run concurrently with AskStream.
+		if !s.inFlight.CompareAndSwap(0, 1) {
+			s.logger.InfoContext(ctx, logger.CatApp, "clear rejected: session busy, message queued",
+				"session_id", s.ID,
+			)
+			s.pending.Enqueue(prompt)
+			return nil, ErrQueued
+		}
+		s.touch()
+		out := make(chan iface.AgentEvent, 2)
+		go func() {
+			defer close(out)
+			defer s.inFlight.Store(0)
+			defer s.touch()
+			if err := s.Clear(); err != nil {
+				out <- agent.ContentDeltaEvent{Delta: "Clear failed: " + err.Error()}
+				out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
+			} else {
+				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared"}
+				out <- agent.DoneEvent{Content: "Session history cleared."}
+			}
+		}()
+		return out, nil
+
+	case "/version":
+		out := make(chan iface.AgentEvent, 2)
+		go func() {
+			defer close(out)
+			v := Version
+			if v == "" {
+				v = "SoloQueue"
+			} else {
+				v = "SoloQueue " + v
+			}
+			out <- agent.ContentDeltaEvent{Delta: v}
+			out <- agent.DoneEvent{Content: v}
+		}()
+		return out, nil
+
+	default:
+		if strings.HasPrefix(lowerTrimmed, "/cron") {
+			// Cron commands go through inFlight+goroutine (they need cron handler)
+			return s.handleCronCommand(ctx, trimmed)
+		}
 	}
 
 	// Reset cancelled flag to prevent leakage of the residual flag from previous AskStream to this call.
@@ -1398,13 +1450,10 @@ func newSessionID() string {
 
 // levelLockCommands maps slash commands to level labels.
 var levelLockCommands = map[string]string{
-	"l0":     "L0-Conversation",
-	"chat":   "L0-Conversation",
-	"l1":     "L1-SimpleSingleFile",
-	"l2":     "L2-MediumMultiFile",
-	"l3":     "L3-ComplexRefactoring",
-	"max":    "L3-ComplexRefactoring",
-	"expert": "L3-ComplexRefactoring",
+	"l0": "L0-Conversation",
+	"l1": "L1-SimpleSingleFile",
+	"l2": "L2-MediumMultiFile",
+	"l3": "L3-ComplexRefactoring",
 }
 
 // parseLevelLockCommand checks if prompt starts with a level-lock command.

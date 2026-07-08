@@ -22,6 +22,7 @@ interface ChatState {
   loadHistory: (sessionId: string) => Promise<void>
   loadMoreHistory: (sessionId: string) => Promise<void>
   renameSession: (id: string, name: string) => void
+  updateSessionPlans: (id: string, plans: string[]) => void
   markTitleGenerated: (id: string) => void
 
   addMessage: (message: ChatMessage) => void
@@ -194,6 +195,12 @@ export const useChatStore = create<ChatState>((set) => ({
   renameSession: (id: string, name: string) => {
     set((s) => ({
       sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, name } : sess)),
+    }))
+  },
+
+  updateSessionPlans: (id: string, plans: string[]) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, plans } : sess)),
     }))
   },
 
