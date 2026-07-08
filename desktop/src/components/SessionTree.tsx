@@ -291,6 +291,30 @@ export function SessionTree() {
                           </div>
                         )
                       })}
+                      {/* Sessions without a project path (unassociated) */}
+                      {groupSessions
+                        .filter((s) => !s.project_path)
+                        .sort((a, b) => {
+                          const timeA = a.createdAt || (a as any).created_at || ''
+                          const timeB = b.createdAt || (b as any).created_at || ''
+                          return timeB.localeCompare(timeA)
+                        })
+                        .map((s) => (
+                          <TreeItem
+                            key={s.id}
+                            sessionId={s.id}
+                            label={s.name || 'New chat'}
+                            isPast={s.name ? s.name.startsWith('Past') : false}
+                            active={activeSessionId === s.id}
+                            onClick={() => {
+                              setActiveSession(s.id)
+                              navigate(`/chat/${s.id}`)
+                            }}
+                            onDelete={(e) => handleDelete(e, s.id)}
+                            disabled={streaming}
+                            indent={1}
+                          />
+                        ))}
                     </>
                   ) : (
                     <>

@@ -331,8 +331,9 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 							updatedEntry := h.mux.l2Store.GetEntry(l2ID)
 							if updatedEntry != nil {
 								client.sendJSON(WSMessage{
-									Type:  "session_plans",
-									Plans: updatedEntry.Plans,
+									Type:      "session_plans",
+									RequestID: requestID,
+									Plans:     updatedEntry.Plans,
 								})
 							}
 						}

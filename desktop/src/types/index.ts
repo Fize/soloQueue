@@ -441,7 +441,7 @@ export interface WSPong {
 
 export interface WSSessionPlans {
   type: "session_plans";
-  request_id: string;
+  request_id?: string;
   plans: string[];
 }
 

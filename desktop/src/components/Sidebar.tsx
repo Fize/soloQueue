@@ -49,13 +49,15 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
-  const [chatOpen, setChatOpen] = useState(location.pathname.startsWith('/chat/l2:'))
+  const [chatOpen, setChatOpen] = useState(
+    location.pathname.startsWith('/chat') || location.pathname === '/new-chat'
+  )
   const [viewMode, setViewMode] = useState<'nav' | 'settings'>(
     location.pathname.startsWith('/settings') ? 'settings' : 'nav'
   )
 
   useEffect(() => {
-    const onChatRoute = location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')
+    const onChatRoute = location.pathname.startsWith('/chat') || location.pathname === '/new-chat' || location.pathname.startsWith('/agents')
     setChatOpen(onChatRoute)
     if (location.pathname.startsWith('/settings')) {
       setViewMode('settings')
@@ -171,8 +173,8 @@ function NavView({
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
         {/* New Chat — top nav item, navigates to home */}
         {(() => {
-          const item = { to: '/new-chat', icon: Plus, label: 'New Chat' }
-          const active = location.pathname === '/new-chat'
+          const item = { to: '/chat', icon: Plus, label: 'New Chat' }
+          const active = location.pathname === '/chat' || location.pathname === '/chat/'
           return (
             <div key={item.to}>
               <button

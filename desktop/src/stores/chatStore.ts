@@ -64,7 +64,20 @@ export const useChatStore = create<ChatState>((set) => ({
         ...s,
         createdAt: s.createdAt || s.created_at || new Date().toISOString(),
       }))
-      set({ sessions: mapped })
+      set((prev) => {
+        // Preserve the active session if missing from API response
+        // (race: list request sent before create completed).
+        if (prev.activeSessionId) {
+          const hasActive = mapped.some((m) => m.id === prev.activeSessionId)
+          if (!hasActive) {
+            const activeFromStore = prev.sessions.find((ss) => ss.id === prev.activeSessionId)
+            if (activeFromStore) {
+              mapped.push(activeFromStore)
+            }
+          }
+        }
+        return { sessions: mapped }
+      })
     } catch {
       // Server may not be running; sessions remain empty.
     }
@@ -141,18 +154,32 @@ export const useChatStore = create<ChatState>((set) => ({
         segments: hm.segments.map(convertHistorySegment),
         timestamp: hm.timestamp,
       }))
-      set((s) => ({
-        messages: { ...s.messages, [sessionId]: msgs },
-        historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
-        historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
-      }))
+      set((s) => {
+        // Don't overwrite messages that were added by a racing send().
+        const current = s.messages[sessionId]
+        if (current && current.length > 0 && s.streamingSessionId === sessionId) {
+          return {}
+        }
+        return {
+          messages: { ...s.messages, [sessionId]: msgs },
+          historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
+          historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
+        }
+      })
     } catch {
       // Timeline may not exist yet for new sessions; that's fine.
-      set((s) => ({
-        messages: { ...s.messages, [sessionId]: [] },
-        historyHasMore: { ...s.historyHasMore, [sessionId]: false },
-        historyCursor: { ...s.historyCursor, [sessionId]: null },
-      }))
+      set((s) => {
+        // Don't clear messages that were added by a racing send().
+        const current = s.messages[sessionId]
+        if (current && current.length > 0 && s.streamingSessionId === sessionId) {
+          return {}
+        }
+        return {
+          messages: { ...s.messages, [sessionId]: [] },
+          historyHasMore: { ...s.historyHasMore, [sessionId]: false },
+          historyCursor: { ...s.historyCursor, [sessionId]: null },
+        }
+      })
     } finally {
       set((s) => ({
         historyLoading: { ...s.historyLoading, [sessionId]: false },

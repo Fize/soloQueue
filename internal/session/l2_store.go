@@ -84,7 +84,7 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 		Name:      "", // auto-generated after first exchange
 		Group:     group,
 		ProjectID: projectID,
-		WorkDir:   expandTilde(workDir),
+		WorkDir:   workDir,
 		Session:   nil, // built lazily on first use
 		CreatedAt: time.Now(),
 	}
@@ -134,7 +134,7 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 		if json.Unmarshal(data, &meta) == nil {
 			name = meta.Name
 			group = meta.Group
-			workDir = expandTilde(meta.WorkDir)
+			workDir = meta.WorkDir
 			gitBaseRef = meta.GitBaseRef
 			plans = meta.Plans
 		}

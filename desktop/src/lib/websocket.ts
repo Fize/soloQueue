@@ -282,7 +282,7 @@ class WebSocketManager {
         return
       }
       case 'session_plans': {
-        const h = this.chatHandlers.get(msg.request_id)
+        const h = this.chatHandlers.get(msg.request_id || '')
         h?.onSessionPlans?.(msg.plans)
         return
       }

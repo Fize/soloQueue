@@ -93,7 +93,6 @@ export function ChatPage() {
     historyHasMore,
     historyLoading,
     loadMoreHistory,
-    loadSessions,
     setActiveSession,
     loadHistory,
     createL2Session,
@@ -488,10 +487,6 @@ export function ChatPage() {
     fetchLiveAgents();
     fetchTeams();
   }, [fetchLiveAgents, fetchTeams]);
-
-  useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
 
   useEffect(() => {
     if (sessionId && sessionId !== "l1") {
