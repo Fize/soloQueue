@@ -3,6 +3,7 @@ import { Bot, Loader2, CheckCircle2, XCircle, X, ExternalLink } from 'lucide-rea
 import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
 import { AgentStreamView } from '@/components/AgentStreamView'
+import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
 
 export function DelegationCard({
@@ -198,9 +199,9 @@ export function DelegationCard({
                   {result && (
                     <div>
                       <div className="mb-1 text-xs font-medium text-muted-foreground">Result</div>
-                      <pre className="whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-xs leading-relaxed max-h-96 overflow-y-auto">
-                        {result}
-                      </pre>
+                      <div className="rounded bg-muted/50 p-3 text-xs leading-relaxed max-h-96 overflow-y-auto border border-border/40">
+                        <MarkdownPreview content={result} />
+                      </div>
                     </div>
                   )}
                   {error && (

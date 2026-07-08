@@ -20,6 +20,7 @@ interface AutocompleteItem {
 // Built-in slash commands with descriptions
 const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
   // ── Session control ──────────────────────────────────────────────────────
+  { label: 'compact',   description: 'Compact context window (no memory save)', type: 'command' },
   { label: 'clear',     description: 'Clear dialogue history',                 type: 'command' },
   { label: 'cancel',    description: 'Cancel current task',                    type: 'command' },
   { label: 'help',      description: 'View available commands',                type: 'command' },
@@ -27,24 +28,9 @@ const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
   { label: 'cron',      description: 'Create scheduled task (cron expression)', type: 'command' },
   // ── Routing level locks ──────────────────────────────────────────────────
   { label: 'l0',        description: 'Force conversation level (no tools)',    type: 'command' },
-  { label: 'chat',      description: 'Force conversation level (no tools)',    type: 'command' },
   { label: 'l1',        description: 'Force simple single-file task level',    type: 'command' },
   { label: 'l2',        description: 'Force multi-file task level',            type: 'command' },
   { label: 'l3',        description: 'Force expert / complex level',           type: 'command' },
-  { label: 'max',       description: 'Force expert / complex level',           type: 'command' },
-  { label: 'expert',    description: 'Force expert / complex level',           type: 'command' },
-  { label: 'fast',      description: 'Force fast model (no thinking)',         type: 'command' },
-  // ── File operations ──────────────────────────────────────────────────────
-  { label: 'read',      description: 'Read / view a file',                    type: 'command' },
-  { label: 'cat',       description: 'Read / view a file',                    type: 'command' },
-  { label: 'view',      description: 'Read / view a file',                    type: 'command' },
-  { label: 'write',     description: 'Edit or create a file',                 type: 'command' },
-  { label: 'edit',      description: 'Edit or create a file',                 type: 'command' },
-  { label: 'modify',    description: 'Edit or create a file',                 type: 'command' },
-  { label: 'refactor',  description: 'Refactor code across files',            type: 'command' },
-  { label: 'implement', description: 'Implement a feature',                   type: 'command' },
-  { label: 'test',      description: 'Write or run tests',                    type: 'command' },
-  { label: 'debug',     description: 'Debug an issue',                        type: 'command' },
 ]
 
 export interface ChatInputProps {

@@ -549,9 +549,9 @@ function SubagentCard({
               {running && agentStream ? (
                 <AgentStreamView state={agentStream} />
               ) : hasResult ? (
-                <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/80 font-mono">
-                  {segment.resultContent}
-                </pre>
+                <div className="text-xs leading-relaxed text-foreground/80">
+                  <MarkdownPreview content={segment.resultContent || ''} />
+                </div>
               ) : agentStream ? (
                 <AgentStreamView state={agentStream} />
               ) : (
