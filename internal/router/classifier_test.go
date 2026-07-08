@@ -42,8 +42,8 @@ func TestDefaultClassifier_Classify(t *testing.T) {
 			minConfidence: 75,
 		},
 		{
-			name:          "SlashCommand: /read",
-			prompt:        "/read src/main.go",
+			name:          "SlashCommand: /l1",
+			prompt:        "/l1 fix the bug in main.go",
 			expectedLevel: LevelSimpleSingleFile,
 			minConfidence: 90,
 		},
@@ -109,9 +109,9 @@ func TestClassificationResultDetails(t *testing.T) {
 	}
 
 	// Test that we capture slash commands
-	result, _ = classifier.Classify(ctx, "/read main.go read the main entry point", LevelUnknown, nil)
-	if result.SlashCommand != "read" {
-		t.Errorf("expected slash command 'read', got %q", result.SlashCommand)
+	result, _ = classifier.Classify(ctx, "/l1 fix the bug in auth.go", LevelUnknown, nil)
+	if result.SlashCommand != "l1" {
+		t.Errorf("expected slash command 'l1', got %q", result.SlashCommand)
 	}
 
 	// Test that reason is always provided

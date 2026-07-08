@@ -161,64 +161,20 @@ func (ftc *FastTrackClassifier) classifySlashCommand(cmd string, fullPrompt stri
 
 	switch cmd {
 	// ── Explicit level overrides ──
-	case "l0", "chat":
+	case "l0":
 		result.Level = LevelConversation
-		result.Reason = "Explicit /l0 or /chat: force conversation level"
+		result.Reason = "Explicit /l0: force conversation level"
 	case "l1":
 		result.Level = LevelSimpleSingleFile
 		result.Reason = "Explicit /l1: force simple task level"
 	case "l2":
 		result.Level = LevelMediumMultiFile
 		result.Reason = "Explicit /l2: force multi-step task level"
-	case "l3", "max", "expert":
+	case "l3":
 		result.Level = LevelComplexRefactoring
-		result.Reason = "Explicit level override: force expert level"
-	case "fast":
-		result.Level = LevelConversation
-		result.Reason = "Explicit /fast: force fast model (no thinking)"
-
+		result.Reason = "Explicit /l3: force complex refactoring level"
 	// ── Contextual slash commands (confidence < 100, scored by heuristic) ──
-	case "read", "cat", "view":
-		result.Level = LevelSimpleSingleFile
-		result.Confidence = 95
-		result.Reason = "Slash command /read: single-file read operation"
-	case "write", "edit", "modify":
-		filePaths := ftc.extractFilePaths(fullPrompt)
-		if len(filePaths) <= 1 {
-			result.Level = LevelSimpleSingleFile
-			result.Confidence = 90
-			result.Reason = "Slash command /write: single file modification"
-		} else {
-			result.Level = LevelMediumMultiFile
-			result.Confidence = 85
-			result.Reason = "Slash command /write: multiple files"
-		}
-	case "refactor":
-		filePaths := ftc.extractFilePaths(fullPrompt)
-		if len(filePaths) >= 5 {
-			result.Level = LevelComplexRefactoring
-			result.Confidence = 90
-			result.Reason = "Slash command /refactor: many files → complex"
-		} else {
-			result.Level = LevelMediumMultiFile
-			result.Confidence = 85
-			result.Reason = "Slash command /refactor: multi-file changes"
-		}
-	case "implement":
-		result.Level = LevelMediumMultiFile
-		result.Confidence = 80
-		result.Reason = "Slash command /implement: multi-step implementation"
-	case "test", "debug":
-		filePaths := ftc.extractFilePaths(fullPrompt)
-		if len(filePaths) <= 2 {
-			result.Level = LevelSimpleSingleFile
-			result.Confidence = 85
-			result.Reason = "Slash command /test or /debug: limited scope"
-		} else {
-			result.Level = LevelMediumMultiFile
-			result.Confidence = 80
-			result.Reason = "Slash command /test or /debug: multiple files"
-		}
+
 	default:
 		return ClassificationResult{}, false
 	}

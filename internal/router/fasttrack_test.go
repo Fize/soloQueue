@@ -174,12 +174,6 @@ func TestFastTrackClassifier_SlashCommandOverrides(t *testing.T) {
 			expectedConf:  100,
 		},
 		{
-			name:          "/chat force conversation",
-			prompt:        "/chat hey how are you",
-			expectedLevel: LevelConversation,
-			expectedConf:  100,
-		},
-		{
 			name:          "/l1 force simple",
 			prompt:        "/l1 fix the bug in auth.go",
 			expectedLevel: LevelSimpleSingleFile,
@@ -195,24 +189,6 @@ func TestFastTrackClassifier_SlashCommandOverrides(t *testing.T) {
 			name:          "/l3 force complex",
 			prompt:        "/l3 redesign the entire system",
 			expectedLevel: LevelComplexRefactoring,
-			expectedConf:  100,
-		},
-		{
-			name:          "/max force expert",
-			prompt:        "/max investigate the performance issue",
-			expectedLevel: LevelComplexRefactoring,
-			expectedConf:  100,
-		},
-		{
-			name:          "/expert force expert",
-			prompt:        "/expert analyze race conditions",
-			expectedLevel: LevelComplexRefactoring,
-			expectedConf:  100,
-		},
-		{
-			name:          "/fast force fast",
-			prompt:        "/fast what is a pointer",
-			expectedLevel: LevelConversation,
 			expectedConf:  100,
 		},
 	}

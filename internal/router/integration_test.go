@@ -21,7 +21,7 @@ func TestIntegration_FullRoutingFlow(t *testing.T) {
 		},
 		{
 			name:        "Single file read - single file level",
-			prompt:      "/read main.go",
+			prompt:      "/l1 main.go",
 			expectLevel: LevelSimpleSingleFile,
 			expectModel: "deepseek-v4-flash",
 		},
