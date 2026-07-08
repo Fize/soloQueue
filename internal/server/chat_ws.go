@@ -150,6 +150,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			"- `/cancel` — Cancel current task\n" +
 			"- `/clear` — Clear dialogue history\n" +
 			"- `/compact` — Compact context window (no memory save)\n" +
+			"- `/init` — Create/update AGENTS.md in the project directory (L2 sessions only)\n" +
 			"- `/version` — View version number\n" +
 			"- `/cron <cron_expression/time> <task_instruction>` — Create scheduled task\n" +
 			"- `/l0` — Lock routing level to L0 (conversational)\n" +
@@ -191,6 +192,62 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			Content:          v,
 			ReasoningContent: "",
 		})
+		return
+
+	case lowerTrimmed == "/init":
+		// /init is only available in L2 sessions with a project workDir.
+		workDir := ""
+		if strings.HasPrefix(msg.SessionID, "l2:") {
+			id := strings.TrimPrefix(msg.SessionID, "l2:")
+			if h.mux.l2Store != nil {
+				if entry := h.mux.l2Store.GetEntry(id); entry != nil {
+					if entry.WorkDir != "" {
+						workDir = filepath.Clean(expandTilde(entry.WorkDir))
+					}
+				}
+			}
+		}
+		if workDir == "" {
+			errMsg := "/init is only available in L2 sessions with a project directory. Create an L2 session first."
+			client.sendJSON(WSMessage{
+				Type:      "chat_chunk",
+				RequestID: msg.RequestID,
+				Delta:     errMsg,
+			})
+			client.sendJSON(WSMessage{
+				Type:             "chat_done",
+				RequestID:        msg.RequestID,
+				Content:          errMsg,
+				ReasoningContent: "",
+			})
+			return
+		}
+		if err := session.InitProject(workDir); err != nil {
+			client.sendJSON(WSMessage{
+				Type:      "chat_chunk",
+				RequestID: msg.RequestID,
+				Delta:     "Init failed: " + err.Error(),
+			})
+			client.sendJSON(WSMessage{
+				Type:             "chat_done",
+				RequestID:        msg.RequestID,
+				Content:          "Init failed: " + err.Error(),
+				ReasoningContent: "",
+			})
+		} else {
+			okMsg := "AGENTS.md created/updated in " + workDir
+			client.sendJSON(WSMessage{
+				Type:      "chat_chunk",
+				RequestID: msg.RequestID,
+				Delta:     okMsg,
+			})
+			client.sendJSON(WSMessage{
+				Type:             "chat_done",
+				RequestID:        msg.RequestID,
+				Content:          okMsg,
+				ReasoningContent: "",
+			})
+		}
 		return
 
 	case strings.HasPrefix(lowerTrimmed, "/cron"):

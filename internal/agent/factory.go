@@ -896,6 +896,9 @@ When delegating tasks to L3 Workers via delegate_* tools, you MUST always includ
 BAD: delegate_worker(task="Fix login bug")
 GOOD: delegate_worker(task="Fix login bug", work_dir="/path/to/project")
 
+# 1b. Delegation Efficiency
+Each L3 worker incurs a fixed overhead to load context. When dispatching multiple independent editing tasks, group related changes (same module, same file, same concern) into a single worker. Have that worker apply all changes in batch rather than opening separate workers for each atomic edit.
+
 # 2. Atomic Delegation
 Tasks MUST be deterministic and executable.
 BAD: "Fix the bug in the backend."

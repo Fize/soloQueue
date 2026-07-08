@@ -20,6 +20,14 @@ interface GroupInfo {
   projects: Project[]
 }
 
+// pathsMatch compares two paths, handling both ~/ and expanded home directory forms.
+function pathsMatch(a: string, b: string): boolean {
+  if (a === b) return true
+  // Normalize: strip leading ~ or /Users/xxx prefix, and trailing slash
+  const norm = (p: string) => p.replace(/^~/, '').replace(/^\/Users\/[^/]+/, '').replace(/\/$/, '')
+  return norm(a) === norm(b)
+}
+
 export function SessionTree() {
   const navigate = useNavigate()
   const sessions = useChatStore((s) => s.sessions)
@@ -55,7 +63,7 @@ export function SessionTree() {
     // Find project membership and expand it
     for (const g of groups) {
       for (const p of g.projects) {
-        if (s?.project_path === p.path) {
+        if (s?.project_path && pathsMatch(s.project_path, p.path)) {
           setExpandedProjects((prev) => ({ ...prev, [`${g.name}:${p.id}`]: true }))
         }
       }
@@ -228,7 +236,7 @@ export function SessionTree() {
                       {group.projects.map((proj) => {
                         const projKey = `${group.name}:${proj.id}`
                         const projSessions = groupSessions
-                          .filter((s) => s.project_path === proj.path)
+                          .filter((s) => s.project_path && pathsMatch(s.project_path, proj.path))
                           .sort((a, b) => {
                             const timeA = a.createdAt || (a as any).created_at || ''
                             const timeB = b.createdAt || (b as any).created_at || ''
@@ -291,9 +299,9 @@ export function SessionTree() {
                           </div>
                         )
                       })}
-                      {/* Sessions without a project path (unassociated) */}
+                      {/* Sessions without a matching project path (unassociated) */}
                       {groupSessions
-                        .filter((s) => !s.project_path)
+                        .filter((s) => !s.project_path || !group.projects.some(p => pathsMatch(s.project_path!, p.path)))
                         .sort((a, b) => {
                           const timeA = a.createdAt || (a as any).created_at || ''
                           const timeB = b.createdAt || (b as any).created_at || ''

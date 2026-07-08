@@ -345,7 +345,7 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 
 	switch name {
 	case "/help", "/?":
-		text := "/help — View available commands\n/cancel — Cancel current task\n/clear — Clear dialogue history\n/compact — Compact context window (no memory save)\n/version — View version number"
+		text := "/help — View available commands\n/cancel — Cancel current task\n/clear — Clear dialogue history\n/compact — Compact context window (no memory save)\n/init — Create/update AGENTS.md in project directory (L2 only)\n/version — View version number"
 		b.sendReply(ctx, msg, MsgTypeText, text)
 		return true
 

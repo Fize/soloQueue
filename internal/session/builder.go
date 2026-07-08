@@ -868,6 +868,19 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		s.Router = BuildRouterFunc(b.RT)
 	}
 
+	// Restore last task level from disk so follow-up questions after restart
+	// don't lose their task context (e.g., "这个功能做完了吗" staying at L0).
+	s.levelFile = filepath.Join(tlDir, "level")
+	if data, err := os.ReadFile(s.levelFile); err == nil {
+		level := strings.TrimSpace(string(data))
+		if level != "" {
+			s.SetLastLevel(level)
+			sessLog.Debug(logger.CatApp, "BuildL2: restored task level from disk",
+				"level", level,
+			)
+		}
+	}
+
 	sessLog.Info(logger.CatActor, "BuildL2: session created",
 		"session_id", sessionID,
 		"group", group,
