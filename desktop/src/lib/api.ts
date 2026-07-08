@@ -41,6 +41,21 @@ import { useAuthStore } from "@/stores/authStore";
 
 const API_BASE = "/api";
 
+function getEffectiveBaseUrl(): string {
+  try {
+    const connMode = localStorage.getItem('soloqueue_connection_mode')
+    const remoteUrl = localStorage.getItem('soloqueue_remote_url')
+    if (connMode === 'remote' && remoteUrl) {
+      return remoteUrl.replace(/\/+$/, '')
+    }
+  } catch { /* ignore */ }
+  if (typeof window !== "undefined" && window.location.protocol === "file:") {
+    const port = (window as any).electronAPI?.backendPort || 57647;
+    return `http://127.0.0.1:${port}`;
+  }
+  return "";
+}
+
 function getAuthHeaders(): Record<string, string> {
   return {};
 }
@@ -176,7 +191,9 @@ export async function updateDefaultModels(
 }
 
 export async function getConfigToml(): Promise<string> {
-  const res = await fetch(`${API_BASE}/config/toml`, {
+  const base = getEffectiveBaseUrl();
+  const url = base ? `${base}${API_BASE}/config/toml` : `${API_BASE}/config/toml`;
+  const res = await fetch(url, {
     headers: getAuthHeaders(),
   });
   if (res.status === 401) {
@@ -216,9 +233,9 @@ export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
 // ─── File APIs ──────────────────────────────────────────────────────────────────
 
 export function getFileUrl(path: string): string {
-  if (typeof window !== "undefined" && window.location.protocol === "file:") {
-    const port = (window as any).electronAPI?.backendPort || 57647;
-    return `http://127.0.0.1:${port}${API_BASE}/files/content?path=${encodeURIComponent(path)}`;
+  const base = getEffectiveBaseUrl();
+  if (base) {
+    return `${base}${API_BASE}/files/content?path=${encodeURIComponent(path)}`;
   }
   return `${API_BASE}/files/content?path=${encodeURIComponent(path)}`;
 }
@@ -228,10 +245,11 @@ export async function listFiles(dir: string): Promise<FileInfo[]> {
     "Content-Type": "application/json",
     ...getAuthHeaders(),
   };
-  const res = await fetch(
-    `${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`,
-    { headers },
-  );
+  const base = getEffectiveBaseUrl();
+  const url = base
+    ? `${base}${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`
+    : `${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`;
+  const res = await fetch(url, { headers });
   if (res.status === 401) {
     useAuthStore.getState().logout();
     throw new Error("Unauthorized");
@@ -407,7 +425,9 @@ export async function updateSkill(
 }
 
 export async function getHealthInfo(): Promise<{ status: string; work_dir?: string }> {
-  const res = await fetch("/healthz");
+  const base = getEffectiveBaseUrl();
+  const url = base ? `${base}/healthz` : "/healthz";
+  const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch health info");
   return res.json();
 }
@@ -640,7 +660,9 @@ export async function uploadFile(
     ...getAuthHeaders(),
   };
 
-  const res = await fetch(`${API_BASE}/session/upload`, {
+  const base = getEffectiveBaseUrl();
+  const url = base ? `${base}${API_BASE}/session/upload` : `${API_BASE}/session/upload`;
+  const res = await fetch(url, {
     method: "POST",
     headers,
     body: formData,

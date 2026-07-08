@@ -20,6 +20,10 @@ interface ElectronAPI {
   getAvailableModels: () => Promise<unknown>
   saveL1Config: (modelRef: string) => Promise<{ success: boolean }>
   selectDirectory: () => Promise<string | null>
+
+  // Connection config
+  getConnectionConfig: () => Promise<{ mode: string; remoteUrl: string } | null>
+  saveConnectionConfig: (config: { mode: string; remoteUrl: string }) => Promise<{ success: boolean }>
 }
 
 declare global {

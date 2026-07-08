@@ -19,6 +19,7 @@ import {
   ArrowLeft,
   Bot,
   Plus,
+  Wifi,
 } from 'lucide-react'
 import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
@@ -31,6 +32,7 @@ const mainNav = [
 
 const settingsChildren = [
   { to: '/settings/config', icon: FileText, label: 'Configuration' },
+  { to: '/settings/connection', icon: Wifi, label: 'Connection' },
   { to: '/settings/profile', icon: User, label: 'Profile' },
   { to: '/settings/skills', icon: Sparkles, label: 'Agent Skills' },
   { to: '/settings/mcp', icon: Server, label: 'MCP Services' },

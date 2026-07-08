@@ -52,6 +52,16 @@ type MessageHandler = {
 }
 
 function wsBase(): string {
+  // Check for remote connection mode
+  try {
+    const connMode = localStorage.getItem('soloqueue_connection_mode')
+    const remoteUrl = localStorage.getItem('soloqueue_remote_url')
+    if (connMode === 'remote' && remoteUrl) {
+      const base = remoteUrl.replace(/\/+$/, '')
+      return `${base.replace(/^http/, 'ws')}/ws`
+    }
+  } catch { /* ignore */ }
+
   if (window.location.protocol === 'file:') {
     const port = (window as any).electronAPI?.backendPort || 57647
     return `ws://127.0.0.1:${port}/ws`

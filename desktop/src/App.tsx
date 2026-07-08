@@ -14,6 +14,7 @@ import { SkillsTab } from '@/components/settings/SkillsTab/index'
 import { MCPTab } from '@/components/settings/MCPTab'
 import TeamsTab from '@/components/settings/TeamsTab'
 import { ProjectsTab } from '@/components/settings/ProjectsTab'
+import { ConnectionTab } from '@/components/settings/ConnectionTab'
 import { ChatPage } from '@/components/ChatPage'
 import { AssistantPage } from '@/components/AssistantPage'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -180,6 +181,7 @@ function App() {
                 <Route path="/settings" element={<SettingsLayout />}>
                   <Route index element={<Navigate to="config" replace />} />
                   <Route path="config" element={<ConfigTab />} />
+                  <Route path="connection" element={<ConnectionTab />} />
                   <Route path="profile" element={<ProfileTab />} />
                   <Route path="skills" element={<SkillsTab />} />
                   <Route path="mcp" element={<MCPTab />} />

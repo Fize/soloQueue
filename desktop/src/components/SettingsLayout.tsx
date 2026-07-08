@@ -5,6 +5,7 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 
 const tabLabels: Record<string, string> = {
   '/settings/config': 'Global Configuration Parameters',
+  '/settings/connection': 'Backend Connection & Management',
   '/settings/profile': 'Developer Profile',
   '/settings/skills': 'Agent Skill Control',
   '/settings/mcp': 'MCP Model Context Service',

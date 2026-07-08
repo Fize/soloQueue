@@ -281,6 +281,37 @@ function getBackendStatus() {
   }
 }
 
+// ── Connection Config Persistence (connection.json in work dir) ──
+
+function getConnectionConfigPath() {
+  return path.join(getWorkDir(), 'connection.json')
+}
+
+function readConnectionConfig() {
+  const configPath = getConnectionConfigPath()
+  try {
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf-8')
+      return JSON.parse(raw)
+    }
+  } catch (err) {
+    console.warn('[Electron] Failed to read connection.json:', err.message)
+  }
+  return null
+}
+
+function writeConnectionConfig(config) {
+  const configPath = getConnectionConfigPath()
+  try {
+    fs.mkdirSync(getWorkDir(), { recursive: true })
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+    return true
+  } catch (err) {
+    console.error('[Electron] Failed to write connection.json:', err.message)
+    return false
+  }
+}
+
 // ── Minimal TOML parser (for settings.toml model list) ─────
 function parseSimpleTOML(text) {
   const lines = text.split('\n')
@@ -470,6 +501,16 @@ ipcMain.handle('backend:status', () => {
   return getBackendStatus()
 })
 
+// Connection config
+ipcMain.handle('connection:get-config', () => {
+  return readConnectionConfig()
+})
+
+ipcMain.handle('connection:save-config', (_event, config) => {
+  const ok = writeConnectionConfig(config)
+  return { success: ok }
+})
+
 // Config
 ipcMain.handle('backend:get-available-models', () => {
   return readAvailableModels()
@@ -576,11 +617,16 @@ app.whenReady().then(async () => {
   createWindow()
   createMenu()
 
-  // Start backend on startup
-  try {
-    await spawnGoBackend()
-  } catch (err) {
-    console.error('[Electron] Failed to start backend on startup:', err)
+  // Check connection config before starting backend
+  const connConfig = readConnectionConfig()
+  if (connConfig?.mode === 'remote') {
+    console.log('[Electron] Remote connection mode configured, skipping local backend startup.')
+  } else {
+    try {
+      await spawnGoBackend()
+    } catch (err) {
+      console.error('[Electron] Failed to start backend on startup:', err)
+    }
   }
 
   loadWindowContent()
