@@ -765,24 +765,23 @@ export function ChatPage() {
     return activeSession?.agent_name || activeAgent?.name || "Assistant";
   }, [isL1Session, activeSession, activeAgent]);
 
-  const l1Agent = isL1Session ? groupAgents[0] : null;
-  const l1AgentState = l1Agent?.state;
-  const l1AgentInstanceId = l1Agent?.instance_id || null;
-  const stream = useAgentStream(l1AgentInstanceId);
+  const activeAgentInstanceId = isL1Session ? (groupAgents[0]?.instance_id || null) : (activeAgent?.instance_id || null);
+  const activeAgentState = isL1Session ? groupAgents[0]?.state : activeAgent?.state;
+  const stream = useAgentStream(activeAgentInstanceId);
 
-  const prevL1AgentState = useRef<string | undefined>(undefined);
+  const prevAgentState = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (isL1Session && l1AgentState) {
-      const wasProcessing = prevL1AgentState.current === "processing";
-      const isDoneProcessing = l1AgentState !== "processing";
+    if (activeSessionId && activeAgentState) {
+      const wasProcessing = prevAgentState.current === "processing";
+      const isDoneProcessing = activeAgentState !== "processing";
       if (wasProcessing && isDoneProcessing) {
-        loadHistory("l1");
-      } else if (!prevL1AgentState.current) {
-        loadHistory("l1");
+        loadHistory(activeSessionId);
+      } else if (!prevAgentState.current) {
+        loadHistory(activeSessionId);
       }
     }
-    prevL1AgentState.current = l1AgentState;
-  }, [isL1Session, l1AgentState, loadHistory]);
+    prevAgentState.current = activeAgentState;
+  }, [activeSessionId, activeAgentState, loadHistory]);
 
   const streamChatSegments = useMemo(() => {
     if (!stream?.segments) return [];
@@ -805,8 +804,7 @@ export function ChatPage() {
 
   const finalMessages = useMemo(() => {
     if (
-      isL1Session &&
-      l1AgentState === "processing" &&
+      activeAgentState === "processing" &&
       !streaming &&
       streamChatSegments.length > 0
     ) {
@@ -825,8 +823,7 @@ export function ChatPage() {
     return currentMessages;
   }, [
     currentMessages,
-    isL1Session,
-    l1AgentState,
+    activeAgentState,
     streaming,
     streamChatSegments,
   ]);

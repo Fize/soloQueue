@@ -96,6 +96,10 @@ let mainWindow = null
 let goProcess = null
 let backendStartTime = null
 let externalGoInstance = false // Flag to track if Go was already running
+let intentionalClose = false
+let restartAttempts = 0
+const MAX_RESTART_ATTEMPTS = 5
+let restartTimer = null
 const isDev = !app.isPackaged && !process.env.ELECTRON_PROD
 const BACKEND_PORT = isDev ? 8765 : 57647
 
@@ -165,6 +169,7 @@ function checkPortActive(port) {
 
 // ── Backend lifecycle ──────────────────────────────────────
 async function spawnGoBackend() {
+  intentionalClose = false
   // 1. Check if Go backend is already running on the port
   const isActive = await checkPortActive(BACKEND_PORT)
   if (isActive) {
@@ -200,15 +205,40 @@ async function spawnGoBackend() {
       env: { ...process.env, SOLOQUEUE_WORK_DIR: workDir },
     })
 
-    goProcess.on('exit', () => {
+    const handleUnexpectedExit = (code, signal) => {
       goProcess = null
       backendStartTime = null
       sendBackendStatus(false)
+
+      const connConfig = readConnectionConfig()
+      const isRemote = connConfig?.mode === 'remote'
+
+      if (!intentionalClose && !externalGoInstance && !isRemote) {
+        if (restartAttempts < MAX_RESTART_ATTEMPTS) {
+          restartAttempts++
+          const delay = Math.min(1000 * Math.pow(2, restartAttempts - 1), 10000)
+          console.log(`[Electron] Go backend exited unexpectedly (code: ${code}, signal: ${signal}). Auto-restarting in ${delay}ms... (attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS})`)
+          
+          if (restartTimer) clearTimeout(restartTimer)
+          restartTimer = setTimeout(async () => {
+            const res = await spawnGoBackend()
+            if (res.success) {
+              console.log(`[Electron] Go backend successfully restarted by watchdog.`)
+              restartAttempts = 0
+            }
+          }, delay)
+        } else {
+          console.error(`[Electron] Go backend failed to restart after ${MAX_RESTART_ATTEMPTS} attempts. Auto-restart disabled.`)
+        }
+      }
+    }
+
+    goProcess.on('exit', (code, signal) => {
+      handleUnexpectedExit(code, signal)
     })
-    goProcess.on('error', () => {
-      goProcess = null
-      backendStartTime = null
-      sendBackendStatus(false)
+    goProcess.on('error', (err) => {
+      console.error(`[Electron] Go backend process error:`, err)
+      handleUnexpectedExit(null, null)
     })
 
     // Poll health until ready (max ~10s, 500ms interval)
@@ -466,15 +496,27 @@ ipcMain.on('backend:get-port-sync', (event) => {
 
 // ── IPC handlers ───────────────────────────────────────────
 ipcMain.handle('backend:start', async () => {
+  restartAttempts = 0
   return await spawnGoBackend()
 })
 
 ipcMain.handle('backend:stop', async () => {
+  intentionalClose = true
+  if (restartTimer) {
+    clearTimeout(restartTimer)
+    restartTimer = null
+  }
   killGoProcess()
   return { success: true }
 })
 
 ipcMain.handle('backend:restart', async () => {
+  intentionalClose = false
+  restartAttempts = 0
+  if (restartTimer) {
+    clearTimeout(restartTimer)
+    restartTimer = null
+  }
   killGoProcess()
   await new Promise((r) => setTimeout(r, 1000))
   return await spawnGoBackend()

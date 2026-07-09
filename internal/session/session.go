@@ -991,7 +991,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	}
 
 	// -- Create cancellable askCtx --
-	askCtx, askCancel := context.WithTimeout(ctx, 20*time.Minute)
+	askCtx, askCancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Minute)
 	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
 
 	// Resize and push user prompt atomically (both hold cw.Lock)
@@ -1086,46 +1086,90 @@ enqueued:
 		var gotDone bool
 		var eventCount int
 
+		clientDisconnected := false
 		for {
 			var ev agent.AgentEvent
-			select {
-			case e, ok := <-srcCh:
-				if !ok {
-					goto done
+			if clientDisconnected {
+				select {
+				case e, ok := <-srcCh:
+					if !ok {
+						goto done
+					}
+					ev = e
+				case <-askCtx.Done():
+					// askCtx cancelled: remove user prompt, mark cancelled
+					// Note: do not stop agent. Agent's internal merged ctx is already cancelled with askCtx,
+					// streamLoop will detect ctx.Err() in the next iteration and exit automatically.
+					s.cancelled.Store(true)
+					s.mu.Lock()
+					s.cw.PopLast()
+					s.mu.Unlock()
+
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
+						"session_id", s.ID,
+						"events_processed", eventCount,
+						"duration_ms", time.Since(start).Milliseconds(),
+					)
+					return
 				}
-				ev = e
-			case <-askCtx.Done():
-				// askCtx cancelled: remove user prompt, mark cancelled
-				// Note: do not stop agent. Agent's internal merged ctx is already cancelled with askCtx,
-				// streamLoop will detect ctx.Err() in the next iteration and exit automatically.
-				s.cancelled.Store(true)
-				s.mu.Lock()
-				s.cw.PopLast()
-				s.mu.Unlock()
+			} else {
+				select {
+				case e, ok := <-srcCh:
+					if !ok {
+						goto done
+					}
+					ev = e
+				case <-askCtx.Done():
+					// askCtx cancelled: remove user prompt, mark cancelled
+					// Note: do not stop agent. Agent's internal merged ctx is already cancelled with askCtx,
+					// streamLoop will detect ctx.Err() in the next iteration and exit automatically.
+					s.cancelled.Store(true)
+					s.mu.Lock()
+					s.cw.PopLast()
+					s.mu.Unlock()
 
-				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
-					"session_id", s.ID,
-					"events_processed", eventCount,
-					"duration_ms", time.Since(start).Milliseconds(),
-				)
-				return
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
+						"session_id", s.ID,
+						"events_processed", eventCount,
+						"duration_ms", time.Since(start).Milliseconds(),
+					)
+					return
+				case <-ctx.Done():
+					clientDisconnected = true
+					continue
+				}
 			}
-			select {
-			case out <- ev:
-				eventCount++
-			case <-askCtx.Done():
-				// askCtx cancelled: remove user prompt, mark cancelled
-				s.cancelled.Store(true)
-				s.mu.Lock()
-				s.cw.PopLast()
-				s.mu.Unlock()
+			if clientDisconnected {
+				select {
+				case out <- ev:
+					eventCount++
+				default:
+				}
+			} else {
+				select {
+				case out <- ev:
+					eventCount++
+				case <-askCtx.Done():
+					// askCtx cancelled: remove user prompt, mark cancelled
+					s.cancelled.Store(true)
+					s.mu.Lock()
+					s.cw.PopLast()
+					s.mu.Unlock()
 
-				s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
-					"session_id", s.ID,
-					"events_processed", eventCount,
-					"duration_ms", time.Since(start).Milliseconds(),
-				)
-				return
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
+						"session_id", s.ID,
+						"events_processed", eventCount,
+						"duration_ms", time.Since(start).Milliseconds(),
+					)
+					return
+				case <-ctx.Done():
+					clientDisconnected = true
+					select {
+					case out <- ev:
+						eventCount++
+					default:
+					}
+				}
 			}
 
 			switch e := ev.(type) {
