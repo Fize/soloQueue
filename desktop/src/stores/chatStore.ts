@@ -160,7 +160,18 @@ export const useChatStore = create<ChatState>((set) => ({
         if (current && current.length > 0 && s.streamingSessions[sessionId]) {
           return {}
         }
+        const updatedSessions = s.sessions.map((sess) => {
+          if (sess.id === sessionId) {
+            return {
+              ...sess,
+              ctxwin_used: data.ctxwin_used !== undefined ? data.ctxwin_used : sess.ctxwin_used,
+              ctxwin_limit: data.ctxwin_limit !== undefined ? data.ctxwin_limit : sess.ctxwin_limit,
+            }
+          }
+          return sess
+        })
         return {
+          sessions: updatedSessions,
           messages: { ...s.messages, [sessionId]: msgs },
           historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
           historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
@@ -204,7 +215,18 @@ export const useChatStore = create<ChatState>((set) => ({
       }))
       set((s) => {
         const current = s.messages[sessionId] || []
+        const updatedSessions = s.sessions.map((sess) => {
+          if (sess.id === sessionId) {
+            return {
+              ...sess,
+              ctxwin_used: data.ctxwin_used !== undefined ? data.ctxwin_used : sess.ctxwin_used,
+              ctxwin_limit: data.ctxwin_limit !== undefined ? data.ctxwin_limit : sess.ctxwin_limit,
+            }
+          }
+          return sess
+        })
         return {
+          sessions: updatedSessions,
           messages: { ...s.messages, [sessionId]: [...olderMsgs, ...current] },
           historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
           historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },

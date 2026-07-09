@@ -974,6 +974,8 @@ export interface SessionHistoryResponse {
   messages: SessionHistoryMessage[];
   has_more: boolean;
   cursor?: string;
+  ctxwin_used?: number;
+  ctxwin_limit?: number;
 }
 
 // ─── Session Changes / Diff Types ───────────────────────────────────────────

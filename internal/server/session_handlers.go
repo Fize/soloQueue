@@ -882,11 +882,25 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var dir string
+	var ctxwinUsed, ctxwinLimit int
 	if sessionID == "l1" {
 		dir = filepath.Join(m.workDir, "logs", "timelines", "default")
+		if m.sessionMgr != nil && m.sessionMgr.Session() != nil {
+			ctxwinUsed, ctxwinLimit, _ = m.sessionMgr.Session().CW().TokenUsage()
+		}
 	} else {
 		id := strings.TrimPrefix(sessionID, "l2:")
 		dir = filepath.Join(m.workDir, "logs", "timelines", "l2-"+id)
+		if m.l2Store != nil {
+			// Get activates the L2 session (which replays history and calculates token usage)
+			sess, err := m.l2Store.Get(r.Context(), id)
+			if err == nil && sess != nil && sess.CW() != nil {
+				ctxwinUsed, ctxwinLimit, _ = sess.CW().TokenUsage()
+			} else {
+				// Fallback if activation fails or is not yet initialized
+				ctxwinLimit = m.l2Store.DefaultContextLimit()
+			}
+		}
 	}
 
 	allEvents, err := readAllTimelineEvents(dir)
@@ -1144,9 +1158,11 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"messages": msgs,
-		"has_more": hasMore,
-		"cursor":   cursor,
+		"messages":     msgs,
+		"has_more":     hasMore,
+		"cursor":       cursor,
+		"ctxwin_used":  ctxwinUsed,
+		"ctxwin_limit": ctxwinLimit,
 	})
 }
 
