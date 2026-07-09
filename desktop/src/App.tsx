@@ -15,6 +15,7 @@ import { MCPTab } from '@/components/settings/MCPTab'
 import TeamsTab from '@/components/settings/TeamsTab'
 import { ProjectsTab } from '@/components/settings/ProjectsTab'
 import { ConnectionTab } from '@/components/settings/ConnectionTab'
+import { StatsTab } from '@/components/settings/StatsTab'
 import { ChatPage } from '@/components/ChatPage'
 import { AssistantPage } from '@/components/AssistantPage'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -187,6 +188,7 @@ function App() {
                   <Route path="mcp" element={<MCPTab />} />
                   <Route path="teams" element={<TeamsTab />} />
                   <Route path="projects" element={<ProjectsTab />} />
+                  <Route path="stats" element={<StatsTab />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

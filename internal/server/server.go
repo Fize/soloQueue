@@ -48,6 +48,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -80,6 +81,7 @@ type Mux struct {
 	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
 	simEngine      *simulation.SimulationEngine
+	sharedDB       *sqlitedb.DB     // for metric reporting
 }
 
 // reloadGroups loads groups. If teamstore is available, loads from DB;
@@ -256,6 +258,11 @@ func WithL2SessionStore(store *session.L2SessionStore) MuxOption {
 // WithSimulationEngine sets the simulation engine for /api/simulations endpoints.
 func WithSimulationEngine(engine *simulation.SimulationEngine) MuxOption {
 	return func(m *Mux) { m.simEngine = engine }
+}
+
+// WithSharedDB sets the SQLite DB for token and router stats.
+func WithSharedDB(db *sqlitedb.DB) MuxOption {
+	return func(m *Mux) { m.sharedDB = db }
 }
 
 // SetHub sets the WebSocket Hub after construction. This is useful when the
@@ -497,6 +504,12 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			})
 		})
 	}
+
+	// Stats routes
+	r.Route("/api/stats", func(r chi.Router) {
+		r.Get("/tokens", m.handleGetTokenStats)
+		r.Get("/router", m.handleGetRouterStats)
+	})
 
 	// MCP config routes
 	r.Get("/api/mcp", m.handleGetMCPConfig)

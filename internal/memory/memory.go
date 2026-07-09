@@ -148,7 +148,10 @@ func (m *Manager) mergeAndSummarize(ctx context.Context, existing, conversationT
 		MaxTokens:   2048,
 		Temperature: 0.0,
 	}
-	resp, err := m.llm.Chat(ctx, req)
+	teamID, _ := agent.TelemetryFromContext(ctx)
+	memCtx := agent.WithTelemetryContext(ctx, teamID, agent.UsageMemory)
+
+	resp, err := m.llm.Chat(memCtx, req)
 	if err != nil {
 		return "", fmt.Errorf("memory merge: %w", err)
 	}

@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 15
+const currentSchemaVersion = 16
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -434,6 +434,27 @@ func (d *DB) migrate() error {
 		// v14 -> v15: add vision column to llm_models table.
 		`
 		ALTER TABLE llm_models ADD COLUMN vision INTEGER NOT NULL DEFAULT 0;
+		`,
+		// v15 -> v16: add usage_metrics table for tracking token and router stats.
+		`
+		CREATE TABLE IF NOT EXISTS usage_metrics (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+			metric_category TEXT NOT NULL,
+			usage_type TEXT NOT NULL DEFAULT '',
+			team_id TEXT NOT NULL DEFAULT '',
+			model_name TEXT NOT NULL DEFAULT '',
+			prompt_tokens INTEGER NOT NULL DEFAULT 0,
+			completion_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
+			cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+			classification_level TEXT NOT NULL DEFAULT '',
+			classification_source TEXT NOT NULL DEFAULT ''
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_usage_metrics_timestamp ON usage_metrics(timestamp);
+		CREATE INDEX IF NOT EXISTS idx_usage_metrics_team ON usage_metrics(team_id, usage_type);
 		`,
 	}
 

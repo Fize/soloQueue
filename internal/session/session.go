@@ -330,6 +330,9 @@ func (s *Session) CW() *ctxwin.ContextWindow {
 // the user's conversation history or being confused by stale context.
 // All system logs (actor/llm/tool) are still written normally.
 func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	// Inject telemetry context
+	ctx = agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageChat)
+
 	if s.closed.Load() {
 		return nil, ErrSessionClosed
 	}
@@ -638,6 +641,9 @@ func (s *Session) checkAutoClear() {
 //   - Failure: PopLast removes the user prompt just pushed
 //   - ctx cancellation propagates to agent; Session does not manage timeout.
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
+	// Inject telemetry context
+	ctx = agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageChat)
+
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session closed")
 		return "", ErrSessionClosed
@@ -740,6 +746,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 	trimmed := strings.TrimSpace(prompt)
 	lowerTrimmed := strings.ToLower(trimmed)
+
+	// Inject telemetry context
+	ctx = agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageChat)
 
 	// ── Pre-inFlight slash command intercept (always immediate, never queued) ──
 	switch lowerTrimmed {
@@ -930,7 +939,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				"level", result.Level,
 			)
 		} else {
-			result, err = s.Router(ctx, prompt, priorLevel, s.cw.BuildPayload())
+			routerCtx := agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageRouter)
+			result, err = s.Router(routerCtx, prompt, priorLevel, s.cw.BuildPayload())
 			if err != nil {
 				s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
 					"session_id", s.ID,

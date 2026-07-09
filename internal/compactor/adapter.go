@@ -42,7 +42,10 @@ func (a *AgentChatClient) Chat(ctx context.Context, req ChatRequest) (*ChatRespo
 		})
 	}
 
-	resp, err := a.Client.Chat(ctx, agent.LLMRequest{
+	teamID, _ := agent.TelemetryFromContext(ctx)
+	compactorCtx := agent.WithTelemetryContext(ctx, teamID, agent.UsageCompactor)
+
+	resp, err := a.Client.Chat(compactorCtx, agent.LLMRequest{
 		ProviderID: req.ProviderID,
 		Model:      req.Model,
 		Messages:   msgs,

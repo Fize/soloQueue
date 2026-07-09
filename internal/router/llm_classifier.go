@@ -216,6 +216,7 @@ func parseLLMClassifyResponse(content string) ClassificationResult {
 		return ClassificationResult{
 			Level:      LevelSimpleSingleFile,
 			Confidence: 50,
+			Source:     "remote",
 			Reason:     "LLM response parse error; defaulting to L1",
 		}
 	}
@@ -250,6 +251,7 @@ func parseLLMClassifyResponse(content string) ClassificationResult {
 	return ClassificationResult{
 		Level:      level,
 		Confidence: confidence,
+		Source:     "remote",
 		Reason:     reason,
 	}
 }

@@ -368,7 +368,7 @@ func (bc *buildContext) buildLLMClient() error {
 		if err != nil {
 			return fmt.Errorf("build llm client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = client
+		clients[prov.ID] = agent.NewTelemetryClient(client, bc.sharedDB)
 	}
 
 	if len(clients) == 0 {

@@ -20,6 +20,7 @@ import {
   Bot,
   Plus,
   Wifi,
+  BarChart2,
 } from 'lucide-react'
 import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
@@ -38,6 +39,7 @@ const settingsChildren = [
   { to: '/settings/mcp', icon: Server, label: 'MCP Services' },
   { to: '/settings/teams', icon: Users, label: 'Team Management' },
   { to: '/settings/projects', icon: FolderOpen, label: 'Projects' },
+  { to: '/settings/stats', icon: BarChart2, label: 'Usage Statistics' },
 ]
 
 interface SidebarProps {

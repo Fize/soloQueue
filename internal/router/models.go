@@ -62,6 +62,9 @@ type ClassificationResult struct {
 	// Confidence is a score from 0-100 indicating classification confidence
 	Confidence int
 
+	// Source indicates where the classification came from ("local" or "remote")
+	Source string
+
 	// RecommendedModel is the suggested model for this task
 	RecommendedModel string
 

@@ -84,6 +84,7 @@ func (ftc *FastTrackClassifier) Classify(prompt string) ClassificationResult {
 	result := ClassificationResult{
 		Level:                LevelSimpleSingleFile, // safe default
 		Confidence:           0,
+		Source:               "local",
 		RequiresConfirmation: false,
 	}
 

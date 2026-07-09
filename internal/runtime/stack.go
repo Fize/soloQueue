@@ -280,7 +280,7 @@ func (s *Stack) OnConfigChange() error {
 		if err != nil {
 			return fmt.Errorf("failed to rebuild LLM client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = client
+		clients[prov.ID] = agent.NewTelemetryClient(client, s.SharedDB)
 	}
 
 	if len(clients) == 0 {

@@ -711,3 +711,39 @@ export async function saveFile(path: string, content: string): Promise<void> {
     body: JSON.stringify({ path, content }),
   });
 }
+
+// ─── Stats APIs ───────────────────────────────────────────────────────────────
+
+export interface TokenStat {
+  period: string
+  usage_type: string
+  team_id: string
+  model_name: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  cache_hit_tokens: number
+  cache_miss_tokens: number
+}
+
+export interface RouterStat {
+  period: string
+  classification_source: string
+  classification_level: string
+  count: number
+}
+
+export async function getTokenStats(timeframe: string, teamId?: string): Promise<TokenStat[]> {
+  const query = new URLSearchParams()
+  query.append('timeframe', timeframe)
+  if (teamId) query.append('team_id', teamId)
+  return request<TokenStat[]>(`/stats/tokens?${query.toString()}`)
+}
+
+export async function getRouterStats(timeframe: string, teamId?: string): Promise<RouterStat[]> {
+  const query = new URLSearchParams()
+  query.append('timeframe', timeframe)
+  if (teamId) query.append('team_id', teamId)
+  return request<RouterStat[]>(`/stats/router?${query.toString()}`)
+}
+

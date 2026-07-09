@@ -1,10 +1,27 @@
 package runtime
 
 import (
+	"context"
 	"path/filepath"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 )
+
+type simChatClient struct {
+	inner agent.LLMClient
+}
+
+func (s *simChatClient) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResponse, error) {
+	simCtx := agent.WithTelemetryContext(ctx, "unknown", agent.UsageSimulation)
+	return s.inner.Chat(simCtx, req)
+}
+
+func (s *simChatClient) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan llm.Event, error) {
+	simCtx := agent.WithTelemetryContext(ctx, "unknown", agent.UsageSimulation)
+	return s.inner.ChatStream(simCtx, req)
+}
 
 func (bc *buildContext) buildSimulationEngine() error {
 	if bc.agentFactory == nil || bc.agentRegistry == nil {
@@ -47,7 +64,7 @@ func (bc *buildContext) buildSimulationEngine() error {
 	bc.simEngine = simulation.NewSimulationEngine(
 		bc.agentFactory,
 		bc.agentRegistry,
-		bc.llmClient,
+		&simChatClient{inner: bc.llmClient},
 		bc.toolsCfg,
 		simCfg,
 		bc.log,

@@ -199,6 +199,7 @@ func ServeCmd(version string) *cobra.Command {
 				return nil
 			}),
 			server.WithSimulationEngine(rt.SimulationEngine),
+			server.WithSharedDB(rt.SharedDB),
 		)
 
 		// Create and start WebSocket Hub for real-time state updates.

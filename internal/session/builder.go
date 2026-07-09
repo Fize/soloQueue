@@ -581,6 +581,22 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 		if err != nil {
 			return RouteResult{}, err
 		}
+
+		if rt.SharedDB != nil {
+			teamID, _ := agent.TelemetryFromContext(ctx)
+			bgCtx := context.Background()
+			
+			go func() {
+				_ = rt.SharedDB.InsertRouterClassification(
+					bgCtx,
+					agent.UsageRouter, // usageType
+					teamID,
+					decision.Level.String(),
+					decision.Classification.Source,
+				)
+			}()
+		}
+
 		return RouteResult{
 			ProviderID:      decision.ProviderID,
 			ModelID:         decision.ModelID,
