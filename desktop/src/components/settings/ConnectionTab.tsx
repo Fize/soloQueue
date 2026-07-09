@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback } from 'react'
 import { useConnectionStore, type BackendStatus } from '@/stores/connectionStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,64 +14,16 @@ import {
   Loader2,
   Server,
   ExternalLink,
-  Terminal,
   Circle,
 } from 'lucide-react'
 
 const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI
-
-// ─── Backend Logs Panel ──────────────────────────────────────────────────────
-
-function BackendLogs() {
-  const logs = useConnectionStore((s) => s.backendLogs)
-  const clearLogs = useConnectionStore((s) => s.clearBackendLogs)
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [logs])
-
-  if (logs.length === 0) return null
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-foreground/70 flex items-center gap-1.5">
-          <Terminal className="h-3 w-3" />
-          Backend Logs
-        </h3>
-        <button
-          onClick={clearLogs}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Clear
-        </button>
-      </div>
-      <div
-        ref={scrollRef}
-        className="bg-card/80 border border-border/40 rounded-md max-h-40 overflow-y-auto p-2"
-      >
-        {logs.map((line, i) => (
-          <div
-            key={i}
-            className="text-xs font-mono text-muted-foreground leading-relaxed whitespace-pre-wrap break-all"
-          >
-            {line}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 // ─── Backend Management Section ──────────────────────────────────────────────
 
 function BackendManagement() {
   const backendStatus = useConnectionStore((s) => s.backendStatus)
   const setBackendStatus = useConnectionStore((s) => s.setBackendStatus)
-  const appendBackendLog = useConnectionStore((s) => s.appendBackendLog)
 
   // Poll backend status and listen for push events
   useEffect(() => {
@@ -84,7 +36,6 @@ function BackendManagement() {
 
     // Push events
     const unsubStatus = ea.onBackendStatusChanged((s: BackendStatus) => setBackendStatus(s))
-    const unsubLog = ea.onBackendLog((line: string) => appendBackendLog(line))
 
     // Periodic polling fallback
     const interval = setInterval(async () => {
@@ -96,10 +47,9 @@ function BackendManagement() {
 
     return () => {
       unsubStatus()
-      unsubLog()
       clearInterval(interval)
     }
-  }, [setBackendStatus, appendBackendLog])
+  }, [setBackendStatus])
 
   const handleStart = async () => {
     if (!isElectron) return
@@ -220,8 +170,6 @@ function BackendManagement() {
         </Button>
       </div>
 
-      {/* Logs */}
-      <BackendLogs />
     </div>
   )
 }
@@ -231,8 +179,12 @@ function BackendManagement() {
 function ConnectionModeSection() {
   const mode = useConnectionStore((s) => s.mode)
   const remoteUrl = useConnectionStore((s) => s.remoteUrl)
+  const username = useConnectionStore((s) => s.username)
+  const password = useConnectionStore((s) => s.password)
   const setMode = useConnectionStore((s) => s.setMode)
   const setRemoteUrl = useConnectionStore((s) => s.setRemoteUrl)
+  const setUsername = useConnectionStore((s) => s.setUsername)
+  const setPassword = useConnectionStore((s) => s.setPassword)
 
   return (
     <div className="space-y-4">
@@ -272,22 +224,50 @@ function ConnectionModeSection() {
         </p>
       </div>
 
-      {/* Remote URL input */}
+      {/* Remote URL and Credentials input */}
       {mode === 'remote' && (
-        <div>
-          <label className="text-xs font-semibold text-foreground/70 mb-2 block">
-            Remote Backend URL
-          </label>
-          <Input
-            value={remoteUrl}
-            onChange={(e) => setRemoteUrl(e.target.value)}
-            placeholder="http://remote-server:57647"
-            className="font-mono text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1.5">
-            Enter the full URL of the remote backend (e.g., http://192.168.1.100:57647).
-            All API and WebSocket connections will be routed to this address.
-          </p>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-foreground/70 mb-2 block">
+              Remote Backend URL
+            </label>
+            <Input
+              value={remoteUrl}
+              onChange={(e) => setRemoteUrl(e.target.value)}
+              placeholder="http://remote-server:57647"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Enter the full URL of the remote backend (e.g., http://192.168.1.100:57647).
+              All API and WebSocket connections will be routed to this address.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-foreground/70 mb-2 block">
+                Username (Optional)
+              </label>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="admin"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground/70 mb-2 block">
+                Password (Optional)
+              </label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="font-mono text-sm"
+              />
+            </div>
+          </div>
         </div>
       )}
 

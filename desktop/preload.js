@@ -19,11 +19,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('backend:status-changed', handler)
     return () => ipcRenderer.removeListener('backend:status-changed', handler)
   },
-  onBackendLog: (callback) => {
-    const handler = (_event, line) => callback(line)
-    ipcRenderer.on('backend:log', handler)
-    return () => ipcRenderer.removeListener('backend:log', handler)
-  },
 
   // Config
   getAvailableModels: () => ipcRenderer.invoke('backend:get-available-models'),

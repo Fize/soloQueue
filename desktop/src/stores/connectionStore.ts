@@ -4,6 +4,8 @@ export type ConnectionMode = 'local' | 'remote'
 
 const MODE_KEY = 'soloqueue_connection_mode'
 const REMOTE_URL_KEY = 'soloqueue_remote_url'
+const USERNAME_KEY = 'soloqueue_remote_username'
+const PASSWORD_KEY = 'soloqueue_remote_password'
 
 function getStoredMode(): ConnectionMode {
   try {
@@ -20,6 +22,20 @@ function getStoredRemoteUrl(): string {
   return ''
 }
 
+function getStoredUsername(): string {
+  try {
+    return localStorage.getItem(USERNAME_KEY) || ''
+  } catch { /* ignore */ }
+  return ''
+}
+
+function getStoredPassword(): string {
+  try {
+    return localStorage.getItem(PASSWORD_KEY) || ''
+  } catch { /* ignore */ }
+  return ''
+}
+
 export interface BackendStatus {
   running: boolean
   pid: string | number | null
@@ -29,15 +45,16 @@ export interface BackendStatus {
 interface ConnectionState {
   mode: ConnectionMode
   remoteUrl: string
+  username: string
+  password: string
   backendStatus: BackendStatus
-  backendLogs: string[]
   saving: boolean
 
   setMode: (mode: ConnectionMode) => void
   setRemoteUrl: (url: string) => void
+  setUsername: (username: string) => void
+  setPassword: (password: string) => void
   setBackendStatus: (status: BackendStatus) => void
-  appendBackendLog: (line: string) => void
-  clearBackendLogs: () => void
   setSaving: (saving: boolean) => void
 
   /** Save connection config to persistent storage (localStorage + file via IPC). */
@@ -56,8 +73,9 @@ interface ConnectionState {
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   mode: getStoredMode(),
   remoteUrl: getStoredRemoteUrl(),
+  username: getStoredUsername(),
+  password: getStoredPassword(),
   backendStatus: { running: false, pid: null, uptime: null },
-  backendLogs: [],
   saving: false,
 
   setMode: (mode) => {
@@ -70,23 +88,32 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     set({ remoteUrl: url })
   },
 
+  setUsername: (username) => {
+    localStorage.setItem(USERNAME_KEY, username)
+    set({ username })
+  },
+
+  setPassword: (password) => {
+    localStorage.setItem(PASSWORD_KEY, password)
+    set({ password })
+  },
+
   setBackendStatus: (status) => set({ backendStatus: status }),
-  appendBackendLog: (line) =>
-    set((s) => ({ backendLogs: [...s.backendLogs.slice(-199), line] })),
-  clearBackendLogs: () => set({ backendLogs: [] }),
   setSaving: (saving) => set({ saving }),
 
   saveConfig: async () => {
     set({ saving: true })
     try {
-      const { mode, remoteUrl } = get()
+      const { mode, remoteUrl, username, password } = get()
       // Persist to localStorage (always)
       localStorage.setItem(MODE_KEY, mode)
       localStorage.setItem(REMOTE_URL_KEY, remoteUrl)
+      localStorage.setItem(USERNAME_KEY, username)
+      localStorage.setItem(PASSWORD_KEY, password)
       // Persist to work-dir JSON file via Electron IPC
       const ea = (window as any).electronAPI
       if (ea?.saveConnectionConfig) {
-        await ea.saveConnectionConfig({ mode, remoteUrl })
+        await ea.saveConnectionConfig({ mode, remoteUrl, username, password })
       }
     } finally {
       set({ saving: false })
@@ -101,16 +128,30 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         if (config) {
           const mode: ConnectionMode = config.mode === 'remote' ? 'remote' : 'local'
           const remoteUrl = config.remoteUrl || ''
+          const username = config.username || ''
+          const password = config.password || ''
           localStorage.setItem(MODE_KEY, mode)
           localStorage.setItem(REMOTE_URL_KEY, remoteUrl)
-          set({ mode, remoteUrl })
+          localStorage.setItem(USERNAME_KEY, username)
+          localStorage.setItem(PASSWORD_KEY, password)
+          set({ mode, remoteUrl, username, password })
           return
         }
       }
       // Fallback to localStorage
-      set({ mode: getStoredMode(), remoteUrl: getStoredRemoteUrl() })
+      set({
+        mode: getStoredMode(),
+        remoteUrl: getStoredRemoteUrl(),
+        username: getStoredUsername(),
+        password: getStoredPassword()
+      })
     } catch {
-      set({ mode: getStoredMode(), remoteUrl: getStoredRemoteUrl() })
+      set({
+        mode: getStoredMode(),
+        remoteUrl: getStoredRemoteUrl(),
+        username: getStoredUsername(),
+        password: getStoredPassword()
+      })
     }
   },
 

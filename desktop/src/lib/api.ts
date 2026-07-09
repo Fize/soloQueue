@@ -57,6 +57,16 @@ function getEffectiveBaseUrl(): string {
 }
 
 function getAuthHeaders(): Record<string, string> {
+  try {
+    const connMode = localStorage.getItem('soloqueue_connection_mode')
+    const username = localStorage.getItem('soloqueue_remote_username')
+    const password = localStorage.getItem('soloqueue_remote_password')
+    if (connMode === 'remote' && username && password) {
+      return {
+        Authorization: 'Basic ' + btoa(`${username}:${password}`),
+      }
+    }
+  } catch { /* ignore */ }
   return {};
 }
 

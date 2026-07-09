@@ -196,26 +196,9 @@ async function spawnGoBackend() {
     // Bind to 127.0.0.1 via default flag in serve command
     goProcess = spawn(binary, ['serve', '--port', String(BACKEND_PORT), '--host', '127.0.0.1', '--verbose'], {
       cwd: workDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: 'ignore',
       env: { ...process.env, SOLOQUEUE_WORK_DIR: workDir },
     })
-
-    if (goProcess.stdout) {
-      goProcess.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n').filter(Boolean)
-        lines.forEach((line) => {
-          mainWindow?.webContents.send('backend:log', line)
-        })
-      })
-    }
-    if (goProcess.stderr) {
-      goProcess.stderr.on('data', (data) => {
-        const lines = data.toString().split('\n').filter(Boolean)
-        lines.forEach((line) => {
-          mainWindow?.webContents.send('backend:log', line)
-        })
-      })
-    }
 
     goProcess.on('exit', () => {
       goProcess = null

@@ -16,14 +16,13 @@ interface ElectronAPI {
   onBackendStatusChanged: (
     callback: (status: { running: boolean; pid: string | number | null; uptime: number | null }) => void
   ) => () => void
-  onBackendLog: (callback: (line: string) => void) => () => void
   getAvailableModels: () => Promise<unknown>
   saveL1Config: (modelRef: string) => Promise<{ success: boolean }>
   selectDirectory: () => Promise<string | null>
 
   // Connection config
-  getConnectionConfig: () => Promise<{ mode: string; remoteUrl: string } | null>
-  saveConnectionConfig: (config: { mode: string; remoteUrl: string }) => Promise<{ success: boolean }>
+  getConnectionConfig: () => Promise<{ mode: string; remoteUrl: string; username?: string; password?: string } | null>
+  saveConnectionConfig: (config: { mode: string; remoteUrl: string; username?: string; password?: string }) => Promise<{ success: boolean }>
 }
 
 declare global {
