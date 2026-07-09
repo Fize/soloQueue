@@ -128,7 +128,9 @@ func (db *DB) GetTokenUsageAggregated(ctx context.Context, timeframe string, tea
 
 	args := []interface{}{MetricCategoryTokenUsage}
 
-	if teamID != "" {
+	if teamID == "__solo__" {
+		query += " AND team_id = ''"
+	} else if teamID != "" {
 		query += " AND team_id = ?"
 		args = append(args, teamID)
 	}
@@ -198,7 +200,9 @@ func (db *DB) GetRouterStatsAggregated(ctx context.Context, timeframe string, te
 	whereClause := "WHERE metric_category = ?"
 	args := []any{MetricCategoryRouterClassification}
 
-	if teamID != "" {
+	if teamID == "__solo__" {
+		whereClause += " AND team_id = ''"
+	} else if teamID != "" {
 		whereClause += " AND team_id = ?"
 		args = append(args, teamID)
 	}
@@ -239,4 +243,26 @@ func (db *DB) GetRouterStatsAggregated(ctx context.Context, timeframe string, te
 	}
 
 	return results, nil
+}
+
+// GetDistinctTeams returns all distinct non-empty team_id values from usage_metrics.
+func (db *DB) GetDistinctTeams(ctx context.Context) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT team_id FROM usage_metrics WHERE team_id != '' AND team_id IS NOT NULL ORDER BY team_id`)
+	if err != nil {
+		return nil, fmt.Errorf("query distinct teams: %w", err)
+	}
+	defer rows.Close()
+
+	var teams []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, fmt.Errorf("scan team: %w", err)
+		}
+		teams = append(teams, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+	return teams, nil
 }

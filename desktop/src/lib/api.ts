@@ -747,3 +747,7 @@ export async function getRouterStats(timeframe: string, teamId?: string): Promis
   return request<RouterStat[]>(`/stats/router?${query.toString()}`)
 }
 
+export async function getStatTeams(): Promise<string[]> {
+  return request<string[]>("/stats/teams")
+}
+

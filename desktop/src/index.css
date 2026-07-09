@@ -1,51 +1,51 @@
 @import 'tailwindcss';
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.light *));
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical (&[data-orientation="vertical"]);
 
-/* ─── Apple HIG Color Tokens ────────────────────────────────────────── */
+/* ─── SoloQueue V2 Brand Tokens (Warm Clay) ─────────────────────────── */
 @theme {
-  --color-primary: #7c3aed;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #f4f4f5;
-  --color-secondary-foreground: #18181b;
-  --color-background: #ffffff;
-  --color-foreground: #09090b;
-  --color-card: #ffffff;
-  --color-card-foreground: #09090b;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #09090b;
-  --color-muted: #f4f4f5;
-  --color-muted-foreground: #71717a;
-  --color-accent: #f4f4f5;
-  --color-accent-foreground: #09090b;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-  --color-border: rgba(0, 0, 0, 0.08);
-  --color-input: rgba(0, 0, 0, 0.08);
-  --color-ring: rgba(124, 58, 237, 0.3);
-  --color-success: #10b981;
-  --color-success-foreground: #ffffff;
-  --color-warning: #f59e0b;
-  --color-warning-foreground: #ffffff;
-  --color-surface-secondary: #f2f2f7;
+  --color-primary: #B85C4A;
+  --color-primary-foreground: #EBE8E3;
+  --color-secondary: rgba(255,255,255, 0.04);
+  --color-secondary-foreground: #EBE8E3;
+  --color-background: #1B1A18;
+  --color-foreground: #EBE8E3;
+  --color-card: #262523;
+  --color-card-foreground: #EBE8E3;
+  --color-popover: #262523;
+  --color-popover-foreground: #EBE8E3;
+  --color-muted: rgba(255,255,255, 0.04);
+  --color-muted-foreground: #96938E;
+  --color-accent: rgba(184,92,74, 0.12);
+  --color-accent-foreground: #B85C4A;
+  --color-destructive: #B03A32;
+  --color-destructive-foreground: #EBE8E3;
+  --color-border: rgba(255,255,255, 0.07);
+  --color-input: rgba(255,255,255, 0.07);
+  --color-ring: rgba(184,92,74, 0.30);
+  --color-success: #3D8C5E;
+  --color-success-foreground: #EBE8E3;
+  --color-warning: #C4883D;
+  --color-warning-foreground: #EBE8E3;
+  --color-surface-secondary: #262523;
 
-  /* Apple Corner Radii Curvatures */
-  --radius-lg: 13px; /* Cards, sheets, dialogs */
-  --radius-md: 10px; /* Standard buttons, navigation selections */
-  --radius-sm: 8px;  /* Inputs, small buttons */
-  --radius-xl: 20px; /* Large cards */
+  /* SoloQueue V2 Radii */
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+  --radius-xl: 12px;
 
-  /* Cross-Platform Typography */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "Cascadia Code", "Segoe UI Mono", monospace;
+  /* SoloQueue V2 Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Iosevka Custom', ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
 }
 
 /* ─── Color Variables ───────────────────────────────────────────────── */
 :root {
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "Cascadia Code", "Segoe UI Mono", monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Iosevka Custom', ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
   /* Fallbacks for legacy/third-party var(--...) usage pointing to theme colors */
   --primary: var(--color-primary);
   --primary-foreground: var(--color-primary-foreground);
@@ -71,36 +71,36 @@
   --warning: var(--color-warning);
   --warning-foreground: var(--color-warning-foreground);
 
-  color-scheme: light;
+  color-scheme: dark;
 }
 
-.dark {
-  --color-primary: #8b5cf6;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #27272a;
-  --color-secondary-foreground: #fafafa;
-  --color-muted: #27272a;
-  --color-muted-foreground: #a1a1aa;
-  --color-accent: #27272a;
-  --color-accent-foreground: #fafafa;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-  --color-border: rgba(255, 255, 255, 0.1);
-  --color-input: rgba(255, 255, 255, 0.1);
-  --color-ring: rgba(139, 92, 246, 0.4);
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --color-card: #09090b;
-  --color-card-foreground: #fafafa;
-  --color-popover: #09090b;
-  --color-popover-foreground: #fafafa;
-  --color-success: #34d399;
-  --color-success-foreground: #ffffff;
-  --color-warning: #fbbf24;
-  --color-warning-foreground: #ffffff;
-  --color-surface-secondary: #1c1c1e;
+.light {
+  --color-primary: #A04D3E;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: rgba(0,0,0, 0.03);
+  --color-secondary-foreground: #1F1E1B;
+  --color-background: #F2EFEA;
+  --color-foreground: #1F1E1B;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #1F1E1B;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1F1E1B;
+  --color-muted: rgba(0,0,0, 0.03);
+  --color-muted-foreground: #787570;
+  --color-accent: rgba(160,77,62, 0.08);
+  --color-accent-foreground: #A04D3E;
+  --color-destructive: #B03A32;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: rgba(0,0,0, 0.08);
+  --color-input: rgba(0,0,0, 0.08);
+  --color-ring: rgba(160,77,62, 0.25);
+  --color-success: #3D8C5E;
+  --color-success-foreground: #FFFFFF;
+  --color-warning: #B8782E;
+  --color-warning-foreground: #FFFFFF;
+  --color-surface-secondary: #F2EFEA;
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 /* ─── Global Electron Shell Rules ───────────────────────────────────── */
@@ -159,7 +159,7 @@ body {
   background-color: rgba(255, 255, 255, 0.72);
 }
 
-.dark .mac-vibrancy {
+.light .mac-vibrancy {
   backdrop-filter: blur(20px) saturate(140%);
   background-color: rgba(9, 9, 11, 0.75);
 }

@@ -29,6 +29,7 @@ const mainNav = [
   { to: '/simulations', icon: Play, label: 'Simulations' },
   { to: '/cron', icon: Clock, label: 'Scheduled Tasks' },
   { to: '/assistant', icon: Bot, label: 'Assistant' },
+  { to: '/stats', icon: BarChart2, label: 'Usage Statistics' },
 ]
 
 const settingsChildren = [
@@ -39,7 +40,6 @@ const settingsChildren = [
   { to: '/settings/mcp', icon: Server, label: 'MCP Services' },
   { to: '/settings/teams', icon: Users, label: 'Team Management' },
   { to: '/settings/projects', icon: FolderOpen, label: 'Projects' },
-  { to: '/settings/stats', icon: BarChart2, label: 'Usage Statistics' },
 ]
 
 interface SidebarProps {
@@ -62,7 +62,8 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
 
   useEffect(() => {
     const onChatRoute = location.pathname.startsWith('/chat') || location.pathname === '/new-chat' || location.pathname.startsWith('/agents')
-    setChatOpen(onChatRoute)
+    // auto-expand when on a chat route, but never auto-collapse
+    if (onChatRoute) setChatOpen(true)
     if (location.pathname.startsWith('/settings')) {
       setViewMode('settings')
     } else {

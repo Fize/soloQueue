@@ -8,7 +8,7 @@
    ════════════════════════════════════════════════ */
 :root {
   /* Primary — Indigo */
-  --md-primary: #635bff;
+  --md-primary: #5950e8;
   --md-on-primary: #ffffff;
   --md-primary-container: #e8e0ff;
   --md-on-primary-container: #1a0080;
@@ -61,10 +61,10 @@
   --md-success: #2e7d32;
   --md-on-success: #ffffff;
   --md-success-container: #a5d6a7;
-  --md-warning: #ed6c02;
+  --md-warning: #a64d00;
   --md-on-warning: #ffffff;
   --md-warning-container: #ffe2b3;
-  --md-info: #0288d1;
+  --md-info: #016591;
   --md-on-info: #ffffff;
   --md-info-container: #b3e5fc;
 

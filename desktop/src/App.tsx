@@ -179,6 +179,15 @@ function App() {
                 <Route path="/cron" element={<CronPage />} />
                 <Route path="/simulations" element={<SimulationListPage />} />
                 <Route path="/simulations/:id" element={<SimulationDetailPage />} />
+                <Route path="/stats" element={
+                  <div className="h-full w-full overflow-y-auto bg-background">
+                    <div className="flex justify-center p-6 md:p-8">
+                      <div className="w-full max-w-5xl space-y-6">
+                        <StatsTab />
+                      </div>
+                    </div>
+                  </div>
+                } />
                 <Route path="/settings" element={<SettingsLayout />}>
                   <Route index element={<Navigate to="config" replace />} />
                   <Route path="config" element={<ConfigTab />} />
