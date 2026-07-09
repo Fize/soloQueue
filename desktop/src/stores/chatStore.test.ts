@@ -6,12 +6,12 @@ beforeEach(() => {
     sessions: [],
     activeSessionId: null,
     messages: {},
-    streaming: false,
+    streamingSessions: {},
     delegating: false,
     titleGenerated: {},
     historyLoading: {},
     historyHasMore: {},
-    pendingHistory: {},
+    historyCursor: {},
   })
   vi.clearAllMocks()
 })
@@ -62,7 +62,7 @@ describe('chatStore', () => {
     })
 
     // Update first tool call (which is not in the last message)
-    useChatStore.getState().updateToolCallResult('call-1', 'result-1', undefined, 100)
+    useChatStore.getState().updateToolCallResult(sid, 'call-1', 'result-1', undefined, 100)
 
     const msgs = useChatStore.getState().messages[sid]
     expect(msgs).toBeDefined()
@@ -78,7 +78,7 @@ describe('chatStore', () => {
     })
 
     // Update second tool call (which is in the last message)
-    useChatStore.getState().updateToolCallResult('call-2', 'result-2', 'error-2', 200)
+    useChatStore.getState().updateToolCallResult(sid, 'call-2', 'result-2', 'error-2', 200)
     const updatedMsgs = useChatStore.getState().messages[sid]
     expect(updatedMsgs[2].segments[0]).toEqual({
       type: 'tool_call',

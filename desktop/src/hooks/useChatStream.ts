@@ -43,7 +43,7 @@ export function useChatStream() {
 
       // Add user message — always show in the UI.
       const msgId = `msg-${Date.now()}`
-      addMessage({
+      addMessage(sid, {
         id: msgId,
         role: 'user',
         segments: [{ type: 'content', text: prompt }],
@@ -55,7 +55,7 @@ export function useChatStream() {
       // The server's PendingQueue will inject it into the context window
       // on the next agent iteration. No new handler or assistant needed.
       const isDesignMode = useRuntimeStore.getState().isDesignMode
-      if (state.streaming && state.streamingSessionId === sid) {
+      if (state.streamingSessions[sid]) {
         wsManager.send({
           type: 'chat_send',
           request_id: generateRequestId(),
@@ -75,7 +75,7 @@ export function useChatStream() {
 
       // Add empty assistant message placeholder.
       const asstId = `msg-${Date.now() + 1}`
-      addMessage({
+      addMessage(sid, {
         id: asstId,
         role: 'assistant',
         segments: [],
@@ -92,7 +92,7 @@ export function useChatStream() {
       const finishRequest = () => {
         if (finished) return
         finished = true
-        setStreaming(false)
+        setStreaming(false, sid)
         setDelegating(false)
         activeRequestIdRef.current = null
         wsManager.unregisterChat(requestId)
@@ -100,14 +100,14 @@ export function useChatStream() {
 
       const handler: ChatHandler = {
         onChunk: (delta) => {
-          appendToLastAssistantContent(delta)
+          appendToLastAssistantContent(sid, delta)
           if (shouldGenTitle) finalContent += delta
         },
         onReasoning: (delta) => {
-          appendToLastAssistantThinking(delta)
+          appendToLastAssistantThinking(sid, delta)
         },
         onToolStart: (data) => {
-          updateLastAssistantSegment({
+          updateLastAssistantSegment(sid, {
             type: 'tool_call',
             callId: data.call_id,
             name: data.name,
@@ -118,6 +118,7 @@ export function useChatStream() {
         },
         onToolDone: (data) => {
           updateToolCallResult(
+            sid,
             data.call_id,
             data.result,
             data.error || undefined,
@@ -125,7 +126,7 @@ export function useChatStream() {
           )
         },
         onToolConfirm: (data) => {
-          updateLastAssistantSegment({
+          updateLastAssistantSegment(sid, {
             type: 'tool_confirm',
             callId: data.call_id,
             name: data.name,
@@ -151,7 +152,7 @@ export function useChatStream() {
           finishRequest()
         },
         onError: (error) => {
-          updateLastAssistantSegment({ type: 'error', text: error })
+          updateLastAssistantSegment(sid, { type: 'error', text: error })
           finishRequest()
         },
         onDelegationStart: () => {
@@ -159,7 +160,7 @@ export function useChatStream() {
         },
         onDelegationDone: (data) => {
           setDelegating(false)
-          completeLastDelegation(data.target_agent_id, data.duration_ms, data.result_content)
+          completeLastDelegation(sid, data.target_agent_id, data.duration_ms, data.result_content)
         },
         onClose: () => {
           finishRequest()
@@ -207,8 +208,8 @@ export function useChatStream() {
       session_id: activeSessionId!,
     })
 
-    removeLastEmptyAssistantMessage()
-    setStreaming(false)
+    removeLastEmptyAssistantMessage(activeSessionId!)
+    setStreaming(false, activeSessionId!)
     setDelegating(false)
     wsManager.unregisterChat(requestId)
     activeRequestIdRef.current = null

@@ -29,9 +29,10 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 export interface ChatMessageProps {
   message: ChatMessage
   agentName?: string
+  onUserInteraction?: () => void
 }
 
-export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessageProps) {
+export function ChatMessageView({ message, agentName = 'Assistant', onUserInteraction }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
@@ -81,7 +82,14 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
               <div className="space-y-2">
                 {groupSegments(message.segments).map((item) => {
                   if (item.type === 'worked') {
-                    return <WorkedSegment key={item.id} group={item} isUser={isUser} />
+                    return (
+                      <WorkedSegment
+                        key={item.id}
+                        group={item}
+                        isUser={isUser}
+                        onUserInteraction={onUserInteraction}
+                      />
+                    )
                   } else {
                     return (
                       <SegmentView
@@ -90,6 +98,7 @@ export function ChatMessageView({ message, agentName = 'Assistant' }: ChatMessag
                         isUser={isUser}
                         segmentIndex={item.index}
                         segments={message.segments}
+                        onUserInteraction={onUserInteraction}
                       />
                     )
                   }
@@ -254,21 +263,38 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
   return grouped
 }
 
-function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boolean }) {
-  const streaming = useChatStore((s) => s.streaming)
+function WorkedSegment({
+  group,
+  isUser,
+  onUserInteraction,
+}: {
+  group: GroupedWorked
+  isUser?: boolean
+  onUserInteraction?: () => void
+}) {
+  const streamingSessions = useChatStore((s) => s.streamingSessions)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
-  const [doneKey, setDoneKey] = useState(0)
-  const prevStreaming = useRef(streaming)
 
   const isDone = !group.isLast || (group.isLast && !streaming)
 
+  const [isOpen, setIsOpen] = useState(!isDone)
+  const hasManuallyToggled = useRef(false)
+
+  // Sync isOpen with isDone only if not manually toggled
   useEffect(() => {
-    if (prevStreaming.current && !streaming) {
-      setDoneKey((k) => k + 1)
+    if (!hasManuallyToggled.current) {
+      setIsOpen(!isDone)
     }
-    prevStreaming.current = streaming
-  }, [streaming])
+  }, [isDone])
+
+  // Reset manual toggle when active session changes
+  useEffect(() => {
+    hasManuallyToggled.current = false
+    setIsOpen(!isDone)
+  }, [activeSessionId])
 
   const label = 'worked'
 
@@ -282,8 +308,14 @@ function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boole
     : ''
 
   return (
-    <details className="group/worked" open={!isDone} key={doneKey}>
+    <details className="group/worked" open={isOpen}>
       <summary
+        onClick={(e) => {
+          e.preventDefault()
+          hasManuallyToggled.current = true
+          setIsOpen(!isOpen)
+          onUserInteraction?.()
+        }}
         className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors ${compact ? 'py-0.5' : 'py-1'} text-muted-foreground hover:text-foreground/70`}
       >
         {!isDone ? (
@@ -323,7 +355,11 @@ function WorkedSegment({ group, isUser }: { group: GroupedWorked; isUser?: boole
           } else if (segment.type === 'tool_call') {
             return (
               <div key={idx} className="my-1.5">
-                <ToolCallSegment segment={segment} isUser={isUser} />
+                <ToolCallSegment
+                  segment={segment}
+                  isUser={isUser}
+                  onUserInteraction={onUserInteraction}
+                />
               </div>
             )
           }
@@ -339,11 +375,13 @@ function SegmentView({
   isUser,
   segmentIndex,
   segments,
+  onUserInteraction,
 }: {
   segment: ChatMessage['segments'][number]
   isUser?: boolean
   segmentIndex?: number
   segments?: ChatMessage['segments']
+  onUserInteraction?: () => void
 }) {
   const isLastSegment =
     segmentIndex != null && segments != null && segmentIndex === segments.length - 1
@@ -356,7 +394,13 @@ function SegmentView({
         />
       )
     case 'thinking':
-      return <ThinkingSegment segment={segment} isLastSegment={isLastSegment} />
+      return (
+        <ThinkingSegment
+          segment={segment}
+          isLastSegment={isLastSegment}
+          onUserInteraction={onUserInteraction}
+        />
+      )
     case 'tool_call':
       if (segment.name.startsWith('delegate_')) {
         const teamName = segment.name.substring(9).replace(/_/g, ' ')
@@ -393,7 +437,13 @@ function SegmentView({
           />
         )
       }
-      return <ToolCallSegment segment={segment} isUser={isUser} />
+      return (
+        <ToolCallSegment
+          segment={segment}
+          isUser={isUser}
+          onUserInteraction={onUserInteraction}
+        />
+      )
     case 'tool_confirm':
       return <ToolConfirmSegment segment={segment} isUser={isUser} />
     case 'delegation':
@@ -571,32 +621,48 @@ function SubagentCard({
 function ThinkingSegment({
   segment,
   isLastSegment = true,
+  onUserInteraction,
 }: {
   segment: Extract<ChatMessage['segments'][number], { type: 'thinking' }>
   isLastSegment?: boolean
+  onUserInteraction?: () => void
 }) {
-  const streaming = useChatStore((s) => s.streaming)
+  const streamingSessions = useChatStore((s) => s.streamingSessions)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
-  const [doneKey, setDoneKey] = useState(0)
-  const prevStreaming = useRef(streaming)
 
   // A thinking segment is done when:
   //   a) there are subsequent segments (LLM moved on to content/tool_call), OR
   //   b) it's the last segment but the global stream has ended
   const isDone = !isLastSegment || (isLastSegment && !streaming)
 
-  // When streaming transitions from true → false, remount details as closed
+  const [isOpen, setIsOpen] = useState(!isDone)
+  const hasManuallyToggled = useRef(false)
+
+  // Sync isOpen with isDone only if not manually toggled
   useEffect(() => {
-    if (prevStreaming.current && !streaming) {
-      setDoneKey((k) => k + 1)
+    if (!hasManuallyToggled.current) {
+      setIsOpen(!isDone)
     }
-    prevStreaming.current = streaming
-  }, [streaming])
+  }, [isDone])
+
+  // Reset manual toggle when active session changes
+  useEffect(() => {
+    hasManuallyToggled.current = false
+    setIsOpen(!isDone)
+  }, [activeSessionId])
 
   return (
-    <details className="group/thinking" open={!isDone} key={doneKey}>
+    <details className="group/thinking" open={isOpen}>
       <summary
+        onClick={(e) => {
+          e.preventDefault()
+          hasManuallyToggled.current = true
+          setIsOpen(!isOpen)
+          onUserInteraction?.()
+        }}
         className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors ${compact ? 'py-0.5' : 'py-1'} text-muted-foreground hover:text-foreground/70`}
       >
         {!isDone ? (
@@ -629,9 +695,11 @@ function ThinkingSegment({
 function ToolCallSegment({
   segment,
   isUser,
+  onUserInteraction,
 }: {
   segment: Extract<ChatMessage['segments'][number], { type: 'tool_call' }>
   isUser?: boolean
+  onUserInteraction?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
@@ -643,7 +711,10 @@ function ToolCallSegment({
       className={`text-xs border rounded-xl overflow-hidden w-full border-border/60 bg-muted/20`}
     >
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          setExpanded(!expanded)
+          onUserInteraction?.()
+        }}
         className={`flex items-center gap-2 w-full ${compact ? 'px-2 py-1.5' : 'px-3 py-2'} transition-colors text-muted-foreground hover:text-foreground`}
       >
         {running ? (
@@ -912,7 +983,7 @@ function ToolConfirmSegment({
     const choice = approved ? (allowAlways ? 'allow-in-session' : 'yes') : ''
     try {
       await confirmSessionTool(activeSessionId, segment.callId, choice)
-      resolveToolConfirm(segment.callId, choice)
+      resolveToolConfirm(activeSessionId, segment.callId, choice)
     } catch (err) {
       console.error('Failed to confirm tool:', err)
       toast.error('Failed to confirm tool')

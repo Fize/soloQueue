@@ -87,7 +87,7 @@ export function ChatPage() {
   const {
     activeSessionId,
     messages,
-    streaming,
+    streamingSessions,
     delegating,
     sessions,
     historyHasMore,
@@ -103,6 +103,7 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const loadingMore = useRef(false);
+  const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
   const isProgrammaticScrolling = useRef(false);
 
@@ -908,6 +909,10 @@ export function ChatPage() {
 
   const lastScrolledSessionId = useRef<string | null>(null);
 
+  const handleUserInteraction = useCallback(() => {
+    userScrolledUp.current = true;
+  }, []);
+
   // Reset scroll state on session change
   useEffect(() => {
     userScrolledUp.current = false;
@@ -916,14 +921,19 @@ export function ChatPage() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    let prevScrollTop = el.scrollTop;
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
       const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
       if (isNearBottom) {
         userScrolledUp.current = false;
-      } else if (!isProgrammaticScrolling.current) {
-        userScrolledUp.current = true;
+      } else {
+        // If scrollTop decreased, the user scrolled up.
+        if (scrollTop < prevScrollTop) {
+          userScrolledUp.current = true;
+        }
       }
+      prevScrollTop = scrollTop;
 
       const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false;
       const isLoading = activeSessionId
@@ -948,16 +958,13 @@ export function ChatPage() {
 
   useEffect(() => {
     if (userScrolledUp.current) return;
-    // Use instant scroll (no animation) when not streaming.
-    // During streaming, smooth scroll to follow live content.
     isProgrammaticScrolling.current = true;
     bottomRef.current?.scrollIntoView({
-      behavior: streaming ? "smooth" : "auto",
+      behavior: "auto",
     });
-    const delay = streaming ? 800 : 100;
     const timer = setTimeout(() => {
       isProgrammaticScrolling.current = false;
-    }, delay);
+    }, 100);
 
     if (finalMessages.length > 0) {
       lastScrolledSessionId.current = activeSessionId;
@@ -1261,6 +1268,7 @@ export function ChatPage() {
                         key={msg.id}
                         message={msg}
                         agentName={agentDisplayName}
+                        onUserInteraction={handleUserInteraction}
                       />
                     ))}
 

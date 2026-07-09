@@ -15,7 +15,7 @@ export function AssistantPage() {
   const {
     activeSessionId,
     messages,
-    streaming,
+    streamingSessions,
     delegating,
     historyHasMore,
     historyLoading,
@@ -29,6 +29,10 @@ export function AssistantPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
   const userScrolledUpRef = useRef(false);
+
+  const handleUserInteraction = useCallback(() => {
+    userScrolledUpRef.current = true;
+  }, []);
 
   const [skills, setSkills] = useState<SkillInfo[]>([]);
 
@@ -58,6 +62,7 @@ export function AssistantPage() {
   const agentsData = useAgentStore((state) => state.agents);
   const runtimeStatus = useRuntimeStore((state) => state.status);
   const connectionStatus = useRuntimeStore((state) => state.connectionStatus);
+  const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const sidebarCollapsed = useRuntimeStore((state) => state.sidebarCollapsed);
 
   const agentName = useMemo(() => {
@@ -107,10 +112,19 @@ export function AssistantPage() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    let prevScrollTop = el.scrollTop;
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
       const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      userScrolledUpRef.current = !isNearBottom;
+      if (isNearBottom) {
+        userScrolledUpRef.current = false;
+      } else {
+        // If scrollTop decreased, the user scrolled up.
+        if (scrollTop < prevScrollTop) {
+          userScrolledUpRef.current = true;
+        }
+      }
+      prevScrollTop = scrollTop;
 
       if (
         scrollTop < 50 &&
@@ -171,7 +185,7 @@ export function AssistantPage() {
   useEffect(() => {
     if (userScrolledUpRef.current) return;
     bottomRef.current?.scrollIntoView({
-      behavior: streaming ? "smooth" : "auto",
+      behavior: "auto",
     });
   }, [contentSum, streaming]);
 
@@ -297,6 +311,7 @@ export function AssistantPage() {
                   key={msg.id}
                   message={msg}
                   agentName={agentName}
+                  onUserInteraction={handleUserInteraction}
                 />
               ))}
             </div>

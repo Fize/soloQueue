@@ -7,8 +7,7 @@ interface ChatState {
   sessions: ChatSession[]
   activeSessionId: string | null
   messages: Record<string, ChatMessage[]> // keyed by session id
-  streaming: boolean
-  streamingSessionId: string | null
+  streamingSessions: Record<string, boolean>
   delegating: boolean // true when async delegation is in progress (L1 waiting for L2)
   titleGenerated: Record<string, boolean> // track which sessions already had title generated
   historyLoading: Record<string, boolean> // track which sessions are loading history
@@ -25,11 +24,12 @@ interface ChatState {
   updateSessionPlans: (id: string, plans: string[]) => void
   markTitleGenerated: (id: string) => void
 
-  addMessage: (message: ChatMessage) => void
-  updateLastAssistantSegment: (segment: ChatSegment) => void
-  appendToLastAssistantContent: (text: string) => void
-  appendToLastAssistantThinking: (text: string) => void
+  addMessage: (sessionId: string, message: ChatMessage) => void
+  updateLastAssistantSegment: (sessionId: string, segment: ChatSegment) => void
+  appendToLastAssistantContent: (sessionId: string, text: string) => void
+  appendToLastAssistantThinking: (sessionId: string, text: string) => void
   updateToolCallResult: (
+    sessionId: string,
     callId: string,
     result: string,
     error?: string,
@@ -37,10 +37,10 @@ interface ChatState {
   ) => void
   setStreaming: (v: boolean, sessionId?: string | null) => void
   setDelegating: (v: boolean) => void
-  removeLastEmptyAssistantMessage: () => void
-  addDelegationSegment: (delegation: { agentName: string; task: string }) => void
-  completeLastDelegation: (agentName: string, durationMs?: number, resultContent?: string) => void
-  resolveToolConfirm: (callId: string, choice: string) => void
+  removeLastEmptyAssistantMessage: (sessionId: string) => void
+  addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => void
+  completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => void
+  resolveToolConfirm: (sessionId: string, callId: string, choice: string) => void
 }
 
 const PAGE_SIZE = 30 // number of messages to load per page
@@ -49,8 +49,7 @@ export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   activeSessionId: null,
   messages: {},
-  streaming: false,
-  streamingSessionId: null,
+  streamingSessions: {},
   delegating: false,
   titleGenerated: {},
   historyLoading: {},
@@ -140,7 +139,7 @@ export const useChatStore = create<ChatState>((set) => ({
 
   loadHistory: async (sessionId: string) => {
     const state = useChatStore.getState()
-    if (state.streamingSessionId === sessionId) {
+    if (state.streamingSessions[sessionId]) {
       return
     }
     set((s) => ({
@@ -157,7 +156,7 @@ export const useChatStore = create<ChatState>((set) => ({
       set((s) => {
         // Don't overwrite messages that were added by a racing send().
         const current = s.messages[sessionId]
-        if (current && current.length > 0 && s.streamingSessionId === sessionId) {
+        if (current && current.length > 0 && s.streamingSessions[sessionId]) {
           return {}
         }
         return {
@@ -171,7 +170,7 @@ export const useChatStore = create<ChatState>((set) => ({
       set((s) => {
         // Don't clear messages that were added by a racing send().
         const current = s.messages[sessionId]
-        if (current && current.length > 0 && s.streamingSessionId === sessionId) {
+        if (current && current.length > 0 && s.streamingSessions[sessionId]) {
           return {}
         }
         return {
@@ -237,21 +236,21 @@ export const useChatStore = create<ChatState>((set) => ({
     }))
   },
 
-  addMessage: (message: ChatMessage) => {
+  addMessage: (sessionId: string, message: ChatMessage) => {
     set((s) => {
-      const msgs = s.messages[s.activeSessionId || ''] || []
+      const msgs = s.messages[sessionId] || []
       return {
         messages: {
           ...s.messages,
-          [s.activeSessionId || '']: [...msgs, message],
+          [sessionId]: [...msgs, message],
         },
       }
     })
   },
 
-  updateLastAssistantSegment: (segment: ChatSegment) => {
+  updateLastAssistantSegment: (sessionId: string, segment: ChatSegment) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
       if (!last || last.role !== 'assistant') return s
@@ -260,9 +259,9 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  appendToLastAssistantContent: (text: string) => {
+  appendToLastAssistantContent: (sessionId: string, text: string) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
       if (!last || last.role !== 'assistant') return s
@@ -279,9 +278,9 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  appendToLastAssistantThinking: (text: string) => {
+  appendToLastAssistantThinking: (sessionId: string, text: string) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
       if (!last || last.role !== 'assistant') return s
@@ -298,9 +297,9 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  updateToolCallResult: (callId: string, result: string, error?: string, durationMs?: number) => {
+  updateToolCallResult: (sessionId: string, callId: string, result: string, error?: string, durationMs?: number) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
 
       let found = false
@@ -333,15 +332,21 @@ export const useChatStore = create<ChatState>((set) => ({
   },
 
   setStreaming: (v: boolean, sessionId?: string | null) =>
-    set((s) => ({
-      streaming: v,
-      streamingSessionId: v ? (sessionId || s.activeSessionId) : null,
-    })),
+    set((s) => {
+      const id = sessionId || s.activeSessionId
+      if (!id) return s
+      return {
+        streamingSessions: {
+          ...s.streamingSessions,
+          [id]: v,
+        },
+      }
+    }),
   setDelegating: (v: boolean) => set({ delegating: v }),
 
-  removeLastEmptyAssistantMessage: () => {
+  removeLastEmptyAssistantMessage: (sessionId: string) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = s.messages[sid] || []
       if (msgs.length === 0) return s
       const last = msgs[msgs.length - 1]
@@ -352,9 +357,9 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  addDelegationSegment: (delegation: { agentName: string; task: string }) => {
+  addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
       if (!last || last.role !== 'assistant') return s
@@ -373,9 +378,9 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  completeLastDelegation: (agentName: string, durationMs?: number, resultContent?: string) => {
+  completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
       if (!last || last.role !== 'assistant') return s
@@ -418,9 +423,9 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  resolveToolConfirm: (callId: string, choice: string) => {
+  resolveToolConfirm: (sessionId: string, callId: string, choice: string) => {
     set((s) => {
-      const sid = s.activeSessionId || ''
+      const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
       if (!last || last.role !== 'assistant') return s

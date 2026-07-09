@@ -32,7 +32,7 @@ export function SessionTree() {
   const navigate = useNavigate()
   const sessions = useChatStore((s) => s.sessions)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const streaming = useChatStore((s) => s.streaming)
+  const streamingSessions = useChatStore((s) => s.streamingSessions)
   const loadSessions = useChatStore((s) => s.loadSessions)
   const createL2Session = useChatStore((s) => s.createL2Session)
   const deleteL2Session = useChatStore((s) => s.deleteL2Session)
@@ -157,7 +157,7 @@ export function SessionTree() {
   const handleDelete = useCallback(
     async (e: React.MouseEvent, id: string) => {
       e.stopPropagation()
-      if (streaming) return
+      if (streamingSessions[id]) return
       await deleteL2Session(id)
       if (activeSessionId === id) {
         const remaining = sessions.filter((s) => s.id !== id && s.type === 'l2')
@@ -173,7 +173,7 @@ export function SessionTree() {
         }
       }
     },
-    [streaming, deleteL2Session, activeSessionId, sessions, navigate]
+    [streamingSessions, deleteL2Session, activeSessionId, sessions, navigate]
   )
 
   const toggleGroup = (name: string) =>
@@ -219,7 +219,7 @@ export function SessionTree() {
                     e.stopPropagation()
                     handleNewSession(group.name)
                   }}
-                  disabled={creating === group.name || streaming}
+                  disabled={creating === group.name}
                   className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/header:opacity-100"
                   title={`New chat in ${group.name || 'this group'}`}
                 >
@@ -267,7 +267,7 @@ export function SessionTree() {
                                   e.stopPropagation()
                                   handleNewSession(group.name, proj.path)
                                 }}
-                                disabled={creating === projKey || streaming}
+                                disabled={creating === projKey}
                                 className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/proj:opacity-100"
                                 title={`New chat in ${proj.name}`}
                               >
@@ -290,7 +290,7 @@ export function SessionTree() {
                                           navigate(`/chat/${s.id}`)
                                         }}
                                         onDelete={(e) => handleDelete(e, s.id)}
-                                        disabled={streaming}
+                                        disabled={!!streamingSessions[s.id]}
                                         indent={2}
                                     />
                                   ))}
@@ -319,7 +319,7 @@ export function SessionTree() {
                               navigate(`/chat/${s.id}`)
                             }}
                             onDelete={(e) => handleDelete(e, s.id)}
-                            disabled={streaming}
+                            disabled={!!streamingSessions[s.id]}
                             indent={1}
                           />
                         ))}
@@ -339,7 +339,7 @@ export function SessionTree() {
                             navigate(`/chat/${s.id}`)
                           }}
                           onDelete={(e) => handleDelete(e, s.id)}
-                          disabled={streaming}
+                          disabled={!!streamingSessions[s.id]}
                           indent={1}
                         />
                       ))}
