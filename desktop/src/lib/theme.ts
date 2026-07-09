@@ -45,3 +45,13 @@ export function listenSystemTheme(): () => void {
   mq.addEventListener('change', handler)
   return () => mq.removeEventListener('change', handler)
 }
+
+/** Global code and text preview layout/typography config for consistency. */
+export const CODE_PREVIEW_CONFIG = {
+  fontSize: '0.8125rem', // 13px
+  lineHeight: '1.6',
+  fontFamily: 'var(--font-mono)',
+  padding: '0.75rem 1rem',
+  borderRadius: '0.5rem',
+}
+

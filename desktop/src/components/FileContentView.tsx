@@ -5,7 +5,9 @@ import { getFileUrl, toggleFileCheckbox } from '@/lib/api'
 import { Loader2, FileIcon, Copy, Check, MousePointer2, Edit3, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { useIsDarkMode } from '@/hooks/useIsDarkMode'
+import { CODE_PREVIEW_CONFIG } from '@/lib/theme'
 import { DesignPreview } from './DesignPreview'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import type { PreviewCommentSnapshot } from '@/types/annotation'
@@ -161,6 +163,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const [designMode, setDesignMode] = useState<'click' | 'draw' | 'interact'>('interact')
   const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null)
+  const isDark = useIsDarkMode()
 
   // Use a ref so we can call the latest onError without adding it to the
   // effect dependency array (avoiding re-fetch when the parent re-renders).
@@ -373,7 +376,14 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
           )}
 
           {isTextFile && content !== null && viewMode === 'raw' && (
-            <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs font-mono leading-relaxed">
+            <pre
+              className="whitespace-pre-wrap break-words"
+              style={{
+                fontSize: CODE_PREVIEW_CONFIG.fontSize,
+                lineHeight: CODE_PREVIEW_CONFIG.lineHeight,
+                fontFamily: CODE_PREVIEW_CONFIG.fontFamily,
+              }}
+            >
               {content}
             </pre>
           )}
@@ -459,12 +469,18 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
               {language && (
                 <SyntaxHighlighter
                   language={language}
-                  style={oneLight}
+                  style={isDark ? oneDark : oneLight}
                   customStyle={{
                     margin: 0,
-                    borderRadius: '0.5rem',
-                    fontSize: '0.8125rem',
-                    lineHeight: '1.6',
+                    padding: CODE_PREVIEW_CONFIG.padding,
+                    fontSize: CODE_PREVIEW_CONFIG.fontSize,
+                    lineHeight: CODE_PREVIEW_CONFIG.lineHeight,
+                    background: 'transparent',
+                  }}
+                  codeTagProps={{
+                    style: {
+                      fontFamily: CODE_PREVIEW_CONFIG.fontFamily,
+                    },
                   }}
                   showLineNumbers
                 >
@@ -472,7 +488,14 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
                 </SyntaxHighlighter>
               )}
               {!isMarkdown && !language && (
-                <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-xs font-mono leading-relaxed">
+                <pre
+                  className="whitespace-pre-wrap break-words"
+                  style={{
+                    fontSize: CODE_PREVIEW_CONFIG.fontSize,
+                    lineHeight: CODE_PREVIEW_CONFIG.lineHeight,
+                    fontFamily: CODE_PREVIEW_CONFIG.fontFamily,
+                  }}
+                >
                   {content}
                 </pre>
               )}

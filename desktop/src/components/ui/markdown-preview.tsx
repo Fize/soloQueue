@@ -4,7 +4,9 @@ import rehypeRaw from 'rehype-raw'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { useIsDarkMode } from '@/hooks/useIsDarkMode'
+import { CODE_PREVIEW_CONFIG } from '@/lib/theme'
 
 // Register common languages for chat code blocks
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
@@ -64,6 +66,7 @@ function CodeBlock({
   language: string | null
   value: string
 }) {
+  const isDark = useIsDarkMode()
   return (
     <div className="my-3 rounded-lg border border-border/60 overflow-hidden">
       {language && (
@@ -81,18 +84,17 @@ function CodeBlock({
       )}
       <SyntaxHighlighter
         language={language || 'text'}
-        style={oneLight}
+        style={isDark ? oneDark : oneLight}
         customStyle={{
           margin: 0,
-          padding: language ? '0.75rem 1rem' : '0.75rem 1rem',
-          fontSize: '0.8125rem',
-          lineHeight: '1.6',
+          padding: CODE_PREVIEW_CONFIG.padding,
+          fontSize: CODE_PREVIEW_CONFIG.fontSize,
+          lineHeight: CODE_PREVIEW_CONFIG.lineHeight,
           background: 'transparent',
         }}
         codeTagProps={{
           style: {
-            fontFamily:
-              'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+            fontFamily: CODE_PREVIEW_CONFIG.fontFamily,
           },
         }}
       >
