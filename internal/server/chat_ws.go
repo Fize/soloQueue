@@ -341,6 +341,12 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 					title := generateSessionTitle(prompt, doneEv.Content)
 					if title != "" {
 						h.mux.l2Store.SetName(l2ID, title)
+						client.sendJSON(WSMessage{
+							Type:      "session_name",
+							RequestID: requestID,
+							SessionID: sessionID,
+							Name:      title,
+						})
 					}
 				}
 			}

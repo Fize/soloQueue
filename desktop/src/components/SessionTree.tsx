@@ -14,6 +14,7 @@ import { useAgentStore } from '@/stores/agentStore'
 import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 import type { ChatSession, Project } from '@/types'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 
 interface GroupInfo {
   name: string
@@ -384,45 +385,54 @@ function TreeItem({
   const pl = 28 + (indent - 1) * 16 // indent=1→28px, indent=2→44px
   return (
     <div className="group relative">
-      <button
-        onClick={onClick}
-        data-session-id={sessionId}
-        style={{ paddingLeft: `${pl}px` }}
-        className={`w-full flex items-center gap-2 pr-8 py-1.5 rounded-md text-xs leading-tight transition-all cursor-pointer ${
-          active
-            ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground shadow-xs font-semibold'
-            : 'text-muted-foreground hover:bg-muted/20 hover:text-foreground'
-        }`}
-      >
-        <div className="relative flex items-center justify-center shrink-0">
-          {Icon && <Icon className="h-3.5 w-3.5 opacity-70" />}
-          {state && (
-            <span
-              className={cn(
-                'absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full border border-card',
-                state === 'processing'
-                  ? 'bg-[var(--success)]'
-                  : state === 'idle'
-                    ? 'bg-amber-500'
-                    : 'bg-muted-foreground/40'
-              )}
-            />
-          )}
-        </div>
-        <span className="truncate text-left flex-1 font-medium">
-          {label}
-          {isPast && (
-            <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-amber-500/10 text-amber-600/60">
-              Past
-            </span>
-          )}
-        </span>
-      </button>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger className="w-full text-left border-none bg-transparent p-0 block cursor-pointer">
+            <div
+              onClick={onClick}
+              data-session-id={sessionId}
+              style={{ paddingLeft: `${pl}px` }}
+              className={`w-full flex items-center gap-2 pr-8 py-1.5 rounded-md text-xs leading-tight transition-all cursor-pointer ${
+                active
+                  ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground shadow-xs font-semibold'
+                  : 'text-muted-foreground hover:bg-muted/20 hover:text-foreground'
+              }`}
+            >
+              <div className="relative flex items-center justify-center shrink-0">
+                {Icon && <Icon className="h-3.5 w-3.5 opacity-70" />}
+                {state && (
+                  <span
+                    className={cn(
+                      'absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full border border-card',
+                      state === 'processing'
+                        ? 'bg-[var(--success)]'
+                        : state === 'idle'
+                          ? 'bg-amber-500'
+                          : 'bg-muted-foreground/40'
+                    )}
+                  />
+                )}
+              </div>
+              <span className="truncate text-left flex-1 font-medium">
+                {label}
+                {isPast && (
+                  <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-amber-500/10 text-amber-600/60">
+                    Past
+                  </span>
+                )}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={12} className="max-w-[280px] break-all z-50">
+            {label}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       {showDelete && onDelete && (
         <button
           onClick={onDelete}
           disabled={disabled}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-all cursor-pointer disabled:opacity-0"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-all cursor-pointer disabled:opacity-0 z-10"
           title="Delete chat"
         >
           <Trash2 className="h-3.5 w-3.5" />

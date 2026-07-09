@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
 // L2SessionEntry holds a single L2 session with its metadata.
@@ -147,6 +148,44 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	}
 	if group == "" {
 		return fmt.Errorf("L2 session %q: cannot determine group from disk", id)
+	}
+
+	// If name is empty, try to resolve it from the timeline.
+	if name == "" {
+		segments, _, _ := timeline.ReadTail(tlDir, "timeline", 1, "")
+		for _, seg := range segments {
+			for _, msg := range seg.Messages {
+				if msg.Role == "user" && msg.Content != "" {
+					name = msg.Content
+					if len([]rune(name)) > 30 {
+						name = string([]rune(name)[:27]) + "..."
+					}
+					break
+				}
+			}
+			if name != "" {
+				break
+			}
+		}
+		// If resolved a valid name, persist it to metaFile.
+		if name != "" {
+			meta := struct {
+				Name       string   `json:"name"`
+				Group      string   `json:"group"`
+				WorkDir    string   `json:"work_dir"`
+				GitBaseRef string   `json:"git_base_ref"`
+				Plans      []string `json:"plans,omitempty"`
+			}{
+				Name:       name,
+				Group:      group,
+				WorkDir:    workDir,
+				GitBaseRef: gitBaseRef,
+				Plans:      plans,
+			}
+			if data, err := json.Marshal(meta); err == nil {
+				_ = os.WriteFile(metaFile, data, 0644)
+			}
+		}
 	}
 
 	// Create in-memory entry under write lock.

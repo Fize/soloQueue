@@ -439,13 +439,15 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-generate session name after first exchange for L2 sessions.
 	if isL2 && l2ID != "" && firstPrompt != "" {
-		title := generateSessionTitle(firstPrompt, finalContent)
-		if title != "" && m.l2Store != nil {
-			m.l2Store.SetName(l2ID, title)
-			// Notify frontend of title change via SSE.
-			writeSSEEvent(w, flusher, "session_name", map[string]string{
-				"name": title,
-			})
+		if m.l2Store != nil && m.l2Store.GetName(l2ID) == "" {
+			title := generateSessionTitle(firstPrompt, finalContent)
+			if title != "" {
+				m.l2Store.SetName(l2ID, title)
+				// Notify frontend of title change via SSE.
+				writeSSEEvent(w, flusher, "session_name", map[string]string{
+					"name": title,
+				})
+			}
 		}
 	}
 }

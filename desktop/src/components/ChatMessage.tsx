@@ -59,12 +59,17 @@ export function ChatMessageView({ message, agentName = 'Assistant', onUserIntera
         {/* Bubble */}
         <div className={`min-w-0 max-w-full ${isUser ? 'w-fit' : 'w-full'}`}>
           {/* Role label */}
-          <div className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end' : ''}`}>
+          <div className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end flex-row-reverse' : ''}`}>
             <span
               className={`text-[11px] font-medium text-muted-foreground/80`}
             >
               {isUser ? 'You' : agentName}
             </span>
+            {message.timestamp && (
+              <span className="text-[10px] text-muted-foreground/40 font-normal select-none">
+                {formatTimestamp(message.timestamp)}
+              </span>
+            )}
           </div>
 
           {/* Bubble content */}
@@ -1127,4 +1132,34 @@ function CompactSegment({ text }: { text: string }) {
       </div>
     </div>
   )
+}
+
+function formatTimestamp(tsStr: string): string {
+  if (!tsStr) return ''
+  try {
+    const date = new Date(tsStr)
+    if (isNaN(date.getTime())) return ''
+    
+    const now = new Date()
+    const isToday = date.toDateString() === now.toDateString()
+    const isSameYear = date.getFullYear() === now.getFullYear()
+    
+    const pad = (n: number) => n.toString().padStart(2, '0')
+    const hours = pad(date.getHours())
+    const minutes = pad(date.getMinutes())
+    
+    if (isToday) {
+      return `${hours}:${minutes}`
+    }
+    
+    const month = pad(date.getMonth() + 1)
+    const day = pad(date.getDate())
+    if (isSameYear) {
+      return `${month}-${day} ${hours}:${minutes}`
+    }
+    
+    return `${date.getFullYear()}-${month}-${day} ${hours}:${minutes}`
+  } catch {
+    return ''
+  }
 }
