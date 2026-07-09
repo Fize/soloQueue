@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1057,5 +1058,69 @@ func TestReadTailBefore_Pagination(t *testing.T) {
 	}
 	if segs4[0].Messages[0].Content != "q2" {
 		t.Errorf("msg[0] = %q, want q2", segs4[0].Messages[0].Content)
+	}
+}
+
+func TestReadTailAndReplay_WithSummaryControlEvent(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+
+	// Write messages before summary
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
+
+	// Write summary control event
+	w.AppendControl(&ControlPayload{
+		Action:  "summary",
+		Reason:  "auto_compact",
+		Content: "This is a summary of q1 and a1",
+	})
+
+	// Write messages after summary
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a2"})
+	w.Close()
+
+	// Read tail (no maxTurns constraint hit)
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+
+	// We expect only [Summary, q2, a2]. q1 and a1 should be skipped because of the summary boundary.
+	msgs := segs[0].Messages
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages, got %d: %+v", len(msgs), msgs)
+	}
+
+	if !strings.Contains(msgs[0].Content, "This is a summary of q1 and a1") {
+		t.Errorf("msg[0] content = %q, want summary", msgs[0].Content)
+	}
+	if msgs[0].Role != "system" {
+		t.Errorf("msg[0] role = %q, want system", msgs[0].Role)
+	}
+	if msgs[1].Content != "q2" {
+		t.Errorf("msg[1] content = %q, want q2", msgs[1].Content)
+	}
+	if msgs[2].Content != "a2" {
+		t.Errorf("msg[2] content = %q, want a2", msgs[2].Content)
+	}
+
+	// Verify replay into ContextWindow preserves the summary
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+	ReplayInto(cw, segs)
+	cw.SetReplayMode(false)
+
+	if cw.Len() != 3 {
+		t.Fatalf("expected 3 messages in ContextWindow, got %d", cw.Len())
+	}
+	m0, _ := cw.MessageAt(0)
+	if m0.Role != ctxwin.RoleSystem || !strings.Contains(m0.Content, "[Conversation Summary]") {
+		t.Errorf("cw msg[0] = %+v", m0)
 	}
 }

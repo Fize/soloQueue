@@ -110,6 +110,18 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 
 	for i := len(lastSegmentEvents) - 1; i >= 0 && userCount < maxTurns; i-- {
 		evt := lastSegmentEvents[i]
+		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "summary" {
+			if evt.Control.Content != "" {
+				msg := MessagePayload{
+					Role:      "system",
+					Content:   "[Conversation Summary]\n" + evt.Control.Content,
+					Timestamp: evt.Timestamp,
+				}
+				rev = append(rev, collected{msg: msg, role: msg.Role})
+			}
+			break
+		}
+
 		if evt.EventType != EventMessage || evt.Message == nil {
 			continue
 		}
@@ -247,9 +259,9 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 			flushPending()
 		}
 
-		// Skip identity and summary system messages.
+		// Skip identity system messages.
 		if msg.Role == string(ctxwin.RoleSystem) {
-			if strings.Contains(msg.Content, "<identity>") || strings.Contains(msg.Content, "[Conversation Summary]") {
+			if strings.Contains(msg.Content, "<identity>") {
 				continue
 			}
 		}
