@@ -223,7 +223,7 @@ func ServeCmd(version string) *cobra.Command {
 
 		// Background goroutine: sync context window metrics every 3s
 		go func() {
-			ticker := time.NewTicker(3 * time.Second)
+			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
 			for {
 				select {

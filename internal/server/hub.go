@@ -152,8 +152,9 @@ func (h *Hub) Run() {
 				select {
 				case client.send <- data:
 				default:
-					// Slow client; schedule removal outside read lock.
-					go func(c *Client) { h.unregister <- c }(client)
+					// Slow client: drop this message rather than disconnecting.
+					// State updates are coalesced via debounce; the next one
+					// will carry the latest snapshot.
 				}
 			}
 			h.mu.RUnlock()
@@ -198,7 +199,7 @@ func (h *Hub) Run() {
 				select {
 				case client.send <- data:
 				default:
-					go func(c *Client) { h.unregister <- c }(client)
+					// Slow client: drop this message rather than disconnecting.
 				}
 			}
 			h.mu.RUnlock()
@@ -209,7 +210,7 @@ func (h *Hub) Run() {
 			if debounce != nil {
 				debounce.Stop()
 			}
-			debounce = time.NewTimer(50 * time.Millisecond)
+			debounce = time.NewTimer(250 * time.Millisecond)
 			debounceC = debounce.C
 
 		case <-h.done:
@@ -292,7 +293,7 @@ func newClient(hub *Hub, conn *websocket.Conn) *Client {
 	return &Client{
 		hub:            hub,
 		conn:           conn,
-		send:           make(chan []byte, 256),
+		send:           make(chan []byte, 4096),
 		ctx:            ctx,
 		cancel:         cancel,
 		activeRequests: make(map[string]*activeRequest),

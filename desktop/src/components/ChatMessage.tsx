@@ -1123,9 +1123,7 @@ function CompactSegment({ text }: { text: string }) {
         <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
           <span>Compacted Content:</span>
         </div>
-        <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
-          {text}
-        </div>
+        <MarkdownPreview content={text} />
       </div>
     </div>
   )

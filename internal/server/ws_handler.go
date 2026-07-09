@@ -70,6 +70,13 @@ func (c *Client) readPump() {
 			break
 		}
 
+		// Check if client is being shut down before any send to c.send.
+		// hub.removeClient closes c.send after cancelling ctx; sending to a
+		// closed channel causes a fatal panic.
+		if c.ctx.Err() != nil {
+			break
+		}
+
 		if messageType == websocket.TextMessage {
 			if string(p) == "ping" {
 				c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))

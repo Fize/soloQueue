@@ -197,12 +197,23 @@ async function spawnGoBackend() {
   // Ensure workDir exists
   fs.mkdirSync(workDir, { recursive: true })
 
+  // Create logs directory for stderr capture (crash diagnostics)
+  const logsDir = path.join(workDir, 'logs')
+  fs.mkdirSync(logsDir, { recursive: true })
+  const stderrPath = path.join(logsDir, 'stderr.log')
+  let stderrFd
+  try {
+    stderrFd = fs.openSync(stderrPath, 'a')
+  } catch {
+    console.warn(`[Electron] Cannot open stderr log: ${stderrPath}`)
+  }
+
   return new Promise((resolve) => {
     // Bind to 127.0.0.1 via default flag in serve command
     goProcess = spawn(binary, ['serve', '--port', String(BACKEND_PORT), '--host', '127.0.0.1', '--verbose'], {
       cwd: workDir,
-      stdio: 'ignore',
-      env: { ...process.env, SOLOQUEUE_WORK_DIR: workDir },
+      stdio: ['ignore', 'ignore', stderrFd || 'ignore'],
+      env: { ...process.env, SOLOQUEUE_WORK_DIR: workDir, GOTRACEBACK: 'crash' },
     })
 
     const handleUnexpectedExit = (code, signal) => {
