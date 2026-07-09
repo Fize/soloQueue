@@ -393,6 +393,12 @@ function SegmentView({
           className=""
         />
       )
+    case 'compact':
+      return (
+        <CompactSegment
+          text={segment.text}
+        />
+      )
     case 'thinking':
       return (
         <ThinkingSegment
@@ -960,7 +966,7 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
 
 function extractFullContent(msg: ChatMessage): string {
   return msg.segments
-    .filter((s) => s.type === 'content')
+    .filter((s) => s.type === 'content' || s.type === 'compact')
     .map((s: any) => s.text)
     .join('')
 }
@@ -1085,6 +1091,42 @@ function ToolConfirmSegment({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function CompactSegment({ text }: { text: string }) {
+  return (
+    <div className="my-6 w-full space-y-4">
+      {/* Divider Line */}
+      <div className="flex items-center gap-4">
+        <div className="h-[1px] flex-1 bg-border/60" />
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 px-2 py-0.5 rounded bg-muted/50 border border-border/40">
+          Context Compacted
+        </span>
+        <div className="h-[1px] flex-1 bg-border/60" />
+      </div>
+
+      {/* Info notice */}
+      <div className="p-3.5 rounded-xl border border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs leading-relaxed shadow-sm">
+        <div className="font-semibold flex items-center gap-1.5 mb-1 text-[13px]">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+          Attention
+        </div>
+        <div>
+          The conversation history has been compacted. The compacted summary below has been added as the active context, and the original history is no longer sent to the LLM context window. <strong>Note: This compaction has not been saved to permanent memory.</strong>
+        </div>
+      </div>
+
+      {/* Compacted content (summary) */}
+      <div className="p-4 rounded-xl border border-border/50 bg-muted/30 backdrop-blur-sm">
+        <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+          <span>Compacted Content:</span>
+        </div>
+        <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
+          {text}
+        </div>
+      </div>
     </div>
   )
 }

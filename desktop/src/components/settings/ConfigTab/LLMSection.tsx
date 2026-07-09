@@ -145,6 +145,7 @@ export function LLMSection({
       enabled: true,
       generation: { temperature: 0.7, maxTokens: 4096 },
       thinking: { enabled: false, reasoningEffort: 'medium' },
+      vision: false,
     })
   }
 
@@ -175,6 +176,7 @@ export function LLMSection({
         enabled: modelForm.thinking?.enabled ?? false,
         reasoningEffort: modelForm.thinking?.reasoningEffort || 'medium',
       },
+      vision: !!modelForm.vision,
     }
 
     if (isAddingModel) {
@@ -704,6 +706,26 @@ export function LLMSection({
                   </div>
                 </div>
               </div>
+
+              {/* Vision config */}
+              <div className="sm:col-span-2 border-t pt-3 mt-1">
+                <h5 className="text-xs font-semibold text-foreground mb-2">Vision / Multimodal</h5>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={modelForm.vision || false}
+                    onCheckedChange={(val) =>
+                      setModelForm({
+                        ...modelForm,
+                        vision: val,
+                      })
+                    }
+                  />
+                  <span className="text-xs font-semibold text-foreground">Enable Vision</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Enables multimodal support so the model can process and understand uploaded images.
+                </p>
+              </div>
             </div>
             <DialogFooter>
               <Button size="sm" onClick={saveModelForm}>
@@ -731,6 +753,16 @@ export function LLMSection({
                     <span className="text-[10px] font-mono text-muted-foreground/50">
                       {m.providerId}
                     </span>
+                    {m.thinking?.enabled && (
+                      <span className="text-[9px] bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-1 py-0.5 rounded font-medium">
+                        🧠 Thinking
+                      </span>
+                    )}
+                    {m.vision && (
+                      <span className="text-[9px] bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/20 px-1 py-0.5 rounded font-medium">
+                        📷 Vision
+                      </span>
+                    )}
                   </div>
                   <p className="text-[10px] text-muted-foreground/70 truncate font-mono">
                     {m.apiModel} · context: {m.contextWindow?.toLocaleString()}

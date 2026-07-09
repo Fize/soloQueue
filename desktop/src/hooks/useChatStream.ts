@@ -17,6 +17,7 @@ export function useChatStream() {
     addMessage,
     appendToLastAssistantContent,
     appendToLastAssistantThinking,
+    appendToLastAssistantCompact,
     updateLastAssistantSegment,
     updateToolCallResult,
     setStreaming,
@@ -41,15 +42,28 @@ export function useChatStream() {
       const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
 
-      // Add user message — always show in the UI.
-      const msgId = `msg-${Date.now()}`
-      addMessage(sid, {
-        id: msgId,
-        role: 'user',
-        segments: [{ type: 'content', text: prompt }],
-        timestamp: new Date().toISOString(),
-        files,
-      })
+      const trimmedPrompt = prompt.trim().toLowerCase()
+      const isClear = trimmedPrompt === '/clear'
+      const isCompact = trimmedPrompt === '/compact'
+
+      if (isClear) {
+        useChatStore.setState((prev) => ({
+          messages: {
+            ...prev.messages,
+            [sid]: [],
+          },
+        }))
+      } else {
+        // Add user message — always show in the UI.
+        const msgId = `msg-${Date.now()}`
+        addMessage(sid, {
+          id: msgId,
+          role: 'user',
+          segments: [{ type: 'content', text: prompt }],
+          timestamp: new Date().toISOString(),
+          files,
+        })
+      }
 
       // If already streaming on this session, just queue server-side.
       // The server's PendingQueue will inject it into the context window
@@ -100,7 +114,11 @@ export function useChatStream() {
 
       const handler: ChatHandler = {
         onChunk: (delta) => {
-          appendToLastAssistantContent(sid, delta)
+          if (isCompact) {
+            appendToLastAssistantCompact(sid, delta)
+          } else {
+            appendToLastAssistantContent(sid, delta)
+          }
           if (shouldGenTitle) finalContent += delta
         },
         onReasoning: (delta) => {
@@ -187,6 +205,7 @@ export function useChatStream() {
       addMessage,
       appendToLastAssistantContent,
       appendToLastAssistantThinking,
+      appendToLastAssistantCompact,
       updateLastAssistantSegment,
       updateToolCallResult,
       setStreaming,

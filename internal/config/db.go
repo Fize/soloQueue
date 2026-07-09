@@ -142,7 +142,7 @@ func LoadModels(ctx context.Context, db *sqlitedb.DB) ([]LLMModel, error) {
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, provider_id, name, api_model, context_window, enabled,
-		        temperature, max_tokens, thinking_enabled, reasoning_effort
+		        temperature, max_tokens, thinking_enabled, reasoning_effort, vision
 		 FROM llm_models ORDER BY name ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("config db: load models: %w", err)
@@ -152,16 +152,18 @@ func LoadModels(ctx context.Context, db *sqlitedb.DB) ([]LLMModel, error) {
 	var models []LLMModel
 	for rows.Next() {
 		var m LLMModel
-		var enabledVal, thinkingEnabledVal int
+		var enabledVal, thinkingEnabledVal, visionVal int
 		err := rows.Scan(
 			&m.ID, &m.ProviderID, &m.Name, &m.APIModel, &m.ContextWindow, &enabledVal,
 			&m.Generation.Temperature, &m.Generation.MaxTokens, &thinkingEnabledVal, &m.Thinking.ReasoningEffort,
+			&visionVal,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("config db: scan model: %w", err)
 		}
 		m.Enabled = enabledVal != 0
 		m.Thinking.Enabled = thinkingEnabledVal != 0
+		m.Vision = visionVal != 0
 		models = append(models, m)
 	}
 	return models, rows.Err()
@@ -180,6 +182,10 @@ func SaveModel(ctx context.Context, db *sqlitedb.DB, m LLMModel) error {
 	if m.Thinking.Enabled {
 		thinkingEnabledVal = 1
 	}
+	visionVal := 0
+	if m.Vision {
+		visionVal = 1
+	}
 
 	now := time.Now().Format(time.RFC3339)
 
@@ -189,8 +195,8 @@ func SaveModel(ctx context.Context, db *sqlitedb.DB, m LLMModel) error {
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO llm_models (id, provider_id, name, api_model, context_window, enabled,
 		                         temperature, max_tokens, thinking_enabled, reasoning_effort,
-		                         created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                         vision, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		 	provider_id = excluded.provider_id,
 		 	name = excluded.name,
@@ -201,10 +207,11 @@ func SaveModel(ctx context.Context, db *sqlitedb.DB, m LLMModel) error {
 		 	max_tokens = excluded.max_tokens,
 		 	thinking_enabled = excluded.thinking_enabled,
 		 	reasoning_effort = excluded.reasoning_effort,
+		 	vision = excluded.vision,
 		 	updated_at = excluded.updated_at`,
 		m.ID, m.ProviderID, m.Name, m.APIModel, m.ContextWindow, enabledVal,
 		m.Generation.Temperature, m.Generation.MaxTokens, thinkingEnabledVal, m.Thinking.ReasoningEffort,
-		now, now,
+		visionVal, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("config db: save model %q: %w", m.ID, err)

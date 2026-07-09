@@ -176,3 +176,84 @@ func TestQQBotsMigrationAndPersistence(t *testing.T) {
 		t.Errorf("Loaded config does not match saved values (check JSON tags). Saved: %+v, Loaded: %+v", testBots[0], loaded)
 	}
 }
+
+func TestModelVisionPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	dbPath := filepath.Join(tmpDir, "entries.db")
+	db, err := sqlitedb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open SQLite database: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// 1. Create a model with vision enabled
+	m1 := LLMModel{
+		ID:            "test-vision-model",
+		ProviderID:    "deepseek",
+		Name:          "Test Vision Model",
+		APIModel:      "test-api-model",
+		ContextWindow: 2048,
+		Enabled:       true,
+		Vision:        true,
+	}
+
+	// 2. Create another model with vision disabled
+	m2 := LLMModel{
+		ID:            "test-no-vision-model",
+		ProviderID:    "deepseek",
+		Name:          "Test No Vision Model",
+		APIModel:      "test-api-model",
+		ContextWindow: 2048,
+		Enabled:       true,
+		Vision:        false,
+	}
+
+	// First we need deepseek provider to satisfy foreign key constraint
+	p := LLMProvider{
+		ID:      "deepseek",
+		Name:    "DeepSeek",
+		Enabled: true,
+	}
+	if err := SaveProvider(ctx, db, p); err != nil {
+		t.Fatalf("Failed to save provider: %v", err)
+	}
+
+	if err := SaveModel(ctx, db, m1); err != nil {
+		t.Fatalf("Failed to save model m1: %v", err)
+	}
+	if err := SaveModel(ctx, db, m2); err != nil {
+		t.Fatalf("Failed to save model m2: %v", err)
+	}
+
+	// 3. Load models back and verify
+	models, err := LoadModels(ctx, db)
+	if err != nil {
+		t.Fatalf("Failed to load models: %v", err)
+	}
+
+	var foundM1, foundM2 bool
+	for _, m := range models {
+		if m.ID == m1.ID {
+			foundM1 = true
+			if !m.Vision {
+				t.Errorf("Expected model %s to have Vision=true, got false", m.ID)
+			}
+		}
+		if m.ID == m2.ID {
+			foundM2 = true
+			if m.Vision {
+				t.Errorf("Expected model %s to have Vision=false, got true", m.ID)
+			}
+		}
+	}
+
+	if !foundM1 {
+		t.Errorf("Model %s was not found in loaded models", m1.ID)
+	}
+	if !foundM2 {
+		t.Errorf("Model %s was not found in loaded models", m2.ID)
+	}
+}

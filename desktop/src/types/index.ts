@@ -545,6 +545,7 @@ export interface LLMModel {
   enabled: boolean;
   generation: GenerationParams;
   thinking: ThinkingConfig;
+  vision?: boolean;
 }
 
 export interface ImageModelConfig {
@@ -890,6 +891,7 @@ export interface ChatMessage {
 export type ChatSegment =
   | { type: "thinking"; text: string }
   | { type: "content"; text: string }
+  | { type: "compact"; text: string }
   | {
       type: "tool_call";
       callId: string;
@@ -942,7 +944,8 @@ export interface SessionHistorySegment {
     | "tool_call"
     | "delegation"
     | "error"
-    | "tool_confirm";
+    | "tool_confirm"
+    | "compact";
   text?: string;
   call_id?: string;
   name?: string;

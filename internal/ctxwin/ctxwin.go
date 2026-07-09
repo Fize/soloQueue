@@ -761,10 +761,22 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 	cw.Lock()
 	if len(cw.messages) > 0 && finalSummary != "" {
 		summaryTokens := cw.tokenizer.Count(finalSummary)
+		var lastMsgTimestamp time.Time
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if !msgs[i].Timestamp.IsZero() {
+				lastMsgTimestamp = msgs[i].Timestamp
+				break
+			}
+		}
+		if lastMsgTimestamp.IsZero() {
+			lastMsgTimestamp = time.Now()
+		}
+
 		summaryMsg := Message{
-			Role:    RoleSystem,
-			Content: "[Previous Conversation Summary]\n" + finalSummary,
-			Tokens:  summaryTokens,
+			Role:      RoleSystem,
+			Content:   "[Previous Conversation Summary]\n" + finalSummary,
+			Tokens:    summaryTokens,
+			Timestamp: lastMsgTimestamp,
 		}
 		tokensAfter := cw.messages[0].Tokens + summaryTokens
 		removedTokens := tokensBefore - tokensAfter
@@ -846,10 +858,22 @@ func (cw *ContextWindow) asyncCompact() {
 	cw.Lock()
 	if len(cw.messages) > 0 && finalSummary != "" {
 		summaryTokens := cw.tokenizer.Count(finalSummary)
+		var lastMsgTimestamp time.Time
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if !msgs[i].Timestamp.IsZero() {
+				lastMsgTimestamp = msgs[i].Timestamp
+				break
+			}
+		}
+		if lastMsgTimestamp.IsZero() {
+			lastMsgTimestamp = time.Now()
+		}
+
 		summaryMsg := Message{
-			Role:    RoleSystem,
-			Content: "[Conversation Summary]\n" + finalSummary,
-			Tokens:  summaryTokens,
+			Role:      RoleSystem,
+			Content:   "[Conversation Summary]\n" + finalSummary,
+			Tokens:    summaryTokens,
+			Timestamp: lastMsgTimestamp,
 		}
 		tokensAfter := cw.messages[0].Tokens + summaryTokens
 		removedTokens := tokensBefore - tokensAfter

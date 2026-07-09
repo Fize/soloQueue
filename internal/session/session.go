@@ -444,14 +444,14 @@ func (s *Session) Clear() error {
 // Compact compacts the context window by summarizing older messages
 // into a condensed representation using the compactor. Unlike Clear,
 // it preserves the recent context and does NOT save to memory.
-func (s *Session) Compact(ctx context.Context) error {
+func (s *Session) Compact(ctx context.Context) (string, error) {
 	compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	_, err := s.cw.CompactAndReplace(compactCtx)
+	summary, err := s.cw.CompactAndReplace(compactCtx)
 	if err != nil {
 		s.logger.LogError(context.Background(), logger.CatApp, "session compact failed", err)
-		return fmt.Errorf("session: compact: %w", err)
+		return "", fmt.Errorf("session: compact: %w", err)
 	}
 
 	s.mu.Lock()
@@ -462,7 +462,7 @@ func (s *Session) Compact(ctx context.Context) error {
 		"session_id", s.ID,
 	)
 
-	return nil
+	return summary, nil
 }
 
 // LastMessageTime returns the timestamp of the last non-system message.
@@ -774,12 +774,15 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			defer close(out)
 			defer s.inFlight.Store(0)
 			defer s.touch()
-			if err := s.Compact(ctx); err != nil {
+			if summary, err := s.Compact(ctx); err != nil {
 				out <- agent.ContentDeltaEvent{Delta: "Compact failed: " + err.Error()}
 				out <- agent.DoneEvent{Content: "Compact failed: " + err.Error()}
 			} else {
-				out <- agent.ContentDeltaEvent{Delta: "Context window compacted (history summarized, no memory save)"}
-				out <- agent.DoneEvent{Content: "Session compacted."}
+				if summary == "" {
+					summary = "Context window compacted (no content to summarize)"
+				}
+				out <- agent.ContentDeltaEvent{Delta: summary}
+				out <- agent.DoneEvent{Content: summary}
 			}
 		}()
 		return out, nil
@@ -825,7 +828,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				out <- agent.ContentDeltaEvent{Delta: "Clear failed: " + err.Error()}
 				out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
 			} else {
-				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared"}
+				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared and saved to memory."}
 				out <- agent.DoneEvent{Content: "Session history cleared."}
 			}
 		}()

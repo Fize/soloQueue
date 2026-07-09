@@ -928,6 +928,22 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	var pendingToolCalls []pendingToolCall
 
 	for _, evt := range events {
+		if evt.EventType == timeline.EventControl && evt.Control != nil && evt.Control.Action == "summary" {
+			msgID := fmt.Sprintf("hist-%d", len(msgs))
+			msgs = append(msgs, historyMsg{
+				ID:        msgID,
+				Role:      "assistant",
+				Segments: []map[string]interface{}{
+					{
+						"type": "compact",
+						"text": evt.Control.Content,
+					},
+				},
+				Timestamp: evt.Timestamp,
+			})
+			continue
+		}
+
 		if evt.EventType != timeline.EventMessage || evt.Message == nil {
 			continue
 		}

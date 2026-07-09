@@ -155,7 +155,8 @@ export function AssistantPage() {
       if (
         seg.type === "content" ||
         seg.type === "thinking" ||
-        seg.type === "error"
+        seg.type === "error" ||
+        seg.type === "compact"
       ) {
         sum += (seg.text || "").length;
       } else if (seg.type === "tool_call") {

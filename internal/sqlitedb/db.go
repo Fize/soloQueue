@@ -18,7 +18,7 @@ import (
 
 // currentSchemaVersion is the latest schema version. Bump this when adding
 // migrations to the migrations slice.
-const currentSchemaVersion = 14
+const currentSchemaVersion = 15
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -430,6 +430,10 @@ func (d *DB) migrate() error {
 		ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks;
 
 		CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
+		`,
+		// v14 -> v15: add vision column to llm_models table.
+		`
+		ALTER TABLE llm_models ADD COLUMN vision INTEGER NOT NULL DEFAULT 0;
 		`,
 	}
 

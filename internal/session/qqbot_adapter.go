@@ -105,7 +105,7 @@ func (a *SessionAskAdapter) Compact(ctx context.Context) error {
 	if sess == nil {
 		return errors.New("no active session")
 	}
-	err := sess.Compact(ctx)
+	_, err := sess.Compact(ctx)
 	if err != nil {
 		return err
 	}
@@ -443,7 +443,7 @@ func (a *L2QQBotAdapter) Compact(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = sess.Compact(ctx)
+	_, err = sess.Compact(ctx)
 	if err != nil {
 		return err
 	}

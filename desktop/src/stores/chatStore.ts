@@ -28,6 +28,7 @@ interface ChatState {
   updateLastAssistantSegment: (sessionId: string, segment: ChatSegment) => void
   appendToLastAssistantContent: (sessionId: string, text: string) => void
   appendToLastAssistantThinking: (sessionId: string, text: string) => void
+  appendToLastAssistantCompact: (sessionId: string, text: string) => void
   updateToolCallResult: (
     sessionId: string,
     callId: string,
@@ -297,6 +298,25 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
+  appendToLastAssistantCompact: (sessionId: string, text: string) => {
+    set((s) => {
+      const sid = sessionId
+      const msgs = [...(s.messages[sid] || [])]
+      const last = msgs[msgs.length - 1]
+      if (!last || last.role !== 'assistant') return s
+      const segs = [...last.segments]
+      const lastSeg = segs[segs.length - 1]
+      if (lastSeg && lastSeg.type === 'compact') {
+        segs[segs.length - 1] = { ...lastSeg, text: lastSeg.text + text }
+      } else {
+        segs.push({ type: 'compact', text })
+      }
+      return {
+        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+      }
+    })
+  },
+
   updateToolCallResult: (sessionId: string, callId: string, result: string, error?: string, durationMs?: number) => {
     set((s) => {
       const sid = sessionId
@@ -449,6 +469,8 @@ function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
       return { type: 'content', text: seg.text || '' }
     case 'thinking':
       return { type: 'thinking', text: seg.text || '' }
+    case 'compact':
+      return { type: 'compact', text: seg.text || '' }
     case 'tool_call':
       return {
         type: 'tool_call',
