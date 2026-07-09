@@ -1649,7 +1649,7 @@ export function ChatPage() {
                       plans={activeSession.plans || []}
                     />
                   ) : activeSession ? (
-                    <SessionChangesPanel sessionId={activeSession.id} plans={activeSession.plans} />
+                    <SessionChangesPanel sessionId={activeSession.id} />
                   ) : null}
                 </div>
               </div>

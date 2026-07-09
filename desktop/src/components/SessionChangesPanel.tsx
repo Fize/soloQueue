@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 
 interface SessionChangesPanelProps {
   sessionId: string;
-  plans?: string[];
 }
 
 function StatusIcon({ status }: { status: FileChange["status"] }) {
@@ -112,7 +111,7 @@ function FileDiffView({ change }: { change: FileChange }) {
   );
 }
 
-export function SessionChangesPanel({ sessionId, plans }: SessionChangesPanelProps) {
+export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
   const [data, setData] = useState<ChangesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -201,23 +200,6 @@ export function SessionChangesPanel({ sessionId, plans }: SessionChangesPanelPro
               {data.changes.length} {data.changes.length === 1 ? "file" : "files"}
             </span>
           )}
-          {(() => {
-            const activePlans = data?.plans ?? plans;
-            if (!activePlans || activePlans.length === 0) return null;
-            return (
-              <div className="flex items-center gap-1 ml-2">
-                {activePlans.map(p => {
-                  const parts = p.split(/[/\\]/);
-                  const basename = parts[parts.length - 1];
-                  return (
-                    <div key={p} className="px-1.5 py-0.5 rounded flex items-center gap-1 bg-blue-500/10 text-blue-500 border border-blue-500/20 text-[10px] font-medium tracking-wide shadow-sm" title={p}>
-                      Plan: {basename}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
         </div>
         {!loading && (
           <div className="flex items-center gap-3 text-[11px] font-mono">
