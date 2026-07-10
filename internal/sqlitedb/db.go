@@ -1,7 +1,7 @@
 // Package sqlitedb provides a shared SQLite database connection with
-// centralized schema migrations. Both the permanent memory vector store
-// and the todo/plan store open the same physical file (entries.db), so
-// opening it from multiple places causes DDL races and fragmented
+// centralized schema migrations. All subsystems (memory, config, cron,
+// team store, telemetry) share the same physical file (soloqueue.db),
+// so opening it from multiple places causes DDL races and fragmented
 // migrations. This package exposes a single *sql.DB and a shared write
 // mutex that callers use to serialize writes across stores.
 package sqlitedb

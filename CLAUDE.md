@@ -85,7 +85,7 @@ Key types: `Registry` (agent lookup), `DefaultFactory` (agent creation), `Superv
 
 `~/.soloqueue/` is the work directory (`config.DefaultWorkDir()`). Config loading order (low→high priority): compiled defaults → `settings.toml` → `settings.local.toml`. Agent templates (`~/.soloqueue/agents/*.md`), MCP servers (`~/.soloqueue/mcp.json`), and skills (`~/.soloqueue/skills/*.md`) all hot-reload via fsnotify.
 
-Data paths under `~/.soloqueue/`: timeline JSONL in `logs/timelines/`, shared SQLite in `permanent_memory/entries.db`. Git-ignored locally: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`.
+Data paths under `~/.soloqueue/`: timeline JSONL in `logs/timelines/`, shared SQLite in `soloqueue.db`. Git-ignored locally: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`.
 
 ### Memory engine
 

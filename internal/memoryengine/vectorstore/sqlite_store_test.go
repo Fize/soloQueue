@@ -9,7 +9,7 @@ import (
 func newTestSQLiteStore(t *testing.T) *SQLiteStore {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "entries.db")
+	path := filepath.Join(dir, "soloqueue.db")
 	store, err := NewSQLiteStore(path)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
@@ -111,7 +111,7 @@ func TestSQLiteStore_Query_TopK(t *testing.T) {
 
 func TestSQLiteStore_Persistence(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "entries.db")
+	path := filepath.Join(dir, "soloqueue.db")
 	ctx := context.Background()
 
 	store1, _ := NewSQLiteStore(path)
@@ -168,7 +168,7 @@ func TestSQLiteStore_Count(t *testing.T) {
 
 func TestSQLiteStore_CreatesDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "new", "subdir")
-	path := filepath.Join(dir, "entries.db")
+	path := filepath.Join(dir, "soloqueue.db")
 
 	store, err := NewSQLiteStore(path)
 	if err != nil {

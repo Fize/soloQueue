@@ -69,7 +69,7 @@ Other subcommands: `version`.
 - Skills: `~/.soloqueue/skills/*.md` (hot-reload)
 - Timeline JSONL: `~/.soloqueue/logs/timelines/`
 - Task level persistence: `logs/timelines/l2-<id>/level` — stores last routing level so restarted sessions preserve task context (prevents "这个功能做完了吗" being misclassified as L0)
-- Shared SQLite: `~/.soloqueue/permanent_memory/entries.db`
+- Shared SQLite: `~/.soloqueue/soloqueue.db`
 - Config loading order (low→high priority): compiled defaults → `settings.toml` → `settings.local.toml`
 - Ignored by git: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`
 

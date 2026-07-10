@@ -14,7 +14,7 @@ import (
 )
 
 // SQLiteStore persists simulations to a standalone SQLite database.
-// Uses its own file — does NOT share the main entries.db.
+// Uses its own file — does NOT share the main soloqueue.db.
 type SQLiteStore struct {
 	db *sql.DB
 	mu sync.Mutex // serialize writes

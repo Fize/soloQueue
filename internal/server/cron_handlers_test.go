@@ -26,7 +26,7 @@ func (mockSessionManager) GetSession(ctx context.Context, teamID, taskID string)
 
 func TestHTTP_CronHandlers(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "entries.db")
+	dbPath := filepath.Join(tempDir, "soloqueue.db")
 	sdb, err := sqlitedb.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open sqlite DB: %v", err)

@@ -855,7 +855,7 @@ func TestStripRecalledMemories(t *testing.T) {
 
 func TestSession_BuildRecalledContext(t *testing.T) {
 	// 1. Create a temporary SQLite database
-	dbPath := filepath.Join(t.TempDir(), "entries.db")
+	dbPath := filepath.Join(t.TempDir(), "soloqueue.db")
 	db, err := sqlitedb.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)

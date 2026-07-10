@@ -326,7 +326,7 @@ func (s Settings) MarshalTOMLWithComments() ([]byte, error) {
 	sb.WriteString("# SoloQueue Configuration File\n")
 	sb.WriteString("# This file stores only base configurations related to the underlying process, system environment, and local authorization.\n")
 	sb.WriteString("# All migrated configuration items (such as LLM providers, models, tools limits, QQ Bot, LSP MCP, embedding, and simulation settings)\n")
-	sb.WriteString("# have been migrated to the SQLite database (entries.db) for persistence and dynamic management, and are no longer read from here at startup.\n\n")
+	sb.WriteString("# have been migrated to the SQLite database (soloqueue.db) for persistence and dynamic management, and are no longer read from here at startup.\n\n")
 
 	sb.WriteString("[auth]\n")
 	sb.WriteString("# Username for HTTP Basic Authentication. If empty, authentication is disabled.\n")

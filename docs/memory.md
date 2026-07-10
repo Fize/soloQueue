@@ -20,8 +20,8 @@
                                  ▼
             ┌────────────────────────────────────┐
             │         MemoryEngine               │
-            │  (~/.soloqueue/permanent_memory/   │
-            │   entries.db)                      │
+            │  (~/.soloqueue/                    │
+            │   soloqueue.db)                    │
             │                                    │
             │  ┌──────────┐ ┌──────────┐        │
             │  │ BM25     │ │ KG       │┌──────┐│
@@ -102,7 +102,7 @@ dimension = 1536
 
 ### Data Model
 
-All tables reside in the shared SQLite database (`~/.soloqueue/permanent_memory/entries.db`):
+All tables reside in the shared SQLite database (`~/.soloqueue/soloqueue.db`):
 
 ```
 mem_entries  — id, content, content_hash (SHA-256, UNIQUE), date, tags,

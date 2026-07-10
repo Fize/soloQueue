@@ -24,7 +24,7 @@ func (bc *buildContext) buildMemory() error {
 	// Shared SQLite DB (already opened in buildMemory() or opened now)
 	embStart := time.Now()
 	if bc.sharedDB == nil {
-		sharedDBPath := filepath.Join(bc.workDir, "permanent_memory", "entries.db")
+		sharedDBPath := filepath.Join(bc.workDir, "soloqueue.db")
 		sharedDB, sharedDBErr := sqlitedb.Open(sharedDBPath)
 		if sharedDBErr != nil {
 			return fmt.Errorf("open shared sqlite db: %w", sharedDBErr)

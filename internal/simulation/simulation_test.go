@@ -1121,7 +1121,7 @@ func TestBuildSimulationSystemPrompt_Moderator(t *testing.T) {
 }
 
 func TestIndexSimulationToKG_Namespacing(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test_entries.db")
+	dbPath := filepath.Join(t.TempDir(), "test_soloqueue.db")
 	db, err := sqlitedb.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open sqlite db: %v", err)

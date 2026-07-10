@@ -149,7 +149,7 @@ func TestStoreWorkspaceMigration(t *testing.T) {
 	tempDir := t.TempDir()
 	groupsDir := filepath.Join(tempDir, "groups")
 	agentsDir := filepath.Join(tempDir, "agents")
-	dbPath := filepath.Join(tempDir, "entries.db")
+	dbPath := filepath.Join(tempDir, "soloqueue.db")
 
 	db, err := sqlitedb.Open(dbPath)
 	if err != nil {

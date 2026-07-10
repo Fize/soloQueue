@@ -21,7 +21,7 @@ func TestDatabaseSettings_SyncAndReload(t *testing.T) {
 	}
 
 	// 2. Open temporary SQLite database
-	dbPath := filepath.Join(tmpDir, "entries.db")
+	dbPath := filepath.Join(tmpDir, "soloqueue.db")
 	db, err := sqlitedb.Open(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open SQLite database: %v", err)
@@ -81,7 +81,7 @@ func TestQQBotsMigrationAndPersistence(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 1. Open SQLite DB first
-	dbPath := filepath.Join(tmpDir, "entries.db")
+	dbPath := filepath.Join(tmpDir, "soloqueue.db")
 	db, err := sqlitedb.Open(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open SQLite database: %v", err)
@@ -180,7 +180,7 @@ func TestQQBotsMigrationAndPersistence(t *testing.T) {
 func TestModelVisionPersistence(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	dbPath := filepath.Join(tmpDir, "entries.db")
+	dbPath := filepath.Join(tmpDir, "soloqueue.db")
 	db, err := sqlitedb.Open(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open SQLite database: %v", err)

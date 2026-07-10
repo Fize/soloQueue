@@ -22,7 +22,7 @@ SoloQueue uses a hybrid configuration model. Runtime settings are split between 
                               ▼
                    ┌──────────────────────┐
                    │  SQLite DB (SQLite)  │  --> Contains Providers, Models, Tools,
-                   │  (entries.db)        │      QQBot, LSPMCP, Session, Embedding
+                   │  (soloqueue.db)      │      QQBot, LSPMCP, Session, Embedding
                    └──────────────────────┘
 ```
 
@@ -34,9 +34,9 @@ SoloQueue uses a hybrid configuration model. Runtime settings are split between 
   - Only `Auth`, `Log`, and `Agent` blocks are written back to `settings.toml`.
   - Migrated blocks are **excluded** from TOML serialization to prevent conflicts with database values.
 
-### SQLite Database (`entries.db`)
+### SQLite Database (`soloqueue.db`)
 
-- **Scope**: Used for LLM providers, models, default model mappings, tool execution limits, QQ Bot gateway settings, LSP server entries, and vector store parameters.
+- **Scope**: Shared database for all runtime state — LLM providers, models, default model mappings, tool execution limits, QQ Bot gateway settings, LSP server entries, embedding parameters, memory engine (BM25 + KG + vectors), cron tasks, team/agent definitions, and telemetry.
 - **Tables**: Managed transactionally in SQLite:
   - `llm_providers`: API endpoints and keys.
   - `llm_models`: Context window sizes and parameters.
