@@ -11,6 +11,7 @@ import {
   Binary,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 interface SessionChangesPanelProps {
   sessionId: string;
@@ -118,6 +119,7 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isVisibleRef = useRef(true);
+  const { t } = useTranslation();
 
   const fetchChanges = useCallback(
     async (showSpinner = true) => {
@@ -132,12 +134,12 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
           setExpandedFile(result.changes[0].path);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load changes");
+        setError(e instanceof Error ? e.message : t('common.error'));
       } finally {
         if (showSpinner) setLoading(false);
       }
     },
-    [sessionId, expandedFile],
+    [sessionId, expandedFile, t],
   );
 
   useEffect(() => {
@@ -195,11 +197,11 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
       <div className="shrink-0 px-4 py-3 border-b border-border/40 bg-card/40 backdrop-blur-md flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold tracking-wide text-foreground/90">
-            Changes
+            {t('chat.changes')}
           </h2>
           {data && !loading && !error && (
             <span className="text-[11px] text-muted-foreground/60">
-              {data.changes.length} {data.changes.length === 1 ? "file" : "files"}
+              {data.changes.length} {data.changes.length === 1 ? t('chat.files') : t('chat.files')}
             </span>
           )}
         </div>
@@ -218,7 +220,7 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
             <button
               onClick={() => fetchChanges(false)}
               className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded hover:bg-foreground/10 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-              title="Refresh"
+              title={t('common.refresh')}
             >
               <RefreshCw className="h-3.5 w-3.5" />
             </button>
@@ -240,18 +242,18 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
               className="min-h-[44px] min-w-[44px] flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               <RefreshCw className="h-3 w-3" />
-              Retry
+              {t('chat.retry')}
             </button>
           </div>
         ) : !data || data.changes.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6">
             <p className="text-xs text-muted-foreground">
-              No changes in this session
+              {t('chat.noChanges')}
             </p>
             <p className="text-[11px] text-muted-foreground/50">
               {data?.is_git_repo
-                ? `Tracking from ${data.base_ref?.slice(0, 8)}`
-                : "File changes will appear here"}
+                ? t('chat.gitTracking', { ref: (data.base_ref?.slice(0, 8)) ?? '' })
+                : t('chat.fileChangesAppearHere')}
             </p>
           </div>
         ) : (
@@ -314,8 +316,8 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
       {data && !loading && !error && (
         <div className="shrink-0 px-4 py-2 border-t border-border/40 bg-card/20 text-[11px] text-muted-foreground/50 font-mono truncate">
           {data.is_git_repo
-            ? `base: ${data.base_ref?.slice(0, 12) || "unknown"}`
-            : "snapshot-based (non-git)"}
+            ? t('chat.baseRef', { ref: data.base_ref?.slice(0, 12) || 'unknown' })
+            : t('chat.nonGitSnapshot')}
         </div>
       )}
     </div>

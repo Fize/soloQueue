@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useTranslation } from '@/lib/i18n'
 
 interface ImportSkillDialogProps {
   open: boolean
@@ -42,14 +43,14 @@ export function ImportSkillDialog({
   saving,
   error,
 }: ImportSkillDialogProps) {
+  const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Custom Skill</DialogTitle>
+          <DialogTitle>{t('skills.importTitle')}</DialogTitle>
           <DialogDescription>
-            Write details and instructions for a new AI skill. It will be stored inside your user
-            skills directory.
+            {t('skills.importDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -57,43 +58,43 @@ export function ImportSkillDialog({
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
               <Input
-                label="Skill ID / Folder name"
+                label={t('skills.skillIdLabel')}
                 value={name}
                 onChange={(e) => onNameChange(e.target.value)}
-                placeholder="e.g. search-web"
+                placeholder={t('skills.skillIdPlaceholder')}
               />
               <span className="text-[10px] text-muted-foreground">
-                Allowed characters: a-z, 0-9, dash, underscore.
+                {t('skills.skillIdHelp')}
               </span>
             </div>
 
             <div className="flex flex-col gap-1.5">
               <Textarea
-                label="Description"
+                label={t('skills.descLabel')}
                 value={description}
                 onChange={(e) => onDescriptionChange(e.target.value)}
                 rows={2}
-                placeholder="What is the purpose of this skill?"
+                placeholder={t('skills.descPlaceholder')}
               />
             </div>
 
             <div className="flex flex-col gap-1.5">
               <Input
-                label="Triggers (comma-separated)"
+                label={t('skills.triggersLabel')}
                 value={triggers}
                 onChange={(e) => onTriggersChange(e.target.value)}
-                placeholder="search the web, query search"
+                placeholder={t('skills.triggersPlaceholder')}
               />
             </div>
           </div>
 
           <div className="flex flex-col gap-1.5 min-h-[220px]">
             <Textarea
-              label="SKILL.md Markdown Body"
+              label={t('skills.bodyLabel')}
               value={body}
               onChange={(e) => onBodyChange(e.target.value)}
               className="flex-1 w-full font-mono text-xs"
-              placeholder="# Instructions for using this skill\n\n1. First do X\n2. Next do Y"
+              placeholder={t('skills.bodyPlaceholder')}
               spellCheck={false}
             />
           </div>
@@ -108,16 +109,16 @@ export function ImportSkillDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={onSave} disabled={saving}>
             {saving ? (
               <>
                 <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                Creating...
+                {t('skills.creating')}
               </>
             ) : (
-              'Create Skill'
+              t('skills.createSkill')
             )}
           </Button>
         </DialogFooter>

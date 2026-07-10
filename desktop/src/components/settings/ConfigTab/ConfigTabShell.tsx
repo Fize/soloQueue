@@ -142,7 +142,7 @@ export function ConfigTabShell() {
   const handleSaveDefaults = async () => {
     try {
       await updateDefaultModels(defaultModels)
-      toast.success('Default models updated successfully!')
+      toast.success(t('config.toastDefaultsUpdated'))
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -153,7 +153,7 @@ export function ConfigTabShell() {
     if (!toolsConfig) return
     try {
       await updateToolsConfig(toolsConfig)
-      toast.success('Tools configuration updated successfully!')
+      toast.success(t('config.toastToolsUpdated'))
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -164,7 +164,7 @@ export function ConfigTabShell() {
     if (!qqbotsConfig) return
     try {
       await updateQQBotsConfig(qqbotsConfig)
-      toast.success('QQ Bots configuration updated successfully!')
+      toast.success(t('config.toastQQBotsUpdated'))
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -175,7 +175,7 @@ export function ConfigTabShell() {
     if (!lspmcpConfig) return
     try {
       await updateLSPMCPConfig(lspmcpConfig)
-      toast.success('LSP MCP configuration updated successfully!')
+      toast.success(t('config.toastLSPMCPUpdated'))
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -186,7 +186,7 @@ export function ConfigTabShell() {
     if (!embeddingConfig) return
     try {
       await updateEmbeddingConfig(embeddingConfig)
-      toast.success('Embedding configuration updated successfully!')
+      toast.success(t('config.toastEmbeddingUpdated'))
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -197,7 +197,7 @@ export function ConfigTabShell() {
     if (!sessionConfig) return
     try {
       await updateSessionConfig(sessionConfig)
-      toast.success('Chat configuration updated successfully!')
+      toast.success(t('config.toastSessionUpdated'))
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -208,7 +208,7 @@ export function ConfigTabShell() {
     if (!simulationConfig) return
     try {
       await updateSimulationConfig(simulationConfig)
-      toast.success('Simulation configuration updated successfully!')
+      toast.success(t('config.toastSimulationUpdated'))
       loadAll()
     } catch (err) {
       toast.error((err as Error).message)
@@ -320,13 +320,13 @@ export function ConfigTabShell() {
 
   const handleCreateProvider = async (payload: LLMProvider) => {
     await createProvider(payload)
-    toast.success(`Provider ${payload.name} created successfully!`)
+    toast.success(t('config.toastProviderCreated', { name: payload.name }))
     loadAll()
   }
 
   const handleUpdateProviderAction = async (id: string, payload: LLMProvider) => {
     await updateProvider(id, payload)
-    toast.success(`Provider ${payload.name} updated successfully!`)
+    toast.success(t('config.toastProviderCreated', { name: payload.name }))
     loadAll()
   }
 
@@ -341,7 +341,7 @@ export function ConfigTabShell() {
       await deleteProvider(deleteProviderTarget.id)
       setDeleteProviderTarget(null)
       loadAll()
-      toast.success('Provider deleted')
+      toast.success(t('config.toastProviderDeleted'))
     } catch (err) {
       toast.error((err as Error).message)
       setDeleteProviderTarget(null)
@@ -370,13 +370,13 @@ export function ConfigTabShell() {
 
   const handleCreateModel = async (payload: LLMModel) => {
     await createModel(payload)
-    toast.success(`Model ${payload.name} created successfully!`)
+    toast.success(t('config.toastModelCreated', { name: payload.name }))
     loadAll()
   }
 
   const handleUpdateModelAction = async (id: string, payload: LLMModel) => {
     await updateModel(id, payload)
-    toast.success(`Model ${payload.name} updated successfully!`)
+    toast.success(t('config.toastModelCreated', { name: payload.name }))
     loadAll()
   }
 
@@ -391,7 +391,7 @@ export function ConfigTabShell() {
       await deleteModel(deleteModelTarget.id)
       setDeleteModelTarget(null)
       loadAll()
-      toast.success('Model deleted')
+      toast.success(t('config.toastModelDeleted'))
     } catch (err) {
       toast.error((err as Error).message)
       setDeleteModelTarget(null)

@@ -98,7 +98,7 @@ func TestHTTP_GetSessionChanges_TildeExpansion(t *testing.T) {
 	defer mux.Close()
 
 	// Make request to the changes endpoint
-	req := httptest.NewRequest("GET", "/api/session/l2/"+sessionID+"/changes", nil)
+	req := newLocalhostRequest("GET", "/api/session/l2/"+sessionID+"/changes", nil)
 	// Setup chi route context so chi.URLParam works
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", sessionID)

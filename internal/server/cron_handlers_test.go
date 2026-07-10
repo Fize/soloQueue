@@ -57,7 +57,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 			"target_agent": "L1",
 		}
 		data, _ := json.Marshal(body)
-		req := httptest.NewRequest("POST", "/api/cron", bytes.NewReader(data))
+		req := newLocalhostRequest("POST", "/api/cron", bytes.NewReader(data))
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -77,7 +77,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 
 	// 2. GET /api/cron - List tasks
 	{
-		req := httptest.NewRequest("GET", "/api/cron", nil)
+		req := newLocalhostRequest("GET", "/api/cron", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -102,7 +102,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 			"instruction": "Check afternoon logs",
 		}
 		data, _ := json.Marshal(body)
-		req := httptest.NewRequest("PUT", "/api/cron/"+taskID, bytes.NewReader(data))
+		req := newLocalhostRequest("PUT", "/api/cron/"+taskID, bytes.NewReader(data))
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -121,7 +121,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 
 	// 4. DELETE /api/cron/{id} - Delete task
 	{
-		req := httptest.NewRequest("DELETE", "/api/cron/"+taskID, nil)
+		req := newLocalhostRequest("DELETE", "/api/cron/"+taskID, nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -132,7 +132,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 
 	// 5. GET /api/cron - Verify deletion
 	{
-		req := httptest.NewRequest("GET", "/api/cron", nil)
+		req := newLocalhostRequest("GET", "/api/cron", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -156,7 +156,7 @@ func TestHTTP_CronHandlers_Invalid(t *testing.T) {
 	defer mux.Close()
 
 	// Request when cron system is not configured
-	req := httptest.NewRequest("GET", "/api/cron", nil)
+	req := newLocalhostRequest("GET", "/api/cron", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

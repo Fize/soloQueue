@@ -11,6 +11,7 @@ import { GlassCard } from '@/components/ui/glass-card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Terminal, Loader2, AlertTriangle, Mail, Info } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 
@@ -22,11 +23,12 @@ interface InlineContentProps {
 }
 
 function InlineContent({ content, height = 'min-h-[45vh]', type = 'yaml' }: InlineContentProps) {
+  const { t } = useTranslation()
   return (
     <div className="space-y-3 bg-card/40 rounded-xl border border-border/80 p-0">
       <div className="flex items-center border-b border-border/40 px-4 py-2.5">
         <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-          {type === 'yaml' ? 'YAML Frontmatter Config' : 'Markdown Prompt Body'}
+          {type === 'yaml' ? t('agent.yamlFrontmatter') : t('agent.markdownPrompt')}
         </span>
       </div>
       <div className="px-4 pb-4">
@@ -41,7 +43,7 @@ function InlineContent({ content, height = 'min-h-[45vh]', type = 'yaml' }: Inli
             )
           ) : (
             <p className="text-xs text-muted-foreground italic py-4 text-center">
-              No content configured
+              {t('agent.noContent')}
             </p>
           )}
         </ScrollArea>
@@ -52,6 +54,7 @@ function InlineContent({ content, height = 'min-h-[45vh]', type = 'yaml' }: Inli
 
 // ─── Main Page Component ───────────────────────────────────────────────────────
 export function AgentDetailPage() {
+  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -74,7 +77,7 @@ export function AgentDetailPage() {
     return data.agents.find((a) => a.instance_id === id || a.id === id) || null
   }, [data, id])
 
-  // L1 Coordinator detection
+  // {t('agent.coordinator')} detection
   const isL1 = useMemo(() => {
     if (id === 'main' || id === 'l1-agent') return true
     // L1 is identified by known ID, not subtraction heuristic.
@@ -86,7 +89,7 @@ export function AgentDetailPage() {
 
   // Find template name if no active agent instance
   const templateName = useMemo(() => {
-    if (isL1) return 'L1 Agent'
+    if (isL1) return t('agent.l1Agent')
     if (!teamsData || !id) return ''
     for (const team of teamsData.teams) {
       const match = team.agents.find((a) => a.id === id)
@@ -96,7 +99,7 @@ export function AgentDetailPage() {
   }, [teamsData, id, isL1])
 
   const effectiveId = agent?.id ?? id ?? null
-  const effectiveName = agent?.name ?? templateName ?? 'Unknown Agent'
+  const effectiveName = agent?.name ?? templateName ?? t('agent.unknownAgent')
   const hasAgent = !!agent
 
   // Fetch configs/profile from the shared store (single source of truth)
@@ -187,14 +190,14 @@ export function AgentDetailPage() {
                   variant="primary"
                   className="text-[9px] uppercase tracking-wider py-0 px-1.5 shrink-0"
                 >
-                  L1 Coordinator
+                  {t('agent.coordinator')}
                 </Badge>
               ) : agent?.is_leader ? (
                 <Badge
                   variant="primary"
                   className="text-[9px] uppercase tracking-wider py-0 px-1.5 shrink-0"
                 >
-                  Leader
+                  {t('agent.leader')}
                 </Badge>
               ) : null}
               {hasAgent ? (
@@ -204,7 +207,7 @@ export function AgentDetailPage() {
                   variant="outline"
                   className="text-[10px] text-muted-foreground border-dashed"
                 >
-                  Offline
+                  {t('agent.offline')}
                 </Badge>
               )}
             </div>
@@ -230,7 +233,7 @@ export function AgentDetailPage() {
         <div className="shrink-0 border-b border-border/40 bg-card/45 px-4 md:px-6 py-1 overflow-x-auto no-scrollbar">
           <TabsList className="flex bg-transparent border-0 gap-1.5 min-w-max">
             {isL1 ? (
-              /* L1 Coordinator Tabs */
+              /* {t('agent.coordinator')} Tabs */
               <>
                 <TabsTrigger
                   value="output"
@@ -238,19 +241,19 @@ export function AgentDetailPage() {
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all disabled:opacity-40"
                 >
                   <Terminal className="mr-1.5 h-3.5 w-3.5" />
-                  Output
+                  {t('agent.output')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="soul"
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all"
                 >
-                  Soul
+                  {t('agent.soul')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="rules"
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all"
                 >
-                  Rules
+                  {t('agent.rules')}
                 </TabsTrigger>
               </>
             ) : (
@@ -262,7 +265,7 @@ export function AgentDetailPage() {
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all disabled:opacity-40"
                 >
                   <Terminal className="mr-1.5 h-3.5 w-3.5" />
-                  Output
+                  {t('agent.output')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="status"
@@ -270,26 +273,26 @@ export function AgentDetailPage() {
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all disabled:opacity-40"
                 >
                   <Info className="mr-1.5 h-3.5 w-3.5" />
-                  Status
+                  {t('agent.status')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="details"
                   disabled={!hasAgent}
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all disabled:opacity-40"
                 >
-                  Details
+                  {t('agent.details')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="config"
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all"
                 >
-                  Config
+                  {t('agent.config')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="prompt"
                   className="px-3.5 py-1 text-xs font-semibold rounded-md transition-all"
                 >
-                  Prompt
+                  {t('agent.prompt')}
                 </TabsTrigger>
               </>
             )}
@@ -298,7 +301,7 @@ export function AgentDetailPage() {
 
         {/* Tab Content Areas */}
         <div className="flex-1 overflow-hidden relative">
-          {/* L1 Coordinator Tabs Content */}
+          {/* {t('agent.coordinator')} Tabs Content */}
           {isL1 && (
             <>
               <TabsContent value="output" className="h-full mt-0 focus-visible:outline-none">
@@ -309,7 +312,7 @@ export function AgentDetailPage() {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground py-8 text-center italic">
-                      Waiting for stream output...
+                      {t('agent.waitingStream')}
                     </p>
                   )}
                 </ScrollArea>
@@ -356,7 +359,7 @@ export function AgentDetailPage() {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground py-8 text-center italic">
-                      Waiting for stream output...
+                      {t('agent.waitingStream')}
                     </p>
                   )}
                 </ScrollArea>
@@ -369,12 +372,12 @@ export function AgentDetailPage() {
                       {/* Workload Status Card */}
                       <GlassCard className="space-y-4">
                         <h2 className="text-sm font-bold text-foreground border-b border-border/40 pb-2">
-                          Workload Status
+                          {t('agent.workloadStatus')}
                         </h2>
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1">
                             <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
-                              Pending Delegations
+                              {t('agent.pendingDelegations')}
                             </span>
                             <p className="text-xl font-bold tracking-tight text-foreground tabular-nums">
                               {agent.pending_delegations}
@@ -382,7 +385,7 @@ export function AgentDetailPage() {
                           </div>
                           <div className="space-y-1">
                             <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
-                              Mailbox (High / Normal)
+                              {t('agent.mailbox')}
                             </span>
                             <div className="flex items-center gap-1 text-xl font-bold tracking-tight text-foreground tabular-nums">
                               <Mail className="h-4.5 w-4.5 text-muted-foreground" />
@@ -400,12 +403,12 @@ export function AgentDetailPage() {
                           <div className="flex items-center gap-2 text-destructive">
                             <AlertTriangle className="h-4.5 w-4.5 shrink-0" />
                             <h2 className="text-sm font-bold">
-                              Errors Detected ({agent.error_count})
+                              {t('agent.errorsDetected', { count: agent.error_count })}
                             </h2>
                           </div>
                           <ScrollArea className="max-h-[20vh] bg-destructive/5 rounded-md border border-destructive/25 p-3">
                             <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-destructive">
-                              {agent.last_error || 'No error details recorded'}
+                              {agent.last_error || t('common.none')}
                             </pre>
                           </ScrollArea>
                         </GlassCard>
@@ -413,7 +416,7 @@ export function AgentDetailPage() {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground py-8 text-center italic">
-                      Agent offline, no status available
+                      {t('agent.noStatusAvailable')}
                     </p>
                   )}
                 </ScrollArea>
@@ -425,38 +428,38 @@ export function AgentDetailPage() {
                     <div className="max-w-3xl mx-auto">
                       <GlassCard className="space-y-4">
                         <h2 className="text-sm font-bold text-foreground border-b border-border/40 pb-2">
-                          Agent Details
+                          {t('agent.agentDetails')}
                         </h2>
                         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                           <div className="space-y-1">
                             <dt className="text-muted-foreground font-bold uppercase tracking-wider text-[9px]">
-                              Display Name
+                              {t('agent.displayName')}
                             </dt>
                             <dd className="font-semibold text-foreground">{agent.name}</dd>
                           </div>
                           <div className="space-y-1">
                             <dt className="text-muted-foreground font-bold uppercase tracking-wider text-[9px]">
-                              Model ID
+                              {t('agent.modelId')}
                             </dt>
                             <dd className="font-mono text-foreground">{agent.model_id}</dd>
                           </div>
                           <div className="space-y-1">
                             <dt className="text-muted-foreground font-bold uppercase tracking-wider text-[9px]">
-                              Group / Team
+                              {t('agent.groupTeam')}
                             </dt>
                             <dd className="font-semibold text-foreground">{agent.group || '-'}</dd>
                           </div>
                           <div className="space-y-1">
                             <dt className="text-muted-foreground font-bold uppercase tracking-wider text-[9px]">
-                              Task Level
+                              {t('agent.taskLevel')}
                             </dt>
                             <dd className="font-semibold text-foreground">
-                              {agent.task_level ? `Level ${agent.task_level}` : '-'}
+                              {agent.task_level ? t('agent.level', { level: agent.task_level }) : '-'}
                             </dd>
                           </div>
                           <div className="space-y-1 sm:col-span-2">
                             <dt className="text-muted-foreground font-bold uppercase tracking-wider text-[9px]">
-                              Instance ID
+                              {t('agent.instanceId')}
                             </dt>
                             <dd className="font-mono text-foreground break-all">
                               {agent.instance_id}
@@ -464,7 +467,7 @@ export function AgentDetailPage() {
                           </div>
                           <div className="space-y-1 sm:col-span-2">
                             <dt className="text-muted-foreground font-bold uppercase tracking-wider text-[9px]">
-                              Template ID
+                              {t('agent.templateId')}
                             </dt>
                             <dd className="font-mono text-foreground break-all">{agent.id}</dd>
                           </div>
@@ -473,7 +476,7 @@ export function AgentDetailPage() {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground py-8 text-center italic">
-                      Agent offline, no details available
+                      {t('agent.noDetailsAvailable')}
                     </p>
                   )}
                 </ScrollArea>
@@ -490,7 +493,7 @@ export function AgentDetailPage() {
                       <InlineContent content={config.raw_config || ''} type="yaml" />
                     ) : (
                       <p className="text-xs text-muted-foreground py-8 text-center italic">
-                        No config details loaded
+                        {t('agent.noConfigDetails')}
                       </p>
                     )}
                   </div>
@@ -508,7 +511,7 @@ export function AgentDetailPage() {
                       <InlineContent content={config.system_prompt || ''} type="markdown" />
                     ) : (
                       <p className="text-xs text-muted-foreground py-8 text-center italic">
-                        No system prompt details loaded
+                        {t('agent.noPromptDetails')}
                       </p>
                     )}
                   </div>

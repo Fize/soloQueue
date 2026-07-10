@@ -4,6 +4,7 @@ import { DrawOverlay } from './ui/DrawOverlay';
 import { ArrowLeft, ArrowRight, RotateCcw, Home, Monitor, Smartphone, Tablet, ChevronDown, Check, X } from 'lucide-react';
 import type { PreviewCommentSnapshot } from '@/types/annotation';
 import type { ColoredStroke } from './ui/DrawOverlay';
+import { useTranslation } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 // ─── Device preview types ────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ export function DesignPreview({
   currentColor = 'hsl(var(--destructive))',
   onResizeStart,
 }: DesignPreviewProps) {
+  const { t } = useTranslation()
   const [hoveredTarget, setHoveredTarget] = useState<PreviewCommentSnapshot | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null);
   const [scrollOffset, setScrollOffset] = useState({ x: 0, y: 0 });
@@ -192,7 +194,7 @@ export function DesignPreview({
           onClick={() => navigate('back')}
           onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          title="Back"
+          title={t('common.back')}
         >
           <ArrowLeft className="h-3.5 w-3.5" />
         </button>
@@ -200,7 +202,7 @@ export function DesignPreview({
           onClick={() => navigate('forward')}
           onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          title="Forward"
+          title={t('common.forward')}
         >
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
@@ -209,7 +211,7 @@ export function DesignPreview({
           onClick={() => navigate('reload')}
           onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          title="Reload"
+          title={t('common.reload')}
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -224,7 +226,7 @@ export function DesignPreview({
           }}
           onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          title="Home (Reset to original)"
+          title={t('common.resetHome')}
         >
           <Home className="h-3.5 w-3.5" />
         </button>
@@ -241,7 +243,7 @@ export function DesignPreview({
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             )}
-            title="Select device for preview"
+            title={t('common.selectDevice')}
           >
             {selectedDevice ? (
               <Smartphone className="h-3 w-3" />
@@ -318,7 +320,7 @@ export function DesignPreview({
             onClick={() => setSelectedDevice(null)}
             onMouseDown={(e) => e.stopPropagation()}
             className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Reset to responsive"
+            title={t('common.resetToResponsive')}
           >
             <X className="h-3 w-3" />
           </button>

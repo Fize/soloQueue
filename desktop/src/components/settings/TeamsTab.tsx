@@ -32,6 +32,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { toast } from 'sonner'
+import { useTranslation } from '@/lib/i18n'
 
 // ─── Team Dialog ────────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   const [associatedProjects, setAssociatedProjects] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useTranslation()
 
   const [teamTab, setTeamTab] = useState<'edit' | 'preview'>('preview')
 
@@ -78,7 +80,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      setError('Team name is required')
+      setError(t('teams.teamNameRequired'))
       return
     }
 
@@ -88,11 +90,11 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       try {
         workspaces = JSON.parse(workspacesJson)
         if (!Array.isArray(workspaces)) {
-          setError('Workspaces must be a JSON array')
+          setError(t('teams.workspacesMustBeArray'))
           return
         }
       } catch {
-        setError('Invalid JSON in workspaces')
+        setError(t('teams.invalidWorkspacesJSON'))
         return
       }
     }
@@ -117,35 +119,35 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       onSave()
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save team')
+      setError(err instanceof Error ? err.message : t('teams.failedToSaveTeam'))
     } finally {
       setSaving(false)
     }
   }
 
   // Generate workspaces Markdown preview
-  let workspacesPreviewMD = '### Workspaces Configured\n\n'
+  let workspacesPreviewMD = '### ' + t('teams.workspacesConfigured') + '\n\n'
   if (workspacesJson.trim()) {
     try {
       const parsed = JSON.parse(workspacesJson)
       if (Array.isArray(parsed) && parsed.length > 0) {
         parsed.forEach((ws: any, idx: number) => {
-          const wsName = ws.name || `Workspace #${idx + 1}`
+          const wsName = ws.name || `${t('teams.workspacesConfig')} #${idx + 1}`
           const wsPath = ws.path || '*No path set*'
           workspacesPreviewMD += `- **${wsName}**: \`${wsPath}\`\n`
           if (ws.autoWork?.enabled) {
-            workspacesPreviewMD += `  - *AutoWork*: Cooldown: ${ws.autoWork.initialCooldownMinutes}m / Max: ${ws.autoWork.maxIntervalsPerDay} intervals/day\n`
+            workspacesPreviewMD += `  - *AutoWork*: ` + t('teams.cooldown', { cooldown: ws.autoWork.initialCooldownMinutes, max: ws.autoWork.maxIntervalsPerDay }) + '\n'
           }
         })
       } else {
-        workspacesPreviewMD += '*No workspaces configured.*'
+        workspacesPreviewMD += '*' + t('teams.noWorkspacesConfiguredDesc') + '*'
       }
     } catch {
       workspacesPreviewMD =
-        '⚠️ **Invalid JSON Format**\n\nPlease switch to **Edit** mode to correct the JSON syntax.'
+        '⚠️ **' + t('teams.invalidJSONFormat') + '**\n\n' + t('teams.switchToEdit')
     }
   } else {
-    workspacesPreviewMD += '*No workspaces configured yet.*'
+    workspacesPreviewMD += '*' + t('teams.noWorkspacesConfigured') + '*'
   }
 
   return (
@@ -153,13 +155,13 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <DialogTitle>{isEdit ? 'Edit Team' : 'Create Team'}</DialogTitle>
+            <DialogTitle>{isEdit ? t('teams.editTeam') : t('teams.createTeam')}</DialogTitle>
             {isEdit && <Badge variant="outline">{editTeam?.name}</Badge>}
           </div>
           <DialogDescription>
             {isEdit
-              ? `Update team "${editTeam?.name}" details`
-              : 'Add a new team to organize your agents'}
+              ? t('teams.updateTeamDesc', { name: editTeam?.name })
+              : t('teams.createTeamDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -168,29 +170,29 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
           <div className="flex-1 space-y-4">
             {!isEdit && (
               <Input
-                label="Name"
+                label={t('common.name')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Team name"
+                placeholder={t('teams.teamDescPlaceholder')}
               />
             )}
 
             <div className="flex flex-col gap-1.5">
-              <Label>Description</Label>
+              <Label>{t('teams.teamDescription')}</Label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
-                placeholder="Brief description of this team"
+                placeholder={t('teams.teamDescPlaceholder')}
               />
             </div>
 
             <div className="flex flex-col gap-1.5 pt-2">
-              <Label className="font-semibold">Associated Projects</Label>
+              <Label className="font-semibold">{t('teams.associatedProjects')}</Label>
               <div className="border border-border rounded-md p-3 max-h-[180px] overflow-y-auto space-y-2 bg-muted/10">
                 {allProjects.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">
-                    No projects created yet. Create projects in the Projects tab.
+                    {t('teams.noProjects')}
                   </p>
                 ) : (
                   allProjects.map((p) => {
@@ -233,21 +235,21 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
               onValueChange={(v: string) => setTeamTab(v as 'edit' | 'preview')}
             >
               <div className="flex items-center justify-between">
-                <Label className="font-semibold">Workspaces Configuration</Label>
+                <Label className="font-semibold">{t('teams.workspacesConfig')}</Label>
                 <TabsList className="bg-muted/60 p-0.5 rounded-md border border-border">
                   <TabsTrigger
                     value="edit"
                     className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
                   >
                     <FileTextIcon className="h-3 w-3" />
-                    Edit JSON
+                    {t('teams.editJSON')}
                   </TabsTrigger>
                   <TabsTrigger
                     value="preview"
                     className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
                   >
                     <Eye className="h-3 w-3" />
-                    Preview
+                    {t('teams.preview')}
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -258,11 +260,11 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
                     value={workspacesJson}
                     onChange={(e) => setWorkspacesJson(e.target.value)}
                     className="flex-1 min-h-[220px] font-mono text-xs"
-                    placeholder='[{"name":"my-project","path":"~/code/my-project"}]'
+                    placeholder={t('teams.editJSONPlaceholder')}
                     spellCheck={false}
                   />
                   <p className="text-[10px] text-muted-foreground/80 leading-normal">
-                    Enter valid JSON array representing project workspace configurations.
+                    {t('teams.jsonArrayHelp')}
                   </p>
                 </div>
               </TabsContent>
@@ -280,18 +282,18 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? (
               <>
                 <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                Saving...
+                {t('common.saving')}
               </>
             ) : isEdit ? (
-              'Save Changes'
+              t('teams.saveChanges')
             ) : (
-              'Create Team'
+              t('teams.createTeamBtn')
             )}
           </Button>
         </DialogFooter>
@@ -322,6 +324,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [skillIdsInput, setSkillIdsInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useTranslation()
 
   const [promptTab, setPromptTab] = useState<'edit' | 'preview'>('preview')
 
@@ -357,11 +360,11 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
   const handleSave = async () => {
     if (!name.trim()) {
-      setError('Agent name is required')
+      setError(t('teams.agentNameRequired'))
       return
     }
     if (!teamName) {
-      setError('Team is required')
+      setError(t('teams.teamRequired'))
       return
     }
 
@@ -404,26 +407,26 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
       onSave()
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save agent')
+      setError(err instanceof Error ? err.message : t('teams.failedToSaveAgent'))
     } finally {
       setSaving(false)
     }
   }
 
-  const teamOptions = teams.map((t) => ({ value: t.name, label: t.name }))
+  const teamOptions = teams.map((team) => ({ value: team.name, label: team.name }))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2.5">
-            <DialogTitle>{isEdit ? 'Edit Agent' : 'Create Agent'}</DialogTitle>
+            <DialogTitle>{isEdit ? t('teams.editAgent') : t('teams.createAgent')}</DialogTitle>
             {isEdit && <Badge variant="outline">{editAgent?.name}</Badge>}
           </div>
           <DialogDescription>
             {isEdit
-              ? `Configure settings and prompt rules for this agent`
-              : 'Configure and register a new team member'}
+              ? t('teams.editAgentDesc')
+              : t('teams.createAgentDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -432,30 +435,30 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           <div className="flex-1 space-y-4">
             {!isEdit && (
               <Input
-                label="Name"
+                label={t('common.name')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Agent name"
+                placeholder={t('teams.agentNamePlaceholder')}
               />
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Select label="Team" options={teamOptions} value={teamName} onChange={setTeamName} />
+              <Select label={t('teams.team')} options={teamOptions} value={teamName} onChange={setTeamName} />
               <Input
-                label="Model Override"
+                label={t('teams.modelOverride')}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder="e.g. deepseek-chat"
+                placeholder={t('teams.modelOverridePlaceholder')}
               />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label>Description</Label>
+              <Label>{t('teams.agentDescription')}</Label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
-                placeholder="Brief description of this agent's capabilities"
+                placeholder={t('teams.agentDescPlaceholder')}
               />
             </div>
 
@@ -467,12 +470,12 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                     className="text-xs font-semibold cursor-pointer"
                     htmlFor="is-leader-switch"
                   >
-                    Is Leader
+                    {t('teams.isAgentLeader')}
                   </Label>
                   <Switch id="is-leader-switch" checked={isLeader} onCheckedChange={setIsLeader} />
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-normal">
-                  Orchestrates tasks, plans, and delegates to worker sub-agents.
+                  {t('teams.isAgentLeaderDesc')}
                 </p>
               </div>
 
@@ -482,7 +485,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                     className="text-xs font-semibold cursor-pointer"
                     htmlFor="permission-switch"
                   >
-                    Bypass Confirm
+                    {t('teams.bypassConfirm')}
                   </Label>
                   <Switch
                     id="permission-switch"
@@ -491,23 +494,23 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                   />
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-normal">
-                  Skip confirmation dialogs when running tools (automatic execution).
+                  {t('teams.bypassConfirmDesc')}
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="MCP Servers (comma-separated)"
+                label={t('teams.mcpServers')}
                 value={mcpServersInput}
                 onChange={(e) => setMcpServersInput(e.target.value)}
-                placeholder="server1, server2"
+                placeholder={t('teams.mcpServersPlaceholder')}
               />
               <Input
-                label="Skill IDs (comma-separated)"
+                label={t('teams.skillIds')}
                 value={skillIdsInput}
                 onChange={(e) => setSkillIdsInput(e.target.value)}
-                placeholder="skill-id-1, skill-id-2"
+                placeholder={t('teams.skillIdsPlaceholder')}
               />
             </div>
           </div>
@@ -519,21 +522,21 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
               onValueChange={(v: string) => setPromptTab(v as 'edit' | 'preview')}
             >
               <div className="flex items-center justify-between">
-                <Label className="font-semibold">System Prompt</Label>
+                <Label className="font-semibold">{t('teams.systemPrompt')}</Label>
                 <TabsList className="bg-muted/60 p-0.5 rounded-md border border-border">
                   <TabsTrigger
                     value="edit"
                     className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
                   >
                     <FileTextIcon className="h-3 w-3" />
-                    Edit
+                    {t('teams.edit')}
                   </TabsTrigger>
                   <TabsTrigger
                     value="preview"
                     className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
                   >
                     <Eye className="h-3 w-3" />
-                    Preview
+                    {t('teams.preview')}
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -543,7 +546,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
                   className="min-h-[300px] font-mono text-xs w-full"
-                  placeholder="Paste or write the system instructions here..."
+                  placeholder={t('teams.systemPromptPlaceholder')}
                   spellCheck={false}
                 />
               </TabsContent>
@@ -555,7 +558,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                   <MarkdownPreview content={systemPrompt} />
                 ) : (
                   <span className="text-xs text-muted-foreground italic">
-                    No prompt instructions entered yet.
+                    {t('teams.noPromptYet')}
                   </span>
                 )}
               </TabsContent>
@@ -567,18 +570,18 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? (
               <>
                 <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                Saving...
+                {t('common.saving')}
               </>
             ) : isEdit ? (
-              'Save Changes'
+              t('teams.saveChanges')
             ) : (
-              'Create Agent'
+              t('teams.createAgentBtn')
             )}
           </Button>
         </DialogFooter>
@@ -594,6 +597,7 @@ export default function TeamsTab() {
   const [agents, setAgents] = useState<AgentResponse[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
+  const { t } = useTranslation()
 
   // Filter agents by selected team
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
@@ -620,11 +624,11 @@ export default function TeamsTab() {
       setAgents(agentsData)
       setProjects(projectsData)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load data')
+      toast.error(err instanceof Error ? err.message : t('teams.failedToLoad'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchData()
@@ -655,9 +659,9 @@ export default function TeamsTab() {
       }
       setDeleteTeamTarget(null)
       await fetchData()
-      toast.success('Team deleted')
+      toast.success(t('teams.teamDeleted'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete team')
+      toast.error(err instanceof Error ? err.message : t('teams.failedToDeleteTeam'))
       setDeleteTeamTarget(null)
     }
   }
@@ -688,9 +692,9 @@ export default function TeamsTab() {
       await deleteAgent(deleteAgentTarget.name)
       setDeleteAgentTarget(null)
       await fetchData()
-      toast.success('Agent deleted')
+      toast.success(t('teams.agentDeleted'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete agent')
+      toast.error(err instanceof Error ? err.message : t('teams.failedToDeleteAgent'))
       setDeleteAgentTarget(null)
     }
   }
@@ -709,7 +713,7 @@ export default function TeamsTab() {
   // ── Render ─────────────────────────────────────────────────────────────
 
   if (loading) {
-    return <div className="text-sm text-muted-foreground">Loading agents &amp; teams...</div>
+    return <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
   }
 
   return (
@@ -719,20 +723,20 @@ export default function TeamsTab() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-foreground" />
-            <h3 className="text-sm font-bold text-foreground">Teams</h3>
+            <h3 className="text-sm font-bold text-foreground">{t('teams.teams')}</h3>
             <Badge variant="secondary" className="text-[10px]">
               {teams.length}
             </Badge>
           </div>
           <Button size="sm" onClick={handleCreateTeam} className="gap-1">
             <Plus className="h-3.5 w-3.5" />
-            Create Team
+            {t('teams.createTeamAction')}
           </Button>
         </div>
 
         {teams.length === 0 ? (
           <div className="px-5 py-6 text-center">
-            <p className="text-sm text-muted-foreground">No teams created yet</p>
+            <p className="text-sm text-muted-foreground">{t('teams.noTeamsYet')}</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -753,7 +757,7 @@ export default function TeamsTab() {
                         {team.name}
                       </span>
                       <Badge variant="outline" className="text-[10px]">
-                        {count} {count === 1 ? 'agent' : 'agents'}
+                        {t('teams.agentCount', { count })}
                       </Badge>
                     </div>
                     {team.description && (
@@ -787,7 +791,7 @@ export default function TeamsTab() {
                       variant="ghost"
                       size="icon-xs"
                       onClick={() => handleEditTeam(team)}
-                      title="Edit team"
+                      title={t('teams.editTeamTooltip')}
                     >
                       <Pencil className="h-3 w-3" />
                     </Button>
@@ -795,7 +799,7 @@ export default function TeamsTab() {
                       variant="ghost"
                       size="icon-xs"
                       onClick={() => handleDeleteTeam(team)}
-                      title="Delete team"
+                      title={t('teams.deleteTeamTooltip')}
                       className="text-destructive hover:text-destructive"
                     >
                       <Trash2 className="h-3 w-3" />
@@ -813,7 +817,7 @@ export default function TeamsTab() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-foreground" />
-            <h3 className="text-sm font-bold text-foreground">Agents</h3>
+            <h3 className="text-sm font-bold text-foreground">{t('teams.agents')}</h3>
             <Badge variant="secondary" className="text-[10px]">
               {filteredAgents.length}
             </Badge>
@@ -823,20 +827,20 @@ export default function TeamsTab() {
                 className="text-[10px] cursor-pointer"
                 onClick={() => setSelectedTeam(null)}
               >
-                Team: {selectedTeam} ✕
+                {t('teams.teamFilter', { name: selectedTeam })} ✕
               </Badge>
             )}
           </div>
           <Button size="sm" onClick={handleCreateAgent} className="gap-1">
             <Plus className="h-3.5 w-3.5" />
-            Create Agent
+            {t('teams.createAgentAction')}
           </Button>
         </div>
 
         {filteredAgents.length === 0 ? (
           <div className="px-5 py-6 text-center">
             <p className="text-sm text-muted-foreground">
-              {selectedTeam ? 'No agents in this team' : 'No agents created yet'}
+              {selectedTeam ? t('teams.noAgentsInTeam') : t('teams.noAgentsYet')}
             </p>
           </div>
         ) : (
@@ -849,16 +853,16 @@ export default function TeamsTab() {
                       {agent.name}
                     </span>
                     <Badge variant="outline" className="text-[10px]">
-                      Team: {agent.team_name}
+                      {t('teams.agentTeamBadge', { name: agent.team_name })}
                     </Badge>
                     {agent.is_leader && (
                       <Badge variant="primary" className="text-[10px]">
-                        Leader
+                        {t('teams.leader')}
                       </Badge>
                     )}
                     {agent.permission && (
                       <Badge variant="success" className="text-[10px]">
-                        Bypass
+                        {t('teams.bypass')}
                       </Badge>
                     )}
                   </div>
@@ -869,7 +873,7 @@ export default function TeamsTab() {
                   )}
                   {agent.model && (
                     <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                      Model: {agent.model}
+                      {t('teams.model', { name: agent.model })}
                     </p>
                   )}
                 </div>
@@ -878,7 +882,7 @@ export default function TeamsTab() {
                     variant="ghost"
                     size="icon-xs"
                     onClick={() => handleEditAgent(agent)}
-                    title="Edit agent"
+                    title={t('teams.editAgentTooltip')}
                   >
                     <Pencil className="h-3 w-3" />
                   </Button>
@@ -886,7 +890,7 @@ export default function TeamsTab() {
                     variant="ghost"
                     size="icon-xs"
                     onClick={() => handleDeleteAgent(agent)}
-                    title="Delete agent"
+                    title={t('teams.deleteAgentTooltip')}
                     className="text-destructive hover:text-destructive"
                   >
                     <Trash2 className="h-3 w-3" />
@@ -918,22 +922,22 @@ export default function TeamsTab() {
         onOpenChange={(open) => {
           if (!open) setDeleteTeamTarget(null)
         }}
-        title="Delete Team"
-        message={`Delete team "${deleteTeamTarget?.name}"? This action cannot be undone.`}
+        title={t('teams.deleteTeam')}
+        message={t('teams.deleteTeamConfirmMsg', { name: deleteTeamTarget?.name ?? '' })}
         destructive
         onConfirm={confirmDeleteTeam}
-        confirmLabel="Delete Team"
+        confirmLabel={t('teams.deleteTeam')}
       />
       <ConfirmDialog
         open={!!deleteAgentTarget}
         onOpenChange={(open) => {
           if (!open) setDeleteAgentTarget(null)
         }}
-        title="Delete Agent"
-        message={`Delete agent "${deleteAgentTarget?.name}"? This action cannot be undone.`}
+        title={t('teams.deleteAgent')}
+        message={t('teams.deleteAgentConfirmMsg', { name: deleteAgentTarget?.name ?? '' })}
         destructive
         onConfirm={confirmDeleteAgent}
-        confirmLabel="Delete Agent"
+        confirmLabel={t('teams.deleteAgent')}
       />
     </div>
   )

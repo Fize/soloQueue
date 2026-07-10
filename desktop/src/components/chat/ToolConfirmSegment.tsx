@@ -3,6 +3,7 @@ import { ShieldAlert, Loader2, Check, X } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { confirmSessionTool } from '@/lib/api'
 import { toast } from 'sonner'
+import { useTranslation } from '@/lib/i18n'
 import type { ChatMessage } from '@/types'
 
 export function ToolConfirmSegment({
@@ -15,6 +16,7 @@ export function ToolConfirmSegment({
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const resolveToolConfirm = useChatStore((s) => s.resolveToolConfirm)
   const [submitting, setSubmitting] = useState(false)
+  const { t } = useTranslation()
 
   const handleConfirm = async (choice: string) => {
     if (!activeSessionId) return
@@ -24,7 +26,7 @@ export function ToolConfirmSegment({
       resolveToolConfirm(activeSessionId, segment.callId, choice)
     } catch (err) {
       console.error('Failed to confirm tool:', err)
-      toast.error('Failed to confirm tool')
+      toast.error(t('common.failedToConfirmTool'))
     } finally {
       setSubmitting(false)
     }
@@ -47,7 +49,7 @@ export function ToolConfirmSegment({
           className={`h-4 w-4 shrink-0 ${isUser ? 'text-primary-foreground' : 'text-amber-500'}`}
         />
         <span className="font-semibold uppercase tracking-wider text-[10px]">
-          Execution Permission Required ({segment.name})
+          {t('common.executionPermissionRequired', { name: segment.name })}
         </span>
       </div>
 
@@ -65,13 +67,13 @@ export function ToolConfirmSegment({
           {choice === '' ? (
             <>
               <div className="h-2 w-2 rounded-full bg-destructive" />
-              <span className="font-medium text-destructive">Denied by user</span>
+              <span className="font-medium text-destructive">{t('common.deniedByUser')}</span>
             </>
           ) : (
             <>
               <div className="h-2 w-2 rounded-full bg-success" />
               <span className="font-medium text-success">
-                Approved {choice === 'allow-in-session' ? '(Always allow in this chat)' : ''}
+                {t('common.approved')} {choice === 'allow-in-session' ? t('common.alwaysAllowInChat') : ''}
               </span>
             </>
           )}
@@ -90,7 +92,7 @@ export function ToolConfirmSegment({
               ) : (
                 <Check className="h-3.5 w-3.5" />
               )}
-              Approve
+              {t('common.approve')}
             </button>
             {segment.allowInSession && (
               <button
@@ -103,7 +105,7 @@ export function ToolConfirmSegment({
                 }`}
               >
                 <Check className="h-3.5 w-3.5" />
-                Approve in Session
+                {t('common.approveInSession')}
               </button>
             )}
             <button
@@ -116,7 +118,7 @@ export function ToolConfirmSegment({
               }`}
             >
               <X className="h-3.5 w-3.5" />
-              Deny
+              {t('common.deny')}
             </button>
           </div>
         </div>

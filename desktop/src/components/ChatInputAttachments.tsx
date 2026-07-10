@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { X, Loader2 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ export function ChatInputAttachments({
   onClearSelectedTarget,
   onRemove,
 }: ChatInputAttachmentsProps) {
+  const { t } = useTranslation()
   if (attachments.length === 0 && !selectedTarget) return null
 
   return (
@@ -54,7 +56,7 @@ export function ChatInputAttachments({
               className="absolute inset-0 bg-destructive/80 flex items-center justify-center"
               title={att.error}
             >
-              <span className="text-[10px] text-white font-medium">Failed</span>
+              <span className="text-[10px] text-white font-medium">{t('common.failed')}</span>
             </div>
           )}
           {/* Hover action bar: preview / copy / download / remove */}
@@ -62,7 +64,7 @@ export function ChatInputAttachments({
             <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/50 transition-all flex flex-col items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100">
               {/* Open with system viewer */}
               <button
-                title="Open with system viewer"
+                title={t('common.openWithViewer')}
                 onClick={() => {
                   if (att.path) {
                     // Electron: open file with system default app
@@ -82,7 +84,7 @@ export function ChatInputAttachments({
               </button>
               {/* Copy to clipboard */}
               <button
-                title="Copy image"
+                title={t('common.copyImage')}
                 onClick={async () => {
                   try {
                     const res = await fetch(att.previewUrl)
@@ -100,7 +102,7 @@ export function ChatInputAttachments({
               </button>
               {/* Download */}
               <button
-                title="Download"
+                title={t('common.download')}
                 onClick={() => {
                   const a = document.createElement('a')
                   a.href = att.previewUrl
@@ -119,7 +121,7 @@ export function ChatInputAttachments({
           <button
             onClick={() => onRemove(att.id)}
             className="absolute top-1 right-1 h-4 w-4 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity z-10"
-            title="Remove image"
+            title={t('common.removeImage')}
           >
             <X className="h-2.5 w-2.5" />
           </button>
@@ -128,7 +130,7 @@ export function ChatInputAttachments({
 
       {selectedTarget && (
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/5 text-primary text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-200 max-w-full min-w-0">
-          <span className="font-semibold select-none flex-shrink-0">{'\u{1F310}'} Selected DOM:</span>
+          <span className="font-semibold select-none flex-shrink-0">{'\u{1F310}'} {t('common.selectedDom')}</span>
           <code className="bg-primary/10 px-1 py-0.5 rounded text-[10px] font-mono max-w-[180px] min-w-0 truncate" title={selectedTarget.selector}>
             {selectedTarget.selector}
           </code>
@@ -143,7 +145,7 @@ export function ChatInputAttachments({
               onClearSelectedTarget?.();
             }}
             className="p-0.5 hover:bg-primary/15 rounded-full text-primary transition-colors cursor-pointer flex-shrink-0"
-            title="Deselect element"
+            title={t('common.deselect')}
           >
             <X className="h-2.5 w-2.5" />
           </button>

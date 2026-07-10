@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -221,10 +221,7 @@ async function spawnGoBackend() {
       backendStartTime = null
       sendBackendStatus(false)
 
-      const connConfig = readConnectionConfig()
-      const isRemote = connConfig?.mode === 'remote'
-
-      if (!intentionalClose && !externalGoInstance && !isRemote) {
+      if (!intentionalClose && !externalGoInstance) {
         if (restartAttempts < MAX_RESTART_ATTEMPTS) {
           restartAttempts++
           const delay = Math.min(1000 * Math.pow(2, restartAttempts - 1), 10000)
@@ -302,37 +299,6 @@ function getBackendStatus() {
     running: externalGoInstance || goProcess !== null,
     pid: externalGoInstance ? 'EXTERNAL' : (goProcess?.pid || null),
     uptime: (externalGoInstance || goProcess) && backendStartTime ? Date.now() - backendStartTime : null,
-  }
-}
-
-// ── Connection Config Persistence (connection.json in work dir) ──
-
-function getConnectionConfigPath() {
-  return path.join(getWorkDir(), 'connection.json')
-}
-
-function readConnectionConfig() {
-  const configPath = getConnectionConfigPath()
-  try {
-    if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, 'utf-8')
-      return JSON.parse(raw)
-    }
-  } catch (err) {
-    console.warn('[Electron] Failed to read connection.json:', err.message)
-  }
-  return null
-}
-
-function writeConnectionConfig(config) {
-  const configPath = getConnectionConfigPath()
-  try {
-    fs.mkdirSync(getWorkDir(), { recursive: true })
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
-    return true
-  } catch (err) {
-    console.error('[Electron] Failed to write connection.json:', err.message)
-    return false
   }
 }
 
@@ -424,16 +390,6 @@ ipcMain.handle('backend:status', () => {
   return getBackendStatus()
 })
 
-// Connection config
-ipcMain.handle('connection:get-config', () => {
-  return readConnectionConfig()
-})
-
-ipcMain.handle('connection:save-config', (_event, config) => {
-  const ok = writeConnectionConfig(config)
-  return { success: ok }
-})
-
 // Window controls
 ipcMain.handle('close-window', () => {
   mainWindow?.close()
@@ -449,17 +405,6 @@ ipcMain.handle('maximize-window', () => {
   } else {
     mainWindow?.maximize()
   }
-})
-
-// Directory picker for project path selection
-ipcMain.handle('dialog:select-directory', async () => {
-  if (!mainWindow) return null
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory', 'createDirectory'],
-    title: 'Select Project Working Directory',
-  })
-  if (result.canceled || result.filePaths.length === 0) return null
-  return result.filePaths[0]
 })
 
 function createMenu() {
@@ -530,16 +475,10 @@ app.whenReady().then(async () => {
   createWindow()
   createMenu()
 
-  // Check connection config before starting backend
-  const connConfig = readConnectionConfig()
-  if (connConfig?.mode === 'remote') {
-    console.log('[Electron] Remote connection mode configured, skipping local backend startup.')
-  } else {
-    try {
-      await spawnGoBackend()
-    } catch (err) {
-      console.error('[Electron] Failed to start backend on startup:', err)
-    }
+  try {
+    await spawnGoBackend()
+  } catch (err) {
+    console.error('[Electron] Failed to start backend on startup:', err)
   }
 
   loadWindowContent()

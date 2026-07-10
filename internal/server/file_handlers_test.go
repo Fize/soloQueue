@@ -43,7 +43,7 @@ func TestHTTP_FileHandlers_ToggleCheckbox(t *testing.T) {
 			"index": 0,
 		}
 		data, _ := json.Marshal(body)
-		req := httptest.NewRequest("POST", "/api/files/toggle-checkbox", bytes.NewReader(data))
+		req := newLocalhostRequest("POST", "/api/files/toggle-checkbox", bytes.NewReader(data))
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -67,7 +67,7 @@ func TestHTTP_FileHandlers_ToggleCheckbox(t *testing.T) {
 			"index": 2,
 		}
 		data, _ = json.Marshal(body)
-		req = httptest.NewRequest("POST", "/api/files/toggle-checkbox", bytes.NewReader(data))
+		req = newLocalhostRequest("POST", "/api/files/toggle-checkbox", bytes.NewReader(data))
 		rec = httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 

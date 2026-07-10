@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Database, Plus, Settings, X, Eye, EyeOff } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n'
 
 function parseHeadersJson(json: string): Record<string, string> {
   try {
@@ -57,6 +58,7 @@ export function LLMSection({
   onDeleteModel,
   onToggleModelStatus,
 }: LLMSectionProps) {
+  const { t } = useTranslation()
   // Provider form state
   const [isAddingProvider, setIsAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null)
@@ -196,11 +198,10 @@ export function LLMSection({
         <div className="flex flex-col border-b pb-3">
           <div className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-foreground">Default Model Mappings</h3>
+            <h3 className="font-semibold text-foreground">{t('config.llmDefaultMappings')}</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-            Configure default models used by agents for specific roles like "expert", "superior",
-            "universal", "fast", or "fallback".
+            {t('config.llmDefaultMappingsDesc')}
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -209,14 +210,14 @@ export function LLMSection({
             return (
               <div key={role} className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold capitalize text-muted-foreground">
-                  {role} Model
+                  {t('config.llmRoleModel', { role })}
                 </label>
                 <Select
                   value={val}
                   onChange={(v) => onDefaultModelsChange({ ...defaultModels, [role]: v })}
-                  placeholder="-- Unset / Inherit --"
+                  placeholder={t('config.llmUnsetInherit')}
                   options={[
-                    { value: '', label: '-- Unset / Inherit --' },
+                    { value: '', label: t('config.llmUnsetInherit') },
                     ...models
                       .filter((m) => m.enabled)
                       .map((m) => ({
@@ -231,7 +232,7 @@ export function LLMSection({
         </div>
         <div className="flex justify-end pt-2">
           <Button size="sm" onClick={onSaveDefaults}>
-            Update Defaults
+            {t('config.llmUpdateDefaults')}
           </Button>
         </div>
       </div>
@@ -242,15 +243,15 @@ export function LLMSection({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold text-foreground">LLM Providers</h3>
+              <h3 className="font-semibold text-foreground">{t('config.llmProviders')}</h3>
             </div>
             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddProvider}>
               <Plus className="h-3.5 w-3.5" />
-              Add Provider
+              {t('config.llmAddProvider')}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            LLM Providers: Manage API connection settings for Large Language Model providers.
+            {t('config.llmProvidersDesc')}
           </p>
         </div>
 
@@ -264,65 +265,65 @@ export function LLMSection({
           <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {isAddingProvider ? 'Add LLM Provider' : `Edit Provider: ${editingProvider?.name}`}
+                {isAddingProvider ? t('config.llmAddProviderTitle') : t('config.llmEditProviderTitle', { name: editingProvider?.name || '' })}
               </DialogTitle>
               <DialogDescription>
                 {isAddingProvider
-                  ? 'Configure a new LLM provider with API connection settings.'
-                  : 'Update the API connection settings for this provider.'}
+                  ? t('config.llmAddProviderDesc')
+                  : t('config.llmEditProviderDesc')}
               </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
-                  ID (unique slug)
+                  {t('config.llmProviderId')}
                 </label>
                 <Input
                   value={providerForm.id || ''}
                   disabled={!!editingProvider}
-                  placeholder="e.g. deepseek"
+                  placeholder={t('config.llmProviderIdPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, id: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-muted-foreground">Display Name</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.llmDisplayName')}</label>
                 <Input
                   value={providerForm.name || ''}
-                  placeholder="e.g. DeepSeek Official"
+                  placeholder={t('config.llmDisplayNamePlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2">
-                <label className="text-xs font-semibold text-muted-foreground">API Base URL</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.llmApiBaseUrl')}</label>
                 <Input
                   value={providerForm.baseUrl || ''}
-                  placeholder="https://api.deepseek.com/v1"
+                  placeholder={t('config.llmApiBaseUrlPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, baseUrl: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
-                  API Key (Direct)
+                  {t('config.llmApiKeyDirect')}
                 </label>
                 <Input
                   type="password"
                   value={providerForm.apiKey || ''}
-                  placeholder="sk-..."
+                  placeholder={t('config.llmApiKeyDirectPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, apiKey: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
-                  API Key Env Variable
+                  {t('config.llmApiKeyEnv')}
                 </label>
                 <Input
                   value={providerForm.apiKeyEnv || ''}
-                  placeholder="DEEPSEEK_API_KEY"
+                  placeholder={t('config.llmApiKeyEnvPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, apiKeyEnv: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-muted-foreground">Timeout (ms)</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.llmTimeoutMs')}</label>
                 <Input
                   type="number"
                   value={providerForm.timeoutMs || 30000}
@@ -338,7 +339,7 @@ export function LLMSection({
                     onCheckedChange={(val) => setProviderForm({ ...providerForm, isDefault: val })}
                   />
                   <span className="text-xs font-semibold text-foreground">
-                    Set as Default Provider
+                    {t('config.llmSetAsDefaultProvider')}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -346,17 +347,17 @@ export function LLMSection({
                     checked={providerForm.enabled ?? true}
                     onCheckedChange={(val) => setProviderForm({ ...providerForm, enabled: val })}
                   />
-                  <span className="text-xs font-semibold text-foreground">Enabled</span>
+                  <span className="text-xs font-semibold text-foreground">{t('common.enabled')}</span>
                 </div>
               </div>
 
               {/* Retry parameters block */}
               <div className="sm:col-span-2 border-t pt-3 mt-1">
-                <h5 className="text-xs font-semibold text-foreground mb-2">Retry Configurations</h5>
+                <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmRetryConfigurations')}</h5>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-muted-foreground">
-                      Max Retries
+                      {t('config.llmMaxRetries')}
                     </label>
                     <Input
                       type="number"
@@ -378,7 +379,7 @@ export function LLMSection({
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-muted-foreground">
-                      Init Delay (ms)
+                      {t('config.llmInitDelayMs')}
                     </label>
                     <Input
                       type="number"
@@ -400,7 +401,7 @@ export function LLMSection({
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-muted-foreground">
-                      Max Delay (ms)
+                      {t('config.llmMaxDelayMs')}
                     </label>
                     <Input
                       type="number"
@@ -422,7 +423,7 @@ export function LLMSection({
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-muted-foreground">
-                      Backoff Multiplier
+                      {t('config.llmBackoffMultiplier')}
                     </label>
                     <Input
                       type="number"
@@ -448,13 +449,11 @@ export function LLMSection({
 
               {/* Headers JSON */}
               <div className="sm:col-span-2 border-t pt-3 mt-1">
-                <h5 className="text-xs font-semibold text-foreground mb-2">
-                  Custom Headers (JSON)
-                </h5>
+                <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmCustomHeaders')}</h5>
                 <Textarea
                   value={providerHeadersJson}
                   onChange={(e) => setProviderHeadersJson(e.target.value)}
-                  placeholder='{"X-Custom-Header": "value"}'
+                  placeholder={t('config.llmCustomHeadersPlaceholder')}
                   className="font-mono text-xs min-h-[80px]"
                   spellCheck={false}
                 />
@@ -463,10 +462,10 @@ export function LLMSection({
 
             <DialogFooter>
               <Button size="sm" onClick={saveProviderForm}>
-                {isAddingProvider ? 'Create Provider' : 'Update Provider'}
+                {isAddingProvider ? t('config.llmCreateProvider') : t('config.llmUpdateProvider')}
               </Button>
               <Button variant="outline" size="sm" onClick={cancelProviderForm}>
-                Cancel
+                {t('common.cancel')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -486,7 +485,7 @@ export function LLMSection({
                     <span className="text-[10px] font-mono text-muted-foreground">{p.id}</span>
                     {p.isDefault && (
                       <span className="text-[9px] font-bold uppercase text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
-                        Default
+                        {t('config.llmDefault')}
                       </span>
                     )}
                   </div>
@@ -499,7 +498,7 @@ export function LLMSection({
                 <button
                   onClick={() => setShowApiKey((prev) => ({ ...prev, [p.id]: !prev[p.id] }))}
                   className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                  title={showApiKey[p.id] ? 'Hide API Key' : 'Show API Key'}
+                  title={showApiKey[p.id] ? t('config.llmHideApiKey') : t('config.llmShowApiKey')}
                 >
                   {showApiKey[p.id] ? (
                     <EyeOff className="h-3.5 w-3.5" />
@@ -511,14 +510,14 @@ export function LLMSection({
                   <button
                     onClick={() => onSetProviderAsDefault(p)}
                     className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors text-[9px] font-bold"
-                    title="Set as Default"
+                    title={t('config.llmSetAsDefault')}
                   >
                     ★
                   </button>
                 )}
                 <Switch checked={p.enabled} onCheckedChange={() => onToggleProviderStatus(p)} />
                 <Button size="xs" variant="ghost" onClick={() => startEditProvider(p)}>
-                  Edit
+                  {t('common.edit')}
                 </Button>
                 <Button size="xs" variant="ghost" onClick={() => onDeleteProvider(p.id)}>
                   <X className="h-3 w-3" />
@@ -528,7 +527,7 @@ export function LLMSection({
           ))}
           {providers.length === 0 && !isAddingProvider && (
             <div className="text-center p-8 border border-dashed rounded-xl text-sm text-muted-foreground">
-              No LLM providers configured. Click "Add Provider" to get started.
+              {t('config.llmNoProviders')}
             </div>
           )}
         </div>
@@ -539,11 +538,11 @@ export function LLMSection({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-foreground">LLM Models</h3>
+            <h3 className="font-semibold text-foreground">{t('config.llmModels')}</h3>
           </div>
             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddModel}>
               <Plus className="h-3.5 w-3.5" />
-              Add Model
+              {t('config.llmAddModel')}
             </Button>
         </div>
 
@@ -557,57 +556,57 @@ export function LLMSection({
           <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {isAddingModel ? 'Add LLM Model' : `Edit Model: ${editingModel?.name}`}
+                {isAddingModel ? t('config.llmAddModelTitle') : t('config.llmEditModelTitle', { name: editingModel?.name || '' })}
               </DialogTitle>
               <DialogDescription>
                 {isAddingModel
-                  ? 'Configure a new LLM model under a provider.'
-                  : 'Update model configuration parameters.'}
+                  ? t('config.llmAddModelDesc')
+                  : t('config.llmEditModelDesc')}
               </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-muted-foreground">Model ID</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.llmModelId')}</label>
                 <Input
                   value={modelForm.id || ''}
                   disabled={!!editingModel}
-                  placeholder="e.g. deepseek-chat"
+                  placeholder={t('config.llmModelIdPlaceholder')}
                   onChange={(e) => setModelForm({ ...modelForm, id: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-muted-foreground">Display Name</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.llmDisplayName')}</label>
                 <Input
                   value={modelForm.name || ''}
-                  placeholder="e.g. DeepSeek Chat"
+                  placeholder={t('config.llmDisplayNamePlaceholder')}
                   onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <Select
-                  label="Provider"
+                  label={t('config.llmProviderLabel')}
                   value={modelForm.providerId || ''}
                   onChange={(v) => setModelForm({ ...modelForm, providerId: v })}
-                  placeholder="Select a provider"
+                  placeholder={t('config.llmSelectProvider')}
                   options={[
-                    { value: '', label: 'Select a provider' },
+                    { value: '', label: t('config.llmSelectProvider') },
                     ...providers.map((p) => ({ value: p.id, label: p.name })),
                   ]}
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
-                  API Model Name
+                  {t('config.llmApiModelName')}
                 </label>
                 <Input
                   value={modelForm.apiModel || ''}
-                  placeholder="e.g. deepseek-chat"
+                  placeholder={t('config.llmApiModelNamePlaceholder')}
                   onChange={(e) => setModelForm({ ...modelForm, apiModel: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
-                  Context Window
+                  {t('config.llmContextWindow')}
                 </label>
                 <Input
                   type="number"
@@ -623,12 +622,12 @@ export function LLMSection({
                     checked={modelForm.enabled ?? true}
                     onCheckedChange={(val) => setModelForm({ ...modelForm, enabled: val })}
                   />
-                  <span className="text-xs font-semibold text-foreground">Enabled</span>
+                  <span className="text-xs font-semibold text-foreground">{t('common.enabled')}</span>
                 </div>
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
-                  Temperature ({modelForm.generation?.temperature ?? 0.7})
+                  {t('config.llmTemperature', { val: modelForm.generation?.temperature ?? 0.7 })}
                 </label>
                 <input
                   type="range"
@@ -649,7 +648,7 @@ export function LLMSection({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-muted-foreground">Max Tokens</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.llmMaxTokens')}</label>
                 <Input
                   type="number"
                   value={modelForm.generation?.maxTokens ?? 4096}
@@ -667,7 +666,7 @@ export function LLMSection({
 
               {/* Thinking config */}
               <div className="sm:col-span-2 border-t pt-3 mt-1">
-                <h5 className="text-xs font-semibold text-foreground mb-2">Thinking / Reasoning</h5>
+                <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmThinkingReasoning')}</h5>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex items-center gap-2">
                     <Switch
@@ -682,11 +681,11 @@ export function LLMSection({
                         })
                       }
                     />
-                    <span className="text-xs font-semibold text-foreground">Enable Thinking</span>
+                    <span className="text-xs font-semibold text-foreground">{t('config.llmEnableThinking')}</span>
                   </div>
                   <div className="flex flex-col gap-1">
                     <Select
-                      label="Reasoning Effort"
+                      label={t('config.llmReasoningEffort')}
                       value={modelForm.thinking?.reasoningEffort || 'medium'}
                       onChange={(v) =>
                         setModelForm({
@@ -698,9 +697,9 @@ export function LLMSection({
                         })
                       }
                       options={[
-                        { value: 'low', label: 'Low' },
-                        { value: 'medium', label: 'Medium' },
-                        { value: 'high', label: 'High' },
+                        { value: 'low', label: t('config.llmReasoningLow') },
+                        { value: 'medium', label: t('config.llmReasoningMedium') },
+                        { value: 'high', label: t('config.llmReasoningHigh') },
                       ]}
                     />
                   </div>
@@ -709,7 +708,7 @@ export function LLMSection({
 
               {/* Vision config */}
               <div className="sm:col-span-2 border-t pt-3 mt-1">
-                <h5 className="text-xs font-semibold text-foreground mb-2">Vision / Multimodal</h5>
+                <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmVisionMultimodal')}</h5>
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={modelForm.vision || false}
@@ -720,19 +719,19 @@ export function LLMSection({
                       })
                     }
                   />
-                  <span className="text-xs font-semibold text-foreground">Enable Vision</span>
+                  <span className="text-xs font-semibold text-foreground">{t('config.llmEnableVision')}</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-1">
-                  Enables multimodal support so the model can process and understand uploaded images.
+                  {t('config.llmVisionDesc')}
                 </p>
               </div>
             </div>
             <DialogFooter>
               <Button size="sm" onClick={saveModelForm}>
-                {isAddingModel ? 'Create Model' : 'Update Model'}
+                {isAddingModel ? t('config.llmCreateModel') : t('config.llmUpdateModel')}
               </Button>
               <Button variant="outline" size="sm" onClick={cancelModelForm}>
-                Cancel
+                {t('common.cancel')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -755,24 +754,24 @@ export function LLMSection({
                     </span>
                     {m.thinking?.enabled && (
                       <span className="text-[9px] bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-1 py-0.5 rounded font-medium">
-                        🧠 Thinking
+                        🧠 {t('config.llmThinkingBadge')}
                       </span>
                     )}
                     {m.vision && (
                       <span className="text-[9px] bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/20 px-1 py-0.5 rounded font-medium">
-                        📷 Vision
+                        📷 {t('config.llmVisionBadge')}
                       </span>
                     )}
                   </div>
                   <p className="text-[10px] text-muted-foreground/70 truncate font-mono">
-                    {m.apiModel} · context: {m.contextWindow?.toLocaleString()}
+                    {m.apiModel} · {t('config.llmContextLabel', { count: m.contextWindow?.toLocaleString() || 0 })}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <Switch checked={m.enabled} onCheckedChange={() => onToggleModelStatus(m)} />
                 <Button size="xs" variant="ghost" onClick={() => startEditModel(m)}>
-                  Edit
+                  {t('common.edit')}
                 </Button>
                 <Button size="xs" variant="ghost" onClick={() => onDeleteModel(m.id)}>
                   <X className="h-3 w-3" />
@@ -782,7 +781,7 @@ export function LLMSection({
           ))}
           {models.length === 0 && !isAddingModel && (
             <div className="text-center p-8 border border-dashed rounded-xl text-sm text-muted-foreground">
-              No LLM models configured. Click "Add Model" to get started.
+              {t('config.llmNoModels')}
             </div>
           )}
         </div>

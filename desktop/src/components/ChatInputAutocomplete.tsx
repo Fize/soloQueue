@@ -2,6 +2,7 @@ import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo, 
 import { Loader2 } from 'lucide-react'
 import { listFiles } from '@/lib/api'
 import type { FileInfo } from '@/types'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 // ─── Autocomplete types ──────────────────────────────────────────────────────
@@ -15,17 +16,17 @@ export interface AutocompleteItem {
 // Built-in slash commands with descriptions
 export const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
   // ── Session control ──────────────────────────────────────────────────────
-  { label: 'compact',   description: 'Compact context window (no memory save)', type: 'command' },
-  { label: 'clear',     description: 'Clear dialogue history',                 type: 'command' },
-  { label: 'cancel',    description: 'Cancel current task',                    type: 'command' },
-  { label: 'help',      description: 'View available commands',                type: 'command' },
-  { label: 'version',   description: 'View version number',                    type: 'command' },
-  { label: 'cron',      description: 'Create scheduled task (cron expression)', type: 'command' },
+  { label: 'compact',   description: 'chat.slashCompact', type: 'command' },
+  { label: 'clear',     description: 'chat.slashClear',                 type: 'command' },
+  { label: 'cancel',    description: 'chat.slashCancel',                    type: 'command' },
+  { label: 'help',      description: 'chat.slashHelp',                type: 'command' },
+  { label: 'version',   description: 'chat.slashVersion',                    type: 'command' },
+  { label: 'cron',      description: 'chat.slashCron', type: 'command' },
   // ── Routing level locks ──────────────────────────────────────────────────
-  { label: 'l0',        description: 'Force conversation level (no tools)',    type: 'command' },
-  { label: 'l1',        description: 'Force simple single-file task level',    type: 'command' },
-  { label: 'l2',        description: 'Force multi-file task level',            type: 'command' },
-  { label: 'l3',        description: 'Force expert / complex level',           type: 'command' },
+  { label: 'l0',        description: 'chat.slashL0',    type: 'command' },
+  { label: 'l1',        description: 'chat.slashL1',    type: 'command' },
+  { label: 'l2',        description: 'chat.slashL2',            type: 'command' },
+  { label: 'l3',        description: 'chat.slashL3',           type: 'command' },
 ]
 
 // ─── Component types ─────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export interface ChatInputAutocompleteProps {
 
 export const ChatInputAutocomplete = forwardRef<ChatInputAutocompleteHandle, ChatInputAutocompleteProps>(
   function ChatInputAutocomplete({ value: _value, inputRef, skillNames, atRootDir, onSelectMention, onValueChange }, ref) {
+    const { t } = useTranslation()
     // ─── Slash autocomplete state ────────────────────────────────────────────
     const autocompleteRef = useRef<HTMLDivElement>(null)
     const [acQuery, setAcQuery] = useState<string | null>(null)   // null = hidden
@@ -64,7 +66,7 @@ export const ChatInputAutocomplete = forwardRef<ChatInputAutocompleteHandle, Cha
     const allAcItems = useMemo<AutocompleteItem[]>(() => {
       const skillItems: AutocompleteItem[] = skillNames.map((n) => ({
         label: n,
-        description: 'Skill',
+        description: 'chat.slashSkill',
         type: 'skill',
       }))
       return [...BUILTIN_SLASH_COMMANDS, ...skillItems]
@@ -350,7 +352,7 @@ export const ChatInputAutocomplete = forwardRef<ChatInputAutocompleteHandle, Cha
                     )}>
                       /{item.label}
                     </span>
-                    <span className="text-[12px] text-muted-foreground truncate">{item.description}</span>
+                    <span className="text-[12px] text-muted-foreground truncate">{t(item.description)}</span>
                   </button>
                 ))}
               </div>
@@ -375,7 +377,7 @@ export const ChatInputAutocomplete = forwardRef<ChatInputAutocompleteHandle, Cha
                 {atLoading && atFiles.length === 0 && (
                   <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    <span>Loading…</span>
+                    <span>{t('chat.slashLoading')}</span>
                   </div>
                 )}
                 {atFiles.map((file, idx) => (

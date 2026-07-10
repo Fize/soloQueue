@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ChevronRight, ChevronDown } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useTranslation } from '@/lib/i18n'
 import type { ChatMessage } from '@/types'
 
 export function ThinkingSegment({
@@ -18,6 +19,7 @@ export function ThinkingSegment({
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
+  const { t } = useTranslation()
 
   // A thinking segment is done when:
   //   a) there are subsequent segments (LLM moved on to content/tool_call), OR
@@ -66,7 +68,7 @@ export function ThinkingSegment({
             <div className="h-1 w-1 rounded-full bg-success" />
           </div>
         )}
-        <span className="font-medium">thinking</span>
+        <span className="font-medium">{t('chat.thinking')}</span>
         <ChevronRight className="h-3 w-3 ml-auto group-open/thinking:hidden" />
         <ChevronDown className="h-3 w-3 ml-auto hidden group-open/thinking:block" />
       </summary>

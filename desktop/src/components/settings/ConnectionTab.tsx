@@ -59,12 +59,12 @@ function BackendManagement() {
       const ea = (window as any).electronAPI
       const result = await ea.startBackend()
       if (!result.success) {
-        toast.error(result.error || 'Failed to start backend')
+        toast.error(result.error || t('connection.startFailed'))
       } else {
-        toast.success('Backend started')
+        toast.success(t('connection.started'))
       }
     } catch (err) {
-      toast.error('Failed to start backend')
+      toast.error(t('connection.startFailed'))
     }
   }
 
@@ -73,9 +73,9 @@ function BackendManagement() {
     try {
       const ea = (window as any).electronAPI
       await ea.stopBackend()
-      toast.success('Backend stopped')
+      toast.success(t('connection.stoppedToast'))
     } catch {
-      toast.error('Failed to stop backend')
+      toast.error(t('connection.stopFailed'))
     }
   }
 
@@ -85,12 +85,12 @@ function BackendManagement() {
       const ea = (window as any).electronAPI
       const result = await ea.restartBackend()
       if (!result.success) {
-        toast.error(result.error || 'Failed to restart backend')
+        toast.error(result.error || t('connection.restartFailed'))
       } else {
-        toast.success('Backend restarted')
+        toast.success(t('connection.restarted'))
       }
     } catch {
-      toast.error('Failed to restart backend')
+      toast.error(t('connection.restartFailed'))
     }
   }
 
@@ -312,13 +312,7 @@ export function ConnectionTab() {
   const remoteUrl = useConnectionStore((s) => s.remoteUrl)
   const saving = useConnectionStore((s) => s.saving)
   const saveConfig = useConnectionStore((s) => s.saveConfig)
-  const loadConfig = useConnectionStore((s) => s.loadConfig)
   const { t } = useTranslation()
-
-  // Load config on mount
-  useEffect(() => {
-    loadConfig()
-  }, [loadConfig])
 
   const handleSave = useCallback(async () => {
     if (mode === 'remote' && !remoteUrl.trim()) {

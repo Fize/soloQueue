@@ -381,3 +381,12 @@ body {
   word-break: break-word;
   overflow-wrap: break-word;
 }
+
+@keyframes indeterminate-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(calc(100vw + 100%)); }
+}
+
+.animate-indeterminate-bar {
+  animation: indeterminate-bar 1.5s ease-in-out infinite;
+}

@@ -19,11 +19,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('backend:status-changed', handler)
     return () => ipcRenderer.removeListener('backend:status-changed', handler)
   },
-
-  // Connection config
-  getConnectionConfig: () => ipcRenderer.invoke('connection:get-config'),
-  saveConnectionConfig: (config) => ipcRenderer.invoke('connection:save-config', config),
-
-  // Directory picker
-  selectDirectory: () => ipcRenderer.invoke('dialog:select-directory'),
 })

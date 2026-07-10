@@ -56,7 +56,7 @@ func TestHTTP_UploadFile(t *testing.T) {
 	_, _ = part.Write([]byte("hello world"))
 	writer.Close()
 
-	req := httptest.NewRequest("POST", "/api/session/upload", &buf)
+	req := newLocalhostRequest("POST", "/api/session/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	rec := httptest.NewRecorder()
 
@@ -120,7 +120,7 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := httptest.NewRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -196,7 +196,7 @@ func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := httptest.NewRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -274,7 +274,7 @@ func TestHTTP_SessionHistory_Delegation_MultilineTask(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := httptest.NewRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -351,7 +351,7 @@ func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := httptest.NewRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -430,7 +430,7 @@ func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := httptest.NewRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)

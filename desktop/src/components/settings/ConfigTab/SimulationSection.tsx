@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { useTranslation } from '@/lib/i18n'
 import type { SimulationConfig, LLMProvider, LLMModel } from '@/types'
 
 interface SimulationSectionProps {
@@ -20,6 +21,7 @@ export function SimulationSection({
   providers,
   models,
 }: SimulationSectionProps) {
+  const { t } = useTranslation()
   const currentHours = config.simulatedHours || 168
   const currentScale = config.timeScale || 300
   const currentMaxMs = config.defaultMaxWallClockMs || 18 * 60 * 1000
@@ -33,38 +35,38 @@ export function SimulationSection({
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-foreground">Simulation Config</h3>
+            <h3 className="font-semibold text-foreground">{t('config.simTitle')}</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-            Simulation Config: Define default settings for multi-agent simulation environments.
+            {t('config.simTitleDesc')}
           </p>
         </div>
         <Button size="sm" onClick={onSave}>
-          Save Simulation Settings
+          {t('config.simSave')}
         </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">Default Provider</label>
+          <label className="text-xs font-semibold text-muted-foreground">{t('config.simDefaultProvider')}</label>
           <Select
             value={config.defaultProviderId || ''}
             onChange={(v) => onChange({ ...config, defaultProviderId: v })}
-            placeholder="(Default Fast Provider)"
+            placeholder={t('config.simDefaultFastProvider')}
             options={[
-              { value: '', label: '(Default Fast Provider)' },
+              { value: '', label: t('config.simDefaultFastProvider') },
               ...providers.map((p) => ({ value: p.id, label: p.name })),
             ]}
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">Default Model</label>
+          <label className="text-xs font-semibold text-muted-foreground">{t('config.simDefaultModel')}</label>
           <Select
             value={config.defaultModelId || ''}
             onChange={(v) => onChange({ ...config, defaultModelId: v })}
-            placeholder="(Default Fast Model)"
+            placeholder={t('config.simDefaultFastModel')}
             options={[
-              { value: '', label: '(Default Fast Model)' },
+              { value: '', label: t('config.simDefaultFastModel') },
               ...models
                 .filter((m) => m.enabled)
                 .map((m) => ({
@@ -75,28 +77,28 @@ export function SimulationSection({
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">Database Path</label>
+          <label className="text-xs font-semibold text-muted-foreground">{t('config.simDbPath')}</label>
           <Input
             type="text"
-            placeholder="e.g. ~/.soloqueue/simulation.db"
+            placeholder={t('config.simDbPathPlaceholder')}
             value={config.dbPath || ''}
             onChange={(e) => onChange({ ...config, dbPath: e.target.value })}
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">Tick Interval (ms)</label>
+          <label className="text-xs font-semibold text-muted-foreground">{t('config.simTickInterval')}</label>
           <Input
             type="number"
             value={config.tickIntervalMs || 1000}
             onChange={(e) => onChange({ ...config, tickIntervalMs: Number(e.target.value) })}
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Base interval in ms per simulated tick. With plan-follower + dynamic stepping, this is the initial value; actual step adapts to agent activities (2-120 min simulated per tick).
+            {t('config.simTickIntervalDesc')}
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Simulated Hours ({config.simulatedHours || 168}h)
+            {t('config.simSimulatedHours', { hours: config.simulatedHours || 168 })}
           </label>
           <input
             type="range"
@@ -117,12 +119,12 @@ export function SimulationSection({
             className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Total simulated time span. With plan-follower + dynamic stepping, 7 days of gameplay requires ~5 min wall time.
+            {t('config.simSimulatedHoursDesc')}
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground flex justify-between items-center">
-            <span>Max Clock / Default timeout</span>
+            <span>{t('config.simMaxClock')}</span>
             <span className="text-primary font-mono font-bold">
               {config.defaultMaxWallClockMs ? Math.round(config.defaultMaxWallClockMs / 60000) : 18}{' '}
               min
@@ -171,7 +173,7 @@ export function SimulationSection({
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">Time Scale</label>
+          <label className="text-xs font-semibold text-muted-foreground">{t('config.simTimeScale')}</label>
           <Select
             value={String(config.timeScale || 300)}
             onChange={(v) => {
@@ -185,34 +187,34 @@ export function SimulationSection({
               })
             }}
             options={[
-              { value: '60', label: '1s = 1min' },
-              { value: '300', label: '1s = 5min' },
-              { value: '600', label: '1s = 10min' },
-              { value: '1800', label: '1s = 30min' },
-              { value: '3600', label: '1s = 1h' },
+              { value: '60', label: t('config.simTimeScale1m') },
+              { value: '300', label: t('config.simTimeScale5m') },
+              { value: '600', label: t('config.simTimeScale10m') },
+              { value: '1800', label: t('config.simTimeScale30m') },
+              { value: '3600', label: t('config.simTimeScale1h') },
             ]}
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Base ratio of physical clock time to simulated world time. Actual step is dynamically adjusted based on agent plan activities.
+            {t('config.simTimeScaleDesc')}
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground">Default Language</label>
+          <label className="text-xs font-semibold text-muted-foreground">{t('config.simDefaultLanguage')}</label>
           <Select
             value={config.language || 'zh'}
             onChange={(v) => onChange({ ...config, language: v })}
             options={[
-              { value: 'zh', label: 'Chinese' },
-              { value: 'en', label: 'English' },
+              { value: 'zh', label: t('config.simLanguageChinese') },
+              { value: 'en', label: t('config.simLanguageEnglish') },
             ]}
           />
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Default language for generated agents, dialogue process, and reports.
+            {t('config.simLanguageDesc')}
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Reflection / Default reflection
+            {t('config.simReflection')}
           </label>
           <div className="flex items-center gap-2 mt-1">
             <Switch
@@ -220,11 +222,11 @@ export function SimulationSection({
               onCheckedChange={(val) => onChange({ ...config, enableReflection: val })}
             />
             <span className="text-xs text-muted-foreground">
-              {config.enableReflection ? 'Enabled' : 'Disabled'}
+              {config.enableReflection ? t('common.enabled') : t('common.disabled')}
             </span>
           </div>
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Enable memory reflection by default when creating a new simulation.
+            {t('config.simReflectionDesc')}
           </p>
         </div>
       </div>

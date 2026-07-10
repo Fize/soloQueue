@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { Save, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import type { MCPServerConfig, MCPConfig } from '@/types'
@@ -33,6 +34,7 @@ function toWire(servers: MCPServerConfig[]): MCPConfig {
 }
 
 export function MCPTab() {
+  const { t } = useTranslation()
   const config = useMCPConfigStore((state) => state.config)
   const fetchConfig = useMCPConfigStore((state) => state.fetch)
   const save = useMCPConfigStore((state) => state.save)
@@ -51,15 +53,15 @@ export function MCPTab() {
   }, [config, local])
 
   if (!config || !local) {
-    return <div className="text-sm text-muted-foreground">Loading MCP configuration...</div>
+    return <div className="text-sm text-muted-foreground">{t('mcp.loading')}</div>
   }
 
   const handleSave = async () => {
     try {
       await save(toWire(local))
-      toast.success('MCP configuration saved')
+      toast.success(t('mcp.saved'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save MCP config')
+      toast.error(err instanceof Error ? err.message : t('mcp.saveFailed'))
     }
   }
 
@@ -83,16 +85,15 @@ export function MCPTab() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-sm font-bold text-foreground">MCP Servers</h2>
+        <h2 className="text-sm font-bold text-foreground">{t('mcp.servers')}</h2>
         <p className="text-[10px] text-muted-foreground">
-          Configure Model Context Protocol servers. Agents opt in via <code>mcp_servers</code> in
-          their YAML frontmatter.
+          {t('mcp.serversDesc')}
         </p>
       </div>
 
       {local.length === 0 && (
         <div className="text-sm text-muted-foreground py-8 text-center border rounded-lg">
-          No MCP servers configured. Click "Add Server" to get started.
+          {t('mcp.noServersDesc')}
         </div>
       )}
 
@@ -112,7 +113,7 @@ export function MCPTab() {
                   ) : (
                     <ChevronRight className="h-4 w-4" />
                   )}
-                  {srv.name || 'Unnamed Server'}
+                  {srv.name || t('mcp.unnamedServer')}
                 </button>
                 <div className="flex items-center gap-3">
                   <Switch
@@ -128,33 +129,33 @@ export function MCPTab() {
               {open && (
                 <div className="mt-4 grid gap-4 border-t border-border pt-4">
                   <Input
-                    label="Name"
+                    label={t('mcp.name')}
                     value={srv.name}
                     onChange={(e) => update(i, { name: e.target.value })}
-                    placeholder="e.g. github, filesystem"
+                    placeholder={t('mcp.namePlaceholder')}
                   />
                   <Input
-                    label="Command"
+                    label={t('mcp.command')}
                     value={srv.command}
                     onChange={(e) => update(i, { command: e.target.value })}
-                    placeholder="e.g. npx, uvx, node"
+                    placeholder={t('mcp.commandPlaceholder')}
                   />
                   <div className="flex flex-col gap-1.5">
-                    <Label>Arguments</Label>
+                    <Label>{t('mcp.args')}</Label>
                     <Input
                       value={srv.args.join(' ')}
                       onChange={(e) =>
                         update(i, { args: e.target.value.split(/\s+/).filter(Boolean) })
                       }
-                      placeholder="e.g. -y @modelcontextprotocol/server-github"
+                      placeholder={t('mcp.argsPlaceholder')}
                     />
                     <span className="text-[10px] text-muted-foreground">
-                      Space-separated arguments
+                      {t('mcp.argsHelp')}
                     </span>
                   </div>
-                  <Input label="Transport" value={srv.transport} disabled />
+                  <Input label={t('mcp.transport')} value={srv.transport} disabled />
                   <div className="flex flex-col gap-1.5">
-                    <Label>Environment Variables</Label>
+                    <Label>{t('mcp.envVars')}</Label>
                     <div className="space-y-1 mb-1">
                       {srv.env &&
                         Object.entries(srv.env).map(([key, value]) => (
@@ -201,7 +202,7 @@ export function MCPTab() {
                         update(i, { env: newEnv })
                       }}
                     >
-                      <Plus className="mr-1 h-3 w-3" /> Add Variable
+                      <Plus className="mr-1 h-3 w-3" /> {t('mcp.addVariable')}
                     </Button>
                   </div>
                 </div>
@@ -213,10 +214,10 @@ export function MCPTab() {
 
       <div className="flex items-center gap-3">
         <Button size="sm" variant="outline" onClick={add}>
-          <Plus className="mr-1 h-3 w-3" /> Add Server
+          <Plus className="mr-1 h-3 w-3" /> {t('mcp.addServer')}
         </Button>
         <Button size="sm" onClick={handleSave} disabled={saving}>
-          <Save className="mr-1 h-3 w-3" /> {saving ? 'Saving...' : 'Save'}
+          <Save className="mr-1 h-3 w-3" /> {saving ? t('mcp.saving') : t('mcp.save')}
         </Button>
       </div>
     </div>

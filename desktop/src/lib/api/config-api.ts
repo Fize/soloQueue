@@ -15,7 +15,6 @@ import type {
   MCPConfig,
 } from "@/types";
 import { request, API_BASE } from "./core";
-import { useAuthStore } from "@/stores/authStore";
 import { useConnectionStore } from "@/stores/connectionStore";
 
 // ─── Config APIs ──────────────────────────────────────────────────────────────
@@ -28,10 +27,6 @@ export async function getConfigToml(): Promise<string> {
   const res = await fetch(`${API_BASE}/config/toml`, {
     headers: useConnectionStore.getState().getAuthHeaders(),
   });
-  if (res.status === 401) {
-    useAuthStore.getState().logout();
-    throw new Error("Unauthorized");
-  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || `HTTP ${res.status}`);

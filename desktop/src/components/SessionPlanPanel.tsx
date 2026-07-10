@@ -3,6 +3,7 @@ import { Loader2, FileText } from "lucide-react";
 import { getFileUrl, toggleFileCheckbox } from "@/lib/api";
 import { MarkdownPreview } from "@/components/ui/markdown-preview";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 interface SessionPlanPanelProps {
   plans: string[];
@@ -13,6 +14,7 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
   const [content, setContent] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const { t } = useTranslation();
 
   // Sync selected plan if plans list changes and current selection is no longer in the list
   useEffect(() => {
@@ -33,11 +35,11 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
       const text = await res.text();
       setContent(text);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load plan content");
+      setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (selectedPlan) {
@@ -59,7 +61,7 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
   if (plans.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground p-6 text-center">
-        No plans found for this session
+        {t('chat.noPlans')}
       </div>
     );
   }
@@ -71,10 +73,10 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
         <div className="flex items-center gap-2 mb-2">
           <FileText className="h-4 w-4 text-primary" />
           <h2 className="text-sm font-semibold tracking-wide text-foreground/90">
-            Session Plans
+            {t('chat.sessionPlans')}
           </h2>
           <span className="text-[11px] text-muted-foreground/60">
-            {plans.length} {plans.length === 1 ? "plan" : "plans"}
+            {t('chat.plansCount', { count: plans.length })}
           </span>
         </div>
 
@@ -118,14 +120,14 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
               onClick={() => loadPlanContent(selectedPlan, true)}
               className="px-3 py-1.5 rounded bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors cursor-pointer"
             >
-              Retry
+              {t('chat.retry')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             {/* Display plan path */}
             <div className="p-2 rounded bg-muted/30 border border-border/20 text-[10px] font-mono text-muted-foreground/80 break-all select-all">
-              Path: {selectedPlan}
+              {t('chat.path')} {selectedPlan}
             </div>
 
             {/* Render Plan Markdown */}

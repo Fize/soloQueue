@@ -5,9 +5,11 @@ import { ThinkingSegment } from './ThinkingSegment'
 import { ToolCallSegment } from './ToolCallSegment'
 import { ToolConfirmSegment } from './ToolConfirmSegment'
 import { SubagentCard } from './WorkedSegment'
+import { useTranslation } from '@/lib/i18n'
 import type { ChatMessage } from '@/types'
 
 export function LoadingIndicator() {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center gap-2 py-1">
       <span className="inline-flex gap-0.5">
@@ -24,16 +26,17 @@ export function LoadingIndicator() {
       <span
         className={`text-sm text-muted-foreground/60`}
       >
-        Thinking...
+        {t('chat.thinking')}
       </span>
     </div>
   )
 }
 
 function CompactSegment({ text }: { text: string }) {
+  const { t } = useTranslation()
   return (
     <div className="text-xs text-muted-foreground/50 italic py-0.5">
-      Context compacted: {text}
+      {t('common.contextCompacted')} {text}
     </div>
   )
 }

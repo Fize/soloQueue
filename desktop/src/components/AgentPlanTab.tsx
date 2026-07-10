@@ -1,4 +1,5 @@
 import { Loader2, Info, Clock } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n'
 import type { PlanItem } from '@/types'
 
 interface AgentPlanTabProps {
@@ -15,10 +16,12 @@ const PLAN_STATUS_LABELS: Record<string, string> = {
 }
 
 export function AgentPlanTab({ plan, planLoading, planError }: AgentPlanTabProps) {
+  const { t } = useTranslation()
+
   if (planLoading) {
     return (
       <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> Loading daily plan...
+        <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> {t('common.loading')}
       </div>
     )
   }
@@ -29,7 +32,7 @@ export function AgentPlanTab({ plan, planLoading, planError }: AgentPlanTabProps
     return (
       <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed border-border/80 rounded-xl bg-card/5">
         <Info className="h-6 w-6 opacity-30" />
-        <span className="text-xs">No daily schedule plan found. Plans will be generated when the simulation starts.</span>
+        <span className="text-xs">{t('chat.noPlans')}</span>
       </div>
     )
   }
@@ -38,7 +41,7 @@ export function AgentPlanTab({ plan, planLoading, planError }: AgentPlanTabProps
     <div className="space-y-4">
       <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono flex items-center gap-1.5 border-b border-border/40 pb-1.5">
         <Clock className="h-3.5 w-3.5" />
-        Today's Schedule
+        {t('chat.planPanel')}
       </h4>
       <div className="relative border-l border-border/80 ml-2.5 pl-5 space-y-5">
         {plan.schedule.map((item: any, idx: number) => {

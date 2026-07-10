@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Select } from '@/components/ui/select'
+import { useTranslation } from '@/lib/i18n'
 import type { QQBotConfig } from '@/types'
 import { useState, useEffect } from 'react'
 import { listL2Groups } from '@/lib/api'
@@ -14,6 +15,7 @@ interface QQBotSectionProps {
 }
 
 export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
+  const { t } = useTranslation()
   const [bots, setBots] = useState<QQBotConfig[]>(config || [])
   const [l2Groups, setL2Groups] = useState<string[]>([])
 
@@ -60,18 +62,18 @@ export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-foreground">QQ Bots Configuration</h3>
+            <h3 className="font-semibold text-foreground">{t('config.qqTitle')}</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-            Configure multiple QQ Bots. Bind bots to either the L1 orchestrator or specific L2 agents.
+            {t('config.qqTitleDesc')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={handleAdd}>
-            <Plus className="h-4 w-4 mr-1" /> Add Bot
+            <Plus className="h-4 w-4 mr-1" /> {t('config.qqAddBot')}
           </Button>
           <Button size="sm" onClick={onSave}>
-            Save Settings
+            {t('config.qqSave')}
           </Button>
         </div>
       </div>
@@ -79,7 +81,7 @@ export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
       <div className="space-y-6">
         {bots.length === 0 && (
           <div className="text-center py-6 text-sm text-muted-foreground">
-            No QQ Bots configured. Click "Add Bot" to get started.
+            {t('config.qqNoBots')}
           </div>
         )}
         
@@ -96,34 +98,34 @@ export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mr-8">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">Bot Name (Optional)</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.qqBotName')}</label>
                 <Input
                   type="text"
-                  placeholder="e.g. Support Bot"
+                  placeholder={t('config.qqBotNamePlaceholder')}
                   value={bot.name || ''}
                   onChange={(e) => handleChange(idx, { name: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">App ID</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.qqAppId')}</label>
                 <Input
                   type="text"
-                  placeholder="Enter AppID"
+                  placeholder={t('config.qqAppIdPlaceholder')}
                   value={bot.appId || ''}
                   onChange={(e) => handleChange(idx, { appId: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">App Secret</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.qqAppSecret')}</label>
                 <Input
                   type="password"
-                  placeholder="Enter AppSecret"
+                  placeholder={t('config.qqAppSecretPlaceholder')}
                   value={bot.appSecret || ''}
                   onChange={(e) => handleChange(idx, { appSecret: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">Intents Mask</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.qqIntentsMask')}</label>
                 <Input
                   type="number"
                   value={bot.intents || 0}
@@ -132,22 +134,22 @@ export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
               </div>
               
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">Bind Type</label>
+                <label className="text-xs font-semibold text-muted-foreground">{t('config.qqBindType')}</label>
                 <Select
                   value={bot.bind_type || 'l1'}
                   onChange={(val) => handleChange(idx, { bind_type: val })}
                   options={[
-                    { value: 'l1', label: 'L1 Orchestrator' },
-                    { value: 'l2', label: 'L2 Sub-agent' }
+                    { value: 'l1', label: t('config.qqBindL1') },
+                    { value: 'l2', label: t('config.qqBindL2') }
                   ]}
                 />
               </div>
               
               {bot.bind_type === 'l2' && (
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Target L2 Agent</label>
+                  <label className="text-xs font-semibold text-muted-foreground">{t('config.qqTargetL2Agent')}</label>
                   <Select
-                    placeholder="Select agent template..."
+                    placeholder={t('config.qqSelectAgent')}
                     value={bot.bind_agent || null}
                     onChange={(val) => handleChange(idx, { bind_agent: val })}
                     options={l2Groups.map((group) => ({
@@ -165,32 +167,32 @@ export function QQBotSection({ config, onChange, onSave }: QQBotSectionProps) {
                   checked={bot.enabled || false}
                   onCheckedChange={(val) => handleChange(idx, { enabled: val })}
                 />
-                <span className="text-xs font-semibold text-foreground">Enabled</span>
+                <span className="text-xs font-semibold text-foreground">{t('common.enabled')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Switch
                   checked={bot.sandbox || false}
                   onCheckedChange={(val) => handleChange(idx, { sandbox: val })}
                 />
-                <span className="text-xs font-semibold text-foreground">Sandbox Mode</span>
+                <span className="text-xs font-semibold text-foreground">{t('config.qqSandboxMode')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Switch
                   checked={bot.whitelist_enabled || false}
                   onCheckedChange={(val) => handleChange(idx, { whitelist_enabled: val })}
                 />
-                <span className="text-xs font-semibold text-foreground">Whitelist Mode</span>
+                <span className="text-xs font-semibold text-foreground">{t('config.qqWhitelistMode')}</span>
               </div>
             </div>
 
             {bot.whitelist_enabled && (
               <div className="flex flex-col gap-1.5 pt-1">
                 <label className="text-xs font-semibold text-muted-foreground">
-                  Allowed OpenIDs (one per line, query your own by sending /myid to bot)
+                  {t('config.qqWhitelistDesc')}
                 </label>
                 <textarea
                   className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="e.g. 74028A1FD0263850781163EB4C99E8DC"
+                  placeholder={t('config.qqWhitelistPlaceholder')}
                   value={bot.whitelist?.join('\n') || ''}
                   onChange={(e) => {
                     const list = e.target.value.split('\n').map(x => x.trim()).filter(Boolean);

@@ -1,6 +1,7 @@
 import { SessionFilePanel } from '@/components/SessionFilePanel'
 import { SessionPlanPanel } from '@/components/SessionPlanPanel'
 import { SessionChangesPanel } from '@/components/SessionChangesPanel'
+import { useTranslation } from '@/lib/i18n'
 
 export function SessionInspectorPanel({
   activeSession,
@@ -13,6 +14,8 @@ export function SessionInspectorPanel({
   panelWidth: number
   projectPathFallback?: string
 }) {
+  const { t } = useTranslation()
+
   if (!activeSession) return null
 
   return (
@@ -27,7 +30,7 @@ export function SessionInspectorPanel({
             />
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              Current session not associated with a project
+              {t('chat.noProject')}
             </div>
           )
         ) : inspectorTab === 'plan' ? (

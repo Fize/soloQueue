@@ -2,6 +2,7 @@ import { Shield } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/lib/i18n'
 import type { ToolsConfig } from '@/types'
 
 interface ToolsSectionProps {
@@ -11,33 +12,33 @@ interface ToolsSectionProps {
 }
 
 export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm space-y-8">
       <div className="flex items-center justify-between border-b pb-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-foreground">Tools Settings</h3>
+            <h3 className="font-semibold text-foreground">{t('config.toolsTitle')}</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-            Tools Settings: Configure tool permissions, resource limits, and security boundaries for
-            code execution, file operations, and shell commands.
+            {t('config.toolsTitleDesc')}
           </p>
         </div>
         <Button size="sm" onClick={onSave}>
-          Save Tools Settings
+          {t('config.toolsSave')}
         </Button>
       </div>
 
       {/* Read Limits */}
       <div>
         <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
-          File Read Limits
+          {t('config.toolsFileRead')}
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Max File Size (Bytes)
+              {t('config.toolsMaxFileSize')}
             </label>
             <Input
               type="number"
@@ -51,11 +52,11 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
       {/* Grep/Search Limits */}
       <div>
         <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
-          Grep & Search Limits
+          {t('config.toolsGrepSearch')}
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">Max Matches</label>
+            <label className="text-xs font-semibold text-muted-foreground">{t('config.toolsMaxMatches')}</label>
             <Input
               type="number"
               value={config.maxMatches}
@@ -63,7 +64,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">Max Line Length</label>
+            <label className="text-xs font-semibold text-muted-foreground">{t('config.toolsMaxLineLength')}</label>
             <Input
               type="number"
               value={config.maxLineLen}
@@ -72,7 +73,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Max Glob List Items
+              {t('config.toolsMaxGlobItems')}
             </label>
             <Input
               type="number"
@@ -86,12 +87,12 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
       {/* File Write Limits */}
       <div>
         <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
-          File Write Limits
+          {t('config.toolsFileWrite')}
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Max Write Size (Bytes)
+              {t('config.toolsMaxWriteSize')}
             </label>
             <Input
               type="number"
@@ -101,7 +102,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Max Multi-Write (Bytes)
+              {t('config.toolsMaxMultiWriteBytes')}
             </label>
             <Input
               type="number"
@@ -111,7 +112,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Max Multi-Write Files
+              {t('config.toolsMaxMultiWriteFiles')}
             </label>
             <Input
               type="number"
@@ -120,7 +121,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">Max Replace Edits</label>
+            <label className="text-xs font-semibold text-muted-foreground">{t('config.toolsMaxReplaceEdits')}</label>
             <Input
               type="number"
               value={config.maxReplaceEdits}
@@ -133,12 +134,12 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
       {/* Web Search & Fetch */}
       <div>
         <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
-          Web Search & Fetch
+          {t('config.toolsWebSearch')}
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              HTTP Max Body (Bytes)
+              {t('config.toolsHttpMaxBody')}
             </label>
             <Input
               type="number"
@@ -147,7 +148,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">HTTP Timeout (ms)</label>
+            <label className="text-xs font-semibold text-muted-foreground">{t('config.toolsHttpTimeout')}</label>
             <Input
               type="number"
               value={config.httpTimeoutMs}
@@ -156,7 +157,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Web Search Timeout (ms)
+              {t('config.toolsWebSearchTimeout')}
             </label>
             <Input
               type="number"
@@ -169,16 +170,16 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
               checked={config.httpBlockPrivate}
               onCheckedChange={(val) => onChange({ ...config, httpBlockPrivate: val })}
             />
-            <span className="text-xs font-semibold text-foreground">Block Private Networks</span>
+            <span className="text-xs font-semibold text-foreground">{t('config.toolsBlockPrivateNetworks')}</span>
           </div>
         </div>
         <div className="mt-4 flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Allowed HTTP Hosts (comma separated)
+            {t('config.toolsAllowedHosts')}
           </label>
           <Input
             type="text"
-            placeholder="e.g. api.github.com, google.com"
+            placeholder={t('config.toolsAllowedHostsPlaceholder')}
             value={config.httpAllowedHosts?.join(', ') || ''}
             onChange={(e) =>
               onChange({
@@ -196,12 +197,12 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
       {/* Shell Execute / Bash */}
       <div>
         <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
-          Shell Execute / Bash
+          {t('config.toolsShellBash')}
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Shell Max Output Captured (Bytes)
+              {t('config.toolsShellMaxOutput')}
             </label>
             <Input
               type="number"
@@ -213,11 +214,11 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
         <div className="grid grid-cols-1 gap-4 mt-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Block Command Regexes (comma separated)
+              {t('config.toolsBlockCommandRegex')}
             </label>
             <Input
               type="text"
-              placeholder="e.g. ^\s*sudo\b, ^\s*poweroff\b"
+              placeholder={t('config.toolsBlockCommandPlaceholder')}
               value={config.shellBlockRegexes?.join(', ') || ''}
               onChange={(e) =>
                 onChange({
@@ -232,11 +233,11 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Confirm Command Regexes (comma separated)
+              {t('config.toolsConfirmCommandRegex')}
             </label>
             <Input
               type="text"
-              placeholder="e.g. ^\s*rm\b, ^\s*dd\b"
+              placeholder={t('config.toolsConfirmCommandPlaceholder')}
               value={config.shellConfirmRegexes?.join(', ') || ''}
               onChange={(e) =>
                 onChange({

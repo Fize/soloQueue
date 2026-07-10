@@ -17,6 +17,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { FolderOpen, Plus, Pencil, Trash2, Loader2, FolderSearch } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTranslation } from '@/lib/i18n'
 
 interface ProjectDialogProps {
   open: boolean
@@ -31,6 +32,7 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useTranslation()
 
   const isEdit = !!editProject
 
@@ -54,7 +56,7 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
 
   const handleBrowseDirectory = async () => {
     if (!window.electronAPI?.selectDirectory) {
-      toast.info('Directory picker is only available in the desktop app. Please type the path manually.')
+      toast.info(t('projects.directoryPickerInfo'))
       return
     }
     try {
@@ -69,11 +71,11 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
 
   const handleSave = async () => {
     if (!name.trim()) {
-      setError('Project name is required')
+      setError(t('projects.projectNameRequired'))
       return
     }
     if (!path.trim()) {
-      setError('Working directory path is required')
+      setError(t('projects.workingDirRequired'))
       return
     }
 
@@ -97,7 +99,7 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
       onSave()
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save project')
+      setError(err instanceof Error ? err.message : t('projects.failedToSave'))
     } finally {
       setSaving(false)
     }
@@ -107,36 +109,36 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm w-[95vw]">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Project' : 'Create Project'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('projects.editProject') : t('projects.createProject')}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? `Update project "${editProject?.name}" details`
-              : 'Add a new project to organize your workspaces'}
+              ? t('projects.updateProject', { name: editProject?.name })
+              : t('projects.addProjectDesc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 my-2 text-left">
           <Input
-            label="Project Name"
+            label={t('projects.projectNameLabel')}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. My Web App"
+            placeholder={t('projects.projectNamePlaceholder')}
           />
 
           <div className="flex flex-col gap-1.5">
-            <Label>Working Directory Path</Label>
+            <Label>{t('projects.workingDirPath')}</Label>
             <div className="flex gap-1.5">
               <Input
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
-                placeholder="e.g. /Users/username/projects/my-web-app"
+                placeholder={t('projects.workingDirPlaceholder')}
                 className="flex-1"
               />
               <Button
                 variant="outline"
                 size="icon-sm"
                 onClick={handleBrowseDirectory}
-                title="Browse local directory"
+                title={t('projects.browseDirectory')}
                 className="shrink-0"
               >
                 <FolderSearch className="h-4 w-4" />
@@ -145,12 +147,12 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label>Description</Label>
+            <Label>{t('projects.description')}</Label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              placeholder="Brief description of this project"
+              placeholder={t('projects.descPlaceholder')}
             />
           </div>
         </div>
@@ -159,18 +161,18 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? (
               <>
                 <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                Saving...
+                {t('common.saving')}
               </>
             ) : isEdit ? (
-              'Save Changes'
+              t('projects.saveChanges')
             ) : (
-              'Create Project'
+              t('projects.createProjectBtn')
             )}
           </Button>
         </DialogFooter>
@@ -184,6 +186,7 @@ export function ProjectsTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
+  const { t } = useTranslation()
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -196,11 +199,11 @@ export function ProjectsTab() {
       const data = await listProjects()
       setProjects(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load projects')
+      setError(err instanceof Error ? err.message : t('projects.failedToLoad'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchProjectsList()
@@ -227,13 +230,13 @@ export function ProjectsTab() {
       setDeleteTarget(null)
       await fetchProjectsList()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete project')
+      setError(err instanceof Error ? err.message : t('projects.failedToDelete'))
       setDeleteTarget(null)
     }
   }
 
   if (loading) {
-    return <div className="text-sm text-muted-foreground">Loading projects...</div>
+    return <div className="text-sm text-muted-foreground">{t('projects.loading')}</div>
   }
 
   return (
@@ -248,20 +251,20 @@ export function ProjectsTab() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2">
             <FolderOpen className="h-4 w-4 text-foreground" />
-            <h3 className="text-sm font-bold text-foreground">Projects</h3>
+            <h3 className="text-sm font-bold text-foreground">{t('projects.title')}</h3>
             <Badge variant="secondary" className="text-[10px]">
               {projects.length}
             </Badge>
           </div>
           <Button size="sm" onClick={handleCreateProject} className="gap-1">
             <Plus className="h-3.5 w-3.5" />
-            Add Project
+            {t('projects.addProject')}
           </Button>
         </div>
 
         {projects.length === 0 ? (
           <div className="px-5 py-8 text-center">
-            <p className="text-sm text-muted-foreground">No projects created yet</p>
+            <p className="text-sm text-muted-foreground">{t('projects.noProjectsYet')}</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -294,7 +297,7 @@ export function ProjectsTab() {
                     variant="ghost"
                     size="icon-xs"
                     onClick={() => handleEditProject(proj)}
-                    title="Edit project"
+                    title={t('projects.editProjectTooltip')}
                   >
                     <Pencil className="h-3 w-3" />
                   </Button>
@@ -302,7 +305,7 @@ export function ProjectsTab() {
                     variant="ghost"
                     size="icon-xs"
                     onClick={() => handleDeleteProject(proj)}
-                    title="Delete project"
+                    title={t('projects.deleteProjectTooltip')}
                     className="text-destructive hover:text-destructive"
                   >
                     <Trash2 className="h-3 w-3" />
@@ -325,11 +328,11 @@ export function ProjectsTab() {
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null)
         }}
-        title="Delete Project"
-        message={`Delete project "${deleteTarget?.name}"? This will not delete the files on disk.`}
+        title={t('projects.deleteProject')}
+        message={t('projects.deleteConfirmMsg', { name: deleteTarget?.name ?? '' })}
         destructive
         onConfirm={confirmDeleteProject}
-        confirmLabel="Delete Project"
+        confirmLabel={t('projects.deleteProject')}
       />
     </div>
   )

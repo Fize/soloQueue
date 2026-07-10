@@ -19,6 +19,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
 
 interface TreeNode {
   path: string
@@ -68,6 +69,7 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
   const [loadingNodes, setLoadingNodes] = useState<Record<string, boolean>>({})
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const { t } = useTranslation()
 
   const isInline = panelWidth >= INLINE_THRESHOLD
 
@@ -170,7 +172,7 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
                 >
                   <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                   <span className="text-[10px] text-muted-foreground">
-                    Loading...
+                    {t('common.loading')}
                   </span>
                 </div>
               )}
@@ -191,14 +193,14 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
           <div className="flex items-center justify-center py-4 gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             <span className="text-[10px] text-muted-foreground">
-              Loading...
+              {t('common.loading')}
             </span>
           </div>
         )}
         {rootNodes && rootNodes.length === 0 && (
           <div className="flex items-center justify-center py-4">
             <span className="text-[10px] text-muted-foreground">
-              Empty directory
+              {t('chat.emptyDir')}
             </span>
           </div>
         )}
@@ -234,7 +236,7 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
       {!isInline && (
         <Dialog open={modalOpen} onOpenChange={setModalOpen}>
           <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0 overflow-hidden rounded-2xl bg-background" showCloseButton={false}>
-            <DialogTitle className="sr-only">File Preview</DialogTitle>
+            <DialogTitle className="sr-only">{t('common.preview')}</DialogTitle>
             <div className="flex-1 min-h-0 overflow-hidden">
               <FileContentView
                 path={selectedPath}

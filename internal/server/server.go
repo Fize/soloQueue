@@ -315,11 +315,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Use(al.Middleware)
 	}
 
-	// ── Auth middleware (protects all routes below if [auth] configured) ──
+	// ── Auth middleware (always registered; localhost bypasses, remote requires auth) ──
 	m.resolveEffectiveAuth()
-	if m.authConfig.User != "" {
-		r.Use(m.tokenAuthMiddleware)
-	}
+	r.Use(m.tokenAuthMiddleware)
 
 	// WebSocket
 	r.Get("/ws", m.handleWebSocket)
@@ -528,9 +526,15 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	fsys := distFS()
 	fileServer := http.FileServer(http.FS(fsys))
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		// Remote access to the embedded portal requires Basic Auth.
-		// Localhost (127.0.0.1, ::1) bypasses this check.
-		if !isLocalhostAccess(r) && m.effectiveAuthUser != "" {
+		// Localhost (127.0.0.1, ::1) bypasses auth.
+		if !isLocalhostAccess(r) {
+			// Auth not configured — deny all remote access
+			if m.effectiveAuthUser == "" {
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"error":"remote access not configured"}`))
+				return
+			}
+			// Remote access requires Basic Auth
 			user, password, ok := r.BasicAuth()
 			if !ok || user != m.effectiveAuthUser || password != m.effectiveAuthPass {
 				w.Header().Set("WWW-Authenticate", `Basic realm="SoloQueue Portal"`)

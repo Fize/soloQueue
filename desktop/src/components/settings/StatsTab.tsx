@@ -14,6 +14,7 @@ import { ActivityHeatmap, type ActivityDay } from '@/components/ActivityHeatmap'
 import { TrendingUp, GitCommitHorizontal } from 'lucide-react'
 import { Select } from '@/components/ui/select'
 import { GlassCard } from '@/components/ui/glass-card'
+import { useTranslation } from '@/lib/i18n'
 
 /* ── custom tooltip ─────────────────────────────────────────── */
 
@@ -45,6 +46,7 @@ export function StatsTab() {
   const [teams, setTeams] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const { t } = useTranslation()
 
   useEffect(() => {
     let active = true
@@ -62,14 +64,14 @@ export function StatsTab() {
         setRouterStats(routerData || [])
         setTeams(teamsData || [])
       } catch (err: any) {
-        if (active) setError(err.message || 'Failed to fetch statistics')
+        if (active) setError(err.message || t('common.error'))
       } finally {
         if (active) setLoading(false)
       }
     }
     fetchData()
     return () => { active = false }
-  }, [timeframe, teamFilter])
+  }, [timeframe, teamFilter, t])
 
   const tokenChartData = useMemo(() => {
     const grouped = new Map<string, { period: string; prompt: number; completion: number; cache: number }>()
@@ -138,12 +140,12 @@ export function StatsTab() {
 
   const teamOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [
-      { value: 'all', label: 'All Teams' },
-      { value: '__solo__', label: 'Solo (L1)' },
+      { value: 'all', label: t('stats.allTeams') },
+      { value: '__solo__', label: t('stats.soloL1') },
     ]
     for (const t of teams) opts.push({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })
     return opts
-  }, [teams])
+  }, [teams, t])
 
   const fmtLabel = (p: string) => {
     const parts = p.split('-')
@@ -161,24 +163,24 @@ export function StatsTab() {
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-primary" />
-          Usage Statistics
+          {t('stats.title')}
         </h2>
         <p className="text-sm text-muted-foreground">
-          Monitor token consumption trends and router classification patterns.
+          {t('stats.title')}
         </p>
       </div>
 
       <div className="inline-flex w-fit flex-wrap items-center gap-3 rounded-xl border border-border/70 bg-card/70 px-3 py-2 shadow-sm">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Timeframe</span>
+          <span className="text-xs font-medium text-muted-foreground">{t('stats.timeFrame')}</span>
           <Select value={timeframe} onChange={setTimeframe} options={[
-            { value: 'daily', label: 'Daily' },
-            { value: 'weekly', label: 'Weekly' },
-            { value: 'monthly', label: 'Monthly' },
+            { value: 'daily', label: t('stats.daily') },
+            { value: 'weekly', label: t('stats.weekly') },
+            { value: 'monthly', label: t('stats.monthly') },
           ]} className="w-[126px]" />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Team</span>
+          <span className="text-xs font-medium text-muted-foreground">{t('stats.teamFilter')}</span>
           <Select value={teamFilter} onChange={setTeamFilter} options={teamOptions} className="w-[150px]" />
         </div>
       </div>
@@ -192,10 +194,10 @@ export function StatsTab() {
         <div>
           <h3 className="font-semibold text-foreground flex items-center gap-2">
             <GitCommitHorizontal className="h-4 w-4 text-primary" />
-            Activity Heatmap
+            {t('stats.activityHeatmap')}
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Token consumption activity over the past year (darker = more tokens)
+            {t('stats.activityDesc')}
           </p>
         </div>
         <ActivityHeatmap data={heatmapData} days={365} loading={heatmapLoading} />
@@ -206,11 +208,11 @@ export function StatsTab() {
           {/* Token Consumption */}
           <GlassCard className="flex flex-col gap-4 min-h-[350px]">
             <div>
-              <h3 className="font-semibold text-foreground">Token Consumption</h3>
+              <h3 className="font-semibold text-foreground">{t('stats.tokenConsumption')}</h3>
             </div>
             {tokenChartData.length === 0 ? (
               <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-                No token data available for this period.
+                {t('stats.noTokenData')}
               </div>
             ) : (
               <div className="flex-1 h-[250px] text-muted-foreground">
@@ -221,9 +223,9 @@ export function StatsTab() {
                     <YAxis width={56} tickFormatter={fmtTick} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
                     <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    <Line type="monotone" dataKey="prompt" name="Prompt" stroke="var(--color-chart-1)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="completion" name="Completion" stroke="var(--color-chart-2)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="cache" name="Cache Hits" stroke="var(--color-chart-3)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="prompt" name={t('stats.prompt')} stroke="var(--color-chart-1)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="completion" name={t('stats.completion')} stroke="var(--color-chart-2)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="cache" name={t('stats.cacheHits')} stroke="var(--color-chart-3)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -233,11 +235,11 @@ export function StatsTab() {
           {/* Router Classifications */}
           <GlassCard className="flex flex-col gap-4 min-h-[350px]">
             <div>
-              <h3 className="font-semibold text-foreground">Router Classifications</h3>
+              <h3 className="font-semibold text-foreground">{t('stats.routerClassifications')}</h3>
             </div>
             {routerChartData.length === 0 ? (
               <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-                No router data available for this period.
+                {t('stats.noRouterData')}
               </div>
             ) : (
               <div className="flex-1 h-[250px] text-muted-foreground">
@@ -248,8 +250,8 @@ export function StatsTab() {
                     <YAxis width={44} tickFormatter={fmtTick} allowDecimals={false} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
                     <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    <Line type="monotone" dataKey="local" name="Local (Fast)" stroke="var(--color-chart-4)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="remote" name="Remote (LLM)" stroke="var(--color-chart-5)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="local" name={t('stats.local')} stroke="var(--color-chart-4)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="remote" name={t('stats.remote')} stroke="var(--color-chart-5)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

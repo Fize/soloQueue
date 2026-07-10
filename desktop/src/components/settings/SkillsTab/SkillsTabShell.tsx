@@ -43,6 +43,7 @@ import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { ImportSkillDialog } from './ImportSkillDialog'
+import { useTranslation } from '@/lib/i18n'
 
 // Depth indent helper for file listing
 function depthIndent(p: string): number {
@@ -64,6 +65,7 @@ function formatSize(bytes: number): string {
 }
 
 export function SkillsTab() {
+  const { t } = useTranslation()
   const skills = useToolsAndSkillsStore((state) => state.skills)
   const skillsLoading = useToolsAndSkillsStore((state) => state.skillsLoading)
   const fetchSkills = useToolsAndSkillsStore((state) => state.fetchSkills)
@@ -200,9 +202,9 @@ export function SkillsTab() {
         return prev
       })
       await fetchSkills()
-      toast.success(`Auto update ${enabled ? 'enabled' : 'disabled'} for skill "${id}"`)
+      toast.success(enabled ? t('skills.toastAutoUpdateEnabled', { id }) : t('skills.toastAutoUpdateDisabled', { id }))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update auto update config')
+      toast.error(err instanceof Error ? err.message : t('skills.toastAutoUpdateFailed'))
     } finally {
       setTogglingAutoUpdateId(null)
     }
@@ -222,10 +224,10 @@ export function SkillsTab() {
       if (editId === deleteTarget.id) setEditId(null)
       setDeleteTarget(null)
       await fetchSkills()
-      toast.success(`Skill "${deleteTarget.id}" uninstalled`)
+      toast.success(t('skills.toastUninstalled', { id: deleteTarget.id }))
     } catch (err) {
       setDeleteTarget(null)
-      toast.error(err instanceof Error ? err.message : 'Failed to uninstall skill')
+      toast.error(err instanceof Error ? err.message : t('skills.toastUninstallFailed'))
     }
   }
 
@@ -275,7 +277,7 @@ export function SkillsTab() {
       setEditId(null)
       setActiveEditPaneTab('preview')
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Failed to update skill')
+      setEditError(err instanceof Error ? err.message : t('skills.toastUpdateFailed'))
     } finally {
       setEditSaving(false)
     }
@@ -284,11 +286,11 @@ export function SkillsTab() {
   // Import New Skill
   const handleCreateSkill = async () => {
     if (!importName.trim()) {
-      setImportError('Skill ID is required')
+      setImportError(t('skills.skillIdRequired'))
       return
     }
     if (!importBody.trim()) {
-      setImportError('Instructions body content (Markdown) is required')
+      setImportError(t('skills.bodyRequired'))
       return
     }
 
@@ -314,7 +316,7 @@ export function SkillsTab() {
       setImportDialogOpen(false)
       await fetchSkills()
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Failed to create skill')
+      setImportError(err instanceof Error ? err.message : t('skills.toastCreateFailed'))
     } finally {
       setImportSaving(false)
     }
@@ -326,9 +328,9 @@ export function SkillsTab() {
     try {
       await installSkill({ source: 'store', id })
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      toast.success('Skill installed from store')
+      toast.success(t('skills.toastInstalledFromStore'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to install skill')
+      toast.error(err instanceof Error ? err.message : t('skills.toastInstallFailed'))
     } finally {
       setInstallingStoreId(null)
     }
@@ -343,9 +345,9 @@ export function SkillsTab() {
       await installSkill({ source: 'github', url: customGitUrl.trim() })
       setCustomGitUrl('')
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      toast.success('Skill installed successfully via Git cloning!')
+      toast.success(t('skills.toastInstalledGit'))
     } catch (err) {
-      setCustomInstallError(err instanceof Error ? err.message : 'Failed to clone git repository')
+      setCustomInstallError(err instanceof Error ? err.message : t('skills.toastGitCloneFailed'))
     } finally {
       setInstallingCustom(false)
     }
@@ -360,9 +362,9 @@ export function SkillsTab() {
       await installSkill({ source: 'local', path: customLocalPath.trim() })
       setCustomLocalPath('')
       await Promise.all([fetchSkills(), fetchStoreSkills()])
-      toast.success('Skill symlinked successfully from local path!')
+      toast.success(t('skills.toastInstalledLocal'))
     } catch (err) {
-      setCustomInstallError(err instanceof Error ? err.message : 'Failed to link local directory')
+      setCustomInstallError(err instanceof Error ? err.message : t('skills.toastLocalLinkFailed'))
     } finally {
       setInstallingCustom(false)
     }
@@ -414,7 +416,7 @@ export function SkillsTab() {
           )}
         >
           <Sparkles className="h-4 w-4" />
-          Installed Skills
+          {t('skills.subTabInstalled')}
           {installedCount > 0 && (
             <Badge variant="secondary" className="ml-1 text-[10px]">
               {installedCount}
@@ -431,7 +433,7 @@ export function SkillsTab() {
           )}
         >
           <Globe className="h-4 w-4" />
-          Skill Store
+          {t('skills.subTabStore')}
           {storeCount > 0 && (
             <Badge variant="secondary" className="ml-1 text-[10px]">
               {storeCount}
@@ -450,7 +452,7 @@ export function SkillsTab() {
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   className="pl-9 h-9"
-                  placeholder="Search installed skills..."
+                  placeholder={t('skills.searchInstalled')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -460,9 +462,9 @@ export function SkillsTab() {
                   value={categoryFilter}
                   onChange={(v) => setCategoryFilter(v as 'all' | 'builtin' | 'user')}
                   options={[
-                    { value: 'all', label: 'All Types' },
-                    { value: 'builtin', label: 'Built-in' },
-                    { value: 'user', label: 'User Created' },
+                    { value: 'all', label: t('skills.filterAllTypes') },
+                    { value: 'builtin', label: t('skills.filterBuiltin') },
+                    { value: 'user', label: t('skills.filterUserCreated') },
                   ]}
                 />
               </div>
@@ -470,21 +472,21 @@ export function SkillsTab() {
 
             <Button size="sm" className="gap-1.5 h-9" onClick={() => setImportDialogOpen(true)}>
               <Plus className="h-4 w-4" />
-              Create Skill
+              {t('skills.createSkill')}
             </Button>
           </div>
 
           {skillsLoading && (
             <div className="flex items-center justify-center py-12 text-sm text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading skills...
+              {t('skills.loadingSkills')}
             </div>
           )}
 
           {!skillsLoading && filteredSkills.length === 0 && (
             <div className="border border-dashed rounded-lg bg-card/20 p-8 text-center">
               <p className="text-sm text-muted-foreground">
-                {searchQuery ? 'No installed skills match your search' : 'No skills installed yet.'}
+                {searchQuery ? t('skills.noSearchMatch') : t('skills.noSkillsYet')}
               </p>
               {!searchQuery && (
                 <Button
@@ -493,7 +495,7 @@ export function SkillsTab() {
                   className="mt-3"
                   onClick={() => handleSubTabChange('store')}
                 >
-                  Browse Store Catalog
+                  {t('skills.browseStore')}
                 </Button>
               )}
             </div>
@@ -565,7 +567,7 @@ export function SkillsTab() {
                             variant={isBuiltin ? 'primary' : 'success'}
                             className="text-[9px] px-1 py-0 h-4 font-normal"
                           >
-                            {isBuiltin ? 'Built-in' : 'User'}
+                            {isBuiltin ? t('skills.badgeBuiltin') : t('skills.badgeUser')}
                           </Badge>
                           {skill.context === 'fork' && (
                             <Badge
@@ -580,7 +582,7 @@ export function SkillsTab() {
                               variant="outline"
                               className="text-[9px] px-1 py-0 h-4 font-normal text-muted-foreground"
                             >
-                              AI only
+                              {t('skills.badgeAiOnly')}
                             </Badge>
                           )}
                         </div>
@@ -621,7 +623,7 @@ export function SkillsTab() {
                           htmlFor={`switch-${skill.id}`}
                           className="text-[10px] text-muted-foreground cursor-pointer hidden sm:inline"
                         >
-                          {skill.enabled ? 'Enabled' : 'Disabled'}
+                          {skill.enabled ? t('common.enabled') : t('common.disabled')}
                         </Label>
                         {togglingId === skill.id ? (
                           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -654,19 +656,19 @@ export function SkillsTab() {
                       <div className="lg:col-span-1 space-y-2">
                         <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5 border-b border-border pb-1.5">
                           <Folder className="h-3.5 w-3.5 text-primary" />
-                          Skill Directory Files
+                          {t('skills.skillDirectoryFiles')}
                         </h4>
 
                         {loadingFiles[skill.id] && (
                           <div className="flex items-center justify-center py-8 text-xs text-muted-foreground gap-1.5">
                             <Loader2 className="h-3 w-3 animate-spin" />
-                            Loading files...
+                            {t('skills.loadingFiles')}
                           </div>
                         )}
 
                         {!loadingFiles[skill.id] && fileList.length === 0 && (
                           <div className="py-8 text-center text-xs text-muted-foreground">
-                            No files found in skill folder.
+                            {t('skills.noFilesFound')}
                           </div>
                         )}
 
@@ -701,7 +703,7 @@ export function SkillsTab() {
                           <div className="mt-4 p-2.5 rounded-md border border-warning/20 bg-warning/5 space-y-1.5">
                             <div className="flex items-center gap-1.5 text-warning font-bold text-xs">
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                              Required Env Variables
+                              {t('skills.requiredEnvVars')}
                             </div>
                             <div className="space-y-1">
                               {skill.required_env.map((envVar: string) => (
@@ -714,8 +716,7 @@ export function SkillsTab() {
                               ))}
                             </div>
                             <p className="text-[9px] text-muted-foreground leading-normal">
-                              Please ensure these variables are configured in your local
-                              environment.
+                              {t('skills.envVarsHelp')}
                             </p>
                           </div>
                         )}
@@ -723,9 +724,9 @@ export function SkillsTab() {
                         {/* Auto Update Toggle */}
                         <div className="mt-4 p-3 rounded-md border border-border bg-card/50 space-y-2 flex items-center justify-between">
                           <div className="space-y-0.5 text-left">
-                            <div className="text-xs font-bold text-foreground">Auto Update</div>
+                            <div className="text-xs font-bold text-foreground">{t('skills.autoUpdate')}</div>
                             <p className="text-[10px] text-muted-foreground leading-normal max-w-[155px]">
-                              Auto sync updates from local workspace or remote Git.
+                              {t('skills.autoUpdateDesc')}
                             </p>
                           </div>
                           {togglingAutoUpdateId === skill.id ? (
@@ -746,7 +747,7 @@ export function SkillsTab() {
                             className="text-[10px] text-muted-foreground truncate mt-3"
                             title={skill.file_path}
                           >
-                            Path: <span className="font-mono">{skill.file_path}</span>
+                            {t('skills.path')} <span className="font-mono">{skill.file_path}</span>
                           </p>
                         )}
                       </div>
@@ -769,7 +770,7 @@ export function SkillsTab() {
                                   : 'text-muted-foreground hover:text-foreground'
                               )}
                             >
-                              Readme
+                              {t('skills.tabReadme')}
                             </button>
                             <button
                               type="button"
@@ -781,7 +782,7 @@ export function SkillsTab() {
                                   : 'text-muted-foreground hover:text-foreground'
                               )}
                             >
-                              Edit / Override
+                              {t('skills.tabEditOverride')}
                             </button>
                           </div>
 
@@ -794,7 +795,7 @@ export function SkillsTab() {
                               onClick={() => handleDelete(skill.id)}
                             >
                               <Trash2 className="h-3 w-3" />
-                              {isBuiltin ? 'Remove Override' : 'Uninstall'}
+                              {isBuiltin ? t('skills.removeOverride') : t('skills.uninstall')}
                             </Button>
                           )}
                         </div>
@@ -803,7 +804,7 @@ export function SkillsTab() {
                         {loadingDetails[skill.id] && (
                           <div className="flex-1 flex items-center justify-center py-12 text-sm text-muted-foreground gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            Loading details...
+                            {t('skills.loadingDetails')}
                           </div>
                         )}
 
@@ -814,7 +815,7 @@ export function SkillsTab() {
                               <MarkdownPreview content={bodyContent} />
                             ) : (
                               <span className="text-xs text-muted-foreground italic">
-                                No instructions defined.
+                                {t('skills.noInstructions')}
                               </span>
                             )}
                           </div>
@@ -826,20 +827,20 @@ export function SkillsTab() {
                             <div className="flex-1 flex flex-col gap-3">
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div className="flex flex-col gap-1">
-                                  <Label className="text-xs">Triggers (comma-separated)</Label>
+                                  <Label className="text-xs">{t('skills.triggersLabel')}</Label>
                                   <Input
                                     value={editTriggers}
                                     onChange={(e) => setEditTriggers(e.target.value)}
-                                    placeholder="e.g. search web, summarize"
+                                    placeholder={t('skills.triggersPlaceholder')}
                                     className="h-8 text-xs"
                                   />
                                 </div>
                                 <div className="flex flex-col gap-1">
-                                  <Label className="text-xs">Description</Label>
+                                  <Label className="text-xs">{t('common.description')}</Label>
                                   <Input
                                     value={editDesc}
                                     onChange={(e) => setEditDesc(e.target.value)}
-                                    placeholder="Skill purpose"
+                                    placeholder={t('skills.descPlaceholder')}
                                     className="h-8 text-xs"
                                   />
                                 </div>
@@ -847,12 +848,12 @@ export function SkillsTab() {
 
                               <div className="flex flex-col gap-1 flex-1">
                                 <Textarea
-                                  label="SKILL.md Markdown Content"
+                                  label={t('skills.bodyLabel')}
                                   value={editBody}
                                   onChange={(e) => setEditBody(e.target.value)}
                                   rows={10}
                                   className="w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground transition-colors outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 resize-y flex-1"
-                                  placeholder="# Instructions title"
+                                  placeholder={t('skills.bodyPlaceholder')}
                                   spellCheck={false}
                                 />
                               </div>
@@ -867,11 +868,7 @@ export function SkillsTab() {
                               {isBuiltin && !isOverridden && (
                                 <div className="rounded border border-warning/20 bg-warning/5 p-2 text-[10px] text-warning/80 leading-normal flex items-start gap-1.5">
                                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                                  <span>
-                                    <strong>Note:</strong> Editing this built-in skill will create a
-                                    custom override file inside your user directory, leaving the
-                                    original built-in skill intact.
-                                  </span>
+                                  <span>{t('skills.editBuiltinNote')}</span>
                                 </div>
                               )}
 
@@ -882,7 +879,7 @@ export function SkillsTab() {
                                   onClick={handleCancelEdit}
                                   disabled={editSaving}
                                 >
-                                  Cancel
+                                  {t('common.cancel')}
                                 </Button>
                                 <Button
                                   size="xs"
@@ -892,10 +889,10 @@ export function SkillsTab() {
                                   {editSaving ? (
                                     <>
                                       <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                      Saving...
+                                      {t('common.saving')}
                                     </>
                                   ) : (
-                                    'Save Changes'
+                                    t('skills.saveChanges')
                                   )}
                                 </Button>
                               </div>
@@ -916,10 +913,9 @@ export function SkillsTab() {
         <div className="space-y-6">
           {/* Header catalog tip */}
           <div className="rounded-lg border border-border p-4 bg-muted/10">
-            <h4 className="text-sm font-bold text-foreground">Skill Store Catalog</h4>
+            <h4 className="text-sm font-bold text-foreground">{t('skills.storeCatalog')}</h4>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Install pre-built skill templates from the catalog, pull skill packages directly from
-              remote Git repositories, or symlink local folder trees.
+              {t('skills.storeCatalogDesc')}
             </p>
           </div>
 
@@ -929,7 +925,7 @@ export function SkillsTab() {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 className="pl-9 h-9"
-                placeholder="Search store catalog..."
+                placeholder={t('skills.searchStore')}
                 value={storeSearchQuery}
                 onChange={(e) => setStoreSearchQuery(e.target.value)}
               />
@@ -939,7 +935,7 @@ export function SkillsTab() {
           {storeSkillsLoading && (
             <div className="flex items-center justify-center py-12 text-sm text-muted-foreground gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading store skills...
+              {t('skills.loadingStoreSkills')}
             </div>
           )}
 
@@ -963,7 +959,7 @@ export function SkillsTab() {
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground/80 mt-1.5 line-clamp-3">
-                        {s.description || 'No description provided.'}
+                        {s.description || t('skills.noDescription')}
                       </p>
 
                       {s.triggers && s.triggers.length > 0 && (
@@ -983,7 +979,7 @@ export function SkillsTab() {
                       {s.required_env && s.required_env.length > 0 && (
                         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px] text-warning font-medium">
                           <AlertTriangle className="h-3 w-3 shrink-0" />
-                          <span>Requires Env:</span>
+                          <span>{t('skills.requiresEnv')}</span>
                           {s.required_env.map((envVar: string) => (
                             <span
                               key={envVar}
@@ -1005,7 +1001,7 @@ export function SkillsTab() {
                           className="gap-1 text-muted-foreground bg-muted/20"
                         >
                           <Check className="h-3.5 w-3.5" />
-                          Installed
+                          {t('skills.subTabInstalled')}
                         </Button>
                       ) : (
                         <Button
@@ -1020,7 +1016,7 @@ export function SkillsTab() {
                           ) : (
                             <Download className="h-3.5 w-3.5" />
                           )}
-                          Install
+                          {t('skills.installLabel')}
                         </Button>
                       )}
                     </div>
@@ -1030,7 +1026,7 @@ export function SkillsTab() {
 
               {!storeSkillsLoading && filteredStoreSkills.length === 0 && (
                 <div className="col-span-2 border border-dashed rounded-lg py-8 text-center text-xs text-muted-foreground">
-                  No catalog skills found matching your search.
+                  {t('skills.noCatalogMatch')}
                 </div>
               )}
             </div>
@@ -1039,9 +1035,9 @@ export function SkillsTab() {
           {/* Custom Github / Local installs */}
           <div className="border rounded-lg bg-card shadow-xs overflow-hidden">
             <div className="px-5 py-4 border-b border-border bg-muted/10">
-              <h4 className="text-sm font-bold text-foreground">Install Custom Skills</h4>
+              <h4 className="text-sm font-bold text-foreground">{t('skills.installCustomSkills')}</h4>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Link local workspaces or import directly from external sources.
+                {t('skills.installCustomDesc')}
               </p>
             </div>
 
@@ -1054,16 +1050,16 @@ export function SkillsTab() {
                     className="text-xs font-semibold flex items-center gap-1"
                   >
                     <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                    Install from Git Repository
+                    {t('skills.installGitLabel')}
                   </Label>
                   <Input
                     id="git-url"
-                    placeholder="https://github.com/username/soloqueue-skill-example"
+                    placeholder={t('skills.gitUrlPlaceholder')}
                     value={customGitUrl}
                     onChange={(e) => setCustomGitUrl(e.target.value)}
                   />
                   <span className="text-[10px] text-muted-foreground">
-                    URL of repository containing a valid SKILL.md file.
+                    {t('skills.gitUrlHelp')}
                   </span>
                 </div>
                 <div>
@@ -1078,7 +1074,7 @@ export function SkillsTab() {
                     ) : (
                       <RefreshCw className="h-3.5 w-3.5" />
                     )}
-                    Clone & Install
+                    {t('skills.cloneInstall')}
                   </Button>
                 </div>
               </div>
@@ -1093,16 +1089,16 @@ export function SkillsTab() {
                     className="text-xs font-semibold flex items-center gap-1"
                   >
                     <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                    Link Local Directory
+                    {t('skills.linkLocalDir')}
                   </Label>
                   <Input
                     id="local-path"
-                    placeholder="/Users/username/my-local-skill"
+                    placeholder={t('skills.localPathPlaceholder')}
                     value={customLocalPath}
                     onChange={(e) => setCustomLocalPath(e.target.value)}
                   />
                   <span className="text-[10px] text-muted-foreground">
-                    Absolute filesystem path of a folder containing a SKILL.md.
+                    {t('skills.localPathHelp')}
                   </span>
                 </div>
                 <div>
@@ -1117,7 +1113,7 @@ export function SkillsTab() {
                     ) : (
                       <LinkIcon className="h-3.5 w-3.5" />
                     )}
-                    Symlink Skill
+                    {t('skills.symlinkSkill')}
                   </Button>
                 </div>
               </div>
@@ -1154,11 +1150,11 @@ export function SkillsTab() {
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null)
         }}
-        title="Uninstall Skill"
-        message={`Uninstall skill "${deleteTarget?.id}"? This will delete its folder from the user skills directory.`}
+        title={t('skills.confirmUninstallTitle')}
+        message={t('skills.confirmUninstallMsg', { id: deleteTarget?.id || '' })}
         destructive
         onConfirm={confirmDeleteSkill}
-        confirmLabel="Uninstall"
+        confirmLabel={t('skills.confirmUninstallLabel')}
       />
       {/* Empty placeholder removed - using sonner toast instead */}
     </div>

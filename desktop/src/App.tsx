@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import { PanelLeftClose, PanelRightOpen } from 'lucide-react'
+import { PanelLeftClose, PanelRightOpen, Server } from 'lucide-react'
 import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
 import { wsManager } from '@/lib/websocket'
-import { useAuthStore } from '@/stores/authStore'
+import { useConnectionStore, type BackendStatus } from '@/stores/connectionStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
@@ -46,8 +46,111 @@ function getLastChatRoute() {
   return '/chat'
 }
 
+// ─── Connection Status Bar ────────────────────────────────────────────────────
+
+const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI
+
+function ConnectionStatusBar() {
+  const mode = useConnectionStore((s) => s.mode)
+  const remoteUrl = useConnectionStore((s) => s.remoteUrl)
+  const backendStatus = useConnectionStore((s) => s.backendStatus)
+  const isChecking = useConnectionStore((s) => s.isChecking)
+  const connectionError = useConnectionStore((s) => s.connectionError)
+  const setBackendStatus = useConnectionStore((s) => s.setBackendStatus)
+  const setIsChecking = useConnectionStore((s) => s.setIsChecking)
+  const setConnectionError = useConnectionStore((s) => s.setConnectionError)
+
+  useEffect(() => {
+    if (!isElectron) {
+      setIsChecking(false)
+      return
+    }
+    setIsChecking(true)
+
+    const ea = (window as any).electronAPI
+
+    ea.getBackendStatus().then((s: BackendStatus) => {
+      setBackendStatus(s)
+      if (s.running) setIsChecking(false)
+    })
+
+    const unsub = ea.onBackendStatusChanged((s: BackendStatus) => {
+      setBackendStatus(s)
+      setConnectionError(null)
+      if (s.running) setIsChecking(false)
+    })
+
+    const timeout = setTimeout(() => {
+      setIsChecking(false)
+      if (!backendStatus.running && mode === 'local') {
+        setConnectionError('Backend did not start in time. Check Settings → Connection.')
+      }
+    }, 12000)
+
+    return () => {
+      unsub()
+      clearTimeout(timeout)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (mode === 'remote') {
+    const hasUrl = !!remoteUrl
+    return (
+      <div
+        className="h-[4px] w-full shrink-0 transition-colors duration-500"
+        style={{ backgroundColor: hasUrl ? 'var(--md-primary)' : 'var(--md-warning)' }}
+      />
+    )
+  }
+
+  if (isChecking && !backendStatus.running) {
+    return (
+      <div className="h-[4px] w-full shrink-0 overflow-hidden bg-muted">
+        <div
+          className="h-full animate-indeterminate-bar"
+          style={{
+            width: '60%',
+            background: 'linear-gradient(90deg, var(--md-primary) 0%, color-mix(in srgb, var(--md-primary) 60%, var(--md-tertiary)) 100%)',
+            borderRadius: '2px',
+          }}
+        />
+      </div>
+    )
+  }
+
+  if (backendStatus.running) {
+    return null
+  }
+
+  if (connectionError) {
+    return (
+      <div className="h-[28px] w-full shrink-0 flex items-center gap-2 px-4 text-xs font-medium text-white"
+        style={{ backgroundColor: 'var(--md-error)' }}
+      >
+        <Server className="h-3.5 w-3.5" />
+        <span className="flex-1 truncate">{connectionError}</span>
+        <button
+          onClick={() => {
+            const ea = (window as any).electronAPI
+            setConnectionError(null)
+            setIsChecking(true)
+            ea?.startBackend?.()
+          }}
+          className="underline cursor-pointer hover:opacity-80 shrink-0"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  return null
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+
 function App() {
-  const { isAuthenticated, isLoading } = useAuthStore()
   const location = useLocation()
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
@@ -84,36 +187,53 @@ function App() {
   }, [sidebarCollapsed, setSidebarCollapsed])
 
   useEffect(() => {
-    if (!isAuthenticated || !location.pathname.startsWith('/chat/')) return
+    if (!location.pathname.startsWith('/chat/')) return
     try {
       localStorage.setItem(
         LAST_CHAT_ROUTE_KEY,
         `${location.pathname}${location.search}${location.hash}`,
       )
     } catch {}
-  }, [isAuthenticated, location.pathname, location.search, location.hash])
+  }, [location.pathname, location.search, location.hash])
 
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-sm text-muted-foreground font-mono">Loading SoloQueue...</div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    wsManager.connect()
+    return () => {
+      wsManager.disconnect()
+    }
+  }, [])
 
-  if (!isAuthenticated) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center bg-background text-foreground gap-4">
-        <div className="text-sm font-semibold font-mono">Authentication Required</div>
-        <button
-          onClick={() => window.location.reload()}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          Login / Re-authenticate
-        </button>
-      </div>
-    )
-  }
+  useEffect(() => {
+    let lastRefresh = 0
+    const handleFocusOrVisible = () => {
+      const now = Date.now()
+      if (now - lastRefresh < 2000) return
+      lastRefresh = now
+
+      wsManager.connect()
+      useChatStore.getState().loadSessions()
+      useAgentStore.getState().fetchLiveAgents()
+
+      const activeSessionId = useChatStore.getState().activeSessionId
+      if (activeSessionId) {
+        useChatStore.getState().loadHistory(activeSessionId)
+      }
+    }
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        handleFocusOrVisible()
+      }
+    }
+
+    window.addEventListener('focus', handleFocusOrVisible)
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
 
   return (
     <TooltipProvider>
@@ -160,6 +280,9 @@ function App() {
 
           {/* Main content pane */}
           <main className="flex flex-1 flex-col min-w-0 overflow-hidden h-full bg-background relative">
+            {/* Connection status bar — 4pt HIG progress indicator */}
+            <ConnectionStatusBar />
+
             {/* Title Bar drag region overlay */}
             <div className="absolute top-0 left-0 right-0 h-12 z-50 pointer-events-none">
               {sidebarCollapsed ? (
@@ -223,76 +346,6 @@ function App() {
 }
 
 export default function AppWithRouter() {
-  const checkAuth = useAuthStore((s) => s.checkAuth)
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const [ready, setReady] = useState(false)
-
-  useEffect(() => {
-    checkAuth().finally(() => setReady(true))
-  }, [checkAuth])
-
-  useEffect(() => {
-    if (!ready) return
-    if (isAuthenticated) {
-      wsManager.connect()
-    } else {
-      wsManager.disconnect()
-    }
-    return () => {
-      wsManager.disconnect()
-    }
-  }, [ready, isAuthenticated])
-
-  // Automatically check connection and reload data when window gains focus or document becomes visible
-  useEffect(() => {
-    if (!ready || !isAuthenticated) return
-
-    let lastRefresh = 0
-    const handleFocusOrVisible = () => {
-      const now = Date.now()
-      if (now - lastRefresh < 2000) return // Throttled to 2 seconds
-      lastRefresh = now
-
-      // 1. Recover/reconnect socket
-      wsManager.connect()
-
-      // 2. Reload sessions list
-      useChatStore.getState().loadSessions()
-
-      // 3. Reload live agents
-      useAgentStore.getState().fetchLiveAgents()
-
-      // 4. Reload active session history if one is selected
-      const activeSessionId = useChatStore.getState().activeSessionId
-      if (activeSessionId) {
-        useChatStore.getState().loadHistory(activeSessionId)
-      }
-    }
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        handleFocusOrVisible()
-      }
-    }
-
-    window.addEventListener('focus', handleFocusOrVisible)
-    document.addEventListener('visibilitychange', onVisible)
-
-    return () => {
-      window.removeEventListener('focus', handleFocusOrVisible)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [ready, isAuthenticated])
-
-  if (!ready) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-sm text-muted-foreground font-mono">Initializing Application...</div>
-      </div>
-    )
-  }
-
-  // Use HashRouter for native Electron file:// compatibility
   return (
     <HashRouter>
       <App />

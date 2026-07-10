@@ -3,9 +3,10 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"time"
 )
@@ -65,32 +66,8 @@ func (m *Mux) resolveEffectiveAuth() {
 		return
 	}
 
-	// 3. Auto-generate
-	m.effectiveAuthUser = "admin"
-	m.effectiveAuthPass = randomHex(16)
-
-	// Always print to stderr so the user sees the credentials at startup,
-	// even if the structured logger is not configured.
-	os.Stderr.WriteString("\n")
-	os.Stderr.WriteString("╔══════════════════════════════════════════════════╗\n")
-	os.Stderr.WriteString("║   Remote access credentials (auto-generated)    ║\n")
-	os.Stderr.WriteString("╠══════════════════════════════════════════════════╣\n")
-	fmt.Fprintf(os.Stderr, "║   User:     %-36s ║\n", m.effectiveAuthUser)
-	fmt.Fprintf(os.Stderr, "║   Password: %-36s ║\n", m.effectiveAuthPass)
-	os.Stderr.WriteString("╠══════════════════════════════════════════════════╣\n")
-	os.Stderr.WriteString("║   Set SOLOQUEUE_AUTH_USER / PASSWORD env vars   ║\n")
-	os.Stderr.WriteString("║   or configure [auth] in settings.toml to       ║\n")
-	os.Stderr.WriteString("║   use custom credentials.                       ║\n")
-	os.Stderr.WriteString("╚══════════════════════════════════════════════════╝\n")
-	os.Stderr.WriteString("\n")
-
-	if m.log != nil {
-		m.log.Info("remote-auth",
-			"status", "auto-generated",
-			"user", m.effectiveAuthUser,
-			"password", m.effectiveAuthPass,
-			"hint", "Set SOLOQUEUE_AUTH_USER and SOLOQUEUE_AUTH_PASSWORD env vars to customize")
-	}
+	// 3. No credentials configured — auth is disabled.
+	// effectiveAuthUser stays empty, no auto-generation happens.
 }
 
 // tokenAuthMiddleware enforces Basic Auth for non-localhost requests.
@@ -100,6 +77,13 @@ func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 		// Localhost always bypasses auth
 		if isLocalhostAccess(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Auth not configured — deny all remote access
+		if m.effectiveAuthUser == "" {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"error":"remote access not configured"}`))
 			return
 		}
 
@@ -152,10 +136,14 @@ func isLocalhostAccess(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func randomHex(length int) string {
-	bytes := make([]byte, length/2+1)
-	if _, err := rand.Read(bytes); err != nil {
-		return "change-me"
-	}
-	return hex.EncodeToString(bytes)[:length]
+
+// newLocalhostRequest is a test helper that creates an HTTP request with
+// Host and RemoteAddr set to loopback addresses so that isLocalhostAccess
+// returns true. Use in tests that don't specifically exercise auth behavior.
+func newLocalhostRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.Host = "127.0.0.1:57647"
+	req.RemoteAddr = "127.0.0.1:12345"
+	return req
 }
+
