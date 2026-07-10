@@ -1124,3 +1124,98 @@ func TestReadTailAndReplay_WithSummaryControlEvent(t *testing.T) {
 		t.Errorf("cw msg[0] = %+v", m0)
 	}
 }
+
+func TestReadTailAndReplay_WithMultipleContiguousSummaryControlEvents(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+
+	// Write messages before summaries
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
+
+	// Write first summary control event (Segment 1)
+	w.AppendControl(&ControlPayload{
+		Action:  "summary",
+		Reason:  "auto_compact",
+		Content: "Summary of part 1",
+	})
+
+	// Write second summary control event (Segment 2)
+	w.AppendControl(&ControlPayload{
+		Action:  "summary",
+		Reason:  "auto_compact",
+		Content: "Summary of part 2",
+	})
+
+	// Write messages after summaries
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q2"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a2"})
+	w.Close()
+
+	// Read tail (no maxTurns constraint hit)
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+
+	// We expect [Summary 1, Summary 2, q2, a2]. q1 and a1 should be skipped.
+	msgs := segs[0].Messages
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages, got %d: %+v", len(msgs), msgs)
+	}
+
+	if !strings.Contains(msgs[0].Content, "Summary of part 1") {
+		t.Errorf("msg[0] content = %q, want 'Summary of part 1'", msgs[0].Content)
+	}
+	if !strings.Contains(msgs[1].Content, "Summary of part 2") {
+		t.Errorf("msg[1] content = %q, want 'Summary of part 2'", msgs[1].Content)
+	}
+	if msgs[2].Content != "q2" {
+		t.Errorf("msg[2] content = %q, want q2", msgs[2].Content)
+	}
+	if msgs[3].Content != "a2" {
+		t.Errorf("msg[3] content = %q, want a2", msgs[3].Content)
+	}
+
+	// Verify replay into ContextWindow preserves both summaries
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+	ReplayInto(cw, segs)
+	cw.SetReplayMode(false)
+
+	if cw.Len() != 4 {
+		t.Fatalf("expected 4 messages in ContextWindow, got %d", cw.Len())
+	}
+	m0, _ := cw.MessageAt(0)
+	if m0.Role != ctxwin.RoleSystem || !strings.Contains(m0.Content, "Summary of part 1") {
+		t.Errorf("cw msg[0] = %+v", m0)
+	}
+	m1, _ := cw.MessageAt(1)
+	if m1.Role != ctxwin.RoleSystem || !strings.Contains(m1.Content, "Summary of part 2") {
+		t.Errorf("cw msg[1] = %+v", m1)
+	}
+}
+
+func TestReadTail_ClearAtEnd(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "q1"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "a1"})
+	w.AppendControl(&ControlPayload{Action: "clear"})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+
+	// Since timeline ends with clear, the last segment after the last clear is empty.
+	// Therefore, it should return no segments (len = 0) or an empty segment list, NOT replaying the pre-clear events.
+	if len(segs) > 0 && len(segs[len(segs)-1].Messages) > 0 {
+		t.Fatalf("expected empty replayed messages, got %d messages: %+v", len(segs[0].Messages), segs[0].Messages)
+	}
+}

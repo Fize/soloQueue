@@ -78,20 +78,16 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 	// Split events into segments by /clear control events.
 	// Only the last segment (after the most recent /clear) is replayed.
 	var segments [][]Event
-	var currentSegment []Event
+	currentSegment := []Event{}
 	for _, evt := range allEvents {
 		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "clear" {
-			if len(currentSegment) > 0 {
-				segments = append(segments, currentSegment)
-				currentSegment = nil
-			}
+			segments = append(segments, currentSegment)
+			currentSegment = []Event{}
 		} else {
 			currentSegment = append(currentSegment, evt)
 		}
 	}
-	if len(currentSegment) > 0 {
-		segments = append(segments, currentSegment)
-	}
+	segments = append(segments, currentSegment)
 
 	if len(segments) == 0 {
 		return nil, nil, nil
@@ -107,6 +103,7 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 	}
 	var rev []collected
 	userCount := 0
+	hasSummary := false
 
 	for i := len(lastSegmentEvents) - 1; i >= 0 && userCount < maxTurns; i-- {
 		evt := lastSegmentEvents[i]
@@ -119,46 +116,51 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 				}
 				rev = append(rev, collected{msg: msg, role: msg.Role})
 			}
-			break
-		}
-
-		if evt.EventType != EventMessage || evt.Message == nil {
+			hasSummary = true
 			continue
 		}
-		msg := *evt.Message
 
-		// Pagination: skip messages at or after the cursor (already loaded).
-		if !since.IsZero() && msg.Timestamp != "" {
-			if ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp); err == nil {
-				if !ts.Before(since) {
-					continue
+		if evt.EventType == EventMessage && evt.Message != nil {
+			if hasSummary {
+				// We already collected contiguous summary event(s) and now hit a message.
+				// This message is part of the history that was compacted, so we must stop.
+				break
+			}
+			msg := *evt.Message
+
+			// Pagination: skip messages at or after the cursor (already loaded).
+			if !since.IsZero() && msg.Timestamp != "" {
+				if ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp); err == nil {
+					if !ts.Before(since) {
+						continue
+					}
 				}
 			}
-		}
 
-		// Agent ID filter: ignore messages from other sessions.
-		// Empty AgentID (legacy data) is allowed through.
-		if agentID != "" && msg.AgentID != "" && msg.AgentID != agentID {
-			continue
-		}
+			// Agent ID filter: ignore messages from other sessions.
+			// Empty AgentID (legacy data) is allowed through.
+			if agentID != "" && msg.AgentID != "" && msg.AgentID != agentID {
+				continue
+			}
 
-		// Skip system prompts (CW metadata, not conversation).
-		if msg.Role == "system" && strings.Contains(msg.Content, "<identity>") {
-			continue
-		}
-		// Skip summary system messages (handled by control events).
-		if msg.Role == "system" && strings.Contains(msg.Content, "[Conversation Summary]") {
-			continue
-		}
-		// Skip empty assistant messages.
-		if msg.Role == "assistant" && msg.Content == "" && len(msg.ToolCalls) == 0 {
-			continue
-		}
+			// Skip system prompts (CW metadata, not conversation).
+			if msg.Role == "system" && strings.Contains(msg.Content, "<identity>") {
+				continue
+			}
+			// Skip summary system messages (handled by control events).
+			if msg.Role == "system" && strings.Contains(msg.Content, "[Conversation Summary]") {
+				continue
+			}
+			// Skip empty assistant messages.
+			if msg.Role == "assistant" && msg.Content == "" && len(msg.ToolCalls) == 0 {
+				continue
+			}
 
-		if msg.Role == "user" {
-			userCount++
+			if msg.Role == "user" {
+				userCount++
+			}
+			rev = append(rev, collected{msg: msg, role: msg.Role})
 		}
-		rev = append(rev, collected{msg: msg, role: msg.Role})
 	}
 
 	if len(rev) == 0 {
@@ -325,6 +327,8 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 	}
 	if msg.Timestamp != "" {
 		if ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp); err == nil {
+			opts = append(opts, ctxwin.WithTimestamp(ts))
+		} else if ts, err := time.Parse(time.RFC3339, msg.Timestamp); err == nil {
 			opts = append(opts, ctxwin.WithTimestamp(ts))
 		}
 	}
