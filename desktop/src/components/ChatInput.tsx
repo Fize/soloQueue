@@ -46,6 +46,7 @@ export interface ChatInputProps {
   delegating: boolean
   disabled: boolean
   activeSessionId?: string
+  processing?: boolean
 
   // Redesign selectors props
   showL2Selectors?: boolean
@@ -92,6 +93,7 @@ export function ChatInput({
   delegating,
   disabled,
   activeSessionId,
+  processing = false,
   showL2Selectors = false,
   groups = [],
   projects = [],
@@ -687,7 +689,12 @@ export function ChatInput({
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
       {/* Input card */}
-      <div className="relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all focus-within:border-primary/30 shadow-sm focus-within:shadow-md">
+      <div className={cn(
+        "relative flex flex-col rounded-xl border p-2.5 transition-all shadow-sm",
+        processing 
+          ? "border-primary/45 bg-primary/[0.015] shadow-inner" 
+          : "border-border/40 bg-background focus-within:border-primary/30 focus-within:shadow-md"
+      )}>
           {/* Thumbnails preview & Selected Element Badge */}
           {(attachments.length > 0 || selectedTarget) && (
             <div className="flex flex-wrap items-center gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-xl">
@@ -991,9 +998,9 @@ export function ChatInput({
                   caretColor: 'var(--foreground)',
                   scrollbarWidth: 'none',
                 }}
-                placeholder="Ask anything..."
+                placeholder={processing ? "Agent is working..." : "Ask anything..."}
                 rows={1}
-                disabled={disabled}
+                disabled={disabled || processing}
                 onKeyDown={handleKeyDown}
                 onInput={handleInput}
                 onScroll={handleScroll}
@@ -1181,8 +1188,16 @@ export function ChatInput({
               {/* Right actions: task/model status, context window ring, send/stop */}
               <div className="flex items-center gap-2">
                 {/* Task level + model badge (left of context ring) */}
-                {(taskLevel || modelName) && (
+                {(taskLevel || modelName || processing) && (
                   <div className="flex items-center gap-1.5 shrink-0 select-none">
+                    {processing && (
+                      <div className="flex items-center gap-1 text-primary mr-1 select-none">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                        <span className="text-[10px] font-bold font-mono tracking-wider animate-pulse">
+                          THINKING
+                        </span>
+                      </div>
+                    )}
                     {taskLevel && (
                       <span className="text-[10px] font-semibold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap">
                         {taskLevel.split('-')[0]}
@@ -1240,7 +1255,7 @@ export function ChatInput({
                   </div>
                 )}
 
-                {streaming || delegating ? (
+                {streaming || delegating || processing ? (
                   <button
                     type="button"
                     onClick={onCancel}

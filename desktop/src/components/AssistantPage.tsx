@@ -330,8 +330,9 @@ export function AssistantPage() {
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
-          taskLevel={isL1Processing ? l1Agent?.task_level : undefined}
-          modelName={isL1Processing ? l1Agent?.model_id : undefined}
+          taskLevel={l1Agent?.task_level || l1Agent?.last_level || undefined}
+          modelName={l1Agent?.model_id || undefined}
+          processing={isL1Processing || streaming || delegating}
           skillNames={filteredSkillNames}
           activeSessionId="l1"
         />

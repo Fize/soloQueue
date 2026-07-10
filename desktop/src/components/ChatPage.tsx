@@ -1050,12 +1050,9 @@ export function ChatPage() {
               ctxwinUsed={0}
               ctxwinLimit={0}
               atRootDir={selectedProjectPath || ""}
-              taskLevel={
-                isAgentProcessing
-                  ? activeAgent?.task_level || activeAgent?.last_level
-                  : undefined
-              }
-              modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
+              taskLevel={undefined}
+              modelName={undefined}
+              processing={false}
             />
           </div>
         </div>
@@ -1245,12 +1242,9 @@ export function ChatPage() {
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
-                      taskLevel={
-                        isAgentProcessing
-                          ? activeAgent?.task_level || activeAgent?.last_level
-                          : undefined
-                      }
-                      modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
+                      taskLevel={activeAgent?.task_level || activeAgent?.last_level || undefined}
+                      modelName={activeAgent?.model_id || undefined}
+                      processing={isAgentProcessing || streaming || delegating}
                     />
                   </div>
                 </div>
@@ -1301,12 +1295,9 @@ export function ChatPage() {
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  taskLevel={
-                    isAgentProcessing
-                      ? activeAgent?.task_level || activeAgent?.last_level
-                      : undefined
-                  }
-                  modelName={isAgentProcessing ? activeAgent?.model_id : undefined}
+                  taskLevel={activeAgent?.task_level || activeAgent?.last_level || undefined}
+                  modelName={activeAgent?.model_id || undefined}
+                  processing={isAgentProcessing || streaming || delegating}
                 />
               </>
             )}
