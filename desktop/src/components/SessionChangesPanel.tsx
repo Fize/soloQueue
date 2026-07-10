@@ -125,6 +125,8 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
       setError("");
       try {
         const result = await getSessionChanges(sessionId);
+        // Normalize null → [] to guard against backends that omit the field.
+        result.changes = result.changes ?? [];
         setData(result);
         if (result.changes.length > 0 && !expandedFile) {
           setExpandedFile(result.changes[0].path);
@@ -153,7 +155,7 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
       pollingRef.current = setInterval(() => {
         if (!isVisibleRef.current) return;
         getSessionChanges(sessionId)
-          .then(setData)
+          .then((r) => { r.changes = r.changes ?? []; setData(r); })
           .catch(() => {});
       }, 5000);
     };
@@ -170,7 +172,7 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
       if (isVisibleRef.current) {
         // Fetch immediately when tab becomes visible.
         getSessionChanges(sessionId)
-          .then(setData)
+          .then((r) => { r.changes = r.changes ?? []; setData(r); })
           .catch(() => {});
         startPolling();
       } else {
