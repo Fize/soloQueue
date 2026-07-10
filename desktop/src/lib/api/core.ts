@@ -3,11 +3,13 @@ import { useConnectionStore } from "@/stores/connectionStore";
 export const API_BASE = "/api";
 
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const base = useConnectionStore.getState().getEffectiveBaseUrl();
+  const url = base ? `${base}${API_BASE}${path}` : `${API_BASE}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...useConnectionStore.getState().getAuthHeaders(),
   };
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(url, {
     headers,
     ...options,
   });

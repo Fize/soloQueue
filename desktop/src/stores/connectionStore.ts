@@ -126,7 +126,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   getEffectiveBaseUrl: () => {
     const { mode, remoteUrl } = get()
     if (mode === 'remote' && remoteUrl) {
-      return remoteUrl.replace(/\/+$/, '')
+      const base = remoteUrl.replace(/\/+$/, '')
+      if (/^https?:\/\//.test(base)) {
+        return base
+      }
+      return `https://${base}`
     }
     if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
       const port = (window as any).electronAPI?.backendPort || 57647
@@ -139,7 +143,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const { mode, remoteUrl } = get()
     if (mode === 'remote' && remoteUrl) {
       const base = remoteUrl.replace(/\/+$/, '')
-      const wsBase = base.replace(/^http/, 'ws')
+      let wsBase: string
+      if (/^https?:\/\//.test(base)) {
+        wsBase = base.replace(/^http/, 'ws')
+      } else {
+        wsBase = `wss://${base}`
+      }
       return `${wsBase}/ws`
     }
     if (typeof window !== 'undefined' && window.location.protocol === 'file:') {

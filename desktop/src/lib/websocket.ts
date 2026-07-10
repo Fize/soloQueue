@@ -10,6 +10,7 @@ import type {
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useConnectionStore } from '@/stores/connectionStore'
+import { request } from '@/lib/api/core'
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 
@@ -83,11 +84,8 @@ class WebSocketManager {
 
     let token = ''
     try {
-      const res = await fetch('/api/auth/token')
-      if (res.ok) {
-        const data = await res.json()
-        token = data.token
-      }
+      const data = await request<{ token: string }>('/auth/token')
+      token = data.token
     } catch (err) {
       console.warn('Failed to fetch WS auth token, attempting direct connection:', err)
     }

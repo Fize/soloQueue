@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 
 export const translations = {
@@ -1792,41 +1793,44 @@ export type TranslationKey = keyof typeof translations.en
 export function useTranslation() {
   const language = useUIStore((s) => s.language)
 
-  const t = (key: string, variables?: Record<string, string | number>): string => {
-    const parts = key.split('.')
-    let current: any = translations[language] || translations['en']
+  const t = useCallback(
+    (key: string, variables?: Record<string, string | number>): string => {
+      const parts = key.split('.')
+      let current: any = translations[language] || translations['en']
 
-    for (const part of parts) {
-      if (current && typeof current === 'object' && part in current) {
-        current = current[part]
-      } else {
-        // Fallback to English
-        let fallbackCurrent: any = translations['en']
-        for (const fbPart of parts) {
-          if (fallbackCurrent && typeof fallbackCurrent === 'object' && fbPart in fallbackCurrent) {
-            fallbackCurrent = fallbackCurrent[fbPart]
-          } else {
-            fallbackCurrent = null
-            break
+      for (const part of parts) {
+        if (current && typeof current === 'object' && part in current) {
+          current = current[part]
+        } else {
+          // Fallback to English
+          let fallbackCurrent: any = translations['en']
+          for (const fbPart of parts) {
+            if (fallbackCurrent && typeof fallbackCurrent === 'object' && fbPart in fallbackCurrent) {
+              fallbackCurrent = fallbackCurrent[fbPart]
+            } else {
+              fallbackCurrent = null
+              break
+            }
           }
+          current = fallbackCurrent || key
+          break
         }
-        current = fallbackCurrent || key
-        break
       }
-    }
 
-    if (typeof current !== 'string') {
-      return key
-    }
+      if (typeof current !== 'string') {
+        return key
+      }
 
-    let result = current
-    if (variables) {
-      Object.entries(variables).forEach(([k, v]) => {
-        result = result.replace(new RegExp(`{{${k}}}`, 'g'), String(v))
-      })
-    }
-    return result
-  }
+      let result = current
+      if (variables) {
+        Object.entries(variables).forEach(([k, v]) => {
+          result = result.replace(new RegExp(`{{${k}}}`, 'g'), String(v))
+        })
+      }
+      return result
+    },
+    [language],
+  )
 
   return { t, language }
 }
