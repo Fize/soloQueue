@@ -20,14 +20,11 @@ import {
   FileText,
   AlertCircle,
   Clock,
-  Settings,
   Edit,
-  Save,
   Pause,
   GitFork,
   Trash2,
   SkipForward,
-  X,
   MessageCircle,
   MapPin,
   Lightbulb,
@@ -50,8 +47,6 @@ import type {
 } from '@/types'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -61,6 +56,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import { useTranslation } from '@/lib/i18n'
 
 const MAX_MESSAGES = 500
 const MAX_CHAT_HISTORY = 20
@@ -76,33 +72,34 @@ function capMessages<T>(msgs: T[]): T[] {
   return msgs.slice(msgs.length - MAX_MESSAGES)
 }
 
-const WORLD_STATE_KEYS_ZH: Record<string, string> = {
-  _seed_locations: '种子地点',
-  _seed_topic: '种子主题',
-  conflict: '核心冲突',
-  era: '时代背景',
-  faction: '主要势力',
-  factions: '势力阵营',
-  location: '主要地点',
-  time: '时间阶段',
-  world: '世界观/背景',
-}
-
-function getStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    idle: '空闲',
-    pending: '等待中',
-    running: '运行中',
-    paused: '已暂停',
-    completed: '已完成',
-    failed: '已失败',
-    cancelled: '已取消',
-  }
-  return map[status] ?? status
-}
-
 export function SimulationDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const { t } = useTranslation()
+
+  const WORLD_STATE_KEYS_ZH: Record<string, string> = {
+    _seed_locations: t('simulation.seedLocations'),
+    _seed_topic: t('simulation.seedTopic'),
+    conflict: t('simulation.conflict'),
+    era: t('simulation.era'),
+    faction: t('simulation.faction'),
+    factions: t('simulation.factions'),
+    location: t('simulation.location'),
+    time: t('simulation.time'),
+    world: t('simulation.world'),
+  }
+
+  function getStatusLabel(status: string) {
+    const map: Record<string, string> = {
+      idle: t('common.idle'),
+      pending: t('common.pending'),
+      running: t('common.running'),
+      paused: t('common.paused'),
+      completed: t('common.completed'),
+      failed: t('common.failed'),
+      cancelled: t('common.cancelled'),
+    }
+    return map[status] ?? status
+  }
   const navigate = useNavigate()
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
 
@@ -245,8 +242,8 @@ export function SimulationDetailPage() {
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
-          console.error('加载 LLM 配置失败', err)
-          toast.error('加载 LLM 配置失败')
+          console.error(t('simulation.loadLLMConfigFailed'), err)
+          toast.error(t('simulation.loadLLMConfigFailed'))
         }
       }
     }
@@ -291,7 +288,7 @@ export function SimulationDetailPage() {
 
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '更新配置失败')
+        throw new Error(errData.error || t('simulation.updateConfigFailed'))
       }
 
       const data = await res.json()
@@ -317,7 +314,7 @@ export function SimulationDetailPage() {
       setState(mappedState)
       setIsEditing(false)
     } catch (err: any) {
-      toast.error(err.message || '保存配置失败')
+      toast.error(err.message || t('simulation.saveConfigFailed'))
     } finally {
       setSavingConfig(false)
     }
@@ -616,10 +613,10 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}/pause`, { method: 'POST' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '暂停仿真失败')
+        throw new Error(errData.error || t('simulation.pauseSimFailed'))
       }
       setState((prev) => (prev ? { ...prev, status: 'paused' } : null))
-      toast.success('仿真已暂停')
+      toast.success(t('simulation.simPaused'))
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -634,10 +631,10 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}/resume`, { method: 'POST' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '恢复仿真失败')
+        throw new Error(errData.error || t('simulation.resumeSimFailed'))
       }
       setState((prev) => (prev ? { ...prev, status: 'running' } : null))
-      toast.success('仿真已恢复')
+      toast.success(t('simulation.simResumed'))
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -652,9 +649,9 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}/step`, { method: 'POST' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '单步运行失败')
+        throw new Error(errData.error || t('simulation.stepFailed'))
       }
-      toast.success('仿真单步运行了一轮')
+      toast.success(t('simulation.stepSuccess'))
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -669,9 +666,9 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '删除仿真失败')
+        throw new Error(errData.error || t('simulation.deleteSimFailed'))
       }
-      toast.success('仿真已删除')
+      toast.success(t('simulation.simDeleted'))
       navigate('/simulations')
     } catch (err: any) {
       toast.error(err.message)
@@ -687,7 +684,7 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}/start`, { method: 'POST' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '启动仿真失败')
+        throw new Error(errData.error || t('simulation.startSimFailed'))
       }
       // Instantly update local status
       setState((prev) => (prev ? { ...prev, status: 'running' } : null))
@@ -710,10 +707,10 @@ export function SimulationDetailPage() {
       const res = await fetch(`/api/simulations/${id}/stop`, { method: 'POST' })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '停止仿真失败')
+        throw new Error(errData.error || t('simulation.stopSimFailed'))
       }
       setState((prev) => (prev ? { ...prev, status: 'completed' } : null))
-      toast.success('仿真已停止')
+      toast.success(t('simulation.simStopped'))
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -748,7 +745,7 @@ export function SimulationDetailPage() {
       setChatHistory((prev) => {
         const history = [...(prev['report'] || [])]
         const idx = history.findIndex((h) => h.q === question && h.loading)
-        if (idx !== -1) history[idx] = { q: question, a: `Error: ${err.message || '请求失败'}` }
+        if (idx !== -1) history[idx] = { q: question, a: `Error: ${err.message || t('common.error')}` }
         return { ...prev, report: capChatHistory(history) }
       })
     } finally {
@@ -871,70 +868,70 @@ export function SimulationDetailPage() {
       borderColor: 'border-l-blue-500/50',
       badgeBg: 'bg-blue-500/10',
       badgeText: 'text-blue-600 dark:text-blue-400',
-      label: '对话',
+      label: t('simulation.eventTalk'),
     },
     private_speak: {
       icon: Lock,
       borderColor: 'border-l-primary/50',
       badgeBg: 'bg-primary/10',
       badgeText: 'text-primary',
-      label: '私语',
+      label: t('simulation.eventWhisper'),
     },
     agent_move: {
       icon: MapPin,
       borderColor: 'border-l-amber-500/50',
       badgeBg: 'bg-amber-500/10',
       badgeText: 'text-amber-600 dark:text-amber-400',
-      label: '移动',
+      label: t('simulation.eventMove'),
     },
     reflection: {
       icon: Lightbulb,
       borderColor: 'border-l-success/50',
       badgeBg: 'bg-success/10',
       badgeText: 'text-success',
-      label: '反思',
+      label: t('simulation.eventReflect'),
     },
     conflict: {
       icon: AlertTriangle,
       borderColor: 'border-l-rose-500/50',
       badgeBg: 'bg-rose-500/10',
       badgeText: 'text-rose-600 dark:text-rose-400',
-      label: '冲突',
+      label: t('simulation.eventConflict'),
     },
     rebuttal: {
       icon: AlertCircle,
       borderColor: 'border-l-rose-400/50',
       badgeBg: 'bg-rose-400/10',
       badgeText: 'text-rose-500 dark:text-rose-400',
-      label: '反驳',
+      label: t('simulation.eventRefute'),
     },
     question: {
       icon: MessageCircle,
       borderColor: 'border-l-cyan-500/50',
       badgeBg: 'bg-cyan-500/10',
       badgeText: 'text-cyan-600 dark:text-cyan-400',
-      label: '提问',
+      label: t('simulation.eventAsk'),
     },
     auto_pass: {
       icon: SkipForward,
       borderColor: 'border-l-gray-400/30 border-dashed',
       badgeBg: 'bg-muted',
       badgeText: 'text-muted-foreground',
-      label: '例行',
+      label: t('simulation.eventRoutine'),
     },
     agent_exit: {
       icon: LogOut,
       borderColor: 'border-l-gray-500/40',
       badgeBg: 'bg-muted',
       badgeText: 'text-muted-foreground',
-      label: '退场',
+      label: t('simulation.eventExit'),
     },
     agent_death_announcement: {
       icon: Skull,
       borderColor: 'border-l-red-600/50',
       badgeBg: 'bg-red-600/10',
       badgeText: 'text-red-600 dark:text-red-400',
-      label: '死亡',
+      label: t('simulation.eventDeath'),
     },
   }
 
@@ -950,7 +947,7 @@ export function SimulationDetailPage() {
 
   const renderWorldStateValue = (key: string, val: any) => {
     if (val === null || val === undefined)
-      return <span className="text-muted-foreground/60">无</span>
+      return <span className="text-muted-foreground/60">{t('common.none')}</span>
 
     let parsedVal = val
     if (typeof val === 'string') {
@@ -983,7 +980,7 @@ export function SimulationDetailPage() {
                   </span>
                 )
               } else if (typeof loc === 'object' && loc !== null) {
-                const name = loc.name || loc.Name || `地点 ${idx + 1}`
+                const name = loc.name || loc.Name || t('simulation.locationIndex', { index: idx + 1 })
                 const desc = loc.desc || loc.desc || loc.description || loc.Description || ''
                 return (
                   <div
@@ -1109,7 +1106,7 @@ export function SimulationDetailPage() {
       return (
         <div className="flex h-32 flex-col items-center justify-center text-center text-muted-foreground font-mono text-xs p-6">
           <AlertCircle className="mb-2 h-5 w-5 text-muted-foreground/60" />
-          <span>未发现环境状态变量。</span>
+          <span>{t('simulation.noEnvVars')}</span>
         </div>
       )
     }
@@ -1122,7 +1119,7 @@ export function SimulationDetailPage() {
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-4 space-y-3">
         <input
           type="text"
-          placeholder="过滤变量..."
+          placeholder={t('simulation.filterVars')}
           value={worldSearch}
           onChange={(e) => setWorldSearch(e.target.value)}
           className="w-full shrink-0 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none transition-all"
@@ -1130,14 +1127,14 @@ export function SimulationDetailPage() {
         <div className="flex-1 overflow-y-auto min-h-0 border border-border/50 rounded-lg bg-card/10">
           {filteredKeys.length === 0 ? (
             <div className="text-center text-xs font-mono text-muted-foreground py-6">
-              没有匹配当前搜索的变量。
+              {t('simulation.noMatchingVars')}
             </div>
           ) : (
             <table className="w-full text-xs font-sans border-collapse select-text">
               <thead>
                 <tr className="border-b border-border/80 bg-muted/40 text-left text-muted-foreground">
-                  <th className="p-3 py-2 font-semibold">变量名</th>
-                  <th className="p-3 py-2 font-semibold">变量值</th>
+                  <th className="p-3 py-2 font-semibold">{t('simulation.varName')}</th>
+                  <th className="p-3 py-2 font-semibold">{t('simulation.varValue')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1189,13 +1186,13 @@ export function SimulationDetailPage() {
   }
 
   const phaseSteps = [
-    { key: 'initializing', label: '环境准备' },
-    { key: 'generating_plans', label: '生成计划' },
-    { key: 'building_prompts', label: '构建提示' },
-    { key: 'running', label: '运行中' },
-    { key: 'generating_report', label: '生成报告' },
-    { key: 'completed', label: '完成' },
-  ] as const
+    { key: 'initializing', label: t('simulation.phaseInitializing') },
+    { key: 'generating_plans', label: t('simulation.phaseGeneratingPlans') },
+    { key: 'building_prompts', label: t('simulation.phaseBuildingPrompts') },
+    { key: 'running', label: t('simulation.phaseRunning') },
+    { key: 'generating_report', label: t('simulation.phaseGeneratingReport') },
+    { key: 'completed', label: t('simulation.phaseCompleted') },
+  ]
 
   const currentPhaseIdx = progress ? phaseSteps.findIndex(s => s.key === progress.phase) : -1
 
@@ -1219,7 +1216,7 @@ export function SimulationDetailPage() {
           <span className="text-muted-foreground truncate flex items-center gap-1.5">
             <SkipForward className="h-3 w-3 shrink-0" />
             <span className="font-semibold text-foreground/80">{msg.agent_name}</span>
-            <span>例行通过动作</span>
+            <span>{t('simulation.routineActionPassed')}</span>
           </span>
           <button
             type="button"
@@ -1232,7 +1229,7 @@ export function SimulationDetailPage() {
             }}
             className="text-[10px] text-primary hover:underline font-mono cursor-pointer shrink-0"
           >
-            展开
+            {t('simulation.expand')}
           </button>
         </div>
       )
@@ -1253,7 +1250,7 @@ export function SimulationDetailPage() {
             type="button"
             onClick={() => setChatAgentId(msg.agent_id)}
             className="p-1 rounded-md bg-primary/15 border border-primary/25 hover:bg-primary/25 text-primary hover:text-primary-foreground transition-all cursor-pointer shadow-sm flex items-center justify-center"
-            title={`向 ${msg.agent_name} 提问`}
+            title={t('simulation.askAgent', { name: msg.agent_name })}
           >
             <MessageSquare className="h-3.5 w-3.5" />
           </button>
@@ -1302,7 +1299,7 @@ export function SimulationDetailPage() {
             }}
             className="text-[10px] text-muted-foreground/60 hover:text-foreground font-mono self-start cursor-pointer hover:underline"
           >
-            收起例行信息
+            {t('simulation.collapseRoutine')}
           </button>
         )}
 
@@ -1311,7 +1308,7 @@ export function SimulationDetailPage() {
           <details className="mt-1 group">
             <summary className="text-[9px] text-muted-foreground/50 cursor-pointer select-none hover:text-foreground font-mono tracking-wide flex items-center gap-1">
               <span className="inline-block w-0 h-0 border-l-4 border-l-transparent border-t-4 border-t-current border-r-4 border-r-transparent group-open:rotate-90 transition-transform" />
-              推理过程 (Reasoning)
+              {t('simulation.reasoningProcess')}
             </summary>
             <div className="mt-1 text-[9px] text-muted-foreground/80 bg-background/55 p-3 rounded-lg border border-border/30 leading-relaxed whitespace-pre-wrap">
               {msg.reasoning}
@@ -1328,7 +1325,7 @@ export function SimulationDetailPage() {
       return (
         <div className="flex h-full min-h-[200px] flex-col items-center justify-center text-center text-muted-foreground font-mono text-xs gap-3">
           <Clock className="h-5 w-5 text-muted-foreground/60 animate-pulse" />
-          <span>等待仿真开始...</span>
+          <span>{t('simulation.waitingForStart')}</span>
         </div>
       )
     }
@@ -1351,7 +1348,7 @@ export function SimulationDetailPage() {
             <div className="flex items-center gap-2 select-none">
               <div className="h-px flex-1 bg-border/40" />
               <span className="text-[10px] font-bold text-muted-foreground font-mono uppercase bg-muted/40 px-2 py-0.5 rounded border border-border/20">
-                {r === 0 ? '初始化阶段' : `第 ${r} 轮 / Round ${r}`}
+                {r === 0 ? t('simulation.phaseInitialStage') : t('simulation.roundStatus', { round: r })}
               </span>
               <div className="h-px flex-1 bg-border/40" />
             </div>
@@ -1395,7 +1392,7 @@ export function SimulationDetailPage() {
                 <>
                   <span>•</span>
                   <span className="text-primary animate-pulse font-bold">
-                    {state.current_round === 0 ? '初始化中...' : `第 ${state.current_round} 轮`}
+                    {state.current_round === 0 ? t('simulation.initializing') : t('simulation.roundNumber', { count: state.current_round })}
                   </span>
                 </>
               )}
@@ -1417,7 +1414,7 @@ export function SimulationDetailPage() {
                       <Edit className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>编辑配置</TooltipContent>
+                  <TooltipContent>{t('simulation.editConfig')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger>
@@ -1426,10 +1423,10 @@ export function SimulationDetailPage() {
                       disabled={controlLoading}
                       className="flex items-center justify-center h-8 px-3 rounded-lg bg-success hover:bg-success/90 disabled:bg-success/50 text-xs font-semibold text-success-foreground transition-colors cursor-pointer disabled:opacity-50"
                     >
-                      <Play className="h-3.5 w-3.5 mr-1" /> 启动仿真
+                      <Play className="h-3.5 w-3.5 mr-1" /> {t('simulation.startSim')}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>开始推演</TooltipContent>
+                  <TooltipContent>{t('simulation.startDeduction')}</TooltipContent>
                 </Tooltip>
               </>
             )}
@@ -1446,7 +1443,7 @@ export function SimulationDetailPage() {
                       <Pause className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>暂停仿真</TooltipContent>
+                  <TooltipContent>{t('simulation.pauseSim')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger>
@@ -1455,10 +1452,10 @@ export function SimulationDetailPage() {
                       disabled={controlLoading}
                       className="flex items-center justify-center h-8 px-3 rounded-lg bg-destructive hover:bg-destructive/90 disabled:bg-destructive/50 text-xs font-semibold text-destructive-foreground transition-colors cursor-pointer"
                     >
-                      <Square className="h-3.5 w-3.5 mr-1" /> 停止仿真
+                      <Square className="h-3.5 w-3.5 mr-1" /> {t('simulation.stopSim')}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>终止仿真</TooltipContent>
+                  <TooltipContent>{t('simulation.terminateSim')}</TooltipContent>
                 </Tooltip>
               </>
             )}
@@ -1475,7 +1472,7 @@ export function SimulationDetailPage() {
                       <Play className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>恢复仿真</TooltipContent>
+                  <TooltipContent>{t('simulation.resumeSim')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger>
@@ -1487,7 +1484,7 @@ export function SimulationDetailPage() {
                       <SkipForward className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>单步推进</TooltipContent>
+                  <TooltipContent>{t('simulation.stepSim')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger>
@@ -1496,10 +1493,10 @@ export function SimulationDetailPage() {
                       disabled={controlLoading}
                       className="flex items-center justify-center h-8 px-3 rounded-lg bg-destructive hover:bg-destructive/90 text-xs font-semibold text-destructive-foreground transition-colors cursor-pointer"
                     >
-                      <Square className="h-3.5 w-3.5 mr-1" /> 停止仿真
+                      <Square className="h-3.5 w-3.5 mr-1" /> {t('simulation.stopSim')}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>终止仿真</TooltipContent>
+                  <TooltipContent>{t('simulation.terminateSim')}</TooltipContent>
                 </Tooltip>
               </>
             )}
@@ -1522,10 +1519,10 @@ export function SimulationDetailPage() {
                     disabled={controlLoading}
                     className="flex items-center justify-center h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white transition-colors cursor-pointer"
                   >
-                    <GitFork className="h-3.5 w-3.5 mr-1" /> 分叉仿真
+                    <GitFork className="h-3.5 w-3.5 mr-1" /> {t('simulation.forkSim')}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>克隆仿真配置开始对照情景推演</TooltipContent>
+                <TooltipContent>{t('simulation.forkDesc')}</TooltipContent>
               </Tooltip>
             )}
 
@@ -1539,7 +1536,7 @@ export function SimulationDetailPage() {
                   <Trash2 className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>删除该推演及所有记录</TooltipContent>
+              <TooltipContent>{t('common.delete')}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
 
@@ -1562,7 +1559,7 @@ export function SimulationDetailPage() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                动态交互
+                {t('simulation.tabDynamicInteract')}
               </button>
               <button
                 onClick={() => setGraphLayer('relationship')}
@@ -1572,7 +1569,7 @@ export function SimulationDetailPage() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                社会关系
+                {t('simulation.tabSocialRelations')}
               </button>
               <button
                 onClick={() => setGraphLayer('both')}
@@ -1582,7 +1579,7 @@ export function SimulationDetailPage() {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                双层显示
+                {t('simulation.tabDualDisplay')}
               </button>
             </div>
           </div>
@@ -1651,14 +1648,14 @@ export function SimulationDetailPage() {
               {/* Telemetry header & phase progress */}
               <div className="shrink-0 space-y-3 p-4 pb-3 border-b border-border/40 bg-muted/5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-foreground font-mono tracking-wide">沙盒推演监测</span>
+                  <span className="text-xs font-bold text-foreground font-mono tracking-wide">{t('simulation.sandboxMonitoring')}</span>
                   {state.status === 'completed' && state.report && (
                     <button
                       onClick={() => setIsReportModalOpen(true)}
                       className="inline-flex items-center gap-1 rounded bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 text-[9px] font-semibold cursor-pointer hover:bg-primary/20 transition-all font-mono"
                     >
                       <FileText className="h-2.5 w-2.5" />
-                      全屏阅读报告
+                      {t('simulation.fullScreenReport')}
                     </button>
                   )}
                 </div>
@@ -1742,25 +1739,25 @@ export function SimulationDetailPage() {
                     value="stream"
                     className="py-2.5 text-center text-xs font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/25"
                   >
-                    消息流
+                    {t('simulation.tabStream')}
                   </TabsTrigger>
                   <TabsTrigger
                     value="world"
                     className="py-2.5 text-center text-xs font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/25"
                   >
-                    状态
+                    {t('simulation.tabWorld')}
                   </TabsTrigger>
                   <TabsTrigger
                     value="report"
                     className="py-2.5 text-center text-xs font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/25"
                   >
-                    报告
+                    {t('simulation.tabReport')}
                   </TabsTrigger>
                   <TabsTrigger
                     value="agent"
                     className="py-2.5 text-center text-xs font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/25"
                   >
-                    角色
+                    {t('simulation.tabAgent')}
                   </TabsTrigger>
                 </TabsList>
 
@@ -1777,7 +1774,7 @@ export function SimulationDetailPage() {
                           : "border-border hover:bg-muted/40 text-muted-foreground"
                       )}
                     >
-                      全部
+                      {t('simulation.all')}
                     </button>
                     {state.config.personas.map((p) => {
                       const isSelected = filterAgentId === p.id
@@ -1833,8 +1830,8 @@ export function SimulationDetailPage() {
                   {!state.report ? (
                     <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 h-full text-center">
                       <FileText className="h-8 w-8 opacity-20 animate-pulse" />
-                      <span className="text-xs">分析报告尚未生成</span>
-                      <p className="text-[10px] text-muted-foreground/60 max-w-[240px]">报告将在仿真运行结束后通过大模型自动汇总并提炼完成。</p>
+                      <span className="text-xs">{t('simulation.reportNotGenerated')}</span>
+                      <p className="text-[10px] text-muted-foreground/60 max-w-[240px]">{t('simulation.reportGenDesc')}</p>
                     </div>
                   ) : (
                     <Tabs defaultValue="doc" className="flex-1 flex flex-col min-h-0">
@@ -1843,13 +1840,13 @@ export function SimulationDetailPage() {
                           value="doc"
                           className="flex-1 py-2 text-center text-xs font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
                         >
-                          报告正文
+                          {t('simulation.reportContent')}
                         </TabsTrigger>
                         <TabsTrigger
                           value="qa"
                           className="flex-1 py-2 text-center text-xs font-semibold border-b-2 data-active:border-primary data-active:text-primary border-transparent text-muted-foreground hover:text-foreground rounded-none data-active:bg-card/20"
                         >
-                          报告问答
+                          {t('simulation.reportQA')}
                         </TabsTrigger>
                       </TabsList>
                       
@@ -1863,7 +1860,7 @@ export function SimulationDetailPage() {
                         {/* Report QA Chat Feed */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 scroll-container">
                           <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 text-[10px] text-muted-foreground leading-relaxed">
-                            您可以向报告分析专家提问，了解推演中的关键细节、角色反思及冲突争议点。
+                            {t('simulation.expertQADesc')}
                           </div>
                           {(chatHistory['report'] || []).map((chat, idx) => (
                             <div key={idx} className="space-y-2">
@@ -1877,7 +1874,7 @@ export function SimulationDetailPage() {
                                   {chat.loading ? (
                                     <div className="flex items-center gap-1.5 text-muted-foreground">
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                      分析中...
+                                      {t('simulation.analyzing')}
                                     </div>
                                   ) : (
                                     <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed">
@@ -1902,7 +1899,7 @@ export function SimulationDetailPage() {
                           <input
                             type="text"
                             required
-                            placeholder="向报告专家提问..."
+                            placeholder={t('simulation.askExpertPlaceholder')}
                             value={reportQuestion}
                             onChange={(e) => setReportQuestion(e.target.value)}
                             className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none transition-all"
@@ -1925,12 +1922,12 @@ export function SimulationDetailPage() {
                   {selectedAgentId ? (
                     <div className="flex-1 flex flex-col min-h-0">
                       <div className="shrink-0 p-3 bg-muted/10 border-b border-border/40 flex justify-between items-center select-none">
-                        <span className="text-[10px] font-bold text-muted-foreground font-mono">智能体画像详情</span>
+                        <span className="text-[10px] font-bold text-muted-foreground font-mono">{t('simulation.agentProfileDetails')}</span>
                         <button
                           onClick={() => handleSelectAgent(null)}
                           className="text-[10px] text-primary hover:underline font-mono flex items-center gap-1 cursor-pointer"
                         >
-                          <ArrowLeft className="h-3 w-3" /> 返回角色列表
+                          <ArrowLeft className="h-3 w-3" /> {t('simulation.backToAgentList')}
                         </button>
                       </div>
                       <div className="flex-1 overflow-y-auto min-h-0">
@@ -1947,7 +1944,7 @@ export function SimulationDetailPage() {
                               status={state.status}
                             />
                           ) : (
-                            <div className="p-4 text-xs text-muted-foreground">智能体未找到</div>
+                            <div className="p-4 text-xs text-muted-foreground">{t('simulation.agentNotFound')}</div>
                           )
                         })()}
                       </div>
@@ -1955,8 +1952,8 @@ export function SimulationDetailPage() {
                   ) : (
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
                       <div className="flex flex-col gap-1 mb-2 select-none">
-                        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">所有参会角色</h3>
-                        <p className="text-[10px] text-muted-foreground">点击角色卡片查看日程计划、社交关系、记忆或发起审问</p>
+                        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">{t('simulation.allParticipants')}</h3>
+                        <p className="text-[10px] text-muted-foreground">{t('simulation.participantDesc')}</p>
                       </div>
                       <div className="grid grid-cols-1 gap-2.5">
                         {state.config.personas.map((p) => {
@@ -2031,16 +2028,16 @@ export function SimulationDetailPage() {
         <DialogContent className="max-w-lg max-h-[80vh] flex flex-col p-0 overflow-hidden gap-0 bg-card border border-border rounded-xl">
           <DialogHeader className="shrink-0 px-5 py-4 border-b border-border/50">
             <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
-              <MessageSquare className="h-4 w-4 text-primary" />与{' '}
+              <MessageSquare className="h-4 w-4 text-primary" />
               {chatAgentId === 'report'
-                ? '报告分析专家'
-                : chatAgentId
-                  ? state.config.personas.find((p) => p.id === chatAgentId)?.name
-                  : ''}{' '}
-              对话访谈
+                ? t('simulation.chatWithExpert')
+                : `${t('simulation.chatWithLabel')} ${chatAgentId
+                    ? state.config.personas.find((p) => p.id === chatAgentId)?.name ?? ''
+                    : ''}`}{' '}
+              {t('simulation.interrogation')}
             </DialogTitle>
             <p className="text-[10px] text-muted-foreground font-normal">
-              扮演审查角色，就仿真推演内容和立场细节对智能体发起质问。
+              {t('simulation.interrogateDesc')}
             </p>
           </DialogHeader>
 
@@ -2058,7 +2055,7 @@ export function SimulationDetailPage() {
                       {chat.loading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          思考中...
+                          {t('simulation.thinking')}
                         </div>
                       ) : (
                         <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed">
@@ -2078,7 +2075,7 @@ export function SimulationDetailPage() {
             <input
               type="text"
               required
-              placeholder="输入提问问题..."
+              placeholder={t('simulation.askAgentPlaceholder')}
               value={chatQuestion}
               onChange={(e) => setChatQuestion(e.target.value)}
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none transition-all"
@@ -2119,17 +2116,17 @@ export function SimulationDetailPage() {
           <div className="flex-1 overflow-y-auto mt-4 pr-1 space-y-4 scroll-container">
             <div>
               <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                系统提示词 (System Prompt)
+                {t('simulation.systemPromptLabel')}
               </h5>
               <div className="rounded-xl border border-border bg-muted/30 p-4 font-mono text-xs whitespace-pre-wrap leading-relaxed text-foreground select-text overflow-x-auto max-h-[40vh]">
-                {viewingPersona?.system_prompt || '未配置系统提示词。'}
+                {viewingPersona?.system_prompt || t('simulation.noSystemPrompt')}
               </div>
             </div>
 
             {viewingPersona?.bio && (
               <div>
                 <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                  人物背景
+                  {t('simulation.personaBackground')}
                 </h5>
                 <p className="text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40">
                   {viewingPersona.bio}
@@ -2140,7 +2137,7 @@ export function SimulationDetailPage() {
             {viewingPersona?.goals && viewingPersona.goals.length > 0 && (
               <div>
                 <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                  智能体目标
+                  {t('simulation.agentGoals')}
                 </h5>
                 <ul className="list-disc list-inside space-y-1 text-xs text-foreground/90 leading-relaxed bg-muted/10 p-3 rounded-lg border border-border/40">
                   {viewingPersona.goals.map((goal, idx) => (
@@ -2153,7 +2150,7 @@ export function SimulationDetailPage() {
             {viewingPersona?.traits && Object.keys(viewingPersona.traits).length > 0 && (
               <div>
                 <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                  特质属性
+                  {t('simulation.agentTraits')}
                 </h5>
                 <div className="grid grid-cols-2 gap-2 bg-muted/10 p-3 rounded-lg border border-border/40">
                   {Object.entries(viewingPersona.traits).map(([k, v]) => (
@@ -2198,11 +2195,11 @@ export function SimulationDetailPage() {
       <ConfirmDialog
         open={stopConfirmOpen}
         onOpenChange={setStopConfirmOpen}
-        title="停止仿真"
-        message="您确定要停止此仿真吗？当前状态将被保存，但任何进行中的智能体动作都将被中断。"
+        title={t('simulation.confirmStopTitle')}
+        message={t('simulation.confirmStopMsg')}
         destructive
         onConfirm={confirmStop}
-        confirmLabel="停止仿真"
+        confirmLabel={t('simulation.stopSim')}
         loading={controlLoading}
       />
 
@@ -2218,14 +2215,13 @@ export function SimulationDetailPage() {
       <ConfirmDialog
         open={deleteConfirmOpen}
         onOpenChange={setDeleteConfirmOpen}
-        title="删除仿真"
-        message="您确定要永久删除此仿真及其所有智能体记忆记录吗？此操作无法撤销。"
+        title={t('simulation.confirmDeleteTitle')}
+        message={t('simulation.confirmDeleteMsg')}
         destructive
         onConfirm={handleDelete}
-        confirmLabel="永久删除"
+        confirmLabel={t('simulation.permanentlyDelete')}
         loading={controlLoading}
       />
     </div>
   )
 }
-

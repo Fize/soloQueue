@@ -10,6 +10,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { useTranslation } from '@/lib/i18n'
 
 interface SimulationForkDialogProps {
   open: boolean
@@ -27,26 +28,28 @@ export function SimulationForkDialog({
   initialMaxWallClockMin,
 }: SimulationForkDialogProps) {
   const navigate = useNavigate()
-
-  const [forkTopic, setForkTopic] = useState(initialTopic)
-  const [forkMaxWallClockMin, setForkMaxWallClockMin] = useState(initialMaxWallClockMin)
+  const [forkTopic, setForkTopic] = useState('')
+  const [forkMaxWallClockMin, setForkMaxWallClockMin] = useState(5)
   const [forking, setForking] = useState(false)
+  const { t } = useTranslation()
 
-  // Reset state when dialog opens
+  // Reset/sync when dialog opens
   useEffect(() => {
     if (open) {
-      setForkTopic(initialTopic)
-      setForkMaxWallClockMin(initialMaxWallClockMin)
-      setForking(false)
+      setForkTopic(`${initialTopic} (Copy)`)
+      setForkMaxWallClockMin(initialMaxWallClockMin || 5)
     }
   }, [open, initialTopic, initialMaxWallClockMin])
 
   const handleFork = async () => {
+    setForking(true)
     try {
-      setForking(true)
       const res = await fetch(`/api/simulations/${simulationId}/fork`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('soloqueue_token')}`,
+        },
         body: JSON.stringify({
           new_topic: forkTopic,
           new_max_wall_clock_ms: forkMaxWallClockMin * 60 * 1000,
@@ -54,10 +57,10 @@ export function SimulationForkDialog({
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || '分叉仿真失败')
+        throw new Error(errData.error || t('simulation.forkFailed'))
       }
       const data = await res.json()
-      toast.success('仿真分叉成功！')
+      toast.success(t('simulation.forkSuccess'))
       onOpenChange(false)
       navigate(`/simulations/${data.new_simulation_id}`)
     } catch (err: any) {
@@ -73,18 +76,18 @@ export function SimulationForkDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
             <GitFork className="h-4.5 w-4.5 text-primary" />
-            分叉仿真
+            {t('simulation.fork')}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="rounded-lg bg-background/40 border border-border p-3 text-[10px] text-muted-foreground leading-relaxed">
-            分叉操作将克隆当前仿真的配置（包括所有智能体画像、初始社会关系与运行参数）到一个新的沙盒中，以便您可以对其发起对照测试和差异演化研究。
+            {t('simulation.forkDesc')}
           </div>
 
           <div className="space-y-1.5">
             <Input
-              label="新仿真主题"
+              label={t('simulation.forkTheme')}
               value={forkTopic}
               onChange={(e) => setForkTopic(e.target.value)}
               required
@@ -94,8 +97,8 @@ export function SimulationForkDialog({
 
           <div className="space-y-1.5">
             <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono flex justify-between items-center">
-              <span>最大运行时间 (分钟)</span>
-              <span className="text-primary font-bold">{forkMaxWallClockMin}分钟</span>
+              <span>{t('simulation.forkMaxTime')}</span>
+              <span className="text-primary font-bold">{t('simulation.minutesUnit', { count: forkMaxWallClockMin })}</span>
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -128,7 +131,7 @@ export function SimulationForkDialog({
             disabled={forking}
             className="rounded-lg bg-muted hover:bg-muted/80 px-4 py-2 text-xs font-semibold text-foreground transition-colors cursor-pointer"
           >
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -138,11 +141,11 @@ export function SimulationForkDialog({
           >
             {forking ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> 分叉中...
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('simulation.forking')}
               </>
             ) : (
               <>
-                <GitFork className="h-3.5 w-3.5" /> 分叉仿真
+                <GitFork className="h-3.5 w-3.5" /> {t('simulation.fork')}
               </>
             )}
           </button>

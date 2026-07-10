@@ -22,24 +22,27 @@ import {
   Wifi,
   BarChart2,
 } from 'lucide-react'
-import { getStoredTheme, cycleTheme, type ThemeMode } from '@/lib/theme'
+import { cycleTheme } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
+import { useUIStore } from '@/stores/uiStore'
+import { useTranslation } from '@/lib/i18n'
 
 const mainNav = [
-  { to: '/simulations', icon: Play, label: 'Simulations' },
-  { to: '/cron', icon: Clock, label: 'Scheduled Tasks' },
-  { to: '/assistant', icon: Bot, label: 'Assistant' },
-  { to: '/stats', icon: BarChart2, label: 'Usage Statistics' },
+  { to: '/simulations', icon: Play, key: 'sidebar.simulations' as const },
+  { to: '/cron', icon: Clock, key: 'sidebar.scheduledTasks' as const },
+  { to: '/assistant', icon: Bot, key: 'sidebar.assistant' as const },
+  { to: '/stats', icon: BarChart2, key: 'sidebar.usageStats' as const },
 ]
 
 const settingsChildren = [
-  { to: '/settings/config', icon: FileText, label: 'Configuration' },
-  { to: '/settings/connection', icon: Wifi, label: 'Connection' },
-  { to: '/settings/profile', icon: User, label: 'Profile' },
-  { to: '/settings/skills', icon: Sparkles, label: 'Agent Skills' },
-  { to: '/settings/mcp', icon: Server, label: 'MCP Services' },
-  { to: '/settings/teams', icon: Users, label: 'Team Management' },
-  { to: '/settings/projects', icon: FolderOpen, label: 'Projects' },
+  { to: '/settings/general', icon: Settings, key: 'sidebar.general' as const },
+  { to: '/settings/config', icon: FileText, key: 'sidebar.config' as const },
+  { to: '/settings/connection', icon: Wifi, key: 'sidebar.connection' as const },
+  { to: '/settings/profile', icon: User, key: 'sidebar.profile' as const },
+  { to: '/settings/skills', icon: Sparkles, key: 'sidebar.skills' as const },
+  { to: '/settings/mcp', icon: Server, key: 'sidebar.mcp' as const },
+  { to: '/settings/teams', icon: Users, key: 'sidebar.teams' as const },
+  { to: '/settings/projects', icon: FolderOpen, key: 'sidebar.projects' as const },
 ]
 
 interface SidebarProps {
@@ -52,7 +55,8 @@ interface SidebarProps {
 export function Sidebar({ narrow, floating }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
+  const { theme: themeMode, setTheme } = useUIStore()
+  const { t } = useTranslation()
   const [chatOpen, setChatOpen] = useState(
     location.pathname.startsWith('/chat') || location.pathname === '/new-chat'
   )
@@ -122,22 +126,22 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
               ? 'bg-foreground/10 text-foreground'
               : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
           )}
-          title="Settings"
+          title={t('sidebar.settings')}
         >
           <Settings className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => {
             const next = cycleTheme()
-            setThemeMode(next)
+            setTheme(next)
           }}
           className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors duration-150"
           title={
             themeMode === 'light'
-              ? 'Switch to dark mode'
+              ? t('sidebar.switchDark')
               : themeMode === 'dark'
-                ? 'Switch to system theme'
-                : 'Switch to light mode'
+                ? t('sidebar.switchSystem')
+                : t('sidebar.switchLight')
           }
         >
           {themeMode === 'light' ? (
@@ -172,13 +176,14 @@ function NavView({
   narrow: boolean
 }) {
   const showText = !narrow
+  const { t } = useTranslation()
   return (
     <>
       {/* Navigation list */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
         {/* New Chat — top nav item, navigates to home */}
         {(() => {
-          const item = { to: '/chat', icon: Plus, label: 'New Chat' }
+          const item = { to: '/chat', icon: Plus, key: 'chat.newChat' as const }
           const active = location.pathname === '/chat' || location.pathname === '/chat/'
           return (
             <div key={item.to}>
@@ -191,10 +196,10 @@ function NavView({
                     ? 'bg-primary text-white shadow-sm font-semibold'
                     : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
                 )}
-                title={narrow ? item.label : undefined}
+                title={narrow ? t(item.key) : undefined}
               >
                 <item.icon className="h-3.5 w-3.5 shrink-0" />
-                {showText && <span className="whitespace-nowrap">{item.label}</span>}
+                {showText && <span className="whitespace-nowrap">{t(item.key)}</span>}
               </button>
             </div>
           )
@@ -215,7 +220,7 @@ function NavView({
               )}
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              <span className="flex-1 text-left">Chats</span>
+              <span className="flex-1 text-left">{t('chat.title')}</span>
               {chatOpen ? (
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
               ) : (
@@ -245,10 +250,10 @@ function NavView({
                     ? 'bg-primary text-white shadow-sm font-semibold'
                     : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
                 )}
-                title={narrow ? item.label : undefined}
+                title={narrow ? t(item.key) : undefined}
               >
                 <item.icon className="h-3.5 w-3.5 shrink-0" />
-                {showText && <span className="whitespace-nowrap">{item.label}</span>}
+                {showText && <span className="whitespace-nowrap">{t(item.key)}</span>}
               </button>
             </div>
           )
@@ -268,13 +273,14 @@ function SettingsView({
   onBack,
   narrow,
 }: {
-  settingsChildren: { to: string; icon: typeof FileText; label: string }[]
+  settingsChildren: { to: string; icon: typeof FileText; key: string }[]
   location: ReturnType<typeof useLocation>
   onNav: (to: string) => void
   onBack: () => void
   narrow: boolean
 }) {
   const showText = !narrow
+  const { t } = useTranslation()
   return (
     <>
       {/* Header: gray "back to app" button */}
@@ -290,10 +296,10 @@ function SettingsView({
             'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer text-muted-foreground hover:text-foreground hover:bg-foreground/5',
             narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2 px-2.5 py-1.5'
           )}
-          title={narrow ? 'Back to App' : undefined}
+          title={narrow ? t('sidebar.backToApp') : undefined}
         >
           <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
-          {showText && <span className="whitespace-nowrap">Back to App</span>}
+          {showText && <span className="whitespace-nowrap">{t('sidebar.backToApp')}</span>}
         </button>
       </div>
 
@@ -312,10 +318,10 @@ function SettingsView({
                   ? 'bg-primary text-white shadow-sm font-semibold'
                   : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
               )}
-              title={narrow ? item.label : undefined}
+              title={narrow ? t(item.key) : undefined}
             >
               <item.icon className="h-3.5 w-3.5 shrink-0" />
-              {showText && <span className="whitespace-nowrap">{item.label}</span>}
+              {showText && <span className="whitespace-nowrap">{t(item.key)}</span>}
             </button>
           )
         })}

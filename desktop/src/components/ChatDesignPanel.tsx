@@ -82,8 +82,6 @@ export interface ChatDesignPanelProps {
 
 export function ChatDesignPanel({
   isDesignMode,
-  onDesignModeToggle,
-  panelWidth,
   onResizeStart,
   selectedProjectPath,
   selectedGroup,

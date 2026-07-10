@@ -48,6 +48,8 @@ import { SessionSection } from './SessionSection'
 import { SimulationSection } from './SimulationSection'
 
 
+import { useTranslation } from '@/lib/i18n'
+
 export function ConfigTabShell() {
   const [searchParams, setSearchParams] = useSearchParams()
   const subTab = (searchParams.get('subTab') || 'llm') as
@@ -63,7 +65,7 @@ export function ConfigTabShell() {
     setSearchParams({ subTab: val })
   }
 
-
+  const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
 
   // DB settings state
@@ -410,19 +412,19 @@ export function ConfigTabShell() {
   if (loading) {
     return (
       <div className="text-sm font-mono text-muted-foreground p-6">
-        Loading LLM configurations...
+        {t('common.loading')}
       </div>
     )
   }
 
   const subTabButtons: { key: string; label: string }[] = [
-    { key: 'llm', label: 'Models & Providers' },
-    { key: 'tools', label: 'Tools Settings' },
-    { key: 'qqbot', label: 'QQ Bot' },
-    { key: 'lspmcp', label: 'LSP MCP' },
-    { key: 'embedding', label: 'Embedding' },
-    { key: 'session', label: 'Chat Settings' },
-    { key: 'simulation', label: 'Simulation Settings' },
+    { key: 'llm', label: t('config.sectionLLM') },
+    { key: 'tools', label: t('config.sectionTools') },
+    { key: 'qqbot', label: t('config.sectionQQBot') },
+    { key: 'lspmcp', label: t('config.sectionLSP') },
+    { key: 'embedding', label: t('config.sectionEmbedding') },
+    { key: 'session', label: t('config.sectionSession') },
+    { key: 'simulation', label: t('config.sectionSimulation') },
   ]
 
   return (
@@ -530,22 +532,22 @@ export function ConfigTabShell() {
         onOpenChange={(open) => {
           if (!open) setDeleteProviderTarget(null)
         }}
-        title="Delete Provider"
-        message={`Deleting provider "${deleteProviderTarget?.id}" will also remove all associated models. This action cannot be undone.`}
+        title={t('config.deleteProviderTitle')}
+        message={t('config.deleteProviderMsg', { id: deleteProviderTarget?.id || '' })}
         destructive
         onConfirm={confirmDeleteProvider}
-        confirmLabel="Delete Provider"
+        confirmLabel={t('config.deleteProviderTitle')}
       />
       <ConfirmDialog
         open={!!deleteModelTarget}
         onOpenChange={(open) => {
           if (!open) setDeleteModelTarget(null)
         }}
-        title="Delete Model"
-        message={`Delete model "${deleteModelTarget?.id}"? This action cannot be undone.`}
+        title={t('config.deleteModelTitle')}
+        message={t('config.deleteModelMsg', { id: deleteModelTarget?.id || '' })}
         destructive
         onConfirm={confirmDeleteModel}
-        confirmLabel="Delete Model"
+        confirmLabel={t('config.deleteModelTitle')}
       />
     </div>
   )

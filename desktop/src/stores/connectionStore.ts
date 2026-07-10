@@ -194,6 +194,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     if (mode === 'remote' && username && password) {
       return { Authorization: 'Basic ' + btoa(`${username}:${password}`) }
     }
-    return {}
+    return {} as Record<string, string>
   },
 }))

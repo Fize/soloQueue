@@ -31,7 +31,7 @@ const stateConfig: Record<
   },
 }
 
-interface StatusBadgeProps {
+export interface StatusBadgeProps {
   state: AgentState
   className?: string
   showLabel?: boolean

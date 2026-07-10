@@ -27,6 +27,7 @@ const TeamsTab = lazy(() => import('@/components/settings/TeamsTab').then(m => (
 const ProjectsTab = lazy(() => import('@/components/settings/ProjectsTab').then(m => ({ default: m.ProjectsTab })))
 const ConnectionTab = lazy(() => import('@/components/settings/ConnectionTab').then(m => ({ default: m.ConnectionTab })))
 const StatsTab = lazy(() => import('@/components/settings/StatsTab').then(m => ({ default: m.StatsTab })))
+const GeneralTab = lazy(() => import('@/components/settings/GeneralTab').then(m => ({ default: m.GeneralTab })))
 function RouteFallback() {
   return (
     <div className="flex h-full items-center justify-center bg-background">
@@ -199,7 +200,8 @@ function App() {
                   </div>
                 } />
                 <Route path="/settings" element={<SettingsLayout />}>
-                  <Route index element={<Navigate to="config" replace />} />
+                  <Route index element={<Navigate to="general" replace />} />
+                  <Route path="general" element={<GeneralTab />} />
                   <Route path="config" element={<ConfigTab />} />
                   <Route path="connection" element={<ConnectionTab />} />
                   <Route path="profile" element={<ProfileTab />} />

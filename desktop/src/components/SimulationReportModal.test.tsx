@@ -13,7 +13,7 @@ describe('SimulationReportModal', () => {
       />
     )
     // The heading text is rendered inside the Dialog
-    expect(screen.getByText('仿真最终分析报告 (全文阅读)')).toBeInTheDocument()
+    expect(screen.getByText('Final Simulation Report (Full Text)')).toBeInTheDocument()
     expect(screen.getByText('Test Simulation')).toBeInTheDocument()
     // The report text (plain text, no markdown) should be visible
     expect(screen.getByText('This is a test report.')).toBeInTheDocument()
@@ -40,9 +40,9 @@ describe('SimulationReportModal', () => {
         topic={undefined}
       />
     )
-    expect(screen.queryByText('仿真最终分析报告 (全文阅读)')).toBeInTheDocument()
+    expect(screen.queryByText('Final Simulation Report (Full Text)')).toBeInTheDocument()
     // Topic span should not exist
-    const title = screen.getByText('仿真最终分析报告 (全文阅读)')
+    const title = screen.getByText('Final Simulation Report (Full Text)')
     const parent = title.parentElement
     expect(parent?.querySelector('span.font-mono')).toBeNull()
   })

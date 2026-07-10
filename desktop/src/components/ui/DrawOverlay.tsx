@@ -12,7 +12,7 @@ export interface ColoredStroke {
   color: string;
 }
 
-interface DrawOverlayProps {
+export interface DrawOverlayProps {
   mode: 'click' | 'draw' | 'interact';
   hoveredTarget: PreviewCommentSnapshot | null;
   selectedTarget: PreviewCommentSnapshot | null;

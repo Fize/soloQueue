@@ -47,7 +47,7 @@ const glassCardVariants = cva(
 // `.glass-card` CSS class which uses `@media (hover: none)` to prevent
 // unwanted hover effects on tap. See index.css for the media query rule.
 
-interface GlassCardProps
+export interface GlassCardProps
   extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof glassCardVariants> {}
 
 const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(

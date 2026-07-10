@@ -26,11 +26,12 @@ frontend/dist-ssr
 *.sln
 *.sw?
 __pycache__
-.codebuddy/*
-.soloqueue/*
-.soloqueue-dev/*
-.specify/*
+.codebuddy/
+.soloqueue/
+.soloqueue-dev/
+.specify/
 .envsoloqueue
+.claude/
 
 # Go build artifacts
 .gocache/
@@ -41,6 +42,5 @@ package-lock.json
 dist
 dist-ssr
 *.tsbuildinfoskills/
-multica/
-open-design/
 dist-desktop/
+.pnpm-store/

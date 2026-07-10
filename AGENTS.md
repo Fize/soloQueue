@@ -2,6 +2,9 @@
 
 Tactical guidance for AI coding agents working in this repository.
 
+> **Note**: If you're using Claude Code (claude.ai/code), also read [CLAUDE.md](CLAUDE.md).
+> For detailed architecture docs, browse [docs/](docs/README.md).
+
 ## Build
 
 ### Linux / macOS (make)
@@ -75,6 +78,8 @@ Other subcommands: `version`.
 
 ## Architecture
 
+> **See also**: [docs/architecture.md](docs/architecture.md) for the full system architecture overview.
+
 ### L0–L3 hierarchical routing (`internal/router/`)
 
 The router classifies each user prompt and selects the appropriate model:
@@ -101,6 +106,7 @@ cmd/soloqueue/          cobra entrypoint (main.go + cli/)
 internal/agent/         actor-model agent (LLM + tool loop + mailbox)
 internal/compactor/     LLM-based context compression
 internal/config/        hot-reload config (TOML schema + settings)
+internal/cron/          cron-based scheduled task execution
 internal/ctxwin/        context window (tiktoken, dual-waterline compaction)
 internal/iface/         shared interfaces (breaks agent↔tools cycle)
 internal/llm/           provider-agnostic LLM protocol + DeepSeek transport
@@ -110,6 +116,7 @@ internal/memory/        short-term memory manager (daily .md files)
 internal/memoryengine/  long-term memory: BM25 (FTS5) + KG + optional vector
 internal/prompt/        prompt assembly, templates, team management
 internal/qqbot/         QQ official bot WebSocket integration
+internal/rotating/      size-based rotating file writer (shared by logger & timeline)
 internal/router/        L0-L3 task classification & model routing
 internal/runtime/       shared dependency container (Stack, built once)
 internal/server/        REST + WebSocket HTTP router (chi/v5)
@@ -117,6 +124,8 @@ internal/session/       session manager (single active, inFlight atomic CAS)
 internal/simulation/    Generative Agents simulation engine
 internal/skill/         Claude Code-compatible skill system
 internal/sqlitedb/      shared SQLite wrapper + schema migrations
+internal/team/          auto-reload for LLM-written agent/group files
+internal/teamstore/     filesystem-backed team & agent persistence
 internal/timeline/      append-only JSONL event sourcing
 internal/tools/         Tool implementations + Sandbox execution backend
 desktop/                Electron app (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
@@ -126,6 +135,8 @@ portal/                 Lightweight web portal (React 19 + Vite + TailwindCSS v4
 ### Simulation engine (`internal/simulation/`)
 
 Seed text → LLM extraction → persona generation → GA agent loop (Perceive→Retrieve→Decide→Execute→Reflect per tick).
+
+> **See also**: [docs/architecture.md](docs/architecture.md) for subsystem details.
 
 Key gotchas:
 - **`SuggestedAgent.Goals`** extracted by Phase 2 are character-specific objectives, NOT abstract positions. In `buildPersonas`, seed-extracted `Goals` **override** the persona-gen LLM's goals.

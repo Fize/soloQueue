@@ -4,11 +4,13 @@ import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 
 import { cn } from '@/lib/utils'
 
+export type TabsProps = React.PropsWithChildren<TabsPrimitive.Root.Props>
+
 function Tabs({
   className,
   orientation = 'horizontal',
   ...props
-}: React.PropsWithChildren<TabsPrimitive.Root.Props>) {
+}: TabsProps) {
   return (
     <TabsPrimitive.Root
       data-slot="tabs"

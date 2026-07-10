@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { useTranslation } from '@/lib/i18n'
 import {
   Wifi,
   WifiOff,
@@ -24,6 +25,7 @@ const isElectron = typeof window !== 'undefined' && !!(window as any).electronAP
 function BackendManagement() {
   const backendStatus = useConnectionStore((s) => s.backendStatus)
   const setBackendStatus = useConnectionStore((s) => s.setBackendStatus)
+  const { t } = useTranslation()
 
   // Poll backend status and listen for push events
   useEffect(() => {
@@ -115,11 +117,11 @@ function BackendManagement() {
             <div className="text-sm font-semibold flex items-center gap-2">
               {backendStatus.running ? (
                 <Badge variant="default" className="bg-green-500/15 text-green-600 border-green-500/20 text-[10px] px-1.5 py-0">
-                  RUNNING
+                  {t('connection.running')}
                 </Badge>
               ) : (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  STOPPED
+                  {t('connection.stopped')}
                 </Badge>
               )}
             </div>
@@ -130,7 +132,7 @@ function BackendManagement() {
                   {uptime && <span className="ml-2">Uptime: {uptime}</span>}
                 </>
               )}
-              {!backendStatus.running && 'Backend service is not running'}
+              {!backendStatus.running && t('connection.notRunning')}
             </div>
           </div>
         </div>
@@ -146,7 +148,7 @@ function BackendManagement() {
           className="flex-1"
         >
           <Play className="h-3.5 w-3.5 mr-1.5" />
-          Start
+          {t('connection.start')}
         </Button>
         <Button
           variant="outline"
@@ -156,7 +158,7 @@ function BackendManagement() {
           className="flex-1"
         >
           <Square className="h-3.5 w-3.5 mr-1.5" />
-          Stop
+          {t('connection.stop')}
         </Button>
         <Button
           variant="outline"
@@ -166,7 +168,7 @@ function BackendManagement() {
           className="flex-1"
         >
           <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-          Restart
+          {t('connection.restart')}
         </Button>
       </div>
 
@@ -185,13 +187,14 @@ function ConnectionModeSection() {
   const setRemoteUrl = useConnectionStore((s) => s.setRemoteUrl)
   const setUsername = useConnectionStore((s) => s.setUsername)
   const setPassword = useConnectionStore((s) => s.setPassword)
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-4">
       {/* Mode toggle */}
       <div>
         <label className="text-xs font-semibold text-foreground/70 mb-2 block">
-          Connection Mode
+          {t('connection.mode')}
         </label>
         <div className="flex rounded-lg border border-border/40 overflow-hidden">
           <button
@@ -203,7 +206,7 @@ function ConnectionModeSection() {
             }`}
           >
             <Server className="h-4 w-4" />
-            Local
+            {t('connection.localBtn')}
           </button>
           <button
             onClick={() => setMode('remote')}
@@ -214,13 +217,13 @@ function ConnectionModeSection() {
             }`}
           >
             <ExternalLink className="h-4 w-4" />
-            Remote
+            {t('connection.remoteBtn')}
           </button>
         </div>
         <p className="text-xs text-muted-foreground mt-1.5">
           {mode === 'local'
-            ? 'Connect to the backend running locally on this machine.'
-            : 'Connect to a remote backend server. The local backend will not start automatically.'}
+            ? t('connection.localDesc')
+            : t('connection.remoteDesc')}
         </p>
       </div>
 
@@ -229,7 +232,7 @@ function ConnectionModeSection() {
         <div className="space-y-4">
           <div>
             <label className="text-xs font-semibold text-foreground/70 mb-2 block">
-              Remote Backend URL
+              {t('connection.remoteUrl')}
             </label>
             <Input
               value={remoteUrl}
@@ -238,15 +241,14 @@ function ConnectionModeSection() {
               className="font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground mt-1.5">
-              Enter the full URL of the remote backend (e.g., http://192.168.1.100:57647).
-              All API and WebSocket connections will be routed to this address.
+              {t('connection.remoteUrlDesc')}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-semibold text-foreground/70 mb-2 block">
-                Username (Optional)
+                {t('connection.usernameOpt')}
               </label>
               <Input
                 value={username}
@@ -257,7 +259,7 @@ function ConnectionModeSection() {
             </div>
             <div>
               <label className="text-xs font-semibold text-foreground/70 mb-2 block">
-                Password (Optional)
+                {t('connection.passwordOpt')}
               </label>
               <Input
                 type="password"
@@ -282,10 +284,10 @@ function ConnectionModeSection() {
         )}
         <span className="text-sm">
           {mode === 'local'
-            ? 'Local mode — connecting to backend on this machine'
+            ? t('connection.localStatus')
             : remoteUrl
-              ? `Remote mode — connecting to ${remoteUrl}`
-              : 'Remote mode — no URL configured'}
+              ? t('connection.remoteStatus', { url: remoteUrl })
+              : t('connection.remoteStatusNoUrl')}
         </span>
       </div>
     </div>
@@ -311,6 +313,7 @@ export function ConnectionTab() {
   const saving = useConnectionStore((s) => s.saving)
   const saveConfig = useConnectionStore((s) => s.saveConfig)
   const loadConfig = useConnectionStore((s) => s.loadConfig)
+  const { t } = useTranslation()
 
   // Load config on mount
   useEffect(() => {
@@ -319,16 +322,16 @@ export function ConnectionTab() {
 
   const handleSave = useCallback(async () => {
     if (mode === 'remote' && !remoteUrl.trim()) {
-      toast.error('Please enter a remote backend URL')
+      toast.error(t('connection.enterUrlError'))
       return
     }
     try {
       await saveConfig()
-      toast.success('Connection configuration saved. Restart the app to apply changes.')
+      toast.success(t('connection.saveSuccess'))
     } catch {
-      toast.error('Failed to save connection configuration')
+      toast.error(t('connection.saveFail'))
     }
-  }, [mode, remoteUrl, saveConfig])
+  }, [mode, remoteUrl, saveConfig, t])
 
   return (
     <div className="space-y-8">
@@ -336,7 +339,7 @@ export function ConnectionTab() {
       <section>
         <h2 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
           <Wifi className="h-4 w-4 text-primary" />
-          Connection Configuration
+          {t('connection.title')}
         </h2>
         <div className="pl-6 border-l-2 border-primary/20 space-y-6">
           <ConnectionModeSection />
@@ -348,7 +351,7 @@ export function ConnectionTab() {
               ) : (
                 <Save className="h-4 w-4 mr-1.5" />
               )}
-              Save Configuration
+              {t('connection.save')}
             </Button>
           </div>
         </div>
@@ -359,7 +362,7 @@ export function ConnectionTab() {
         <section>
           <h2 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
             <Server className="h-4 w-4 text-primary" />
-            Local Backend Management
+            {t('connection.localBackendManagement')}
           </h2>
           <div className="pl-6 border-l-2 border-primary/20">
             <BackendManagement />
@@ -372,11 +375,11 @@ export function ConnectionTab() {
         <section>
           <h2 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
             <Server className="h-4 w-4 text-muted-foreground" />
-            Local Backend Management
+            {t('connection.localBackendManagement')}
           </h2>
           <div className="pl-6 border-l-2 border-border/20">
             <p className="text-sm text-muted-foreground">
-              Backend management is only available in the Electron desktop application.
+              {t('connection.electronOnly')}
             </p>
           </div>
         </section>

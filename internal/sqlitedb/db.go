@@ -279,6 +279,19 @@ func (d *DB) migrate() error {
 		WHERE content IS NOT NULL AND content != ''
 	`)
 
+	// Fix corrupted llm_models rows where the "vision" column accidentally holds
+	// a timestamp string (caused by a column-offset bug when the vision column was
+	// first introduced). In affected rows the data is shifted: vision has the
+	// original created_at, created_at has the original updated_at, and updated_at
+	// has the original vision 0/1 value. We swap them back into place.
+	tx.Exec(`
+		UPDATE llm_models
+		SET created_at = vision,
+		    updated_at = created_at,
+		    vision = CAST(updated_at AS INTEGER)
+		WHERE typeof(vision) != 'integer'
+	`)
+
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("bump user_version: %w", err)

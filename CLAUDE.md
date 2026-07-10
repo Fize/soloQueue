@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> For detailed architecture docs, browse [docs/](docs/README.md).
+
 ## Build & development
 
 ```bash
@@ -49,6 +51,8 @@ Default server port: 57647. Bind address: `127.0.0.1`. Subcommands: `serve`, `ve
 - **HTTP router**: `go-chi/chi/v5`
 - **CLI**: `spf13/cobra`
 - **LLM protocol**: Provider-agnostic abstraction + DeepSeek transport
+- **Scheduling**: `robfig/cron/v3` for cron-based scheduled task execution
+- **Hot-reload**: `fsnotify` for config, agents, MCP, and skills file watching
 
 ## Architecture
 

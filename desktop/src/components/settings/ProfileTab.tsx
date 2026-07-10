@@ -7,6 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { Save, Heart, Scale, Eye, Pencil, Loader2 } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n'
 
 // ─── Editor Section ────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(content)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const { t } = useTranslation()
 
   // Sync draft when content changes externally (e.g. after save)
   useEffect(() => {
@@ -55,7 +57,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
           <Icon className="h-4 w-4 shrink-0 text-foreground" />
           <h3 className="text-sm font-bold text-foreground">{title}</h3>
           <Badge variant="secondary" className="text-[10px] shrink-0">
-            {lineCount} lines · {charCount} chars
+            {t('common.lineCount', { count: lineCount })} · {t('common.charCount', { count: charCount })}
           </Badge>
         </div>
 
@@ -69,7 +71,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
             disabled={!editing}
           >
             <Eye className="h-3 w-3" />
-            Preview
+            {t('common.preview')}
           </Button>
           <Button
             size="sm"
@@ -79,7 +81,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
             disabled={editing}
           >
             <Pencil className="h-3 w-3" />
-            Edit
+            {t('common.edit')}
           </Button>
         </div>
       </div>
@@ -98,7 +100,7 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
           {content ? (
             <MarkdownPreview content={content} />
           ) : (
-            <p className="text-sm text-muted-foreground">No content</p>
+            <p className="text-sm text-muted-foreground">{t('common.none')}</p>
           )}
         </ScrollArea>
       )}
@@ -109,16 +111,16 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
           <Button size="sm" onClick={handleSave} disabled={saving || draft === content}>
             {saving ? (
               <>
-                <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Saving...
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" /> {t('common.saving')}
               </>
             ) : (
               <>
-                <Save className="mr-1 h-3 w-3" /> Save {title}
+                <Save className="mr-1 h-3 w-3" /> {t('common.save')} {title}
               </>
             )}
           </Button>
           <Button size="sm" variant="outline" onClick={handleCancel} disabled={saving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           {saveError && <span className="text-[10px] text-destructive">{saveError}</span>}
         </div>
@@ -135,6 +137,7 @@ export function ProfileTab() {
   const [savingSoul, setSavingSoul] = useState(false)
   const [savingRules, setSavingRules] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useTranslation()
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -174,28 +177,28 @@ export function ProfileTab() {
   }
 
   if (loading) {
-    return <div className="text-sm text-muted-foreground">Loading profile...</div>
+    return <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
   }
 
   if (error) {
-    return <div className="text-sm text-destructive">{error}</div>
+    return <div className="text-sm text-destructive">{t('common.error')}</div>
   }
 
   if (!profile) {
-    return <div className="text-sm text-muted-foreground">No profile available</div>
+    return <div className="text-sm text-muted-foreground">{t('common.none')}</div>
   }
 
   return (
     <div className="space-y-6">
       <EditorSection
-        title="Soul"
+        title={t('profile.soul')}
         icon={Heart}
         content={profile.soul}
         onSave={handleSaveSoul}
         saving={savingSoul}
       />
       <EditorSection
-        title="Rules"
+        title={t('profile.rules')}
         icon={Scale}
         content={profile.rules}
         onSave={handleSaveRules}

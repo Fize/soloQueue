@@ -9,6 +9,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import type { SimulationPersona } from '@/types'
+import { useTranslation } from '@/lib/i18n'
 
 interface SimulationConfigEditorProps {
   open: boolean
@@ -58,6 +59,8 @@ export function SimulationConfigEditor({
   providers,
   models,
 }: SimulationConfigEditorProps) {
+  const { t } = useTranslation()
+
   const handleUpdatePersonaOverride = (
     idx: number,
     field: 'model_id' | 'provider_id',
@@ -79,7 +82,7 @@ export function SimulationConfigEditor({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
             <Settings className="h-4.5 w-4.5 text-primary" />
-            修改沙盒仿真参数
+            {t('simulation.editParams')}
           </DialogTitle>
         </DialogHeader>
 
@@ -87,7 +90,7 @@ export function SimulationConfigEditor({
           {/* Topic */}
           <div className="space-y-1.5">
             <Input
-              label="仿真主题"
+              label={t('simulation.simTopic')}
               value={editTopic}
               onChange={(e) => onEditTopicChange(e.target.value)}
               className="text-xs"
@@ -98,7 +101,7 @@ export function SimulationConfigEditor({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono flex justify-between items-center">
-                <span>最大运行时间 (分钟)</span>
+                <span>{t('simulation.maxTime')}</span>
                 <span className="text-primary font-bold">
                   {editMaxWallClockMin}m
                   {editMaxWallClockMin >= 60
@@ -130,7 +133,7 @@ export function SimulationConfigEditor({
             </div>
             <div className="space-y-1.5">
               <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                虚拟仿真时间: {editSimHours}小时
+                {t('simulation.virtualTime')}: {t('simulation.hoursUnit', { count: editSimHours })}
               </label>
               <input
                 type="range"
@@ -160,7 +163,7 @@ export function SimulationConfigEditor({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Select
-                label="时间流速比例 (Time Scale)"
+                label={t('simulation.timeScale')}
                 value={String(editTimeScale)}
                 onChange={(v) => {
                   const newScale = parseInt(v) || 300
@@ -176,17 +179,17 @@ export function SimulationConfigEditor({
                   onEditMaxWallClockMinChange(newMaxMin)
                 }}
                 options={[
-                  { value: '60', label: '1秒 = 1分钟' },
-                  { value: '300', label: '1秒 = 5分钟' },
-                  { value: '600', label: '1秒 = 10分钟' },
-                  { value: '1800', label: '1秒 = 30分钟' },
-                  { value: '3600', label: '1秒 = 1小时' },
+                  { value: '60', label: t('simulation.timeScaleValue', { count: 1 }) },
+                  { value: '300', label: t('simulation.timeScaleValue', { count: 5 }) },
+                  { value: '600', label: t('simulation.timeScaleValue', { count: 10 }) },
+                  { value: '1800', label: t('simulation.timeScaleValue', { count: 30 }) },
+                  { value: '3600', label: t('simulation.timeScaleHour') },
                 ]}
               />
             </div>
             <div className="space-y-1.5">
               <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                高阶反思 (Reflection)
+                {t('simulation.reflection')}
               </label>
               <div className="flex items-center gap-2 pt-1">
                 <button
@@ -203,7 +206,7 @@ export function SimulationConfigEditor({
                   />
                 </button>
                 <span className="text-[10px] text-muted-foreground">
-                  {editEnableReflection ? '开启' : '关闭'}
+                  {editEnableReflection ? t('common.enabled') : t('common.disabled')}
                 </span>
               </div>
             </div>
@@ -213,12 +216,12 @@ export function SimulationConfigEditor({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Select
-                label="仿真语言"
+                label={t('simulation.simLang')}
                 value={editLanguage}
                 onChange={(v) => onEditLanguageChange(v)}
                 options={[
-                  { value: 'zh', label: '中文 (Chinese)' },
-                  { value: 'en', label: 'English' },
+                  { value: 'zh', label: t('simulation.chinese') },
+                  { value: 'en', label: t('simulation.english') },
                 ]}
               />
             </div>
@@ -227,7 +230,7 @@ export function SimulationConfigEditor({
           {/* Agent Specific Models */}
           <div className="space-y-3 pt-2">
             <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono border-t border-border/40 pt-3">
-              特定智能体的大模型配置
+              {t('simulation.agentModelConfig')}
             </label>
             <div className="space-y-2.5">
               {editPersonas.map((persona, idx) => (
@@ -244,27 +247,27 @@ export function SimulationConfigEditor({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <Select
-                        label="大模型服务商 (Provider)"
+                        label={t('simulation.provider')}
                         value={persona.provider_id || ''}
                         onChange={(v) => {
                           handleUpdatePersonaOverride(idx, 'provider_id', v)
                           handleUpdatePersonaOverride(idx, 'model_id', '')
                         }}
-                        placeholder="(默认快速服务商)"
+                        placeholder={t('simulation.defaultProvider')}
                         options={[
-                          { value: '', label: '(默认快速服务商)' },
+                          { value: '', label: t('simulation.defaultProvider') },
                           ...providers.map((p) => ({ value: p.id, label: p.name })),
                         ]}
                       />
                     </div>
                     <div>
                       <Select
-                        label="大模型 (Model)"
+                        label={t('simulation.model')}
                         value={persona.model_id || ''}
                         onChange={(v) => handleUpdatePersonaOverride(idx, 'model_id', v)}
-                        placeholder="(默认快速模型)"
+                        placeholder={t('simulation.defaultModel')}
                         options={[
-                          { value: '', label: '(默认快速模型)' },
+                          { value: '', label: t('simulation.defaultModel') },
                           ...models
                             .filter(
                               (m) => !persona.provider_id || m.providerId === persona.provider_id
@@ -287,7 +290,7 @@ export function SimulationConfigEditor({
             disabled={savingConfig}
             className="rounded-lg bg-muted hover:bg-muted/80 px-4 py-2 text-xs font-semibold text-foreground transition-colors cursor-pointer"
           >
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -297,11 +300,11 @@ export function SimulationConfigEditor({
           >
             {savingConfig ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> 保存中...
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('common.saving')}
               </>
             ) : (
               <>
-                <Save className="h-3.5 w-3.5" /> 保存配置
+                <Save className="h-3.5 w-3.5" /> {t('simulation.saveConfig')}
               </>
             )}
           </button>

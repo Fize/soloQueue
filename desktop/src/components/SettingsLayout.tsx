@@ -2,21 +2,24 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
-
-const tabLabels: Record<string, string> = {
-  '/settings/config': 'Global Configuration Parameters',
-  '/settings/connection': 'Backend Connection & Management',
-  '/settings/profile': 'Developer Profile',
-  '/settings/skills': 'Agent Skill Control',
-  '/settings/mcp': 'MCP Model Context Service',
-  '/settings/teams': 'Team Members & Workgroups',
-  '/settings/projects': 'Project Workspaces',
-  '/settings/proxies': 'Proxy Debugger',
-}
+import { useTranslation } from '@/lib/i18n'
 
 export function SettingsLayout() {
   const location = useLocation()
-  const activeLabel = tabLabels[location.pathname] || 'Preferences'
+  const { t } = useTranslation()
+  
+  const tabLabels: Record<string, string> = {
+    '/settings/general': t('sidebar.general'),
+    '/settings/config': t('config.title'),
+    '/settings/connection': t('connection.title'),
+    '/settings/profile': t('profile.title'),
+    '/settings/skills': t('skills.title'),
+    '/settings/mcp': t('mcp.title'),
+    '/settings/teams': t('teams.title'),
+    '/settings/projects': t('projects.title'),
+  }
+
+  const activeLabel = tabLabels[location.pathname] || t('sidebar.settings')
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
 
   return (

@@ -16,6 +16,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { ThemeToggle } from './theme'
+import { useTranslation } from './i18n'
 
 // ─── Types ───
 type AgentState = 'idle' | 'processing' | 'stopping' | 'stopped'
@@ -157,6 +158,7 @@ function MetricCard({ title, icon, iconColor, mainValue, subValue, detail, progr
 
 // ─── Connection Badge ───
 function ConnectionBadge({ status }: { status: ConnectionStatus }) {
+  const { t } = useTranslation()
   if (status === 'connected') {
     return (
       <span
@@ -177,7 +179,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
           />
         </span>
         <Wifi className="h-3.5 w-3.5" />
-        Connected
+        {t('connection.connected')}
       </span>
     )
   }
@@ -192,7 +194,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
         }}
       >
         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-        Reconnecting...
+        {t('connection.reconnecting')}
       </span>
     )
   }
@@ -206,13 +208,14 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
       }}
     >
       <WifiOff className="h-3.5 w-3.5" />
-      Disconnected
+      {t('connection.disconnected')}
     </span>
   )
 }
 
 // ─── Agent State Badge ───
 function AgentStateBadge({ state }: { state: AgentState }) {
+  const { t } = useTranslation()
   if (state === 'processing') {
     return (
       <span
@@ -229,7 +232,7 @@ function AgentStateBadge({ state }: { state: AgentState }) {
           />
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--md-primary)' }} />
         </span>
-        Processing
+        {t('table.badges.processing')}
       </span>
     )
   }
@@ -244,7 +247,7 @@ function AgentStateBadge({ state }: { state: AgentState }) {
         }}
       >
         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--md-outline)' }} />
-        Idle
+        {t('table.badges.idle')}
       </span>
     )
   }
@@ -258,7 +261,7 @@ function AgentStateBadge({ state }: { state: AgentState }) {
       }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--md-error)' }} />
-      Stopped
+      {t('table.badges.stopped')}
     </span>
   )
 }
@@ -287,6 +290,7 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
 //  App
 // ════════════════════════════════════════════════════════════
 export default function App() {
+  const { t, language, setLanguage } = useTranslation()
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('disconnected')
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
@@ -409,15 +413,21 @@ export default function App() {
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-bold tracking-tight truncate" style={{ color: 'var(--md-on-surface)' }}>
-              SoloQueue Status Center
+              {t('header.title')}
             </h1>
             <p className="text-xs font-mono truncate" style={{ color: 'var(--md-on-surface-variant)' }}>
-              Local Read-Only Monitoring Dashboard
+              {t('header.desc')}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')}
+            className="px-2.5 py-1 text-xs font-semibold rounded-full border border-[var(--md-outline-variant)] bg-[var(--md-surface-container-high)] hover:bg-[var(--md-surface-container-highest)] cursor-pointer text-[var(--md-on-surface)] transition-all select-none"
+          >
+            {language === 'en' ? 'EN' : '中文'}
+          </button>
           <ThemeToggle />
           <ConnectionBadge status={connStatus} />
         </div>
@@ -428,7 +438,7 @@ export default function App() {
         {/* ─── Metric Cards ─── */}
         <section className="metric-grid">
           <MetricCard
-            title="Active Agents"
+            title={t('metrics.activeAgents.title')}
             icon={<Bot className="h-5 w-5" />}
             iconColor="color: var(--md-primary)"
             mainValue={
@@ -436,27 +446,27 @@ export default function App() {
                 ? `${runningAgents}`
                 : undefined
             }
-            subValue={isConnected ? `${totalAgents} registered agents in total` : undefined}
-            detail={isConnected ? `Running: ${runningAgents} · Idle: ${runtime?.idle_agents ?? 0}` : undefined}
+            subValue={isConnected ? t('metrics.activeAgents.sub', { count: totalAgents }) : undefined}
+            detail={isConnected ? t('metrics.activeAgents.detail', { running: runningAgents, idle: runtime?.idle_agents ?? 0 }) : undefined}
             isEmpty={!isConnected}
           />
 
           <MetricCard
-            title="Token Usage"
+            title={t('metrics.tokenUsage.title')}
             icon={<Cpu className="h-5 w-5" />}
             iconColor="color: var(--md-tertiary)"
             mainValue={isConnected ? formatTokenCount(totalTokens) : undefined}
-            subValue={isConnected ? 'Total Tokens Consumed' : undefined}
-            detail={isConnected ? `Input: ${formatTokenCount(promptTokens)} · Output: ${formatTokenCount(outputTokens)}` : undefined}
+            subValue={isConnected ? t('metrics.tokenUsage.sub') : undefined}
+            detail={isConnected ? t('metrics.tokenUsage.detail', { input: formatTokenCount(promptTokens), output: formatTokenCount(outputTokens) }) : undefined}
             isEmpty={!isConnected}
           />
 
           <MetricCard
-            title="Context Occupancy"
+            title={t('metrics.contextOccupancy.title')}
             icon={<FileText className="h-5 w-5" />}
             iconColor="color: var(--md-secondary)"
             mainValue={isConnected ? `${contextPct}%` : undefined}
-            subValue={isConnected ? 'Current Context Window Usage' : undefined}
+            subValue={isConnected ? t('metrics.contextOccupancy.sub') : undefined}
             progress={isConnected ? contextPct : undefined}
             progressColor={
               contextPct > 85
@@ -469,14 +479,14 @@ export default function App() {
           />
 
           <MetricCard
-            title="System Errors"
+            title={t('metrics.systemErrors.title')}
             icon={<AlertCircle className="h-5 w-5" />}
             iconColor={totalErrors > 0 ? 'color: var(--md-error)' : 'color: var(--md-outline)'}
             mainValue={isConnected ? totalErrors : undefined}
-            subValue={isConnected ? 'Agent Execution Error Count' : undefined}
+            subValue={isConnected ? t('metrics.systemErrors.sub') : undefined}
             detail={
               isConnected && totalErrors > 0 && runtime?.phase
-                ? `Current Phase: ${runtime.phase}`
+                ? t('metrics.systemErrors.detail', { phase: runtime.phase })
                 : undefined
             }
             isEmpty={!isConnected}
@@ -491,12 +501,12 @@ export default function App() {
               style={{ color: 'var(--md-on-surface-variant)' }}
             >
               <Terminal className="h-4 w-4" style={{ color: 'var(--md-primary)' }} />
-              Live Inference Stream
+              {t('stream.title')}
               <span
                 className="text-xs font-normal normal-case"
                 style={{ color: 'var(--md-outline)' }}
               >
-                · {activeStreams.length} active agents
+                {t('stream.activeAgents', { count: activeStreams.length })}
               </span>
             </h2>
 
@@ -541,7 +551,7 @@ export default function App() {
                         {agentName}
                       </span>
                       <span className="text-xs font-mono" style={{ color: 'var(--md-on-surface-variant)' }}>
-                        Iteration #{stream.iteration}
+                        {t('stream.iteration', { iteration: stream.iteration })}
                       </span>
                     </div>
 
@@ -553,7 +563,7 @@ export default function App() {
                           style={{ borderColor: 'color-mix(in srgb, var(--md-primary) 50%, transparent)' }}
                         >
                           <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--md-primary)' }}>
-                            ── Thinking Process ──
+                            {t('stream.thinking')}
                           </span>
                           <span className="whitespace-pre-wrap" style={{ color: 'var(--md-on-surface-variant)' }}>
                             {thinkingSegments}
@@ -566,7 +576,7 @@ export default function App() {
                           style={{ borderColor: 'color-mix(in srgb, var(--md-tertiary) 50%, transparent)' }}
                         >
                           <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--md-tertiary)' }}>
-                            ── Generated Content ──
+                            {t('stream.content')}
                           </span>
                           <span className="whitespace-pre-wrap" style={{ color: 'var(--md-on-surface)' }}>
                             {contentSegments}
@@ -576,7 +586,7 @@ export default function App() {
                       {!thinkingSegments && !contentSegments && (
                         <div className="flex items-center gap-2 h-full justify-center" style={{ color: 'var(--md-on-surface-variant)' }}>
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Waiting for inference output...</span>
+                          <span>{t('stream.waiting')}</span>
                         </div>
                       )}
                     </div>
@@ -602,10 +612,10 @@ export default function App() {
           >
             <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--md-on-surface)' }}>
               <Database className="h-4 w-4" style={{ color: 'var(--md-primary)' }} />
-              Agent Status Overview
+              {t('table.title')}
             </h2>
             <span className="text-xs font-mono" style={{ color: 'var(--md-on-surface-variant)' }}>
-              Total Registered: {isConnected ? agents.length : '--'}
+              {t('table.totalRegistered', { count: isConnected ? agents.length : 0 })}
             </span>
           </div>
 
@@ -615,14 +625,14 @@ export default function App() {
               <div className="flex flex-col items-center justify-center py-16 gap-3">
                 <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--md-on-surface-variant)' }} />
                 <span className="text-sm" style={{ color: 'var(--md-on-surface-variant)' }}>
-                  Connecting to server...
+                  {t('metrics.connecting')}
                 </span>
               </div>
             ) : agents.length === 0 ? (
               <EmptyState
                 icon={<Bot className="h-6 w-6" />}
-                title="No registered agents yet"
-                description="Registered agents will automatically appear here after the SoloQueue server starts."
+                title={t('table.emptyTitle')}
+                description={t('table.emptyDesc')}
               />
             ) : (
               <table className="w-full text-left text-sm border-collapse">
@@ -632,37 +642,37 @@ export default function App() {
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      Agent Name
+                      {t('table.cols.name')}
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      Status
+                      {t('table.cols.status')}
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden sm:table-cell"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      Group
+                      {t('table.cols.group')}
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden md:table-cell"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      Model
+                      {t('table.cols.model')}
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden lg:table-cell"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      Task Level
+                      {t('table.cols.level')}
                     </th>
                     <th
                       className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap text-right"
                       style={{ color: 'var(--md-on-surface-variant)' }}
                     >
-                      Errors
+                      {t('table.cols.errors')}
                     </th>
                   </tr>
                 </thead>
@@ -695,7 +705,7 @@ export default function App() {
                                 color: 'var(--md-warning)',
                               }}
                             >
-                              Leader
+                              {t('table.badges.leader')}
                             </span>
                           )}
                         </div>
@@ -771,10 +781,10 @@ export default function App() {
             >
               <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--md-on-surface)' }}>
                 <RefreshCw className="h-4 w-4" style={{ color: 'var(--md-primary)' }} />
-                Scheduled Tasks
+                {t('cron.title')}
               </h2>
               <span className="text-xs font-mono" style={{ color: 'var(--md-on-surface-variant)' }}>
-                {cronTasks.length} task{cronTasks.length !== 1 ? 's' : ''}
+                {cronTasks.length === 1 ? t('cron.tasksCount', { count: 1 }) : t('cron.tasksCountPlural', { count: cronTasks.length })}
               </span>
             </div>
 
@@ -830,7 +840,7 @@ export default function App() {
                         </span>
                         {/* Next run */}
                         <span className="text-[10px] font-mono" style={{ color: 'var(--md-outline)' }}>
-                          Next: {task.next_run_at}
+                          {t('cron.nextRun', { time: task.next_run_at || '--' })}
                         </span>
                       </div>
                     </div>
@@ -849,11 +859,11 @@ export default function App() {
           >
             <span className="flex items-center gap-1">
               <Layers className="h-3 w-3" />
-              Phase: {runtime.phase || 'Running'}
+              {t('footerInfo.phase', { phase: runtime.phase || 'Running' })}
             </span>
             <span className="flex items-center gap-1">
               <Database className="h-3 w-3" />
-              Cache: Hit {formatTokenCount(runtime.cache_hit_tokens)} / Miss {formatTokenCount(runtime.cache_miss_tokens)}
+              {t('footerInfo.cache', { hit: formatTokenCount(runtime.cache_hit_tokens), miss: formatTokenCount(runtime.cache_miss_tokens) })}
             </span>
           </div>
         )}
@@ -865,10 +875,9 @@ export default function App() {
         style={{ borderColor: 'var(--md-outline-variant)', color: 'var(--md-outline)' }}
       >
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1">
-          <span>SoloQueue Status Center · Local Access Only · Read-Only Mode</span>
+          <span>{t('footer.banner')}</span>
           <span>
-            Agents {isConnected ? totalAgents : '--'} ·{' '}
-            {isConnected ? `Token ${formatTokenCount(totalTokens)}` : 'Disconnected'}
+            {isConnected ? t('footer.summary', { agents: totalAgents, tokens: formatTokenCount(totalTokens) }) : t('footer.disconnected')}
           </span>
         </div>
       </footer>

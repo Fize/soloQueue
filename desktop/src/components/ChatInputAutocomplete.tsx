@@ -37,7 +37,7 @@ export interface ChatInputAutocompleteHandle {
 
 export interface ChatInputAutocompleteProps {
   value: string
-  inputRef: React.RefObject<HTMLTextAreaElement>
+  inputRef: React.RefObject<HTMLTextAreaElement | null>
   skillNames: string[]
   atRootDir: string
   onSelectMention: (path: string, name: string) => void

@@ -6,6 +6,8 @@ import {
   DialogContent,
 } from '@/components/ui/dialog'
 
+import { useTranslation } from '@/lib/i18n'
+
 interface SimulationReportModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -19,6 +21,7 @@ export function SimulationReportModal({
   report,
   topic,
 }: SimulationReportModalProps) {
+  const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -30,7 +33,7 @@ export function SimulationReportModal({
           <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-border/50">
             <div className="flex items-center gap-3">
               <FileText className="h-5 w-5 text-primary" />
-              <h2 className="text-sm font-bold text-foreground">仿真最终分析报告 (全文阅读)</h2>
+              <h2 className="text-sm font-bold text-foreground">{t('simulation.reportTitle')}</h2>
               {topic && (
                 <span className="text-xs text-muted-foreground font-mono truncate max-w-[300px]">
                   {topic}
