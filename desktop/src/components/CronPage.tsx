@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { listCronTasks, createCronTask, updateCronTask, deleteCronTask } from '@/lib/api'
+import { listCronTasks, createCronTask, updateCronTask, deleteCronTask, getTeams } from '@/lib/api'
 import type { CronTask } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
@@ -27,11 +27,7 @@ import {
   ChevronUp,
 } from 'lucide-react'
 
-const agentOptions = [
-  { value: 'L1', label: 'L1 Orchestrator' },
-  { value: 'L2', label: 'L2 Supervisor' },
-  { value: 'L3', label: 'L3 Worker' },
-]
+const L1_OPTION = { value: 'L1', label: 'L1 Orchestrator' }
 
 // ─── Skeleton Card ────────────────────────────────────────────────────────────
 
@@ -265,11 +261,14 @@ export function CronPage() {
   // Optimistic toggle tracking
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
 
+  const [teamOptions, setTeamOptions] = useState<{ value: string; label: string }[]>([L1_OPTION])
+
   // Dialog first-field ref for auto-focus
   const expressionInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchTasks()
+    fetchTeams()
   }, [])
 
   // Keyboard shortcuts: N = new task, ⌘R = refresh
@@ -294,6 +293,20 @@ export function CronPage() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
+
+  async function fetchTeams() {
+    try {
+      const data = await getTeams()
+      if (data?.teams) {
+        const leaderTeams = data.teams
+          .filter(t => t.agents?.some(a => a.is_leader))
+          .map(t => ({ value: t.name, label: `${t.name} Team` }))
+        setTeamOptions([L1_OPTION, ...leaderTeams])
+      }
+    } catch {
+      // Silently fall back to L1-only
+    }
+  }
 
   async function fetchTasks() {
     setLoading(true)
@@ -625,7 +638,7 @@ export function CronPage() {
             {/* Target Agent */}
             <Select
               label="Target Execution Agent"
-              options={agentOptions}
+              options={teamOptions}
               value={targetAgent}
               onChange={setTargetAgent}
               id="cron-agent-select"
