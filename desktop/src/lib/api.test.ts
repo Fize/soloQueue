@@ -16,7 +16,8 @@ import {
 } from './api'
 
 beforeEach(() => {
-  vi.mocked(fetch).mockClear()
+  // vitest 4: use spyOn to mock global fetch
+  vi.spyOn(globalThis, 'fetch').mockReset()
 })
 
 function mockResponse(data: unknown, status = 200) {
@@ -128,6 +129,5 @@ describe('api', () => {
       expect(fetch).toHaveBeenCalledWith('/api/files/list?dir=%2Fdir', expect.any(Object))
       expect(files).toHaveLength(1)
     })
-
   })
 })
