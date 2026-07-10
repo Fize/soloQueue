@@ -3,6 +3,7 @@ import { Loader2, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { getFileUrl } from '@/lib/api'
 import { formatToolCallHeader } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
 import type { ChatMessage } from '@/types'
 
 export function ToolCallSegment({
@@ -14,6 +15,7 @@ export function ToolCallSegment({
   isUser?: boolean
   onUserInteraction?: () => void
 }) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
@@ -55,7 +57,7 @@ export function ToolCallSegment({
           <span
             className={`text-[10px] uppercase tracking-wider text-muted-foreground/40`}
           >
-            {running ? 'Running' : segment.error ? 'Failed' : 'Done'}
+            {running ? t('common.running') : segment.error ? t('common.failed') : t('common.done')}
           </span>
         </div>
         {expanded ? (
@@ -73,7 +75,7 @@ export function ToolCallSegment({
               <div
                 className={`text-[10px] font-semibold uppercase tracking-wider mb-1 text-muted-foreground/50`}
               >
-                Arguments
+                {t('common.arguments')}
               </div>
               <pre
                 className={`text-[11px] leading-relaxed whitespace-pre-wrap overflow-x-auto rounded-lg p-2 max-h-[150px] overflow-y-auto font-mono bg-muted/40`}
@@ -87,7 +89,7 @@ export function ToolCallSegment({
               <div
                 className={`text-[10px] font-semibold uppercase tracking-wider mb-1 text-muted-foreground/50`}
               >
-                {segment.error ? 'Error' : 'Result'}
+                {segment.error ? t('common.error') : t('common.result')}
               </div>
               <pre
                 className={`text-[11px] leading-relaxed whitespace-pre-wrap overflow-x-auto rounded-lg p-2 max-h-[250px] overflow-y-auto font-mono ${
@@ -154,6 +156,7 @@ export function MessageImageGallery({
   segments: ChatMessage['segments']
   isUser?: boolean
 }) {
+  const { t } = useTranslation()
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
   const imagePaths = useMemo(() => {
@@ -175,7 +178,7 @@ export function MessageImageGallery({
           isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/50'
         }`}
       >
-        Images ({imagePaths.length})
+        {t('common.images', { count: imagePaths.length })}
       </div>
       <div className={`grid ${compact ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'} gap-2`}>
         {imagePaths.map((path, i) => {
@@ -211,6 +214,7 @@ export function ImageResultPreviews({
   toolName: string
   isUser?: boolean
 }) {
+  const { t } = useTranslation()
   const paths = extractImagePaths(result, toolName)
   if (paths.length === 0) return null
   return (
@@ -218,7 +222,7 @@ export function ImageResultPreviews({
       <div
         className={`text-[10px] font-semibold uppercase tracking-wider mb-2 ${isUser ? 'text-primary-foreground/40' : 'text-muted-foreground/50'}`}
       >
-        Generated Images
+        {t('common.generatedImages')}
       </div>
       <div className="grid grid-cols-1 gap-2">
         {paths.map((path, i) => {

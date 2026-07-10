@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { useState, useEffect, useRef } from 'react'
 import type { AgentStreamState, Segment } from '@/types'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
@@ -7,6 +8,7 @@ import { formatToolCallHeader } from '@/lib/utils'
 import { DelegationCard } from '@/components/DelegationCard'
 
 function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -34,7 +36,7 @@ function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
             </span>
           )}
           <span className="text-[10px] uppercase tracking-wider">
-            {seg.done ? (seg.error ? 'Failed' : 'Done') : 'Running'}
+            {seg.done ? (seg.error ? t('common.failed') : t('common.done')) : t('common.running')}
           </span>
           {expanded ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />

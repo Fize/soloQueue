@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import { 
@@ -80,6 +81,7 @@ export function ChatInput({
   selectedTarget,
   onClearSelectedTarget,
 }: ChatInputProps) {
+  const { t } = useTranslation()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
   const projectRef = useRef<HTMLDivElement>(null)
@@ -317,7 +319,7 @@ export function ChatInput({
           })
           .catch((err) => {
             console.error('Failed to upload pasted image:', err)
-            toast.error('Failed to upload image')
+            toast.error(t('common.failedToUploadImage'))
             setAttachments((prev) =>
               prev.map((att) =>
                 att.id === id
@@ -549,7 +551,7 @@ export function ChatInput({
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <button
                   type="button"
-                  onClick={() => toast.info('Drag and drop or paste images to attach')}
+                  onClick={() => toast.info(t('common.dragDropImages'))}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0"
                   title="Add context"
                 >
@@ -797,7 +799,7 @@ export function ChatInput({
                     className="flex items-center gap-1 px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
                   >
                     <StopCircle className="h-3.5 w-3.5" />
-                    <span>Stop</span>
+                    <span>{t('common.stopped')}</span>
                   </button>
                 ) : (
                   <button

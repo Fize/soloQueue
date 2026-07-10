@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@/types'
 import { User, Sparkles, Copy, Check } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { getFileUrl } from '@/lib/api'
@@ -229,15 +230,16 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
 }
 
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
-      toast.success(label === 'Copy' ? 'Copied to clipboard' : 'Copied successfully')
+      toast.success(label === 'Copy' ? t('common.copiedToClipboard') : t('common.copiedSuccess'))
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      toast.error('Failed to copy')
+      toast.error(t('common.failedToCopy'))
     }
   }
   return (

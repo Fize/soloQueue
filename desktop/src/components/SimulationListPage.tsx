@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useTranslation } from '@/lib/i18n'
 import type { SimulationState } from '@/types'
 
 // ─── Status helpers ────────────────────────────────────────────────────────
@@ -80,6 +81,7 @@ interface CreateSheetProps {
 }
 
 function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
+  const { t } = useTranslation()
   const [topic, setTopic] = useState('')
   const [seedText, setSeedText] = useState('')
   const [creating, setCreating] = useState(false)
@@ -133,7 +135,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > MAX_FILE_SIZE) {
-      setCreateError(`File "${file.name}" exceeds 50MB limit`)
+      setCreateError(t('simulation.fileSizeLimit', { name: file.name }))
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
@@ -148,7 +150,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
         }
       }
     }
-    reader.onerror = () => setCreateError(`Failed to read file "${file.name}", please try again`)
+    reader.onerror = () => setCreateError(t('simulation.failedToReadFile', { name: file.name }))
     reader.readAsText(file)
   }
 
@@ -177,12 +179,12 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || 'Failed to generate from seed document')
+        throw new Error(errData.error || t('simulation.failedToGenerate'))
       }
       const data = await res.json()
       onCreated(data.simulation_id)
     } catch (err: any) {
-      setCreateError(err.message || 'Failed to create simulation')
+      setCreateError(err.message || t('simulation.failedToCreate'))
     } finally {
       setCreating(false)
     }
@@ -216,7 +218,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
               <Sparkles className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-foreground">New Simulation</h2>
+              <h2 className="text-sm font-semibold text-foreground">{t('simulation.newSimulation')}</h2>
               <p className="text-[10px] text-muted-foreground font-mono">Auto-Generate Sandbox</p>
             </div>
           </div>
@@ -233,7 +235,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
         {/* Sheet Body */}
         <div className="flex-1 overflow-y-auto p-6">
           <p className="mb-5 text-xs text-muted-foreground leading-relaxed">
-            Inject a seed document, and AI will automatically extract key entities, generate virtual characters with different stances, and build an autonomous multi-agent sandbox.
+            {t('simulation.participantsDesc')}
           </p>
 
           <form id="create-sim-form" onSubmit={handleSubmit} className="space-y-4">
@@ -241,7 +243,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  Seed Material *
+                  {t('simulation.seedMaterial')}
                 </label>
                 <button
                   type="button"
@@ -249,7 +251,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   className="flex items-center gap-1 text-[10px] text-primary hover:underline font-mono cursor-pointer"
                 >
                   <Upload className="h-3 w-3" />
-                  Import File
+                  {t('simulation.importFile')}
                 </button>
                 <input
                   type="file"
@@ -262,7 +264,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
               <Textarea
                 required
                 rows={8}
-                placeholder="Paste news articles, policy documents, research reports, or any background material for simulation..."
+                placeholder={t('simulation.seedPlaceholder')}
                 value={seedText}
                 onChange={(e) => setSeedText(e.target.value)}
                 className="resize-none font-sans text-xs"
@@ -270,13 +272,13 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
               <div className="flex items-center justify-between mt-1.5">
                 {topic ? (
                   <p className="text-[10px] text-muted-foreground/60 font-mono">
-                    Topic auto-detected: <span className="text-foreground/80">{topic}</span>
+                    {t('simulation.topicAutoDetected', { topic })}
                   </p>
                 ) : (
                   <span />
                 )}
                 <span className="text-[10px] text-muted-foreground/50 font-mono">
-                  {seedText.length} characters
+                  {t('simulation.characters', { count: seedText.length })}
                 </span>
               </div>
             </div>
@@ -288,7 +290,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                 onClick={() => setShowAdvanced(!showAdvanced)}
                 className="flex w-full items-center justify-between px-4 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer select-none"
               >
-                <span>Advanced Configuration</span>
+                <span>{t('simulation.advancedConfig')}</span>
                 {showAdvanced ? (
                   <ChevronDown className="h-3.5 w-3.5" />
                 ) : (
@@ -301,25 +303,25 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Provider & Model */}
                   <div className="grid grid-cols-2 gap-3">
                     <Select
-                      label="LLM Provider"
+                      label={t('simulation.llmProvider')}
                       value={selectedProvider}
                       onChange={(v) => {
                         setSelectedProvider(v)
                         setSelectedModel('')
                       }}
-                      placeholder="(Default)"
+                      placeholder={t('simulation.listDefaultLabel')}
                       options={[
-                        { value: '', label: '(Default Fast Provider)' },
+                        { value: '', label: t('simulation.listDefaultProvider') },
                         ...providers.map((p) => ({ value: p.id, label: p.name })),
                       ]}
                     />
                     <Select
-                      label="LLM Model"
+                      label={t('simulation.llmModel')}
                       value={selectedModel}
                       onChange={setSelectedModel}
-                      placeholder="(Default)"
+                      placeholder={t('simulation.listDefaultLabel')}
                       options={[
-                        { value: '', label: '(Default Fast Model)' },
+                        { value: '', label: t('simulation.listDefaultModel') },
                         ...models
                           .filter((m) => !selectedProvider || m.providerId === selectedProvider)
                           .map((m) => ({ value: m.id, label: m.name })),
@@ -330,7 +332,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Simulated Hours */}
                   <div>
                     <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                      Simulated Time: <span className="text-primary">{simHours} hours</span>
+                      {t('simulation.simulatedTime', { hours: simHours })}
                     </label>
                     <input
                       type="range"
@@ -346,7 +348,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Max Wall Clock */}
                   <div>
                     <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-2">
-                      Max Wall Clock Time: <span className="text-primary">{Math.round(maxWallClockMs / 60000)} minutes</span>
+                      {t('simulation.maxWallClock', { minutes: Math.round(maxWallClockMs / 60000) })}
                     </label>
                     <input
                       type="range"
@@ -362,7 +364,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Time Scale & Reflection */}
                   <div className="grid grid-cols-2 gap-3">
                     <Select
-                      label="Time Scale"
+                      label={t('simulation.listTimeScale')}
                       value={String(timeScale)}
                       onChange={(v) => setTimeScale(parseInt(v) || 300)}
                       options={[
@@ -374,12 +376,12 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                       ]}
                     />
                     <Select
-                      label="Simulation Language"
+                      label={t('simulation.listSimLanguage')}
                       value={language}
                       onChange={setLanguage}
                       options={[
-                        { value: 'zh', label: 'Chinese' },
-                        { value: 'en', label: 'English' },
+                        { value: 'zh', label: t('simulation.chinese') },
+                        { value: 'en', label: t('simulation.english') },
                       ]}
                     />
                   </div>
@@ -387,7 +389,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
                   {/* Reflection toggle */}
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                      Advanced Reflection
+                      {t('simulation.advancedReflection')}
                     </label>
                     <button
                       type="button"
@@ -428,17 +430,17 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
             {creating ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                AI is extracting entities and generating personas...
+                {t('simulation.generating')}
               </>
             ) : (
               <>
                 <Sparkles className="h-4 w-4" />
-                Generate and Start Simulation
+                {t('simulation.generateAndStart')}
               </>
             )}
           </button>
           <p className="text-center text-[10px] text-muted-foreground/50 mt-2 font-mono">
-            Usually takes 15–60 seconds to initialize
+            {t('simulation.initTime')}
           </p>
         </div>
       </div>
@@ -454,6 +456,7 @@ interface SimCardProps {
 }
 
 function SimCard({ sim, onClick, onDelete }: SimCardProps) {
+  const { t } = useTranslation()
   const personas = sim.config?.personas || []
   const isRunning = sim.status === 'running'
   const isFailed = sim.status === 'failed'
@@ -482,7 +485,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
 
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate leading-tight">
-            {sim.config?.topic || 'Untitled Simulation'}
+            {sim.config?.topic || t('simulation.untitledSim')}
           </h3>
         </div>
 
@@ -490,7 +493,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
           <button
             onClick={onDelete}
             className="rounded-lg p-1.5 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
-            title="Delete Simulation"
+            title={t('simulation.deleteSimTooltip')}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -503,7 +506,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
         {personas.length > 0 && (
           <span className="flex items-center gap-1">
             <Users className="h-3 w-3" />
-            {personas.length} personas
+            {t('simulation.personaCount', { count: personas.length })}
           </span>
         )}
         {sim.started_at && (
@@ -515,7 +518,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
         {isRunning && sim.current_round > 0 && (
           <span className="flex items-center gap-1 text-success">
             <Activity className="h-3 w-3" />
-            Round {sim.current_round}
+            {t('simulation.roundCount', { round: sim.current_round })}
           </span>
         )}
       </div>
@@ -532,6 +535,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
 
 // ─── Main Page ─────────────────────────────────────────────────────────────
 export function SimulationListPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [simulations, setSimulations] = useState<SimulationState[]>([])
   const [loading, setLoading] = useState(true)
@@ -580,9 +584,9 @@ export function SimulationListPage() {
       const res = await fetch(`/api/simulations/${deleteTarget}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete simulation')
       setSimulations((prev) => prev.filter((s) => s.id !== deleteTarget))
-      toast.success('Simulation deleted')
+      toast.success(t('simulation.simulationDeleted'))
     } catch (err: any) {
-      toast.error(err.message || 'Deletion failed')
+      toast.error(err.message || t('simulation.deletionFailed'))
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
@@ -605,9 +609,9 @@ export function SimulationListPage() {
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between border-b border-border/60 px-8 py-5 bg-card/20 backdrop-blur-sm">
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">Simulations</h1>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">{t('simulation.title')}</h1>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Build autonomous multi-agent sandboxes, predict societal dynamics, and analyze complex issues
+              {t('simulation.participantsDesc')}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -617,14 +621,14 @@ export function SimulationListPage() {
               className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
             >
               <Loader2 className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('simulation.refresh')}
             </button>
             <button
               onClick={() => setSheetOpen(true)}
               className="flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-all shadow-md shadow-primary/20 cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              New Simulation
+              {t('simulation.newSimulation')}
             </button>
           </div>
         </div>
@@ -642,7 +646,7 @@ export function SimulationListPage() {
                     <span className="absolute inset-0.5 rounded-full bg-success" />
                   </span>
                   <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                    In Progress ({runningSims.length})
+                    {t('simulation.inProgress', { count: runningSims.length })}
                   </h2>
                 </div>
                 <div className="space-y-2">
@@ -662,7 +666,7 @@ export function SimulationListPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  History ({otherSims.length})
+                  {t('simulation.history', { count: otherSims.length })}
                 </h2>
               </div>
 
@@ -684,7 +688,7 @@ export function SimulationListPage() {
                     onClick={fetchSimulations}
                     className="mt-4 rounded-lg bg-muted hover:bg-muted/80 px-4 py-1.5 text-xs text-foreground transition-colors"
                   >
-                    Retry
+                    {t('simulation.retry')}
                   </button>
                 </div>
               ) : otherSims.length === 0 && runningSims.length === 0 ? (
@@ -693,16 +697,16 @@ export function SimulationListPage() {
                   <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
                     <Zap className="h-8 w-8 text-primary/60" />
                   </div>
-                  <h3 className="text-base font-semibold text-foreground mb-1">No simulations yet</h3>
+                  <h3 className="text-base font-semibold text-foreground mb-1">{t('simulation.noSimulationsYet')}</h3>
                   <p className="text-sm text-muted-foreground max-w-xs mb-6">
-                    Inject seed material, and AI will automatically generate virtual characters and build an autonomous multi-agent sandbox
+                    {t('simulation.noSimulationsDesc')}
                   </p>
                   <button
                     onClick={() => setSheetOpen(true)}
                     className="flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 px-6 py-3 text-sm font-semibold text-primary-foreground transition-all shadow-md shadow-primary/20"
                   >
                     <Sparkles className="h-4 w-4" />
-                    Create First Sandbox
+                    {t('simulation.createFirstSandbox')}
                   </button>
                 </div>
               ) : otherSims.length === 0 ? null : (
@@ -724,11 +728,11 @@ export function SimulationListPage() {
               <div className="flex items-center gap-6 pt-2 text-[10px] text-muted-foreground/60 font-mono">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  Total {simulations.length} simulations
+                  {t('simulation.totalSimulations', { count: simulations.length })}
                 </span>
                 <span className="flex items-center gap-1">
                   <Users className="h-3 w-3" />
-                  {simulations.reduce((acc, s) => acc + (s.config?.personas?.length || 0), 0)} virtual personas
+                  {t('simulation.virtualPersonas', { count: simulations.reduce((acc, s) => acc + (s.config?.personas?.length || 0), 0) })}
                 </span>
               </div>
             )}
@@ -750,11 +754,11 @@ export function SimulationListPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
-        title="Delete Simulation"
-        message="Are you sure you want to permanently delete this simulation? This action cannot be undone."
+        title={t('simulation.deleteSimTitle')}
+        message={t('simulation.deleteSimMessage')}
         destructive
         onConfirm={confirmDelete}
-        confirmLabel="Delete"
+        confirmLabel={t('simulation.deleteSimConfirm')}
         loading={deleting}
       />
     </>

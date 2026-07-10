@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { useState } from 'react'
 import { Bot, Loader2, CheckCircle2, XCircle, X, ExternalLink } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
@@ -27,6 +28,8 @@ export function DelegationCard({
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const agentsData = useAgentStore((state) => state.agents)
+
+  const { t } = useTranslation()
 
   const rawName = name.startsWith('delegate_') ? name.substring(9) : name
   const cleanName = rawName.replace(/_/g, ' ')
@@ -113,7 +116,7 @@ export function DelegationCard({
                         : 'bg-success/10 text-success'
                   )}
                 >
-                  {running ? 'Running' : error ? 'Failed' : 'Done'}
+                  {running ? t('common.running') : error ? t('common.failed') : t('common.done')}
                 </span>
                 {isClickable && (
                   <ExternalLink className="h-2.5 w-2.5 text-primary/40 shrink-0" />

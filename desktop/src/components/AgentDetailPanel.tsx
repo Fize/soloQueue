@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
@@ -64,6 +65,7 @@ export function AgentDetailPanel({
   onInterview,
   status,
 }: AgentDetailPanelProps) {
+  const { t } = useTranslation()
   const [question, setQuestion] = useState('')
   const [chatHistory, setChatHistory] = useState<{ q: string; a: string; loading?: boolean }[]>([])
   const [interviewing, setInterviewing] = useState(false)
@@ -395,12 +397,12 @@ export function AgentDetailPanel({
                               {style.label}
                             </span>
                             <span className="text-[9px] font-mono text-muted-foreground">
-                              {isSubject ? '(Active)' : '(Passive)'}
+                              {isSubject ? t('common.activeHint') : t('common.passiveHint')}
                             </span>
                           </div>
                           <div className="space-y-1">
                             <div className="flex justify-between text-[9px] font-mono text-muted-foreground">
-                              <span>Familiarity</span>
+                              <span>{t('common.familiarity')}</span>
                               <span>{(rel.familiarity * 100).toFixed(0)}%</span>
                             </div>
                             <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
@@ -415,7 +417,7 @@ export function AgentDetailPanel({
                           </div>
                           <div className="space-y-1">
                             <div className="flex justify-between text-[9px] font-mono text-muted-foreground">
-                              <span>Affinity</span>
+                              <span>{t('common.affinity')}</span>
                               <span
                                 className={
                                   rel.affinity > 0

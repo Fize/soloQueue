@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useChatStore } from "@/stores/chatStore";
 import {
@@ -89,6 +90,7 @@ export function ChatDesignPanel({
   onDesignContextChange,
 }: ChatDesignPanelProps) {
   const sessions = useChatStore((s) => s.sessions);
+  const { t } = useTranslation();
 
   // ── Local state ───────────────────────────────────────────────────────────
 
@@ -399,7 +401,7 @@ export function ChatDesignPanel({
           )}
         >
           <Palette className="h-3 w-3" />
-          <span>Sketchpad</span>
+          <span>{t('common.sketchpad')}</span>
         </button>
 
         {/* HTML File Tabs — only show non-closed ones */}
@@ -533,7 +535,7 @@ export function ChatDesignPanel({
               <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4 text-primary">
                 <Palette className="h-6 w-6" />
               </div>
-              <h3 className="text-base font-bold text-foreground">Infinite Sketchpad</h3>
+              <h3 className="text-base font-bold text-foreground">{t('common.sketchpad')}</h3>
               <p className="text-xs text-muted-foreground mt-2 mb-6 leading-relaxed">
                 Create a blank canvas to sketch your ideas, draw wireframes, or annotate layouts.
               </p>

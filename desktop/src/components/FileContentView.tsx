@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { useState, useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
@@ -71,6 +72,7 @@ interface FileContentViewProps {
 }
 
 export function FileContentView({ path, onError, onClose }: FileContentViewProps) {
+  const { t } = useTranslation()
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -238,7 +240,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
               variant="ghost"
               size="icon"
               onClick={handleCopy}
-              title={copied ? 'Copied!' : 'Copy raw content'}
+              title={copied ? t('common.copied') : t('common.copyRawContent')}
             >
               {copied ? (
                 <Check className="h-3.5 w-3.5 text-[var(--success)]" />
@@ -252,7 +254,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
               variant="ghost"
               size="icon"
               onClick={onClose}
-              title="Close"
+              title={t('common.closeDialog')}
             >
               <X className="h-3.5 w-3.5" />
             </Button>
@@ -327,7 +329,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
                       onClick={() => setDesignMode(designMode === 'draw' ? 'interact' : 'draw')}
                    >
                      <Edit3 className="w-3.5 h-3.5 mr-1.5" />
-                     Draw Region
+                     {t('common.drawRegion')}
                    </Button>
                  </div>
                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -336,10 +338,10 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
                        <div className="font-semibold mb-1 text-primary">Target Selected</div>
                        <div className="text-muted-foreground mb-3 break-all font-mono text-[10px]">{selectedTarget.label}</div>
                        <textarea 
-                         placeholder="Describe the design change..."
+                         placeholder={t('common.designPlaceholder')}
                          className="w-full h-24 bg-background border border-border/40 rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
                        />
-                       <Button size="sm" className="w-full mt-3 h-8 text-xs font-medium">Send Annotation</Button>
+                       <Button size="sm" className="w-full mt-3 h-8 text-xs font-medium">{t('common.sendAnnotation')}</Button>
                      </div>
                    ) : (
                      <div className="flex flex-col items-center justify-center text-center h-full text-muted-foreground opacity-70">

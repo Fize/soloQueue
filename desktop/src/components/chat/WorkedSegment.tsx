@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { useState, useEffect, useRef } from 'react'
 import {
   ChevronRight,
@@ -133,6 +134,7 @@ export function SubagentCard({
 }: {
   segment: Extract<ChatMessage['segments'][number], { type: 'delegation' }>
 }) {
+  const { t } = useTranslation()
   const [modalOpen, setModalOpen] = useState(false)
   const running = segment.status === 'running'
   const failed = segment.status === 'failed'
@@ -211,7 +213,7 @@ export function SubagentCard({
                       : 'bg-success/10 text-success'
                 )}
               >
-                {running ? 'Running' : failed ? 'Failed' : 'Done'}
+                {running ? t('common.running') : failed ? t('common.failed') : t('common.done')}
               </span>
               {isClickable && <ExternalLink className="h-2.5 w-2.5 text-primary/40 shrink-0" />}
             </div>

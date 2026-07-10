@@ -181,10 +181,14 @@ function NavView({
     <>
       {/* Navigation list */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
-        {/* New Chat — top nav item, navigates to home */}
+        {/* New Chat — top nav item, navigates to home. Active only on the
+            bare /chat welcome screen; once inside a session (/chat/:id) the
+            "智能助手与会话" tree header takes the active state so the two
+            buttons don't both highlight at once. */}
         {(() => {
           const item = { to: '/chat', icon: Plus, key: 'chat.newChat' as const }
-          const active = location.pathname === '/chat' || location.pathname === '/chat/'
+          const active =
+            location.pathname === '/chat' || location.pathname === '/chat/'
           return (
             <div key={item.to}>
               <button
@@ -205,14 +209,17 @@ function NavView({
           )
         })()}
 
-        {/* Chats tree — toggle only, no navigation */}
+        {/* Chats tree — toggle only, no navigation. Active on /chat/:id
+            (i.e. inside a session) and /agents/*; not active on bare /chat
+            because that route belongs to the "New Chat" button above. */}
         {showText && (
           <div className="space-y-0.5">
             <button
               onClick={() => setChatOpen(!chatOpen)}
               className={cn(
                 'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full gap-2 px-2.5 py-1.5',
-                location.pathname.startsWith('/chat') || location.pathname.startsWith('/agents')
+                (location.pathname.startsWith('/chat/') ||
+                  location.pathname.startsWith('/agents'))
                   ? 'bg-primary text-white shadow-sm font-semibold'
                   : chatOpen
                     ? 'text-foreground hover:bg-foreground/5'

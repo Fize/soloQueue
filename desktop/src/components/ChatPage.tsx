@@ -136,6 +136,10 @@ export function ChatPage() {
               }
             }
           }
+          // Fallback: if team has no linked projects, assign all known projects
+          if (!groupProjects[team.name] || groupProjects[team.name].length === 0) {
+            groupProjects[team.name] = [...projs];
+          }
         }
         setTeamProjectsMap(groupProjects);
       } catch (err) {
@@ -193,6 +197,8 @@ export function ChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId]);
+
+
 
 
 
@@ -300,6 +306,36 @@ export function ChatPage() {
   const activeAgent = useMemo(() => {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null;
   }, [groupAgents]);
+
+  // Persist last known task level and model to prevent flickering
+  const lastTaskLevelRef = useRef<string | undefined>(undefined);
+  const lastModelRef = useRef<string | undefined>(undefined);
+
+  const stableTaskLevel = useMemo(() => {
+    const current = activeAgent?.task_level || activeAgent?.last_level || undefined;
+    if (current) {
+      lastTaskLevelRef.current = current;
+      return current;
+    }
+    return lastTaskLevelRef.current;
+  }, [activeAgent?.task_level, activeAgent?.last_level]);
+
+  // Derive model role from task level so the model badge changes when level changes.
+  const displayModel = useMemo(() => {
+    if (!stableTaskLevel) {
+      const agentModel = activeAgent?.model_id;
+      if (agentModel) {
+        lastModelRef.current = agentModel;
+        return agentModel;
+      }
+      return lastModelRef.current;
+    }
+    const level = stableTaskLevel.split("-")[0] || "";
+    const roleMap: Record<string, string> = { L0: "fast", L1: "universal", L2: "superior", L3: "expert" };
+    const derived = roleMap[level] || activeAgent?.model_id || lastModelRef.current;
+    if (derived) lastModelRef.current = derived;
+    return derived;
+  }, [stableTaskLevel, activeAgent?.model_id]);
 
   const isAgentProcessing = activeAgent?.state === "processing";
 
@@ -468,6 +504,7 @@ export function ChatPage() {
     userScrolledUp.current = false;
   }, [activeSessionId]);
 
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -592,8 +629,8 @@ export function ChatPage() {
               ctxwinUsed={0}
               ctxwinLimit={0}
               atRootDir={selectedProjectPath || ""}
-              taskLevel={undefined}
-              modelName={undefined}
+              taskLevel={stableTaskLevel}
+              modelName={displayModel}
               processing={false}
             />
           </div>
@@ -784,8 +821,8 @@ export function ChatPage() {
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
-                      taskLevel={activeAgent?.task_level || activeAgent?.last_level || undefined}
-                      modelName={activeAgent?.model_id || undefined}
+                      taskLevel={stableTaskLevel}
+                      modelName={displayModel}
                       processing={isAgentProcessing || streaming || delegating}
                     />
                   </div>
@@ -837,8 +874,8 @@ export function ChatPage() {
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  taskLevel={activeAgent?.task_level || activeAgent?.last_level || undefined}
-                  modelName={activeAgent?.model_id || undefined}
+                  taskLevel={stableTaskLevel}
+                  modelName={displayModel}
                   processing={isAgentProcessing || streaming || delegating}
                 />
               </>
@@ -880,8 +917,8 @@ export function ChatPage() {
                     <SessionInspectorPanel
                       activeSession={activeSession}
                       inspectorTab={inspectorTab}
-                      setInspectorTab={setInspectorTab}
                       panelWidth={panelWidth}
+                      projectPathFallback={selectedProjectPath || undefined}
                     />
                   )}
                 </div>

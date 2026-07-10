@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/lib/i18n'
 import { AlertTriangle } from 'lucide-react'
 
 export interface ConfirmDialogProps {
@@ -30,6 +31,7 @@ export function ConfirmDialog({
   confirmLabel = 'Delete',
   loading = false,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
@@ -47,7 +49,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? 'Deleting...' : confirmLabel}
+            {loading ? t('common.deleting') : confirmLabel}
           </Button>
           <Button
             variant="outline"
@@ -55,7 +57,7 @@ export function ConfirmDialog({
             onClick={() => onOpenChange(false)}
             disabled={loading}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlassCard } from '@/components/ui/glass-card'
+import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import {
   Clock,
@@ -80,6 +81,7 @@ function TaskCard({
   onToggleExpand,
   formatTime,
 }: TaskCardProps) {
+  const { t } = useTranslation()
   const isActive = task.status === 'active'
   const isCompleted = task.status === 'completed'
   const instructionLong = task.instruction.length > 100
@@ -100,7 +102,7 @@ function TaskCard({
               />
             </TooltipTrigger>
             <TooltipContent>
-              {isCompleted ? 'Completed' : isActive ? 'Click to pause' : 'Click to activate'}
+              {isCompleted ? t('cron.completed') : isActive ? t('cron.clickToPause') : t('cron.clickToActivate')}
             </TooltipContent>
           </Tooltip>
 
@@ -155,9 +157,9 @@ function TaskCard({
                 className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary transition-colors"
               >
                 {isExpanded ? (
-                  <><ChevronUp className="h-3 w-3" /> Show less</>
+                  <><ChevronUp className="h-3 w-3" /> {t('cron.showLess')}</>
                 ) : (
-                  <><ChevronDown className="h-3 w-3" /> Show more</>
+                  <><ChevronDown className="h-3 w-3" /> {t('cron.showMore')}</>
                 )}
               </button>
             )}
@@ -171,11 +173,11 @@ function TaskCard({
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground min-w-0">
           <div className="flex items-center gap-1 min-w-0">
             <Calendar className="h-3 w-3 shrink-0" />
-            <span className="truncate">Next: {formatTime(task.next_run_at)}</span>
+            <span className="truncate">{t('cron.next')} {formatTime(task.next_run_at)}</span>
           </div>
           {task.last_run_at && (
             <span className="hidden md:block text-muted-foreground/60 truncate">
-              Last: {formatTime(task.last_run_at)}
+              {t('cron.last')} {formatTime(task.last_run_at)}
             </span>
           )}
         </div>
@@ -197,7 +199,7 @@ function TaskCard({
                 <span className="hidden sm:block max-w-[64px] truncate">{task.id.slice(0, 8)}</span>
               </button>
             </TooltipTrigger>
-            <TooltipContent>{copiedId === task.id ? 'Copied!' : `Copy ID: ${task.id}`}</TooltipContent>
+            <TooltipContent>{copiedId === task.id ? t('cron.copied') : `${t('cron.copyId')}: ${task.id}`}</TooltipContent>
           </Tooltip>
 
           <div className="w-px h-4 bg-border/60 mx-1" />
@@ -207,12 +209,12 @@ function TaskCard({
               <button
                 onClick={() => onEdit(task)}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                aria-label="Edit task"
+                aria-label={t('cron.editTaskTooltip')}
               >
                 <Edit className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Edit task</TooltipContent>
+            <TooltipContent>{t('cron.editTaskTooltip')}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -220,12 +222,12 @@ function TaskCard({
               <button
                 onClick={() => onDelete(task)}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                aria-label="Delete task"
+                aria-label={t('cron.deleteTaskTooltip')}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Delete task</TooltipContent>
+            <TooltipContent>{t('cron.deleteTaskTooltip')}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -236,6 +238,7 @@ function TaskCard({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function CronPage() {
+  const { t } = useTranslation()
   const [tasks, setTasks] = useState<CronTask[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -314,7 +317,7 @@ export function CronPage() {
       const data = await listCronTasks()
       setTasks(data)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to fetch scheduled tasks')
+      toast.error(err instanceof Error ? err.message : t('cron.failedToFetch'))
     } finally {
       setLoading(false)
     }
@@ -341,7 +344,7 @@ export function CronPage() {
 
   async function handleSaveTask() {
     if (!expression.trim() || !instruction.trim()) {
-      setDialogError('Schedule expression and instruction are required.')
+      setDialogError(t('cron.requiredFields'))
       return
     }
     setDialogSaving(true)
@@ -353,19 +356,19 @@ export function CronPage() {
           instruction: instruction.trim(),
           target_agent: targetAgent,
         })
-        toast.success('Task updated')
+        toast.success(t('cron.taskUpdated'))
       } else {
         await createCronTask({
           expression: expression.trim(),
           instruction: instruction.trim(),
           target_agent: targetAgent,
         })
-        toast.success('Task scheduled')
+        toast.success(t('cron.taskScheduled'))
       }
       setDialogOpen(false)
       fetchTasks()
     } catch (err) {
-      setDialogError(err instanceof Error ? err.message : 'Failed to save task')
+      setDialogError(err instanceof Error ? err.message : t('cron.failedToSave'))
     } finally {
       setDialogSaving(false)
     }
@@ -383,7 +386,7 @@ export function CronPage() {
       await updateCronTask(task.id, { status: newStatus })
     } catch (err) {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: previousStatus } : t)))
-      toast.error(err instanceof Error ? err.message : 'Failed to update task status')
+      toast.error(err instanceof Error ? err.message : t('cron.failedToUpdate'))
     } finally {
       setTogglingIds((prev) => {
         const s = new Set(prev)
@@ -403,9 +406,9 @@ export function CronPage() {
       await deleteCronTask(deleteTarget.id)
       setDeleteTarget(null)
       fetchTasks()
-      toast.success('Task deleted')
+      toast.success(t('cron.taskDeleted'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete task')
+      toast.error(err instanceof Error ? err.message : t('cron.failedToDelete'))
       setDeleteTarget(null)
     }
   }
@@ -466,12 +469,12 @@ export function CronPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
                 <Clock className="h-6 w-6 text-primary" />
-                Scheduled Tasks
+                {t('cron.title')}
               </h1>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {tasks.length > 0
-                  ? `${tasks.length} task${tasks.length !== 1 ? 's' : ''} · ${activeCount} active`
-                  : 'Automate recurring reminders and agent executions'}
+                  ? t('cron.tasksCount', { count: tasks.length, active: activeCount })
+                  : t('cron.automateDesc')}
               </p>
             </div>
 
@@ -488,7 +491,7 @@ export function CronPage() {
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Refresh (⌘R)</TooltipContent>
+                <TooltipContent>{t('cron.refreshTooltip')}</TooltipContent>
               </Tooltip>
               <Button
                 size="sm"
@@ -497,7 +500,7 @@ export function CronPage() {
                 id="cron-new-task-btn"
               >
                 <Plus className="h-4 w-4" />
-                New Task
+                {t('cron.newTask')}
               </Button>
             </div>
           </div>
@@ -508,7 +511,7 @@ export function CronPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <input
                 type="search"
-                placeholder="Filter by expression, instruction, agent, or status…"
+                placeholder={t('cron.searchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-9 w-full rounded-lg border border-border bg-card/40 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 transition-colors backdrop-blur-sm"
@@ -533,16 +536,16 @@ export function CronPage() {
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-4">
                 <Clock className="h-7 w-7" />
               </div>
-              <h3 className="text-base font-semibold text-foreground">No scheduled tasks yet</h3>
+              <h3 className="text-base font-semibold text-foreground">{t('cron.noTasksYet')}</h3>
               <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
-                Automate recurring reminders and commands. Or try chatting with AI:{' '}
+                {t('cron.noTasksDesc')}{' '}
                 <span className="font-mono text-primary bg-primary/5 px-1.5 py-0.5 rounded text-xs">
                   "Remind me to check the DB daily at 9am"
                 </span>
               </p>
               <Button size="sm" onClick={handleOpenCreateDialog} className="gap-1.5 mt-6">
                 <Plus className="h-4 w-4" />
-                Create First Task
+                {t('cron.createFirst')}
               </Button>
             </GlassCard>
           ) : filteredTasks.length === 0 ? (
@@ -550,14 +553,14 @@ export function CronPage() {
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Search className="h-8 w-8 text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">
-                No tasks match{' '}
+                {t('cron.noSearchResults')}{' '}
                 <span className="font-medium text-foreground">"{searchQuery}"</span>
               </p>
               <button
                 onClick={() => setSearchQuery('')}
                 className="text-xs text-primary hover:underline underline-offset-2 mt-2"
               >
-                Clear filter
+                {t('cron.clearFilter')}
               </button>
             </div>
           ) : (
@@ -595,7 +598,7 @@ export function CronPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Clock className="h-4 w-4 text-primary" />
-              {editingTask ? 'Edit Scheduled Task' : 'New Scheduled Task'}
+              {editingTask ? t('cron.editTask') : t('cron.newScheduledTask')}
             </DialogTitle>
           </DialogHeader>
 
@@ -603,7 +606,7 @@ export function CronPage() {
             {/* Expression */}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="cron-expr-input" className="text-xs font-medium text-muted-foreground">
-                Schedule Expression / Datetime *
+                {t('cron.scheduleExpr')}
               </label>
               <input
                 id="cron-expr-input"
@@ -611,33 +614,30 @@ export function CronPage() {
                 type="text"
                 value={expression}
                 onChange={(e) => setExpression(e.target.value)}
-                placeholder="e.g. 0 12 * * 1  ·  daily  ·  2026-05-24 15:30:00"
+                placeholder={t('cron.exprPlaceholder')}
                 className="flex h-8 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm font-mono text-foreground outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 transition-colors"
                 autoComplete="off"
                 spellCheck={false}
               />
               <p className="text-[10px] text-muted-foreground/70 leading-relaxed px-0.5">
-                5-field cron (<code className="font-mono">m h dom mon dow</code>), shorthands (
-                <code className="font-mono">daily</code>, <code className="font-mono">weekly</code>,{' '}
-                <code className="font-mono">hourly</code>), or datetime (
-                <code className="font-mono">YYYY-MM-DD HH:MM:SS</code>).
+                {t('cron.exprHelp')}
               </p>
             </div>
 
             {/* Instruction */}
             <Textarea
               id="cron-instr-input"
-              label="Instruction Prompt *"
+              label={t('cron.instruction')}
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
-              placeholder="Type the prompt or reminder to send to the agent…"
+              placeholder={t('cron.instrPlaceholder')}
               rows={5}
               className="font-mono"
             />
 
             {/* Target Agent */}
             <Select
-              label="Target Execution Agent"
+              label={t('cron.target')}
               options={teamOptions}
               value={targetAgent}
               onChange={setTargetAgent}
@@ -651,7 +651,7 @@ export function CronPage() {
 
           <DialogFooter>
             <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving} id="cron-save-btn">
-              {dialogSaving ? 'Saving…' : editingTask ? 'Save Changes' : 'Schedule Task'}
+              {dialogSaving ? t('cron.saving') : editingTask ? t('cron.saveChanges') : t('cron.scheduleTask')}
             </Button>
             <Button
               variant="outline"
@@ -659,7 +659,7 @@ export function CronPage() {
               onClick={() => setDialogOpen(false)}
               disabled={dialogSaving}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -669,11 +669,11 @@ export function CronPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
-        title="Delete Scheduled Task"
-        message={`Are you sure you want to delete "${deleteTarget?.expression}"? This action cannot be undone.`}
+        title={t('cron.deleteTask')}
+        message={t('cron.deleteConfirmMsg', { expression: deleteTarget?.expression || '' })}
         destructive
         onConfirm={confirmDeleteTask}
-        confirmLabel="Delete Task"
+        confirmLabel={t('cron.deleteTaskLabel')}
       />
     </TooltipProvider>
   )

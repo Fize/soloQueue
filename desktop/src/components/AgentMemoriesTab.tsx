@@ -1,3 +1,4 @@
+import { useTranslation } from '@/lib/i18n'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -25,6 +26,7 @@ export function AgentMemoriesTab({
   memoriesLoading,
   memoriesError,
 }: AgentMemoriesTabProps) {
+  const { t } = useTranslation()
   const [memorySearch, setMemorySearch] = useState('')
   const [memoryTypeFilter, setMemoryTypeFilter] = useState('all')
 
@@ -73,12 +75,12 @@ export function AgentMemoriesTab({
           onChange={(e) => setMemoryTypeFilter(e.target.value)}
           className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none transition-all font-mono"
         >
-          <option value="all">All Types</option>
-          <option value="observation">Observation</option>
-          <option value="action">Action</option>
-          <option value="dialogue">Dialogue</option>
-          <option value="reflection">Reflection</option>
-          <option value="plan">Plan</option>
+          <option value="all">{t('common.memAllTypes')}</option>
+          <option value="observation">{t('common.memObservation')}</option>
+          <option value="action">{t('common.memAction')}</option>
+          <option value="dialogue">{t('common.memDialogue')}</option>
+          <option value="reflection">{t('common.memReflection')}</option>
+          <option value="plan">{t('common.memPlan')}</option>
         </select>
       </div>
 
