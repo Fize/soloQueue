@@ -183,7 +183,7 @@ export function DelegationCard({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
+            <div className="flex-1 overflow-y-auto p-6 bg-card/20">
               {done && (result || error) ? (
                 <div className="space-y-4">
                   <div>
