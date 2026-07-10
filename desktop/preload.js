@@ -20,10 +20,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('backend:status-changed', handler)
   },
 
-  // Config
-  getAvailableModels: () => ipcRenderer.invoke('backend:get-available-models'),
-  saveL1Config: (modelRef) => ipcRenderer.invoke('backend:save-l1-config', modelRef),
-
   // Connection config
   getConnectionConfig: () => ipcRenderer.invoke('connection:get-config'),
   saveConnectionConfig: (config) => ipcRenderer.invoke('connection:save-config', config),

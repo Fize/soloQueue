@@ -1,8 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAgentStore } from '@/stores/agentStore'
-import { useAgentProfile } from '@/hooks/useAgentProfile'
-import { useAgentConfig } from '@/hooks/useAgentConfig'
 import { useAgentStream } from '@/hooks/useAgentStream'
 import { AgentStreamView } from '@/components/AgentStreamView'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -101,13 +99,32 @@ export function AgentDetailPage() {
   const effectiveName = agent?.name ?? templateName ?? 'Unknown Agent'
   const hasAgent = !!agent
 
-  // Fetch configs/profile hooks
-  const { profile, loading: profileLoading } = useAgentProfile(isL1 ? agent?.id || 'main' : null)
-  const { config, loading: configLoading } = useAgentConfig(
+  // Fetch configs/profile from the shared store (single source of truth)
+  const storeProfile = useAgentStore((s) => s.profile)
+  const storeProfileLoading = useAgentStore((s) => s.profileLoading)
+  const storeConfig = useAgentStore((s) => s.config)
+  const storeConfigLoading = useAgentStore((s) => s.configLoading)
+  const fetchProfile = useAgentStore((s) => s.fetchProfile)
+  const fetchConfig = useAgentStore((s) => s.fetchConfig)
+
+  const profileAgentId = isL1 ? (agent?.id || 'main') : null
+  const configAgentId =
     !isL1 && effectiveId && effectiveId !== 'l1-agent' && effectiveId !== 'main'
       ? effectiveId
       : null
-  )
+
+  useEffect(() => {
+    if (profileAgentId) fetchProfile(profileAgentId)
+  }, [profileAgentId, fetchProfile])
+
+  useEffect(() => {
+    if (configAgentId) fetchConfig(configAgentId)
+  }, [configAgentId, fetchConfig])
+
+  const profile = storeProfile
+  const profileLoading = storeProfileLoading
+  const config = storeConfig
+  const configLoading = storeConfigLoading
 
   // Stream output hook
   const stream = useAgentStream(agent?.instance_id ?? null)

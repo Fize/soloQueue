@@ -5,6 +5,9 @@ import { cn } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { SimulationGraph, type GraphEdgeInput } from './SimulationGraph'
 import { AgentDetailPanel } from './AgentDetailPanel'
+import { SimulationReportModal } from './SimulationReportModal'
+import { SimulationConfigEditor } from './SimulationConfigEditor'
+import { SimulationForkDialog } from './SimulationForkDialog'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -121,9 +124,8 @@ export function SimulationDetailPage() {
 
   // Fork action parameters states
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
-  const [forkTopic, setForkTopic] = useState('')
-  const [forkMaxWallClockMin, setForkMaxWallClockMin] = useState(18)
-  const [forking, setForking] = useState(false)
+  const [forkInitialTopic, setForkInitialTopic] = useState('')
+  const [forkInitialMaxWallClockMin, setForkInitialMaxWallClockMin] = useState(18)
 
   // World state variables snapshot
   const [worldState, setWorldState] = useState<Record<string, any> | null>(null)
@@ -319,21 +321,6 @@ export function SimulationDetailPage() {
     } finally {
       setSavingConfig(false)
     }
-  }
-
-  const handleUpdatePersonaOverride = (
-    idx: number,
-    field: 'model_id' | 'provider_id',
-    value: string
-  ) => {
-    setEditPersonas((prev) => {
-      const copy = [...prev]
-      copy[idx] = {
-        ...copy[idx],
-        [field]: value || undefined,
-      }
-      return copy
-    })
   }
 
   const fetchState = useCallback(async () => {
@@ -1524,8 +1511,8 @@ export function SimulationDetailPage() {
                 <TooltipTrigger>
                   <button
                     onClick={() => {
-                      setForkTopic(state.config.topic + ' (Forked)')
-                      setForkMaxWallClockMin(
+                      setForkInitialTopic(state.config.topic + ' (Forked)')
+                      setForkInitialMaxWallClockMin(
                         state.config.max_wall_clock_ms
                           ? Math.round(state.config.max_wall_clock_ms / 60000)
                           : 18
@@ -2107,48 +2094,15 @@ export function SimulationDetailPage() {
       </Dialog>
 
       {/* Report Modal — expanded reading view */}
-      <Dialog
+      <SimulationReportModal
         open={isReportModalOpen}
         onOpenChange={(open) => {
           setIsReportModalOpen(open)
           if (!open) setReportQuestion('')
         }}
-      >
-        <DialogContent
-          showCloseButton={false}
-          className="max-w-[1000px] w-[80vw] h-[80vh] flex flex-col p-0 overflow-hidden bg-card border border-border rounded-xl"
-        >
-          <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-border/50">
-              <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5 text-primary" />
-                <h2 className="text-sm font-bold text-foreground">仿真最终分析报告 (全文阅读)</h2>
-                {state?.config?.topic && (
-                  <span className="text-xs text-muted-foreground font-mono truncate max-w-[300px]">
-                    {state.config.topic}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => setIsReportModalOpen(false)}
-                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Report content */}
-            <div className="flex-1 overflow-y-auto p-8 min-h-0 scroll-container select-text">
-              <div className="max-w-3xl mx-auto">
-                <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 leading-relaxed font-sans">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{state?.report || ''}</ReactMarkdown>
-                </div>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+        report={state?.report}
+        topic={state?.config?.topic}
+      />
 
       {/* View Agent Prompt Dialog */}
       <Dialog open={!!viewingPersona} onOpenChange={(v) => !v && setViewingPersona(null)}>
@@ -2218,240 +2172,28 @@ export function SimulationDetailPage() {
       </Dialog>
 
       {/* Config Edit Dialog */}
-      <Dialog open={isEditing} onOpenChange={setIsEditing}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border border-border rounded-xl scroll-container">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
-              <Settings className="h-4.5 w-4.5 text-primary" />
-              修改沙盒仿真参数
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-5 py-2">
-            {/* Topic */}
-            <div className="space-y-1.5">
-              <Input
-                label="仿真主题"
-                value={editTopic}
-                onChange={(e) => setEditTopic(e.target.value)}
-                className="text-xs"
-              />
-            </div>
-
-            {/* Wall Clock & Simulated Hours */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono flex justify-between items-center">
-                  <span>最大运行时间 (分钟)</span>
-                  <span className="text-primary font-bold">
-                    {editMaxWallClockMin}m
-                    {editMaxWallClockMin >= 60
-                      ? ` (${(editMaxWallClockMin / 60).toFixed(1)}h)`
-                      : ''}
-                  </span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={1}
-                    max={180}
-                    value={Math.min(editMaxWallClockMin, 180)}
-                    onChange={(e) => setEditMaxWallClockMin(parseInt(e.target.value) || 5)}
-                    className="flex-1 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                  />
-                  <Input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    value={editMaxWallClockMin}
-                    onChange={(e) => {
-                      const val = Math.max(1, Math.min(1440, parseInt(e.target.value) || 1))
-                      setEditMaxWallClockMin(val)
-                    }}
-                    className="w-16 text-center text-xs h-7 py-1 px-1.5 shrink-0"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  虚拟仿真时间: {editSimHours}小时
-                </label>
-                <input
-                  type="range"
-                  min={6}
-                  max={168}
-                  step={6}
-                  value={editSimHours}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value) || 168
-                    const currentTheoryMin = (editSimHours * 60) / editTimeScale
-                    const multiplier =
-                      currentTheoryMin > 0 ? editMaxWallClockMin / currentTheoryMin : 3.75
-                    const newTheoryMin = (val * 60) / editTimeScale
-                    const newMaxMin = Math.max(
-                      1,
-                      Math.min(1440, Math.round(multiplier * newTheoryMin))
-                    )
-                    setEditSimHours(val)
-                    setEditMaxWallClockMin(newMaxMin)
-                  }}
-                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                />
-              </div>
-            </div>
-
-            {/* Time Scale & Reflection */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Select
-                  label="时间流速比例 (Time Scale)"
-                  value={String(editTimeScale)}
-                  onChange={(v) => {
-                    const newScale = parseInt(v) || 300
-                    const currentTheoryMin = (editSimHours * 60) / editTimeScale
-                    const multiplier =
-                      currentTheoryMin > 0 ? editMaxWallClockMin / currentTheoryMin : 3.75
-                    const newTheoryMin = (editSimHours * 60) / newScale
-                    const newMaxMin = Math.max(
-                      1,
-                      Math.min(1440, Math.round(multiplier * newTheoryMin))
-                    )
-                    setEditTimeScale(newScale)
-                    setEditMaxWallClockMin(newMaxMin)
-                  }}
-                  options={[
-                    { value: '60', label: '1秒 = 1分钟' },
-                    { value: '300', label: '1秒 = 5分钟' },
-                    { value: '600', label: '1秒 = 10分钟' },
-                    { value: '1800', label: '1秒 = 30分钟' },
-                    { value: '3600', label: '1秒 = 1小时' },
-                  ]}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono">
-                  高阶反思 (Reflection)
-                </label>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setEditEnableReflection(!editEnableReflection)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      editEnableReflection ? 'bg-primary' : 'bg-muted'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                        editEnableReflection ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                      }`}
-                    />
-                  </button>
-                  <span className="text-[10px] text-muted-foreground">
-                    {editEnableReflection ? '开启' : '关闭'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Language */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Select
-                  label="仿真语言"
-                  value={editLanguage}
-                  onChange={(v) => setEditLanguage(v)}
-                  options={[
-                    { value: 'zh', label: '中文 (Chinese)' },
-                    { value: 'en', label: 'English' },
-                  ]}
-                />
-              </div>
-            </div>
-
-            {/* Agent Specific Models */}
-            <div className="space-y-3 pt-2">
-              <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono border-t border-border/40 pt-3">
-                特定智能体的大模型配置
-              </label>
-              <div className="space-y-2.5">
-                {editPersonas.map((persona, idx) => (
-                  <div
-                    key={persona.id || idx}
-                    className="rounded-lg border border-border bg-background/55 p-3 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground">{persona.name}</span>
-                      <span className="text-[9px] text-muted-foreground font-mono">
-                        {persona.role}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Select
-                          label="大模型服务商 (Provider)"
-                          value={persona.provider_id || ''}
-                          onChange={(v) => {
-                            handleUpdatePersonaOverride(idx, 'provider_id', v)
-                            handleUpdatePersonaOverride(idx, 'model_id', '')
-                          }}
-                          placeholder="(默认快速服务商)"
-                          options={[
-                            { value: '', label: '(默认快速服务商)' },
-                            ...providers.map((p) => ({ value: p.id, label: p.name })),
-                          ]}
-                        />
-                      </div>
-                      <div>
-                        <Select
-                          label="大模型 (Model)"
-                          value={persona.model_id || ''}
-                          onChange={(v) => handleUpdatePersonaOverride(idx, 'model_id', v)}
-                          placeholder="(默认快速模型)"
-                          options={[
-                            { value: '', label: '(默认快速模型)' },
-                            ...models
-                              .filter(
-                                (m) => !persona.provider_id || m.providerId === persona.provider_id
-                              )
-                              .map((m) => ({ value: m.id, label: m.name })),
-                          ]}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter showCloseButton={false}>
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              disabled={savingConfig}
-              className="rounded-lg bg-muted hover:bg-muted/80 px-4 py-2 text-xs font-semibold text-foreground transition-colors cursor-pointer"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveConfig}
-              disabled={savingConfig}
-              className="flex items-center justify-center gap-1.5 rounded-lg bg-primary hover:bg-primary/95 disabled:bg-primary/50 px-4 py-2 text-xs font-semibold text-primary-foreground transition-all cursor-pointer shadow-md shadow-primary/5 disabled:cursor-not-allowed"
-            >
-              {savingConfig ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 保存中...
-                </>
-              ) : (
-                <>
-                  <Save className="h-3.5 w-3.5" /> 保存配置
-                </>
-              )}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SimulationConfigEditor
+        open={isEditing}
+        onOpenChange={setIsEditing}
+        editTopic={editTopic}
+        onEditTopicChange={setEditTopic}
+        editMaxWallClockMin={editMaxWallClockMin}
+        onEditMaxWallClockMinChange={setEditMaxWallClockMin}
+        editSimHours={editSimHours}
+        onEditSimHoursChange={setEditSimHours}
+        editTimeScale={editTimeScale}
+        onEditTimeScaleChange={setEditTimeScale}
+        editEnableReflection={editEnableReflection}
+        onEditEnableReflectionChange={setEditEnableReflection}
+        editPersonas={editPersonas}
+        onEditPersonasChange={setEditPersonas}
+        editLanguage={editLanguage}
+        onEditLanguageChange={setEditLanguage}
+        savingConfig={savingConfig}
+        onSave={handleSaveConfig}
+        providers={providers}
+        models={models}
+      />
 
       <ConfirmDialog
         open={stopConfirmOpen}
@@ -2465,112 +2207,13 @@ export function SimulationDetailPage() {
       />
 
       {/* Fork Simulation Dialog */}
-      <Dialog open={forkDialogOpen} onOpenChange={setForkDialogOpen}>
-        <DialogContent className="max-w-md bg-card border border-border rounded-xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
-              <GitFork className="h-4.5 w-4.5 text-primary" />
-              分叉仿真
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="rounded-lg bg-background/40 border border-border p-3 text-[10px] text-muted-foreground leading-relaxed">
-              分叉操作将克隆当前仿真的配置（包括所有智能体画像、初始社会关系与运行参数）到一个新的沙盒中，以便您可以对其发起对照测试和差异演化研究。
-            </div>
-
-            <div className="space-y-1.5">
-              <Input
-                label="新仿真主题"
-                value={forkTopic}
-                onChange={(e) => setForkTopic(e.target.value)}
-                required
-                className="text-xs"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono flex justify-between items-center">
-                <span>最大运行时间 (分钟)</span>
-                <span className="text-primary font-bold">{forkMaxWallClockMin}分钟</span>
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={1}
-                  max={180}
-                  value={Math.min(forkMaxWallClockMin, 180)}
-                  onChange={(e) => setForkMaxWallClockMin(parseInt(e.target.value) || 5)}
-                  className="flex-1 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                />
-                <Input
-                  type="number"
-                  min={1}
-                  max={1440}
-                  value={forkMaxWallClockMin}
-                  onChange={(e) => {
-                    const val = Math.max(1, Math.min(1440, parseInt(e.target.value) || 1))
-                    setForkMaxWallClockMin(val)
-                  }}
-                  className="w-16 text-center text-xs h-7 py-1 px-1.5 shrink-0"
-                />
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter showCloseButton={false}>
-            <button
-              type="button"
-              onClick={() => setForkDialogOpen(false)}
-              disabled={forking}
-              className="rounded-lg bg-muted hover:bg-muted/80 px-4 py-2 text-xs font-semibold text-foreground transition-colors cursor-pointer"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!id) return
-                try {
-                  setForking(true)
-                  const res = await fetch(`/api/simulations/${id}/fork`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      new_topic: forkTopic,
-                      new_max_wall_clock_ms: forkMaxWallClockMin * 60 * 1000,
-                    }),
-                  })
-                  if (!res.ok) {
-                    const errData = await res.json()
-                    throw new Error(errData.error || '分叉仿真失败')
-                  }
-                  const data = await res.json()
-                  toast.success('仿真分叉成功！')
-                  setForkDialogOpen(false)
-                  navigate(`/simulations/${data.new_simulation_id}`)
-                } catch (err: any) {
-                  toast.error(err.message)
-                } finally {
-                  setForking(false)
-                }
-              }}
-              disabled={forking || !forkTopic.trim()}
-              className="flex items-center justify-center gap-1.5 rounded-lg bg-primary hover:bg-primary/95 disabled:bg-primary/50 px-4 py-2 text-xs font-semibold text-primary-foreground transition-all cursor-pointer shadow-md shadow-primary/5 disabled:cursor-not-allowed"
-            >
-              {forking ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 分叉中...
-                </>
-              ) : (
-                <>
-                  <GitFork className="h-3.5 w-3.5" /> 分叉仿真
-                </>
-              )}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SimulationForkDialog
+        open={forkDialogOpen}
+        onOpenChange={setForkDialogOpen}
+        simulationId={id!}
+        initialTopic={forkInitialTopic}
+        initialMaxWallClockMin={forkInitialMaxWallClockMin}
+      />
 
       <ConfirmDialog
         open={deleteConfirmOpen}

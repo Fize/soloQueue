@@ -1,37 +1,15 @@
 import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import { 
-  ArrowUp, StopCircle, X, Loader2, Plus, ChevronDown, 
+  ArrowUp, StopCircle, Loader2, Plus, ChevronDown, 
   Check, Laptop, GitBranch, Users, Cpu, Palette
 } from 'lucide-react'
-import { uploadFile, getProjectBranches, listFiles } from '@/lib/api'
-import type { Project, FileInfo } from '@/types'
+import { uploadFile, getProjectBranches } from '@/lib/api'
+import type { Project } from '@/types'
 import { cn } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
-
-// ─── Autocomplete types ──────────────────────────────────────────────────────
-
-interface AutocompleteItem {
-  label: string        // displayed name (e.g. "l0", "my-skill")
-  description: string  // short hint shown in the popup
-  type: 'command' | 'skill'
-}
-
-// Built-in slash commands with descriptions
-const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
-  // ── Session control ──────────────────────────────────────────────────────
-  { label: 'compact',   description: 'Compact context window (no memory save)', type: 'command' },
-  { label: 'clear',     description: 'Clear dialogue history',                 type: 'command' },
-  { label: 'cancel',    description: 'Cancel current task',                    type: 'command' },
-  { label: 'help',      description: 'View available commands',                type: 'command' },
-  { label: 'version',   description: 'View version number',                    type: 'command' },
-  { label: 'cron',      description: 'Create scheduled task (cron expression)', type: 'command' },
-  // ── Routing level locks ──────────────────────────────────────────────────
-  { label: 'l0',        description: 'Force conversation level (no tools)',    type: 'command' },
-  { label: 'l1',        description: 'Force simple single-file task level',    type: 'command' },
-  { label: 'l2',        description: 'Force multi-file task level',            type: 'command' },
-  { label: 'l3',        description: 'Force expert / complex level',           type: 'command' },
-]
+import { ChatInputAutocomplete, BUILTIN_SLASH_COMMANDS, type ChatInputAutocompleteHandle } from './ChatInputAutocomplete'
+import { ChatInputAttachments, type Attachment } from './ChatInputAttachments'
 
 export interface ChatInputProps {
   onSend: (
@@ -76,16 +54,6 @@ export interface ChatInputProps {
   onClearSelectedTarget?: () => void
 }
 
-interface Attachment {
-  id: string
-  file: File
-  name: string
-  previewUrl: string
-  status: 'uploading' | 'done' | 'failed'
-  path?: string
-  error?: string
-}
-
 export function ChatInput({
   onSend,
   onCancel,
@@ -121,17 +89,8 @@ export function ChatInput({
   const setDesignMode = useRuntimeStore((s) => s.setDesignMode)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
 
-  // ─── Slash autocomplete state ────────────────────────────────────────────
-  const autocompleteRef = useRef<HTMLDivElement>(null)
-  const [acQuery, setAcQuery] = useState<string | null>(null)   // null = hidden
-  const [acIndex, setAcIndex] = useState(0)
-
-  // ─── @ file completion state ──────────────────────────────────────────────
-  const atRef = useRef<HTMLDivElement>(null)
-  const [atQuery, setAtQuery] = useState<string | null>(null)   // null = hidden; string = partial path
-  const [atFiles, setAtFiles] = useState<FileInfo[]>([])
-  const [atIndex, setAtIndex] = useState(0)
-  const [atLoading, setAtLoading] = useState(false)
+  // ─── Autocomplete ref (access handleInput / handleKeyDown) ───────────────
+  const acRef = useRef<ChatInputAutocompleteHandle>(null)
 
   // ─── Inline highlight (backdrop-textarea) state ───────────────────────────
   const backdropInnerRef = useRef<HTMLDivElement>(null)
@@ -144,16 +103,6 @@ export function ChatInput({
   const [dropdownPos, setDropdownPos] = useState<{ bottom: number; left: number } | null>(null)
   const [branch, setBranch] = useState<string>('main')
   const [branches, setBranches] = useState<string[]>(['main'])
-
-  // Build autocomplete item list from current query
-  const allAcItems = useMemo<AutocompleteItem[]>(() => {
-    const skillItems: AutocompleteItem[] = skillNames.map((n) => ({
-      label: n,
-      description: 'Skill',
-      type: 'skill',
-    }))
-    return [...BUILTIN_SLASH_COMMANDS, ...skillItems]
-  }, [skillNames])
 
   // Sets for O(1) token-type lookup (used by backdrop highlight)
   const commandSet = useMemo(() => new Set(BUILTIN_SLASH_COMMANDS.map(c => c.label)), [])
@@ -216,157 +165,20 @@ export function ChatInput({
     return Array.from(atMentions.keys()).some(label => inputValue.includes(`@${label}`))
   }, [inputValue, commandSet, skillSet, atMentions])
 
-  const acItems = useMemo<AutocompleteItem[]>(() => {
-    if (acQuery === null) return []
-    const q = acQuery.toLowerCase()
-    return allAcItems.filter((item) => item.label.toLowerCase().startsWith(q))
-  }, [acQuery, allAcItems])
+  // ─── Callbacks for autocomplete component ────────────────────────────────
 
-  // Reset selected index when list changes
-  useEffect(() => {
-    setAcIndex(0)
-  }, [acItems.length])
-
-  // Scroll selected slash-autocomplete item into view
-  useEffect(() => {
-    if (!autocompleteRef.current) return
-    const el = autocompleteRef.current.querySelector<HTMLElement>(`[data-ac-idx="${acIndex}"]`)
-    el?.scrollIntoView({ block: 'nearest' })
-  }, [acIndex])
-
-  // Scroll selected @ file item into view
-  useEffect(() => {
-    if (!atRef.current) return
-    const el = atRef.current.querySelector<HTMLElement>(`[data-at-idx="${atIndex}"]`)
-    el?.scrollIntoView({ block: 'nearest' })
-  }, [atIndex])
-
-
-
-  // Close slash autocomplete when clicking outside
-  useEffect(() => {
-    function handleOutside(e: MouseEvent) {
-      if (
-        autocompleteRef.current &&
-        !autocompleteRef.current.contains(e.target as Node) &&
-        inputRef.current &&
-        !inputRef.current.contains(e.target as Node)
-      ) {
-        setAcQuery(null)
-      }
-    }
-    document.addEventListener('mousedown', handleOutside)
-    return () => document.removeEventListener('mousedown', handleOutside)
-  }, [])
-
-  // Close @ file popup when clicking outside
-  useEffect(() => {
-    function handleAtOutside(e: MouseEvent) {
-      if (
-        atRef.current &&
-        !atRef.current.contains(e.target as Node) &&
-        inputRef.current &&
-        !inputRef.current.contains(e.target as Node)
-      ) {
-        setAtQuery(null)
-        setAtFiles([])
-      }
-    }
-    document.addEventListener('mousedown', handleAtOutside)
-    return () => document.removeEventListener('mousedown', handleAtOutside)
-  }, [])
-
-  // Fetch files when @ query changes
-  useEffect(() => {
-    if (atQuery === null || !atRootDir) {
-      setAtFiles([])
-      return
-    }
-    const lastSlash = atQuery.lastIndexOf('/')
-    const subDir   = lastSlash >= 0 ? atQuery.slice(0, lastSlash + 1) : ''
-    const prefix   = lastSlash >= 0 ? atQuery.slice(lastSlash + 1) : atQuery
-    const searchDir = subDir ? `${atRootDir}/${subDir}` : atRootDir
-
-    let cancelled = false
-    setAtLoading(true)
-    listFiles(searchDir)
-      .then(files => {
-        if (cancelled) return
-        const filtered = files.filter(f =>
-          f.name.toLowerCase().startsWith(prefix.toLowerCase())
-        )
-        setAtFiles(filtered)
-        setAtIndex(0)
-      })
-      .catch(() => { if (!cancelled) setAtFiles([]) })
-      .finally(() => { if (!cancelled) setAtLoading(false) })
-    return () => { cancelled = true }
-  }, [atQuery, atRootDir])
-
-
-
-  // Apply selected autocomplete item into textarea
-  const applyAutocomplete = useCallback((item: AutocompleteItem) => {
+  // Called by autocomplete after it modifies textarea content (e.g. applying a selection)
+  const handleAutocompleteValueChange = useCallback(() => {
     const el = inputRef.current
     if (!el) return
-    const val = el.value
-    const cursor = el.selectionStart ?? val.length
-    // Find the start of the current /word token
-    const slashIdx = val.lastIndexOf('/', cursor)
-    if (slashIdx === -1) return
-    const before = val.slice(0, slashIdx)
-    const after = val.slice(cursor)
-    const newVal = `${before}/${item.label} ${after.trimStart()}`
-    el.value = newVal
-    const newCursor = slashIdx + item.label.length + 2  // after the space
-    el.setSelectionRange(newCursor, newCursor)
     autoResize()
-    setAcQuery(null)
-    setInputValue(newVal)
-    el.focus()
+    setInputValue(el.value)
   }, [])
 
-  // Apply selected @ file mention into textarea
-  const applyAtMention = useCallback((file: FileInfo) => {
-    const el = inputRef.current
-    if (!el) return
-    const val = el.value
-    const cursor = el.selectionStart ?? val.length
-    // Find the @ token before cursor
-    const segment = val.slice(0, cursor)
-    const atIdx   = segment.lastIndexOf('@')
-    if (atIdx === -1) return
-    const before = val.slice(0, atIdx)
-    const after  = val.slice(cursor)
-
-    if (file.isDir) {
-      // Directory: continue navigating, update query
-      const lastSlash = (atQuery ?? '').lastIndexOf('/')
-      const currentDir = lastSlash >= 0 ? (atQuery ?? '').slice(0, lastSlash + 1) : ''
-      const newQuery = `${currentDir}${file.name}/`
-      const newVal   = `${before}@${newQuery}${after.trimStart()}`
-      el.value = newVal
-      el.setSelectionRange(atIdx + newQuery.length + 1, atIdx + newQuery.length + 1)
-      setAtQuery(newQuery)
-      setInputValue(newVal)
-      autoResize()
-      el.focus()
-    } else {
-      // File: resolve to display label + record absolute path mapping
-      const lastSlash  = (atQuery ?? '').lastIndexOf('/')
-      const currentDir = lastSlash >= 0 ? (atQuery ?? '').slice(0, lastSlash + 1) : ''
-      const displayLabel = `${currentDir}${file.name}`
-      const newVal       = `${before}@${displayLabel} ${after.trimStart()}`
-      el.value = newVal
-      el.setSelectionRange(atIdx + displayLabel.length + 2, atIdx + displayLabel.length + 2)
-      setAtMentions(prev => new Map(prev).set(displayLabel, file.path))
-      setAtQuery(null)
-      setAtFiles([])
-      setInputValue(newVal)
-      autoResize()
-      el.focus()
-    }
-  }, [atQuery])
+  // Called by autocomplete when a file @mention is resolved
+  const handleSelectMention = useCallback((path: string, name: string) => {
+    setAtMentions(prev => new Map(prev).set(name, path))
+  }, [])
 
   // Context window ring calculation
   const cwPct = useMemo(() => {
@@ -583,56 +395,8 @@ export function ChatInput({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
 
-    // @ file popup keyboard navigation (takes priority)
-    if (atQuery !== null && (atFiles.length > 0 || atLoading)) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setAtIndex(i => Math.min(i + 1, atFiles.length - 1))
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setAtIndex(i => Math.max(i - 1, 0))
-        return
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        if (atFiles.length > 0) {
-          e.preventDefault()
-          applyAtMention(atFiles[atIndex])
-          return
-        }
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setAtQuery(null)
-        setAtFiles([])
-        return
-      }
-    }
-
-    // Slash autocomplete keyboard navigation
-    if (acQuery !== null && acItems.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setAcIndex((i) => Math.min(i + 1, acItems.length - 1))
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setAcIndex((i) => Math.max(i - 1, 0))
-        return
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault()
-        applyAutocomplete(acItems[acIndex])
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setAcQuery(null)
-        return
-      }
-    }
+    // Delegate autocomplete keyboard navigation first
+    if (acRef.current?.handleKeyDown(e)) return
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -655,35 +419,14 @@ export function ChatInput({
     }
   }, [])
 
-  // Update autocomplete query and inputValue on every input change
+  // Update input state and delegate autocomplete detection on every input change
   const handleInput = useCallback(() => {
     autoResize()
     const el = inputRef.current
     if (!el) return
-    const val = el.value
-    setInputValue(val)
-
-    const cursor  = el.selectionStart ?? val.length
-    const segment = val.slice(0, cursor)
-
-    // Detect @ file token (takes priority over /)
-    const atMatch = segment.match(/(^|\s)@([^\s]*)$/)
-    if (atMatch && atRootDir) {
-      setAtQuery(atMatch[2])
-      setAcQuery(null)
-      return
-    }
-    setAtQuery(null)
-    setAtFiles([])
-
-    // Detect / slash token
-    const slashMatch = segment.match(/(?:^|\s)\/([a-z0-9-]*)$/i)
-    if (slashMatch) {
-      setAcQuery(slashMatch[1])
-    } else {
-      setAcQuery(null)
-    }
-  }, [atRootDir])
+    setInputValue(el.value)
+    acRef.current?.handleInput()
+  }, [])
 
 
   return (
@@ -695,122 +438,13 @@ export function ChatInput({
           ? "border-primary/45 bg-primary/[0.015] shadow-inner" 
           : "border-border/40 bg-background focus-within:border-primary/30 focus-within:shadow-md"
       )}>
-          {/* Thumbnails preview & Selected Element Badge */}
-          {(attachments.length > 0 || selectedTarget) && (
-            <div className="flex flex-wrap items-center gap-2 p-3 border-b border-border/40 bg-muted/5 rounded-t-xl">
-              {attachments.map((att) => (
-                <div
-                  key={att.id}
-                  className="relative group/thumb h-16 w-16 rounded-lg overflow-hidden border border-border bg-muted/30"
-                >
-                  <img src={att.previewUrl} alt="preview" className="h-full w-full object-cover" />
-                  {att.status === 'uploading' && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <Loader2 className="h-4 w-4 animate-spin text-white" />
-                    </div>
-                  )}
-                  {att.status === 'failed' && (
-                    <div
-                      className="absolute inset-0 bg-destructive/80 flex items-center justify-center"
-                      title={att.error}
-                    >
-                      <span className="text-[10px] text-white font-medium">Failed</span>
-                    </div>
-                  )}
-                  {/* Hover action bar: preview / copy / download / remove */}
-                  {att.status === 'done' && (
-                    <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/50 transition-all flex flex-col items-center justify-center gap-1 opacity-0 group-hover/thumb:opacity-100">
-                      {/* Open with system viewer */}
-                      <button
-                        title="Open with system viewer"
-                        onClick={() => {
-                          if (att.path) {
-                            // Electron: open file with system default app
-                            const api = (window as any).electronAPI
-                            if (api?.openPath) {
-                              api.openPath(att.path)
-                            } else {
-                              window.open(att.previewUrl, '_blank')
-                            }
-                          }
-                        }}
-                        className="h-5 w-5 rounded bg-white/20 hover:bg-white/40 flex items-center justify-center text-white transition-colors"
-                      >
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                          <path d="M6.5 1A1.5 1.5 0 005 2.5V3H2.5A1.5 1.5 0 001 4.5v8A1.5 1.5 0 002.5 14h11A1.5 1.5 0 0015 12.5v-8A1.5 1.5 0 0013.5 3H11v-.5A1.5 1.5 0 009.5 1h-3zm0 1h3a.5.5 0 01.5.5V3H6v-.5a.5.5 0 01.5-.5zm6.5 2a.5.5 0 01.5.5v.634l-4.5 2.25-4.5-2.25V4.5a.5.5 0 01.5-.5h8z"/>
-                        </svg>
-                      </button>
-                      {/* Copy to clipboard */}
-                      <button
-                        title="Copy image"
-                        onClick={async () => {
-                          try {
-                            const res = await fetch(att.previewUrl)
-                            const blob = await res.blob()
-                            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
-                          } catch {
-                            // fallback: nothing
-                          }
-                        }}
-                        className="h-5 w-5 rounded bg-white/20 hover:bg-white/40 flex items-center justify-center text-white transition-colors"
-                      >
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                          <path d="M4 1.5H3a2 2 0 00-2 2V14a2 2 0 002 2h10a2 2 0 002-2V3.5a2 2 0 00-2-2h-1v1h1a1 1 0 011 1V14a1 1 0 01-1 1H3a1 1 0 01-1-1V3.5a1 1 0 011-1h1v-1z"/><path d="M9.5 1a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h3zm-3-1A1.5 1.5 0 005 1.5v1A1.5 1.5 0 006.5 4h3A1.5 1.5 0 0011 2.5v-1A1.5 1.5 0 009.5 0h-3z"/>
-                        </svg>
-                      </button>
-                      {/* Download */}
-                      <button
-                        title="Download"
-                        onClick={() => {
-                          const a = document.createElement('a')
-                          a.href = att.previewUrl
-                          a.download = att.name
-                          a.click()
-                        }}
-                        className="h-5 w-5 rounded bg-white/20 hover:bg-white/40 flex items-center justify-center text-white transition-colors"
-                      >
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-                          <path d="M.5 9.9a.5.5 0 01.5.5v2.1a1 1 0 001 1h12a1 1 0 001-1v-2.1a.5.5 0 011 0v2.1a2 2 0 01-2 2H2a2 2 0 01-2-2v-2.1a.5.5 0 01.5-.5z"/><path d="M7.646 11.854a.5.5 0 00.708 0l3-3a.5.5 0 00-.708-.708L8.5 10.293V1.5a.5.5 0 00-1 0v8.793L5.354 8.146a.5.5 0 10-.708.708l3 3z"/>
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                  {/* Remove button (always visible on hover, top-right) */}
-                  <button
-                    onClick={() => removeAttachment(att.id)}
-                    className="absolute top-1 right-1 h-4 w-4 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity z-10"
-                    title="Remove image"
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              ))}
-
-              {selectedTarget && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/5 text-primary text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-200 max-w-full min-w-0">
-                  <span className="font-semibold select-none flex-shrink-0">🌐 Selected DOM:</span>
-                  <code className="bg-primary/10 px-1 py-0.5 rounded text-[10px] font-mono max-w-[180px] min-w-0 truncate" title={selectedTarget.selector}>
-                    {selectedTarget.selector}
-                  </code>
-                  {selectedTarget.text && (
-                    <span className="text-muted-foreground truncate max-w-[120px] min-w-0" title={selectedTarget.text}>
-                      ("{selectedTarget.text}")
-                    </span>
-                  )}
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      onClearSelectedTarget?.();
-                    }}
-                    className="p-0.5 hover:bg-primary/15 rounded-full text-primary transition-colors cursor-pointer flex-shrink-0"
-                    title="Deselect element"
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          {/* Attachments preview & Selected Element Badge */}
+          <ChatInputAttachments
+            attachments={attachments}
+            selectedTarget={selectedTarget}
+            onClearSelectedTarget={onClearSelectedTarget}
+            onRemove={removeAttachment}
+          />
 
           <div className="flex flex-col w-full min-h-[32px]">
             {/* Scoped CSS to create macOS-style inset overlay scrollbars */}
@@ -835,115 +469,16 @@ export function ChatInput({
 
             {/* ── Textarea with backdrop highlight layer & absolute popups ── */}
             <div className="relative w-full">
-              {/* ── / slash command autocomplete popup ─────────────────────── */}
-              {acItems.length > 0 && acQuery !== null && (
-                <div
-                  ref={autocompleteRef}
-                  className="absolute bottom-full left-0 right-0 w-full z-50 rounded-[13px] border border-border/20 bg-background/80 backdrop-blur-[20px] saturate-[1.9] shadow-[0_4px_30px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.02)] overflow-hidden p-1 mb-2 animate-in fade-in slide-in-from-bottom-1 zoom-in-95 duration-150 ease-out"
-                >
-                  {/* Scrollable area inside outer container to prevent scrollbar corner overflow */}
-                  <div
-                    className="overflow-y-auto hig-menu-scroll pr-0.5"
-                    style={{
-                      maxHeight: '210px',
-                    }}
-                  >
-                    <div className="flex flex-col gap-0.5">
-                      {acItems.map((item, idx) => (
-                        <button
-                          key={item.label}
-                          type="button"
-                          data-ac-idx={idx}
-                          onMouseDown={(e) => {
-                            e.preventDefault()
-                            applyAutocomplete(item)
-                          }}
-                          onMouseEnter={() => setAcIndex(idx)}
-                          className={cn(
-                            'w-full flex items-center gap-3 px-3 py-1.5 min-h-[40px] rounded-lg text-left transition-all duration-150 ease-out',
-                            idx === acIndex 
-                              ? 'bg-primary/10 text-primary' 
-                              : 'text-foreground hover:bg-primary/5 hover:text-primary'
-                          )}
-                        >
-                          <span className={cn(
-                            'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded shrink-0',
-                            item.type === 'command'
-                              ? 'bg-primary/15 text-primary'
-                              : 'bg-success/15 text-success'
-                          )}>
-                            /{item.label}
-                          </span>
-                          <span className="text-[12px] text-muted-foreground truncate">{item.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {atQuery !== null && (atFiles.length > 0 || atLoading) && (
-                <div
-                  ref={atRef}
-                  className="absolute bottom-full left-0 right-0 w-full z-50 rounded-[13px] border border-border/20 bg-background/80 backdrop-blur-[20px] saturate-[1.9] shadow-[0_4px_30px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.02)] overflow-hidden p-1 mb-2 animate-in fade-in slide-in-from-bottom-1 zoom-in-95 duration-150 ease-out"
-                >
-                  {/* Inner scroll container keeps scrollbar away from outer rounded border */}
-                  <div
-                    className="overflow-y-auto hig-menu-scroll pr-0.5"
-                    style={{
-                      maxHeight: '210px',
-                    }}
-                  >
-                    <div className="flex flex-col gap-0.5">
-                      {atLoading && atFiles.length === 0 && (
-                        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>Loading…</span>
-                        </div>
-                      )}
-                      {atFiles.map((file, idx) => (
-                        <button
-                          key={file.path}
-                          type="button"
-                          data-at-idx={idx}
-                          onMouseDown={(e) => {
-                            e.preventDefault()
-                            applyAtMention(file)
-                          }}
-                          onMouseEnter={() => setAtIndex(idx)}
-                          className={cn(
-                            'w-full flex items-center gap-2.5 px-3 py-1.5 min-h-[40px] rounded-lg text-left transition-all duration-150 ease-out',
-                            idx === atIndex 
-                              ? 'bg-primary/10 text-primary' 
-                              : 'text-foreground hover:bg-primary/5 hover:text-primary'
-                          )}
-                        >
-                          {/* Icon */}
-                          <span className="text-[12px] shrink-0 leading-none">
-                            {file.isDir ? '📁' : '📄'}
-                          </span>
-                          {/* Name */}
-                          <span className="text-[13px] font-medium truncate">{file.name}</span>
-                          {/* Dir indicator */}
-                          {file.isDir && (
-                            <span className="ml-auto text-[11px] text-muted-foreground/50 shrink-0">/</span>
-                          )}
-                          {/* File size hint */}
-                          {!file.isDir && file.size > 0 && (
-                            <span className="ml-auto text-[10px] text-muted-foreground/40 shrink-0 font-mono">
-                              {file.size < 1024
-                                ? `${file.size}B`
-                                : file.size < 1024 * 1024
-                                ? `${(file.size / 1024).toFixed(1)}K`
-                                : `${(file.size / 1024 / 1024).toFixed(1)}M`}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* ── Autocomplete popups (/ commands + @ files) ── */}
+              <ChatInputAutocomplete
+                ref={acRef}
+                value={inputValue}
+                inputRef={inputRef}
+                skillNames={skillNames}
+                atRootDir={atRootDir}
+                onSelectMention={handleSelectMention}
+                onValueChange={handleAutocompleteValueChange}
+              />
 
               {/* Backdrop: renders highlighted tokens behind transparent textarea.
                   Font size and layout MUST exactly match the textarea to keep text aligned,

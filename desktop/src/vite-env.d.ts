@@ -1,5 +1,11 @@
 /// <reference types="vite/client" />
 
+// Vite ?raw imports
+declare module '*?raw' {
+  const content: string
+  export default content
+}
+
 interface ElectronAPI {
   backendPort: number
   closeWindow: () => Promise<void>
@@ -16,8 +22,6 @@ interface ElectronAPI {
   onBackendStatusChanged: (
     callback: (status: { running: boolean; pid: string | number | null; uptime: number | null }) => void
   ) => () => void
-  getAvailableModels: () => Promise<unknown>
-  saveL1Config: (modelRef: string) => Promise<{ success: boolean }>
   selectDirectory: () => Promise<string | null>
 
   // Connection config

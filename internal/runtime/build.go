@@ -386,35 +386,6 @@ func (bc *buildContext) initSharedDB() error {
 		return fmt.Errorf("create soloqueue.db dir: %w", err)
 	}
 
-	// Migrate from legacy permanent_memory/entries.db if it exists and new path doesn't.
-	legacyPath := filepath.Join(bc.workDir, "permanent_memory", "entries.db")
-	if _, err := os.Stat(sharedDBPath); os.IsNotExist(err) {
-		if _, err := os.Stat(legacyPath); err == nil {
-			bc.log.Info(logger.CatApp, "migrating legacy db to new location",
-				"from", legacyPath, "to", sharedDBPath)
-			data, readErr := os.ReadFile(legacyPath)
-			if readErr != nil {
-				return fmt.Errorf("read legacy db %s: %w", legacyPath, readErr)
-			}
-			if writeErr := os.WriteFile(sharedDBPath, data, 0644); writeErr != nil {
-				return fmt.Errorf("write db to %s: %w", sharedDBPath, writeErr)
-			}
-			// Also copy WAL and SHM files if present.
-			for _, ext := range []string{"-wal", "-shm"} {
-				legacyExt := legacyPath + ext
-				if _, err := os.Stat(legacyExt); err == nil {
-					data, readErr := os.ReadFile(legacyExt)
-					if readErr != nil {
-						return fmt.Errorf("read legacy db %s: %w", legacyExt, readErr)
-					}
-					if writeErr := os.WriteFile(sharedDBPath+ext, data, 0644); writeErr != nil {
-						return fmt.Errorf("write db %s: %w", sharedDBPath+ext, writeErr)
-					}
-				}
-			}
-		}
-	}
-
 	sharedDB, err := sqlitedb.Open(sharedDBPath)
 	if err != nil {
 		return fmt.Errorf("open shared sqlite db: %w", err)

@@ -68,6 +68,9 @@ interface ConnectionState {
 
   /** Returns the effective WebSocket URL. */
   getEffectiveWsUrl: () => string
+
+  /** Returns HTTP Basic Auth headers for remote connections, empty object for local. */
+  getAuthHeaders: () => Record<string, string>
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
@@ -184,5 +187,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${window.location.host}/ws`
+  },
+
+  getAuthHeaders: () => {
+    const { mode, username, password } = get()
+    if (mode === 'remote' && username && password) {
+      return { Authorization: 'Basic ' + btoa(`${username}:${password}`) }
+    }
+    return {}
   },
 }))

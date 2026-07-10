@@ -1,23 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { PanelLeftClose, PanelRightOpen } from 'lucide-react'
 import { Sidebar } from '@/components/Sidebar'
-import { AgentDetailPage } from '@/components/AgentDetailPage'
-import { CronPage } from '@/components/CronPage'
-import { SimulationListPage } from '@/components/SimulationListPage'
-import { SimulationDetailPage } from '@/components/SimulationDetailPage'
-import { SettingsLayout } from '@/components/SettingsLayout'
-import { ConfigTab } from '@/components/settings/ConfigTab/index'
-import { ProfileTab } from '@/components/settings/ProfileTab'
-import { SkillsTab } from '@/components/settings/SkillsTab'
-import { MCPTab } from '@/components/settings/MCPTab'
-import TeamsTab from '@/components/settings/TeamsTab'
-import { ProjectsTab } from '@/components/settings/ProjectsTab'
-import { ConnectionTab } from '@/components/settings/ConnectionTab'
-import { StatsTab } from '@/components/settings/StatsTab'
-import { ChatPage } from '@/components/ChatPage'
-import { AssistantPage } from '@/components/AssistantPage'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
 import { wsManager } from '@/lib/websocket'
@@ -25,6 +10,30 @@ import { useAuthStore } from '@/stores/authStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
+
+// Lazy-loaded route components — split into separate chunks for faster initial load
+const ChatPage = lazy(() => import('@/components/ChatPage').then(m => ({ default: m.ChatPage })))
+const AssistantPage = lazy(() => import('@/components/AssistantPage').then(m => ({ default: m.AssistantPage })))
+const AgentDetailPage = lazy(() => import('@/components/AgentDetailPage').then(m => ({ default: m.AgentDetailPage })))
+const CronPage = lazy(() => import('@/components/CronPage').then(m => ({ default: m.CronPage })))
+const SimulationListPage = lazy(() => import('@/components/SimulationListPage').then(m => ({ default: m.SimulationListPage })))
+const SimulationDetailPage = lazy(() => import('@/components/SimulationDetailPage').then(m => ({ default: m.SimulationDetailPage })))
+const SettingsLayout = lazy(() => import('@/components/SettingsLayout').then(m => ({ default: m.SettingsLayout })))
+const ConfigTab = lazy(() => import('@/components/settings/ConfigTab/index').then(m => ({ default: m.ConfigTab })))
+const ProfileTab = lazy(() => import('@/components/settings/ProfileTab').then(m => ({ default: m.ProfileTab })))
+const SkillsTab = lazy(() => import('@/components/settings/SkillsTab').then(m => ({ default: m.SkillsTab })))
+const MCPTab = lazy(() => import('@/components/settings/MCPTab').then(m => ({ default: m.MCPTab })))
+const TeamsTab = lazy(() => import('@/components/settings/TeamsTab').then(m => ({ default: m.default })))
+const ProjectsTab = lazy(() => import('@/components/settings/ProjectsTab').then(m => ({ default: m.ProjectsTab })))
+const ConnectionTab = lazy(() => import('@/components/settings/ConnectionTab').then(m => ({ default: m.ConnectionTab })))
+const StatsTab = lazy(() => import('@/components/settings/StatsTab').then(m => ({ default: m.StatsTab })))
+function RouteFallback() {
+  return (
+    <div className="flex h-full items-center justify-center bg-background">
+      <div className="text-sm text-muted-foreground font-mono animate-pulse">Loading...</div>
+    </div>
+  )
+}
 
 const LAST_CHAT_ROUTE_KEY = 'soloqueue_last_chat_route'
 
@@ -170,6 +179,7 @@ function App() {
 
             {/* Routes */}
             <div className="flex-1 overflow-hidden h-full">
+              <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/" element={<Navigate to={getLastChatRoute()} replace />} />
                 <Route path="/new-chat" element={<Navigate to="/chat" replace />} />
@@ -201,6 +211,7 @@ function App() {
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
+              </Suspense>
             </div>
           </main>
         </div>

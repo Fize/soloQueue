@@ -1,55 +1,17 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useIsDarkMode } from '@/hooks/useIsDarkMode'
 import { CODE_PREVIEW_CONFIG } from '@/lib/theme'
+import { ensureLanguage, preloadCommonLanguages } from '@/lib/syntax-languages'
 
-// Register common languages for chat code blocks
-import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
-import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
-import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
-import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
-import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
-import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
-import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
-import c from 'react-syntax-highlighter/dist/esm/languages/prism/c'
-import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp'
-import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
-import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
-import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
-import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
-import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
-import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
-import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
-import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml'
-import docker from 'react-syntax-highlighter/dist/esm/languages/prism/docker'
-import graphql from 'react-syntax-highlighter/dist/esm/languages/prism/graphql'
-import protobuf from 'react-syntax-highlighter/dist/esm/languages/prism/protobuf'
-
-SyntaxHighlighter.registerLanguage('tsx', tsx)
-SyntaxHighlighter.registerLanguage('typescript', typescript)
-SyntaxHighlighter.registerLanguage('javascript', javascript)
-SyntaxHighlighter.registerLanguage('jsx', jsx)
-SyntaxHighlighter.registerLanguage('python', python)
-SyntaxHighlighter.registerLanguage('rust', rust)
-SyntaxHighlighter.registerLanguage('go', go)
-SyntaxHighlighter.registerLanguage('c', c)
-SyntaxHighlighter.registerLanguage('cpp', cpp)
-SyntaxHighlighter.registerLanguage('java', java)
-SyntaxHighlighter.registerLanguage('json', json)
-SyntaxHighlighter.registerLanguage('yaml', yaml)
-SyntaxHighlighter.registerLanguage('css', css)
-SyntaxHighlighter.registerLanguage('markup', markup)
-SyntaxHighlighter.registerLanguage('bash', bash)
-SyntaxHighlighter.registerLanguage('sql', sql)
-SyntaxHighlighter.registerLanguage('toml', toml)
-SyntaxHighlighter.registerLanguage('docker', docker)
-SyntaxHighlighter.registerLanguage('graphql', graphql)
-SyntaxHighlighter.registerLanguage('protobuf', protobuf)
+// Eagerly load the most common languages so the first code block renders instantly
+preloadCommonLanguages()
 
 interface MarkdownPreviewProps {
   content: string
@@ -67,6 +29,16 @@ function CodeBlock({
   value: string
 }) {
   const isDark = useIsDarkMode()
+  const [, setLoaded] = useState(0)
+
+  // Lazy-load the language grammar on first encounter
+  useEffect(() => {
+    if (!language) return
+    ensureLanguage(language).then(() => {
+      setLoaded((n) => n + 1) // force re-render after language loads
+    })
+  }, [language])
+
   return (
     <div className="my-3 rounded-lg border border-border/60 overflow-hidden">
       {language && (
