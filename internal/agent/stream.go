@@ -373,6 +373,17 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		if strat.postIteration(a, ctx, iter, acc, toolCalls, results, out) {
 			return true // async delegation started, loop yields — out stays open
 		}
+
+		// User denied tool confirmation → exit cleanly with DoneEvent
+		if a.userDenied.Load() {
+			a.userDenied.Store(false)
+			ok := a.emit(ctx, out, DoneEvent{
+				Content:          acc.content.String(),
+				ReasoningContent: acc.reasoning.String(),
+			})
+			_ = ok
+			return false
+		}
 	}
 
 	// Max iterations exceeded
@@ -921,6 +932,10 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 				a.confirmMu.Unlock()
 
 				if choice == "" {
+					a.userDenied.Store(true)
+					if f, ok := a.taskCancel.Load().(context.CancelFunc); ok {
+						f()
+					}
 					result := "error: user denied execution"
 					a.emit(ctx, out, ToolExecDoneEvent{
 						Iter:   iter,
@@ -997,6 +1012,12 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		// Block until Confirm(callID, choice) is called → slot.ch receives choice
 		select {
 		case choice := <-slot.ch:
+			if choice == "" {
+				a.userDenied.Store(true)
+				if f, ok := a.taskCancel.Load().(context.CancelFunc); ok {
+					f()
+				}
+			}
 			// Forward to child agent's (L3) original confirmSlot
 			if err := child.Confirm(callID, choice); err != nil {
 				return "", err

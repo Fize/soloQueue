@@ -1240,7 +1240,7 @@ export function ChatInput({
                   </div>
                 )}
 
-                {streaming && !delegating ? (
+                {streaming || delegating ? (
                   <button
                     type="button"
                     onClick={onCancel}

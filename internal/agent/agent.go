@@ -69,6 +69,11 @@ type Agent struct {
 	// bypassConfirm skips all tool confirmations; either from the agent template's permission field or global --bypass.
 	bypassConfirm bool
 
+	// taskCancel stores current ask's merged context cancel func (set in AskStream)
+	taskCancel atomic.Value // holds context.CancelFunc or nil
+	// userDenied is set when user denies a tool confirmation
+	userDenied atomic.Bool
+
 	// confirmStore is a session-level tool permission store; defaults to in-memory implementation, can be replaced via WithConfirmStore.
 	confirmStore SessionConfirmStore
 

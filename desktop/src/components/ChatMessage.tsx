@@ -985,13 +985,11 @@ function ToolConfirmSegment({
 }) {
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const resolveToolConfirm = useChatStore((s) => s.resolveToolConfirm)
-  const [allowAlways, setAllowAlways] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  const handleConfirm = async (approved: boolean) => {
+  const handleConfirm = async (choice: string) => {
     if (!activeSessionId) return
     setSubmitting(true)
-    const choice = approved ? (allowAlways ? 'allow-in-session' : 'yes') : ''
     try {
       await confirmSessionTool(activeSessionId, segment.callId, choice)
       resolveToolConfirm(activeSessionId, segment.callId, choice)
@@ -1051,26 +1049,10 @@ function ToolConfirmSegment({
         </div>
       ) : (
         <div className="flex flex-col gap-3 mt-1">
-          {/* Allow in Session Checkbox */}
-          {segment.allowInSession && (
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={allowAlways}
-                onChange={(e) => setAllowAlways(e.target.checked)}
-                disabled={submitting}
-                className="rounded border-gray-300 text-primary focus:ring-primary h-3.5 w-3.5"
-              />
-              <span className={isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}>
-                Don't ask again for this tool in the current chat
-              </span>
-            </label>
-          )}
-
           {/* Action buttons */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handleConfirm(true)}
+              onClick={() => handleConfirm('yes')}
               disabled={submitting}
               className="px-3 py-1.5 rounded-lg font-medium bg-success text-white hover:bg-success disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
             >
@@ -1081,8 +1063,22 @@ function ToolConfirmSegment({
               )}
               Approve
             </button>
+            {segment.allowInSession && (
+              <button
+                onClick={() => handleConfirm('allow-in-session')}
+                disabled={submitting}
+                className={`px-3 py-1.5 rounded-lg font-medium border disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer ${
+                  isUser
+                    ? 'border-primary-foreground/25 hover:bg-primary-foreground/10 text-primary-foreground'
+                    : 'border-border hover:bg-muted text-foreground'
+                }`}
+              >
+                <Check className="h-3.5 w-3.5" />
+                Approve in Session
+              </button>
+            )}
             <button
-              onClick={() => handleConfirm(false)}
+              onClick={() => handleConfirm('')}
               disabled={submitting}
               className={`px-3 py-1.5 rounded-lg font-medium border disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer ${
                 isUser

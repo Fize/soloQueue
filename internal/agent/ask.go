@@ -134,6 +134,9 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 		merged, cancel := mergeCtx(ctx, jobCtx)
 		defer cancel()
 
+		a.taskCancel.Store(cancel)
+		defer a.taskCancel.Store(nil)
+
 		if a.Log != nil {
 			a.Log.DebugContext(merged, logger.CatActor, "askstream: execution starting",
 				"agent_id", a.Def.ID,

@@ -16,16 +16,17 @@ import (
 // Manager manages multiple LSP client instances, routing tool calls
 // to the correct server based on file extension.
 type Manager struct {
-	servers map[string]*Client  // server ID -> client
-	defs    map[string]ServerDef // server ID -> definition
-	docs    map[string]*docInfo  // file path -> document info
+	servers     map[string]*Client  // server ID -> client
+	defs        map[string]ServerDef // server ID -> definition
+	docs        map[string]*docInfo  // file path -> document info
+	unavailable map[string]string    // server ID -> install hint (binary not found)
 
 	extToServer map[string]string // extension -> server ID
 	rootURI     string
 
-	mu        sync.RWMutex
-	log       *logger.Logger
-	started   bool
+	mu      sync.RWMutex
+	log     *logger.Logger
+	started bool
 }
 
 type docInfo struct {
@@ -54,6 +55,7 @@ func NewManager(rootPath string, log *logger.Logger) *Manager {
 		servers:     make(map[string]*Client),
 		defs:        make(map[string]ServerDef),
 		docs:        make(map[string]*docInfo),
+		unavailable: make(map[string]string),
 		extToServer: make(map[string]string),
 		rootURI:     PathToURI(rootPath),
 		log:         log,
@@ -137,10 +139,20 @@ func (m *Manager) clientForFile(ctx context.Context, filePath string) (*Client, 
 
 	m.mu.RLock()
 	serverID, ok := m.extToServer[ext]
+	installHint, isUnavailable := m.unavailable[serverID]
 	m.mu.RUnlock()
 
 	if !ok {
 		return nil, fmt.Errorf("no LSP server registered for extension %q (file: %s)", ext, filePath)
+	}
+
+	// If binary was not found during startup, skip lazy-start and give actionable hint.
+	if isUnavailable {
+		msg := fmt.Sprintf("LSP server %q binary not found", serverID)
+		if installHint != "" {
+			msg += fmt.Sprintf("; to enable it run: %s", installHint)
+		}
+		return nil, fmt.Errorf("%s", msg)
 	}
 
 	rootPath := m.resolveRootPath(ctx, filePath)
@@ -158,7 +170,7 @@ func (m *Manager) clientForFile(ctx context.Context, filePath string) (*Client, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Double-check
+	// Double-check after acquiring write lock.
 	if client, ok := m.servers[key]; ok && client != nil {
 		return client, nil
 	}
@@ -295,13 +307,25 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 		return fmt.Errorf("unknown LSP server: %q", serverID)
 	}
 
+	rootPath := uriToPath(rootURI)
+
+	// Resolve the actual binary path. A custom Resolve func handles venv / node_modules.
+	command := resolveCommand(def, rootPath)
+	if command == "" {
+		// Mark unavailable so clientForFile doesn't retry on every call.
+		m.unavailable[serverID] = def.InstallHint
+		if def.InstallHint != "" {
+			return fmt.Errorf("LSP server %q: binary %q not found — run: %s", serverID, def.Command, def.InstallHint)
+		}
+		return fmt.Errorf("LSP server %q: binary %q not found in PATH", serverID, def.Command)
+	}
+
 	langID := serverID
 	if len(def.Languages) > 0 {
 		langID = def.Languages[0]
 	}
 
-	rootPath := uriToPath(rootURI)
-	client := NewClient(def.ID, langID, rootURI, def.Command, def.Args, m.log)
+	client := NewClient(def.ID, langID, rootURI, command, def.Args, m.log)
 	if err := client.Start(ctx); err != nil {
 		return err
 	}
@@ -309,7 +333,7 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 	m.servers[key] = client
 	if m.log != nil {
 		m.log.Debug(logger.CatMCP, "LSP server connected",
-			"server", serverID, "command", def.Command, "root", rootPath)
+			"server", serverID, "command", command, "root", rootPath)
 	}
 	return nil
 }
