@@ -50,8 +50,8 @@ export function ChatMessageView({ message, agentName = 'Assistant', onUserIntera
               <User className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-primary/70`} />
             </div>
           ) : (
-            <div className={`${compact ? 'h-5 w-5' : 'h-7 w-7'} rounded-full bg-gradient-to-br from-violet-500/20 to-purple-500/20 flex items-center justify-center`}>
-              <Sparkles className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-violet-500`} />
+            <div className={`${compact ? 'h-5 w-5' : 'h-7 w-7'} rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center`}>
+              <Sparkles className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-primary`} />
             </div>
           )}
         </div>
@@ -183,13 +183,13 @@ function LoadingIndicator() {
     <div className="flex items-center gap-2 py-1">
       <span className="inline-flex gap-0.5">
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:0ms] bg-violet-400`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:0ms] bg-primary`}
         />
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:150ms] bg-violet-400`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:150ms] bg-primary`}
         />
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:300ms] bg-violet-400`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:300ms] bg-primary`}
         />
       </span>
       <span
@@ -326,15 +326,15 @@ function WorkedSegment({
         {!isDone ? (
           <span className="relative flex h-2 w-2 shrink-0">
             <span
-              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping bg-violet-400`}
+              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping bg-primary`}
             />
             <span
-              className={`relative inline-flex h-2 w-2 rounded-full bg-violet-500`}
+              className={`relative inline-flex h-2 w-2 rounded-full bg-primary`}
             />
           </span>
         ) : (
-          <div className="h-2 w-2 rounded-full bg-emerald-500/30 shrink-0 flex items-center justify-center">
-            <div className="h-1 w-1 rounded-full bg-emerald-500" />
+          <div className="h-2 w-2 rounded-full bg-success/30 shrink-0 flex items-center justify-center">
+            <div className="h-1 w-1 rounded-full bg-success" />
           </div>
         )}
         <span className="font-medium inline-flex items-center gap-1.5">
@@ -507,7 +507,7 @@ function SubagentCard({
         className={cn(
           'w-full text-left rounded-xl border overflow-hidden transition-all',
           isClickable
-            ? 'cursor-pointer hover:shadow-md hover:shadow-violet-500/5 border-violet-500/30 bg-gradient-to-r from-violet-500/8 via-violet-500/4 to-transparent'
+            ? 'cursor-pointer hover:shadow-md hover:shadow-primary/5 border-primary/30 bg-gradient-to-r from-primary/8 via-primary/4 to-transparent'
             : 'cursor-default border-border/50 bg-card/20'
         )}
       >
@@ -516,10 +516,10 @@ function SubagentCard({
           className={cn(
             'h-0.5 w-full',
             running
-              ? 'bg-gradient-to-r from-violet-500 to-purple-400'
+              ? 'bg-gradient-to-r from-primary to-purple-400'
               : failed
                 ? 'bg-destructive/60'
-                : 'bg-emerald-500/40'
+                : 'bg-success/40'
           )}
         />
 
@@ -528,15 +528,15 @@ function SubagentCard({
           <div
             className={cn(
               'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
-              running ? 'bg-violet-500/15' : failed ? 'bg-destructive/10' : 'bg-emerald-500/10'
+              running ? 'bg-primary/15' : failed ? 'bg-destructive/10' : 'bg-success/10'
             )}
           >
             {running ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
             ) : failed ? (
               <AlertCircle className="h-3.5 w-3.5 text-destructive" />
             ) : (
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
             )}
           </div>
 
@@ -550,15 +550,15 @@ function SubagentCard({
                 className={cn(
                   'text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md',
                   running
-                    ? 'bg-violet-500/15 text-violet-600'
+                    ? 'bg-primary/15 text-primary'
                     : failed
                       ? 'bg-destructive/10 text-destructive'
-                      : 'bg-emerald-500/10 text-emerald-600'
+                      : 'bg-success/10 text-success'
                 )}
               >
                 {running ? 'Running' : failed ? 'Failed' : 'Done'}
               </span>
-              {isClickable && <ExternalLink className="h-2.5 w-2.5 text-violet-500/40 shrink-0" />}
+              {isClickable && <ExternalLink className="h-2.5 w-2.5 text-primary/40 shrink-0" />}
             </div>
             {segment.task && (
               <p className="text-[11px] text-muted-foreground/60 truncate mt-0.5">{segment.task}</p>
@@ -586,8 +586,8 @@ function SubagentCard({
           >
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border/50 bg-card/50">
               <div className="flex items-center gap-2.5">
-                <div className="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                  <Bot className="h-4 w-4 text-violet-500" />
+                <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Bot className="h-4 w-4 text-primary" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{segment.agentName}</h3>
@@ -679,15 +679,15 @@ function ThinkingSegment({
         {!isDone ? (
           <span className="relative flex h-2 w-2 shrink-0">
             <span
-              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping bg-violet-400`}
+              className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping bg-primary`}
             />
             <span
-              className={`relative inline-flex h-2 w-2 rounded-full bg-violet-500`}
+              className={`relative inline-flex h-2 w-2 rounded-full bg-primary`}
             />
           </span>
         ) : (
-          <div className="h-2 w-2 rounded-full bg-emerald-500/30 shrink-0 flex items-center justify-center">
-            <div className="h-1 w-1 rounded-full bg-emerald-500" />
+          <div className="h-2 w-2 rounded-full bg-success/30 shrink-0 flex items-center justify-center">
+            <div className="h-1 w-1 rounded-full bg-success" />
           </div>
         )}
         <span className="font-medium">thinking</span>
@@ -730,13 +730,13 @@ function ToolCallSegment({
       >
         {running ? (
           <Loader2
-            className={`h-3.5 w-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-violet-500'}`}
+            className={`h-3.5 w-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-primary'}`}
           />
         ) : segment.error ? (
           <AlertCircle className="h-3.5 w-3.5 text-destructive" />
         ) : (
-          <div className="h-3.5 w-3.5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <div className="h-3.5 w-3.5 rounded-full bg-success/20 flex items-center justify-center">
+            <div className="h-1.5 w-1.5 rounded-full bg-success" />
           </div>
         )}
         <span className="font-mono text-[11px] text-left truncate flex-1 min-w-0 whitespace-nowrap">
@@ -963,7 +963,7 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
       className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
       title={label}
     >
-      {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
       {copied ? 'Copied' : 'Copy'}
     </button>
   )
@@ -1042,8 +1042,8 @@ function ToolConfirmSegment({
             </>
           ) : (
             <>
-              <div className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="font-medium text-emerald-500">
+              <div className="h-2 w-2 rounded-full bg-success" />
+              <span className="font-medium text-success">
                 Approved {choice === 'allow-in-session' ? '(Always allow in this chat)' : ''}
               </span>
             </>
@@ -1059,7 +1059,7 @@ function ToolConfirmSegment({
                 checked={allowAlways}
                 onChange={(e) => setAllowAlways(e.target.checked)}
                 disabled={submitting}
-                className="rounded border-gray-300 text-violet-600 focus:ring-violet-500 h-3.5 w-3.5"
+                className="rounded border-gray-300 text-primary focus:ring-primary h-3.5 w-3.5"
               />
               <span className={isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}>
                 Don't ask again for this tool in the current chat
@@ -1072,7 +1072,7 @@ function ToolConfirmSegment({
             <button
               onClick={() => handleConfirm(true)}
               disabled={submitting}
-              className="px-3 py-1.5 rounded-lg font-medium bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg font-medium bg-success text-white hover:bg-success disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
             >
               {submitting ? (
                 <Loader2 className="h-3 w-3 animate-spin" />

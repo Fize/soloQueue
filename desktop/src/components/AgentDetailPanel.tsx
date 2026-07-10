@@ -39,20 +39,20 @@ interface AgentDetailPanelProps {
 // ─── Relationship style mapping (matches SimulationGraph) ────────────────
 // Keep in sync with SimulationGraph.tsx RELATION_STYLES
 const RELATION_STYLES: Record<string, { color: string; label: string }> = {
-  parent: { color: '#ec4899', label: 'Parent' },
-  child: { color: '#ec4899', label: 'Child' },
-  sibling: { color: '#a855f7', label: 'Sibling' },
-  spouse: { color: '#ec4899', label: 'Spouse' },
-  friend: { color: '#14b8a6', label: 'Friend' },
-  rival: { color: '#9a3412', label: 'Rival' },
-  colleague: { color: '#64748b', label: 'Colleague' },
-  mentor: { color: '#d97706', label: 'Mentor' },
-  mentee: { color: '#d97706', label: 'Mentee' },
-  neighbor: { color: '#94a3b8', label: 'Neighbor' },
-  stranger: { color: '#cbd5e1', label: 'Stranger' },
+  parent: { color: 'var(--color-relation-parent)', label: 'Parent' },
+  child: { color: 'var(--color-relation-child)', label: 'Child' },
+  sibling: { color: 'var(--color-relation-sibling)', label: 'Sibling' },
+  spouse: { color: 'var(--color-relation-spouse)', label: 'Spouse' },
+  friend: { color: 'var(--color-relation-friend)', label: 'Friend' },
+  rival: { color: 'var(--color-relation-rival)', label: 'Rival' },
+  colleague: { color: 'var(--color-relation-colleague)', label: 'Colleague' },
+  mentor: { color: 'var(--color-relation-mentor)', label: 'Mentor' },
+  mentee: { color: 'var(--color-relation-mentee)', label: 'Mentee' },
+  neighbor: { color: 'var(--color-relation-neighbor)', label: 'Neighbor' },
+  stranger: { color: 'var(--color-relation-stranger)', label: 'Stranger' },
 }
 
-const DEFAULT_STYLE = { color: '#9e9e9e', label: 'Acquaintance' }
+const DEFAULT_STYLE = { color: 'var(--color-relation-default)', label: 'Acquaintance' }
 
 export function AgentDetailPanel({
   persona,
@@ -792,7 +792,7 @@ export function AgentDetailPanel({
                         R{msg.round} • {msg.type}
                       </span>
                       {msg.to && msg.to !== '*' && (
-                        <span className="text-[9px] text-violet-500 font-mono">→ {msg.to}</span>
+                        <span className="text-[9px] text-primary font-mono">→ {msg.to}</span>
                       )}
                     </div>
                     <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 select-text">

@@ -280,15 +280,15 @@ export function AssistantPage() {
         >
           {finalMessages.length === 0 && isHistoryLoading ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
-              <Loader2 className="h-7 w-7 animate-spin text-violet-500/70" />
+              <Loader2 className="h-7 w-7 animate-spin text-primary/70" />
               <p className="text-xs text-muted-foreground font-mono">
                 Loading history...
               </p>
             </div>
           ) : finalMessages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 border border-violet-500/20">
-                <Sparkles className="h-7 w-7 text-violet-500" />
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20">
+                <Sparkles className="h-7 w-7 text-primary" />
               </div>
               <h2 className="text-lg font-semibold text-foreground/80">
                 {agentName}

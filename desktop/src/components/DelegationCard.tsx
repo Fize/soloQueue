@@ -64,7 +64,7 @@ export function DelegationCard({
           className={cn(
             'w-full text-left rounded-xl border overflow-hidden transition-all',
             isClickable
-              ? 'cursor-pointer hover:shadow-md hover:shadow-violet-500/5 border-violet-500/30 bg-gradient-to-r from-violet-500/8 via-violet-500/4 to-transparent'
+              ? 'cursor-pointer hover:shadow-md hover:shadow-primary/5 border-primary/30 bg-gradient-to-r from-primary/8 via-primary/4 to-transparent'
               : 'cursor-default border-border/50 bg-card/20'
           )}
         >
@@ -73,10 +73,10 @@ export function DelegationCard({
             className={cn(
               'h-0.5 w-full',
               running
-                ? 'bg-gradient-to-r from-violet-500 to-purple-400'
+                ? 'bg-gradient-to-r from-primary to-purple-400'
                 : error
                   ? 'bg-destructive/60'
-                  : 'bg-emerald-500/40'
+                  : 'bg-success/40'
             )}
           />
 
@@ -85,15 +85,15 @@ export function DelegationCard({
             <div
               className={cn(
                 'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
-                running ? 'bg-violet-500/15' : error ? 'bg-destructive/10' : 'bg-emerald-500/10'
+                running ? 'bg-primary/15' : error ? 'bg-destructive/10' : 'bg-success/10'
               )}
             >
               {running ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
               ) : error ? (
                 <XCircle className="h-3.5 w-3.5 text-destructive" />
               ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
               )}
             </div>
 
@@ -107,16 +107,16 @@ export function DelegationCard({
                   className={cn(
                     'text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md',
                     running
-                      ? 'bg-violet-500/15 text-violet-600'
+                      ? 'bg-primary/15 text-primary'
                       : error
                         ? 'bg-destructive/10 text-destructive'
-                        : 'bg-emerald-500/10 text-emerald-600'
+                        : 'bg-success/10 text-success'
                   )}
                 >
                   {running ? 'Running' : error ? 'Failed' : 'Done'}
                 </span>
                 {isClickable && (
-                  <ExternalLink className="h-2.5 w-2.5 text-violet-500/40 shrink-0" />
+                  <ExternalLink className="h-2.5 w-2.5 text-primary/40 shrink-0" />
                 )}
               </div>
               {taskText && (
@@ -145,8 +145,8 @@ export function DelegationCard({
           >
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border/50 bg-card/50">
               <div className="flex items-center gap-2.5">
-                <div className="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                  <Bot className="h-4 w-4 text-violet-500" />
+                <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Bot className="h-4 w-4 text-primary" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">
@@ -161,13 +161,13 @@ export function DelegationCard({
                     <span
                       className={cn(
                         'h-1.5 w-1.5 rounded-full',
-                        agentStream ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+                        agentStream ? 'bg-success' : 'bg-muted-foreground/40'
                       )}
                     />
                     <span
                       className={cn(
                         'text-[10px] font-medium',
-                        agentStream ? 'text-emerald-600' : 'text-muted-foreground/60'
+                        agentStream ? 'text-success' : 'text-muted-foreground/60'
                       )}
                     >
                       {agentStream ? 'Stream live' : 'Stream unavailable'}
@@ -223,7 +223,7 @@ export function DelegationCard({
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
-                  <CheckCircle2 className="h-8 w-8 text-emerald-500/60" />
+                  <CheckCircle2 className="h-8 w-8 text-success/60" />
                   <p className="text-xs">Task completed — no result available</p>
                   {taskText && <p className="text-[11px] max-w-md text-center">{taskText}</p>}
                 </div>

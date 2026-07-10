@@ -17,11 +17,11 @@ const DAYS = ['','Mon','','Wed','','Fri','']
 
 // GitHub green palette (level 0 = empty gray)
 const LV_COLORS = [
-  '#ebedf0',  // 0: empty
-  '#9be9a8',  // 1
-  '#40c463',  // 2
-  '#30a14e',  // 3
-  '#216e39',  // 4
+  'var(--color-heatmap-0)',  // 0: empty
+  'var(--color-heatmap-1)',  // 1
+  'var(--color-heatmap-2)',  // 2
+  'var(--color-heatmap-3)',  // 3
+  'var(--color-heatmap-4)',  // 4
 ]
 
 function fmtLocal(d: Date) {
@@ -114,7 +114,7 @@ export function ActivityHeatmap({ data, days = 365, loading = false }: ActivityH
               y={12}
               fontSize={10}
               fontFamily="var(--font-mono, monospace)"
-              fill="var(--color-muted-foreground, #71717a)"
+              fill="var(--color-muted-foreground)"
               fillOpacity={0.5}
             >
               {m.label}
@@ -129,7 +129,7 @@ export function ActivityHeatmap({ data, days = 365, loading = false }: ActivityH
               y={20 + i * step + cell / 2}
               fontSize={9}
               fontFamily="var(--font-mono, monospace)"
-              fill="var(--color-muted-foreground, #71717a)"
+              fill="var(--color-muted-foreground)"
               fillOpacity={0.4}
               textAnchor="start"
               dominantBaseline="middle"

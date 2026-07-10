@@ -861,7 +861,7 @@ export function SimulationDetailPage() {
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case 'running':
-        return 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-500/25'
+        return 'bg-success/10 text-success border border-success/25'
       case 'completed':
         return 'bg-primary/10 text-primary border border-primary/25'
       case 'failed':
@@ -888,9 +888,9 @@ export function SimulationDetailPage() {
     },
     private_speak: {
       icon: Lock,
-      borderColor: 'border-l-violet-500/50',
-      badgeBg: 'bg-violet-500/10',
-      badgeText: 'text-violet-600 dark:text-violet-400',
+      borderColor: 'border-l-primary/50',
+      badgeBg: 'bg-primary/10',
+      badgeText: 'text-primary',
       label: '私语',
     },
     agent_move: {
@@ -902,9 +902,9 @@ export function SimulationDetailPage() {
     },
     reflection: {
       icon: Lightbulb,
-      borderColor: 'border-l-emerald-500/50',
-      badgeBg: 'bg-emerald-500/10',
-      badgeText: 'text-emerald-600 dark:text-emerald-400',
+      borderColor: 'border-l-success/50',
+      badgeBg: 'bg-success/10',
+      badgeText: 'text-success',
       label: '反思',
     },
     conflict: {
@@ -931,15 +931,15 @@ export function SimulationDetailPage() {
     auto_pass: {
       icon: SkipForward,
       borderColor: 'border-l-gray-400/30 border-dashed',
-      badgeBg: 'bg-gray-400/10',
-      badgeText: 'text-gray-500 dark:text-gray-400',
+      badgeBg: 'bg-muted',
+      badgeText: 'text-muted-foreground',
       label: '例行',
     },
     agent_exit: {
       icon: LogOut,
       borderColor: 'border-l-gray-500/40',
-      badgeBg: 'bg-gray-500/10',
-      badgeText: 'text-gray-600 dark:text-gray-400',
+      badgeBg: 'bg-muted',
+      badgeText: 'text-muted-foreground',
       label: '退场',
     },
     agent_death_announcement: {
@@ -1816,7 +1816,7 @@ export function SimulationDetailPage() {
                               <span className="absolute inset-0.5 rounded-full bg-primary" />
                             </span>
                           ) : isActive && agentState?.status === 'spoke' ? (
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
                           ) : isActive ? (
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/30" />
                           ) : (

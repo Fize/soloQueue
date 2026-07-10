@@ -179,9 +179,9 @@ export function ChatInput({
     result = result.replace(/(^|\s)(\/[a-z][a-z0-9-]*)/gi, (_m, pre, cmd) => {
       const word = cmd.slice(1).toLowerCase()
       if (commandSet.has(word)) {
-        return `${pre}<span class="text-violet-700 bg-violet-500/15 dark:text-violet-400">${cmd}</span>`
+        return `${pre}<span class="text-primary bg-primary/15">${cmd}</span>`
       } else if (skillSet.has(word)) {
-        return `${pre}<span class="text-emerald-700 bg-emerald-500/15 dark:text-emerald-400">${cmd}</span>`
+        return `${pre}<span class="text-success bg-success/15">${cmd}</span>`
       }
       return `${pre}${cmd}`
     })
@@ -862,8 +862,8 @@ export function ChatInput({
                           <span className={cn(
                             'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded shrink-0',
                             item.type === 'command'
-                              ? 'bg-violet-500/15 text-violet-700 dark:text-violet-400'
-                              : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                              ? 'bg-primary/15 text-primary'
+                              : 'bg-success/15 text-success'
                           )}>
                             /{item.label}
                           </span>
@@ -1184,7 +1184,7 @@ export function ChatInput({
                 {(taskLevel || modelName) && (
                   <div className="flex items-center gap-1.5 shrink-0 select-none">
                     {taskLevel && (
-                      <span className="text-[10px] font-semibold text-violet-700 bg-violet-500/10 border border-violet-500/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap">
+                      <span className="text-[10px] font-semibold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap">
                         {taskLevel.split('-')[0]}
                       </span>
                     )}
@@ -1223,7 +1223,7 @@ export function ChatInput({
                         strokeLinecap="round"
                         strokeDasharray={cwCircum}
                         strokeDashoffset={cwOffset}
-                        className="text-violet-500 transition-all duration-500 ease-out"
+                        className="text-primary transition-all duration-500 ease-out"
                       />
                     </svg>
                     {/* Hover tooltip */}
@@ -1254,7 +1254,7 @@ export function ChatInput({
                     type="button"
                     onClick={handleSubmit}
                     disabled={disabled || attachments.some((att) => att.status === 'uploading')}
-                    className="flex items-center justify-center h-7 w-7 rounded-lg bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex items-center justify-center h-7 w-7 rounded-lg bg-secondary text-secondary-foreground hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
                   </button>

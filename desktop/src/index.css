@@ -30,6 +30,43 @@
   --color-warning: #C4883D;
   --color-warning-foreground: #EBE8E3;
   --color-surface-secondary: #262523;
+  --color-info: #60A5FA;
+
+  /* Data Visualization — Charts */
+  --color-chart-1: #6366F1;
+  --color-chart-2: #14B8A6;
+  --color-chart-3: #F59E0B;
+  --color-chart-4: #3B82F6;
+  --color-chart-5: #8B5CF6;
+
+  /* Data Visualization — Heatmap (GitHub-style green scale) */
+  --color-heatmap-0: #EBEDF0;
+  --color-heatmap-1: #9BE9A8;
+  --color-heatmap-2: #40C463;
+  --color-heatmap-3: #30A14E;
+  --color-heatmap-4: #216E39;
+
+  /* Domain — Agent Relationship Colors */
+  --color-relation-parent:   #EC4899;
+  --color-relation-child:    #EC4899;
+  --color-relation-sibling:  #A855F7;
+  --color-relation-spouse:   #EC4899;
+  --color-relation-friend:   #14B8A6;
+  --color-relation-rival:    #9A3412;
+  --color-relation-colleague:#64748B;
+  --color-relation-mentor:   #D97706;
+  --color-relation-mentee:   #D97706;
+  --color-relation-neighbor: #94A3B8;
+  --color-relation-stranger: #CBD5E1;
+  --color-relation-default:  #9E9E9E;
+
+  /* Domain — Simulation Role Colors */
+  --color-role-moderator: #FF6B00;
+  --color-role-mediator:  #FF6B00;
+  --color-role-host:      #FF6B00;
+  --color-role-pro:       #10B981;
+  --color-role-con:       #F43F5E;
+  --color-role-neutral:   #3B82F6;
 
   /* SoloQueue V2 Radii */
   --radius-lg: 8px;
@@ -91,14 +128,14 @@
   --color-accent-foreground: #A04D3E;
   --color-destructive: #B03A32;
   --color-destructive-foreground: #FFFFFF;
-  --color-border: rgba(0,0,0, 0.08);
-  --color-input: rgba(0,0,0, 0.08);
+  --color-border: rgba(0,0,0, 0.10);
+  --color-input: rgba(0,0,0, 0.10);
   --color-ring: rgba(160,77,62, 0.25);
   --color-success: #3D8C5E;
   --color-success-foreground: #FFFFFF;
   --color-warning: #B8782E;
   --color-warning-foreground: #FFFFFF;
-  --color-surface-secondary: #F2EFEA;
+  --color-surface-secondary: #FFFFFF;
 
   color-scheme: light;
 }

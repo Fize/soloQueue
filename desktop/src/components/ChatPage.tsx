@@ -808,6 +808,16 @@ export function ChatPage() {
       !streaming &&
       streamChatSegments.length > 0
     ) {
+      // Guard: if currentMessages already has a live assistant message with
+      // content (from chat_chunk events via WebSocket), prefer it over the
+      // agent stream virtual message. The agent stream is a secondary source
+      // and may lag behind or be incomplete.
+      const hasAssistantContent = currentMessages.some(
+        (m) => m.role === "assistant" && m.segments.some((s) => s.type === "content")
+      )
+      if (hasAssistantContent) {
+        return currentMessages
+      }
       let base = currentMessages;
       while (base.length > 0 && base[base.length - 1].role === "assistant") {
         base = base.slice(0, -1);
@@ -1468,7 +1478,7 @@ export function ChatPage() {
                       {/* Design Canvas Preview Area */}
                       <div className="flex-1 min-h-0 overflow-hidden relative">
                         {activeTab === 'sketch' ? (
-                          <div className="relative w-full h-full bg-[#fafafa] dark:bg-[#0b0c0e] overflow-hidden flex items-center justify-center select-none">
+                          <div className="relative w-full h-full bg-background overflow-hidden flex items-center justify-center select-none">
                             {/* Grid Background representing infinite canvas */}
                             <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, currentColor 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }} />
                             
@@ -1503,7 +1513,7 @@ export function ChatPage() {
                             onResizeStart={handleResizeStart}
                           />
                         ) : (
-                          <div className="relative w-full h-full bg-[#fafafa] dark:bg-[#0b0c0e] overflow-hidden flex items-center justify-center select-none">
+                          <div className="relative w-full h-full bg-background overflow-hidden flex items-center justify-center select-none">
                             {/* Grid Background representing infinite canvas */}
                             <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, currentColor 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }} />
                             

@@ -29,8 +29,8 @@ function getStatusDot(status: string) {
     case 'running':
       return (
         <span className="relative flex h-2 w-2 shrink-0">
-          <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
-          <span className="absolute inset-0.5 rounded-full bg-emerald-500" />
+          <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-60" />
+          <span className="absolute inset-0.5 rounded-full bg-success" />
         </span>
       )
     case 'completed':
@@ -60,7 +60,7 @@ function getStatusLabel(status: string) {
 function getStatusBadgeClass(status: string) {
   switch (status) {
     case 'running':
-      return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25'
+      return 'bg-success/10 text-success border border-success/25'
     case 'completed':
       return 'bg-primary/10 text-primary border border-primary/25'
     case 'failed':
@@ -463,7 +463,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
       onClick={onClick}
       className={`group relative flex flex-col gap-3 rounded-xl border bg-card/40 hover:bg-card/70 transition-all cursor-pointer px-5 py-4 ${
         isRunning
-          ? 'border-emerald-500/30 hover:border-emerald-500/50 shadow-sm shadow-emerald-500/5'
+          ? 'border-success/30 hover:border-success/50 shadow-sm shadow-success/5'
           : isFailed
             ? 'border-rose-500/20 hover:border-rose-500/30'
             : 'border-border hover:border-border/80'
@@ -513,7 +513,7 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
           </span>
         )}
         {isRunning && sim.current_round > 0 && (
-          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+          <span className="flex items-center gap-1 text-success">
             <Activity className="h-3 w-3" />
             Round {sim.current_round}
           </span>
@@ -522,8 +522,8 @@ function SimCard({ sim, onClick, onDelete }: SimCardProps) {
 
       {/* Running progress bar */}
       {isRunning && (
-        <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl overflow-hidden bg-emerald-500/10">
-          <div className="h-full bg-emerald-500/60 animate-pulse" style={{ width: '60%' }} />
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl overflow-hidden bg-success/10">
+          <div className="h-full bg-success/60 animate-pulse" style={{ width: '60%' }} />
         </div>
       )}
     </div>
@@ -638,8 +638,8 @@ export function SimulationListPage() {
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
-                    <span className="absolute inset-0.5 rounded-full bg-emerald-500" />
+                    <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-60" />
+                    <span className="absolute inset-0.5 rounded-full bg-success" />
                   </span>
                   <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-mono">
                     In Progress ({runningSims.length})

@@ -122,6 +122,12 @@ class WebSocketManager {
       this.setStatus('connected')
       this.startPingInterval()
       this.flushPendingMessages()
+      // Cancel any pending handler-close timer from a previous transient close.
+      const timer = (this as any)._handlerCloseTimer
+      if (timer) {
+        clearTimeout(timer)
+        ;(this as any)._handlerCloseTimer = null
+      }
     }
 
     this.ws.onmessage = (event) => {
@@ -135,14 +141,22 @@ class WebSocketManager {
 
     this.ws.onclose = () => {
       this.stopPingInterval()
-      // Notify all active chat handlers of close.
-      this.chatHandlers.forEach((h) => h.onClose?.())
-      this.chatHandlers.clear()
       if (!this.intentionalClose) {
+        // Transient close (network hiccup): give handlers a grace period to
+        // survive a quick reconnect. If the WS doesn't reconnect within 8s,
+        // notify handlers of the permanent close.
         this.setStatus('reconnecting')
         this.scheduleReconnect()
+        const handlerCloseTimer = setTimeout(() => {
+          this.chatHandlers.forEach((h) => h.onClose?.())
+          this.chatHandlers.clear()
+        }, 8000)
+        // Store so connect() can clear it on successful reconnect.
+        ;(this as any)._handlerCloseTimer = handlerCloseTimer
       } else {
         this.setStatus('disconnected')
+        this.chatHandlers.forEach((h) => h.onClose?.())
+        this.chatHandlers.clear()
       }
     }
 
@@ -158,11 +172,17 @@ class WebSocketManager {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
+    const timer = (this as any)._handlerCloseTimer
+    if (timer) {
+      clearTimeout(timer)
+      ;(this as any)._handlerCloseTimer = null
+    }
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
     this.setStatus('disconnected')
+    this.chatHandlers.forEach((h) => h.onClose?.())
     this.chatHandlers.clear()
     this.pendingMessages = []
   }

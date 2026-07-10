@@ -45,12 +45,12 @@ interface SimulationGraphProps {
 }
 
 const ROLE_COLORS: Record<string, string> = {
-  moderator: '#ff6b00',
-  mediator: '#ff6b00',
-  host: '#ff6b00',
-  pro: '#10b981',
-  con: '#f43f5e',
-  neutral: '#3b82f6',
+  moderator: 'var(--color-role-moderator)',
+  mediator: 'var(--color-role-mediator)',
+  host: 'var(--color-role-host)',
+  pro: 'var(--color-role-pro)',
+  con: 'var(--color-role-con)',
+  neutral: 'var(--color-role-neutral)',
 }
 
 const MAX_GRAPH_LINKS = 200
@@ -61,17 +61,17 @@ const RELATION_STYLES: Record<
   string,
   { color: string; dash: number[]; width: number; label: string; arrow: boolean }
 > = {
-  parent: { color: '#ec4899', dash: [], width: 2.5, label: 'Parent', arrow: true },
-  child: { color: '#ec4899', dash: [4, 4], width: 2, label: 'Child', arrow: true },
-  sibling: { color: '#a855f7', dash: [], width: 2, label: 'Sibling', arrow: false },
-  spouse: { color: '#ec4899', dash: [2, 6], width: 2, label: 'Spouse', arrow: false },
-  friend: { color: '#14b8a6', dash: [], width: 2, label: 'Friend', arrow: false },
-  rival: { color: '#9a3412', dash: [6, 3], width: 2.5, label: 'Rival', arrow: false },
-  colleague: { color: '#64748b', dash: [], width: 1.5, label: 'Colleague', arrow: false },
-  mentor: { color: '#d97706', dash: [3, 3], width: 2, label: 'Mentor', arrow: true },
-  mentee: { color: '#d97706', dash: [6, 3], width: 2, label: 'Mentee', arrow: true },
-  neighbor: { color: '#94a3b8', dash: [2, 4], width: 1.5, label: 'Neighbor', arrow: false },
-  stranger: { color: '#cbd5e1', dash: [1, 6], width: 0.5, label: 'Stranger', arrow: false },
+  parent: { color: 'var(--color-relation-parent)', dash: [], width: 2.5, label: 'Parent', arrow: true },
+  child: { color: 'var(--color-relation-child)', dash: [4, 4], width: 2, label: 'Child', arrow: true },
+  sibling: { color: 'var(--color-relation-sibling)', dash: [], width: 2, label: 'Sibling', arrow: false },
+  spouse: { color: 'var(--color-relation-spouse)', dash: [2, 6], width: 2, label: 'Spouse', arrow: false },
+  friend: { color: 'var(--color-relation-friend)', dash: [], width: 2, label: 'Friend', arrow: false },
+  rival: { color: 'var(--color-relation-rival)', dash: [6, 3], width: 2.5, label: 'Rival', arrow: false },
+  colleague: { color: 'var(--color-relation-colleague)', dash: [], width: 1.5, label: 'Colleague', arrow: false },
+  mentor: { color: 'var(--color-relation-mentor)', dash: [3, 3], width: 2, label: 'Mentor', arrow: true },
+  mentee: { color: 'var(--color-relation-mentee)', dash: [6, 3], width: 2, label: 'Mentee', arrow: true },
+  neighbor: { color: 'var(--color-relation-neighbor)', dash: [2, 4], width: 1.5, label: 'Neighbor', arrow: false },
+  stranger: { color: 'var(--color-relation-stranger)', dash: [1, 6], width: 0.5, label: 'Stranger', arrow: false },
 }
 
 export function SimulationGraph({
@@ -98,10 +98,10 @@ export function SimulationGraph({
   const activeRef = useRef(activeAgentIds)
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
   const themeRef = useRef({
-    primaryColor: '#5e6ad2',
-    cardColor: '#fff',
-    fgColor: '#000',
-    mutedFgColor: '#666',
+    primaryColor: 'var(--color-primary)',
+    cardColor: 'var(--color-card)',
+    fgColor: 'var(--color-foreground)',
+    mutedFgColor: 'var(--color-muted-foreground)',
     isDark: false,
   })
   const transformRef = useRef(zoomIdentity)

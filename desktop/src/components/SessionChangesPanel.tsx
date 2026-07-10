@@ -18,7 +18,7 @@ interface SessionChangesPanelProps {
 
 function StatusIcon({ status }: { status: FileChange["status"] }) {
   if (status === "added")
-    return <FilePlus className="h-3.5 w-3.5 text-emerald-500 shrink-0" />;
+    return <FilePlus className="h-3.5 w-3.5 text-success shrink-0" />;
   if (status === "deleted")
     return <FileMinus className="h-3.5 w-3.5 text-red-500 shrink-0" />;
   return <FileEdit className="h-3.5 w-3.5 text-amber-500 shrink-0" />;
@@ -39,7 +39,7 @@ function DiffLineView({ line }: { line: DiffLine }) {
     <div
       className={cn(
         "flex font-mono text-[11px] leading-[1.5] whitespace-pre overflow-hidden",
-        isAdd && "bg-emerald-500/10",
+        isAdd && "bg-success/10",
         isDel && "bg-red-500/10",
         isCtx && "bg-transparent",
       )}
@@ -53,7 +53,7 @@ function DiffLineView({ line }: { line: DiffLine }) {
       <span
         className={cn(
           "select-none w-5 text-center shrink-0 font-bold",
-          isAdd && "text-emerald-600",
+          isAdd && "text-success",
           isDel && "text-red-600",
           isCtx && "text-muted-foreground/30",
         )}
@@ -63,7 +63,7 @@ function DiffLineView({ line }: { line: DiffLine }) {
       <span
         className={cn(
           "flex-1 px-1 overflow-hidden",
-          isAdd && "text-emerald-700 dark:text-emerald-400",
+          isAdd && "text-success",
           isDel && "text-red-700 dark:text-red-400",
           isCtx && "text-foreground/70",
         )}
@@ -205,7 +205,7 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
           <div className="flex items-center gap-3 text-[11px] font-mono">
             {data && !error && (
               <>
-                <span className="text-emerald-600 dark:text-emerald-400">
+                <span className="text-success">
                   +{data.total_additions}
                 </span>
                 <span className="text-red-600 dark:text-red-400">
@@ -278,7 +278,7 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
                   </span>
                   {!change.binary && (
                     <span className="text-[11px] font-mono shrink-0">
-                      <span className="text-emerald-600 dark:text-emerald-400">
+                      <span className="text-success">
                         +{change.additions}
                       </span>{" "}
                       <span className="text-red-600 dark:text-red-400">

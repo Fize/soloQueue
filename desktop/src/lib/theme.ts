@@ -31,7 +31,7 @@ export function applyTheme(mode: ThemeMode): void {
   const isDark =
     mode === 'dark' ||
     (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', isDark)
+  document.documentElement.classList.toggle('light', !isDark)
 }
 
 /** Listen for system preference changes (only meaningful in 'system' mode). */
@@ -39,7 +39,7 @@ export function listenSystemTheme(): () => void {
   const mq = window.matchMedia('(prefers-color-scheme: dark)')
   const handler = () => {
     if (getStoredTheme() === 'system') {
-      document.documentElement.classList.toggle('dark', mq.matches)
+      document.documentElement.classList.toggle('light', !mq.matches)
     }
   }
   mq.addEventListener('change', handler)

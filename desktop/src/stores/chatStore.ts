@@ -287,7 +287,19 @@ export const useChatStore = create<ChatState>((set) => ({
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
+      if (!last || last.role !== 'assistant') {
+        // Diagnostic: log when content is silently dropped. If this fires,
+        // it means the last message is not an assistant — likely due to a
+        // WebSocket reconnect clearing the handler or loadHistory overwrite.
+        if (text && text.trim()) {
+          const lastRole = last ? last.role : 'none'
+          console.warn(
+            `[chatStore] Dropping content delta (${text.length} chars) for session ${sid}: ` +
+            `lastMessageRole=${lastRole}, msgCount=${msgs.length}`
+          )
+        }
+        return s
+      }
       const segs = [...last.segments]
       const lastSeg = segs[segs.length - 1]
       if (lastSeg && lastSeg.type === 'content') {
@@ -306,7 +318,16 @@ export const useChatStore = create<ChatState>((set) => ({
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
       const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
+      if (!last || last.role !== 'assistant') {
+        if (text && text.trim()) {
+          const lastRole = last ? last.role : 'none'
+          console.warn(
+            `[chatStore] Dropping thinking delta (${text.length} chars) for session ${sid}: ` +
+            `lastMessageRole=${lastRole}, msgCount=${msgs.length}`
+          )
+        }
+        return s
+      }
       const segs = [...last.segments]
       const lastSeg = segs[segs.length - 1]
       if (lastSeg && lastSeg.type === 'thinking') {

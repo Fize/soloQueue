@@ -90,7 +90,7 @@ function entryIcon(node: TreeNode, isOpen: boolean) {
   if (markdownExts.has(ext))
     return <FileText className="h-3.5 w-3.5 text-primary/70 shrink-0" />
   if (codeExts.has(ext))
-    return <FileCode className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+    return <FileCode className="h-3.5 w-3.5 text-success shrink-0" />
   if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'].includes(ext))
     return <FileImage className="h-3.5 w-3.5 text-sky-600 shrink-0" />
   return <File className="h-3.5 w-3.5 text-muted-foreground shrink-0" />

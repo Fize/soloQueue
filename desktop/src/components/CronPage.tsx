@@ -127,7 +127,7 @@ function TaskCard({
               isActive
                 ? 'bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/20'
                 : isCompleted
-                  ? 'bg-[var(--info,#60a5fa)]/10 text-blue-400 border-blue-400/20'
+                  ? 'bg-info/10 text-info border-info/20'
                   : 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20'
             }`}
           >
