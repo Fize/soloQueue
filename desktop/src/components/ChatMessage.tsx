@@ -606,7 +606,7 @@ function SubagentCard({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 bg-card/20">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
               {running && agentStream ? (
                 <AgentStreamView state={agentStream} />
               ) : hasResult ? (
