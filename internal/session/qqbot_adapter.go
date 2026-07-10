@@ -51,10 +51,7 @@ func (a *SessionAskAdapter) CancelCurrent(reason string) error {
 		return errors.New("no active session")
 	}
 
-	err := sess.CancelCurrent(reason)
-	if err != nil && !errors.Is(err, ErrNoActiveTask) {
-		return err
-	}
+	sess.ForceKill(reason)
 
 	// Stop L1 agent and restart to idle state (instead of unregistering).
 	// Keeping L1 in the registry lets the frontend show it as a solid-idle node
@@ -397,10 +394,7 @@ func (a *L2QQBotAdapter) CancelCurrent(reason string) error {
 		return err
 	}
 
-	err = sess.CancelCurrent(reason)
-	if err != nil && !errors.Is(err, ErrNoActiveTask) {
-		return err
-	}
+	sess.ForceKill(reason)
 
 	_ = sess.Agent.Stop(5 * time.Second)
 	if err := sess.Agent.Start(context.Background()); err != nil {

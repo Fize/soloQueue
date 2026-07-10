@@ -140,10 +140,14 @@ type Session struct {
 	turnDone          chan struct{} // closed when the async delegation turn completes
 	turnDoneClosed    bool          // prevents duplicate close of turnDone
 
-	// cancel support: CancelCurrent cancels the currently executing AskStream
-	cancelMu     sync.Mutex
-	activeCancel context.CancelFunc // Cancel function of the current AskStream (forwarder manages lifecycle)
-	cancelled    atomic.Bool       // forwarder sets this when cancelled, consumed and reset by the adapter
+	// forceKilled is closed when ForceKill is called; session goroutine exits immediately
+	forceKilled chan struct{}
+
+	// Supervisor is the L3 child manager for L2 sessions; nil for L1 sessions
+	Supervisor *agent.Supervisor
+
+	// cancelled: forwarder sets this when cancelled, consumed and reset by the adapter
+	cancelled atomic.Bool
 
 	lastLevel       string       // last classified task level (L0-L3)
 	lastLevelMu     sync.RWMutex // protects lastLevel and levelLocked
@@ -186,6 +190,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		logger:         l,
 		pending:        &PendingQueue{},
 		recalledHashes: make(map[string]struct{}),
+		forceKilled:    make(chan struct{}),
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 
@@ -752,21 +757,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 	// ── Pre-inFlight slash command intercept (always immediate, never queued) ──
 	switch lowerTrimmed {
-	case "/cancel":
-		out := make(chan iface.AgentEvent, 2)
-		go func() {
-			defer close(out)
-			err := s.CancelCurrent("User requested cancellation")
-			if err != nil {
-				out <- agent.ContentDeltaEvent{Delta: "Cancellation failed: " + err.Error()}
-				out <- agent.DoneEvent{Content: "Cancel failed: " + err.Error()}
-			} else {
-				out <- agent.ContentDeltaEvent{Delta: "Current task has been cancelled"}
-				out <- agent.DoneEvent{Content: "Task cancelled."}
-			}
-		}()
-		return out, nil
-
 	case "/compact":
 		// Acquire inFlight to serialize with forwarder goroutine.
 		// Compact modifies CW state and must not run concurrently with AskStream.
@@ -1025,11 +1015,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		"recalled", recalled != "",
 	)
 
-	// Store cancel function (must be before starting goroutine, ensuring CancelCurrent can work immediately)
-	s.cancelMu.Lock()
-	s.activeCancel = askCancel
-	s.cancelMu.Unlock()
-
 	srcCh, err := s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
 	if err != nil {
 		// Agent stopped: attempt to restart and retry once
@@ -1053,9 +1038,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		}
 
 		// Enqueue failure: cleanup
-		s.cancelMu.Lock()
-		s.activeCancel = nil
-		s.cancelMu.Unlock()
 		askCancel()
 
 		s.mu.Lock()
@@ -1074,11 +1056,8 @@ enqueued:
 
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
-		// Cleanup: clear activeCancel and release askCtx when goroutine ends
+		// Cleanup: release askCtx when goroutine ends
 		defer func() {
-			s.cancelMu.Lock()
-			s.activeCancel = nil
-			s.cancelMu.Unlock()
 			askCancel()
 		}()
 		defer close(out)
@@ -1109,16 +1088,13 @@ enqueued:
 						goto done
 					}
 					ev = e
-				case <-askCtx.Done():
-					// askCtx cancelled: remove user prompt, mark cancelled
-					// Note: do not stop agent. Agent's internal merged ctx is already cancelled with askCtx,
-					// streamLoop will detect ctx.Err() in the next iteration and exit automatically.
+				case <-s.forceKilled:
 					s.cancelled.Store(true)
 					s.mu.Lock()
 					s.cw.PopLast()
 					s.mu.Unlock()
 
-					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream force-killed (read)",
 						"session_id", s.ID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
@@ -1132,16 +1108,13 @@ enqueued:
 						goto done
 					}
 					ev = e
-				case <-askCtx.Done():
-					// askCtx cancelled: remove user prompt, mark cancelled
-					// Note: do not stop agent. Agent's internal merged ctx is already cancelled with askCtx,
-					// streamLoop will detect ctx.Err() in the next iteration and exit automatically.
+				case <-s.forceKilled:
 					s.cancelled.Store(true)
 					s.mu.Lock()
 					s.cw.PopLast()
 					s.mu.Unlock()
 
-					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream force-killed (read)",
 						"session_id", s.ID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
@@ -1162,14 +1135,13 @@ enqueued:
 				select {
 				case out <- ev:
 					eventCount++
-				case <-askCtx.Done():
-					// askCtx cancelled: remove user prompt, mark cancelled
+				case <-s.forceKilled:
 					s.cancelled.Store(true)
 					s.mu.Lock()
 					s.cw.PopLast()
 					s.mu.Unlock()
 
-					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream force-killed (write)",
 						"session_id", s.ID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
@@ -1311,29 +1283,40 @@ func (s *Session) LastActive() time.Time {
 	return time.Unix(0, s.lastActive.Load())
 }
 
-// CancelCurrent cancels the currently executing AskStream (if any).
-// Cancellation propagates through askCtx to agent's streamLoop, thereby interrupting LLM calls and tool execution.
-// Idempotent safe: returns ErrNoActiveTask when there is no active task.
-func (s *Session) CancelCurrent(reason string) error {
-	s.cancelMu.Lock()
-	cancel := s.activeCancel
-	s.cancelMu.Unlock()
-
-	if cancel == nil {
-		return ErrNoActiveTask
+// ForceKill immediately stops all work in this session.
+// Closes the forceKilled signal so the session goroutine exits immediately,
+// then stops the session agent and all child agents (via Supervisor if present).
+// Safe to call multiple times; only the first call takes effect.
+func (s *Session) ForceKill(reason string) {
+	// Close forceKilled to signal session goroutine to exit immediately.
+	// Use select to ensure we only close once (second call is no-op).
+	select {
+	case <-s.forceKilled:
+		// Already killed
+		return
+	default:
+		close(s.forceKilled)
 	}
 
-	// Only call cancel() - does not actively set the cancelled flag.
-	// cancelled is set by the forwarder goroutine when detecting <-askCtx.Done(),
-	// ensuring the adapter only receives ErrCancelled when the forwarder is truly cancelled,
-	// avoiding false cancellation reports after normal task completion.
-	cancel()
+	// Stop the session agent asynchronously.
+	if s.Agent != nil {
+		go s.Agent.Stop(5 * time.Second)
+	}
 
-	s.logger.InfoContext(context.Background(), logger.CatApp, "session task cancelled",
+	// Kill all L3 children if this is an L2 session.
+	if s.Supervisor != nil {
+		go s.Supervisor.ReapAll(5 * time.Second)
+	}
+
+	// Remove user prompt from context window.
+	s.mu.Lock()
+	s.cw.PopLast()
+	s.mu.Unlock()
+
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session force-killed",
 		"session_id", s.ID,
 		"reason", reason,
 	)
-	return nil
 }
 
 // isCancelledAndReset checks if the forwarder exited due to cancellation.

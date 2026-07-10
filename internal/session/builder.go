@@ -875,6 +875,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	// Build the Session.
 	sessLogger := sessLog.Child()
 	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
+	s.Supervisor = sv
 	// Enable auto-compression for idle L2 sessions (same thresholds as L1).
 	s.idleTimeout = 30 * time.Minute
 	s.compactThreshold = 200000

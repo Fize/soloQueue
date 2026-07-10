@@ -130,12 +130,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	lowerTrimmed := strings.ToLower(trimmed)
 	switch {
 	case lowerTrimmed == "/cancel":
-		_ = sess.CancelCurrent("User requested cancellation")
-		client.sendJSON(WSMessage{
-			Type:      "chat_chunk",
-			RequestID: msg.RequestID,
-			Delta:     "Current task has been cancelled",
-		})
+		sess.ForceKill("User requested cancellation")
 		client.sendJSON(WSMessage{
 			Type:             "chat_done",
 			RequestID:        msg.RequestID,
@@ -280,28 +275,31 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
 }
 
-// handleChatCancel cancels an active chat request.
 func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
-	client.mu.Lock()
-	req, ok := client.activeRequests[msg.RequestID]
-	client.mu.Unlock()
+	// Send immediate confirmation to client so it knows cancel was received.
+	client.sendJSON(WSMessage{
+		Type:      "chat_cancel_confirmed",
+		RequestID: msg.RequestID,
+	})
 
-	if !ok {
-		return
-	}
-
-	req.Cancel()
-	client.removeActiveRequest(msg.RequestID)
-
-	// If delegating, also call session-level cancellation to stop the agent's
-	// underlying work (e.g., LLM HTTP call). The context cancellation above
-	// already breaks the forwardAgentEvents loop.
+	// Force-kill the session (stops agent + all children immediately).
 	if h.mux != nil {
 		sess, err := h.resolveSession(msg.SessionID)
 		if err == nil {
-			_ = sess.CancelCurrent("User cancelled")
+			sess.ForceKill("User cancelled")
+			// NOTE: forceKill closes the session goroutine's out channel,
+			// which causes forwardAgentEvents to receive its Done event.
+			// The active request is cleaned up by forwardAgentEvents' defer.
 		}
 	}
+
+	// Notify client that the task is done (cancelled).
+	client.sendJSON(WSMessage{
+		Type:             "chat_done",
+		RequestID:        msg.RequestID,
+		Content:          "Task cancelled.",
+		ReasoningContent: "",
+	})
 }
 
 // handleToolConfirm forwards a tool confirmation choice to the agent.

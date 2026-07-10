@@ -9,6 +9,7 @@ import type {
 } from '@/types'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
+import { useConnectionStore } from '@/stores/connectionStore'
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 
@@ -51,25 +52,6 @@ type MessageHandler = {
   simulation_progress: Set<(data: SimulationProgress) => void>
 }
 
-function wsBase(): string {
-  // Check for remote connection mode
-  try {
-    const connMode = localStorage.getItem('soloqueue_connection_mode')
-    const remoteUrl = localStorage.getItem('soloqueue_remote_url')
-    if (connMode === 'remote' && remoteUrl) {
-      const base = remoteUrl.replace(/\/+$/, '')
-      return `${base.replace(/^http/, 'ws')}/ws`
-    }
-  } catch { /* ignore */ }
-
-  if (window.location.protocol === 'file:') {
-    const port = (window as any).electronAPI?.backendPort || 57647
-    return `ws://127.0.0.1:${port}/ws`
-  }
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}/ws`
-}
-
 class WebSocketManager {
   private ws: WebSocket | null = null
   private cachedStreams: Record<string, AgentStreamState> = {}
@@ -110,7 +92,7 @@ class WebSocketManager {
       console.warn('Failed to fetch WS auth token, attempting direct connection:', err)
     }
 
-    let url = wsBase()
+    let url = useConnectionStore.getState().getEffectiveWsUrl()
     if (token) {
       url += `?token=${encodeURIComponent(token)}`
     }

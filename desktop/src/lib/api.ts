@@ -201,9 +201,7 @@ export async function updateDefaultModels(
 }
 
 export async function getConfigToml(): Promise<string> {
-  const base = getEffectiveBaseUrl();
-  const url = base ? `${base}${API_BASE}/config/toml` : `${API_BASE}/config/toml`;
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE}/config/toml`, {
     headers: getAuthHeaders(),
   });
   if (res.status === 401) {
@@ -251,21 +249,7 @@ export function getFileUrl(path: string): string {
 }
 
 export async function listFiles(dir: string): Promise<FileInfo[]> {
-  const headers = {
-    "Content-Type": "application/json",
-    ...getAuthHeaders(),
-  };
-  const base = getEffectiveBaseUrl();
-  const url = base
-    ? `${base}${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`
-    : `${API_BASE}/files/list?dir=${encodeURIComponent(dir)}`;
-  const res = await fetch(url, { headers });
-  if (res.status === 401) {
-    useAuthStore.getState().logout();
-    throw new Error("Unauthorized");
-  }
-  if (!res.ok) throw new Error(`Failed to list files: ${res.statusText}`);
-  return res.json();
+  return request<FileInfo[]>(`/files/list?dir=${encodeURIComponent(dir)}`);
 }
 
 export async function toggleFileCheckbox(
@@ -435,9 +419,7 @@ export async function updateSkill(
 }
 
 export async function getHealthInfo(): Promise<{ status: string; work_dir?: string }> {
-  const base = getEffectiveBaseUrl();
-  const url = base ? `${base}/healthz` : "/healthz";
-  const res = await fetch(url);
+  const res = await fetch("/healthz");
   if (!res.ok) throw new Error("Failed to fetch health info");
   return res.json();
 }
@@ -670,9 +652,7 @@ export async function uploadFile(
     ...getAuthHeaders(),
   };
 
-  const base = getEffectiveBaseUrl();
-  const url = base ? `${base}${API_BASE}/session/upload` : `${API_BASE}/session/upload`;
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE}/session/upload`, {
     method: "POST",
     headers,
     body: formData,

@@ -28,55 +28,12 @@ interface TreeNode {
   size: number
 }
 
-// ── Binary detection ──────────────────────────────────────────────────────
-
-// Extensions that are definitely previewable (text, code, media, markdown).
-// Mirrors FileContentView's detection — anything NOT in these sets is binary.
-const codeExts = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyi', '.pyx',
-  '.rs', '.go', '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',
-  '.java', '.kt', '.kts', '.scala', '.json', '.yaml', '.yml', '.toml',
-  '.css', '.scss', '.less', '.html', '.htm', '.xml', '.svg',
-  '.sh', '.bash', '.zsh', '.fish', '.sql', '.psql',
-  '.dockerfile', '.proto', '.graphql', '.gql',
-  '.lua', '.rb', '.php', '.swift', '.r', '.dart',
-  '.tf', '.hcl', '.vue', '.svelte', '.ini', '.cfg',
-])
-const markdownExts = new Set(['.md', '.markdown'])
-const mediaExts = new Set([
-  // images
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.svg',
-  // audio
-  '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.opus',
-  // video
-  '.mp4', '.webm', '.mov', '.avi', '.mkv',
-])
-const plainExts = new Set([
-  '.txt', '.log', '.mod', '.sum', '.Makefile',
-  '.dockerignore', '.gitignore', '.env', '.envrc',
-])
-
-const allPreviewableExts = new Set([
-  ...codeExts,
-  ...markdownExts,
-  ...mediaExts,
-  ...plainExts,
-])
-
-// Well-known text filenames that don't have extensions.
-const knownTextFilenames = new Set([
-  'Dockerfile', 'Makefile', 'README', 'LICENSE', 'CHANGELOG',
-  'Procfile', 'Jenkinsfile', 'Vagrantfile',
-])
-
-function isPreviewableExt(ext: string, name?: string): boolean {
-  if (!ext) {
-    // No extension — only treat as text if it's a well-known text filename.
-    if (name && knownTextFilenames.has(name)) return true
-    return false
-  }
-  return allPreviewableExts.has(ext.toLowerCase())
-}
+import {
+  codeExts,
+  markdownExts,
+  imageExtensions,
+  isPreviewableExt,
+} from '@/lib/file'
 
 function entryIcon(node: TreeNode, isOpen: boolean) {
   if (node.isDir) {
@@ -91,7 +48,7 @@ function entryIcon(node: TreeNode, isOpen: boolean) {
     return <FileText className="h-3.5 w-3.5 text-primary/70 shrink-0" />
   if (codeExts.has(ext))
     return <FileCode className="h-3.5 w-3.5 text-success shrink-0" />
-  if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'].includes(ext))
+  if (imageExtensions.includes(ext))
     return <FileImage className="h-3.5 w-3.5 text-sky-600 shrink-0" />
   return <File className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
 }

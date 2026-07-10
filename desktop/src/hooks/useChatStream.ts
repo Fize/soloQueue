@@ -21,7 +21,6 @@ export function useChatStream() {
     updateLastAssistantSegment,
     updateToolCallResult,
     setStreaming,
-    removeLastEmptyAssistantMessage,
     renameSession,
     updateSessionPlans,
     markTitleGenerated,
@@ -226,13 +225,7 @@ export function useChatStream() {
       request_id: requestId,
       session_id: activeSessionId!,
     })
-
-    removeLastEmptyAssistantMessage(activeSessionId!)
-    setStreaming(false, activeSessionId!)
-    setDelegating(false)
-    wsManager.unregisterChat(requestId)
-    activeRequestIdRef.current = null
-  }, [activeSessionId, removeLastEmptyAssistantMessage, setStreaming, setDelegating])
+  }, [activeSessionId])
 
   return { send, cancel }
 }

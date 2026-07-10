@@ -42,7 +42,7 @@ import {
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import { ImportSkillDialog } from './SkillsTab/ImportSkillDialog'
+import { ImportSkillDialog } from './ImportSkillDialog'
 
 // Depth indent helper for file listing
 function depthIndent(p: string): number {

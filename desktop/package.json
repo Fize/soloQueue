@@ -9,7 +9,9 @@
     "start": "electron .",
     "electron": "electron .",
     "build": "tsc && vite build",
-    "package": "electron-builder build --config electron-builder.json"
+    "package": "electron-builder build --config electron-builder.json",
+    "lint": "eslint src",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

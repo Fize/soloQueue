@@ -54,98 +54,15 @@ SyntaxHighlighter.registerLanguage('docker', docker)
 SyntaxHighlighter.registerLanguage('graphql', graphql)
 SyntaxHighlighter.registerLanguage('protobuf', protobuf)
 
-const extToLanguage: Record<string, string> = {
-  '.ts': 'typescript',
-  '.tsx': 'tsx',
-  '.js': 'javascript',
-  '.jsx': 'jsx',
-  '.mjs': 'javascript',
-  '.cjs': 'javascript',
-  '.py': 'python',
-  '.pyi': 'python',
-  '.rs': 'rust',
-  '.go': 'go',
-  '.c': 'c',
-  '.cpp': 'cpp',
-  '.cc': 'cpp',
-  '.cxx': 'cpp',
-  '.h': 'c',
-  '.hpp': 'cpp',
-  '.hxx': 'cpp',
-  '.java': 'java',
-  '.kt': 'java',
-  '.json': 'json',
-  '.yaml': 'yaml',
-  '.yml': 'yaml',
-  '.css': 'css',
-  '.scss': 'css',
-  '.html': 'markup',
-  '.htm': 'markup',
-  '.xml': 'markup',
-  '.svg': 'markup',
-  '.sh': 'bash',
-  '.bash': 'bash',
-  '.zsh': 'bash',
-  '.sql': 'sql',
-  '.toml': 'toml',
-  '.dockerfile': 'docker',
-  '.graphql': 'graphql',
-  '.gql': 'graphql',
-  '.proto': 'protobuf',
-}
-const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico']
-const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.opus']
-const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv']
-
-// Known plain text extensions (mirrors backend textExtensions) — anything NOT in
-// extToLanguage + image/audio/video + plainText + markdown is treated as binary.
-const plainTextExtensions = new Set([
-  '.markdown', '.txt', '.log', '.mod', '.sum', '.pyx',
-  '.kts', '.scala', '.ini', '.cfg', '.less', '.fish', '.psql',
-  '.Makefile', '.dockerignore', '.gitignore', '.env', '.envrc',
-  '.lua', '.rb', '.php', '.swift', '.r', '.dart',
-  '.tf', '.hcl', '.vue', '.svelte',
-])
-
-// Well-known text filenames that don't have extensions.
-const knownTextFilenames = new Set([
-  'Dockerfile', 'Makefile', 'README', 'LICENSE', 'CHANGELOG',
-  'Procfile', 'Jenkinsfile', 'Vagrantfile',
-])
-
-function isBinaryFile(path: string): boolean {
-  const ext = getExt(path)
-  if (!ext) {
-    // No extension — only treat as text if it's a well-known text filename.
-    const name = path.split('/').pop() ?? path
-    return !knownTextFilenames.has(name)
-  }
-  if (extToLanguage[ext]) return false
-  if (ext === '.md' || ext === '.markdown') return false
-  if (imageExtensions.includes(ext)) return false
-  if (audioExtensions.includes(ext)) return false
-  if (videoExtensions.includes(ext)) return false
-  if (plainTextExtensions.has(ext)) return false
-  return true
-}
-
-// looksBinary checks whether the first N bytes contain a NUL byte (0x00),
-// matching the backend's binary detection heuristic.
-function looksBinary(buf: ArrayBuffer): boolean {
-  const n = Math.min(buf.byteLength, 512)
-  const view = new Uint8Array(buf, 0, n)
-  for (let i = 0; i < n; i++) {
-    if (view[i] === 0) return true
-  }
-  return false
-}
-
-function getExt(path: string): string {
-  const name = path.split('/').pop() ?? path
-  const dot = name.lastIndexOf('.')
-  if (dot === -1) return ''
-  return name.slice(dot).toLowerCase()
-}
+import {
+  extToLanguage,
+  imageExtensions,
+  audioExtensions,
+  videoExtensions,
+  isBinaryFile,
+  looksBinary,
+  getExt,
+} from '@/lib/file'
 
 interface FileContentViewProps {
   path: string | null

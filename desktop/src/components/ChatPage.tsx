@@ -24,9 +24,8 @@ import { useRuntimeStore } from "@/stores/runtimeStore";
 
 import { cn } from "@/lib/utils";
 import type { AgentInfo, Project, AgentResponse, SkillInfo, FileInfo } from "@/types";
-import { SessionChangesPanel } from "@/components/SessionChangesPanel";
-import { SessionPlanPanel } from "@/components/SessionPlanPanel";
-import { SessionFilePanel } from "@/components/SessionFilePanel";
+import { useResizablePanes } from "@/hooks/useResizablePanes";
+import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
 import { 
   listL2Groups, listProjects, getTeams, getSkills, listAgents,
@@ -34,12 +33,6 @@ import {
 } from "@/lib/api";
 import { DesignPreview } from "@/components/DesignPreview";
 import type { ColoredStroke } from "@/components/ui/DrawOverlay";
-
-const DESIGN_MIN_RIGHT_RATIO = 0.5;
-const DESIGN_LEFT_MIN_WIDTH = 320;
-const DESIGN_DEFAULT_LEFT_WIDTH = 420;
-const DESIGN_DEFAULT_LEFT_WIDTH_SMALL = 380;
-const RESIZE_HANDLE_WIDTH = 4;
 
 function updateStrokesInHtml(html: string, strokes: any[]): string {
   const marker = '<script id="sketch-data" type="application/json">';
@@ -292,136 +285,25 @@ export function ChatPage() {
     }
   };
 
-  // Resizable inspector panel
-  const MIN_AREA_WIDTH = 200;
-  const [panelWidth, setPanelWidth] = useState(300);
-  const [isResizing, setIsResizing] = useState(false);
-  const splitContainerRef = useRef<HTMLDivElement>(null);
-  const resizeDragRef = useRef<{ startX: number; startPanelWidth: number } | null>(null);
-  const hasManuallyResized = useRef(false);
-  const isDesignModeRef = useRef(isDesignMode);
-  useEffect(() => { isDesignModeRef.current = isDesignMode; }, [isDesignMode]);
+  const {
+    panelWidth,
+    isResizing,
+    splitContainerRef,
+    handleResizeStart,
+    containerWidth,
+  } = useResizablePanes(isDesignMode, activeSessionId);
 
-  // Guard: when exiting design mode, ensure showInspector is false and
-  // inspectorPanelWidth is reset. This defensive reset handles any race
-  // condition (e.g. resize observer callbacks or stale event handlers)
-  // that might leave showInspector=true, which would erroneously display
-  // the Files/Changes panel after exiting design mode.
+  const MIN_AREA_WIDTH = 200;
+
   const prevIsDesignModeRef = useRef(isDesignMode);
   useEffect(() => {
     const wasDesignMode = prevIsDesignModeRef.current;
     prevIsDesignModeRef.current = isDesignMode;
-    
-    // When entering design mode, reset the manual resize flag
-    if (!wasDesignMode && isDesignMode) {
-      hasManuallyResized.current = false;
-    }
-    
-    // Only act on the transition from design → normal (not on initial mount
-    // or normal → design, so we don't interfere with design mode setup).
     if (wasDesignMode && !isDesignMode) {
       setShowInspector(false);
       useRuntimeStore.getState().setInspectorPanelWidth(0);
     }
   }, [isDesignMode]);
-
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    resizeDragRef.current = { startX: e.clientX, startPanelWidth: panelWidth };
-    setIsResizing(true);
-  }, [panelWidth]);
-
-  useEffect(() => {
-    if (!isResizing) return;
-    const handleMouseUp = () => {
-      resizeDragRef.current = null;
-      setIsResizing(false);
-    };
-    const handleMouseMove = (e: MouseEvent) => {
-      if (e.buttons === 0) {
-        handleMouseUp();
-        return;
-      }
-      if (!splitContainerRef.current) return;
-      const rect = splitContainerRef.current.getBoundingClientRect();
-      const drag = resizeDragRef.current;
-      if (!drag) return;
-
-      if (isDesignModeRef.current) {
-        hasManuallyResized.current = true;
-      }
-
-      const newWidth = drag.startPanelWidth - (e.clientX - drag.startX);
-      let clamped: number;
-      if (isDesignModeRef.current) {
-        // Design mode: preview is at least half; keep room for the chat pane and resize handle.
-        const minRight = Math.floor(rect.width * DESIGN_MIN_RIGHT_RATIO);
-        const maxRight = Math.max(minRight, rect.width - DESIGN_LEFT_MIN_WIDTH - RESIZE_HANDLE_WIDTH);
-        clamped = Math.max(minRight, Math.min(newWidth, maxRight));
-      } else {
-        const maxWidth = Math.floor(rect.width * 0.6);
-        clamped = Math.max(
-          MIN_AREA_WIDTH,
-          Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth),
-        );
-      }
-      setPanelWidth(clamped);
-      useRuntimeStore.getState().setInspectorPanelWidth(clamped);
-      if (clamped !== newWidth) {
-        resizeDragRef.current = { startX: e.clientX, startPanelWidth: clamped };
-      }
-    };
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isResizing]);
-
-  // Track split container width for responsive content sizing
-  const [containerWidth, setContainerWidth] = useState(0);
-  useEffect(() => {
-    const el = splitContainerRef.current;
-    if (!el) {
-      setContainerWidth(0);
-      return;
-    }
-    setContainerWidth(el.getBoundingClientRect().width);
-    const ro = new ResizeObserver(([entry]) => {
-      setContainerWidth(entry.contentRect.width);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [activeSessionId, isDesignMode]);
-
-  // Design mode defaults to a larger right preview pane, and automatically adjusts as the container resizes
-  // (e.g. when the sidebar collapses/expands) to keep the left chat width at its default,
-  // unless the user resizes it manually.
-  useEffect(() => {
-    if (!isDesignMode || containerWidth <= 0) {
-      return;
-    }
-    const minRight = Math.floor(containerWidth * DESIGN_MIN_RIGHT_RATIO);
-    const maxRight = Math.max(minRight, containerWidth - DESIGN_LEFT_MIN_WIDTH - RESIZE_HANDLE_WIDTH);
-    
-    if (hasManuallyResized.current) {
-      setPanelWidth((current) => {
-        const next = Math.max(minRight, Math.min(current, maxRight));
-        useRuntimeStore.getState().setInspectorPanelWidth(next);
-        return next;
-      });
-      return;
-    }
-
-    const defaultLeft = containerWidth >= 768 ? DESIGN_DEFAULT_LEFT_WIDTH : DESIGN_DEFAULT_LEFT_WIDTH_SMALL;
-    const targetWidth = Math.min(
-      Math.max(containerWidth - defaultLeft - RESIZE_HANDLE_WIDTH, minRight),
-      maxRight,
-    );
-    setPanelWidth(targetWidth);
-    useRuntimeStore.getState().setInspectorPanelWidth(targetWidth);
-  }, [isDesignMode, containerWidth]);
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([]);
@@ -681,6 +563,7 @@ export function ChatPage() {
   useEffect(() => {
     if (selectedGroup) {
       const groupProjs = teamProjectsMap[selectedGroup] || [];
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedProjectPath((prevPath) => {
         const valid = groupProjs.some((p) => p.path === prevPath);
         if (!valid) {
@@ -1413,6 +1296,7 @@ export function ChatPage() {
                             {showFileDropdown && (
                               <div
                                 className="fixed z-[100] mt-1 w-56 rounded-xl border border-border/40 bg-background shadow-xl overflow-hidden"
+                                // eslint-disable-next-line react-hooks/refs
                                 style={(() => {
                                   const rect = fileDropdownRef.current?.getBoundingClientRect();
                                   if (!rect) return {};
@@ -1635,24 +1519,14 @@ export function ChatPage() {
                         </div>
                       </div>
                     </div>
-                  ) : inspectorTab === "files" ? (
-                    activeSession?.project_path ? (
-                      <SessionFilePanel
-                        projectPath={activeSession.project_path}
-                        panelWidth={panelWidth}
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                        Current session not associated with a project
-                      </div>
-                    )
-                  ) : inspectorTab === "plan" && activeSession ? (
-                    <SessionPlanPanel
-                      plans={activeSession.plans || []}
+                  ) : (
+                    <SessionInspectorPanel
+                      activeSession={activeSession}
+                      inspectorTab={inspectorTab}
+                      setInspectorTab={setInspectorTab}
+                      panelWidth={panelWidth}
                     />
-                  ) : activeSession ? (
-                    <SessionChangesPanel sessionId={activeSession.id} />
-                  ) : null}
+                  )}
                 </div>
               </div>
             </>

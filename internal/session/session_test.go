@@ -776,54 +776,6 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 		}
 	})
 
-	t.Run("cancel when idle", func(t *testing.T) {
-		ch, err := s.AskStream(context.Background(), "/cancel")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		var events []iface.AgentEvent
-		for ev := range ch {
-			events = append(events, ev)
-		}
-		if len(events) < 2 {
-			t.Fatalf("expected at least 2 events, got %d", len(events))
-		}
-		delta, ok := events[0].(agent.ContentDeltaEvent)
-		if !ok || !strings.Contains(delta.Delta, "Cancellation failed:") {
-			t.Errorf("unexpected event content: %+v", events[0])
-		}
-	})
-
-	t.Run("cancel when busy", func(t *testing.T) {
-		// Mock activeCancel to simulate a running task
-		cancelCalled := false
-		s.activeCancel = func() {
-			cancelCalled = true
-		}
-
-		ch, err := s.AskStream(context.Background(), "/cancel")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		var events []iface.AgentEvent
-		for ev := range ch {
-			events = append(events, ev)
-		}
-		if len(events) < 2 {
-			t.Fatalf("expected at least 2 events, got %d", len(events))
-		}
-		delta, ok := events[0].(agent.ContentDeltaEvent)
-		if !ok || !strings.Contains(delta.Delta, "Current task has been cancelled") {
-			t.Errorf("unexpected event content: %+v", events[0])
-		}
-		if !cancelCalled {
-			t.Error("expected activeCancel to be called")
-		}
-
-		// Reset activeCancel
-		s.activeCancel = nil
-	})
-
 	t.Run("compact", func(t *testing.T) {
 		ch, err := s.AskStream(context.Background(), "/compact")
 		if err != nil {

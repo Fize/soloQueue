@@ -841,14 +841,7 @@ func (m *Mux) handleCancelSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := sess.CancelCurrent("User requested cancellation from desktop app"); err != nil {
-		if errors.Is(err, session.ErrNoActiveTask) {
-			m.writeJSON(w, http.StatusConflict, map[string]string{"error": "no active task to cancel"})
-			return
-		}
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
+	sess.ForceKill("User requested cancellation from desktop app")
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
