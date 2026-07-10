@@ -247,7 +247,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		}
 
 		// Apply per-ask model override (set by router, cleared after ask)
-		if override := a.modelOverride.Load(); override != nil {
+		if override := a.modelOverride.Load(); override != nil && !a.Def.ExplicitModel {
 			if override.ModelID != "" {
 				req.Model = override.ModelID
 			}

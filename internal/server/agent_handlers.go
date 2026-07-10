@@ -714,11 +714,13 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 		isQBot := false
 		levelLocked := false
 		lastLevel := ""
-		if a.Def.ID == "l1-agent" && m.sessionMgr != nil && m.sessionMgr.Session() != nil {
+		if m.sessionMgr != nil && m.sessionMgr.Session() != nil {
 			sess := m.sessionMgr.Session()
-			isQBot = sess.IsQBot()
-			levelLocked = sess.LevelLocked()
-			lastLevel = sess.CurrentLevel()
+			if a.Def.ID == "l1-agent" || (sess.Agent != nil && a.Def.ID == sess.Agent.Def.ID) {
+				isQBot = sess.IsQBot()
+				levelLocked = sess.LevelLocked()
+				lastLevel = sess.CurrentLevel()
+			}
 		}
 		mp := a.ModelOverride()
 		te := mp != nil && mp.ThinkingEnabled

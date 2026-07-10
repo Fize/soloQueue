@@ -342,14 +342,14 @@ func (a *Agent) MailboxDepth() (high, normal int) {
 // Definition defaults. Called by the router BEFORE AskStream/Ask.
 // The override is automatically cleared when the ask completes.
 //
-// If the agent has an explicitly configured model (from template), this is
-// a no-op — template model takes precedence over task-level routing.
+// SetModelOverride sets per-ask model parameters that take precedence over
+// Definition defaults (such as those configured in an agent template).
+// If the agent has an explicitly configured model (from template), the model override
+// fields (like ModelID, ProviderID, ContextWindow) are ignored by the getters and streamLoop,
+// but the task level (Level) is still applied.
 //
 // Thread-safe (atomic pointer store). Calling with nil clears the override.
 func (a *Agent) SetModelOverride(params *ModelParams) {
-	if a.Def.ExplicitModel {
-		return
-	}
 	a.modelOverride.Store(params)
 }
 
@@ -368,7 +368,7 @@ func (a *Agent) ModelOverride() *ModelParams {
 // It prefers the per-ask override (set by the router) and falls back to the
 // Definition default. Thread-safe (atomic pointer load).
 func (a *Agent) EffectiveModelID() string {
-	if mp := a.modelOverride.Load(); mp != nil && mp.ModelID != "" {
+	if mp := a.modelOverride.Load(); mp != nil && mp.ModelID != "" && !a.Def.ExplicitModel {
 		return mp.ModelID
 	}
 	return a.Def.ModelID
@@ -378,7 +378,7 @@ func (a *Agent) EffectiveModelID() string {
 // It prefers the per-ask override (set by the router) and falls back to the
 // Definition default. Thread-safe (atomic pointer load).
 func (a *Agent) EffectiveProviderID() string {
-	if mp := a.modelOverride.Load(); mp != nil && mp.ProviderID != "" {
+	if mp := a.modelOverride.Load(); mp != nil && mp.ProviderID != "" && !a.Def.ExplicitModel {
 		return mp.ProviderID
 	}
 	return a.Def.ProviderID
@@ -388,7 +388,7 @@ func (a *Agent) EffectiveProviderID() string {
 // It prefers the per-ask override (set by the router) and falls back to the
 // Definition default. Thread-safe (atomic pointer load).
 func (a *Agent) EffectiveContextWindow() int {
-	if mp := a.modelOverride.Load(); mp != nil && mp.ContextWindow > 0 {
+	if mp := a.modelOverride.Load(); mp != nil && mp.ContextWindow > 0 && !a.Def.ExplicitModel {
 		return mp.ContextWindow
 	}
 	return a.Def.ContextWindow
