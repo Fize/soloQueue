@@ -20,6 +20,10 @@ func (mockSessionManager) Session() cron.Session {
 	return nil
 }
 
+func (mockSessionManager) GetSession(ctx context.Context, teamID, taskID string) (cron.Session, bool, func(), error) {
+	return nil, false, nil, nil
+}
+
 func TestHTTP_CronHandlers(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "entries.db")

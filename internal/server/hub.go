@@ -12,6 +12,18 @@ import (
 
 // ─── WebSocket Message Types ────────────────────────────────────────────────
 
+// CronTaskStatus is a read-only representation of a scheduled task for the portal.
+type CronTaskStatus struct {
+	ID          string  `json:"id"`
+	Expression  string  `json:"expression"`
+	Instruction string  `json:"instruction"`
+	TargetAgent string  `json:"target_agent"`
+	Status      string  `json:"status"`
+	LastRunAt   *string `json:"last_run_at,omitempty"`
+	NextRunAt   string  `json:"next_run_at"`
+	IsOneTime   bool    `json:"is_one_time"`
+}
+
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
 	Type string `json:"type"`
@@ -39,8 +51,9 @@ type WSMessage struct {
 	TargetAgentID    string `json:"target_agent_id,omitempty"`
 	AgentName        string `json:"agent_name,omitempty"`
 	ResultContent    string `json:"result_content,omitempty"`
-	NumTasks         int      `json:"num_tasks,omitempty"`
-	Plans            []string `json:"plans,omitempty"`
+	NumTasks         int              `json:"num_tasks,omitempty"`
+	Plans            []string         `json:"plans,omitempty"`
+	CronTasks        []CronTaskStatus `json:"cron_tasks,omitempty"`
 }
 
 type ClientMessage struct {
@@ -259,6 +272,30 @@ func (h *Hub) buildStateMessage() *WSMessage {
 	}
 	if h.mux.registry != nil {
 		msg.Agents = h.mux.buildAgentList()
+	}
+	// Include cron task list in state broadcast.
+	if h.mux.toolsCfg != nil && h.mux.toolsCfg.CronStore != nil {
+		tasks, err := h.mux.toolsCfg.CronStore.ListTasks(context.Background())
+		if err == nil && len(tasks) > 0 {
+			cronTasks := make([]CronTaskStatus, 0, len(tasks))
+			for _, t := range tasks {
+				cts := CronTaskStatus{
+					ID:          t.ID,
+					Expression:  t.Expression,
+					Instruction: t.Instruction,
+					TargetAgent: t.TargetAgent,
+					Status:      t.Status,
+					NextRunAt:   t.NextRunAt.Format("2006-01-02 15:04:05"),
+					IsOneTime:   t.IsOneTime(),
+				}
+				if t.LastRunAt != nil {
+					s := t.LastRunAt.Format("2006-01-02 15:04:05")
+					cts.LastRunAt = &s
+				}
+				cronTasks = append(cronTasks, cts)
+			}
+			msg.CronTasks = cronTasks
+		}
 	}
 	return msg
 }

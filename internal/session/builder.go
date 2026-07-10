@@ -905,3 +905,141 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 
 	return s, nil
 }
+
+// BuildL2ForCron builds a simplified L2 session for cron/scheduled tasks.
+// Compared to BuildL2, it skips timeline replay, idle reaper, memory hooks,
+// supervisor registration, router, level file restore, meta file, and baseline
+// capture — cron sessions are short-lived and start fresh every time.
+func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir string) (*Session, error) {
+	agentID := "cron-l2-" + id + "-agent"
+	sessionID := "cron-l2-" + id + "-session"
+
+	// Find the leader template matching the group.
+	var leaderTmpl *agent.AgentTemplate
+	for i := range b.RT.AllTemplates {
+		t := &b.RT.AllTemplates[i]
+		if t.IsLeader && strings.EqualFold(t.Group, group) {
+			leaderTmpl = t
+			break
+		}
+	}
+	if leaderTmpl == nil {
+		return nil, fmt.Errorf("no leader template found for group %q", group)
+	}
+
+	settings := b.Cfg.Get()
+	sessLog, err := logger.System(b.WorkDir,
+		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
+		logger.WithConsole(b.ConsoleLog),
+		logger.WithFile(settings.Log.File),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build L2 cron session logger: %w", err)
+	}
+
+	// Create the L2 agent via the factory.
+	childAgent, _, err := b.RT.AgentFactory.Create(ctx, *leaderTmpl, b.WorkDir)
+	if err != nil {
+		return nil, fmt.Errorf("create L2 agent for cron group %q: %w", group, err)
+	}
+
+	// Create a Supervisor to track L3 children spawned by this L2 session.
+	sv := agent.NewSupervisor(childAgent, b.RT.AgentFactory, sessLog)
+	sv.WireSpawnFns(b.RT.AllTemplates)
+	sv.SetGroup(group)
+
+	// Register supervisor-scoped inspect_agent.
+	if err := childAgent.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
+		sessLog.Warn(logger.CatActor, "register inspect_agent for cron L2 failed",
+			"name", leaderTmpl.ID, "err", err.Error())
+	}
+
+	// Timeline writer — use the caller-supplied cronLogDir.
+	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
+	if tlMaxFileMB > 50 {
+		tlMaxFileMB = 50
+	}
+	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
+	tl, err := timeline.NewWriter(cronLogDir, "timeline", tlMaxBytes, 15,
+		timeline.WithWriterLogger(sessLog))
+	if err != nil {
+		childAgent.Stop(5 * time.Second)
+		return nil, fmt.Errorf("build L2 cron timeline writer: %w", err)
+	}
+
+	// Context window model config.
+	effectiveCW := childAgent.Def.ContextWindow
+	if effectiveCW <= 0 {
+		effectiveCW = agent.DefaultContextWindow
+	}
+
+	// Summary hook (timeline-only).
+	summaryHook := func(segments []ctxwin.SummarySegment) {
+		for _, seg := range segments {
+			if err := tl.AppendControl(&timeline.ControlPayload{
+				Action:  "summary",
+				Reason:  "auto_compact",
+				Content: seg.Summary,
+			}); err != nil {
+				sessLog.Error(logger.CatActor, "timeline summary append failed",
+					"err", err.Error(), "agent_id", agentID)
+			}
+		}
+	}
+
+	// Push hook: writes every message to timeline.
+	pushHook := func(msg ctxwin.Message) {
+		var toolCalls []timeline.ToolCallRec
+		for _, tc := range msg.ToolCalls {
+			toolCalls = append(toolCalls, timeline.ToolCallRec{
+				ID:        tc.ID,
+				Type:      tc.Type,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+		if err := tl.AppendMessage(&timeline.MessagePayload{
+			Role:             string(msg.Role),
+			Content:          msg.Content,
+			ReasoningContent: msg.ReasoningContent,
+			Name:             msg.Name,
+			ToolCallID:       msg.ToolCallID,
+			ToolCalls:        toolCalls,
+			IsEphemeral:      msg.IsEphemeral,
+			AgentID:          agentID,
+		}); err != nil {
+			sessLog.Error(logger.CatActor, "timeline append failed",
+				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
+		}
+	}
+
+	cw := ctxwin.NewContextWindow(
+		effectiveCW,
+		effectiveCW/10,
+		0,
+		b.RT.Tokenizer,
+		ctxwin.WithPushHook(pushHook),
+		ctxwin.WithSummaryHook(summaryHook),
+		ctxwin.WithCompactor(b.RT.Compactor),
+	)
+
+	// Push L2 system prompt without writing to timeline.
+	cw.SetReplayMode(true)
+	if childAgent.Def.SystemPrompt != "" {
+		cw.Push(ctxwin.RoleSystem, childAgent.Def.SystemPrompt)
+	}
+	cw.SetReplayMode(false)
+
+	// Build the Session — no idle reaper, no router, no level file, no supervisor
+	// registration, no memory hooks. Cron sessions are short-lived.
+	sessLogger := sessLog.Child()
+	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
+
+	sessLog.Info(logger.CatActor, "BuildL2ForCron: session created",
+		"session_id", sessionID,
+		"group", group,
+		"agent_id", agentID,
+	)
+
+	return s, nil
+}

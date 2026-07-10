@@ -49,6 +49,17 @@ interface AgentStreamState {
   iteration: number
 }
 
+interface CronTaskStatus {
+  id: string
+  expression: string
+  instruction: string
+  target_agent: string
+  status: string // active, paused, completed, running, failed
+  last_run_at: string | null
+  next_run_at: string
+  is_one_time: boolean
+}
+
 interface RuntimeStatus {
   phase: string
   prompt_tokens: number
@@ -279,6 +290,7 @@ export default function App() {
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('disconnected')
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [cronTasks, setCronTasks] = useState<CronTaskStatus[]>([])
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -319,6 +331,7 @@ export default function App() {
         if (msg.type === 'state') {
           if (msg.runtime) setRuntime(msg.runtime)
           if (msg.agents?.agents) setAgents(msg.agents.agents)
+          if (msg.cron_tasks) setCronTasks(msg.cron_tasks)
         }
       } catch {
         // ignore malformed messages
@@ -741,6 +754,92 @@ export default function App() {
             )}
           </div>
         </section>
+
+        {/* ─── Scheduled Tasks ─── */}
+        {isConnected && cronTasks.length > 0 && (
+          <section
+            className="rounded-xl overflow-hidden animate-slide-up"
+            style={{
+              backgroundColor: 'var(--md-surface-container-low)',
+              boxShadow: 'var(--md-elevation-1)',
+            }}
+          >
+            {/* Section header */}
+            <div
+              className="px-4 sm:px-6 py-4 border-b flex items-center justify-between flex-wrap gap-2"
+              style={{ borderColor: 'var(--md-outline-variant)' }}
+            >
+              <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--md-on-surface)' }}>
+                <RefreshCw className="h-4 w-4" style={{ color: 'var(--md-primary)' }} />
+                Scheduled Tasks
+              </h2>
+              <span className="text-xs font-mono" style={{ color: 'var(--md-on-surface-variant)' }}>
+                {cronTasks.length} task{cronTasks.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Task cards */}
+            <div className="divide-y" style={{ borderColor: 'var(--md-outline-variant)' }}>
+              {cronTasks.map((task) => {
+                const statusColors: Record<string, { bg: string; fg: string }> = {
+                  active:    { bg: 'color-mix(in srgb, var(--md-success) 12%, transparent)', fg: 'var(--md-success)' },
+                  paused:    { bg: 'color-mix(in srgb, var(--md-warning) 12%, transparent)', fg: 'var(--md-warning)' },
+                  completed: { bg: 'color-mix(in srgb, var(--md-outline) 12%, transparent)', fg: 'var(--md-outline)' },
+                  running:   { bg: 'color-mix(in srgb, var(--md-primary) 12%, transparent)', fg: 'var(--md-primary)' },
+                  failed:    { bg: 'color-mix(in srgb, var(--md-error) 12%, transparent)', fg: 'var(--md-error)' },
+                }
+                const sc = statusColors[task.status] || statusColors.completed
+                const isL1 = task.target_agent === 'L1'
+                const agentColor = isL1
+                  ? { bg: 'color-mix(in srgb, #3b82f6 12%, transparent)', fg: '#3b82f6' }
+                  : { bg: 'color-mix(in srgb, #22c55e 12%, transparent)', fg: '#22c55e' }
+
+                return (
+                  <div
+                    key={task.id}
+                    className="px-4 sm:px-6 py-3 flex items-start gap-3"
+                    style={{ animationDelay: `${cronTasks.indexOf(task) * 30}ms` }}
+                  >
+                    {/* Instruction */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate" style={{ color: 'var(--md-on-surface)' }}>
+                        {task.instruction.length > 60
+                          ? task.instruction.slice(0, 60) + '…'
+                          : task.instruction}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        {/* Target agent badge */}
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold"
+                          style={{
+                            backgroundColor: agentColor.bg,
+                            color: agentColor.fg,
+                          }}
+                        >
+                          {task.target_agent}
+                        </span>
+                        {/* Status badge */}
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold"
+                          style={{
+                            backgroundColor: sc.bg,
+                            color: sc.fg,
+                          }}
+                        >
+                          {task.status}
+                        </span>
+                        {/* Next run */}
+                        <span className="text-[10px] font-mono" style={{ color: 'var(--md-outline)' }}>
+                          Next: {task.next_run_at}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         {/* ─── Footer Info ─── */}
         {isConnected && runtime && (

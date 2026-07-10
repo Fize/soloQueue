@@ -581,7 +581,7 @@ function SubagentCard({
           onClick={() => setModalOpen(false)}
         >
           <div
-            className="bg-card border border-border/60 rounded-2xl shadow-2xl w-[90vw] max-w-4xl h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+            className="bg-background border border-border/60 rounded-2xl shadow-2xl w-[90vw] max-w-4xl h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border/50 bg-card/50">
@@ -606,7 +606,7 @@ function SubagentCard({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 bg-card/20">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 bg-card/20">
               {running && agentStream ? (
                 <AgentStreamView state={agentStream} />
               ) : hasResult ? (

@@ -16,25 +16,30 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// Session defines the interface required by the Scheduler to trigger tasks,
-// decoupling the cron package from the concrete session package to prevent circular imports.
+// Session defines the interface required by the Scheduler to trigger tasks.
 type Session interface {
 	Idle() bool
 	QueueMessage(prompt string)
 	AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
 	// AskIsolated executes a prompt in a clean context (no conversation history,
-	// no writes to the session's ContextWindow or timeline). Used by the cron
-	// scheduler so that scheduled tasks never pollute the user's conversation.
+	// no writes to the session's ContextWindow or timeline).
 	AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
 }
 
-// SessionManager defines the interface required to retrieve the active session.
+// SessionManager provides sessions for scheduled task execution.
 type SessionManager interface {
+	// Session returns the L1 session (may be nil if not initialized).
 	Session() Session
+
+	// GetSession returns a session for the given teamID.
+	// For "L1": returns the existing L1 session, isNew=false, no-op cleanup.
+	// For other teams (e.g. "engineering", "design"): creates a new L2 session,
+	// isNew=true, cleanup func must be called after execution.
+	// The caller MUST call cleanup() when done with a new session.
+	GetSession(ctx context.Context, teamID, taskID string) (sess Session, isNew bool, cleanup func(), err error)
 }
 
 // SendFileMedia holds metadata about a file the agent sent via the SendFile tool.
-// FileType mirrors QQ Bot's file type constants: 1=image, 2=video, 3=voice, 4=file.
 type SendFileMedia struct {
 	FileType   int
 	URL        string
@@ -43,8 +48,29 @@ type SendFileMedia struct {
 }
 
 // TaskCompletedHook defines the callback invoked when a scheduled task completes.
-// mediaFiles contains any files sent via the SendFile tool during the task.
 type TaskCompletedHook func(ctx context.Context, task Task, reply string, mediaFiles []SendFileMedia)
+
+// MemoryEngine is the interface required for memory recall during cron execution.
+type MemoryEngine interface {
+	Search(ctx context.Context, query string, limit int) (string, error)
+}
+
+// BuildRecalledContextFn is a function type that enriches a prompt with recalled memories.
+type BuildRecalledContextFn func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string
+
+// cronTask wraps a Task with its execution metadata.
+type cronTask struct {
+	task     Task
+	enqueued time.Time
+}
+
+// pendingResult holds a completed L2 task result awaiting delivery to L1.
+type pendingResult struct {
+	task       Task
+	reply      string
+	mediaFiles []SendFileMedia
+	completed  time.Time
+}
 
 // Scheduler manages executing scheduled tasks (both cron and timer-based) in the background.
 type Scheduler struct {
@@ -53,10 +79,26 @@ type Scheduler struct {
 	logger     *logger.Logger
 	cron       *robfig.Cron
 
+	// Memory engine for recall enrichment of cron prompts
+	memoryEngine    interface{}
+	buildRecalledFn BuildRecalledContextFn
+
+	// L1 task queue: serializes L1-targeted cron tasks
+	l1Queue   []cronTask
+	l1Mu      sync.Mutex
+	l1Cond    *sync.Cond
+	l1Running bool
+
+	// L2 result queue: delivers completed L2 results to L1
+	resultQueue []pendingResult
+	resultMu    sync.Mutex
+	resultCond  *sync.Cond
+
 	mu              sync.Mutex
 	entries         map[string]robfig.EntryID
 	timers          map[string]*time.Timer
 	onTaskCompleted TaskCompletedHook
+	stopped         bool
 }
 
 // OnTaskCompleted registers a callback for completed tasks.
@@ -75,7 +117,7 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 			panic(err)
 		}
 	}
-	return &Scheduler{
+	s := &Scheduler{
 		dbStore:    db,
 		sessionMgr: sm,
 		logger:     l,
@@ -88,18 +130,25 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 		entries: make(map[string]robfig.EntryID),
 		timers:  make(map[string]*time.Timer),
 	}
+	s.l1Cond = sync.NewCond(&s.l1Mu)
+	s.resultCond = sync.NewCond(&s.resultMu)
+	return s
+}
+
+// SetMemoryEngine configures the scheduler to enrich cron prompts with recalled memories.
+// buildFn is typically session.BuildRecalledContext.
+func (s *Scheduler) SetMemoryEngine(engine interface{}, buildFn BuildRecalledContextFn) {
+	s.memoryEngine = engine
+	s.buildRecalledFn = buildFn
 }
 
 // Start loads all active tasks from DB, resets any stale 'running' tasks
 // (crash recovery), schedules them, and starts the cron runner.
+// Also starts the L1 result delivery goroutine.
 func (s *Scheduler) Start(ctx context.Context) error {
-	// Reset any tasks stuck in 'running' from a previous crash. Use a 1-minute
-	// buffer so tasks that were very recently claimed (milliseconds ago) are not
-	// spuriously reset during rolling restarts.
 	resetCount, err := s.dbStore.ResetStaleRunning(ctx, time.Now().Add(-1*time.Minute))
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: failed to reset stale running tasks", "err", err)
-		// Non-fatal: continue even if reset fails
 	}
 	if resetCount > 0 {
 		s.logger.Info(logger.CatApp, "cron: reset stale running tasks", "count", resetCount)
@@ -115,22 +164,35 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.Schedule(task)
 	}
 
+	// Start background goroutines for L1 task queue and L2 result delivery.
+	go s.l1QueueLoop()
+	go s.l1ResultLoop()
+
 	s.cron.Start()
 	s.logger.InfoContext(ctx, logger.CatApp, "cron: scheduler daemon started successfully")
 	return nil
 }
 
-// Stop stops the background cron runner and cancels all active one-time timers.
+// Stop stops the background cron runner, cancels all active timers, and
+// signals the background loops to exit.
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stopped = true
+	s.mu.Unlock()
 
 	s.cron.Stop()
+	s.mu.Lock()
 	for _, timer := range s.timers {
 		timer.Stop()
 	}
 	s.entries = make(map[string]robfig.EntryID)
 	s.timers = make(map[string]*time.Timer)
+	s.mu.Unlock()
+
+	// Wake up background loops so they can exit.
+	s.l1Cond.Broadcast()
+	s.resultCond.Broadcast()
+
 	s.logger.Info(logger.CatApp, "cron: scheduler daemon stopped")
 }
 
@@ -139,13 +201,11 @@ func (s *Scheduler) Schedule(t Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Cancel existing first to handle updates
 	s.unscheduleLocked(t.ID)
 
 	if t.IsOneTime() {
 		delay := time.Until(t.NextRunAt)
 		if delay <= 0 {
-			// Trigger immediately if time has passed
 			go s.executeTask(t)
 			return
 		}
@@ -192,66 +252,184 @@ func (s *Scheduler) unscheduleLocked(taskID string) {
 	}
 }
 
-func (s *Scheduler) executeTask(t Task) {
-	s.logger.Info(logger.CatApp, "cron: task execution triggered", "task_id", t.ID, "instruction", t.Instruction)
+// isL1Target returns true if the task targets L1.
+func isL1Target(task Task) bool {
+	target := strings.TrimSpace(task.TargetAgent)
+	return target == "" || strings.EqualFold(target, "L1")
+}
 
-	// Two-phase commit: atomically claim the task. If claim fails, another
-	// instance is already executing it — skip silently.
+// executeTask is the entry point for all task executions.
+// It dispatches to the appropriate execution path based on TargetAgent.
+func (s *Scheduler) executeTask(t Task) {
+	s.logger.Info(logger.CatApp, "cron: task execution triggered", "task_id", t.ID,
+		"instruction", t.Instruction, "target_agent", t.TargetAgent)
+
+	if isL1Target(t) {
+		s.executeL1Task(t)
+	} else {
+		s.executeL2Task(t)
+	}
+}
+
+// executeL1Task handles tasks targeting L1. If L1 is busy, the task is queued
+// and executed later by l1QueueLoop.
+func (s *Scheduler) executeL1Task(t Task) {
 	ctx := context.Background()
+
+	// Two-phase commit: claim the task.
 	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
 	if err != nil {
-		s.logger.Error(logger.CatApp, "cron: failed to claim task", "task_id", t.ID, "err", err)
+		s.logger.Error(logger.CatApp, "cron: failed to claim L1 task", "task_id", t.ID, "err", err)
 		return
 	}
 	if !claimed {
-		s.logger.Debug(logger.CatApp, "cron: task already claimed by another instance, skipping", "task_id", t.ID)
+		s.logger.Debug(logger.CatApp, "cron: L1 task already claimed by another instance, skipping", "task_id", t.ID)
 		return
 	}
 
-	// Panic recovery: if executeTask panics, catch it, log, and mark the task
-	// as failed so it doesn't remain stuck in 'running' state.
+	// Panic recovery: catch panic, log, return to 'active' for retry.
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
-			s.logger.Error(logger.CatApp, "cron: task execution panicked", "task_id", t.ID, "panic", panicValue)
-			// Mark as 'active' so it can be retried on next schedule tick
-			if err := s.dbStore.UpdateTaskStatus(ctx, t.ID, "active"); err != nil {
-				s.logger.Error(logger.CatApp, "cron: failed to reset panicked task", "task_id", t.ID, "err", err)
-			}
+			s.logger.Error(logger.CatApp, "cron: L1 task execution panicked", "task_id", t.ID, "panic", panicValue)
+			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		}
 	}()
 
-	session := s.sessionMgr.Session()
-	if session == nil {
-		s.logger.Warn(logger.CatApp, "cron: task execution skipped, no active session", "task_id", t.ID)
-		// Release the claim so task can be retried
+	l1Session := s.sessionMgr.Session()
+	if l1Session == nil {
+		s.logger.Warn(logger.CatApp, "cron: L1 task skipped, no active session", "task_id", t.ID)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		return
 	}
 
-	if !session.Idle() {
-		s.logger.Warn(logger.CatApp, "cron: session busy, queueing task into pending queue", "task_id", t.ID)
-		session.QueueMessage(buildCronPrompt(t))
-		// Task is queued rather than executed; release the claim.
+	if !l1Session.Idle() {
+		// L1 is busy with user conversation — queue the task for later.
+		s.logger.Info(logger.CatApp, "cron: L1 busy, queuing L1 task", "task_id", t.ID)
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active") // release claim
+		s.l1Mu.Lock()
+		s.l1Queue = append(s.l1Queue, cronTask{task: t, enqueued: time.Now()})
+		s.l1Mu.Unlock()
+		s.l1Cond.Signal()
+		return
+	}
+
+	s.runL1Task(ctx, t, l1Session)
+}
+
+// runL1Task executes a single L1 task on the given session.
+func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
+	start := time.Now()
+
+	prompt := s.buildTaskPrompt(t)
+	cronCtx := s.buildCronContext(t)
+	ch, err := l1Session.AskIsolated(cronCtx, prompt)
+	if err != nil {
+		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		return
+	}
+
+	replyText, mediaFiles := drainEvents(ch)
+	duration := time.Since(start)
+	s.logger.Info(logger.CatApp, "cron: L1 task completed", "task_id", t.ID, "duration_ms", duration.Milliseconds())
+
+	// Invoke QQ bot callback if applicable.
+	s.invokeCompletionHook(t, replyText, mediaFiles)
+
+	s.updateTaskAfterExecution(ctx, t)
+}
+
+// executeL2Task handles tasks targeting an L2 team. Creates a temporary
+// L2 session, executes the task, and queues the result for L1 delivery.
+func (s *Scheduler) executeL2Task(t Task) {
+	ctx := context.Background()
+
+	// Two-phase commit: claim the task.
+	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
+	if err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to claim L2 task", "task_id", t.ID, "err", err)
+		return
+	}
+	if !claimed {
+		s.logger.Debug(logger.CatApp, "cron: L2 task already claimed, skipping", "task_id", t.ID)
+		return
+	}
+
+	// Panic recovery.
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			s.logger.Error(logger.CatApp, "cron: L2 task execution panicked", "task_id", t.ID, "panic", panicValue)
+			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		}
+	}()
+
+	// Get session for this L2 team.
+	l2Session, isNew, cleanup, err := s.sessionMgr.GetSession(ctx, t.TargetAgent, t.ID)
+	if err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to get L2 session", "task_id", t.ID, "target", t.TargetAgent, "err", err)
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		return
+	}
+	if isNew && cleanup != nil {
+		defer cleanup()
+	}
+
+	if l2Session == nil {
+		s.logger.Warn(logger.CatApp, "cron: L2 session is nil", "task_id", t.ID, "target", t.TargetAgent)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		return
 	}
 
 	start := time.Now()
-	// Use AskIsolated so the task runs in a clean context (no conversation history,
-	// no ContextWindow/timeline writes). This prevents stale history from
-	// confusing the agent (e.g. mistaking the instruction for a new schedule request)
-	// and avoids polluting the user's conversation with cron tool-call chains.
-	isQBot := t.QQOpenID != "" || t.QQChatID != "" || t.QQSource != 0
-	cronCtx := iface.ContextWithBypassConfirm(context.Background())
-	cronCtx = iface.ContextWithIsQBot(cronCtx, isQBot)
-	ch, err := session.AskIsolated(cronCtx, buildCronPrompt(t))
+
+	prompt := s.buildTaskPrompt(t)
+	cronCtx := s.buildCronContext(t)
+	ch, err := l2Session.AskIsolated(cronCtx, prompt)
 	if err != nil {
-		s.logger.Error(logger.CatApp, "cron: task execution failed to start", "task_id", t.ID, "err", err)
+		s.logger.Error(logger.CatApp, "cron: L2 task execution failed to start", "task_id", t.ID, "err", err)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		return
 	}
 
-	// Drain the channel, collect assistant response text and any SendFile media.
+	replyText, mediaFiles := drainEvents(ch)
+	duration := time.Since(start)
+	s.logger.Info(logger.CatApp, "cron: L2 task completed", "task_id", t.ID,
+		"target", t.TargetAgent, "duration_ms", duration.Milliseconds())
+
+	// Invoke QQ bot callback if applicable.
+	s.invokeCompletionHook(t, replyText, mediaFiles)
+
+	// Queue the result for L1 delivery.
+	s.enqueueL2Result(t, replyText, mediaFiles)
+
+	s.updateTaskAfterExecution(ctx, t)
+}
+
+// buildTaskPrompt builds the prompt for a task, optionally enriched with recalled memories.
+func (s *Scheduler) buildTaskPrompt(t Task) string {
+	basePrompt := buildCronPrompt(t)
+
+	if s.memoryEngine != nil && s.buildRecalledFn != nil {
+		recalled := s.buildRecalledFn(context.Background(), t.Instruction, s.memoryEngine, s.logger)
+		if recalled != "" {
+			// Prepend recalled memories to the base prompt.
+			basePrompt = recalled + "\n\n" + basePrompt
+		}
+	}
+
+	return basePrompt
+}
+
+// buildCronContext creates a context with bypass-confirm and QBot flags.
+func (s *Scheduler) buildCronContext(t Task) context.Context {
+	isQBot := t.QQOpenID != "" || t.QQChatID != "" || t.QQSource != 0
+	cronCtx := iface.ContextWithBypassConfirm(context.Background())
+	cronCtx = iface.ContextWithIsQBot(cronCtx, isQBot)
+	return cronCtx
+}
+
+// drainEvents drains an AgentEvent channel, collecting reply text and SendFile media.
+func drainEvents(ch <-chan iface.AgentEvent) (string, []SendFileMedia) {
 	var contentBuf strings.Builder
 	var mediaFiles []SendFileMedia
 	for ev := range ch {
@@ -261,7 +439,6 @@ func (s *Scheduler) executeTask(t Task) {
 			}
 		}
 
-		// Use reflection to extract ToolExecDoneEvent without importing agent package (avoids cycle)
 		rv := reflect.ValueOf(ev)
 		if rv.Type().Name() == "ToolExecDoneEvent" {
 			name := rv.FieldByName("Name").String()
@@ -273,20 +450,156 @@ func (s *Scheduler) executeTask(t Task) {
 			}
 		}
 	}
-	replyText := contentBuf.String()
+	return contentBuf.String(), mediaFiles
+}
 
-	duration := time.Since(start)
-	s.logger.Info(logger.CatApp, "cron: task execution completed successfully", "task_id", t.ID, "duration_ms", duration.Milliseconds())
+// enqueueL2Result adds a completed L2 task result to the delivery queue.
+func (s *Scheduler) enqueueL2Result(t Task, reply string, mediaFiles []SendFileMedia) {
+	s.resultMu.Lock()
+	s.resultQueue = append(s.resultQueue, pendingResult{
+		task:       t,
+		reply:      reply,
+		mediaFiles: mediaFiles,
+		completed:  time.Now(),
+	})
+	s.resultMu.Unlock()
+	s.resultCond.Signal()
+}
 
-	// Invoke callback if registered and task originated from QQ bot
+// l1QueueLoop runs in a background goroutine. It processes queued L1 tasks
+// one at a time when L1 becomes idle.
+func (s *Scheduler) l1QueueLoop() {
+	s.l1Mu.Lock()
+	defer s.l1Mu.Unlock()
+
+	for {
+		// Check if stopped.
+		s.mu.Lock()
+		stopped := s.stopped
+		s.mu.Unlock()
+		if stopped {
+			return
+		}
+
+		for len(s.l1Queue) == 0 && !stopped {
+			s.l1Cond.Wait()
+			s.mu.Lock()
+			stopped = s.stopped
+			s.mu.Unlock()
+		}
+		if stopped {
+			return
+		}
+
+		ct := s.l1Queue[0]
+		s.l1Queue = s.l1Queue[0:]
+		s.l1Mu.Unlock()
+
+		// Wait for L1 to be idle.
+		l1Session := s.sessionMgr.Session()
+		if l1Session != nil {
+			for !l1Session.Idle() {
+				time.Sleep(100 * time.Millisecond)
+				s.mu.Lock()
+				stopped = s.stopped
+				s.mu.Unlock()
+				if stopped {
+					s.l1Mu.Lock()
+					return
+				}
+			}
+			s.runL1Task(context.Background(), ct.task, l1Session)
+		}
+
+		s.l1Mu.Lock()
+	}
+}
+
+// l1ResultLoop runs in a background goroutine. It drains the L2 result queue
+// and delivers each result to L1 via AskStream (so the user sees it).
+func (s *Scheduler) l1ResultLoop() {
+	s.resultMu.Lock()
+	defer s.resultMu.Unlock()
+
+	for {
+		s.mu.Lock()
+		stopped := s.stopped
+		s.mu.Unlock()
+		if stopped {
+			return
+		}
+
+		for len(s.resultQueue) == 0 && !stopped {
+			s.resultCond.Wait()
+			s.mu.Lock()
+			stopped = s.stopped
+			s.mu.Unlock()
+		}
+		if stopped {
+			return
+		}
+
+		pr := s.resultQueue[0]
+		s.resultQueue = s.resultQueue[1:]
+		s.resultMu.Unlock()
+
+		// Deliver to L1 when idle.
+		l1Session := s.sessionMgr.Session()
+		if l1Session != nil {
+			for !l1Session.Idle() {
+				time.Sleep(100 * time.Millisecond)
+				s.mu.Lock()
+				stopped = s.stopped
+				s.mu.Unlock()
+				if stopped {
+					s.resultMu.Lock()
+					return
+				}
+			}
+			s.deliverResultToL1(l1Session, pr)
+		}
+
+		s.resultMu.Lock()
+	}
+}
+
+// deliverResultToL1 sends a completed L2 task result to L1 via AskStream
+// so the result appears in the conversation and the user can see it.
+func (s *Scheduler) deliverResultToL1(l1Session Session, pr pendingResult) {
+	prompt := fmt.Sprintf(
+		"[Scheduled Task Completed]\n"+
+			"Task ID: %s\n"+
+			"Target Agent: %s\n"+
+			"Schedule: %s\n"+
+			"Completed at: %s\n"+
+			"\nThe following scheduled task has been executed. Please review and present the result to the user:\n\n%s",
+		pr.task.ID, pr.task.TargetAgent, pr.task.Expression,
+		pr.completed.Format("2006-01-02 15:04:05"), pr.reply,
+	)
+
+	ctx := iface.ContextWithBypassConfirm(context.Background())
+	ch, err := l1Session.AskStream(ctx, prompt)
+	if err != nil {
+		s.logger.Warn(logger.CatApp, "cron: failed to deliver L2 result to L1", "task_id", pr.task.ID, "err", err)
+		return
+	}
+	// Drain events silently (the result is already in CW/WS via AskStream).
+	for range ch {
+	}
+}
+
+// invokeCompletionHook calls the QQ bot callback if registered.
+func (s *Scheduler) invokeCompletionHook(t Task, reply string, mediaFiles []SendFileMedia) {
 	s.mu.Lock()
 	hook := s.onTaskCompleted
 	s.mu.Unlock()
 	if hook != nil && t.QQSource != -1 {
-		hook(context.Background(), t, replyText, mediaFiles)
+		hook(context.Background(), t, reply, mediaFiles)
 	}
+}
 
-	// Update DB timestamps: one-time → completed, periodic → update next_run
+// updateTaskAfterExecution updates DB timestamps after successful execution.
+func (s *Scheduler) updateTaskAfterExecution(ctx context.Context, t Task) {
 	if t.IsOneTime() {
 		_ = s.dbStore.MarkCompleted(ctx, t.ID)
 	} else {
@@ -296,9 +609,6 @@ func (s *Scheduler) executeTask(t Task) {
 }
 
 // buildCronPrompt wraps a task's instruction with a scheduler-context header.
-// Without this header, the LLM has no way to distinguish "a scheduled task is
-// being triggered" from "the user is requesting a new scheduled task", causing
-// it to misfire Rule 21 and call schedule_task instead of executing the work.
 func buildCronPrompt(t Task) string {
 	triggerTime := time.Now().Format("2006-01-02 15:04:05")
 	scheduleDesc := t.Expression

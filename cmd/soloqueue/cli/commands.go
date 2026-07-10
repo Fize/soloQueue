@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/server"
@@ -94,7 +96,20 @@ func ServeCmd(version string) *cobra.Command {
 
 			// Initialize Scheduled Tasks (Cron & Timers) system
 			cronStore := cron.NewDBStore(rt.SharedDB)
-			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{mgr: mgr}, log)
+			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
+			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
+				mgr:     mgr,
+				builder: builder,
+				workDir: workDir,
+			}, log)
+
+			// Wire memory engine into the scheduler so cron tasks can recall memories.
+			if rt.MemoryEngine != nil {
+				cronScheduler.SetMemoryEngine(rt.MemoryEngine, func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string {
+				return session.BuildRecalledContext(ctx, prompt, memEngine.(*memoryengine.Engine), log)
+			})
+			}
+
 			if err := cronScheduler.Start(context.Background()); err != nil {
 				return fmt.Errorf("start cron scheduler: %w", err)
 			}
@@ -128,7 +143,6 @@ func ServeCmd(version string) *cobra.Command {
 			// ── L2 Session Store ──
 			// Manages multiple L2 sessions for direct conversation (web chat + QQ bots).
 			// Each L2 session has its own agent, timeline, and context window.
-			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
 			l2Store := session.NewL2SessionStore(builder, workDir, log)
 
 			// ── Daily memory flush (midnight) ──
@@ -341,7 +355,9 @@ func VersionCmd(version string) *cobra.Command {
 }
 
 type cronSessionManagerWrapper struct {
-	mgr *session.SessionManager
+	mgr     *session.SessionManager
+	builder *session.Builder
+	workDir string
 }
 
 func (w cronSessionManagerWrapper) Session() cron.Session {
@@ -350,6 +366,43 @@ func (w cronSessionManagerWrapper) Session() cron.Session {
 		return nil
 	}
 	return s
+}
+
+// GetSession returns a session for the given teamID.
+// For "L1" (or empty): returns the existing L1 session with no-op cleanup.
+// For other teams: creates a temporary L2 session via BuildL2ForCron with
+// a cron-specific log directory at workDir/logs/cron/<taskID>/.
+func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskID string) (cron.Session, bool, func(), error) {
+	if teamID == "" || strings.EqualFold(teamID, "L1") {
+		s := w.mgr.Session()
+		if s == nil {
+			return nil, false, nil, fmt.Errorf("L1 session not initialized")
+		}
+		return s, false, nil, nil
+	}
+
+	// Create a temporary L2 session for this L2 team.
+	cronLogDir := filepath.Join(w.workDir, "logs", "cron", taskID)
+
+	// Ensure the cron log directory exists.
+	if err := os.MkdirAll(cronLogDir, 0755); err != nil {
+		return nil, false, nil, fmt.Errorf("create cron log dir: %w", err)
+	}
+
+	l2Session, err := w.builder.BuildL2ForCron(ctx, taskID, teamID, cronLogDir)
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("build L2 session for cron: %w", err)
+	}
+
+	cleanup := func() {
+		// Stop the agent with a timeout.
+		_ = l2Session.Agent.Stop(5 * time.Second)
+
+		// Close the session (timeline writer is closed internally).
+		l2Session.Close()
+	}
+
+	return l2Session, true, cleanup, nil
 }
 
 
