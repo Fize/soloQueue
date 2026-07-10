@@ -95,53 +95,6 @@ func (f *fakeDoneNotifier) OnDelegationDone() {
 	f.mu.Unlock()
 }
 
-// ─── PeerTeamCatalog tests ───────────────────────────────────────────────────
-
-func TestListPeerTeamsTool_ExcludesSelf(t *testing.T) {
-	catalog := []PeerTeamInfo{
-		{Name: "dev", Group: "engineering", LeaderDescription: "dev team", WorkerCount: 3},
-		{Name: "ops", Group: "ops", LeaderDescription: "ops team", WorkerCount: 2},
-	}
-	tool := NewListPeerTeamsTool(catalog, "dev")
-
-	args := `{}`
-	result, err := tool.Execute(context.Background(), args)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if strings.Contains(result, `"dev"`) {
-		t.Errorf("result should exclude self team 'dev', got: %s", result)
-	}
-	if !strings.Contains(result, `"ops"`) {
-		t.Errorf("result should include peer team 'ops', got: %s", result)
-	}
-}
-
-func TestListPeerTeamsTool_EmptyCatalog(t *testing.T) {
-	tool := NewListPeerTeamsTool(nil, "dev")
-	result, err := tool.Execute(context.Background(), `{}`)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	if !strings.Contains(result, "No peer teams available") {
-		t.Errorf("expected 'No peer teams available' message, got: %s", result)
-	}
-}
-
-func TestListPeerTeamsTool_NameAndSchema(t *testing.T) {
-	tool := NewListPeerTeamsTool(nil, "dev")
-	if tool.Name() != "list_peer_teams" {
-		t.Errorf("Name() = %q, want 'list_peer_teams'", tool.Name())
-	}
-	if tool.Description() == "" {
-		t.Error("Description() should not be empty")
-	}
-	if len(tool.Parameters()) == 0 {
-		t.Error("Parameters() should not be empty")
-	}
-}
-
 // ─── RequestTeamHelpTool: cycle detection ────────────────────────────────────
 
 func TestRequestTeamHelp_CycleDetection_DirectLoop(t *testing.T) {

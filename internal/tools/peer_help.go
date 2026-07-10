@@ -37,68 +37,6 @@ func DelegationChainFromContext(ctx context.Context) []string {
 	return v
 }
 
-// ─── PeerTeamInfo: read-only team catalog entry ──────────────────────────────
-
-// PeerTeamInfo describes a peer team that an L2 leader can request help from.
-type PeerTeamInfo struct {
-	Name             string `json:"name"`               // team leader name (template ID)
-	Group            string `json:"group"`              // team group name
-	LeaderDescription string `json:"leader_description"` // one-line capability summary
-	WorkerCount      int    `json:"worker_count"`        // number of L3 workers in the team
-}
-
-// ─── ListPeerTeamsTool ───────────────────────────────────────────────────────
-
-// ListPeerTeamsTool is a read-only tool that lists peer teams available for
-// cross-team help. Excludes the caller's own team.
-//
-// The catalog is injected at factory time (a snapshot of Stack.Leaders +
-// Stack.Groups). It is read-only and safe for concurrent use.
-type ListPeerTeamsTool struct {
-	selfName string
-	catalog  []PeerTeamInfo
-}
-
-// NewListPeerTeamsTool creates a ListPeerTeamsTool.
-// selfName is the caller's own team leader name, which is excluded from results.
-func NewListPeerTeamsTool(catalog []PeerTeamInfo, selfName string) *ListPeerTeamsTool {
-	return &ListPeerTeamsTool{catalog: catalog, selfName: selfName}
-}
-
-func (t *ListPeerTeamsTool) Name() string { return "list_peer_teams" }
-
-func (t *ListPeerTeamsTool) Description() string {
-	return "List peer teams available for cross-team help. " +
-		"Call this first to discover which teams exist and what they can do, " +
-		"then use request_team_help to delegate a sub-task to a specific team. " +
-		"Your own team is excluded from the list."
-}
-
-func (t *ListPeerTeamsTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{
-  "type": "object",
-  "properties": {}
-}`)
-}
-
-func (t *ListPeerTeamsTool) Execute(ctx context.Context, args string) (string, error) {
-	peers := make([]PeerTeamInfo, 0, len(t.catalog))
-	for _, p := range t.catalog {
-		if p.Name == t.selfName {
-			continue
-		}
-		peers = append(peers, p)
-	}
-	if len(peers) == 0 {
-		return "No peer teams available. You are the only team or no other teams are configured.", nil
-	}
-	data, err := json.MarshalIndent(peers, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("list_peer_teams: marshal failed: %w", err)
-	}
-	return string(data), nil
-}
-
 // ─── RequestTeamHelpTool ─────────────────────────────────────────────────────
 
 // requestTeamHelpArgs is the parameter struct for RequestTeamHelpTool.
@@ -113,7 +51,7 @@ var requestTeamHelpParamsSchema = json.RawMessage(`{
   "properties": {
     "team_name": {
       "type": "string",
-      "description": "Name of the target team leader to request help from (from list_peer_teams)"
+      "description": "Name of the target team leader to request help from"
     },
     "task": {
       "type": "string",
@@ -190,9 +128,9 @@ func (t *RequestTeamHelpTool) Name() string { return "request_team_help" }
 func (t *RequestTeamHelpTool) Description() string {
 	return "Request help from a peer team leader. Use when your team lacks the " +
 		"capability to handle a sub-task and another team can help. " +
-		"First call list_peer_teams to see available teams. " +
 		"Do NOT use this for tasks your own team can handle, and do NOT " +
-		"form delegation loops (the system will reject cyclic requests)."
+		"form delegation loops (the system will reject cyclic requests). " +
+		"Peer team info is listed in the system prompt under 'Peer Teams (Cross-Team Collaboration)'."
 }
 
 func (t *RequestTeamHelpTool) Parameters() json.RawMessage {

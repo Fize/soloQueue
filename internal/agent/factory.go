@@ -485,13 +485,16 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 			allTools = append(allTools, dt)
 		}
 
-		// 2c. L2 leader: inject horizontal collaboration tools (list_peer_teams + request_team_help)
+		// 2c. L2 leader: inject horizontal collaboration tool (request_team_help)
 		// Only inject if other teams exist, to avoid giving the LLM meaningless tools in single-team scenarios.
-		peerCatalog := f.peerTeamsCatalog(tmpl)
-		if len(peerCatalog) > 0 {
-			listTool := tools.NewListPeerTeamsTool(peerCatalog, tmpl.ID)
-			allTools = append(allTools, listTool)
-
+		hasPeerTeams := false
+		for _, t := range f.templates {
+			if t.IsLeader && t.ID != tmpl.ID {
+				hasPeerTeams = true
+				break
+			}
+		}
+		if hasPeerTeams {
 			// locateOrSpawn: reuse LocateIdle to find an idle peer leader; spawn a new instance if not found.
 			locateOrSpawn := func(ctx context.Context, teamName string) (iface.Locatable, bool, error) {
 				if loc, ok := f.registry.LocateIdle(teamName); ok {
@@ -818,45 +821,6 @@ func (f *DefaultFactory) visibleWorkers(tmpl AgentTemplate, projectAgents []Agen
 	return workers
 }
 
-// peerTeamsCatalog builds the read-only peer team catalog for an L2 leader.
-// Excludes the caller's own team. Returns teams that have a leader (is_leader)
-// template and belong to a different group.
-func (f *DefaultFactory) peerTeamsCatalog(selfTmpl AgentTemplate) []tools.PeerTeamInfo {
-	var catalog []tools.PeerTeamInfo
-	seen := make(map[string]bool) // dedup by leader ID
-
-	for _, t := range f.templates {
-		if !t.IsLeader || t.ID == selfTmpl.ID {
-			continue
-		}
-		if seen[t.ID] {
-			continue
-		}
-		seen[t.ID] = true
-
-		// Count workers in this leader's group
-		workerCount := 0
-		for _, w := range f.templates {
-			if !w.IsLeader && w.Group == t.Group && w.Group != "" {
-				workerCount++
-			}
-		}
-
-		desc := t.Description
-		if desc == "" {
-			desc = "no description"
-		}
-
-		catalog = append(catalog, tools.PeerTeamInfo{
-			Name:              t.ID,
-			Group:             t.Group,
-			LeaderDescription: desc,
-			WorkerCount:       workerCount,
-		})
-	}
-	return catalog
-}
-
 // findLeaderTemplate finds a leader template by ID (case-insensitive).
 func (f *DefaultFactory) findLeaderTemplate(id string) (AgentTemplate, bool) {
 	for _, t := range f.templates {
@@ -1145,27 +1109,35 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("\n")
 	}
 
-	// 2b-peer. Peer Teams (cross-team help)
+	// 2b-peer. Peer Teams (cross-team collaboration)
 	// List other team leaders so the L2 knows who it can ask for help.
-	peerLeaderCount := 0
+	peerLeaders := make([]AgentTemplate, 0)
 	for _, t := range templates {
 		if t.IsLeader && t.ID != tmpl.ID {
-			peerLeaderCount++
+			peerLeaders = append(peerLeaders, t)
 		}
 	}
-	if peerLeaderCount > 0 {
-		b.WriteString("# Peer Teams (Cross-Team Help)\n\n")
-		b.WriteString("You can request help from peer team leaders when your team lacks a capability.\n\n")
-		b.WriteString("## When to use peer help\n")
-		b.WriteString("- Call `list_peer_teams` first to see which teams exist and what they can do.\n")
-		b.WriteString("- Use `request_team_help(team_name, task, context)` to delegate a sub-task to a peer team.\n")
-		b.WriteString("- Only request help when your team genuinely cannot handle the sub-task.\n")
-		b.WriteString("- Provide clear, self-contained task descriptions and sufficient context.\n\n")
+	if len(peerLeaders) > 0 {
+		b.WriteString("# Peer Teams (Cross-Team Collaboration)\n\n")
+		b.WriteString("## MANDATORY Delegation Chain\n\n")
+		b.WriteString("You MUST follow this exact priority chain, in order, without skipping levels:\n\n")
+		b.WriteString("1. **Your L3 Workers (FIRST)** — Delegate ALL sub-tasks that match an L3 worker's domain. This is non-negotiable. Self-executing L3-level work is FORBIDDEN.\n\n")
+		b.WriteString("2. **Peer L2 Teams (SECOND)** — If NO L3 worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST delegate via `request_team_help(name, task, context)`. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
+		b.WriteString("3. **Self-execute (LAST RESORT)** — Only when BOTH L3 workers AND all peer teams are unsuitable. Self-execution is a delegation failure. Minimize it.\n\n")
+		b.WriteString("## Available Peer Teams\n\n")
+		for _, peer := range peerLeaders {
+			desc := peer.Description
+			if desc == "" {
+				desc = "no description"
+			}
+			fmt.Fprintf(&b, "- **%s**: %s\n", peer.Name, desc)
+		}
+		b.WriteString("\n")
 		b.WriteString("## Rules\n")
-		b.WriteString("- Do NOT form delegation loops. The system will reject cyclic requests.\n")
-		b.WriteString("- If a peer team is unavailable or refuses, fall back to handling it yourself or report to the user.\n")
-		b.WriteString("- Peer help is for *sub-tasks* within your current task, not for replacing your own work.\n")
-		b.WriteString("- Delegation depth is limited to 2 hops. If you need deeper collaboration, the task is too complex for lateral help — escalate.\n\n")
+		b.WriteString("- Peer help is for SUB-TASKS within your current task. Do NOT outsource the entire task.\n")
+		b.WriteString("- Provide clear, self-contained context when delegating to peers.\n")
+		b.WriteString("- Do NOT form delegation loops (system enforced, auto-rejected).\n")
+		b.WriteString("- If a peer team is unreachable, report to L1 with details.\n\n")
 	}
 
 	// 2c. MCP Servers
