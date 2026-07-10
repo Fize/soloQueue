@@ -622,5 +622,6 @@ func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option)
 		opt(a)
 	}
 	a.runtime.state = StateStopped
+	a.taskCancel.Store(context.CancelFunc(func() {}))
 	return a
 }
