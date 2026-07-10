@@ -842,9 +842,9 @@ func TestReadFile_SkipsCorruptedLines(t *testing.T) {
 	f.WriteString(`{"ts":"2025-01-01T00:00:00Z","type":"message","msg":{"role":"assistant","content":"a1"}}` + "\n")
 	f.Close()
 
-	events, err := readFile(path)
+	events, err := ReadFileEvents(path)
 	if err != nil {
-		t.Fatalf("readFile: %v", err)
+		t.Fatalf("ReadFileEvents: %v", err)
 	}
 	if len(events) != 2 {
 		t.Errorf("expected 2 valid events, got %d", len(events))

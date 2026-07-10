@@ -64,7 +64,7 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 	// Read files oldest-first so allEvents remains chronological.
 	var allEvents []Event
 	for _, file := range files {
-		events, err := readFile(file)
+		events, err := ReadFileEvents(file)
 		if err != nil {
 			continue
 		}
@@ -334,8 +334,9 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 
 // ─── Internal Methods ────────────────────────────────────────────────────────────────
 
-// readFile reads all events from a single JSONL file.
-func readFile(path string) ([]Event, error) {
+// ReadFileEvents reads all events from a single JSONL file.
+// Exported so callers outside the package (e.g. l2_store) can scan raw timeline files.
+func ReadFileEvents(path string) ([]Event, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

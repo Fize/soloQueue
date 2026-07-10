@@ -630,20 +630,60 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if name == "" {
-				segments, _, _ := timeline.ReadTail(
-					filepath.Join(timelinesDir, entry.Name()), "timeline", 1, "")
-				for _, seg := range segments {
-					for _, msg := range seg.Messages {
-						if msg.Role == "user" && msg.Content != "" {
-							name = msg.Content
-							if len([]rune(name)) > 30 {
-								name = string([]rune(name)[:27]) + "..."
+				// Scan oldest-first to find the first real user message.
+				// Skip ephemeral messages (e.g. [Delegation Completed]) which carry role=user
+				// but are not real user prompts.
+				tlDir := filepath.Join(timelinesDir, entry.Name())
+				tlFiles, _ := timeline.ListTimelineFiles(tlDir, "timeline")
+				outerDone := false
+				for _, f := range tlFiles {
+					if outerDone {
+						break
+					}
+					events, _ := timeline.ReadFileEvents(f)
+					for _, evt := range events {
+						if evt.EventType != timeline.EventMessage || evt.Message == nil {
+							continue
+						}
+						msg := evt.Message
+						if msg.Role != "user" || msg.Content == "" {
+							continue
+						}
+						if msg.IsEphemeral {
+							continue
+						}
+						if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
+							continue
+						}
+						name = msg.Content
+						if idx := strings.Index(name, "\n"); idx != -1 {
+							name = name[:idx]
+						}
+						name = strings.TrimSpace(name)
+						if len([]rune(name)) > 30 {
+							name = string([]rune(name)[:27]) + "..."
+						}
+						if name != "" {
+							outerDone = true
+							// Write back to meta so future calls don't rescan the timeline.
+							if group != "" {
+								persistMeta := struct {
+									Name    string   `json:"name"`
+									Group   string   `json:"group"`
+									WorkDir string   `json:"work_dir"`
+									Plans   []string `json:"plans,omitempty"`
+								}{
+									Name:    name,
+									Group:   group,
+									WorkDir: projectPath,
+									Plans:   plans,
+								}
+								if metaBytes, merr := json.Marshal(persistMeta); merr == nil {
+									_ = os.WriteFile(metaFile, metaBytes, 0644)
+								}
 							}
 							break
 						}
-					}
-					if name != "" {
-						break
 					}
 				}
 			} else {
@@ -654,6 +694,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			if name == "" {
 				name = fmt.Sprintf("Past session (%s)", group)
 			}
+
 
 			ctxwinLimit := 0
 			if m.l2Store != nil {

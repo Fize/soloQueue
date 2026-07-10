@@ -151,20 +151,48 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	}
 
 	// If name is empty, try to resolve it from the timeline.
+	// We scan files oldest-first and pick the first non-ephemeral real user message
+	// (skipping [Delegation Completed] and other ephemeral messages that carry role=user).
 	if name == "" {
-		segments, _, _ := timeline.ReadTail(tlDir, "timeline", 1, "")
-		for _, seg := range segments {
-			for _, msg := range seg.Messages {
-				if msg.Role == "user" && msg.Content != "" {
-					name = msg.Content
-					if len([]rune(name)) > 30 {
-						name = string([]rune(name)[:27]) + "..."
-					}
+		files, _ := timeline.ListTimelineFiles(tlDir, "timeline")
+		outerDone := false
+		for _, f := range files {
+			if outerDone {
+				break
+			}
+			events, err := timeline.ReadFileEvents(f)
+			if err != nil {
+				continue
+			}
+			for _, evt := range events {
+				if evt.EventType != timeline.EventMessage || evt.Message == nil {
+					continue
+				}
+				msg := evt.Message
+				if msg.Role != "user" || msg.Content == "" {
+					continue
+				}
+				// Skip ephemeral messages (e.g. [Delegation Completed]).
+				if msg.IsEphemeral {
+					continue
+				}
+				// Skip [Delegation Completed] messages even if not marked ephemeral.
+				if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
+					continue
+				}
+				name = msg.Content
+				// Strip to first line.
+				if idx := strings.Index(name, "\n"); idx != -1 {
+					name = name[:idx]
+				}
+				name = strings.TrimSpace(name)
+				if len([]rune(name)) > 30 {
+					name = string([]rune(name)[:27]) + "..."
+				}
+				if name != "" {
+					outerDone = true
 					break
 				}
-			}
-			if name != "" {
-				break
 			}
 		}
 		// If resolved a valid name, persist it to metaFile.
