@@ -417,6 +417,9 @@ export function ChatPage() {
     streamChatSegments,
   ]);
 
+  // Hide model badge until there is an actual conversation stream.
+  const inputModelName = finalMessages.length > 0 ? displayModel : undefined;
+
   const handleSend = async (
     text: string,
     files?: { name: string; path: string }[],
@@ -630,7 +633,7 @@ export function ChatPage() {
               ctxwinLimit={0}
               atRootDir={selectedProjectPath || ""}
               taskLevel={stableTaskLevel}
-              modelName={displayModel}
+              modelName={inputModelName}
               processing={false}
             />
           </div>
@@ -822,7 +825,7 @@ export function ChatPage() {
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
                       taskLevel={stableTaskLevel}
-                      modelName={displayModel}
+                      modelName={inputModelName}
                       processing={isAgentProcessing || streaming || delegating}
                     />
                   </div>
@@ -875,7 +878,7 @@ export function ChatPage() {
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
                   taskLevel={stableTaskLevel}
-                  modelName={displayModel}
+                  modelName={inputModelName}
                   processing={isAgentProcessing || streaming || delegating}
                 />
               </>

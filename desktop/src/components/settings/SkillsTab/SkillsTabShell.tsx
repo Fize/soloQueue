@@ -327,7 +327,7 @@ export function SkillsTab() {
     setInstallingStoreId(id)
     try {
       await installSkill({ source: 'store', id })
-      await Promise.all([fetchSkills(), fetchStoreSkills()])
+      await fetchSkills()
       toast.success(t('skills.toastInstalledFromStore'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('skills.toastInstallFailed'))
@@ -344,7 +344,7 @@ export function SkillsTab() {
     try {
       await installSkill({ source: 'github', url: customGitUrl.trim() })
       setCustomGitUrl('')
-      await Promise.all([fetchSkills(), fetchStoreSkills()])
+      await fetchSkills()
       toast.success(t('skills.toastInstalledGit'))
     } catch (err) {
       setCustomInstallError(err instanceof Error ? err.message : t('skills.toastGitCloneFailed'))
@@ -361,7 +361,7 @@ export function SkillsTab() {
     try {
       await installSkill({ source: 'local', path: customLocalPath.trim() })
       setCustomLocalPath('')
-      await Promise.all([fetchSkills(), fetchStoreSkills()])
+      await fetchSkills()
       toast.success(t('skills.toastInstalledLocal'))
     } catch (err) {
       setCustomInstallError(err instanceof Error ? err.message : t('skills.toastLocalLinkFailed'))

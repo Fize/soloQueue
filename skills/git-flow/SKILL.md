@@ -8,8 +8,7 @@ when_to_use: >-
   When user needs git operations: commit, push, pull, branch management.
   Also invoked by fullstack-dev during Implementation and DevOps phases.
   Trigger phrases: /git-flow, git 工作流, commit, 提交, push, 推送, pull, 拉取, branch, 分支, 暂存, staged, 拆分, split
-allowed-tools:
-  - Bash(git:*)
+allowed-tools: Bash(git:*)
 ---
 
 # Git Flow Skill

@@ -7,13 +7,7 @@ description: >-
 when_to_use: >-
   When user explicitly requests a method (e.g., "用TDD做", "先写测试", "先定义API", "BDD方式"),
   when fullstack-dev reaches Implementation phase, or when the task context implies a specific method.
-allowed-tools:
-  - Read
-  - Edit
-  - Bash
-  - Glob
-  - Grep
-  - WebFetch
+allowed-tools: Read, Edit, Bash, Glob, Grep, WebFetch
 ---
 
 # Dev Method
