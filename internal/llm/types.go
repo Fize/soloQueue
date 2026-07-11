@@ -232,3 +232,16 @@ func IsRetryableErr(err error) bool {
 	// Others (network / EOF / timeout) default to retry
 	return true
 }
+
+// IsRateLimitErr checks whether the error is specifically a 429 (rate limit) error.
+// Used by the retry engine to apply a separate (larger) retry budget for rate-limited requests.
+func IsRateLimitErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusTooManyRequests
+	}
+	return false
+}

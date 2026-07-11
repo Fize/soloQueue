@@ -13,10 +13,11 @@ import (
 //   - Attempts at most MaxRetries additional retries (total attempts = MaxRetries + 1)
 //   - MaxRetries = 0 → No retries
 type RetryPolicy struct {
-	MaxRetries   int
-	InitialDelay time.Duration
-	MaxDelay     time.Duration
-	Multiplier   float64
+	MaxRetries          int
+	RateLimitMaxRetries int // separate retry budget for 429; 0 means use MaxRetries
+	InitialDelay        time.Duration
+	MaxDelay            time.Duration
+	Multiplier          float64
 }
 
 // normalize normalizes the policy (primarily to prevent issues like zero-value division).
@@ -33,7 +34,19 @@ func (p RetryPolicy) normalize() RetryPolicy {
 	if p.MaxRetries < 0 {
 		p.MaxRetries = 0
 	}
+	if p.RateLimitMaxRetries < 0 {
+		p.RateLimitMaxRetries = 0
+	}
 	return p
+}
+
+// rateLimitMaxRetries returns the effective max retries for rate-limit (429) errors.
+// If RateLimitMaxRetries is explicitly set (>0), use it; otherwise fall back to MaxRetries.
+func (p RetryPolicy) rateLimitMaxRetries() int {
+	if p.RateLimitMaxRetries > 0 {
+		return p.RateLimitMaxRetries
+	}
+	return p.MaxRetries
 }
 
 // RunWithRetry executes fn, retrying according to the policy.
@@ -55,15 +68,18 @@ func RunWithRetry(
 	shouldRetry func(error) bool,
 	fn func(ctx context.Context) error,
 ) error {
-	return RunWithRetryHooks(ctx, policy, shouldRetry, nil, fn)
+	return RunWithRetryHooks(ctx, policy, shouldRetry, nil, nil, fn)
 }
 
-// RunWithRetryHooks is similar to RunWithRetry but allows injecting an onRetry callback.
+// RunWithRetryHooks is similar to RunWithRetry but allows injecting an onRetry callback
+// and an isRateLimit predicate for per-error-type retry budgets.
 //
 // onRetry(attempt, delay, err): Called after deciding to retry and before backoff starts.
 //   - attempt: The current attempt number that just failed (1-indexed).
 //   - delay: The backoff duration before the next attempt.
 //   - err: The error from the failed attempt.
+//
+// isRateLimit(err) bool: If true, uses RateLimitMaxRetries instead of MaxRetries. nil = never.
 //
 // The callback is only triggered on the "decided to retry" path; if shouldRetry=false or attempt==MaxRetries
 // no further retries will occur, and onRetry will not be called.
@@ -71,14 +87,24 @@ func RunWithRetryHooks(
 	ctx context.Context,
 	policy RetryPolicy,
 	shouldRetry func(error) bool,
+	isRateLimit func(error) bool,
 	onRetry func(attempt int, delay time.Duration, err error),
 	fn func(ctx context.Context) error,
 ) error {
 	p := policy.normalize()
 	delay := p.InitialDelay
 
+	// Determine effective max retries: 429 errors get a separate (larger) budget.
+	rateLimitMax := p.rateLimitMaxRetries()
+
+	// The loop bound is the larger of the two, so we don't prematurely exit for 429.
+	loopMax := p.MaxRetries
+	if isRateLimit != nil && rateLimitMax > loopMax {
+		loopMax = rateLimitMax
+	}
+
 	var lastErr error
-	for attempt := 0; attempt <= p.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= loopMax; attempt++ {
 		if err := ctx.Err(); err != nil {
 			if lastErr != nil {
 				return lastErr
@@ -92,8 +118,14 @@ func RunWithRetryHooks(
 		}
 		lastErr = err
 
+		// Determine the effective max for this particular error.
+		max := p.MaxRetries
+		if isRateLimit != nil && isRateLimit(err) {
+			max = rateLimitMax
+		}
+
 		// Last attempt: no more retries.
-		if attempt == p.MaxRetries {
+		if attempt >= max {
 			break
 		}
 		// Not retryable.

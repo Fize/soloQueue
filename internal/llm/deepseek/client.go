@@ -269,7 +269,7 @@ func (c *Client) doWithRetry(ctx context.Context, body []byte) (*http.Response, 
 		c.logRetry(ctx, attempt, delay, err)
 	}
 
-	err := llm.RunWithRetryHooks(ctx, c.retry, llm.IsRetryableErr, onRetry,
+	err := llm.RunWithRetryHooks(ctx, c.retry, llm.IsRetryableErr, llm.IsRateLimitErr, onRetry,
 		func(ctx context.Context) error {
 			// A new request must be created for each attempt (Body can only be read once).
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost,
