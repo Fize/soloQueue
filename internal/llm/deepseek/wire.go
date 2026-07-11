@@ -145,10 +145,15 @@ type wireUsage struct {
 	PromptCacheHitTokens  int                    `json:"prompt_cache_hit_tokens,omitempty"`
 	PromptCacheMissTokens int                    `json:"prompt_cache_miss_tokens,omitempty"`
 	CompletionDetails     *wireCompletionDetails `json:"completion_tokens_details,omitempty"`
+	PromptTokensDetails   *wirePromptDetails     `json:"prompt_tokens_details,omitempty"`
 }
 
 type wireCompletionDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+}
+
+type wirePromptDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 // wireErrorEnvelope is the body shape for HTTP 4xx/5xx errors
@@ -239,6 +244,10 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 // When visionEnabled=false, multimodal images are stripped and replaced with text annotations,
 // to prevent APIs that don't support multimodal input from returning a 400 error.
 func buildWireMessages(msgs []agent.LLMMessage, thinkingEnabled, visionEnabled bool) []wireMessage {
+	// Normalize tool-call pairing before building wire messages to prevent
+	// 400 errors from interrupted/compacted histories.
+	msgs = normalizeMessages(msgs)
+
 	out := make([]wireMessage, 0, len(msgs))
 	for _, m := range msgs {
 		// Build Content: if Images present and vision is enabled, use content array;
@@ -380,12 +389,20 @@ func chunkToEvents(c wireChunk) []llm.Event {
 }
 
 func wireUsageToLLM(u *wireUsage) llm.Usage {
+	hit := u.PromptCacheHitTokens
+	if hit == 0 && u.PromptTokensDetails != nil {
+		hit = u.PromptTokensDetails.CachedTokens
+	}
+	miss := u.PromptCacheMissTokens
+	if miss == 0 && hit > 0 && u.PromptTokens > hit {
+		miss = u.PromptTokens - hit
+	}
 	out := llm.Usage{
 		PromptTokens:          u.PromptTokens,
 		CompletionTokens:      u.CompletionTokens,
 		TotalTokens:           u.TotalTokens,
-		PromptCacheHitTokens:  u.PromptCacheHitTokens,
-		PromptCacheMissTokens: u.PromptCacheMissTokens,
+		PromptCacheHitTokens:  hit,
+		PromptCacheMissTokens: miss,
 	}
 	if u.CompletionDetails != nil {
 		out.ReasoningTokens = u.CompletionDetails.ReasoningTokens

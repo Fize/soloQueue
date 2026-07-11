@@ -68,7 +68,7 @@ func RunWithRetry(
 	shouldRetry func(error) bool,
 	fn func(ctx context.Context) error,
 ) error {
-	return RunWithRetryHooks(ctx, policy, shouldRetry, nil, nil, fn)
+	return RunWithRetryHooks(ctx, policy, shouldRetry, nil, nil, nil, fn)
 }
 
 // RunWithRetryHooks is similar to RunWithRetry but allows injecting an onRetry callback
@@ -81,6 +81,8 @@ func RunWithRetry(
 //
 // isRateLimit(err) bool: If true, uses RateLimitMaxRetries instead of MaxRetries. nil = never.
 //
+// retryAfter(err) time.Duration: If non-zero, overrides the exponential backoff delay.
+//
 // The callback is only triggered on the "decided to retry" path; if shouldRetry=false or attempt==MaxRetries
 // no further retries will occur, and onRetry will not be called.
 func RunWithRetryHooks(
@@ -89,6 +91,7 @@ func RunWithRetryHooks(
 	shouldRetry func(error) bool,
 	isRateLimit func(error) bool,
 	onRetry func(attempt int, delay time.Duration, err error),
+	retryAfter func(error) time.Duration,
 	fn func(ctx context.Context) error,
 ) error {
 	p := policy.normalize()
@@ -136,6 +139,17 @@ func RunWithRetryHooks(
 		// Callback: inform the caller that a retry will occur, for logging / metrics.
 		if onRetry != nil {
 			onRetry(attempt+1, delay, err)
+		}
+
+		// If a Retry-After duration is available (e.g. from HTTP header),
+		// use it as the backoff delay instead of exponential backoff.
+		if retryAfter != nil {
+			if ra := retryAfter(err); ra > 0 {
+				delay = ra
+				if delay > p.MaxDelay {
+					delay = p.MaxDelay
+				}
+			}
 		}
 
 		// Wait for delay or ctx cancel.

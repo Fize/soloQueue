@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // ─── Multimodal types ────────────────────────────────────────────────────────
@@ -179,6 +180,7 @@ type APIError struct {
 	Code       string // "invalid_api_key" / ...
 	Message    string
 	Param      string
+	RetryAfter time.Duration // HTTP Retry-After header value (0 = not set)
 }
 
 // Error implements the error interface

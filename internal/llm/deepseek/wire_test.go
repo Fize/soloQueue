@@ -128,10 +128,11 @@ func TestBuildWireRequest_MessagesWithToolCalls(t *testing.T) {
 func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 	msgs := []agent.LLMMessage{
 		{Role: "user", Content: "hello"},
-		// assistant with tool_calls + reasoning_content: should appear in JSON
+		// assistant with tool_calls + reasoning_content: should appear in JSON, normalize needs tool result
 		{Role: "assistant", Content: "thinking...", ReasoningContent: "let me think", ToolCalls: []llm.ToolCall{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "f", Arguments: "{}"}},
 		}},
+		{Role: "tool", ToolCallID: "call_1", Name: "f", Content: "ok"},
 		// assistant without tool_calls but with reasoning_content: should also be returned (DeepSeek cross-turn requirement)
 		{Role: "assistant", Content: "done", ReasoningContent: "my reasoning"},
 		// assistant without reasoning_content: should not appear
@@ -140,30 +141,36 @@ func TestBuildWireMessages_ReasoningContent(t *testing.T) {
 	wired := buildWireMessages(msgs, false, false)
 
 	// 2nd message (index=1): has tool_calls + reasoning_content
-	b1, err := json.Marshal(wired[1])
+	b1, err := json.Marshal(wired[0])
+	if err != nil {
+		t.Fatalf("marshal msg[0]: %v", err)
+	}
+	_ = b1 // user message, skip detailed check
+
+	b2, err := json.Marshal(wired[1])
 	if err != nil {
 		t.Fatalf("marshal msg[1]: %v", err)
 	}
-	if !contains(string(b1), "reasoning_content") {
-		t.Errorf("msg[1] should have reasoning_content, got: %s", b1)
-	}
-
-	// 3rd message (index=2): no tool_calls but has reasoning_content, should also be included
-	b2, err := json.Marshal(wired[2])
-	if err != nil {
-		t.Fatalf("marshal msg[2]: %v", err)
-	}
 	if !contains(string(b2), "reasoning_content") {
-		t.Errorf("msg[2] should have reasoning_content, got: %s", b2)
+		t.Errorf("msg[1] should have reasoning_content, got: %s", b2)
 	}
 
-	// 4th message (index=3): no reasoning_content, should not be included
+	// 4th message (index=3, after normalization): no tool_calls but has reasoning_content
 	b3, err := json.Marshal(wired[3])
 	if err != nil {
 		t.Fatalf("marshal msg[3]: %v", err)
 	}
-	if contains(string(b3), "reasoning_content") {
-		t.Errorf("msg[3] should NOT have reasoning_content, got: %s", b3)
+	if !contains(string(b3), "reasoning_content") {
+		t.Errorf("msg[3] should have reasoning_content, got: %s", b3)
+	}
+
+	// 5th message (index=4): no reasoning_content, should not be included
+	b4, err := json.Marshal(wired[4])
+	if err != nil {
+		t.Fatalf("marshal msg[4]: %v", err)
+	}
+	if contains(string(b4), "reasoning_content") {
+		t.Errorf("msg[4] should NOT have reasoning_content, got: %s", b4)
 	}
 }
 

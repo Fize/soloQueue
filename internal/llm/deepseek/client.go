@@ -7,14 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
+
+var bufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -154,10 +160,15 @@ func (c *Client) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResp
 // Errors during the HTTP phase (4xx/5xx/network) that fail even after retries are returned directly as `err` from
 // ChatStream (not sent to the channel); only errors encountered while reading the SSE body after a 200 OK response are sent to the channel.
 func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan llm.Event, error) {
-	body, err := json.Marshal(buildWireRequest(req, true, req.IncludeUsage))
-	if err != nil {
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	if err := json.NewEncoder(buf).Encode(buildWireRequest(req, true, req.IncludeUsage)); err != nil {
+		bufPool.Put(buf)
 		return nil, fmt.Errorf("deepseek: marshal request: %w", err)
 	}
+	body := make([]byte, buf.Len())
+	copy(body, buf.Bytes())
+	bufPool.Put(buf)
 
 	c.logStart(ctx, req)
 
@@ -167,7 +178,49 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 		httpCtx, cancelTimeout = context.WithTimeout(ctx, c.timeout)
 	}
 
-	httpResp, err := c.doWithRetry(httpCtx, body)
+	ch := make(chan llm.Event, 16)
+
+	doRetryRequest := func(ctx context.Context) (*http.Response, error) {
+		onRetry := func(attempt int, delay time.Duration, err error) {
+			c.logRetry(ctx, attempt, delay, err)
+		}
+		retryAfter := func(err error) time.Duration {
+			var apiErr *llm.APIError
+			if errors.As(err, &apiErr) {
+				return apiErr.RetryAfter
+			}
+			return 0
+		}
+		var resp *http.Response
+		err := llm.RunWithRetryHooks(ctx, c.retry, llm.IsRetryableErr, llm.IsRateLimitErr, onRetry, retryAfter,
+			func(ctx context.Context) error {
+				req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+					c.baseURL+"/chat/completions",
+					bytes.NewReader(body))
+				if err != nil {
+					return err
+				}
+				req.Header.Set("Authorization", "Bearer "+c.apiKey)
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Accept", "text/event-stream")
+				for k, v := range c.headers {
+					req.Header.Set(k, v)
+				}
+				r, err := c.http.Do(req)
+				if err != nil {
+					return err
+				}
+				if r.StatusCode >= 400 {
+					defer r.Body.Close()
+					return parseAPIError(r)
+				}
+				resp = r
+				return nil
+			})
+		return resp, err
+	}
+
+	resp, err := doRetryRequest(httpCtx)
 	if err != nil {
 		if cancelTimeout != nil {
 			cancelTimeout()
@@ -176,7 +229,6 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 		return nil, err
 	}
 
-	ch := make(chan llm.Event, 16)
 	go func() {
 		defer func() {
 			if cancelTimeout != nil {
@@ -188,60 +240,250 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 				c.logError(ctx, "streamLoop panic recovered", fmt.Errorf("panic: %v", r))
 			}
 		}()
-		c.streamLoop(httpCtx, httpResp, ch)
+		c.streamWithReconnect(httpCtx, body, resp, ch)
 	}()
 	return ch, nil
 }
 
+// ─── Stream reconnection ─────────────────────────────────────────────────────
+
+const maxStreamReconnects = 3
+
+func (c *Client) streamWithReconnect(ctx context.Context, body []byte, initResp *http.Response, out chan<- llm.Event) {
+	defer close(out)
+
+	newReq := func(ctx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			c.baseURL+"/chat/completions",
+			bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		for k, v := range c.headers {
+			req.Header.Set(k, v)
+		}
+		return req, nil
+	}
+
+	resp := initResp
+	for attempt := 0; attempt <= maxStreamReconnects; attempt++ {
+		emitted, err := c.readStream(ctx, resp, out)
+		if err == nil {
+			return
+		}
+		if !isConnReset(err) || emitted {
+			sendErrEvent(ctx, out, err)
+			return
+		}
+		resp, err = c.doRetryRequest(ctx, newReq)
+		if err != nil {
+			sendErrEvent(ctx, out, err)
+			return
+		}
+	}
+	sendErrEvent(ctx, out, fmt.Errorf("deepseek: stream reconnect exhausted after %d attempts", maxStreamReconnects))
+}
+
+func (c *Client) doRetryRequest(ctx context.Context, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
+	onRetry := func(attempt int, delay time.Duration, err error) {
+		c.logRetry(ctx, attempt, delay, err)
+	}
+	retryAfter := func(err error) time.Duration {
+		var apiErr *llm.APIError
+		if errors.As(err, &apiErr) {
+			return apiErr.RetryAfter
+		}
+		return 0
+	}
+	var resp *http.Response
+	err := llm.RunWithRetryHooks(ctx, c.retry, llm.IsRetryableErr, llm.IsRateLimitErr, onRetry, retryAfter,
+		func(ctx context.Context) error {
+			req, err := newReq(ctx)
+			if err != nil {
+				return err
+			}
+			r, err := c.http.Do(req)
+			if err != nil {
+				return err
+			}
+			if r.StatusCode >= 400 {
+				defer r.Body.Close()
+				return parseAPIError(r)
+			}
+			resp = r
+			return nil
+		})
+	return resp, err
+}
+
+func isConnReset(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNABORTED) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
 // ─── Streaming loop ──────────────────────────────────────────────────────────
 
-func (c *Client) streamLoop(ctx context.Context, resp *http.Response, ch chan<- llm.Event) {
-	defer close(ch)
+const idleTimeout = 120 * time.Second
+
+// readStream parses one SSE response into events forwarded to out. Returns true
+// if any model output (text/reasoning/tool-call delta) was forwarded — the
+// caller can use this to decide whether a reconnect replay is safe.
+func (c *Client) readStream(ctx context.Context, resp *http.Response, out chan<- llm.Event) (emitted bool, _ error) {
 	defer resp.Body.Close()
 
+	doneWatchdog := make(chan struct{})
+	defer close(doneWatchdog)
+	activity := make(chan struct{}, 1)
+	var stalled bool
+	go func() {
+		idle := time.NewTimer(idleTimeout)
+		defer idle.Stop()
+		for {
+			select {
+			case <-doneWatchdog:
+				return
+			case <-ctx.Done():
+				resp.Body.Close()
+				return
+			case <-idle.C:
+				stalled = true
+				resp.Body.Close()
+				return
+			case <-activity:
+				if !idle.Stop() {
+					select {
+					case <-idle.C:
+					default:
+					}
+				}
+				idle.Reset(idleTimeout)
+			}
+		}
+	}()
+
 	reader := newSSEReader(resp.Body)
+	var think thinkSplitter
+	var lastFinishReason string
+	var lastUsage *llm.Usage
+	var sawDone bool
 
 	for {
-		// Check ctx first (to avoid blocking on Scanner if already canceled)
 		if err := ctx.Err(); err != nil {
-			sendErrEvent(ctx, ch, err)
-			return
+			return emitted, err
 		}
 
 		payload, err := reader.Next()
 		if err != nil {
 			if errors.Is(err, errSSEDone) {
-				return // Normal DONE
+				sawDone = true
+				break
 			}
 			if errors.Is(err, io.EOF) {
-				// EOF without [DONE] is abnormal unless the server sent it
-				// as a clean shutdown. If ctx is done, the EOF is a timeout
-				// or cancellation — report it as an error.
 				if ctxErr := ctx.Err(); ctxErr != nil {
-					sendErrEvent(ctx, ch, fmt.Errorf("deepseek: sse stream interrupted: %w", ctxErr))
-					return
+					return emitted, fmt.Errorf("deepseek: sse stream interrupted: %w", ctxErr)
 				}
-				return
+				break
 			}
-			sendErrEvent(ctx, ch, fmt.Errorf("deepseek: sse read: %w", err))
-			return
+			if stalled {
+				return emitted, fmt.Errorf("deepseek: stream stalled — no data for %s, connection likely dropped", idleTimeout)
+			}
+			return emitted, fmt.Errorf("deepseek: sse read: %w", err)
+		}
+
+		select {
+		case activity <- struct{}{}:
+		default:
 		}
 
 		var chunk wireChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			sendErrEvent(ctx, ch, fmt.Errorf("deepseek: parse chunk: %w (payload=%s)", err, truncate(payload, 200)))
-			return
+			return emitted, fmt.Errorf("deepseek: parse chunk: %w (payload=%s)", err, truncate(payload, 200))
 		}
 
 		for _, ev := range chunkToEvents(chunk) {
+			// Capture Done info but don't emit yet — batched to [DONE].
+			if ev.Type == llm.EventDone {
+				if ev.FinishReason != "" {
+					lastFinishReason = string(ev.FinishReason)
+				}
+				if ev.Usage != nil {
+					lastUsage = ev.Usage
+				}
+				continue
+			}
+			if ev.Type == llm.EventDelta && ev.ContentDelta != "" && ev.ReasoningContentDelta == "" {
+				r, txt := think.push(ev.ContentDelta)
+				if r != "" || txt != "" {
+					emitted = true
+					if !sendThinkEvents(ctx, out, r, txt) {
+						return emitted, ctx.Err()
+					}
+				}
+				continue
+			}
+			if ev.Type == llm.EventDelta {
+				emitted = true
+			}
 			select {
-			case ch <- ev:
+			case out <- ev:
 			case <-ctx.Done():
-				sendErrEvent(ctx, ch, ctx.Err())
-				return
+				return emitted, ctx.Err()
 			}
 		}
 	}
+
+	// Flush think splitter if terminated mid-tag.
+	if r, txt := think.flush(); r != "" || txt != "" {
+		sendThinkEvents(ctx, out, r, txt)
+	}
+
+	// Guard: stream ended without [DONE] and no finish_reason — connection
+	// dropped before completion, which would cause 400 on replay.
+	if !sawDone && lastFinishReason == "" {
+		return emitted, fmt.Errorf("deepseek: stream ended before completion: %w", io.ErrUnexpectedEOF)
+	}
+	// Emit the accumulated Done event.
+	doneEv := llm.Event{Type: llm.EventDone, FinishReason: llm.FinishReason(lastFinishReason), Usage: lastUsage}
+	select {
+	case out <- doneEv:
+	case <-ctx.Done():
+		return emitted, ctx.Err()
+	}
+	return emitted, nil
+}
+
+// sendThinkEvents sends reasoning and/or text deltas produced by the
+// thinkSplitter. Returns false if ctx was canceled.
+func sendThinkEvents(ctx context.Context, ch chan<- llm.Event, reasoning, text string) bool {
+	if reasoning != "" {
+		select {
+		case ch <- llm.Event{Type: llm.EventDelta, ReasoningContentDelta: reasoning}:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	if text != "" {
+		select {
+		case ch <- llm.Event{Type: llm.EventDelta, ContentDelta: text}:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return true
 }
 
 // sendErrEvent attempts to send an Error event; gives up if ctx is canceled.
@@ -260,50 +502,19 @@ func sendErrEvent(ctx context.Context, ch chan<- llm.Event, err error) {
 	}
 }
 
-// ─── HTTP doWithRetry ────────────────────────────────────────────────────────
-
-func (c *Client) doWithRetry(ctx context.Context, body []byte) (*http.Response, error) {
-	var resp *http.Response
-
-	onRetry := func(attempt int, delay time.Duration, err error) {
-		c.logRetry(ctx, attempt, delay, err)
+func parseRetryAfter(resp *http.Response) time.Duration {
+	v := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if v == "" {
+		return 0
 	}
-
-	err := llm.RunWithRetryHooks(ctx, c.retry, llm.IsRetryableErr, llm.IsRateLimitErr, onRetry,
-		func(ctx context.Context) error {
-			// A new request must be created for each attempt (Body can only be read once).
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-				c.baseURL+"/chat/completions",
-				bytes.NewReader(body))
-			if err != nil {
-				return err
-			}
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "text/event-stream")
-			for k, v := range c.headers {
-				req.Header.Set(k, v)
-			}
-
-			r, err := c.http.Do(req)
-			if err != nil {
-				return err
-			}
-
-			if r.StatusCode >= 400 {
-				defer r.Body.Close()
-				return parseAPIError(r)
-			}
-			resp = r
-			return nil
-		})
-
-	return resp, err
+	if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return 0
 }
 
-// parseAPIError parses APIError from the error response body.
 func parseAPIError(r *http.Response) *llm.APIError {
-	apiErr := &llm.APIError{StatusCode: r.StatusCode}
+	apiErr := &llm.APIError{StatusCode: r.StatusCode, RetryAfter: parseRetryAfter(r)}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

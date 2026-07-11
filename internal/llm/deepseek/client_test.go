@@ -572,7 +572,7 @@ func TestChat_StreamEndedWithoutDone(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when stream ends without Done")
 	}
-	if !strings.Contains(err.Error(), "without done") {
+	if !strings.Contains(err.Error(), "before completion") {
 		t.Errorf("err = %v", err)
 	}
 }
