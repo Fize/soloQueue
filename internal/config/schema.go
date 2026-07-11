@@ -31,17 +31,17 @@ type AgentConfig struct {
 
 // SimulationConfig holds default simulation settings.
 type SimulationConfig struct {
-	DefaultModelID         string `json:"defaultModelId" yaml:"default_model_id,omitempty"`
-	DefaultProviderID      string `json:"defaultProviderId" yaml:"default_provider_id,omitempty"`
-	DBPath                 string `json:"dbPath" yaml:"db_path,omitempty"`
-	DefaultMaxWallClockMs  int    `json:"defaultMaxWallClockMs" yaml:"default_max_wall_clock_ms,omitempty"`
+	DefaultModelID        string `json:"defaultModelId" yaml:"default_model_id,omitempty"`
+	DefaultProviderID     string `json:"defaultProviderId" yaml:"default_provider_id,omitempty"`
+	DBPath                string `json:"dbPath" yaml:"db_path,omitempty"`
+	DefaultMaxWallClockMs int    `json:"defaultMaxWallClockMs" yaml:"default_max_wall_clock_ms,omitempty"`
 
 	// Generative Agents mode
-	EnableReflection       bool  `json:"enableReflection" yaml:"enable_reflection,omitempty"`
-	SimulatedHours         int   `json:"simulatedHours" yaml:"simulated_hours,omitempty"`
-	TickIntervalMs         int   `json:"tickIntervalMs" yaml:"tick_interval_ms,omitempty"`
-	TimeScale              int   `json:"timeScale" yaml:"time_scale,omitempty"`
-	Language               string `json:"language" yaml:"language,omitempty"`
+	EnableReflection bool   `json:"enableReflection" yaml:"enable_reflection,omitempty"`
+	SimulatedHours   int    `json:"simulatedHours" yaml:"simulated_hours,omitempty"`
+	TickIntervalMs   int    `json:"tickIntervalMs" yaml:"tick_interval_ms,omitempty"`
+	TimeScale        int    `json:"timeScale" yaml:"time_scale,omitempty"`
+	Language         string `json:"language" yaml:"language,omitempty"`
 }
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ type QQBotConfig struct {
 	AppSecret        string   `json:"appSecret" yaml:"app_secret,omitempty"`
 	Intents          int      `json:"intents,omitempty"   yaml:"intents,omitempty"`
 	Sandbox          bool     `json:"sandbox,omitempty"   yaml:"sandbox,omitempty"`
-	BindType         string   `json:"bind_type"  yaml:"bind_type,omitempty"` // "l1" or "l2"
+	BindType         string   `json:"bind_type"  yaml:"bind_type,omitempty"`  // "l1" or "l2"
 	BindAgent        string   `json:"bind_agent" yaml:"bind_agent,omitempty"` // Agent Template ID (for l2)
 	WhitelistEnabled bool     `json:"whitelist_enabled" yaml:"whitelist_enabled,omitempty"`
 	Whitelist        []string `json:"whitelist" yaml:"whitelist,omitempty"`
@@ -158,11 +158,11 @@ type ToolsConfig struct {
 // ─── LLM Provider ─────────────────────────────────────────────────────────────
 
 type RetryConfig struct {
-	MaxRetries           int     `json:"maxRetries"           yaml:"max_retries,omitempty"`
-	RateLimitMaxRetries  int     `json:"rateLimitMaxRetries"  yaml:"rate_limit_max_retries,omitempty"`
-	InitialDelayMs       int     `json:"initialDelayMs"       yaml:"initial_delay_ms,omitempty"`
-	MaxDelayMs           int     `json:"maxDelayMs"           yaml:"max_delay_ms,omitempty"`
-	BackoffMultiplier    float64 `json:"backoffMultiplier"    yaml:"backoff_multiplier,omitempty"`
+	MaxRetries          int     `json:"maxRetries"           yaml:"max_retries,omitempty"`
+	RateLimitMaxRetries int     `json:"rateLimitMaxRetries"  yaml:"rate_limit_max_retries,omitempty"`
+	InitialDelayMs      int     `json:"initialDelayMs"       yaml:"initial_delay_ms,omitempty"`
+	MaxDelayMs          int     `json:"maxDelayMs"           yaml:"max_delay_ms,omitempty"`
+	BackoffMultiplier   float64 `json:"backoffMultiplier"    yaml:"backoff_multiplier,omitempty"`
 }
 
 // ResolveAPIKey returns the API key.
@@ -305,7 +305,6 @@ type LSPMCPEntry struct {
 	Extensions []string `json:"extensions" yaml:"extensions"`
 	Disabled   bool     `json:"disabled" yaml:"disabled"`
 }
-
 
 // MarshalYAML customizes AgentConfig YAML output so nil slices are omitted
 // while empty slices are preserved as []. This preserves the semantic difference

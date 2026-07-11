@@ -311,7 +311,7 @@ type buildContext struct {
 	memoryDir         string
 	memoryMgr         *memory.Manager
 	sharedDB          *sqlitedb.DB
-		memoryEngine      *memoryengine.Engine
+	memoryEngine      *memoryengine.Engine
 	planDir           string
 	mcpServers        []string
 	systemPrompt      string
@@ -443,7 +443,7 @@ func (bc *buildContext) registerHotReload(rt *Stack) {
 	}
 
 	registerSkillHotReload(bc.skillReg, bc.skillDirs, bc.log)
-	
+
 	groupsDir := filepath.Join(bc.workDir, "groups")
 	agentsDir := filepath.Join(bc.workDir, "agents")
 	registerPromptHotReload(rt, bc.log, groupsDir, agentsDir)
@@ -576,4 +576,3 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 	}()
 	log.Debug(logger.CatApp, "prompt hot-reload: watching directories", "roles", rolesDir, "groups", groupsDir, "agents", agentsDir)
 }
-
