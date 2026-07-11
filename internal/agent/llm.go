@@ -20,8 +20,8 @@ type LLMMessage struct {
 	Images           []llm.ImageContent // Multimodal images (used only in user messages)
 	ReasoningContent string             // DeepSeek thinking mode; must be returned when tool_calls are present
 	Name             string
-	ToolCallID       string             // Required when role="tool"
-	ToolCalls        []llm.ToolCall      // Optional for role="assistant"
+	ToolCallID       string         // Required when role="tool"
+	ToolCalls        []llm.ToolCall // Optional for role="assistant"
 }
 
 // LLMRequest is the input for LLMClient.Chat / ChatStream
@@ -44,6 +44,9 @@ type LLMRequest struct {
 
 	// ThinkingEnabled enables thinking mode
 	ThinkingEnabled bool
+	// ThinkingType sets the thinking.type value in the API request.
+	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
+	ThinkingType string
 
 	// Tool-calling
 	Tools      []llm.ToolDef // Empty means no tool

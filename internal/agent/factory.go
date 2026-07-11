@@ -26,16 +26,16 @@ import (
 //
 // Derived from YAML frontmatter + markdown body of ~/.soloqueue/agents/*.md
 type AgentTemplate struct {
-	ID           string            // Unique identifier (e.g., "dev", "fe")
-	Name         string            // Display name
-	Description  string            // Description for the LLM
-	SystemPrompt string            // markdown body
-	ModelID      string            // Model ID (populated from global default model, no longer read from config file)
-	IsLeader     bool              // Whether it is an L2 leader
-	Group        string            // The group name it belongs to
-	Permission   bool              // Privileged mode, skips tool confirmation
-	MCPServers   []string          // List of MCP Server names
-	SkillIDs     []string          // List of skill IDs required by this agent
+	ID           string   // Unique identifier (e.g., "dev", "fe")
+	Name         string   // Display name
+	Description  string   // Description for the LLM
+	SystemPrompt string   // markdown body
+	ModelID      string   // Model ID (populated from global default model, no longer read from config file)
+	IsLeader     bool     // Whether it is an L2 leader
+	Group        string   // The group name it belongs to
+	Permission   bool     // Privileged mode, skips tool confirmation
+	MCPServers   []string // List of MCP Server names
+	SkillIDs     []string // List of skill IDs required by this agent
 }
 
 // ─── ModelInfo ────────────────────────────────────────────────────────────
@@ -59,6 +59,9 @@ type ModelInfo struct {
 	// Thinking configuration
 	ThinkingEnabled bool
 	ReasoningEffort string
+	// ThinkingType is the value for thinking.type sent to the LLM API.
+	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3, some OpenAI-compatible).
+	ThinkingType string
 
 	// Vision indicates the model supports multimodal image_url content.
 	Vision bool
@@ -357,6 +360,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		def.MaxTokens = info.MaxTokens
 		def.ThinkingEnabled = info.ThinkingEnabled
 		def.ReasoningEffort = info.ReasoningEffort
+		def.ThinkingType = info.ThinkingType
 		def.Vision = info.Vision
 	}
 
@@ -663,9 +667,9 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 
 // projectResources holds all project-level configuration loaded from .claude/.
 type projectResources struct {
-	agents       []AgentTemplate
-	skills       []*skill.Skill
-	mcpCfg       *mcp.Config
+	agents        []AgentTemplate
+	skills        []*skill.Skill
+	mcpCfg        *mcp.Config
 	projectPrompt string // AGENTS.md or CLAUDE.md content
 }
 
@@ -777,7 +781,6 @@ func LoadSkillAgentTemplate(skillDir string, agentName string) (AgentTemplate, b
 	}
 	return AgentTemplate{}, false
 }
-
 
 // workspacePaths returns absolute paths for all workspaces in the group config.
 func workspacePaths(gf prompt.GroupFile) []string {
@@ -915,7 +918,6 @@ BAD: delegate task1 → wait → mark done → delegate task2 → wait ...
 BAD: delegate task1+task2+task3 in parallel → wait → update zero tasks in the file.
 GOOD: delegate task1+task2+task3 (all independent) → wait all → update plan file marking task1, task2, task3 as done → delegate next batch.
 `
-
 
 const l2EnforcedExplorationSection = `
 # 9. Exploration Artifacts
@@ -1266,7 +1268,6 @@ BAD: execute all work → report done at the end without updating the plan file 
 GOOD: execute task1 → mark done in file → execute task2 → mark done in file ... → report completion.
 `
 
-
 const l3EnforcedExplorationSection = `
 # 4. Exploration Artifacts
 When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to {{EXPLORE_DIR}} if the exploration is complex or the findings are worth sharing with other agents.
@@ -1373,4 +1374,4 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 
 	return b.String()
-	}
+}

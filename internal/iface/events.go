@@ -88,6 +88,7 @@ type ModelOverrideParams struct {
 	ModelID         string // API model name (e.g., "deepseek-v4-pro")
 	ThinkingEnabled bool   // enable thinking/reasoning mode
 	ReasoningEffort string // "high" | "max" | ""
+	ThinkingType    string // thinking.type value: "enabled" (DeepSeek) or "adaptive" (MiniMax etc.)
 	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
 	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
 }

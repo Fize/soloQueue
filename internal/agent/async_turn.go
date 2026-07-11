@@ -177,6 +177,7 @@ func (a *Agent) execToolsWithAsync(
 				ModelID:         override.ModelID,
 				ThinkingEnabled: override.ThinkingEnabled,
 				ReasoningEffort: override.ReasoningEffort,
+				ThinkingType:    override.ThinkingType,
 				Level:           override.Level,
 				ContextWindow:   override.ContextWindow,
 			})

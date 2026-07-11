@@ -199,6 +199,10 @@ type GenerationParams struct {
 type ThinkingConfig struct {
 	Enabled         bool   `json:"enabled"         yaml:"enabled,omitempty"`
 	ReasoningEffort string `json:"reasoningEffort" yaml:"reasoning_effort,omitempty"`
+	// ThinkingType is the value for the thinking.type field sent to the LLM API.
+	// Default "enabled" (DeepSeek convention). Use "adaptive" for MiniMax M3 and other
+	// OpenAI-compatible providers that expect "adaptive" instead of "enabled".
+	ThinkingType string `json:"thinkingType" yaml:"thinking_type,omitempty"`
 }
 
 type LLMModel struct {

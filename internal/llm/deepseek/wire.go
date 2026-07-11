@@ -45,9 +45,9 @@ type wireRequest struct {
 // Used only for multimodal messages (when images are present), mutually exclusive with Content string.
 // Not exposed to callers.
 type wireContentPart struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text,omitempty"`
-	ImageURL *wireImageURL   `json:"image_url,omitempty"`
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *wireImageURL `json:"image_url,omitempty"`
 }
 
 type wireImageURL struct {
@@ -91,7 +91,7 @@ type wireStreamOpts struct {
 }
 
 type wireThinking struct {
-	Type string `json:"type"` // "enabled" | "disabled"
+	Type string `json:"type"` // "enabled" | "adaptive" | "disabled"
 }
 
 type wireRespFormat struct {
@@ -219,14 +219,17 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	if req.ResponseJSON {
 		out.ResponseFormat = &wireRespFormat{Type: "json_object"}
 	}
-	if req.ReasoningEffort != "" {
-		out.ReasoningEffort = &req.ReasoningEffort
-	}
-	// DeepSeek V4 thinking parameter: required, either enabled or disabled
+	// Thinking and temperature are mutually exclusive.
+	// When thinking is disabled, do NOT send thinking.type or reasoning_effort.
 	if req.ThinkingEnabled {
-		out.Thinking = &wireThinking{Type: "enabled"}
-	} else {
-		out.Thinking = &wireThinking{Type: "disabled"}
+		if req.ReasoningEffort != "" {
+			out.ReasoningEffort = &req.ReasoningEffort
+		}
+		t := req.ThinkingType
+		if t == "" {
+			t = "enabled" // default: DeepSeek convention
+		}
+		out.Thinking = &wireThinking{Type: t}
 	}
 	return out
 }

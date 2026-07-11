@@ -28,10 +28,10 @@ import (
 // trigger Start/Stop. Lifecycle control uses explicit APIs: StartAll / StopAll /
 // Shutdown.
 type Registry struct {
-	mu         sync.RWMutex
-	agents     map[string]*Agent   // InstanceID → Agent
-	byTemplate map[string][]string // templateID (Def.ID) → []InstanceID
-	log        *logger.Logger
+	mu           sync.RWMutex
+	agents       map[string]*Agent   // InstanceID → Agent
+	byTemplate   map[string][]string // templateID (Def.ID) → []InstanceID
+	log          *logger.Logger
 	onChange     func()       // optional callback invoked after Register/Unregister
 	onRegister   func(*Agent) // optional callback invoked after Register (under write lock)
 	onUnregister func(string) // optional callback invoked after Unregister (under write lock)
@@ -446,6 +446,7 @@ func (la *LocatableAdapter) SetModelOverride(params *iface.ModelOverrideParams) 
 		ModelID:         params.ModelID,
 		ThinkingEnabled: params.ThinkingEnabled,
 		ReasoningEffort: params.ReasoningEffort,
+		ThinkingType:    params.ThinkingType,
 		Level:           params.Level,
 		ContextWindow:   params.ContextWindow,
 	})

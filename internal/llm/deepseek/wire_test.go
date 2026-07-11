@@ -198,6 +198,7 @@ func TestBuildWireRequest_ReasoningEffort(t *testing.T) {
 		Model:           "deepseek-v4-pro",
 		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
 		ReasoningEffort: "high",
+		ThinkingEnabled: true,
 	}
 	w := buildWireRequest(req, true, false)
 	if w.ReasoningEffort == nil || *w.ReasoningEffort != "high" {
@@ -220,6 +221,7 @@ func TestBuildWireRequest_ReasoningEffort_Max(t *testing.T) {
 		Model:           "deepseek-v4-pro",
 		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
 		ReasoningEffort: "max",
+		ThinkingEnabled: true,
 	}
 	w := buildWireRequest(req, false, false)
 	if w.ReasoningEffort == nil || *w.ReasoningEffort != "max" {

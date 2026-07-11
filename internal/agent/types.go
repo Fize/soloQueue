@@ -37,6 +37,9 @@ type Definition struct {
 
 	// ThinkingEnabled indicates whether thinking mode is enabled (DeepSeek V4 models)
 	ThinkingEnabled bool
+	// ThinkingType sets the thinking.type value sent to the LLM API.
+	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
+	ThinkingType string
 
 	// MaxIterations is the maximum number of tool-use loop iterations (LLM.Chat calls allowed within one Ask)
 	//
@@ -153,6 +156,10 @@ type ModelParams struct {
 
 	// ReasoningEffort controls the reasoning depth: "high", "max", or "" (disabled).
 	ReasoningEffort string
+
+	// ThinkingType is the value for thinking.type in the LLM API request.
+	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
+	ThinkingType string
 
 	// Level is the classification level label for this task (e.g., "L1-SimpleSingleFile").
 	// Set by the task router for L1; may be set from delegation context for L2/L3.

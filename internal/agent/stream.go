@@ -16,7 +16,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-
 // ─── Bypass Confirm Context ─────────────────────────────────────────────────
 
 // WithBypassConfirm returns a context that skips all tool confirmations.
@@ -242,6 +241,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			Tools:           specs,
 			ReasoningEffort: a.Def.ReasoningEffort,
 			ThinkingEnabled: a.Def.ThinkingEnabled,
+			ThinkingType:    a.Def.ThinkingType,
 			Vision:          a.Def.Vision,
 			IncludeUsage:    true,
 		}
@@ -256,6 +256,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			}
 			req.ThinkingEnabled = override.ThinkingEnabled
 			req.ReasoningEffort = override.ReasoningEffort
+			req.ThinkingType = override.ThinkingType
 			req.Vision = override.Vision
 		}
 
@@ -402,8 +403,8 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 // --- simpleStrategy: in-memory message accumulation (runOnceStream) ---
 
 const (
-	simpleBufferTokens = 4000  // reserve for system prompt + overhead
-	simpleTruncRatio   = 0.05  // keep 5% head + 5% tail when truncating
+	simpleBufferTokens = 4000 // reserve for system prompt + overhead
+	simpleTruncRatio   = 0.05 // keep 5% head + 5% tail when truncating
 )
 
 type simpleStrategy struct {
@@ -1075,6 +1076,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			ModelID:         override.ModelID,
 			ThinkingEnabled: override.ThinkingEnabled,
 			ReasoningEffort: override.ReasoningEffort,
+			ThinkingType:    override.ThinkingType,
 			Level:           override.Level,
 			ContextWindow:   override.ContextWindow,
 		})
