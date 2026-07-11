@@ -23,10 +23,6 @@ interface ElectronAPI {
     callback: (status: { running: boolean; pid: string | number | null; uptime: number | null }) => void
   ) => () => void
   selectDirectory: () => Promise<string | null>
-
-  // Connection config
-  getConnectionConfig: () => Promise<{ mode: string; remoteUrl: string; username?: string; password?: string } | null>
-  saveConnectionConfig: (config: { mode: string; remoteUrl: string; username?: string; password?: string }) => Promise<{ success: boolean }>
 }
 
 declare global {

@@ -55,18 +55,36 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
   }, [open, editProject])
 
   const handleBrowseDirectory = async () => {
-    if (!window.electronAPI?.selectDirectory) {
-      toast.info(t('projects.directoryPickerInfo'))
-      return
-    }
-    try {
-      const selected = await window.electronAPI.selectDirectory()
-      if (selected) {
-        setPath(selected)
+    // Electron native dialog (available in desktop app)
+    if (window.electronAPI?.selectDirectory) {
+      try {
+        const selected = await window.electronAPI.selectDirectory()
+        if (selected) {
+          setPath(selected)
+        }
+        return
+      } catch (err) {
+        console.error('[ProjectDialog] Failed to select directory via Electron:', err)
+        toast.info(t('projects.directoryPickerInfo'))
+        return
       }
-    } catch (err) {
-      console.error('[ProjectDialog] Failed to select directory:', err)
     }
+
+    // Web portal / browser: try File System Access API as a helper,
+    // but full path must be typed manually since browsers don't expose absolute paths.
+    if ('showDirectoryPicker' in window) {
+      try {
+        await (window as any).showDirectoryPicker({ mode: 'read' })
+        toast.info(t('projects.browserPickerHint'))
+        return
+      } catch (err) {
+        if ((err as DOMException)?.name === 'AbortError') return
+        console.error('[ProjectDialog] Failed to select directory via browser:', err)
+      }
+    }
+
+    // Neither API available — inform user to type path manually
+    toast.info(t('projects.directoryPickerInfo'))
   }
 
   const handleSave = async () => {

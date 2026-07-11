@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -405,6 +405,17 @@ ipcMain.handle('maximize-window', () => {
   } else {
     mainWindow?.maximize()
   }
+})
+
+// Directory picker (native OS dialog)
+ipcMain.handle('dialog:select-directory', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Select Project Working Directory',
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
 })
 
 function createMenu() {

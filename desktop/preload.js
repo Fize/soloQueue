@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('backend:status-changed', handler)
     return () => ipcRenderer.removeListener('backend:status-changed', handler)
   },
+
+  // Native directory picker
+  selectDirectory: () => ipcRenderer.invoke('dialog:select-directory'),
 })
