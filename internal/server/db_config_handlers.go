@@ -14,24 +14,19 @@ import (
 
 // GET /api/config/providers
 func (m *Mux) handleListProviders(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
-	providers, err := config.LoadProviders(r.Context(), m.configSvc.GetDB())
-	if err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
+	providers := m.configSvc.Get().Providers
 	m.writeJSON(w, http.StatusOK, providers)
 }
 
 // POST /api/config/providers
 func (m *Mux) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
@@ -46,15 +41,11 @@ func (m *Mux) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := config.SaveProvider(r.Context(), m.configSvc.GetDB(), p); err != nil {
+	if err := m.configSvc.CreateProvider(p); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
-		return
-	}
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusCreated, p)
@@ -62,8 +53,8 @@ func (m *Mux) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/config/providers/{id}
 func (m *Mux) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
@@ -80,15 +71,11 @@ func (m *Mux) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	p.ID = id
 
-	if err := config.SaveProvider(r.Context(), m.configSvc.GetDB(), p); err != nil {
+	if err := m.configSvc.UpdateProvider(id, p); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
-		return
-	}
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, p)
@@ -96,8 +83,8 @@ func (m *Mux) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/config/providers/{id}
 func (m *Mux) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
@@ -107,15 +94,11 @@ func (m *Mux) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := config.DeleteProvider(r.Context(), m.configSvc.GetDB(), id); err != nil {
+	if err := m.configSvc.DeleteProvider(id); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
-		return
-	}
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
@@ -125,24 +108,19 @@ func (m *Mux) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/config/models
 func (m *Mux) handleListModels(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
-	models, err := config.LoadModels(r.Context(), m.configSvc.GetDB())
-	if err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
+	models := m.configSvc.Get().Models
 	m.writeJSON(w, http.StatusOK, models)
 }
 
 // POST /api/config/models
 func (m *Mux) handleCreateModel(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
@@ -157,15 +135,11 @@ func (m *Mux) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := config.SaveModel(r.Context(), m.configSvc.GetDB(), model); err != nil {
+	if err := m.configSvc.CreateModel(model); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
-		return
-	}
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusCreated, model)
@@ -173,8 +147,8 @@ func (m *Mux) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/config/models/{id}
 func (m *Mux) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
@@ -191,15 +165,11 @@ func (m *Mux) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	model.ID = id
 
-	if err := config.SaveModel(r.Context(), m.configSvc.GetDB(), model); err != nil {
+	if err := m.configSvc.UpdateModel(id, model); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
-		return
-	}
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, model)
@@ -207,8 +177,8 @@ func (m *Mux) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/config/models/{id}
 func (m *Mux) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
@@ -218,15 +188,11 @@ func (m *Mux) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := config.DeleteModel(r.Context(), m.configSvc.GetDB(), id); err != nil {
+	if err := m.configSvc.DeleteModel(id); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
-		return
-	}
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
@@ -236,24 +202,19 @@ func (m *Mux) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/config/default-models
 func (m *Mux) handleGetDefaultModels(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
-	defaultModels, err := config.LoadDefaultModels(r.Context(), m.configSvc.GetDB())
-	if err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
+	defaultModels := m.configSvc.Get().DefaultModels
 	m.writeJSON(w, http.StatusOK, defaultModels)
 }
 
 // PUT /api/config/default-models
 func (m *Mux) handleUpdateDefaultModels(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
@@ -263,15 +224,11 @@ func (m *Mux) handleUpdateDefaultModels(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := config.SaveDefaultModels(r.Context(), m.configSvc.GetDB(), dm); err != nil {
+	if err := m.configSvc.UpdateDefaultModels(dm); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
-		return
-	}
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, dm)
@@ -296,8 +253,8 @@ func rContext() context.Context {
 
 // GET /api/config/tools
 func (m *Mux) handleGetToolsConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	settings := m.configSvc.Get()
@@ -306,8 +263,8 @@ func (m *Mux) handleGetToolsConfig(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/config/tools
 func (m *Mux) handleUpdateToolsConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	var cfg config.ToolsConfig
@@ -315,12 +272,8 @@ func (m *Mux) handleUpdateToolsConfig(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "tools", cfg); err != nil {
+	if err := m.configSvc.UpdateTools(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
 		return
 	}
 	m.triggerOnConfigChange()
@@ -331,8 +284,8 @@ func (m *Mux) handleUpdateToolsConfig(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/config/qqbot
 func (m *Mux) handleGetQQBotsConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	settings := m.configSvc.Get()
@@ -341,8 +294,8 @@ func (m *Mux) handleGetQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/config/qqbot
 func (m *Mux) handleUpdateQQBotsConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	var cfg []config.QQBotConfig
@@ -350,12 +303,8 @@ func (m *Mux) handleUpdateQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "qqbots", cfg); err != nil {
+	if err := m.configSvc.UpdateQQBots(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
 		return
 	}
 	m.triggerOnConfigChange()
@@ -366,8 +315,8 @@ func (m *Mux) handleUpdateQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/config/lspmcp
 func (m *Mux) handleGetLSPMCPConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	settings := m.configSvc.Get()
@@ -376,8 +325,8 @@ func (m *Mux) handleGetLSPMCPConfig(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/config/lspmcp
 func (m *Mux) handleUpdateLSPMCPConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	var cfg config.LSPMCPConfig
@@ -385,12 +334,8 @@ func (m *Mux) handleUpdateLSPMCPConfig(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "lspmcp", cfg); err != nil {
+	if err := m.configSvc.UpdateLSPMCP(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
 		return
 	}
 	m.triggerOnConfigChange()
@@ -401,8 +346,8 @@ func (m *Mux) handleUpdateLSPMCPConfig(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/config/embedding
 func (m *Mux) handleGetEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	settings := m.configSvc.Get()
@@ -411,8 +356,8 @@ func (m *Mux) handleGetEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/config/embedding
 func (m *Mux) handleUpdateEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	var cfg config.EmbeddingConfig
@@ -420,12 +365,8 @@ func (m *Mux) handleUpdateEmbeddingConfig(w http.ResponseWriter, r *http.Request
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "embedding", cfg); err != nil {
+	if err := m.configSvc.UpdateEmbedding(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
 		return
 	}
 	m.triggerOnConfigChange()
@@ -436,8 +377,8 @@ func (m *Mux) handleUpdateEmbeddingConfig(w http.ResponseWriter, r *http.Request
 
 // GET /api/config/session
 func (m *Mux) handleGetSessionConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	settings := m.configSvc.Get()
@@ -446,8 +387,8 @@ func (m *Mux) handleGetSessionConfig(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/config/session
 func (m *Mux) handleUpdateSessionConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	var cfg config.SessionConfig
@@ -455,12 +396,8 @@ func (m *Mux) handleUpdateSessionConfig(w http.ResponseWriter, r *http.Request) 
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "session", cfg); err != nil {
+	if err := m.configSvc.UpdateSession(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
 		return
 	}
 	m.triggerOnConfigChange()
@@ -471,8 +408,8 @@ func (m *Mux) handleUpdateSessionConfig(w http.ResponseWriter, r *http.Request) 
 
 // GET /api/config/simulation
 func (m *Mux) handleGetSimulationConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	settings := m.configSvc.Get()
@@ -481,8 +418,8 @@ func (m *Mux) handleGetSimulationConfig(w http.ResponseWriter, r *http.Request) 
 
 // PUT /api/config/simulation
 func (m *Mux) handleUpdateSimulationConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil || m.configSvc.GetDB() == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration database not available"})
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 	var cfg config.SimulationConfig
@@ -503,12 +440,8 @@ func (m *Mux) handleUpdateSimulationConfig(w http.ResponseWriter, r *http.Reques
 	if cfg.Language == "" {
 		cfg.Language = "zh"
 	}
-	if err := config.SaveSystemSetting(r.Context(), m.configSvc.GetDB(), "simulation", cfg); err != nil {
+	if err := m.configSvc.UpdateSimulation(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := m.configSvc.ReloadFromDB(); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to reload config: " + err.Error()})
 		return
 	}
 	if cfg.DBPath != "" && m.simEngine != nil {

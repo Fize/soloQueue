@@ -1,12 +1,13 @@
 package config
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/qqbot"
+	"gopkg.in/yaml.v3"
 )
 
 // ─── Agent (L1 orchestrator) ──────────────────────────────────────────────────
@@ -17,30 +18,30 @@ type AgentConfig struct {
 	// nil (unset) = load all built-in servers.
 	// [] = explicit empty = load nothing.
 	// ["builtin-lsp"] = whitelist, only load named servers.
-	BuiltinMCPServers []string `json:"builtinMcpServers" toml:"builtin_mcp_servers,omitempty"`
+	BuiltinMCPServers []string `json:"builtinMcpServers" yaml:"builtin_mcp_servers,omitempty"`
 
 	// ExternalMCPServers is the L1 orchestrator's external MCP server whitelist.
 	// nil (unset) = load all external servers.
 	// [] = explicit empty = load nothing.
 	// ["server1"] = whitelist, only load named servers.
-	ExternalMCPServers []string `json:"externalMcpServers" toml:"external_mcp_servers,omitempty"`
+	ExternalMCPServers []string `json:"externalMcpServers" yaml:"external_mcp_servers,omitempty"`
 }
 
 // ─── Simulation ──────────────────────────────────────────────────────────
 
 // SimulationConfig holds default simulation settings.
 type SimulationConfig struct {
-	DefaultModelID         string `json:"defaultModelId" toml:"default_model_id,omitempty"`
-	DefaultProviderID      string `json:"defaultProviderId" toml:"default_provider_id,omitempty"`
-	DBPath                 string `json:"dbPath" toml:"db_path,omitempty"`
-	DefaultMaxWallClockMs  int    `json:"defaultMaxWallClockMs" toml:"default_max_wall_clock_ms,omitempty"`
+	DefaultModelID         string `json:"defaultModelId" yaml:"default_model_id,omitempty"`
+	DefaultProviderID      string `json:"defaultProviderId" yaml:"default_provider_id,omitempty"`
+	DBPath                 string `json:"dbPath" yaml:"db_path,omitempty"`
+	DefaultMaxWallClockMs  int    `json:"defaultMaxWallClockMs" yaml:"default_max_wall_clock_ms,omitempty"`
 
 	// Generative Agents mode
-	EnableReflection       bool  `json:"enableReflection" toml:"enable_reflection,omitempty"`
-	SimulatedHours         int   `json:"simulatedHours" toml:"simulated_hours,omitempty"`
-	TickIntervalMs         int   `json:"tickIntervalMs" toml:"tick_interval_ms,omitempty"`
-	TimeScale              int   `json:"timeScale" toml:"time_scale,omitempty"`
-	Language               string `json:"language" toml:"language,omitempty"`
+	EnableReflection       bool  `json:"enableReflection" yaml:"enable_reflection,omitempty"`
+	SimulatedHours         int   `json:"simulatedHours" yaml:"simulated_hours,omitempty"`
+	TickIntervalMs         int   `json:"tickIntervalMs" yaml:"tick_interval_ms,omitempty"`
+	TimeScale              int   `json:"timeScale" yaml:"time_scale,omitempty"`
+	Language               string `json:"language" yaml:"language,omitempty"`
 }
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────
@@ -52,35 +53,35 @@ type SimulationConfig struct {
 // Tauri Store), not in backend settings file —— backend does not do i18n, logs
 // are uniformly output in English, no need to help frontend manage storage.
 type Settings struct {
-	Session       SessionConfig       `json:"session" toml:"-"`
-	Auth          AuthConfig          `json:"auth" toml:"auth,omitempty"`
-	Log           LogConfig           `json:"log" toml:"log,omitempty"`
-	Tools         ToolsConfig         `json:"tools" toml:"-"`
-	Providers     []LLMProvider       `json:"providers" toml:"-"`
-	Models        []LLMModel          `json:"models" toml:"-"`
-	Embedding     EmbeddingConfig     `json:"embedding" toml:"-"`
-	DefaultModels DefaultModelsConfig `json:"defaultModels" toml:"-"`
-	QQBots        []QQBotConfig       `json:"qqbots" toml:"-"`
-	Agent         AgentConfig         `json:"agent" toml:"agent,omitempty"`
-	LSPMCP        LSPMCPConfig        `json:"lspmcp" toml:"-"`
-	Simulation    SimulationConfig    `json:"simulation" toml:"-"`
+	Session       SessionConfig       `json:"session" yaml:"session,omitempty"`
+	Auth          AuthConfig          `json:"auth" yaml:"auth,omitempty"`
+	Log           LogConfig           `json:"log" yaml:"log,omitempty"`
+	Tools         ToolsConfig         `json:"tools" yaml:"tools,omitempty"`
+	Providers     []LLMProvider       `json:"providers" yaml:"providers,omitempty"`
+	Models        []LLMModel          `json:"models" yaml:"models,omitempty"`
+	Embedding     EmbeddingConfig     `json:"embedding" yaml:"embedding,omitempty"`
+	DefaultModels DefaultModelsConfig `json:"defaultModels" yaml:"default_models,omitempty"`
+	QQBots        []QQBotConfig       `json:"qqbots" yaml:"qqbots,omitempty"`
+	Agent         AgentConfig         `json:"agent" yaml:"agent,omitempty"`
+	LSPMCP        LSPMCPConfig        `json:"lspmcp" yaml:"lspmcp,omitempty"`
+	Simulation    SimulationConfig    `json:"simulation" yaml:"simulation,omitempty"`
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────
 
 // QQBotConfig is the configuration for QQ Bot WebSocket Gateway integration.
 type QQBotConfig struct {
-	ID               string   `json:"id"        toml:"id,omitempty"`
-	Name             string   `json:"name"      toml:"name,omitempty"`
-	Enabled          bool     `json:"enabled"   toml:"enabled,omitempty"`
-	AppID            string   `json:"appId"     toml:"app_id,omitempty"`
-	AppSecret        string   `json:"appSecret" toml:"app_secret,omitempty"`
-	Intents          int      `json:"intents,omitempty"   toml:"intents,omitempty"`
-	Sandbox          bool     `json:"sandbox,omitempty"   toml:"sandbox,omitempty"`
-	BindType         string   `json:"bind_type"  toml:"bind_type,omitempty"` // "l1" or "l2"
-	BindAgent        string   `json:"bind_agent" toml:"bind_agent,omitempty"` // Agent Template ID (for l2)
-	WhitelistEnabled bool     `json:"whitelist_enabled" toml:"whitelist_enabled,omitempty"`
-	Whitelist        []string `json:"whitelist" toml:"whitelist,omitempty"`
+	ID               string   `json:"id"        yaml:"id,omitempty"`
+	Name             string   `json:"name"      yaml:"name,omitempty"`
+	Enabled          bool     `json:"enabled"   yaml:"enabled,omitempty"`
+	AppID            string   `json:"appId"     yaml:"app_id,omitempty"`
+	AppSecret        string   `json:"appSecret" yaml:"app_secret,omitempty"`
+	Intents          int      `json:"intents,omitempty"   yaml:"intents,omitempty"`
+	Sandbox          bool     `json:"sandbox,omitempty"   yaml:"sandbox,omitempty"`
+	BindType         string   `json:"bind_type"  yaml:"bind_type,omitempty"` // "l1" or "l2"
+	BindAgent        string   `json:"bind_agent" yaml:"bind_agent,omitempty"` // Agent Template ID (for l2)
+	WhitelistEnabled bool     `json:"whitelist_enabled" yaml:"whitelist_enabled,omitempty"`
+	Whitelist        []string `json:"whitelist" yaml:"whitelist,omitempty"`
 }
 
 // ToQQBotConfig converts config.QQBotConfig to qqbot.Config.
@@ -99,22 +100,22 @@ func (c QQBotConfig) ToQQBotConfig() qqbot.Config {
 // AuthConfig configures HTTP authentication.
 // If User is empty, authentication is disabled.
 type AuthConfig struct {
-	User     string `json:"user" toml:"user,omitempty"`
-	Password string `json:"-" toml:"password,omitempty"`
+	User     string `json:"user" yaml:"user,omitempty"`
+	Password string `json:"-" yaml:"password,omitempty"`
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 type SessionConfig struct {
-	TimelineMaxFileMB int `json:"timelineMaxFileMB" toml:"timeline_max_file_mb,omitempty"`
+	TimelineMaxFileMB int `json:"timelineMaxFileMB" yaml:"timeline_max_file_mb,omitempty"`
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────
 
 type LogConfig struct {
-	Level   string `json:"level"   toml:"level,omitempty"`
-	Console bool   `json:"console" toml:"console"`
-	File    bool   `json:"file"    toml:"file"`
+	Level   string `json:"level"   yaml:"level,omitempty"`
+	Console bool   `json:"console" yaml:"console"`
+	File    bool   `json:"file"    yaml:"file"`
 }
 
 // ─── Tools ────────────────────────────────────────────────────────────────────
@@ -125,42 +126,42 @@ type LogConfig struct {
 // main.go will use these fields to construct internal/tools.Config and call tools.Build(cfg).
 type ToolsConfig struct {
 	// Read limits (0 = use compile-time built-in defaults)
-	MaxFileSize  int64 `json:"maxFileSize"  toml:"max_file_size,omitempty"`
-	MaxMatches   int   `json:"maxMatches"   toml:"max_matches,omitempty"`
-	MaxLineLen   int   `json:"maxLineLen"   toml:"max_line_len,omitempty"`
-	MaxGlobItems int   `json:"maxGlobItems" toml:"max_glob_items,omitempty"`
+	MaxFileSize  int64 `json:"maxFileSize"  yaml:"max_file_size,omitempty"`
+	MaxMatches   int   `json:"maxMatches"   yaml:"max_matches,omitempty"`
+	MaxLineLen   int   `json:"maxLineLen"   yaml:"max_line_len,omitempty"`
+	MaxGlobItems int   `json:"maxGlobItems" yaml:"max_glob_items,omitempty"`
 
 	// Write limits
-	MaxWriteSize       int64 `json:"maxWriteSize"       toml:"max_write_size,omitempty"`
-	MaxMultiWriteBytes int64 `json:"maxMultiWriteBytes" toml:"max_multi_write_bytes,omitempty"`
-	MaxMultiWriteFiles int   `json:"maxMultiWriteFiles" toml:"max_multi_write_files,omitempty"`
-	MaxReplaceEdits    int   `json:"maxReplaceEdits"    toml:"max_replace_edits,omitempty"`
+	MaxWriteSize       int64 `json:"maxWriteSize"       yaml:"max_write_size,omitempty"`
+	MaxMultiWriteBytes int64 `json:"maxMultiWriteBytes" yaml:"max_multi_write_bytes,omitempty"`
+	MaxMultiWriteFiles int   `json:"maxMultiWriteFiles" yaml:"max_multi_write_files,omitempty"`
+	MaxReplaceEdits    int   `json:"maxReplaceEdits"    yaml:"max_replace_edits,omitempty"`
 
 	// WebFetch
-	HTTPAllowedHosts []string `json:"httpAllowedHosts,omitempty" toml:"http_allowed_hosts,omitempty"`
-	HTTPMaxBody      int64    `json:"httpMaxBody"      toml:"http_max_body,omitempty"`
-	HTTPTimeoutMs    int      `json:"httpTimeoutMs"    toml:"http_timeout_ms,omitempty"`
-	HTTPBlockPrivate bool     `json:"httpBlockPrivate" toml:"http_block_private,omitempty"`
+	HTTPAllowedHosts []string `json:"httpAllowedHosts,omitempty" yaml:"http_allowed_hosts,omitempty"`
+	HTTPMaxBody      int64    `json:"httpMaxBody"      yaml:"http_max_body,omitempty"`
+	HTTPTimeoutMs    int      `json:"httpTimeoutMs"    yaml:"http_timeout_ms,omitempty"`
+	HTTPBlockPrivate bool     `json:"httpBlockPrivate" yaml:"http_block_private,omitempty"`
 
 	// Bash
-	ShellBlockRegexes   []string `json:"shellBlockRegexes"   toml:"shell_block_regexes,omitempty"`
-	ShellConfirmRegexes []string `json:"shellConfirmRegexes" toml:"shell_confirm_regexes,omitempty"`
-	ShellMaxOutput      int64    `json:"shellMaxOutput"      toml:"shell_max_output,omitempty"`
+	ShellBlockRegexes   []string `json:"shellBlockRegexes"   yaml:"shell_block_regexes,omitempty"`
+	ShellConfirmRegexes []string `json:"shellConfirmRegexes" yaml:"shell_confirm_regexes,omitempty"`
+	ShellMaxOutput      int64    `json:"shellMaxOutput"      yaml:"shell_max_output,omitempty"`
 
 	// WebSearch
-	WebSearchTimeoutMs int `json:"webSearchTimeoutMs" toml:"web_search_timeout_ms,omitempty"`
+	WebSearchTimeoutMs int `json:"webSearchTimeoutMs" yaml:"web_search_timeout_ms,omitempty"`
 
 	// ImageGen
-	ImageModels []ImageModelConfig `json:"imageModels,omitempty" toml:"image_models,omitempty"`
+	ImageModels []ImageModelConfig `json:"imageModels,omitempty" yaml:"image_models,omitempty"`
 }
 
 // ─── LLM Provider ─────────────────────────────────────────────────────────────
 
 type RetryConfig struct {
-	MaxRetries        int     `json:"maxRetries"        toml:"max_retries,omitempty"`
-	InitialDelayMs    int     `json:"initialDelayMs"    toml:"initial_delay_ms,omitempty"`
-	MaxDelayMs        int     `json:"maxDelayMs"        toml:"max_delay_ms,omitempty"`
-	BackoffMultiplier float64 `json:"backoffMultiplier" toml:"backoff_multiplier,omitempty"`
+	MaxRetries        int     `json:"maxRetries"        yaml:"max_retries,omitempty"`
+	InitialDelayMs    int     `json:"initialDelayMs"    yaml:"initial_delay_ms,omitempty"`
+	MaxDelayMs        int     `json:"maxDelayMs"        yaml:"max_delay_ms,omitempty"`
+	BackoffMultiplier float64 `json:"backoffMultiplier" yaml:"backoff_multiplier,omitempty"`
 }
 
 // ResolveAPIKey returns the API key.
@@ -173,73 +174,73 @@ func (p LLMProvider) ResolveAPIKey() string {
 }
 
 type LLMProvider struct {
-	ID        string            `json:"id"        toml:"id,omitempty"`
-	Name      string            `json:"name"      toml:"name,omitempty"`
-	BaseURL   string            `json:"baseUrl"   toml:"base_url,omitempty"`
-	APIKey    string            `json:"apiKey"    toml:"api_key,omitempty"`
-	APIKeyEnv string            `json:"apiKeyEnv" toml:"api_key_env,omitempty"`
-	Enabled   bool              `json:"enabled"   toml:"enabled,omitempty"`
-	IsDefault bool              `json:"isDefault" toml:"is_default,omitempty"`
-	TimeoutMs int               `json:"timeoutMs" toml:"timeout_ms,omitempty"`
-	Retry     RetryConfig       `json:"retry"     toml:"retry,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty" toml:"headers,omitempty"`
+	ID        string            `json:"id"        yaml:"id,omitempty"`
+	Name      string            `json:"name"      yaml:"name,omitempty"`
+	BaseURL   string            `json:"baseUrl"   yaml:"base_url,omitempty"`
+	APIKey    string            `json:"apiKey"    yaml:"api_key,omitempty"`
+	APIKeyEnv string            `json:"apiKeyEnv" yaml:"api_key_env,omitempty"`
+	Enabled   bool              `json:"enabled"   yaml:"enabled,omitempty"`
+	IsDefault bool              `json:"isDefault" yaml:"is_default,omitempty"`
+	TimeoutMs int               `json:"timeoutMs" yaml:"timeout_ms,omitempty"`
+	Retry     RetryConfig       `json:"retry"     yaml:"retry,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 }
 
 // ─── LLM Model ────────────────────────────────────────────────────────────────
 
 // GenerationParams model generation parameters (sampling control)
 type GenerationParams struct {
-	Temperature float64 `json:"temperature" toml:"temperature,omitempty"`
-	MaxTokens   int     `json:"maxTokens"   toml:"max_tokens,omitempty"`
+	Temperature float64 `json:"temperature" yaml:"temperature,omitempty"`
+	MaxTokens   int     `json:"maxTokens"   yaml:"max_tokens,omitempty"`
 }
 
 // ThinkingConfig thinking/reasoning configuration (DeepSeek V4 thinking mode)
 type ThinkingConfig struct {
-	Enabled         bool   `json:"enabled"         toml:"enabled,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort" toml:"reasoning_effort,omitempty"`
+	Enabled         bool   `json:"enabled"         yaml:"enabled,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort" yaml:"reasoning_effort,omitempty"`
 }
 
 type LLMModel struct {
-	ID            string           `json:"id"            toml:"id,omitempty"`
-	ProviderID    string           `json:"providerId"    toml:"provider_id,omitempty"`
-	Name          string           `json:"name"          toml:"name,omitempty"`
-	APIModel      string           `json:"apiModel,omitempty"      toml:"api_model,omitempty"`
-	ContextWindow int              `json:"contextWindow" toml:"context_window,omitempty"`
-	Enabled       bool             `json:"enabled"       toml:"enabled,omitempty"`
-	Generation    GenerationParams `json:"generation"    toml:"generation,omitempty"`
-	Thinking      ThinkingConfig   `json:"thinking"      toml:"thinking,omitempty"`
-	Vision        bool             `json:"vision"        toml:"vision,omitempty"` // supports multimodal image_url content
+	ID            string           `json:"id"            yaml:"id,omitempty"`
+	ProviderID    string           `json:"providerId"    yaml:"provider_id,omitempty"`
+	Name          string           `json:"name"          yaml:"name,omitempty"`
+	APIModel      string           `json:"apiModel,omitempty"      yaml:"api_model,omitempty"`
+	ContextWindow int              `json:"contextWindow" yaml:"context_window,omitempty"`
+	Enabled       bool             `json:"enabled"       yaml:"enabled,omitempty"`
+	Generation    GenerationParams `json:"generation"    yaml:"generation,omitempty"`
+	Thinking      ThinkingConfig   `json:"thinking"      yaml:"thinking,omitempty"`
+	Vision        bool             `json:"vision"        yaml:"vision,omitempty"` // supports multimodal image_url content
 }
 
 // ─── Embedding ────────────────────────────────────────────────────────────────
 
 type EmbeddingProvider struct {
-	ID        string `json:"id"        toml:"id,omitempty"`
-	Name      string `json:"name"      toml:"name,omitempty"`
-	BaseURL   string `json:"baseUrl"   toml:"base_url,omitempty"`
-	APIKey    string `json:"apiKey"    toml:"api_key,omitempty"`
-	APIKeyEnv string `json:"apiKeyEnv" toml:"api_key_env,omitempty"`
-	Enabled   bool   `json:"enabled"   toml:"enabled,omitempty"`
+	ID        string `json:"id"        yaml:"id,omitempty"`
+	Name      string `json:"name"      yaml:"name,omitempty"`
+	BaseURL   string `json:"baseUrl"   yaml:"base_url,omitempty"`
+	APIKey    string `json:"apiKey"    yaml:"api_key,omitempty"`
+	APIKeyEnv string `json:"apiKeyEnv" yaml:"api_key_env,omitempty"`
+	Enabled   bool   `json:"enabled"   yaml:"enabled,omitempty"`
 }
 
 type EmbeddingModel struct {
-	ID         string `json:"id"         toml:"id,omitempty"`
-	ProviderID string `json:"providerId" toml:"provider_id,omitempty"`
-	Name       string `json:"name"       toml:"name,omitempty"`
-	Dimension  int    `json:"dimension"  toml:"dimension,omitempty"`
-	BatchSize  int    `json:"batchSize"  toml:"batch_size,omitempty"`
-	Normalize  bool   `json:"normalize"  toml:"normalize,omitempty"`
-	Enabled    bool   `json:"enabled"    toml:"enabled,omitempty"`
-	IsDefault  bool   `json:"isDefault"  toml:"is_default,omitempty"`
+	ID         string `json:"id"         yaml:"id,omitempty"`
+	ProviderID string `json:"providerId" yaml:"provider_id,omitempty"`
+	Name       string `json:"name"       yaml:"name,omitempty"`
+	Dimension  int    `json:"dimension"  yaml:"dimension,omitempty"`
+	BatchSize  int    `json:"batchSize"  yaml:"batch_size,omitempty"`
+	Normalize  bool   `json:"normalize"  yaml:"normalize,omitempty"`
+	Enabled    bool   `json:"enabled"    yaml:"enabled,omitempty"`
+	IsDefault  bool   `json:"isDefault"  yaml:"is_default,omitempty"`
 }
 
 type EmbeddingConfig struct {
-	Enabled       bool                `json:"enabled"       toml:"enabled,omitempty"`
-	MinSimilarity float32             `json:"minSimilarity" toml:"min_similarity,omitempty"`
-	Provider      string              `json:"provider"      toml:"provider,omitempty"`   // "none", "openai"
-	ModelName     string              `json:"modelName"     toml:"model_name,omitempty"` // model name for API
-	Providers     []EmbeddingProvider `json:"providers"     toml:"providers,omitempty"`
-	Models        []EmbeddingModel    `json:"models"        toml:"models,omitempty"`
+	Enabled       bool                `json:"enabled"       yaml:"enabled,omitempty"`
+	MinSimilarity float32             `json:"minSimilarity" yaml:"min_similarity,omitempty"`
+	Provider      string              `json:"provider"      yaml:"provider,omitempty"`   // "none", "openai"
+	ModelName     string              `json:"modelName"     yaml:"model_name,omitempty"` // model name for API
+	Providers     []EmbeddingProvider `json:"providers"     yaml:"providers,omitempty"`
+	Models        []EmbeddingModel    `json:"models"        yaml:"models,omitempty"`
 }
 
 // ─── Default Models ────────────────────────────────────────────────────────────
@@ -251,11 +252,11 @@ type EmbeddingConfig struct {
 //
 // Resolution priority: role field value → Fallback → hardcoded default value.
 type DefaultModelsConfig struct {
-	Expert    string `json:"expert"    toml:"expert,omitempty"`
-	Superior  string `json:"superior"  toml:"superior,omitempty"`
-	Universal string `json:"universal" toml:"universal,omitempty"`
-	Fast      string `json:"fast"      toml:"fast,omitempty"`
-	Fallback  string `json:"fallback"  toml:"fallback,omitempty"`
+	Expert    string `json:"expert"    yaml:"expert,omitempty"`
+	Superior  string `json:"superior"  yaml:"superior,omitempty"`
+	Universal string `json:"universal" yaml:"universal,omitempty"`
+	Fast      string `json:"fast"      yaml:"fast,omitempty"`
+	Fallback  string `json:"fallback"  yaml:"fallback,omitempty"`
 }
 
 // parseProviderModelID parses config value in "provider:id" format
@@ -271,98 +272,132 @@ func parseProviderModelID(s string) (providerID, modelID string, ok bool) {
 
 // ImageModelConfig configures the image generation model.
 type ImageModelConfig struct {
-	ID           string `json:"id"           toml:"id,omitempty"`
-	Name         string `json:"name"         toml:"name,omitempty"`
-	Provider     string `json:"provider"     toml:"provider,omitempty"`
-	SecretId     string `json:"secretId"     toml:"secret_id,omitempty"`
-	SecretIdEnv  string `json:"secretIdEnv"  toml:"secret_id_env,omitempty"`
-	SecretKey    string `json:"secretKey"    toml:"secret_key,omitempty"`
-	SecretKeyEnv string `json:"secretKeyEnv" toml:"secret_key_env,omitempty"`
-	APIKey       string `json:"apiKey"       toml:"api_key,omitempty"`
-	APIKeyEnv    string `json:"apiKeyEnv"    toml:"api_key_env,omitempty"`
-	APIBaseHost  string `json:"apiBaseHost"  toml:"api_base_host,omitempty"`
-	Region       string `json:"region"       toml:"region,omitempty"`
-	IsDefault    bool   `json:"isDefault"    toml:"is_default,omitempty"`
-	Enabled      bool   `json:"enabled"      toml:"enabled,omitempty"`
+	ID           string `json:"id"           yaml:"id,omitempty"`
+	Name         string `json:"name"         yaml:"name,omitempty"`
+	Provider     string `json:"provider"     yaml:"provider,omitempty"`
+	SecretId     string `json:"secretId"     yaml:"secret_id,omitempty"`
+	SecretIdEnv  string `json:"secretIdEnv"  yaml:"secret_id_env,omitempty"`
+	SecretKey    string `json:"secretKey"    yaml:"secret_key,omitempty"`
+	SecretKeyEnv string `json:"secretKeyEnv" yaml:"secret_key_env,omitempty"`
+	APIKey       string `json:"apiKey"       yaml:"api_key,omitempty"`
+	APIKeyEnv    string `json:"apiKeyEnv"    yaml:"api_key_env,omitempty"`
+	APIBaseHost  string `json:"apiBaseHost"  yaml:"api_base_host,omitempty"`
+	Region       string `json:"region"       yaml:"region,omitempty"`
+	IsDefault    bool   `json:"isDefault"    yaml:"is_default,omitempty"`
+	Enabled      bool   `json:"enabled"      yaml:"enabled,omitempty"`
 }
 
 // ─── LSP MCP (built-in LSP-based MCP server) ───────────────────────────────
 
 // LSPMCPConfig configures the built-in LSP-based MCP server.
 type LSPMCPConfig struct {
-	Servers []LSPMCPEntry `json:"servers,omitempty" toml:"servers"`
+	Servers []LSPMCPEntry `json:"servers,omitempty" yaml:"servers"`
 }
 
 // LSPMCPEntry is a single LSP server entry in settings.toml.
 // When the servers list is empty, all built-in servers are used.
 type LSPMCPEntry struct {
-	ID         string   `json:"id" toml:"id"`
-	Command    string   `json:"command" toml:"command"`
-	Args       []string `json:"args" toml:"args"`
-	Languages  []string `json:"languages" toml:"languages"`
-	Extensions []string `json:"extensions" toml:"extensions"`
-	Disabled   bool     `json:"disabled" toml:"disabled"`
+	ID         string   `json:"id" yaml:"id"`
+	Command    string   `json:"command" yaml:"command"`
+	Args       []string `json:"args" yaml:"args"`
+	Languages  []string `json:"languages" yaml:"languages"`
+	Extensions []string `json:"extensions" yaml:"extensions"`
+	Disabled   bool     `json:"disabled" yaml:"disabled"`
 }
 
-// MarshalTOML implements toml.Marshaler to customize TOML serialization.
-// It ensures that migrated settings (Providers, Models, DefaultModels, Tools, QQBot, LSPMCP, Embedding, Session)
-// are NOT written back to settings.toml, leaving only process/environment specific settings (Auth, Log, Agent).
-func (s Settings) MarshalTOML() (interface{}, error) {
-	type FileSettings struct {
-		Auth  AuthConfig  `toml:"auth,omitempty"`
-		Log   LogConfig   `toml:"log,omitempty"`
-		Agent AgentConfig `toml:"agent,omitempty"`
+
+// MarshalYAML customizes AgentConfig YAML output so nil slices are omitted
+// while empty slices are preserved as []. This preserves the semantic difference
+// between "load all" (nil) and "load none" ([]).
+func (a AgentConfig) MarshalYAML() (interface{}, error) {
+	if a.BuiltinMCPServers == nil && a.ExternalMCPServers == nil {
+		return map[string]interface{}{}, nil
 	}
-	return FileSettings{
-		Auth:  s.Auth,
-		Log:   s.Log,
-		Agent: s.Agent,
+	type raw struct {
+		BuiltinMCPServers  []string `yaml:"builtin_mcp_servers"`
+		ExternalMCPServers []string `yaml:"external_mcp_servers"`
+	}
+	return raw{
+		BuiltinMCPServers:  a.BuiltinMCPServers,
+		ExternalMCPServers: a.ExternalMCPServers,
 	}, nil
 }
 
-// MarshalTOMLWithComments serializes Settings into a TOML byte slice with detailed comments explaining each option.
-func (s Settings) MarshalTOMLWithComments() ([]byte, error) {
-	var sb strings.Builder
-	sb.WriteString("# SoloQueue Configuration File\n")
-	sb.WriteString("# This file stores only base configurations related to the underlying process, system environment, and local authorization.\n")
-	sb.WriteString("# All migrated configuration items (such as LLM providers, models, tools limits, QQ Bot, LSP MCP, embedding, and simulation settings)\n")
-	sb.WriteString("# have been migrated to the SQLite database (soloqueue.db) for persistence and dynamic management, and are no longer read from here at startup.\n\n")
+// MarshalYAMLWithComments serializes Settings into a YAML byte slice with section comments.
+func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
+	var root yaml.Node
+	root.Kind = yaml.DocumentNode
 
-	sb.WriteString("[auth]\n")
-	sb.WriteString("# Username for HTTP Basic Authentication. If empty, authentication is disabled.\n")
-	sb.WriteString(fmt.Sprintf("user = %q\n", s.Auth.User))
-	sb.WriteString("# Password for HTTP Basic Authentication.\n")
-	sb.WriteString(fmt.Sprintf("password = %q\n\n", s.Auth.Password))
+	mapping := &yaml.Node{Kind: yaml.MappingNode}
+	root.Content = append(root.Content, mapping)
 
-	sb.WriteString("[log]\n")
-	sb.WriteString("# Log level: debug, info, warn, error.\n")
-	sb.WriteString(fmt.Sprintf("level = %q\n", s.Log.Level))
-	sb.WriteString("# Print structured logs to stderr/console.\n")
-	sb.WriteString(fmt.Sprintf("console = %t\n", s.Log.Console))
-	sb.WriteString("# Save structured logs to ~/.soloqueue/logs/system/app-YYYY-MM-DD.json.\n")
-	sb.WriteString(fmt.Sprintf("file = %t\n\n", s.Log.File))
-
-	sb.WriteString("[agent]\n")
-	sb.WriteString("# Whitelist of built-in MCP servers to load. If null (or omitted), all built-in servers are loaded. If [], no built-in servers are loaded. List like [\"builtin-lsp\"] to load only specified servers.\n")
-	if s.Agent.BuiltinMCPServers != nil {
-		bytes, err := json.Marshal(s.Agent.BuiltinMCPServers)
-		if err != nil {
-			return nil, err
-		}
-		sb.WriteString(fmt.Sprintf("builtin_mcp_servers = %s\n", string(bytes)))
-	} else {
-		sb.WriteString("# builtin_mcp_servers = [\"builtin-lsp\"]\n")
-	}
-	sb.WriteString("# Whitelist of external custom MCP servers to load. Rules are the same as above.\n")
-	if s.Agent.ExternalMCPServers != nil {
-		bytes, err := json.Marshal(s.Agent.ExternalMCPServers)
-		if err != nil {
-			return nil, err
-		}
-		sb.WriteString(fmt.Sprintf("external_mcp_servers = %s\n", string(bytes)))
-	} else {
-		sb.WriteString("# external_mcp_servers = [\"server1\", \"server2\"]\n")
+	sections := []struct {
+		name    string
+		comment string
+		value   interface{}
+	}{
+		{"session", "Session settings", s.Session},
+		{"auth", "HTTP basic authentication", s.Auth},
+		{"log", "Logging settings", s.Log},
+		{"providers", "LLM providers", s.Providers},
+		{"models", "LLM models", s.Models},
+		{"default_models", "Default models by role", s.DefaultModels},
+		{"embedding", "Embedding settings", s.Embedding},
+		{"qqbots", "QQ bot integrations", s.QQBots},
+		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
+		{"tools", "Tool execution limits", s.Tools},
+		{"simulation", "Simulation engine defaults", s.Simulation},
+		{"agent", "MCP server whitelists: nil/omitted = load all; [] = load none", s.Agent},
 	}
 
-	return []byte(sb.String()), nil
+	for i, sec := range sections {
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: sec.name}
+		if sec.comment != "" {
+			comment := sec.comment
+			if i > 0 {
+				comment = "\n" + comment
+			}
+			key.HeadComment = comment
+		}
+		value, err := valueToYAMLNode(sec.value)
+		if err != nil {
+			return nil, fmt.Errorf("marshal section %q: %w", sec.name, err)
+		}
+		mapping.Content = append(mapping.Content, key, value)
+	}
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
+		return nil, fmt.Errorf("encode yaml: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("close yaml encoder: %w", err)
+	}
+
+	var out strings.Builder
+	out.WriteString("# SoloQueue Configuration File\n")
+	out.WriteString("# This file is the single source of truth for SoloQueue configuration.\n")
+	out.WriteString("# Direct edits are picked up automatically while the server is running.\n\n")
+	out.Write(buf.Bytes())
+	return []byte(out.String()), nil
+}
+
+// valueToYAMLNode converts a value into a yaml.Node by round-tripping through the
+// standard YAML encoder. This lets us assemble a single document where each section
+// carries a leading comment without wrapping sections in extra indentation levels.
+func valueToYAMLNode(v interface{}) (*yaml.Node, error) {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) == 0 {
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null"}, nil
+	}
+	return doc.Content[0], nil
 }

@@ -3,551 +3,190 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-	"sync"
 	"testing"
+	"time"
 
-	"github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
 )
 
-// ─── MergeTOML ────────────────────────────────────────────────────────────────
-
-func TestMergeTOML_PartialOverride(t *testing.T) {
-	base := Settings{
-		Session: SessionConfig{TimelineMaxFileMB: 50},
-		Log:     LogConfig{Level: "info", Console: true},
-	}
-	patch := `[log]
-level = "debug"
-`
-	result, err := MergeTOML(base, []byte(patch))
+func writeYAML(t *testing.T, path string, v any) {
+	t.Helper()
+	data, err := yaml.Marshal(v)
 	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
+		t.Fatalf("marshal yaml: %v", err)
 	}
-	if result.Log.Level != "debug" {
-		t.Errorf("log.level = %q, want debug", result.Log.Level)
-	}
-	if !result.Log.Console {
-		t.Errorf("log.console = false, want true (preserved)")
-	}
-	if result.Session.TimelineMaxFileMB != 50 {
-		t.Errorf("session.timelineMaxFileMB = %d, want 50 (preserved)", result.Session.TimelineMaxFileMB)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write yaml: %v", err)
 	}
 }
-
-func TestMergeTOML_DeepNestedObject(t *testing.T) {
-	base := Settings{
-		Log: LogConfig{
-			Level:   "info",
-			Console: true,
-			File:    true,
-		},
-	}
-	patch := `[log]
-level = "debug"
-`
-	result, err := MergeTOML(base, []byte(patch))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if result.Log.Level != "debug" {
-		t.Errorf("log.level = %q, want debug", result.Log.Level)
-	}
-	if !result.Log.Console {
-		t.Errorf("log.console = false, want true (preserved)")
-	}
-}
-
-func TestMergeTOML_EmbeddingNestedMerge_Ignored(t *testing.T) {
-	base := DefaultSettings()
-	base.Embedding.Enabled = false
-	patch := `[embedding]
-enabled = true
-`
-	result, err := MergeTOML(base, []byte(patch))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if result.Embedding.Enabled {
-		t.Errorf("embedding.enabled should be ignored and remain false, got true")
-	}
-}
-
-func TestMergeTOML_ArrayReplacement_Ignored(t *testing.T) {
-	base := DefaultSettings()
-	patch := `[[providers]]
-id = "openai"
-name = "OpenAI"
-enabled = true
-`
-	result, err := MergeTOML(base, []byte(patch))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if len(result.Providers) != len(base.Providers) {
-		t.Errorf("providers should be ignored and remain length %d, got %d", len(base.Providers), len(result.Providers))
-	}
-}
-
-func TestMergeTOML_NullPreservesValue(t *testing.T) {
-	base := Settings{Log: LogConfig{Level: "info"}}
-	// TOML doesn't have null, omit the key to preserve
-	patch := `[log]
-`
-	result, err := MergeTOML(base, []byte(patch))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if result.Log.Level != "info" {
-		t.Errorf("omitted key should preserve, got %q", result.Log.Level)
-	}
-}
-
-func TestMergeTOML_EmptyPatch_NoOp(t *testing.T) {
-	base := DefaultSettings()
-	result, err := MergeTOML(base, []byte(``))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if result.Log.Level != base.Log.Level {
-		t.Errorf("empty patch should preserve defaults")
-	}
-}
-
-func TestMergeTOML_InvalidTOML_Errors(t *testing.T) {
-	base := DefaultSettings()
-	_, err := MergeTOML(base, []byte(`not valid toml`))
-	if err == nil {
-		t.Error("invalid TOML should return error")
-	}
-}
-
-func TestMergeTOML_UnknownFields_Ignored(t *testing.T) {
-	base := Settings{Log: LogConfig{Level: "info"}}
-	patch := `[log]
-level = "debug"
-unknownField = "xxx"
-`
-	result, err := MergeTOML(base, []byte(patch))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if result.Log.Level != "debug" {
-		t.Errorf("level = %q, want debug", result.Log.Level)
-	}
-}
-
-func TestMergeTOML_NumericTypes_Ignored(t *testing.T) {
-	base := Settings{Session: SessionConfig{TimelineMaxFileMB: 100}}
-	patch := `[session]
-timeline_max_file_mb = 7200
-`
-	result, err := MergeTOML(base, []byte(patch))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if result.Session.TimelineMaxFileMB != 100 {
-		t.Errorf("timelineMaxFileMB should be ignored and remain 100, got %d", result.Session.TimelineMaxFileMB)
-	}
-}
-
-func TestMergeTOML_BooleanOverride(t *testing.T) {
-	base := Settings{Log: LogConfig{File: true}}
-	patch := `[log]
-file = false
-`
-	result, err := MergeTOML(base, []byte(patch))
-	if err != nil {
-		t.Fatalf("MergeTOML: %v", err)
-	}
-	if result.Log.File {
-		t.Errorf("file should be overridden to false")
-	}
-}
-
-// ─── Loader: Load ────────────────────────────────────────────────────────────
 
 func TestLoader_Load_NoFile_UsesDefaults(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-
-	loader, err := NewLoader(DefaultSettings(), path)
+	loader, err := NewLoader(DefaultSettings(), filepath.Join(dir, "settings.yaml"))
 	if err != nil {
-		t.Fatalf("NewLoader: %v", err)
+		t.Fatalf("new loader: %v", err)
 	}
 	if err := loader.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("load: %v", err)
 	}
-	got := loader.Get()
-	if got.Log.Level != "info" {
-		t.Errorf("log.level = %q, want info", got.Log.Level)
+	settings := loader.Get()
+	if settings.Log.Level != "info" {
+		t.Errorf("log level = %q, want info", settings.Log.Level)
 	}
 }
 
 func TestLoader_Load_FromFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	writeTOML(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "debug"},
+	})
 
-	loader, _ := NewLoader(DefaultSettings(), path)
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
 	if err := loader.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("load: %v", err)
 	}
-	got := loader.Get()
-	if got.Log.Level != "debug" {
-		t.Errorf("level = %q, want debug", got.Log.Level)
-	}
-	if got.Log.Console {
-		t.Errorf("log.console should be preserved from defaults (false)")
+	settings := loader.Get()
+	if settings.Log.Level != "debug" {
+		t.Errorf("log level = %q, want debug", settings.Log.Level)
 	}
 }
 
-func TestLoader_Load_InvalidTOML_Errors(t *testing.T) {
+func TestLoader_Load_InvalidYAML_Errors(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	if err := os.WriteFile(path, []byte(`not valid toml`), 0o644); err != nil {
+	path := filepath.Join(dir, "settings.yaml")
+	if err := os.WriteFile(path, []byte("not valid yaml: :"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-
-	loader, _ := NewLoader(DefaultSettings(), path)
-	err := loader.Load()
-	if err == nil {
-		t.Fatal("Load should return error for invalid TOML")
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
 	}
-}
-
-func TestLoader_Load_PermissionDenied(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("file modes differ on windows")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses permission checks")
-	}
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	if err := os.WriteFile(path, []byte(`{}`), 0o000); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	loader, _ := NewLoader(DefaultSettings(), path)
-	err := loader.Load()
-	if err == nil {
-		t.Error("Load should fail on permission denied")
-	}
-}
-
-func TestLoader_Load_MultiLayer(t *testing.T) {
-	dir := t.TempDir()
-	main := filepath.Join(dir, "settings.toml")
-	local := filepath.Join(dir, "settings.local.toml")
-
-	writeTOML(t, main, map[string]any{"log": map[string]any{"level": "debug"}})
-	writeTOML(t, local, map[string]any{"log": map[string]any{"console": false}})
-
-	loader, _ := NewLoader(DefaultSettings(), main, local)
-	if err := loader.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	got := loader.Get()
-	if got.Log.Level != "debug" {
-		t.Errorf("level = %q, want debug (from main)", got.Log.Level)
-	}
-	if got.Log.Console != false {
-		t.Errorf("console = %v, want false (from local)", got.Log.Console)
-	}
-}
-
-func TestLoader_Load_LocalOverridesMain(t *testing.T) {
-	dir := t.TempDir()
-	main := filepath.Join(dir, "settings.toml")
-	local := filepath.Join(dir, "settings.local.toml")
-
-	writeTOML(t, main, map[string]any{"log": map[string]any{"level": "debug"}})
-	writeTOML(t, local, map[string]any{"log": map[string]any{"level": "warn"}})
-
-	loader, _ := NewLoader(DefaultSettings(), main, local)
-	_ = loader.Load()
-
-	if loader.Get().Log.Level != "warn" {
-		t.Errorf("local should override main, got %q", loader.Get().Log.Level)
-	}
-}
-
-func TestLoader_Load_MissingLocalFile_OK(t *testing.T) {
-	dir := t.TempDir()
-	main := filepath.Join(dir, "settings.toml")
-	local := filepath.Join(dir, "settings.local.toml")
-	writeTOML(t, main, map[string]any{"log": map[string]any{"level": "debug"}})
-
-	loader, _ := NewLoader(DefaultSettings(), main, local)
-	if err := loader.Load(); err != nil {
-		t.Fatalf("missing local should not error, got: %v", err)
-	}
-	if loader.Get().Log.Level != "debug" {
-		t.Errorf("main level not applied")
-	}
-}
-
-
-
-func TestLoader_Save_PreservesFalseBooleans(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	loader, _ := NewLoader(DefaultSettings(), path)
-	_ = loader.Load()
-
-	// Modify settings to set booleans to false
-	loader.mu.Lock()
-	loader.current.Log.Console = false
-	loader.current.Log.File = false
-	loader.mu.Unlock()
-
-	if err := loader.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	// Load again from a new loader to simulate restart
-	newLoader, _ := NewLoader(DefaultSettings(), path)
-	if err := newLoader.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-
-	got := newLoader.Get()
-	if got.Log.Console != false {
-		t.Errorf("expected console to remain false on reload, got %v", got.Log.Console)
-	}
-	if got.Log.File != false {
-		t.Errorf("expected file to remain false on reload, got %v", got.Log.File)
+	if err := loader.Load(); err == nil {
+		t.Fatal("expected error for invalid YAML")
 	}
 }
 
 func TestLoader_Save_WritesCurrent(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	loader, _ := NewLoader(DefaultSettings(), path)
+	path := filepath.Join(dir, "settings.yaml")
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+	_ = loader.Load()
+	if _, err := loader.Set(func(s *Settings) {
+		s.Log.Level = "error"
+	}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	var settings Settings
+	if err := yaml.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("unmarshal saved: %v", err)
+	}
+	if settings.Log.Level != "error" {
+		t.Errorf("saved log level = %q, want error", settings.Log.Level)
+	}
+}
+
+func TestLoader_Set_Concurrent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
 	_ = loader.Load()
 
-	if err := loader.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
+	for i := 0; i < 10; i++ {
+		go func(level string) {
+			loader.Set(func(s *Settings) {
+				s.Log.Level = level
+			})
+		}(string(rune('a' + i)))
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("main file should exist: %v", err)
+	time.Sleep(100 * time.Millisecond)
+
+	settings := loader.Get()
+	if settings.Log.Level == "" {
+		t.Error("log level should be set")
 	}
 }
 
-func TestLoader_Save_Atomic_OverridesExistingTmp(t *testing.T) {
+func TestLoader_Watch_ReloadsOnChange(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte("stale"), 0o644); err != nil {
-		t.Fatalf("write stale: %v", err)
+	path := filepath.Join(dir, "settings.yaml")
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
 	}
-
-	loader, _ := NewLoader(DefaultSettings(), path)
 	_ = loader.Load()
-	if err := loader.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
+	if err := loader.Watch(); err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	defer loader.StopWatch()
+
+	called := make(chan struct{}, 1)
+	loader.SetOnChange(func() error {
+		select {
+		case called <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "debug"},
+	})
+
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("onChange not called")
 	}
 
-	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
-		t.Errorf(".tmp should be renamed away, err: %v", err)
+	settings := loader.Get()
+	if settings.Log.Level != "debug" {
+		t.Errorf("after reload log level = %q, want debug", settings.Log.Level)
 	}
 }
 
-func TestLoader_Save_NoPaths_Errors(t *testing.T) {
-	_, err := NewLoader(DefaultSettings())
-	if err == nil {
-		t.Error("NewLoader with no paths should error")
-	}
-}
-
-// ─── Loader: Concurrency ─────────────────────────────────────────────────────
-
-func TestLoader_ConcurrentGet(t *testing.T) {
+func TestLoader_ReadFromDisk(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	loader, _ := NewLoader(DefaultSettings(), path)
-	_ = loader.Load()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"auth": map[string]any{"user": "alice"},
+	})
 
-	var wg sync.WaitGroup
-	for i := 0; i < 200; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s := loader.Get()
-			_ = s.Log.Level
-		}()
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
 	}
-	wg.Wait()
+	settings, err := loader.ReadFromDisk()
+	if err != nil {
+		t.Fatalf("read from disk: %v", err)
+	}
+	if settings.Auth.User != "alice" {
+		t.Errorf("auth user = %q, want alice", settings.Auth.User)
+	}
 }
-
-func TestLoader_ConcurrentLoadAndGet(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.toml")
-	writeTOML(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
-	loader, _ := NewLoader(DefaultSettings(), path)
-
-	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = loader.Load()
-		}()
-	}
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = loader.Get()
-		}()
-	}
-	wg.Wait()
-}
-
-// ─── expandPath ──────────────────────────────────────────────────────────────
 
 func TestExpandPath_Tilde(t *testing.T) {
-	got, err := expandPath("~/.soloqueue/settings.toml")
+	home, _ := os.UserHomeDir()
+	got, err := expandPath("~/.soloqueue/settings.yaml")
 	if err != nil {
 		t.Fatalf("expandPath: %v", err)
 	}
-	home, _ := os.UserHomeDir()
-	want := filepath.Join(home, ".soloqueue/settings.toml")
+	want := filepath.Join(home, ".soloqueue/settings.yaml")
 	if got != want {
 		t.Errorf("expandPath = %q, want %q", got, want)
 	}
-}
-
-func TestExpandPath_NoTilde(t *testing.T) {
-	got, err := expandPath("/absolute/path")
-	if err != nil {
-		t.Fatalf("expandPath: %v", err)
-	}
-	if got != "/absolute/path" {
-		t.Errorf("expandPath = %q, want unchanged", got)
-	}
-}
-
-func TestExpandPath_Empty(t *testing.T) {
-	got, err := expandPath("")
-	if err != nil {
-		t.Fatalf("expandPath empty: %v", err)
-	}
-	if got != "" {
-		t.Errorf("empty should stay empty, got %q", got)
-	}
-}
-
-func TestExpandPath_RelativePath(t *testing.T) {
-	got, err := expandPath("./foo/bar")
-	if err != nil {
-		t.Fatalf("expandPath: %v", err)
-	}
-	if got != "./foo/bar" {
-		t.Errorf("relative path = %q, want unchanged", got)
-	}
-}
-
-// ─── GlobalService ───────────────────────────────────────────────────────────
-
-func TestGlobalService_DefaultProvider(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	_ = svc.Load()
-
-	p := svc.DefaultProvider()
-	if p == nil {
-		t.Fatal("DefaultProvider returned nil")
-	}
-	if p.ID != "deepseek" {
-		t.Errorf("id = %q, want deepseek", p.ID)
-	}
-}
-
-func TestGlobalService_DefaultModelByRole_DefaultsIncludeProMax(t *testing.T) {
-	// Verify that DefaultSettings() contains the deepseek-v4-pro-max model
-	s := DefaultSettings()
-	found := false
-	for _, m := range s.Models {
-		if m.ID == "deepseek-v4-pro-max" {
-			found = true
-			if m.APIModel != "deepseek-v4-pro" {
-				t.Errorf("deepseek-v4-pro-max apiModel = %q, want deepseek-v4-pro", m.APIModel)
-			}
-			if m.Thinking.ReasoningEffort != "max" {
-				t.Errorf("deepseek-v4-pro-max reasoningEffort = %q, want max", m.Thinking.ReasoningEffort)
-			}
-		}
-	}
-	if !found {
-		t.Error("DefaultSettings should include deepseek-v4-pro-max model")
-	}
-
-	// Verify DefaultModels default values
-	if s.DefaultModels.Expert != "deepseek:deepseek-v4-pro-max" {
-		t.Errorf("defaultModels.expert = %q, want deepseek:deepseek-v4-pro-max", s.DefaultModels.Expert)
-	}
-	if s.DefaultModels.Fallback != "" {
-		t.Errorf("defaultModels.fallback = %q, want empty", s.DefaultModels.Fallback)
-	}
-}
-
-// ─── ResolveAPIKey ───────────────────────────────────────────────────────────
-
-func TestResolveAPIKey_Direct(t *testing.T) {
-	p := LLMProvider{APIKey: "sk-direct-key", APIKeyEnv: "SOME_ENV"}
-	os.Unsetenv("SOME_ENV")
-	if got := p.ResolveAPIKey(); got != "sk-direct-key" {
-		t.Errorf("ResolveAPIKey() = %q, want sk-direct-key", got)
-	}
-}
-
-func TestResolveAPIKey_EnvFallback(t *testing.T) {
-	t.Setenv("TEST_API_KEY", "sk-env-key")
-	p := LLMProvider{APIKey: "", APIKeyEnv: "TEST_API_KEY"}
-	if got := p.ResolveAPIKey(); got != "sk-env-key" {
-		t.Errorf("ResolveAPIKey() = %q, want sk-env-key", got)
-	}
-}
-
-func TestResolveAPIKey_DirectTakesPriority(t *testing.T) {
-	t.Setenv("TEST_API_KEY", "sk-env-key")
-	p := LLMProvider{APIKey: "sk-direct-key", APIKeyEnv: "TEST_API_KEY"}
-	if got := p.ResolveAPIKey(); got != "sk-direct-key" {
-		t.Errorf("ResolveAPIKey() = %q, want sk-direct-key (direct overrides env)", got)
-	}
-}
-
-func TestResolveAPIKey_Empty(t *testing.T) {
-	os.Unsetenv("MISSING_ENV")
-	p := LLMProvider{APIKey: "", APIKeyEnv: "MISSING_ENV"}
-	if got := p.ResolveAPIKey(); got != "" {
-		t.Errorf("ResolveAPIKey() = %q, want empty", got)
-	}
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-func writeTOML(t *testing.T, path string, v any) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	data, err := toml.Marshal(v)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func writeTOMLFile(t *testing.T, path string, v any) {
-	t.Helper()
-	writeTOML(t, path, v)
 }

@@ -2,53 +2,45 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/fsnotify/fsnotify"
+	"gopkg.in/yaml.v3"
 )
 
 // Loader[T] is a reusable generic configuration loader.
 //
-// Load priority (latter overrides former):
-//	defaults (hardcoded) → paths[0] (primary config) → paths[1] (local override) → ...
+// Load priority: defaults (hardcoded) → primary config file.
 type Loader[T any] struct {
-	paths    []string
+	path     string
 	defaults T
 
 	current T
 	mu      sync.RWMutex
 
-	log *logger.Logger
+	watcher   *fsnotify.Watcher
+	watchMu   sync.Mutex
+	watchStop chan struct{}
+	watchPath string
+	onChange  func() error
+
+	lastWrite time.Time
+	writeMu   sync.Mutex
 }
 
-// NewLoader creates a Loader[T] with defaults and file paths sorted by priority (low → high)
-//
-// Validation:
-//   - At least one path is required.
-//   - No path string can be empty.
-//   - Paths must not contain duplicates (compared by raw string before expansion).
-func NewLoader[T any](defaults T, paths ...string) (*Loader[T], error) {
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("NewLoader: at least one path required")
-	}
-	seen := map[string]bool{}
-	for i, p := range paths {
-		if p == "" {
-			return nil, fmt.Errorf("NewLoader: path[%d] is empty", i)
-		}
-		if seen[p] {
-			return nil, fmt.Errorf("NewLoader: duplicate path %q", p)
-		}
-		seen[p] = true
+// NewLoader creates a Loader[T] with defaults and a single config file path.
+func NewLoader[T any](defaults T, path string) (*Loader[T], error) {
+	if path == "" {
+		return nil, errors.New("NewLoader: path required")
 	}
 
 	l := &Loader[T]{
-		paths:    paths,
+		path:     path,
 		defaults: defaults,
 		current:  defaults,
 	}
@@ -60,79 +52,37 @@ func (l *Loader[T]) Load() error {
 	return l.LoadContext(context.Background())
 }
 
-// LoadContext runs Load with context, checking ctx.Err() before each file I/O.
-// Note: It does not interrupt active system calls, but only handles cancellations between files.
+// LoadContext loads the single config file over the defaults.
 func (l *Loader[T]) LoadContext(ctx context.Context) error {
-	start := time.Now()
 	result := l.defaults
-	successCount := 0
-
-	if l.log != nil {
-		l.log.DebugContext(ctx, logger.CatConfig, "config load started",
-			"num_paths", len(l.paths),
-		)
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	for _, path := range l.paths {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	expanded, err := l.expandedPath()
+	if err != nil {
+		return err
+	}
 
-		expanded, err := expandPath(path)
-		if err != nil {
-			return fmt.Errorf("expand path %s: %w", path, err)
-		}
-
-		data, err := os.ReadFile(expanded)
+	data, err := os.ReadFile(expanded)
+	if err != nil {
 		if os.IsNotExist(err) {
-			if l.log != nil {
-				l.log.DebugContext(ctx, logger.CatConfig, "config file not found, skipping",
-					"path", expanded,
-				)
-			}
-			continue // File does not exist: skip (not an error)
+			// No file yet: keep defaults.
+			l.mu.Lock()
+			l.current = result
+			l.mu.Unlock()
+			return nil
 		}
-		if err != nil {
-			if l.log != nil {
-				l.log.WarnContext(ctx, logger.CatConfig, "config file read failed",
-					"path", expanded,
-					"err", err.Error(),
-				)
-			}
-			return fmt.Errorf("read %s: %w", expanded, err)
-		}
+		return fmt.Errorf("read %s: %w", expanded, err)
+	}
 
-		result, err = MergeTOML(result, data)
-		if err != nil {
-			if l.log != nil {
-				l.log.WarnContext(ctx, logger.CatConfig, "config merge failed",
-					"path", expanded,
-					"err", err.Error(),
-				)
-			}
-			return fmt.Errorf("merge %s: %w", expanded, err)
-		}
-		successCount++
-		if l.log != nil {
-			l.log.DebugContext(ctx, logger.CatConfig, "config file merged successfully",
-				"path", expanded,
-			)
-		}
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return fmt.Errorf("parse %s: %w", expanded, err)
 	}
 
 	l.mu.Lock()
 	l.current = result
 	l.mu.Unlock()
-
-	// Log completion
-	if l.log != nil {
-		duration := time.Since(start).Milliseconds()
-		l.log.InfoContext(ctx, logger.CatConfig, "config load completed",
-			"files_merged", successCount,
-			"duration_ms", duration,
-		)
-	}
-
 	return nil
 }
 
@@ -140,24 +90,19 @@ func (l *Loader[T]) LoadContext(ctx context.Context) error {
 func (l *Loader[T]) ReadFromDisk() (T, error) {
 	var zero T
 	result := l.defaults
-	for _, path := range l.paths {
-		expanded, err := expandPath(path)
-		if err != nil {
-			return zero, fmt.Errorf("expand path %s: %w", path, err)
-		}
-
-		data, err := os.ReadFile(expanded)
+	expanded, err := l.expandedPath()
+	if err != nil {
+		return zero, err
+	}
+	data, err := os.ReadFile(expanded)
+	if err != nil {
 		if os.IsNotExist(err) {
-			continue
+			return result, nil
 		}
-		if err != nil {
-			return zero, fmt.Errorf("read %s: %w", expanded, err)
-		}
-
-		result, err = MergeTOML(result, data)
-		if err != nil {
-			return zero, fmt.Errorf("merge %s: %w", expanded, err)
-		}
+		return zero, fmt.Errorf("read %s: %w", expanded, err)
+	}
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return zero, fmt.Errorf("parse %s: %w", expanded, err)
 	}
 	return result, nil
 }
@@ -169,7 +114,24 @@ func (l *Loader[T]) Get() T {
 	return l.current
 }
 
-// Save atomically writes the current settings into paths[0].
+// Set applies a mutation to the current config, persists it to disk, and returns the updated snapshot.
+func (l *Loader[T]) Set(mutate func(*T)) (T, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	mutate(&l.current)
+
+	l.writeMu.Lock()
+	l.lastWrite = time.Now()
+	l.writeMu.Unlock()
+
+	pp, err := l.expandedPath()
+	if err != nil {
+		return l.current, err
+	}
+	return l.current, l.saveTo(pp, l.current)
+}
+
+// Save atomically writes the current settings to the config file.
 func (l *Loader[T]) Save() error {
 	return l.SaveContext(context.Background())
 }
@@ -179,30 +141,117 @@ func (l *Loader[T]) SaveContext(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	l.mu.RLock()
+	l.mu.Lock()
 	current := l.current
-	l.mu.RUnlock()
-	pp, err := l.primaryPath()
+	l.mu.Unlock()
+	pp, err := l.expandedPath()
 	if err != nil {
 		return err
 	}
 	return l.saveTo(pp, current)
 }
 
-// SetLogger sets the logger for configuration tracking and debugging
-func (l *Loader[T]) SetLogger(log *logger.Logger) {
-	l.log = log
+// SetOnChange registers a callback invoked after a file change is detected by Watch.
+func (l *Loader[T]) SetOnChange(fn func() error) {
+	l.mu.Lock()
+	l.onChange = fn
+	l.mu.Unlock()
 }
 
-// ─── Internal ─────────────────────────────────────────────────────────────────
-
-func (l *Loader[T]) primaryPath() (string, error) {
-	if len(l.paths) == 0 {
-		return "", nil
+// Watch starts watching the config file for external changes and reloads automatically.
+// It calls onChange (if set) after reloading.
+func (l *Loader[T]) Watch() error {
+	l.watchMu.Lock()
+	defer l.watchMu.Unlock()
+	if l.watcher != nil {
+		return nil
 	}
-	expanded, err := expandPath(l.paths[0])
+
+	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return "", fmt.Errorf("expand primary path %s: %w", l.paths[0], err)
+		return fmt.Errorf("create fsnotify watcher: %w", err)
+	}
+
+	pp, err := l.expandedPath()
+	if err != nil {
+		watcher.Close()
+		return err
+	}
+	dir := filepath.Dir(pp)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		watcher.Close()
+		return err
+	}
+	// Watch the directory so we also detect file deletion/recreation.
+	if err := watcher.Add(dir); err != nil {
+		watcher.Close()
+		return fmt.Errorf("watch %s: %w", dir, err)
+	}
+
+	l.watcher = watcher
+	l.watchPath = pp
+	l.watchStop = make(chan struct{})
+
+	go l.watchLoop()
+	return nil
+}
+
+// StopWatch stops the fsnotify watcher.
+func (l *Loader[T]) StopWatch() {
+	l.watchMu.Lock()
+	defer l.watchMu.Unlock()
+	if l.watcher == nil {
+		return
+	}
+	close(l.watchStop)
+	l.watcher.Close()
+	l.watcher = nil
+}
+
+func (l *Loader[T]) watchLoop() {
+	for {
+		select {
+		case <-l.watchStop:
+			return
+		case event, ok := <-l.watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Name != l.watchPath {
+				continue
+			}
+			if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Rename) && !event.Has(fsnotify.Create) && !event.Has(fsnotify.Remove) {
+				continue
+			}
+			// Ignore events caused by our own Save for a short window.
+			l.writeMu.Lock()
+			skip := time.Since(l.lastWrite) < 100*time.Millisecond
+			l.writeMu.Unlock()
+			if skip {
+				continue
+			}
+			if err := l.Load(); err != nil {
+				// Errors are swallowed; a partial/broken file may be transient.
+				_ = err
+			}
+			l.mu.RLock()
+			onChange := l.onChange
+			l.mu.RUnlock()
+			if onChange != nil {
+				_ = onChange()
+			}
+		case _, ok := <-l.watcher.Errors:
+			if !ok {
+				return
+			}
+		}
+	}
+}
+
+func (l *Loader[T]) expandedPath() (string, error) {
+	expanded, err := expandPath(l.path)
+	if err != nil {
+		return "", fmt.Errorf("expand path %s: %w", l.path, err)
 	}
 	return expanded, nil
 }
@@ -217,13 +266,7 @@ func (l *Loader[T]) saveTo(path string, value T) error {
 		return fmt.Errorf("mkdirall %s: %w", filepath.Dir(path), err)
 	}
 
-	var data []byte
-	var err error
-	if s, ok := any(value).(Settings); ok {
-		data, err = s.MarshalTOMLWithComments()
-	} else {
-		data, err = toml.Marshal(value)
-	}
+	data, err := marshalYAML(value)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
@@ -254,4 +297,11 @@ func expandPath(path string) (string, error) {
 		return filepath.Join(home, path[1:]), nil
 	}
 	return path, nil
+}
+
+func marshalYAML(v interface{}) ([]byte, error) {
+	if s, ok := v.(Settings); ok {
+		return s.MarshalYAMLWithComments()
+	}
+	return yaml.Marshal(v)
 }

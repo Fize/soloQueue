@@ -24,18 +24,20 @@ func (m *Mux) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 
 // handleGetConfigToml returns the raw settings.toml content.
 // GET /api/config/toml
-func (m *Mux) handleGetConfigToml(w http.ResponseWriter, _ *http.Request) {
-	path := filepath.Join(m.workDir, "settings.toml")
+// handleGetConfigYAML returns the raw settings.yaml content.
+// GET /api/config/yaml
+func (m *Mux) handleGetConfigYAML(w http.ResponseWriter, _ *http.Request) {
+	path := filepath.Join(m.workDir, "settings.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "settings.toml not found"})
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "settings.yaml not found"})
 			return
 		}
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
 }

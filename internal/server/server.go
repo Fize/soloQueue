@@ -304,6 +304,16 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		opt(m)
 	}
 
+	// Wire config service hot-reload and on-change callback.
+	if m.configSvc != nil {
+		if m.onConfigChange != nil {
+			m.configSvc.SetOnChange(m.onConfigChange)
+		}
+		if err := m.configSvc.Watch(); err != nil && log != nil {
+			log.WarnContext(context.Background(), logger.CatConfig, "failed to watch config file", "err", err.Error())
+		}
+	}
+
 	// HTTP access logger — writes to logs/http/ with 15-day retention, 50MiB max per file
 	accessLogDir := filepath.Join(workDir, "logs", "http")
 	al, err := newHTTPAccessLogger(accessLogDir, 50, 15)
@@ -392,9 +402,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	// Config routes
 	r.Route("/api/config", func(r chi.Router) {
 		r.Get("/", m.handleGetConfig)
-		r.Get("/toml", m.handleGetConfigToml)
+		r.Get("/yaml", m.handleGetConfigYAML)
 
-		// DB-backed providers & models endpoints
+		// File-backed providers & models endpoints
 		r.Route("/providers", func(r chi.Router) {
 			r.Get("/", m.handleListProviders)
 			r.Post("/", m.handleCreateProvider)

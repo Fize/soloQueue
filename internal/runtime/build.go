@@ -82,7 +82,13 @@ func Build(
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
 		return nil, fmt.Errorf("failed to wire DB to config: %w", err)
 	}
-	bc.settings = bc.cfg.Get() // refresh with DB-backed overrides
+
+	// Migrate legacy TOML/SQLite configuration into settings.yaml if needed.
+	if _, err := bc.cfg.MigrateIfNeeded(); err != nil {
+		bc.log.Warn(logger.CatApp, "failed to migrate legacy config", "err", err.Error())
+	}
+
+	bc.settings = bc.cfg.Get() // refresh with file-backed configuration
 
 	// Phase 2: Validate & resolve config (now fully DB-backed)
 	if err := bc.resolveConfig(); err != nil {
@@ -569,5 +575,4 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 	}()
 	log.Debug(logger.CatApp, "prompt hot-reload: watching directories", "roles", rolesDir, "groups", groupsDir, "agents", agentsDir)
 }
-
 
