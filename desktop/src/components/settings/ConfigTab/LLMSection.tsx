@@ -86,7 +86,6 @@ export function LLMSection({
       enabled: true,
       isDefault: false,
       timeoutMs: 30000,
-      retry: { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 5000, backoffMultiplier: 2.0 },
       headers: {},
     })
     setProviderHeadersJson('{}')
@@ -116,12 +115,7 @@ export function LLMSection({
       enabled: providerForm.enabled ?? true,
       isDefault: providerForm.isDefault ?? false,
       timeoutMs: Number(providerForm.timeoutMs || 30000),
-      retry: providerForm.retry || {
-        maxRetries: 3,
-        initialDelayMs: 1000,
-        maxDelayMs: 5000,
-        backoffMultiplier: 2.0,
-      },
+      retry: { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2.0 },
       headers,
     }
 
@@ -177,6 +171,7 @@ export function LLMSection({
       thinking: {
         enabled: modelForm.thinking?.enabled ?? false,
         reasoningEffort: modelForm.thinking?.reasoningEffort || 'medium',
+        thinkingType: modelForm.thinking?.thinkingType || '',
       },
       vision: !!modelForm.vision,
     }
@@ -348,102 +343,6 @@ export function LLMSection({
                     onCheckedChange={(val) => setProviderForm({ ...providerForm, enabled: val })}
                   />
                   <span className="text-xs font-semibold text-foreground">{t('common.enabled')}</span>
-                </div>
-              </div>
-
-              {/* Retry parameters block */}
-              <div className="sm:col-span-2 border-t pt-3 mt-1">
-                <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmRetryConfigurations')}</h5>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">
-                      {t('config.llmMaxRetries')}
-                    </label>
-                    <Input
-                      type="number"
-                      value={providerForm.retry?.maxRetries ?? 3}
-                      onChange={(e) =>
-                        setProviderForm({
-                          ...providerForm,
-                          retry: {
-                            ...(providerForm.retry || {
-                              initialDelayMs: 1000,
-                              maxDelayMs: 5000,
-                              backoffMultiplier: 2,
-                            }),
-                            maxRetries: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">
-                      {t('config.llmInitDelayMs')}
-                    </label>
-                    <Input
-                      type="number"
-                      value={providerForm.retry?.initialDelayMs ?? 1000}
-                      onChange={(e) =>
-                        setProviderForm({
-                          ...providerForm,
-                          retry: {
-                            ...(providerForm.retry || {
-                              maxRetries: 3,
-                              maxDelayMs: 5000,
-                              backoffMultiplier: 2,
-                            }),
-                            initialDelayMs: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">
-                      {t('config.llmMaxDelayMs')}
-                    </label>
-                    <Input
-                      type="number"
-                      value={providerForm.retry?.maxDelayMs ?? 5000}
-                      onChange={(e) =>
-                        setProviderForm({
-                          ...providerForm,
-                          retry: {
-                            ...(providerForm.retry || {
-                              maxRetries: 3,
-                              initialDelayMs: 1000,
-                              backoffMultiplier: 2,
-                            }),
-                            maxDelayMs: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">
-                      {t('config.llmBackoffMultiplier')}
-                    </label>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      value={providerForm.retry?.backoffMultiplier ?? 2}
-                      onChange={(e) =>
-                        setProviderForm({
-                          ...providerForm,
-                          retry: {
-                            ...(providerForm.retry || {
-                              maxRetries: 3,
-                              initialDelayMs: 1000,
-                              maxDelayMs: 5000,
-                            }),
-                            backoffMultiplier: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
                 </div>
               </div>
 
@@ -667,7 +566,7 @@ export function LLMSection({
               {/* Thinking config */}
               <div className="sm:col-span-2 border-t pt-3 mt-1">
                 <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmThinkingReasoning')}</h5>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={modelForm.thinking?.enabled || false}
@@ -697,10 +596,31 @@ export function LLMSection({
                         })
                       }
                       options={[
+                        { value: '', label: t('config.llmReasoningNone') },
                         { value: 'low', label: t('config.llmReasoningLow') },
                         { value: 'medium', label: t('config.llmReasoningMedium') },
                         { value: 'high', label: t('config.llmReasoningHigh') },
+                        { value: 'xhigh', label: t('config.llmReasoningXHigh') },
+                        { value: 'max', label: t('config.llmReasoningMax') },
                       ]}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-muted-foreground">
+                      {t('config.llmThinkingType')}
+                    </label>
+                    <Input
+                      value={modelForm.thinking?.thinkingType || ''}
+                      onChange={(e) =>
+                        setModelForm({
+                          ...modelForm,
+                          thinking: {
+                            ...(modelForm.thinking || { enabled: false, reasoningEffort: 'medium' }),
+                            thinkingType: e.target.value,
+                          },
+                        })
+                      }
+                      placeholder={t('config.llmThinkingTypePlaceholder')}
                     />
                   </div>
                 </div>

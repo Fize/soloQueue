@@ -38,6 +38,7 @@ export interface GenerationParams {
 export interface ThinkingConfig {
   enabled: boolean;
   reasoningEffort: string;
+  thinkingType?: string;
 }
 
 export interface LLMModel {
