@@ -585,7 +585,7 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 		if rt.SharedDB != nil {
 			teamID, _ := agent.TelemetryFromContext(ctx)
 			bgCtx := context.Background()
-			
+
 			go func() {
 				_ = rt.SharedDB.InsertRouterClassification(
 					bgCtx,

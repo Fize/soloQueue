@@ -156,15 +156,15 @@ type Session struct {
 	lastRouteResult RouteResult  // cached route result for locked mode (model params preserved)
 	levelFile       string       // path to persist lastLevel across restarts (empty = not persisted)
 
-	memoryHook    MemoryHook         // optional callback for short-term memory (nil = disabled)
-	memoryManager *memory.Manager    // for dedup cursor; set alongside memoryHook
-	memoryEngine  *memoryengine.Engine // for pre-query memory recall (nil = disabled)
+	memoryHook     MemoryHook           // optional callback for short-term memory (nil = disabled)
+	memoryManager  *memory.Manager      // for dedup cursor; set alongside memoryHook
+	memoryEngine   *memoryengine.Engine // for pre-query memory recall (nil = disabled)
 	recalledHashes map[string]struct{}  // hashes of recalled memories injected in this context window
-	cronHandler   CronHandler        // optional callback to execute /cron command
+	cronHandler    CronHandler          // optional callback to execute /cron command
 
-	idleTimeout     time.Duration // 0 = disabled; auto-clear idle sessions
-	compactThreshold int          // 0 = disabled; minimum CW tokens to trigger compact
-	isQBot          atomic.Bool
+	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
+	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
+	isQBot           atomic.Bool
 }
 
 // NewSession constructs and starts a session (agent should already have started)
@@ -675,7 +675,6 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		prompt = recalled + "\n\n" + prompt
 	}
 	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
-
 
 	// Resize to default model's context window and push user prompt
 	effectiveCW := s.Agent.Def.ContextWindow
