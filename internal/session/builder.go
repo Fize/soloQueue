@@ -602,6 +602,7 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 			ModelID:         decision.ModelID,
 			ThinkingEnabled: decision.ThinkingEnabled,
 			ReasoningEffort: decision.ReasoningEffort,
+			ThinkingType:    decision.ThinkingType,
 			Level:           decision.Level.String(),
 			ContextWindow:   decision.ContextWindow,
 			Vision:          decision.Vision,

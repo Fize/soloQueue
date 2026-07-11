@@ -30,18 +30,29 @@ func NewMockModelService() *MockModelService {
 				ProviderID:    "deepseek",
 				APIModel:      "deepseek-v4-flash",
 				ContextWindow: 131072,
+				Thinking: config.ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "high",
+				},
 			},
 			"superior": {
 				ID:            "deepseek-v4-pro",
 				ProviderID:    "deepseek",
 				ContextWindow: 1048576,
-				// APIModel empty = use ID
+				Thinking: config.ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "high",
+				},
 			},
 			"expert": {
 				ID:            "deepseek-v4-pro-max",
 				ProviderID:    "deepseek",
 				APIModel:      "deepseek-v4-pro",
 				ContextWindow: 1048576,
+				Thinking: config.ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "max",
+				},
 			},
 		},
 	}

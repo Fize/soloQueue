@@ -74,6 +74,10 @@ type RouteDecision struct {
 	// ReasoningEffort specifies the reasoning depth: "high", "max", or "" (disabled)
 	ReasoningEffort string
 
+	// ThinkingType is the value for thinking.type in the LLM API request.
+	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
+	ThinkingType string
+
 	// ContextWindow is the model's context window capacity (tokens).
 	// 0 means unknown (caller should fall back to agent definition).
 	ContextWindow int
@@ -113,11 +117,12 @@ func (r *Router) Route(ctx context.Context, prompt string, priorLevel Classifica
 	decision.Level = classification.Level
 
 	// Resolve full model parameters from config based on classification level
-	providerID, modelID, thinking, effort, contextWindow, vision := r.resolveModelParams(classification.Level)
+	providerID, modelID, thinking, effort, thinkingType, contextWindow, vision := r.resolveModelParams(classification.Level)
 	decision.ProviderID = providerID
 	decision.ModelID = modelID
 	decision.ThinkingEnabled = thinking
 	decision.ReasoningEffort = effort
+	decision.ThinkingType = thinkingType
 	decision.ContextWindow = contextWindow
 	decision.Vision = vision
 
@@ -150,25 +155,23 @@ func (r *Router) Route(ctx context.Context, prompt string, priorLevel Classifica
 //	L1 → universal (flash-thinking, high)
 //	L2 → superior (pro, high)
 //	L3 → expert   (pro-max, max)
-func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, modelID string, thinking bool, effort string, contextWindow int, vision bool) {
+//
+// thinking and effort are read from the model's ThinkingConfig in settings,
+// NOT hardcoded — this allows per-model overrides (e.g., MiniMax M3 with thinking disabled).
+func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, modelID string, thinking bool, effort string, thinkingType string, contextWindow int, vision bool) {
 	var role string
 
 	switch level {
 	case LevelConversation:
 		role = "fast"
-		thinking, effort = false, ""
 	case LevelSimpleSingleFile:
 		role = "universal"
-		thinking, effort = true, "high"
 	case LevelMediumMultiFile:
 		role = "superior"
-		thinking, effort = true, "high"
 	case LevelComplexRefactoring:
 		role = "expert"
-		thinking, effort = true, "max"
 	default:
 		role = "fast"
-		thinking, effort = false, ""
 	}
 
 	// Look up the actual model ID from model service
@@ -179,7 +182,7 @@ func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, mode
 			"level", level.String(),
 		)
 		// Return a safe fallback
-		return "deepseek", "deepseek-v4-flash", false, "", 0, false
+		return "deepseek", "deepseek-v4-flash", false, "", "", 0, false
 	}
 
 	// Use APIModel for the actual API call (may differ from the config ID)
@@ -190,12 +193,17 @@ func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, mode
 		apiModel = model.ID
 	}
 
-	return model.ProviderID, apiModel, thinking, effort, model.ContextWindow, model.Vision
+	// Read thinking config from the model's settings, not hardcoded.
+	thinking = model.Thinking.Enabled
+	effort = model.Thinking.ReasoningEffort
+	thinkingType = model.Thinking.ThinkingType
+
+	return model.ProviderID, apiModel, thinking, effort, thinkingType, model.ContextWindow, model.Vision
 }
 
 // ModelForClassification returns the recommended model ID for a classification result.
 // This is a convenience method for direct model lookup without the full routing decision.
 func (r *Router) ModelForClassification(classification ClassificationResult) string {
-	_, modelID, _, _, _, _ := r.resolveModelParams(classification.Level)
+	_, modelID, _, _, _, _, _ := r.resolveModelParams(classification.Level)
 	return modelID
 }

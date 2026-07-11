@@ -84,6 +84,7 @@ type RouteResult struct {
 	ModelID         string // API model to use (e.g., "deepseek-v4-pro")
 	ThinkingEnabled bool   // whether to enable thinking mode
 	ReasoningEffort string // "high" | "max" | ""
+	ThinkingType    string // thinking.type value: "enabled" (default) or "adaptive"
 	Level           string // classification level label (e.g., "L1-SimpleSingleFile")
 	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
 	Vision          bool   // model supports multimodal image_url content
@@ -955,6 +956,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				ModelID:         result.ModelID,
 				ThinkingEnabled: result.ThinkingEnabled,
 				ReasoningEffort: result.ReasoningEffort,
+				ThinkingType:    result.ThinkingType,
 				Level:           result.Level,
 				ContextWindow:   result.ContextWindow,
 				Vision:          result.Vision,
