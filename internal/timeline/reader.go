@@ -37,7 +37,9 @@ func ListTimelineFiles(dir, baseName string) ([]string, error) {
 
 // ─── ReadTail / ReadTailBefore ───────────────────────────────────────────────
 
-// ReadTail reads the last maxTurns conversation turns from timeline files.
+// ReadTail reads conversation turns from timeline files.
+// maxTurns > 0: return at most that many user turns (newest first).
+// maxTurns <= 0: return all turns since the last compact/clear boundary (no limit).
 // Returns messages and a cursor for paginating further back.
 func ReadTail(dir, baseName string, maxTurns int, agentID string) ([]Segment, *time.Time, error) {
 	return readTailSince(dir, baseName, maxTurns, time.Time{}, agentID)
@@ -105,7 +107,7 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 	userCount := 0
 	hasSummary := false
 
-	for i := len(lastSegmentEvents) - 1; i >= 0 && userCount < maxTurns; i-- {
+	for i := len(lastSegmentEvents) - 1; i >= 0 && (maxTurns <= 0 || userCount < maxTurns); i-- {
 		evt := lastSegmentEvents[i]
 		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "summary" {
 			if evt.Control.Content != "" {

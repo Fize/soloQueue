@@ -538,10 +538,10 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
 	}
 
-	// Replay the last 10 conversation turns (not the full timeline).
-	// Only replay messages from the current L1 agent and after the most
-	// recent /clear, so old sessions never pollute a new restart.
-	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10, agentID)
+	// Replay all conversation turns since the last compact/clear boundary (maxTurns=0 = no limit).
+	// This ensures ctxwin_used accurately reflects the real token count after restart.
+	// UI history rendering uses its own paginated ReadTail calls with explicit limits.
+	segments, _, err := timeline.ReadTail(tlDir, "timeline", 0, agentID)
 	if err != nil {
 		sessLog.Warn(logger.CatActor, "builder: ReadTail failed", "err", err.Error(), "dir", tlDir)
 	} else if len(segments) == 0 {
@@ -859,8 +859,9 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		cw.Push(ctxwin.RoleSystem, childAgent.Def.SystemPrompt)
 	}
 
-	// Replay last 10 conversation turns from timeline.
-	segments, _, err := timeline.ReadTail(tlDir, "timeline", 10, agentID)
+	// Replay all conversation turns since the last compact/clear boundary (maxTurns=0 = no limit).
+	// This ensures ctxwin_used accurately reflects the real token count after restart.
+	segments, _, err := timeline.ReadTail(tlDir, "timeline", 0, agentID)
 	if err != nil {
 		sessLog.Warn(logger.CatActor, "BuildL2: ReadTail failed", "err", err.Error(), "dir", tlDir)
 	} else if len(segments) > 0 {
