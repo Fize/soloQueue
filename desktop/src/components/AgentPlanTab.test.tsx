@@ -5,7 +5,7 @@ import { AgentPlanTab } from './AgentPlanTab'
 describe('AgentPlanTab', () => {
   it('shows loading spinner when planLoading is true', () => {
     render(<AgentPlanTab plan={null} planLoading={true} planError={null} />)
-    expect(screen.getByText('Loading daily plan...')).toBeInTheDocument()
+    expect(screen.getByText('Loading...')).toBeInTheDocument()
   })
 
   it('shows error message when planError is set', () => {
@@ -15,12 +15,12 @@ describe('AgentPlanTab', () => {
 
   it('shows empty state when plan is null', () => {
     render(<AgentPlanTab plan={null} planLoading={false} planError={null} />)
-    expect(screen.getByText(/No daily schedule plan found/)).toBeInTheDocument()
+    expect(screen.getByText(/No plans found for this session/)).toBeInTheDocument()
   })
 
   it('shows empty state when schedule is empty array', () => {
     render(<AgentPlanTab plan={{ schedule: [] }} planLoading={false} planError={null} />)
-    expect(screen.getByText(/No daily schedule plan found/)).toBeInTheDocument()
+    expect(screen.getByText(/No plans found for this session/)).toBeInTheDocument()
   })
 
   it('renders schedule items', () => {
@@ -45,7 +45,7 @@ describe('AgentPlanTab', () => {
       ],
     }
     render(<AgentPlanTab plan={plan} planLoading={false} planError={null} />)
-    expect(screen.getByText("Today's Schedule")).toBeInTheDocument()
+    expect(screen.getByText("Goal Plan checklist")).toBeInTheDocument()
     expect(screen.getByText('Morning walk')).toBeInTheDocument()
     expect(screen.getByText('Work meeting')).toBeInTheDocument()
     expect(screen.getByText('📍 Park')).toBeInTheDocument()

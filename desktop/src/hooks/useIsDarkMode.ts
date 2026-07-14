@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 
 export function useIsDarkMode() {
   const [isDark, setIsDark] = useState(() =>
-    typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false
+    typeof document !== 'undefined' ? !document.documentElement.classList.contains('light') : true
   )
 
   useEffect(() => {
     if (typeof document === 'undefined') return
 
     const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'))
+      setIsDark(!document.documentElement.classList.contains('light'))
     })
 
     observer.observe(document.documentElement, {

@@ -1,7 +1,6 @@
 import { useTranslation } from '@/lib/i18n'
 import { useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownPreview as ReactMarkdown } from '@/components/ui/markdown-preview'
 import { Loader2, Info, Award } from 'lucide-react'
 import type { MemoryRecord } from '@/types'
 
@@ -133,7 +132,7 @@ export function AgentMemoriesTab({
                   )}
                 </div>
                 <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 select-text font-sans leading-relaxed">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
                 </div>
               </div>
             )
@@ -209,7 +208,7 @@ export function AgentReflectionsTab({
                 )}
               </div>
               <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 select-text italic leading-relaxed">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{r.content}</ReactMarkdown>
+                <ReactMarkdown>{r.content}</ReactMarkdown>
               </div>
             </div>
           )

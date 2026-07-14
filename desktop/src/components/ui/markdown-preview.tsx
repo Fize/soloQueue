@@ -1,92 +1,61 @@
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
-import { useState, useEffect, memo } from 'react'
+import { Streamdown } from 'streamdown'
+import { code } from '@streamdown/code'
+import { useRef, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
-import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useIsDarkMode } from '@/hooks/useIsDarkMode'
-import { CODE_PREVIEW_CONFIG } from '@/lib/theme'
-import { ensureLanguage, preloadCommonLanguages } from '@/lib/syntax-languages'
-
-// Eagerly load the most common languages so the first code block renders instantly
-preloadCommonLanguages()
+import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 
 interface MarkdownPreviewProps {
-  content: string
+  content?: string
+  children?: string
   className?: string
   onToggleCheckbox?: (index: number) => void
   /** Absolute path to the .md file on disk, used to resolve relative image paths. */
   basePath?: string
+  // Ignore these props to act as a drop-in replacement for ReactMarkdown
+  remarkPlugins?: any[]
+  rehypePlugins?: any[]
 }
 
-function CodeBlock({
-  language,
-  value,
-}: {
-  language: string | null
-  value: string
-}) {
-  const isDark = useIsDarkMode()
-  const [, setLoaded] = useState(0)
+function MarkdownPreviewInner({
+  content,
+  children,
+  className,
+  onToggleCheckbox,
+  basePath,
+}: MarkdownPreviewProps) {
+  const contentVal = content ?? children ?? ''
+  if (!contentVal) return null
 
-  // Lazy-load the language grammar on first encounter
-  useEffect(() => {
-    if (!language) return
-    ensureLanguage(language).then(() => {
-      setLoaded((n) => n + 1) // force re-render after language loads
-    })
-  }, [language])
+  // Use a ref so checkboxIndex resets each render — Streamdown calls
+  // the input renderer once per checkbox in source order on each parse.
+  const checkboxIndexRef = useRef(0)
+  checkboxIndexRef.current = 0
 
-  return (
-    <div className="my-3 rounded-lg border border-border/60 overflow-hidden">
-      {language && (
-        <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border/40">
-          <span className="text-[10px] font-mono font-medium text-muted-foreground uppercase tracking-wider">
-            {language}
-          </span>
-          <button
-            onClick={() => navigator.clipboard.writeText(value)}
-            className="text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
-          >
-            Copy
-          </button>
-        </div>
-      )}
-      <SyntaxHighlighter
-        language={language || 'text'}
-        style={isDark ? oneDark : oneLight}
-        customStyle={{
-          margin: 0,
-          padding: CODE_PREVIEW_CONFIG.padding,
-          fontSize: CODE_PREVIEW_CONFIG.fontSize,
-          lineHeight: CODE_PREVIEW_CONFIG.lineHeight,
-          background: 'transparent',
-        }}
-        codeTagProps={{
-          style: {
-            fontFamily: CODE_PREVIEW_CONFIG.fontFamily,
-          },
-        }}
-      >
-        {value}
-      </SyntaxHighlighter>
-    </div>
-  )
-}
-
-function MarkdownPreviewInner({ content, className, onToggleCheckbox, basePath }: MarkdownPreviewProps) {
-  if (!content) return null
-
-  let checkboxIndex = 0
   return (
     <div className={cn('markdown-preview', className)}>
-      <ReactMarkdown
+      <Streamdown
+        parseIncompleteMarkdown={false}
+        isAnimating={false}
+        shikiTheme={['github-dark', 'github-light']}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
+        plugins={{ code }}
+        controls={{ table: false, code: { copy: true, download: false } }}
+        translations={{
+          copyCode: '复制代码',
+          copied: '已复制',
+          copyTable: '复制表格',
+          copyTableAsMarkdown: '复制为 Markdown',
+          copyTableAsCsv: '复制为 CSV',
+          copyTableAsTsv: '复制为 TSV',
+          tableFormatMarkdown: 'Markdown',
+          tableFormatCsv: 'CSV',
+          tableFormatTsv: 'TSV',
+        }}
         components={{
-          img({ src, alt }) {
+          img({ src, alt }: any) {
             if (!src) return null
             let resolvedSrc = src
             if (basePath && !/^(https?:\/\/|data:|blob:|#|\/\/)/.test(src)) {
@@ -102,33 +71,20 @@ function MarkdownPreviewInner({ content, className, onToggleCheckbox, basePath }
               />
             )
           },
-          code({ node, className: codeClass, children, ...props }) {
-            const match = /language-(\w+)/.exec(codeClass || '')
-            const isInline = !match && !String(children).includes('\n')
-
-            if (isInline) {
-              return (
-                <code
-                  className="px-1.5 py-0.5 mx-[0.1em] rounded-md bg-muted text-[0.85em] font-mono text-foreground border border-border/40 shadow-sm"
-                  {...props}
-                >
-                  {children}
-                </code>
-              )
-            }
-
-            // Fenced code block
-            const language = match ? match[1] : null
-            const value = String(children).replace(/\n$/, '')
-            return <CodeBlock language={language} value={value} />
+          a({ href, children, ...props }: any) {
+            return (
+              <a href={href} {...props}>
+                {children}
+              </a>
+            )
           },
-          input({ node: _node, ...props }) {
-            if (props.type === 'checkbox') {
-              const currentIndex = checkboxIndex++
+          input({ type, checked, ...props }: any) {
+            if (type === 'checkbox') {
+              const currentIndex = checkboxIndexRef.current++
               return (
                 <input
                   type="checkbox"
-                  checked={props.checked}
+                  checked={checked}
                   disabled={!onToggleCheckbox}
                   onChange={() => {
                     if (onToggleCheckbox) {
@@ -139,40 +95,25 @@ function MarkdownPreviewInner({ content, className, onToggleCheckbox, basePath }
                 />
               )
             }
-            return <input {...props} />
-          },
-          a({ node: _node, href, children, ...props }) {
-            return (
-              <a href={href} {...props}>
-                {children}
-              </a>
-            )
+            return <input type={type} checked={checked} {...props} />
           },
         }}
       >
-        {content}
-      </ReactMarkdown>
+        {contentVal}
+      </Streamdown>
     </div>
   )
 }
 
 /**
  * MarkdownPreview is wrapped in React.memo. The `content` prop is the
- * streaming-accumulated text. As long as the upstream segment reference
- * (and therefore this content string) is unchanged, this component
- * skips re-rendering — which is the single biggest win for streaming
- * markdown because react-markdown has no internal memoization and would
- * otherwise reparse the entire accumulated content on every token.
- *
- * Note: this is a guard for the case where the parent re-renders without
- * content actually changing. It does not help when content IS changing
- * (e.g. the actively-streaming segment) — that is addressed by
- * streamdown-preview in Phase 4.
+ * text to render. As long as the content string is unchanged, this component
+ * skips re-rendering.
  */
 export const MarkdownPreview = memo(
   MarkdownPreviewInner,
   (prev, next) =>
-    prev.content === next.content &&
+    (prev.content ?? prev.children) === (next.content ?? next.children) &&
     prev.className === next.className &&
     prev.basePath === next.basePath &&
     prev.onToggleCheckbox === next.onToggleCheckbox,

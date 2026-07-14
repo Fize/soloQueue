@@ -8,8 +8,7 @@ import { AgentDetailPanel } from './AgentDetailPanel'
 import { SimulationReportModal } from './SimulationReportModal'
 import { SimulationConfigEditor } from './SimulationConfigEditor'
 import { SimulationForkDialog } from './SimulationForkDialog'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownPreview as ReactMarkdown } from '@/components/ui/markdown-preview'
 import {
   Play,
   Square,
@@ -1283,7 +1282,7 @@ export function SimulationDetailPage() {
 
         {/* Content Text */}
         <div className="text-xs text-foreground/90 leading-relaxed font-sans prose prose-sm dark:prose-invert max-w-none select-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          <ReactMarkdown>{msg.content}</ReactMarkdown>
         </div>
 
         {/* Collapsible toggle if routine */}
@@ -1852,7 +1851,7 @@ export function SimulationDetailPage() {
                       
                       <TabsContent value="doc" className="flex-1 overflow-y-auto p-5 min-h-0 outline-none">
                         <div className="prose prose-sm dark:prose-invert max-w-none text-xs text-foreground/90 leading-relaxed select-text font-sans">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{state.report}</ReactMarkdown>
+                          <ReactMarkdown>{state.report}</ReactMarkdown>
                         </div>
                       </TabsContent>
                       
@@ -1878,7 +1877,7 @@ export function SimulationDetailPage() {
                                     </div>
                                   ) : (
                                     <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed">
-                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{chat.a}</ReactMarkdown>
+                                      <ReactMarkdown>{chat.a}</ReactMarkdown>
                                     </div>
                                   )}
                                 </div>
@@ -2059,7 +2058,7 @@ export function SimulationDetailPage() {
                         </div>
                       ) : (
                         <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{chat.a}</ReactMarkdown>
+                          <ReactMarkdown>{chat.a}</ReactMarkdown>
                         </div>
                       )}
                     </div>

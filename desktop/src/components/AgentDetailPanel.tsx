@@ -1,8 +1,7 @@
 import { useTranslation } from '@/lib/i18n'
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownPreview as ReactMarkdown } from '@/components/ui/markdown-preview'
 import {
   X,
   MessageSquare,
@@ -315,7 +314,7 @@ export function AgentDetailPanel({
                 Detailed Persona
               </h4>
               <div className="rounded-xl border border-border bg-muted/10 p-4 prose prose-sm dark:prose-invert max-w-none text-xs text-foreground/90 max-h-48 overflow-y-auto">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{persona.persona}</ReactMarkdown>
+                <ReactMarkdown>{persona.persona}</ReactMarkdown>
               </div>
             </div>
           )}
@@ -518,7 +517,7 @@ export function AgentDetailPanel({
                       )}
                     </div>
                     <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 select-text">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
                     {msg.reasoning && (
                       <details className="mt-2">
@@ -526,7 +525,7 @@ export function AgentDetailPanel({
                           Reasoning Process
                         </summary>
                         <div className="mt-2 pl-3 border-l-2 border-border prose prose-sm dark:prose-invert max-w-none text-muted-foreground/80 leading-relaxed italic select-text">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.reasoning}</ReactMarkdown>
+                          <ReactMarkdown>{msg.reasoning}</ReactMarkdown>
                         </div>
                       </details>
                     )}
@@ -581,7 +580,7 @@ export function AgentDetailPanel({
                         </div>
                       ) : (
                         <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-foreground select-text">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{chat.a}</ReactMarkdown>
+                          <ReactMarkdown>{chat.a}</ReactMarkdown>
                         </div>
                       )}
                     </div>

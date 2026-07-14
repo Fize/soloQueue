@@ -1,4 +1,5 @@
 import { Streamdown } from 'streamdown'
+import { code } from '@streamdown/code'
 import { useRef, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
@@ -48,9 +49,22 @@ function StreamdownPreviewInner({
       <Streamdown
         parseIncompleteMarkdown={isAnimating}
         isAnimating={isAnimating}
-        shikiTheme={['github-light', 'github-dark']}
+        shikiTheme={['github-dark', 'github-light']}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
+        plugins={{ code }}
+        controls={{ table: false, code: { copy: true, download: false } }}
+        translations={{
+          copyCode: '复制代码',
+          copied: '已复制',
+          copyTable: '复制表格',
+          copyTableAsMarkdown: '复制为 Markdown',
+          copyTableAsCsv: '复制为 CSV',
+          copyTableAsTsv: '复制为 TSV',
+          tableFormatMarkdown: 'Markdown',
+          tableFormatCsv: 'CSV',
+          tableFormatTsv: 'TSV',
+        }}
         components={{
           img({ src, alt }: any) {
             if (!src) return null

@@ -5,55 +5,18 @@ import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { getFileUrl, toggleFileCheckbox } from '@/lib/api'
 import { Loader2, FileIcon, Copy, Check, MousePointer2, Edit3, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useIsDarkMode } from '@/hooks/useIsDarkMode'
 import { CODE_PREVIEW_CONFIG } from '@/lib/theme'
 import { DesignPreview } from './DesignPreview'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import type { PreviewCommentSnapshot } from '@/types/annotation'
 
-import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
-import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
-import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
-import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
-import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
-import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
-import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
-import c from 'react-syntax-highlighter/dist/esm/languages/prism/c'
-import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp'
-import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
-import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
-import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
-import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
-import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
-import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
-import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
-import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml'
-import docker from 'react-syntax-highlighter/dist/esm/languages/prism/docker'
-import graphql from 'react-syntax-highlighter/dist/esm/languages/prism/graphql'
-import protobuf from 'react-syntax-highlighter/dist/esm/languages/prism/protobuf'
-
-SyntaxHighlighter.registerLanguage('tsx', tsx)
-SyntaxHighlighter.registerLanguage('typescript', typescript)
-SyntaxHighlighter.registerLanguage('javascript', javascript)
-SyntaxHighlighter.registerLanguage('jsx', jsx)
-SyntaxHighlighter.registerLanguage('python', python)
-SyntaxHighlighter.registerLanguage('rust', rust)
-SyntaxHighlighter.registerLanguage('go', go)
-SyntaxHighlighter.registerLanguage('c', c)
-SyntaxHighlighter.registerLanguage('cpp', cpp)
-SyntaxHighlighter.registerLanguage('java', java)
-SyntaxHighlighter.registerLanguage('json', json)
-SyntaxHighlighter.registerLanguage('yaml', yaml)
-SyntaxHighlighter.registerLanguage('css', css)
-SyntaxHighlighter.registerLanguage('markup', markup)
-SyntaxHighlighter.registerLanguage('bash', bash)
-SyntaxHighlighter.registerLanguage('sql', sql)
-SyntaxHighlighter.registerLanguage('toml', toml)
-SyntaxHighlighter.registerLanguage('docker', docker)
-SyntaxHighlighter.registerLanguage('graphql', graphql)
-SyntaxHighlighter.registerLanguage('protobuf', protobuf)
+function wrapInCodeBlock(content: string, language: string): string {
+  const matches = content.match(/`+/g)
+  const maxBackticks = matches ? Math.max(...matches.map((m) => m.length)) : 0
+  const fenceSize = Math.max(3, maxBackticks + 1)
+  const fence = '`'.repeat(fenceSize)
+  return `${fence}${language}\n${content}\n${fence}`
+}
 
 import {
   extToLanguage,
@@ -82,7 +45,6 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const [designMode, setDesignMode] = useState<'click' | 'draw' | 'interact'>('interact')
   const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null)
-  const isDark = useIsDarkMode()
 
   // Use a ref so we can call the latest onError without adding it to the
   // effect dependency array (avoiding re-fetch when the parent re-renders).
@@ -386,25 +348,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
                 />
               )}
               {language && (
-                <SyntaxHighlighter
-                  language={language}
-                  style={isDark ? oneDark : oneLight}
-                  customStyle={{
-                    margin: 0,
-                    padding: CODE_PREVIEW_CONFIG.padding,
-                    fontSize: CODE_PREVIEW_CONFIG.fontSize,
-                    lineHeight: CODE_PREVIEW_CONFIG.lineHeight,
-                    background: 'transparent',
-                  }}
-                  codeTagProps={{
-                    style: {
-                      fontFamily: CODE_PREVIEW_CONFIG.fontFamily,
-                    },
-                  }}
-                  showLineNumbers
-                >
-                  {content}
-                </SyntaxHighlighter>
+                <MarkdownPreview content={wrapInCodeBlock(content, language)} />
               )}
               {!isMarkdown && !language && (
                 <pre

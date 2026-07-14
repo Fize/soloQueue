@@ -156,7 +156,7 @@ export function SimulationGraph({
     ctxRef.current = canvas.getContext('2d')!
 
     // Detect dark mode
-    themeRef.current.isDark = document.documentElement.classList.contains('dark')
+    themeRef.current.isDark = !document.documentElement.classList.contains('light')
 
     const simulation = d3force
       .forceSimulation<GraphNode>(nodes)

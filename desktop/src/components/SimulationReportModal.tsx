@@ -1,5 +1,4 @@
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownPreview as ReactMarkdown } from '@/components/ui/markdown-preview'
 import { FileText, X } from 'lucide-react'
 import {
   Dialog,
@@ -52,7 +51,7 @@ export function SimulationReportModal({
           <div className="flex-1 overflow-y-auto p-8 min-h-0 scroll-container select-text">
             <div className="max-w-3xl mx-auto">
               <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 leading-relaxed font-sans">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{report || ''}</ReactMarkdown>
+                <ReactMarkdown>{report || ''}</ReactMarkdown>
               </div>
             </div>
           </div>

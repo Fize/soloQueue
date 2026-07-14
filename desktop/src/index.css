@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+
 @custom-variant dark (&:is(.light *));
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical (&[data-orientation="vertical"]);
@@ -18,6 +21,8 @@
   --color-popover-foreground: #EBE8E3;
   --color-muted: rgba(255,255,255, 0.04);
   --color-muted-foreground: #96938E;
+  --color-sidebar: #262523;
+  --color-sidebar-foreground: #EBE8E3;
   --color-accent: rgba(184,92,74, 0.12);
   --color-accent-foreground: #B85C4A;
   --color-destructive: #B03A32;
@@ -96,6 +101,9 @@
   --secondary-foreground: var(--color-secondary-foreground);
   --muted: var(--color-muted);
   --muted-foreground: var(--color-muted-foreground);
+  --sidebar: var(--color-sidebar);
+  --sidebar-foreground: var(--color-sidebar-foreground);
+  --code-bg: #2D2A27;
   --accent: var(--color-accent);
   --accent-foreground: var(--color-accent-foreground);
   --destructive: var(--color-destructive);
@@ -124,6 +132,9 @@
   --color-popover-foreground: #1F1E1B;
   --color-muted: rgba(0,0,0, 0.03);
   --color-muted-foreground: #787570;
+  --color-sidebar: #FFFFFF;
+  --color-sidebar-foreground: #1F1E1B;
+  --code-bg: #F5F5F5;
   --color-accent: rgba(160,77,62, 0.08);
   --color-accent-foreground: #A04D3E;
   --color-destructive: #B03A32;
@@ -237,7 +248,7 @@ body {
   font-weight: 600;
   line-height: 1.35;
   padding-bottom: 0.2em;
-  border-bottom: 1px solid hsl(var(--border));
+  border-bottom: 1px solid var(--border);
 }
 .markdown-preview h3 {
   margin-top: 1em;
@@ -274,9 +285,9 @@ body {
 .markdown-preview blockquote {
   margin: 0.75em 0;
   padding: 0.5em 1em;
-  border-left: 3px solid hsl(var(--border));
+  border-left: 3px solid var(--border);
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 .markdown-preview blockquote p {
   margin: 0.25em 0;
@@ -287,7 +298,7 @@ body {
   margin: 1.25em 0;
   border: none;
   height: 1px;
-  background: hsl(var(--border) / 0.6);
+  background: color-mix(in srgb, var(--border) 60%, transparent);
 }
 
 /* Lists */
@@ -317,33 +328,147 @@ body {
 /* Tables */
 .markdown-preview table {
   width: 100%;
-  margin: 0.75em 0;
   border-collapse: collapse;
   font-size: 0.875em;
-  overflow: hidden;
-  border-radius: 0.5rem;
-  border: 1px solid hsl(var(--border) / 0.5);
+  margin: 1em 0;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 6px;
 }
-.markdown-preview thead {
-  background: hsl(var(--muted) / 0.5);
+.markdown-preview th,
+.markdown-preview td {
+  padding: 0.65em 1em;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
 }
 .markdown-preview th {
-  padding: 0.5em 0.75em;
-  text-align: left;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
   font-weight: 600;
-  font-size: 0.85em;
-  color: hsl(var(--muted-foreground));
-  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  text-align: left;
+  color: var(--foreground);
 }
-.markdown-preview td {
-  padding: 0.45em 0.75em;
-  border-bottom: 1px solid hsl(var(--border) / 0.2);
-}
-.markdown-preview tr:last-child td {
-  border-bottom: none;
+.markdown-preview tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--foreground) 1.5%, transparent);
 }
 .markdown-preview tbody tr:hover {
-  background: hsl(var(--muted) / 0.2);
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+/* Table wrappers (ReactMarkdown custom + Streamdown built-in) */
+.markdown-preview .markdown-table-wrapper,
+.markdown-preview [data-streamdown="table-wrapper"] {
+  position: relative;
+  margin: 1em 0;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  overflow-x: auto;
+}
+.markdown-preview [data-streamdown="table-wrapper"] > div {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* Table action buttons */
+.markdown-table-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.markdown-table-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  background: var(--sidebar);
+  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.markdown-table-actions > button:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.markdown-table-actions .dropdown {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  min-width: 7.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background: var(--background);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+.markdown-table-actions .dropdown button {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.markdown-table-actions .dropdown button:hover {
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+/* Streamdown table controls: push controls down so they don't overlap header */
+.markdown-preview [data-streamdown="table-wrapper"] > div:first-child:has(button) {
+  padding: 0.25rem 0.25rem 0;
+}
+
+/* Code blocks */
+.markdown-preview pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+.markdown-preview code {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Streamdown code block refinements */
+.markdown-preview [data-streamdown="code-block"] {
+  background: var(--code-bg);
+  border: none !important;
+  border-radius: 0.75rem;
+  position: relative !important;
+}
+.markdown-preview [data-streamdown="code-block-body"] {
+  border: none !important;
+  background: transparent !important;
+}
+.markdown-preview [data-streamdown="code-block-body"] pre {
+  padding-right: 3.5rem !important;
+}
+.markdown-preview [data-streamdown="code-block-header"] {
+  display: none !important;
+}
+.markdown-preview [data-streamdown="code-block"] > div:has([data-streamdown="code-block-actions"]) {
+  position: absolute !important;
+  top: 0.75rem !important;
+  right: 0.75rem !important;
+  margin-top: 0 !important;
+  height: auto !important;
+  pointer-events: none !important;
+}
+.markdown-preview [data-streamdown="code-block-actions"] {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  pointer-events: auto !important;
 }
 
 /* Images */
@@ -356,7 +481,7 @@ body {
 
 /* Links */
 .markdown-preview a {
-  color: hsl(var(--primary));
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -368,18 +493,6 @@ body {
 .markdown-preview strong {
   font-weight: 600;
   color: inherit;
-}
-
-/* Pre blocks (non-code, i.e. plain pre > code without language) */
-.markdown-preview pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: break-word;
-}
-
-.markdown-preview code {
-  word-break: break-word;
-  overflow-wrap: break-word;
 }
 
 @keyframes indeterminate-bar {
