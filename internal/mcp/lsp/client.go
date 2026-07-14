@@ -504,6 +504,22 @@ func (c *Client) Rename(ctx context.Context, uri string, pos Position, newName s
 	return &edit, nil
 }
 
+// Formatting requests the server to format the whole document and returns the text edits.
+func (c *Client) Formatting(ctx context.Context, uri string, tabSize int, insertSpaces bool) ([]TextEdit, error) {
+	params := DocumentFormattingParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Options: FormattingOptions{
+			TabSize:      tabSize,
+			InsertSpaces: insertSpaces,
+		},
+	}
+	var edits []TextEdit
+	if err := c.call(ctx, "textDocument/formatting", params, &edits); err != nil {
+		return nil, fmt.Errorf("formatting: %w", err)
+	}
+	return edits, nil
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 func decodeLocations(result any) ([]Location, error) {

@@ -403,3 +403,15 @@ type TextEdit struct {
 	NewText string `json:"newText"`
 }
 
+// ── Formatting Types ──────────────────────────────────────────────────────────
+
+type DocumentFormattingParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Options      FormattingOptions      `json:"options"`
+}
+
+type FormattingOptions struct {
+	TabSize      int  `json:"tabSize"`
+	InsertSpaces bool `json:"insertSpaces"`
+}
+

@@ -29,11 +29,13 @@ func (t *LSPTool) Parameters() json.RawMessage { return t.params }
 // Execute routes the tool call to the correct LSP server and calls the LSP method.
 func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 	var in struct {
-		File      string `json:"file"`
-		Line      int    `json:"line"`
-		Character int    `json:"character"`
-		Query     string `json:"query"`
-		NewName   string `json:"newName"`
+		File         string `json:"file"`
+		Line         int    `json:"line"`
+		Character    int    `json:"character"`
+		Query        string `json:"query"`
+		NewName      string `json:"newName"`
+		TabSize      *int   `json:"tabSize"`
+		InsertSpaces *bool  `json:"insertSpaces"`
 	}
 	if err := json.Unmarshal([]byte(args), &in); err != nil {
 		return "", fmt.Errorf("parse args: %w", err)
@@ -101,6 +103,8 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 		return t.doGetCodeItem(ctx, client, uri, in.Query)
 	case "goto_definition_by_name":
 		return t.doGotoDefinitionByName(ctx, client, in.Query)
+	case "format_file":
+		return t.doFormatFile(ctx, client, uri, in.TabSize, in.InsertSpaces)
 	default:
 		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", fmt.Sprintf("unknown LSP action: %s", t.action))
 		return "", fmt.Errorf("unknown LSP action: %s", t.action)
@@ -435,6 +439,7 @@ func LSPTools(mgr *Manager) []tools.Tool {
 		newDocumentOutlineTool(mgr),
 		newGetCodeItemTool(mgr),
 		newGotoDefinitionByNameTool(mgr),
+		newFormatFileTool(mgr),
 	}
 }
 
@@ -454,6 +459,7 @@ func ToolActionNames() []string {
 		"document_outline",
 		"get_code_item",
 		"goto_definition_by_name",
+		"format_file",
 	}
 }
 
@@ -473,6 +479,7 @@ func toolNames() []string {
 		"lsp__document_outline",
 		"lsp__get_code_item",
 		"lsp__goto_definition_by_name",
+		"lsp__format_file",
 	}
 }
 
@@ -855,3 +862,73 @@ func (t *LSPTool) doGotoDefinitionByName(ctx context.Context, c *Client, query s
 	})
 	return string(data), nil
 }
+
+func newFormatFileTool(mgr *Manager) tools.Tool {
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"file": {"type": "string", "description": "Absolute path to the source file to format"},
+			"tabSize": {"type": "integer", "description": "Optional. The width of a tab in spaces (default: 4)"},
+			"insertSpaces": {"type": "boolean", "description": "Optional. Prefer spaces over tabs (default: true)"}
+		},
+		"required": ["file"]
+	}`)
+	return &LSPTool{
+		name:        "lsp__format_file",
+		description: "Format a source file using the LSP server's formatting engine. This applies standard layout, indentation, and spacing rules according to the language server's configuration (e.g. gofmt for Go, prettier/eslint for JS/TS, ruff for Python). Use this after making changes to ensure code style consistency. ⚠️ This modifies the file on disk directly. It writes the formatted content and notifies the LSP server.",
+		params:      schema,
+		manager:     mgr,
+		action:      "format_file",
+		log:         mgr.log,
+	}
+}
+
+func (t *LSPTool) doFormatFile(ctx context.Context, c *Client, uri string, tabSizeOpt *int, insertSpacesOpt *bool) (string, error) {
+	tabSize := 4
+	if tabSizeOpt != nil {
+		tabSize = *tabSizeOpt
+	}
+	insertSpaces := true
+	if insertSpacesOpt != nil {
+		insertSpaces = *insertSpacesOpt
+	}
+
+	edits, err := c.Formatting(ctx, uri, tabSize, insertSpaces)
+	if err != nil {
+		t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
+		return formatError("format_file", err), nil
+	}
+
+	if len(edits) == 0 {
+		return `{"changes_applied": 0, "message": "file is already formatted, no changes needed"}`, nil
+	}
+
+	filePath := uriToPath(uri)
+	contentBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		t.log.Error(logger.CatMCP, "failed to read file for format", "file", filePath, "err", err.Error())
+		return formatError("format_file", fmt.Errorf("read %s: %w", filePath, err)), nil
+	}
+
+	newContent, err := applyTextEdits(string(contentBytes), edits)
+	if err != nil {
+		t.log.Error(logger.CatMCP, "failed to apply edits for format", "file", filePath, "err", err.Error())
+		return formatError("format_file", fmt.Errorf("apply edits to %s: %w", filePath, err)), nil
+	}
+
+	if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+		t.log.Error(logger.CatMCP, "failed to save file after format", "file", filePath, "err", err.Error())
+		return formatError("format_file", fmt.Errorf("write %s: %w", filePath, err)), nil
+	}
+
+	// Notify LSP server of the modification
+	c.DidChange(uri, newContent, 0)
+
+	data, _ := json.Marshal(map[string]any{
+		"changes_applied": 1,
+		"edits_count":     len(edits),
+		"message":         "file successfully formatted",
+	})
+	return string(data), nil
+}
+
