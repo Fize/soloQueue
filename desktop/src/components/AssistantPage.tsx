@@ -5,6 +5,7 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useAgentStream } from "@/hooks/useAgentStream";
+import { useInputBadges } from "@/hooks/useInputBadges";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
@@ -252,6 +253,13 @@ export function AssistantPage() {
 
   const isHistoryLoading = historyLoading["l1"] ?? false;
 
+  // Hide model and task-level badges when agent is not actively processing.
+  // L1 uses the agent's model_id directly (no level→role mapping).
+  const { modelName: inputModelName, taskLevel: inputTaskLevel } = useInputBadges(
+    l1Agent,
+    isL1Processing || streaming || delegating,
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -330,8 +338,8 @@ export function AssistantPage() {
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
-          taskLevel={l1Agent?.task_level || l1Agent?.last_level || undefined}
-          modelName={l1Agent?.model_id || undefined}
+          taskLevel={inputTaskLevel}
+          modelName={inputModelName}
           processing={isL1Processing || streaming || delegating}
           skillNames={filteredSkillNames}
           activeSessionId="l1"

@@ -22,6 +22,7 @@ import { useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
 import type { AgentInfo, Project, AgentResponse, SkillInfo } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
+import { useInputBadges } from "@/hooks/useInputBadges";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
 import { 
@@ -307,36 +308,6 @@ export function ChatPage() {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null;
   }, [groupAgents]);
 
-  // Persist last known task level and model to prevent flickering
-  const lastTaskLevelRef = useRef<string | undefined>(undefined);
-  const lastModelRef = useRef<string | undefined>(undefined);
-
-  const stableTaskLevel = useMemo(() => {
-    const current = activeAgent?.task_level || activeAgent?.last_level || undefined;
-    if (current) {
-      lastTaskLevelRef.current = current;
-      return current;
-    }
-    return lastTaskLevelRef.current;
-  }, [activeAgent?.task_level, activeAgent?.last_level]);
-
-  // Derive model role from task level so the model badge changes when level changes.
-  const displayModel = useMemo(() => {
-    if (!stableTaskLevel) {
-      const agentModel = activeAgent?.model_id;
-      if (agentModel) {
-        lastModelRef.current = agentModel;
-        return agentModel;
-      }
-      return lastModelRef.current;
-    }
-    const level = stableTaskLevel.split("-")[0] || "";
-    const roleMap: Record<string, string> = { L0: "fast", L1: "universal", L2: "superior", L3: "expert" };
-    const derived = roleMap[level] || activeAgent?.model_id || lastModelRef.current;
-    if (derived) lastModelRef.current = derived;
-    return derived;
-  }, [stableTaskLevel, activeAgent?.model_id]);
-
   const isAgentProcessing = activeAgent?.state === "processing";
 
   const agentDisplayName = useMemo(() => {
@@ -417,8 +388,20 @@ export function ChatPage() {
     streamChatSegments,
   ]);
 
-  // Hide model badge until there is an actual conversation stream.
-  const inputModelName = finalMessages.length > 0 ? displayModel : undefined;
+  // Hide model and task-level badges when agent is not actively processing.
+  // L2 derives the model role from the task level (L0→fast, L1→universal, …).
+  const { modelName: inputModelName, taskLevel: inputTaskLevel } = useInputBadges(
+    activeAgent,
+    isAgentProcessing || streaming || delegating,
+    (taskLevel, agent, lastModel) => {
+      if (!taskLevel) {
+        return agent?.model_id || lastModel;
+      }
+      const level = taskLevel.split("-")[0] || "";
+      const roleMap: Record<string, string> = { L0: "fast", L1: "universal", L2: "superior", L3: "expert" };
+      return roleMap[level] || agent?.model_id || lastModel;
+    },
+  );
 
   const handleSend = async (
     text: string,
@@ -632,7 +615,7 @@ export function ChatPage() {
               ctxwinUsed={0}
               ctxwinLimit={0}
               atRootDir={selectedProjectPath || ""}
-              taskLevel={stableTaskLevel}
+              taskLevel={inputTaskLevel}
               modelName={inputModelName}
               processing={false}
             />
@@ -824,7 +807,7 @@ export function ChatPage() {
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
-                      taskLevel={stableTaskLevel}
+                      taskLevel={inputTaskLevel}
                       modelName={inputModelName}
                       processing={isAgentProcessing || streaming || delegating}
                     />
@@ -877,7 +860,7 @@ export function ChatPage() {
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  taskLevel={stableTaskLevel}
+                  taskLevel={inputTaskLevel}
                   modelName={inputModelName}
                   processing={isAgentProcessing || streaming || delegating}
                 />
