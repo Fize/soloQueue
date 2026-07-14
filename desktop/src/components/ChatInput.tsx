@@ -1,8 +1,8 @@
 import { useTranslation } from '@/lib/i18n'
 import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { toast } from 'sonner'
-import { 
-  ArrowUp, StopCircle, Loader2, Plus, ChevronDown, 
+import {
+  ArrowUp, StopCircle, Plus, ChevronDown,
   Check, Laptop, GitBranch, Users, Cpu, Palette
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
@@ -40,8 +40,7 @@ export interface ChatInputProps {
   ctxwinUsed?: number
   ctxwinLimit?: number
 
-  // Agent status display (left of context ring)
-  taskLevel?: string
+  // Model name shown next to the send button (purely informational)
   modelName?: string
 
   // Autocomplete: skill names fetched from /api/skills
@@ -74,7 +73,6 @@ export function ChatInput({
   readOnlySelectors = false,
   ctxwinUsed = 0,
   ctxwinLimit = 0,
-  taskLevel,
   modelName,
   skillNames = [],
   atRootDir = '',
@@ -435,10 +433,7 @@ export function ChatInput({
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
       {/* Input card */}
       <div className={cn(
-        "relative flex flex-col rounded-xl border p-2.5 transition-all shadow-sm",
-        processing 
-          ? "border-primary/45 bg-primary/[0.015] shadow-inner" 
-          : "border-border/40 bg-background focus-within:border-primary/30 focus-within:shadow-md"
+        "relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
       )}>
           {/* Attachments preview & Selected Element Badge */}
           <ChatInputAttachments
@@ -535,7 +530,7 @@ export function ChatInput({
                   caretColor: 'var(--foreground)',
                   scrollbarWidth: 'none',
                 }}
-                placeholder={processing ? "Agent is working..." : "Ask anything..."}
+                placeholder={disabled || processing ? "" : "Ask anything..."}
                 rows={1}
                 disabled={disabled || processing}
                 onKeyDown={handleKeyDown}
@@ -722,33 +717,18 @@ export function ChatInput({
                 )}
               </div>
 
-              {/* Right actions: task/model status, context window ring, send/stop */}
+              {/* Right actions: model badge, context window ring, send/stop */}
               <div className="flex items-center gap-2">
-                {/* Task level + model badge (left of context ring) */}
-                {(taskLevel || modelName || processing) && (
+                {/* Model badge (left of context ring) — only when known */}
+                {modelName && (
                   <div className="flex items-center gap-1.5 shrink-0 select-none">
-                    {processing && (
-                      <div className="flex items-center gap-1 text-primary mr-1 select-none">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                        <span className="text-[10px] font-bold font-mono tracking-wider animate-pulse">
-                          THINKING
-                        </span>
-                      </div>
-                    )}
-                    {taskLevel && (
-                      <span className="text-[10px] font-semibold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap">
-                        {taskLevel.split('-')[0]}
-                      </span>
-                    )}
-                    {modelName && (
-                      <span
-                        className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground/70 bg-muted/30 border border-border/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap max-w-[220px] truncate"
-                        title={modelName}
-                      >
-                        <Cpu className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
-                        <span className="truncate">{modelName}</span>
-                      </span>
-                    )}
+                    <span
+                      className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground/70 bg-muted/30 border border-border/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap max-w-[220px] truncate"
+                      title={modelName}
+                    >
+                      <Cpu className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+                      <span className="truncate">{modelName}</span>
+                    </span>
                   </div>
                 )}
 

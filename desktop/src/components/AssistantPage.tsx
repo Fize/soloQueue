@@ -253,9 +253,9 @@ export function AssistantPage() {
 
   const isHistoryLoading = historyLoading["l1"] ?? false;
 
-  // Hide model and task-level badges when agent is not actively processing.
+  // Hide model badge when agent is not actively processing.
   // L1 uses the agent's model_id directly (no level→role mapping).
-  const { modelName: inputModelName, taskLevel: inputTaskLevel } = useInputBadges(
+  const { modelName: inputModelName } = useInputBadges(
     l1Agent,
     isL1Processing || streaming || delegating,
   );
@@ -338,7 +338,6 @@ export function AssistantPage() {
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
-          taskLevel={inputTaskLevel}
           modelName={inputModelName}
           processing={isL1Processing || streaming || delegating}
           skillNames={filteredSkillNames}

@@ -30,6 +30,7 @@ import {
   listL2Groups, listProjects, getTeams, getSkills, listAgents,
 } from "@/lib/api";
 import { ChatDesignPanel } from "@/components/ChatDesignPanel";
+import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -400,14 +401,16 @@ export function ChatPage() {
   ]);
 
   // Hide model and task-level badges when agent is not actively processing.
-  // L2 derives the model role from the task level (L0→fast, L1→universal, …).
+  // L2 reads the routed model from `agent.model_id` directly: the backend's
+  // EffectiveModelID() already returns the override's ModelID when the
+  // router has classified, or the template-pinned model for explicit-model
+  // agents, or "" when the router hasn't decided yet (handled by
+  // useInputBadges' level coupling).
   const { modelName: inputModelName, taskLevel: inputTaskLevel } = useInputBadges(
     activeAgent,
     isAgentProcessing || streaming || delegating,
     (_taskLevel, agent, lastModel) => {
-      // agent.model_id is already the effective model set by the router after routing.
-      // No need to re-map via role keys (which would incorrectly show "superior" etc.).
-      return agent?.model_id || lastModel;
+      return agent?.model_id || lastModel
     },
   );
 
@@ -633,7 +636,6 @@ export function ChatPage() {
               ctxwinUsed={0}
               ctxwinLimit={0}
               atRootDir={selectedProjectPath || ""}
-              taskLevel={inputTaskLevel}
               modelName={inputModelName}
               processing={false}
             />
@@ -825,7 +827,6 @@ export function ChatPage() {
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
-                      taskLevel={inputTaskLevel}
                       modelName={inputModelName}
                       processing={isAgentProcessing || streaming || delegating}
                     />
@@ -883,6 +884,21 @@ export function ChatPage() {
                       </div>
                     )}
 
+                    {/* Bottom-of-stream working indicator — shows a soft
+                        breathing pill with model + level context while the
+                        agent is actively processing. Mounted at the very
+                        end of the stream so it tracks the latest message
+                        and stays anchored when auto-scrolling. */}
+                    {(isAgentProcessing || streaming || delegating) && (
+                      <AgentWorkingIndicator
+                        agentName={agentDisplayName}
+                        modelName={inputModelName}
+                        taskLevel={inputTaskLevel}
+                        delegating={delegating}
+                        compact={isDesignMode}
+                      />
+                    )}
+
                     <div ref={bottomRef} className="h-2" />
                   </div>
                 </div>
@@ -895,7 +911,6 @@ export function ChatPage() {
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  taskLevel={inputTaskLevel}
                   modelName={inputModelName}
                   processing={isAgentProcessing || streaming || delegating}
                 />

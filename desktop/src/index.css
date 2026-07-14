@@ -390,3 +390,87 @@ body {
 .animate-indeterminate-bar {
   animation: indeterminate-bar 1.5s ease-in-out infinite;
 }
+
+/* ─── Agent Working Indicator (bottom-of-stream) ────────────────────── */
+/* Soft "breathing" pulse — the whole pill expands and contracts on a
+ * 2.4s cycle, paired with a soft halo glow. Modeled after Claude Cowork's
+ * subtle working affordance. */
+@keyframes agent-working-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.92;
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+  50% {
+    transform: scale(1.012);
+    opacity: 1;
+    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.06),
+                0 0 18px 0 hsl(var(--primary) / 0.12);
+  }
+}
+
+.agent-working-breathing {
+  border-radius: 9999px;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  margin-left: -0.5rem;
+  margin-right: -0.5rem;
+  background: linear-gradient(
+    90deg,
+    hsl(var(--primary) / 0.04),
+    hsl(var(--primary) / 0.08),
+    hsl(var(--primary) / 0.04)
+  );
+  background-size: 200% 100%;
+  animation:
+    agent-working-breathe 2.4s ease-in-out infinite,
+    agent-working-shimmer 3.2s ease-in-out infinite;
+  will-change: transform, opacity, background-position;
+}
+
+/* Subtle horizontal sheen sweep across the pill — the "alive" feel. */
+@keyframes agent-working-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Three bouncing dots — the dots themselves are the same "..." pattern
+ * used by the existing LoadingIndicator, but staggered for a softer
+ * rhythm. */
+@keyframes agent-working-dot-pulse {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}
+
+.agent-working-dot {
+  display: inline-block;
+  animation: agent-working-dot-pulse 1.2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* Spark icon gentle twinkle to complement the dot pulse. */
+@keyframes agent-working-spark-spin {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  50%      { transform: rotate(8deg) scale(1.08); }
+}
+
+.agent-working-spark {
+  animation: agent-working-spark-spin 2.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Respect users who prefer reduced motion — keep the indicator visible
+ * but freeze the breathing and dot motion. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-working-breathing,
+  .agent-working-dot,
+  .agent-working-spark {
+    animation: none !important;
+  }
+}

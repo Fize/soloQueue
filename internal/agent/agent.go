@@ -364,24 +364,61 @@ func (a *Agent) ModelOverride() *ModelParams {
 	return a.modelOverride.Load()
 }
 
-// EffectiveModelID returns the model ID actually in use.
-// It prefers the per-ask override (set by the router) and falls back to the
-// Definition default. Thread-safe (atomic pointer load).
+// EffectiveModelID returns the routed model ID for the current ask.
+//
+// The returned value follows the per-ask override semantics:
+//
+//   - If the router has set a non-empty ModelID on the per-ask override
+//     AND the agent's Definition did not pin an explicit model via the
+//     template, the routed ModelID is returned.
+//   - If the agent's Definition has ExplicitModel=true (the template
+//     pinned a model in YAML), the template's ModelID is returned
+//     regardless of any override — for these agents the template model
+//     IS the routed model, since the router cannot swap it.
+//   - Otherwise, the router has not yet classified the prompt and
+//     "" is returned. The "" sentinel lets the UI distinguish "router
+//     has not decided yet" from "router chose a model", and matches
+//     the EffectiveTaskLevel() return shape so the model and level
+//     chips stay in lockstep.
+//
+// Callers that need a working model (e.g. the LLM client) should
+// read `Def.ModelID` directly and apply the override themselves;
+// the value returned here is intended for display purposes only.
+//
+// Thread-safe (atomic pointer load).
 func (a *Agent) EffectiveModelID() string {
-	if mp := a.modelOverride.Load(); mp != nil && mp.ModelID != "" && !a.Def.ExplicitModel {
+	if a.Def.ExplicitModel {
+		return a.Def.ModelID
+	}
+	if mp := a.modelOverride.Load(); mp != nil && mp.ModelID != "" {
 		return mp.ModelID
 	}
-	return a.Def.ModelID
+	return ""
 }
 
-// EffectiveProviderID returns the provider ID actually in use.
-// It prefers the per-ask override (set by the router) and falls back to the
-// Definition default. Thread-safe (atomic pointer load).
+// EffectiveProviderID returns the routed provider ID for the current ask.
+//
+// Same contract as EffectiveModelID:
+//
+//   - ExplicitModel=true → returns Def.ProviderID (the template-pinned
+//     provider; the router cannot swap it).
+//   - Otherwise, returns the per-ask override's ProviderID if set, or
+//     "" if the router has not yet classified the prompt.
+//
+// Returning "" (rather than always falling back to Def.ProviderID)
+// gives the UI a clear signal that the router has not decided yet,
+// while still surfacing the template-pinned model for agents whose
+// model is fixed by configuration.
+//
+// Thread-safe (atomic pointer load).
 func (a *Agent) EffectiveProviderID() string {
-	if mp := a.modelOverride.Load(); mp != nil && mp.ProviderID != "" && !a.Def.ExplicitModel {
+	if a.Def.ExplicitModel {
+		return a.Def.ProviderID
+	}
+	if mp := a.modelOverride.Load(); mp != nil && mp.ProviderID != "" {
 		return mp.ProviderID
 	}
-	return a.Def.ProviderID
+	return ""
 }
 
 // EffectiveContextWindow returns the context window capacity actually in use.

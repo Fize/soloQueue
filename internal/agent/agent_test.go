@@ -237,6 +237,94 @@ func TestEffectiveContextWindow_ExplicitModel(t *testing.T) {
 	}
 }
 
+// TestEffectiveModelID covers the routed-model contract:
+//
+//   - When the router has not yet classified the prompt (no override
+//     AND the agent is not pinned to an explicit model), EffectiveModelID
+//     returns "" — NOT the template's default ModelID. This is the
+//     display-time semantic the UI relies on: "" means "router has not
+//     decided yet" and the model chip should render a placeholder.
+//   - When the router has set a per-ask ModelID, that value is returned.
+//   - When the agent's Definition has ExplicitModel=true, the template's
+//     pinned ModelID is always returned (the router's override is
+//     ignored for these agents — the template model IS the routed model).
+//   - ClearModelOverride() reverts to the "" sentinel for non-explicit
+//     agents, and to the template-pinned model for explicit ones.
+//
+// EffectiveModelID must NOT fall back to Def.ModelID for non-explicit
+// agents — that fallback would leak template config into the per-ask
+// model display and contradict the level/model coupling on the UI.
+func TestEffectiveModelID(t *testing.T) {
+	a := NewAgent(Definition{ID: "test", ModelID: "deepseek-v4-flash", ProviderID: "deepseek"}, &FakeLLM{}, nil)
+
+	// Default: no override, not explicit → "" (NOT the template default).
+	if got := a.EffectiveModelID(); got != "" {
+		t.Errorf("default EffectiveModelID = %q, want \"\" (no fallback to template)", got)
+	}
+	if got := a.EffectiveProviderID(); got != "" {
+		t.Errorf("default EffectiveProviderID = %q, want \"\"", got)
+	}
+
+	// Override takes precedence.
+	a.SetModelOverride(&ModelParams{ModelID: "gpt-5", ProviderID: "openai"})
+	if got := a.EffectiveModelID(); got != "gpt-5" {
+		t.Errorf("override ModelID = %q, want %q", got, "gpt-5")
+	}
+	if got := a.EffectiveProviderID(); got != "openai" {
+		t.Errorf("override ProviderID = %q, want %q", got, "openai")
+	}
+
+	// Override with empty fields does NOT override — falls back to ""
+	// (still not the template default for non-explicit agents).
+	a.SetModelOverride(&ModelParams{ModelID: "", ProviderID: ""})
+	if got := a.EffectiveModelID(); got != "" {
+		t.Errorf("override with empty ModelID = %q, want \"\"", got)
+	}
+	if got := a.EffectiveProviderID(); got != "" {
+		t.Errorf("override with empty ProviderID = %q, want \"\"", got)
+	}
+
+	// Clear reverts to the "" sentinel.
+	a.SetModelOverride(&ModelParams{ModelID: "gpt-5", ProviderID: "openai"})
+	a.ClearModelOverride()
+	if got := a.EffectiveModelID(); got != "" {
+		t.Errorf("after clear = %q, want \"\"", got)
+	}
+	if got := a.EffectiveProviderID(); got != "" {
+		t.Errorf("after clear ProviderID = %q, want \"\"", got)
+	}
+}
+
+// TestEffectiveModelID_ExplicitModel verifies that an agent whose
+// Definition pins an explicit model (ExplicitModel=true) always reports
+// the template-pinned model from EffectiveModelID — the override is
+// intentionally ignored, and the template default IS the working model
+// for these agents (the router cannot swap it).
+func TestEffectiveModelID_ExplicitModel(t *testing.T) {
+	a := NewAgent(Definition{
+		ID:            "test",
+		ModelID:       "deepseek-v4-flash",
+		ProviderID:    "deepseek",
+		ExplicitModel: true,
+	}, &FakeLLM{}, nil)
+
+	// Even with an override, ExplicitModel means the override is not
+	// consumed. The template's pinned model is the routed model.
+	a.SetModelOverride(&ModelParams{ModelID: "gpt-5", ProviderID: "openai"})
+	if got := a.EffectiveModelID(); got != "deepseek-v4-flash" {
+		t.Errorf("ExplicitModel should pin to template, EffectiveModelID = %q, want %q", got, "deepseek-v4-flash")
+	}
+	if got := a.EffectiveProviderID(); got != "deepseek" {
+		t.Errorf("ExplicitModel should pin to template, EffectiveProviderID = %q, want %q", got, "deepseek")
+	}
+
+	// Clear: still pinned to template.
+	a.ClearModelOverride()
+	if got := a.EffectiveModelID(); got != "deepseek-v4-flash" {
+		t.Errorf("after clear, EffectiveModelID = %q, want %q", got, "deepseek-v4-flash")
+	}
+}
+
 // ─── Ask happy path ──────────────────────────────────────────────────────────
 
 func TestAgent_Ask_Happy(t *testing.T) {
