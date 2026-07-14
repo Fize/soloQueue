@@ -384,9 +384,9 @@ export function ChatDesignPanel({
   // ── JSX ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full bg-white select-none relative">
+    <div className="flex flex-col h-full bg-background select-none relative">
       {/* ── Tab Bar ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 bg-muted/20 border-b border-border/30 px-3 h-10 overflow-x-auto shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex items-center gap-1 bg-background border-b border-border px-3 h-10 overflow-x-auto shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {/* Permanent Sketch Tab */}
         <button
           onClick={() => {
@@ -394,10 +394,10 @@ export function ChatDesignPanel({
             setStrokes([]);
           }}
           className={cn(
-            "flex items-center gap-1.5 px-3 h-8 rounded-t-lg text-xs font-semibold border-t border-x transition-colors cursor-pointer",
+            "flex items-center gap-1.5 px-3 h-10 text-xs font-semibold border-b-2 transition-colors cursor-pointer -mb-[1px]",
             activeTab === "sketch"
-              ? "bg-white border-border/40 text-primary"
-              : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
           )}
         >
           <Palette className="h-3 w-3" />
@@ -409,10 +409,10 @@ export function ChatDesignPanel({
           <div
             key={file.path}
             className={cn(
-              "flex items-center h-8 rounded-t-lg text-xs font-semibold border-t border-x transition-colors cursor-pointer max-w-[160px]",
+              "flex items-center h-10 text-xs font-semibold border-b-2 transition-colors cursor-pointer max-w-[160px] -mb-[1px]",
               activeTab === file.path
-                ? "bg-white border-border/40 text-primary"
-                : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
             )}
           >
             <button
@@ -443,7 +443,7 @@ export function ChatDesignPanel({
                   setStrokes([]);
                 }
               }}
-              className="shrink-0 px-1 h-full text-muted-foreground/50 hover:text-destructive transition-colors"
+              className="shrink-0 pr-2 pl-1 h-full text-muted-foreground/50 hover:text-destructive transition-colors flex items-center justify-center"
               title="Close preview tab"
             >
               <X className="h-3 w-3" />
@@ -460,10 +460,10 @@ export function ChatDesignPanel({
                 setShowFileDropdown(!showFileDropdown);
               }}
               className={cn(
-                "flex items-center gap-1 px-2 h-8 rounded-t-lg text-xs font-semibold border-t border-x transition-colors cursor-pointer",
+                "flex items-center gap-1 px-2 h-10 text-xs font-semibold border-b-2 transition-colors cursor-pointer -mb-[1px]",
                 showFileDropdown
-                  ? "bg-white border-border/40 text-primary"
-                  : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
               )}
               title="All design files"
             >
@@ -589,7 +589,7 @@ export function ChatDesignPanel({
               className={cn(
                 "p-1.5 rounded-full cursor-pointer transition-all",
                 designMode === 'interact'
-                  ? "bg-white shadow-sm text-primary"
+                  ? "bg-background shadow-sm text-primary"
                   : "text-muted-foreground hover:text-foreground"
               )}
               title="Browse (Normal interaction)"
@@ -604,7 +604,7 @@ export function ChatDesignPanel({
               className={cn(
                 "p-1.5 rounded-full cursor-pointer transition-all",
                 designMode === 'click'
-                  ? "bg-white shadow-sm text-primary"
+                  ? "bg-background shadow-sm text-primary"
                   : "text-muted-foreground hover:text-foreground"
               )}
               title="Pointer (Select Element)"
@@ -616,7 +616,7 @@ export function ChatDesignPanel({
               className={cn(
                 "p-1.5 rounded-full cursor-pointer transition-all",
                 designMode === 'draw'
-                  ? "bg-white shadow-sm text-primary"
+                  ? "bg-background shadow-sm text-primary"
                   : "text-muted-foreground hover:text-foreground"
               )}
               title="Pen (Draw annotation)"

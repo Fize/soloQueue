@@ -14,7 +14,6 @@ import {
   FolderOpen,
   Layers,
   Palette,
-  X,
   FileText,
 } from "lucide-react";
 import { useAgentStore } from "@/stores/agentStore";
@@ -73,7 +72,6 @@ export function ChatPage() {
     setShowInspector(open);
   };
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed);
-  const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed);
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode);
   const setDesignMode = useRuntimeStore((s) => s.setDesignMode);
 
@@ -653,14 +651,14 @@ export function ChatPage() {
         <header
           className={cn(
             "flex h-12 items-center border-b border-border/30 select-none bg-card/20 shrink-0",
-            sidebarCollapsed && "pl-[115px]",
             isDesignMode && "electron-drag"
           )}
         >
           {/* Left section: chat header area — fills remaining space */}
           <div
             className={cn(
-              "flex items-center gap-3 px-6 h-full",
+              "flex items-center gap-3 h-full pr-6",
+              sidebarCollapsed ? "pl-[115px]" : "pl-6",
               showInspector
                 ? "flex-1 justify-between"
                 : "flex-1 justify-between",
@@ -710,16 +708,6 @@ export function ChatPage() {
                     <Palette className="h-4 w-4 text-primary animate-pulse" />
                     <span className="text-xs font-bold text-foreground font-mono">DESIGN PREVIEW</span>
                   </div>
-                  <button
-                    onClick={() => {
-                      setDesignMode(false);
-                      setSidebarCollapsed(false);
-                    }}
-                    className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
-                    title="Exit Design Mode"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
                 </div>
               ) : (
                 <>
