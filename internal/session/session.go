@@ -1078,6 +1078,26 @@ enqueued:
 		var finalReasoning string
 		var gotDone bool
 		var eventCount int
+		var accContent strings.Builder   // accumulates streamed content for partial flush on non-normal exit
+		var accReasoning strings.Builder
+
+		// Flush partial content on any non-normal exit (Stop, panic, srcCh close).
+		// Declared after the recover defer so it runs first (LIFO), before panic recovery.
+		// Skipped on normal completion (gotDone=true) because PushHook already wrote the assistant message.
+		defer func() {
+			if !gotDone && accContent.Len() > 0 && s.tl != nil {
+				_ = s.tl.AppendMessage(&timeline.MessagePayload{
+					Role:             "assistant",
+					Content:          accContent.String(),
+					ReasoningContent: accReasoning.String(),
+					AgentID:          s.Agent.InstanceID,
+				})
+				s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial assistant content flushed to timeline",
+					"session_id", s.ID,
+					"content_len", accContent.Len(),
+				)
+			}
+		}()
 
 		clientDisconnected := false
 		for {
@@ -1172,6 +1192,10 @@ enqueued:
 				)
 				s.newTurnDone()
 				s.inFlight.Store(0)
+			case agent.ContentDeltaEvent:
+				accContent.WriteString(e.Delta)
+			case agent.ReasoningDeltaEvent:
+				accReasoning.WriteString(e.Delta)
 			case agent.DoneEvent:
 				finalContent = e.Content
 				finalReasoning = e.ReasoningContent
