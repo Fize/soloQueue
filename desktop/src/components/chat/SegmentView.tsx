@@ -1,11 +1,12 @@
 import { AlertCircle } from 'lucide-react'
-import { MarkdownPreview } from '@/components/ui/markdown-preview'
+import { StreamdownPreview } from '@/components/ui/streamdown-preview'
 import { DelegationCard } from '@/components/DelegationCard'
 import { ThinkingSegment } from './ThinkingSegment'
 import { ToolCallSegment } from './ToolCallSegment'
 import { ToolConfirmSegment } from './ToolConfirmSegment'
 import { SubagentCard } from './WorkedSegment'
 import { useTranslation } from '@/lib/i18n'
+import { memo } from 'react'
 import type { ChatMessage } from '@/types'
 
 export function LoadingIndicator() {
@@ -41,26 +42,34 @@ function CompactSegment({ text }: { text: string }) {
   )
 }
 
-export function SegmentView({
+function SegmentViewInner({
   segment,
   isUser,
   segmentIndex,
   segments,
+  isStreaming,
   onUserInteraction,
 }: {
   segment: ChatMessage['segments'][number]
   isUser?: boolean
   segmentIndex?: number
   segments?: ChatMessage['segments']
+  /** True if the parent message is in an actively-streaming session. */
+  isStreaming?: boolean
   onUserInteraction?: () => void
 }) {
   const isLastSegment =
     segmentIndex != null && segments != null && segmentIndex === segments.length - 1
   switch (segment.type) {
     case 'content':
+      // Use StreamdownPreview for streaming content — it parses in blocks
+      // and handles partial markdown (incomplete code fences stay as
+      // inline text until they close), eliminating the per-token
+      // full-reparse cost of react-markdown.
       return (
-        <MarkdownPreview
+        <StreamdownPreview
           content={segment.text}
+          isAnimating={!!isStreaming}
           className=""
         />
       )
@@ -138,3 +147,21 @@ export function SegmentView({
       return null
   }
 }
+
+/**
+ * SegmentView is wrapped in React.memo so that a parent re-render caused
+ * by per-token chat_chunk updates skips segments whose props have not
+ * changed. The `segment` reference is stable for already-finalized
+ * segments; only the actively-streaming content/thinking segment's
+ * reference changes (and it is the only one that needs to re-render).
+ */
+export const SegmentView = memo(
+  SegmentViewInner,
+  (prev, next) =>
+    prev.segment === next.segment &&
+    prev.segments === next.segments &&
+    prev.segmentIndex === next.segmentIndex &&
+    prev.isUser === next.isUser &&
+    prev.isStreaming === next.isStreaming &&
+    prev.onUserInteraction === next.onUserInteraction,
+)

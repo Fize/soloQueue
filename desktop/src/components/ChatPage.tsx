@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { ChatMessageView } from "@/components/ChatMessage";
@@ -404,7 +404,7 @@ export function ChatPage() {
   const { modelName: inputModelName, taskLevel: inputTaskLevel } = useInputBadges(
     activeAgent,
     isAgentProcessing || streaming || delegating,
-    (taskLevel, agent, lastModel) => {
+    (_taskLevel, agent, lastModel) => {
       // agent.model_id is already the effective model set by the router after routing.
       // No need to re-map via role keys (which would incorrectly show "superior" etc.).
       return agent?.model_id || lastModel;
@@ -453,42 +453,6 @@ export function ChatPage() {
   };
 
 
-  const contentSum = finalMessages.reduce((acc, msg) => {
-    let sum = 0;
-    for (const seg of msg.segments) {
-      if (
-        seg.type === "content" ||
-        seg.type === "thinking" ||
-        seg.type === "error" ||
-        seg.type === "compact"
-      ) {
-        sum += (seg.text || "").length;
-      } else if (seg.type === "tool_call") {
-        sum +=
-          (seg.name || "").length +
-          (seg.args || "").length +
-          (seg.result || "").length +
-          (seg.error || "").length +
-          (seg.done ? 1 : 0);
-      } else if (seg.type === "delegation") {
-        sum +=
-          (seg.agentName || "").length +
-          (seg.task || "").length +
-          (seg.status || "").length +
-          (seg.resultContent || "").length;
-      } else if (seg.type === "tool_confirm") {
-        sum +=
-          (seg.name || "").length +
-          (seg.prompt || "").length +
-          (seg.resolved ? 1 : 0) +
-          (seg.choice || "").length;
-      }
-    }
-    return acc + sum + msg.segments.length;
-  }, 0);
-
-  const lastScrolledSessionId = useRef<string | null>(null);
-
   const handleUserInteraction = useCallback(() => {
     userScrolledUp.current = true;
   }, []);
@@ -503,19 +467,25 @@ export function ChatPage() {
     const el = scrollRef.current;
     if (!el) return;
     let prevScrollTop = el.scrollTop;
-    // Cooldown timer: when history is prepended at the top, scrollHeight
-    // grows which can push the user back into the "scrollTop < 50" trigger
-    // zone a second time before they recover. 200ms of quiet after a load
-    // suppresses the re-trigger.
+    // Hysteresis state for "user scrolled up" detection. We keep a
+    // sticky userScrolledUp flag and only flip it back to "following"
+    // when the viewport is within ATTACH_PX of the bottom. This stops the
+    // rapid back-and-forth flipping that occurred during fast scrolling
+    // when the previous 100px threshold oscillated with the user's
+    // wheel velocity.
     let cooldownTimer: ReturnType<typeof setTimeout> | null = null;
+    const ATTACH_PX = 50;     // within this many px of the bottom, re-attach
+    const DETACH_PX = 200;    // beyond this many px, mark as scrolled up
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      if (isNearBottom) {
-        userScrolledUp.current = false;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      // Hysteresis: don't flip state inside the [ATTACH_PX, DETACH_PX] band.
+      if (userScrolledUp.current) {
+        if (distanceFromBottom < ATTACH_PX) {
+          userScrolledUp.current = false;
+        }
       } else {
-        // If scrollTop decreased, the user scrolled up.
-        if (scrollTop < prevScrollTop) {
+        if (distanceFromBottom > DETACH_PX && scrollTop < prevScrollTop) {
           userScrolledUp.current = true;
         }
       }
@@ -554,16 +524,45 @@ export function ChatPage() {
     };
   }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory]);
 
-  useEffect(() => {
-    if (userScrolledUp.current) return;
-    bottomRef.current?.scrollIntoView({
-      behavior: "auto",
-    });
+  // Track the structural key of the last-rendered tail. The auto-scroll
+  // effect (below) uses this so it only fires when a NEW message or
+  // segment is added, not on every chat_chunk inside an existing segment.
+  // Without this, the effect ran once per token and called scrollIntoView
+  // in scenarios where userScrolledUp had briefly reset to false,
+  // dragging the viewport to the bottom on every chunk.
+  const lastAutoScrolledKey = useRef<string>("");
 
-    if (finalMessages.length > 0) {
-      lastScrolledSessionId.current = activeSessionId;
-    }
-  }, [contentSum, streaming, activeSessionId, finalMessages]);
+  useLayoutEffect(() => {
+    if (userScrolledUp.current) return;
+    if (finalMessages.length === 0) return;
+    const last = finalMessages[finalMessages.length - 1];
+    const lastSeg = last.segments[last.segments.length - 1];
+    // Use a structural fingerprint (length + last-segment-type) so that
+    // appending characters to an existing content/thinking segment does
+    // NOT trigger scrolling.
+    const key = `${finalMessages.length}:${last.segments.length}:${lastSeg?.type ?? ""}`;
+    if (key === lastAutoScrolledKey.current) return;
+    lastAutoScrolledKey.current = key;
+
+    // rAF-anchored scroll: sample scrollHeight before AND after the
+    // browser has had a chance to lay out the new content, then add the
+    // delta to scrollTop. This keeps the user's current viewport
+    // position visually stable (the line they were reading stays put)
+    // even when a new segment is prepended via loadMoreHistory or the
+    // auto-scroll wants to follow a freshly-appended segment.
+    const el = scrollRef.current;
+    if (!el) return;
+    const before = el.scrollHeight;
+    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      if (!scrollRef.current) return;
+      const after = scrollRef.current.scrollHeight;
+      const delta = after - before;
+      if (delta > 0) {
+        scrollRef.current.scrollTop = before + delta;
+      }
+    });
+  }, [finalMessages]);
 
   const matchedRegAgent = useMemo(() => {
     if (!activeAgent || !registeredAgents) return null;
@@ -835,7 +834,23 @@ export function ChatPage() {
               </div>
             ) : (
               <>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6">
+                <div
+                  ref={scrollRef}
+                  className="flex-1 overflow-y-auto p-6"
+                  // Explicitly mark the user as "scrolled up" the moment they
+                  // engage the scroll wheel or touch the surface. Without
+                  // this, the auto-scroll effect (which depends on a
+                  // structural key in finalMessages) can run between the
+                  // user's wheel events if a new token arrives in the
+                  // stream, and re-attach to the bottom before the scroll
+                  // listener has had a chance to update userScrolledUp.
+                  onWheel={() => {
+                    userScrolledUp.current = true;
+                  }}
+                  onTouchStart={() => {
+                    userScrolledUp.current = true;
+                  }}
+                >
                   <div
                     className={`mx-auto w-full space-y-6 ${isDesignMode ? 'px-2' : 'px-4'}`}
                     style={{ maxWidth: messageMaxWidth }}
@@ -854,6 +869,7 @@ export function ChatPage() {
                         key={msg.id}
                         message={msg}
                         agentName={agentDisplayName}
+                        isStreaming={streaming}
                         onUserInteraction={handleUserInteraction}
                       />
                     ))}

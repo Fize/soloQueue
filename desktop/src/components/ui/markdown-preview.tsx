@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -76,11 +76,10 @@ function CodeBlock({
   )
 }
 
-export function MarkdownPreview({ content, className, onToggleCheckbox, basePath }: MarkdownPreviewProps) {
+function MarkdownPreviewInner({ content, className, onToggleCheckbox, basePath }: MarkdownPreviewProps) {
   if (!content) return null
 
   let checkboxIndex = 0
-
   return (
     <div className={cn('markdown-preview', className)}>
       <ReactMarkdown
@@ -156,6 +155,28 @@ export function MarkdownPreview({ content, className, onToggleCheckbox, basePath
     </div>
   )
 }
+
+/**
+ * MarkdownPreview is wrapped in React.memo. The `content` prop is the
+ * streaming-accumulated text. As long as the upstream segment reference
+ * (and therefore this content string) is unchanged, this component
+ * skips re-rendering — which is the single biggest win for streaming
+ * markdown because react-markdown has no internal memoization and would
+ * otherwise reparse the entire accumulated content on every token.
+ *
+ * Note: this is a guard for the case where the parent re-renders without
+ * content actually changing. It does not help when content IS changing
+ * (e.g. the actively-streaming segment) — that is addressed by
+ * streamdown-preview in Phase 4.
+ */
+export const MarkdownPreview = memo(
+  MarkdownPreviewInner,
+  (prev, next) =>
+    prev.content === next.content &&
+    prev.className === next.className &&
+    prev.basePath === next.basePath &&
+    prev.onToggleCheckbox === next.onToggleCheckbox,
+)
 
 /**
  * Resolve a relative path (e.g. `./images/foo.png` or `../other.md`) against an

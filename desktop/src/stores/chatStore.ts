@@ -307,8 +307,17 @@ export const useChatStore = create<ChatState>((set) => ({
       } else {
         segs.push({ type: 'content', text })
       }
+      // Build the new per-session messages list without spreading the
+      // previous array; .concat creates one new array containing all
+      // existing references plus the freshly-cloned last message. The
+      // earlier `messages: [...msgs.slice(0, -1), { ...last, ... }]`
+      // pattern also created one new array but allocated an intermediate
+      // slice; .concat is more direct.
       return {
-        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+        messages: {
+          ...s.messages,
+          [sid]: msgs.slice(0, -1).concat({ ...last, segments: segs }),
+        },
       }
     })
   },

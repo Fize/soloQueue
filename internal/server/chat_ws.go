@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
@@ -325,99 +326,183 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 	defer cancel()
 	defer client.removeActiveRequest(requestID)
 
-	for ev := range ch {
-		agEv, ok := ev.(agent.AgentEvent)
-		if !ok {
-			continue
-		}
+	// streamBatchInterval is the maximum time a chat_chunk/reasoning_chunk
+	// delta is held before being flushed. This microbatch lets us collapse N
+	// per-token deltas that arrive within a single frame into one WebSocket
+	// frame, which dramatically reduces React commit frequency on the client
+	// (and the MarkdownPreview reparse cost that comes with each commit).
+	// Other event types (tool_*, chat_done, chat_error, ...) bypass the
+	// batcher and are flushed immediately.
+	const streamBatchInterval = 30 * time.Millisecond
 
-		// Auto-generate session name after first exchange for L2 sessions.
-		if doneEv, ok := agEv.(agent.DoneEvent); ok {
-			if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
-				l2ID := strings.TrimPrefix(sessionID, "l2:")
-				if h.mux.l2Store.GetName(l2ID) == "" {
-					title := generateSessionTitle(prompt, doneEv.Content)
-					if title != "" {
-						h.mux.l2Store.SetName(l2ID, title)
-						client.sendJSON(WSMessage{
-							Type:      "session_name",
-							RequestID: requestID,
-							SessionID: sessionID,
-							Name:      title,
-						})
+	// Batcher state — drained on every loop iteration so the goroutine never
+	// blocks waiting for the timer when there is no high-frequency traffic.
+	var (
+		pendingContent   strings.Builder
+		pendingReasoning strings.Builder
+		haveContent      bool
+		haveReasoning    bool
+		flushTimer       *time.Timer
+		flushC           <-chan time.Time
+	)
+
+	flush := func() {
+		if haveContent {
+			if !client.sendJSON(WSMessage{
+				Type:      "chat_chunk",
+				RequestID: requestID,
+				Delta:     pendingContent.String(),
+			}) {
+				return
+			}
+			pendingContent.Reset()
+			haveContent = false
+		}
+		if haveReasoning {
+			if !client.sendJSON(WSMessage{
+				Type:      "reasoning_chunk",
+				RequestID: requestID,
+				Delta:     pendingReasoning.String(),
+			}) {
+				return
+			}
+			pendingReasoning.Reset()
+			haveReasoning = false
+		}
+		if flushTimer != nil {
+			flushTimer.Stop()
+			flushTimer = nil
+		}
+		flushC = nil
+	}
+
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				flush()
+				return
+			}
+			agEv, ok := ev.(agent.AgentEvent)
+			if !ok {
+				continue
+			}
+
+			// Fast path: batchable high-frequency deltas.
+			if cd, ok := agEv.(agent.ContentDeltaEvent); ok {
+				pendingContent.WriteString(cd.Delta)
+				haveContent = true
+				if flushTimer == nil {
+					flushTimer = time.NewTimer(streamBatchInterval)
+					flushC = flushTimer.C
+				}
+				continue
+			}
+			if rd, ok := agEv.(agent.ReasoningDeltaEvent); ok {
+				pendingReasoning.WriteString(rd.Delta)
+				haveReasoning = true
+				if flushTimer == nil {
+					flushTimer = time.NewTimer(streamBatchInterval)
+					flushC = flushTimer.C
+				}
+				continue
+			}
+
+			// Structural event: flush pending text first so the client sees
+			// the new structural frame AFTER the full text preceding it.
+			flush()
+
+			// Auto-generate session name after first exchange for L2 sessions.
+			if doneEv, ok := agEv.(agent.DoneEvent); ok {
+				if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
+					l2ID := strings.TrimPrefix(sessionID, "l2:")
+					if h.mux.l2Store.GetName(l2ID) == "" {
+						title := generateSessionTitle(prompt, doneEv.Content)
+						if title != "" {
+							h.mux.l2Store.SetName(l2ID, title)
+							client.sendJSON(WSMessage{
+								Type:      "session_name",
+								RequestID: requestID,
+								SessionID: sessionID,
+								Name:      title,
+							})
+						}
 					}
 				}
 			}
-		}
 
-		if toolDoneEv, ok := agEv.(agent.ToolExecDoneEvent); ok && toolDoneEv.Err == nil {
-			if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
-				l2ID := strings.TrimPrefix(sessionID, "l2:")
-				var paths []string
-				if toolDoneEv.Name == "Write" || toolDoneEv.Name == "Edit" || toolDoneEv.Name == "MultiEdit" {
-					var res struct {
-						Path string `json:"path"`
-					}
-					if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil && res.Path != "" {
-						paths = append(paths, res.Path)
-					}
-				} else if toolDoneEv.Name == "MultiWrite" {
-					var res struct {
-						Files []struct {
+			if toolDoneEv, ok := agEv.(agent.ToolExecDoneEvent); ok && toolDoneEv.Err == nil {
+				if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
+					l2ID := strings.TrimPrefix(sessionID, "l2:")
+					var paths []string
+					if toolDoneEv.Name == "Write" || toolDoneEv.Name == "Edit" || toolDoneEv.Name == "MultiEdit" {
+						var res struct {
 							Path string `json:"path"`
-						} `json:"files"`
-					}
-					if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil {
-						for _, f := range res.Files {
-							if f.Path != "" {
-								paths = append(paths, f.Path)
+						}
+						if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil && res.Path != "" {
+							paths = append(paths, res.Path)
+						}
+					} else if toolDoneEv.Name == "MultiWrite" {
+						var res struct {
+							Files []struct {
+								Path string `json:"path"`
+							} `json:"files"`
+						}
+						if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil {
+							for _, f := range res.Files {
+								if f.Path != "" {
+									paths = append(paths, f.Path)
+								}
 							}
 						}
 					}
-				}
 
-				if len(paths) > 0 {
-					entry := h.mux.l2Store.GetEntry(l2ID)
-					if entry != nil && entry.Group != "" {
-						planDir := filepath.Join(h.mux.workDir, "plan", entry.Group)
-						prefix := planDir + string(filepath.Separator)
-						updated := false
-						for _, p := range paths {
-							if strings.HasPrefix(p, prefix) {
-								h.mux.l2Store.UpdatePlanStatus(l2ID, p)
-								updated = true
+					if len(paths) > 0 {
+						entry := h.mux.l2Store.GetEntry(l2ID)
+						if entry != nil && entry.Group != "" {
+							planDir := filepath.Join(h.mux.workDir, "plan", entry.Group)
+							prefix := planDir + string(filepath.Separator)
+							updated := false
+							for _, p := range paths {
+								if strings.HasPrefix(p, prefix) {
+									h.mux.l2Store.UpdatePlanStatus(l2ID, p)
+									updated = true
+								}
 							}
-						}
-						if updated {
-							updatedEntry := h.mux.l2Store.GetEntry(l2ID)
-							if updatedEntry != nil {
-								client.sendJSON(WSMessage{
-									Type:      "session_plans",
-									RequestID: requestID,
-									Plans:     updatedEntry.Plans,
-								})
+							if updated {
+								updatedEntry := h.mux.l2Store.GetEntry(l2ID)
+								if updatedEntry != nil {
+									client.sendJSON(WSMessage{
+										Type:      "session_plans",
+										RequestID: requestID,
+										Plans:     updatedEntry.Plans,
+									})
+								}
 							}
 						}
 					}
 				}
 			}
-		}
 
-		wsMsg := convertAgentEvent(agEv, requestID)
-		if wsMsg == nil {
-			continue
-		}
+			wsMsg := convertAgentEvent(agEv, requestID)
+			if wsMsg == nil {
+				continue
+			}
 
-		// Track delegation state for Stop button logic.
-		if wsMsg.Type == "delegation_start" {
-			client.setRequestDelegating(requestID, true)
-		}
-		if wsMsg.Type == "delegation_done" {
-			client.setRequestDelegating(requestID, false)
-		}
+			// Track delegation state for Stop button logic.
+			if wsMsg.Type == "delegation_start" {
+				client.setRequestDelegating(requestID, true)
+			}
+			if wsMsg.Type == "delegation_done" {
+				client.setRequestDelegating(requestID, false)
+			}
 
-		if !client.sendJSON(*wsMsg) {
-			return // client disconnected
+			if !client.sendJSON(*wsMsg) {
+				return // client disconnected
+			}
+
+		case <-flushC:
+			flush()
 		}
 	}
 }

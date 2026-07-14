@@ -1,7 +1,7 @@
 import type { ChatMessage } from '@/types'
 import { User, Sparkles, Copy, Check } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
-import { useState } from 'react'
+import { useState, useMemo, memo } from 'react'
 import { toast } from 'sonner'
 import { getFileUrl } from '@/lib/api'
 import { useRuntimeStore } from '@/stores/runtimeStore'
@@ -12,14 +12,20 @@ import { MessageImageGallery } from './chat/ToolCallSegment'
 export interface ChatMessageProps {
   message: ChatMessage
   agentName?: string
+  isStreaming?: boolean
   onUserInteraction?: () => void
 }
 
-export function ChatMessageView({ message, agentName = 'Assistant', onUserInteraction }: ChatMessageProps) {
+function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = false, onUserInteraction }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
+  // Memoize the grouping so that re-renders caused by stable references
+  // (e.g. parent re-render that didn't change segments) skip the work, and
+  // the resulting `grouped` array reference is stable across renders that
+  // do not change the structural shape of the segments.
+  const grouped = useMemo(() => groupSegments(message.segments), [message.segments])
 
   return (
     <div className={`group/message ${compact ? 'px-2 py-2' : 'px-4 py-3'} ${isUser ? 'flex justify-end' : ''}`}>
@@ -68,7 +74,7 @@ export function ChatMessageView({ message, agentName = 'Assistant', onUserIntera
               <LoadingIndicator />
             ) : (
               <div className="space-y-2">
-                {groupSegments(message.segments).map((item) => {
+                {grouped.map((item) => {
                   if (item.type === 'worked') {
                     return (
                       <WorkedSegment
@@ -86,6 +92,7 @@ export function ChatMessageView({ message, agentName = 'Assistant', onUserIntera
                         isUser={isUser}
                         segmentIndex={item.index}
                         segments={message.segments}
+                        isStreaming={isStreaming}
                         onUserInteraction={onUserInteraction}
                       />
                     )
@@ -161,6 +168,23 @@ export function ChatMessageView({ message, agentName = 'Assistant', onUserIntera
   )
 }
 
+/**
+ * ChatMessageView is wrapped in React.memo so that re-renders triggered by
+ * per-token chat_chunk updates skip previously-rendered messages whose
+ * props (message / agentName / onUserInteraction) have not changed. The
+ * chatStore's appendToLastAssistantContent deliberately keeps the
+ * reference of all but the last message stable (only the last message
+ * is cloned), so this memoization hits on every token.
+ */
+export const ChatMessageView = memo(
+  ChatMessageViewInner,
+  (prev, next) =>
+    prev.message === next.message &&
+    prev.agentName === next.agentName &&
+    prev.isStreaming === next.isStreaming &&
+    prev.onUserInteraction === next.onUserInteraction,
+)
+
 export interface GroupedWorkedSegment {
   segment: ChatMessage['segments'][number]
   originalIndex: number
@@ -189,9 +213,19 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
   const flush = () => {
     if (currentGroup.length > 0) {
       const hasToolCalls = currentGroup.some((s) => s.segment.type === 'tool_call')
+      // Key the group by the ORIGINAL index of its first segment plus its
+      // length. This stays stable across streaming updates (the same group
+      // keeps the same id) and lets React preserve the DOM subtree even
+      // when groupSegments re-runs because a content/thinking segment was
+      // appended in place. The previous key included `grouped.length` and
+      // a type-stringify of every segment, both of which change on every
+      // streaming tick and caused React to unmount/remount the entire
+      // WorkedSegment subtree (which also tore down MarkdownPreview and
+      // forced a full markdown re-parse).
+      const firstOriginalIndex = currentGroup[0].originalIndex
       grouped.push({
         type: 'worked',
-        id: `worked-${grouped.length}-${currentGroup.map((s) => s.segment.type).join('-')}`,
+        id: `worked-${firstOriginalIndex}-${currentGroup.length}`,
         segments: [...currentGroup],
         hasToolCalls,
         isLast: false,

@@ -1,5 +1,5 @@
 import { useTranslation } from '@/lib/i18n'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import {
   ChevronRight,
   ChevronDown,
@@ -21,7 +21,7 @@ import type { ChatMessage } from '@/types'
 import type { GroupedWorked } from '../ChatMessage'
 import { ToolCallSegment } from './ToolCallSegment'
 
-export function WorkedSegment({
+function WorkedSegmentInner({
   group,
   isUser,
   onUserInteraction,
@@ -128,6 +128,20 @@ export function WorkedSegment({
     </details>
   )
 }
+
+/**
+ * WorkedSegment is wrapped in React.memo. The `group` prop is a
+ * structurally-stable reference when its underlying segments are stable
+ * (see groupSegments' key generation in ChatMessage.tsx), so unchanged
+ * worked groups skip rendering.
+ */
+export const WorkedSegment = memo(
+  WorkedSegmentInner,
+  (prev, next) =>
+    prev.group === next.group &&
+    prev.isUser === next.isUser &&
+    prev.onUserInteraction === next.onUserInteraction,
+)
 
 export function SubagentCard({
   segment,
