@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"fmt"
 	"os"
@@ -111,108 +110,30 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 // restoreFromDisk attempts to recover an L2 session from its persisted timeline
 // metadata on disk. This handles server restarts where in-memory sessions are lost.
 func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
-	tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
-	info, err := os.Stat(tlDir)
-	if err != nil || !info.IsDir() {
+	if _, err := os.Stat(filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)); err != nil {
 		return fmt.Errorf("L2 session %q timeline directory not found", id)
 	}
 
-	// Read meta file (preferred) or legacy group file.
-	group := ""
-	workDir := ""
-	name := ""
-	gitBaseRef := ""
-	var plans []string
-	metaFile := filepath.Join(tlDir, "meta")
-	if data, rerr := os.ReadFile(metaFile); rerr == nil {
-		var meta struct {
-			Name       string   `json:"name"`
-			Group      string   `json:"group"`
-			WorkDir    string   `json:"work_dir"`
-			GitBaseRef string   `json:"git_base_ref"`
-			Plans      []string `json:"plans,omitempty"`
-		}
-		if json.Unmarshal(data, &meta) == nil {
-			name = meta.Name
-			group = meta.Group
-			workDir = meta.WorkDir
-			gitBaseRef = meta.GitBaseRef
-			plans = meta.Plans
-		}
-	}
-	if group == "" {
-		groupFile := filepath.Join(tlDir, "group")
-		if data, rerr := os.ReadFile(groupFile); rerr == nil {
-			group = strings.TrimSpace(string(data))
-		}
-	}
-	if group == "" {
-		return fmt.Errorf("L2 session %q: cannot determine group from disk", id)
+	// LoadMeta migrates any legacy meta/level/baseline/group files into the
+	// unified meta.json on first read and removes the originals.
+	meta, err := LoadMeta(s.workDir, id)
+	if err != nil {
+		return fmt.Errorf("L2 session %q: cannot determine group from disk: %w", id, err)
 	}
 
 	// If name is empty, try to resolve it from the timeline.
 	// We scan files oldest-first and pick the first non-ephemeral real user message
 	// (skipping [Delegation Completed] and other ephemeral messages that carry role=user).
-	if name == "" {
-		files, _ := timeline.ListTimelineFiles(tlDir, "timeline")
-		outerDone := false
-		for _, f := range files {
-			if outerDone {
-				break
+	if meta.Name == "" {
+		if resolved := ResolveSessionNameFromTimeline(s.workDir, id); resolved != "" {
+			resolvedName := resolved
+			if err := MergeAndSave(s.workDir, id, func(m *SessionMeta) {
+				m.Name = resolvedName
+			}); err != nil && s.logger != nil {
+				s.logger.WarnContext(ctx, logger.CatApp, "L2 session name backfill to meta.json failed",
+					"id", id, "err", err.Error())
 			}
-			events, err := timeline.ReadFileEvents(f)
-			if err != nil {
-				continue
-			}
-			for _, evt := range events {
-				if evt.EventType != timeline.EventMessage || evt.Message == nil {
-					continue
-				}
-				msg := evt.Message
-				if msg.Role != "user" || msg.Content == "" {
-					continue
-				}
-				// Skip ephemeral messages (e.g. [Delegation Completed]).
-				if msg.IsEphemeral {
-					continue
-				}
-				// Skip [Delegation Completed] messages even if not marked ephemeral.
-				if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
-					continue
-				}
-				name = msg.Content
-				// Strip to first line.
-				if idx := strings.Index(name, "\n"); idx != -1 {
-					name = name[:idx]
-				}
-				name = strings.TrimSpace(name)
-				if len([]rune(name)) > 30 {
-					name = string([]rune(name)[:27]) + "..."
-				}
-				if name != "" {
-					outerDone = true
-					break
-				}
-			}
-		}
-		// If resolved a valid name, persist it to metaFile.
-		if name != "" {
-			meta := struct {
-				Name       string   `json:"name"`
-				Group      string   `json:"group"`
-				WorkDir    string   `json:"work_dir"`
-				GitBaseRef string   `json:"git_base_ref"`
-				Plans      []string `json:"plans,omitempty"`
-			}{
-				Name:       name,
-				Group:      group,
-				WorkDir:    workDir,
-				GitBaseRef: gitBaseRef,
-				Plans:      plans,
-			}
-			if data, err := json.Marshal(meta); err == nil {
-				_ = os.WriteFile(metaFile, data, 0644)
-			}
+			meta.Name = resolvedName
 		}
 	}
 
@@ -222,25 +143,70 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	if _, exists := s.sessions[id]; exists {
 		return nil // race: someone else created or restored it already
 	}
+	var plans []string
+	if len(meta.Plans) > 0 {
+		plans = append(plans, meta.Plans...)
+	}
 	s.sessions[id] = &L2SessionEntry{
 		ID:         id,
-		Name:       name,
-		Group:      group,
-		WorkDir:    workDir,
+		Name:       meta.Name,
+		Group:      meta.Group,
+		WorkDir:    meta.WorkDir,
 		Session:    nil, // will be built lazily by Activate
 		CreatedAt:  time.Now(),
-		GitBaseRef: gitBaseRef,
+		GitBaseRef: meta.GitBaseRef,
 		Plans:      plans,
 	}
 
 	if s.logger != nil {
 		s.logger.InfoContext(ctx, logger.CatApp, "L2 session restored from disk",
 			"id", id,
-			"group", group,
+			"group", meta.Group,
 		)
 	}
 
 	return nil
+}
+
+// ResolveSessionNameFromTimeline scans the timeline for the first non-ephemeral
+// user message and returns a short display name derived from it. Exported so
+// the session list handler can reuse the same logic when backfilling names.
+func ResolveSessionNameFromTimeline(workDir, id string) string {
+	tlDir := filepath.Join(workDir, "logs", "timelines", "l2-"+id)
+	files, _ := timeline.ListTimelineFiles(tlDir, "timeline")
+	for _, f := range files {
+		events, err := timeline.ReadFileEvents(f)
+		if err != nil {
+			continue
+		}
+		for _, evt := range events {
+			if evt.EventType != timeline.EventMessage || evt.Message == nil {
+				continue
+			}
+			msg := evt.Message
+			if msg.Role != "user" || msg.Content == "" {
+				continue
+			}
+			if msg.IsEphemeral {
+				continue
+			}
+			if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
+				continue
+			}
+			name := msg.Content
+			if idx := strings.Index(name, "\n"); idx != -1 {
+				name = name[:idx]
+			}
+			name = strings.TrimSpace(name)
+			if len([]rune(name)) > 30 {
+				name = string([]rune(name)[:27]) + "..."
+			}
+			if name != "" {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 // Activate builds the backing Session for an L2 session entry.
@@ -273,19 +239,12 @@ func (s *L2SessionStore) Activate(ctx context.Context, id string) (*Session, err
 	// Re-check entry — it may have been removed or activated concurrently.
 	if e, ok := s.sessions[id]; ok {
 		e.Session = sess
-		// Read back git_base_ref that BuildL2 wrote to the meta file.
-		// This populates the in-memory entry for sessions created fresh
-		// (restored sessions already have it from restoreFromDisk).
+		// Pull baseline info from the just-built session instead of re-reading
+		// meta.json. BuildL2 captured the baseline and exposed it on the
+		// session; this is cheaper than a disk round-trip and avoids the
+		// historical self-read loop.
 		if e.GitBaseRef == "" {
-			metaFile := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id, "meta")
-			if data, rerr := os.ReadFile(metaFile); rerr == nil {
-				var meta struct {
-					GitBaseRef string `json:"git_base_ref"`
-				}
-				if json.Unmarshal(data, &meta) == nil {
-					e.GitBaseRef = meta.GitBaseRef
-				}
-			}
+			e.GitBaseRef = sess.gitBaseRef
 		}
 	}
 	s.mu.Unlock()
@@ -333,35 +292,62 @@ func (s *L2SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 func (s *L2SessionStore) SetName(id, name string) {
 	s.mu.Lock()
 	entry, ok := s.sessions[id]
-	if ok {
-		entry.Name = name
-		if s.logger != nil {
-			s.logger.DebugContext(context.Background(), logger.CatApp, "L2 session renamed",
-				"id", id,
-				"name", name,
-			)
-		}
-		// Write meta to disk
-		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
-		metaFile := filepath.Join(tlDir, "meta")
-		meta := struct {
-			Name       string   `json:"name"`
-			Group      string   `json:"group"`
-			WorkDir    string   `json:"work_dir"`
-			GitBaseRef string   `json:"git_base_ref"`
-			Plans      []string `json:"plans,omitempty"`
-		}{
-			Name:       name,
-			Group:      entry.Group,
-			WorkDir:    entry.WorkDir,
-			GitBaseRef: entry.GitBaseRef,
-			Plans:      entry.Plans,
-		}
-		if data, err := json.Marshal(meta); err == nil {
-			_ = os.WriteFile(metaFile, data, 0644)
-		}
+	if !ok {
+		s.mu.Unlock()
+		return
 	}
+	entry.Name = name
+	if s.logger != nil {
+		s.logger.DebugContext(context.Background(), logger.CatApp, "L2 session renamed",
+			"id", id,
+			"name", name,
+		)
+	}
+
+	// Snapshot the in-memory fields we want to durably seed the merge with.
+	// This protects against a missing meta.json on disk (e.g. the test that
+	// calls SetName before BuildL2 has run) — without these, MergeAndSave
+	// would start from a zero-value SessionMeta whose Group is empty, and
+	// the next LoadMeta would refuse to restore the session.
+	workDir := s.workDir
+	seed := newL2EntrySeed(entry)
 	s.mu.Unlock()
+
+	if err := MergeAndSave(workDir, id, func(m *SessionMeta) {
+		applyEntrySeed(m, seed)
+		m.Name = name
+	}); err != nil && s.logger != nil {
+		s.logger.WarnContext(context.Background(), logger.CatApp, "L2 session rename to meta.json failed",
+			"id", id, "err", err.Error())
+	}
+}
+
+// l2EntrySeed captures the in-memory fields that must be present on disk for
+// the session to be restorable. It is a value type so the caller can pass it
+// outside the L2SessionStore mutex before invoking MergeAndSave.
+type l2EntrySeed struct {
+	Group      string
+	WorkDir    string
+	GitBaseRef string
+}
+
+func newL2EntrySeed(e *L2SessionEntry) l2EntrySeed {
+	return l2EntrySeed{Group: e.Group, WorkDir: e.WorkDir, GitBaseRef: e.GitBaseRef}
+}
+
+// applyEntrySeed fills in any field that the caller is about to mutate but
+// the disk meta.json is missing. Fields that the meta.json already has are
+// left alone.
+func applyEntrySeed(m *SessionMeta, s l2EntrySeed) {
+	if m.Group == "" {
+		m.Group = s.Group
+	}
+	if m.WorkDir == "" {
+		m.WorkDir = s.WorkDir
+	}
+	if m.GitBaseRef == "" {
+		m.GitBaseRef = s.GitBaseRef
+	}
 }
 
 // GetName returns the current display name of an L2 session.
@@ -516,21 +502,18 @@ func (s *L2SessionStore) Shutdown() {
 // UpdatePlanStatus adds a path to the session's Plans list if it doesn't already exist.
 func (s *L2SessionStore) UpdatePlanStatus(id, path string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	entry, ok := s.sessions[id]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
-
 	for _, p := range entry.Plans {
 		if p == path {
+			s.mu.Unlock()
 			return // already exists
 		}
 	}
-
 	entry.Plans = append(entry.Plans, path)
-
 	if s.logger != nil {
 		s.logger.DebugContext(context.Background(), logger.CatApp, "L2 session plan updated",
 			"id", id,
@@ -538,24 +521,26 @@ func (s *L2SessionStore) UpdatePlanStatus(id, path string) {
 		)
 	}
 
-	// Write meta to disk
-	tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
-	metaFile := filepath.Join(tlDir, "meta")
-	meta := struct {
-		Name       string   `json:"name"`
-		Group      string   `json:"group"`
-		WorkDir    string   `json:"work_dir"`
-		GitBaseRef string   `json:"git_base_ref"`
-		Plans      []string `json:"plans,omitempty"`
-	}{
-		Name:       entry.Name,
-		Group:      entry.Group,
-		WorkDir:    entry.WorkDir,
-		GitBaseRef: entry.GitBaseRef,
-		Plans:      entry.Plans,
-	}
-	if data, err := json.Marshal(meta); err == nil {
-		_ = os.WriteFile(metaFile, data, 0644)
+	// Persist the updated Plans list through metastore.MergeAndSave so the
+	// other fields (name, group, level, baseline) are preserved untouched.
+	// Seed the merge with the in-memory entry's identifying fields in case
+	// meta.json doesn't exist yet (e.g. when a tool fires before BuildL2 has
+	// had a chance to write the initial meta.json).
+	workDir := s.workDir
+	seed := newL2EntrySeed(entry)
+	s.mu.Unlock()
+
+	if err := MergeAndSave(workDir, id, func(m *SessionMeta) {
+		applyEntrySeed(m, seed)
+		for _, p := range m.Plans {
+			if p == path {
+				return
+			}
+		}
+		m.Plans = append(m.Plans, path)
+	}); err != nil && s.logger != nil {
+		s.logger.WarnContext(context.Background(), logger.CatApp, "L2 session plan status to meta.json failed",
+			"id", id, "err", err.Error())
 	}
 }
 

@@ -148,8 +148,7 @@ func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 // findStoreSkillByID finds a skill in the embedded store by its catalog ID.
 // Some skills have a catalog ID that differs from their directory name (e.g. case),
 // so we scan the store rather than assuming id == directory name.
-func findStoreSkillByID(id string) (*skill.Skill, string, error) {
-	fsys := distFS()
+func findStoreSkillByID(fsys fs.FS, id string) (*skill.Skill, string, error) {
 	entries, err := fs.ReadDir(fsys, "skills")
 	if err != nil {
 		return nil, "", err
@@ -173,13 +172,13 @@ func findStoreSkillByID(id string) (*skill.Skill, string, error) {
 
 // getStoreSkills retrieves store skills from the embedded distFS.
 func (m *Mux) getStoreSkills() ([]*skill.Skill, error) {
-	return skill.LoadSkillsFromFS(distFS(), "skills")
+	return skill.LoadSkillsFromFS(m.distFS, "skills")
 }
 
 // installStoreSkill installs a skill from the embedded store into userSkillsDir.
 func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) error {
 	// Find the store skill by catalog ID, resolving directory name mismatches.
-	s, dirName, err := findStoreSkillByID(id)
+	s, dirName, err := findStoreSkillByID(m.distFS, id)
 	if err != nil {
 		return err
 	}
@@ -189,7 +188,7 @@ func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) e
 		return skill.InstallGithubSkill(ctx, s.Upstream, s.Branch, s.SubPath, userSkillsDir)
 	}
 
-	return skill.InstallSkillFromFS(distFS(), "skills", userSkillsDir, dirName)
+	return skill.InstallSkillFromFS(m.distFS, "skills", userSkillsDir, dirName)
 }
 
 // handleListStoreSkills returns all available skills in the store catalog.
@@ -307,7 +306,7 @@ func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
 
 		// 2. Fallback to embedded filesystem
 		if parsed == nil {
-			s, _, findErr := findStoreSkillByID(id)
+			s, _, findErr := findStoreSkillByID(m.distFS, id)
 			if findErr == nil {
 				parsed = s
 				err = nil
@@ -428,13 +427,13 @@ func (m *Mux) handleGetSkillFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Fallback to embedded filesystem
-	_, dirName, err := findStoreSkillByID(id)
+	_, dirName, err := findStoreSkillByID(m.distFS, id)
 	if err != nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill folder not found"})
 		return
 	}
 	virtualDir := filepath.ToSlash(filepath.Join("skills", dirName))
-	files, err := skill.ListSkillFilesFromFS(distFS(), virtualDir)
+	files, err := skill.ListSkillFilesFromFS(m.distFS, virtualDir)
 	if err != nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill folder not found"})
 		return

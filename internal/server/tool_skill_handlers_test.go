@@ -53,7 +53,11 @@ Instructions for test catalog skill
 	}
 
 	// Create Server Mux
-	mux := NewMux(tempDir, nil, WithSkillRegistry(reg), WithSkillDirs(dirs))
+	mux := NewMux(tempDir, nil,
+		WithSkillRegistry(reg),
+		WithSkillDirs(dirs),
+		WithDistFS(os.DirFS(filepath.Join(tempDir, "store"))),
+	)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		srv.Close()
@@ -117,7 +121,8 @@ Instructions for test catalog skill
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			t.Errorf("expected 200 OK, got %d, body: %s", resp.StatusCode, string(bodyBytes))
 		}
 
 		// Verify file got copied to userSkillsDir

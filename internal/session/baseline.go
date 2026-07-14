@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -195,58 +194,22 @@ func ComputeLineDiff(oldText, newText string) []DiffOp {
 }
 
 // ─── Baseline file I/O ──────────────────────────────────────────────────────
+//
+// The historical `baseline` file is no longer written. SaveBaseline was
+// folded into the unified meta.json write in BuildL2 (see metastore.go).
+// LoadBaseline reads meta.json instead of a separate file.
 
-// baselineFilePath returns the path to the snapshot file for a session.
-// The snapshot (non-git only) is stored separately from meta to avoid
-// bloating the small meta JSON.
-func baselineFilePath(workDir, sessionID string) string {
-	return filepath.Join(workDir, "logs", "timelines", "l2-"+sessionID, "baseline")
-}
-
-// SaveBaseline persists the baseline to disk.
-// GitBaseRef goes into the meta file (small). Snapshot goes into a
-// separate baseline file (can be large for big non-git projects).
-func SaveBaseline(workDir, sessionID string, b Baseline) {
-	if b.Snapshot != nil {
-		// Write snapshot to a separate file
-		path := baselineFilePath(workDir, sessionID)
-		var buf strings.Builder
-		// Simple format: "hash\tpath\n" per line, sorted by path for determinism.
-		keys := make([]string, 0, len(b.Snapshot))
-		for k := range b.Snapshot {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			buf.WriteString(b.Snapshot[k])
-			buf.WriteByte('\t')
-			buf.WriteString(k)
-			buf.WriteByte('\n')
-		}
-		_ = os.WriteFile(path, []byte(buf.String()), 0644)
-	}
-}
-
-// LoadBaseline reads the snapshot baseline from disk (non-git only).
+// LoadBaseline reads the snapshot baseline from meta.json (non-git only).
+// Returns nil if the session is missing, has no baseline, or its meta.json
+// is unreadable. The historical `baseline` file is no longer consulted —
+// LoadMeta has already migrated it into meta.json on first read.
 func LoadBaseline(workDir, sessionID string) map[string]string {
-	path := baselineFilePath(workDir, sessionID)
-	data, err := os.ReadFile(path)
+	m, err := LoadMeta(workDir, sessionID)
 	if err != nil {
 		return nil
 	}
-	snapshot := make(map[string]string)
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		idx := strings.IndexByte(line, '\t')
-		if idx <= 0 {
-			continue
-		}
-		hash := line[:idx]
-		filePath := line[idx+1:]
-		snapshot[filePath] = hash
+	if len(m.Baseline) == 0 {
+		return nil
 	}
-	return snapshot
+	return m.Baseline
 }

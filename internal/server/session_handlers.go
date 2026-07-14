@@ -594,34 +594,19 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Read meta JSON (preferred) or legacy "group" file.
-			group := ""
-			projectPath := ""
-			name := ""
+			// Read meta.json (with legacy meta/level/baseline/group migration
+			// handled inside LoadMeta). When group cannot be recovered the
+			// session is skipped rather than fabricated.
+			loaded, lerr := session.LoadMeta(m.workDir, id)
+			if lerr != nil {
+				continue
+			}
+			group := loaded.Group
+			projectPath := loaded.WorkDir
+			name := loaded.Name
 			var plans []string
-			metaFile := filepath.Join(timelinesDir, entry.Name(), "meta")
-			if data, rerr := os.ReadFile(metaFile); rerr == nil {
-				var meta struct {
-					Name    string   `json:"name"`
-					Group   string   `json:"group"`
-					WorkDir string   `json:"work_dir"`
-					Plans   []string `json:"plans"`
-				}
-				if json.Unmarshal(data, &meta) == nil {
-					name = meta.Name
-					group = meta.Group
-					projectPath = meta.WorkDir
-					plans = meta.Plans
-				}
-			}
-			if group == "" {
-				groupFile := filepath.Join(timelinesDir, entry.Name(), "group")
-				if data, rerr := os.ReadFile(groupFile); rerr == nil {
-					group = strings.TrimSpace(string(data))
-				}
-			}
-			if group == "" {
-				group = "unknown"
+			if len(loaded.Plans) > 0 {
+				plans = append(plans, loaded.Plans...)
 			}
 
 			createdAt := time.Now()
@@ -633,63 +618,17 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				// Scan oldest-first to find the first real user message.
 				// Skip ephemeral messages (e.g. [Delegation Completed]) which carry role=user
 				// but are not real user prompts.
-				tlDir := filepath.Join(timelinesDir, entry.Name())
-				tlFiles, _ := timeline.ListTimelineFiles(tlDir, "timeline")
-				outerDone := false
-				for _, f := range tlFiles {
-					if outerDone {
-						break
-					}
-					events, _ := timeline.ReadFileEvents(f)
-					for _, evt := range events {
-						if evt.EventType != timeline.EventMessage || evt.Message == nil {
-							continue
-						}
-						msg := evt.Message
-						if msg.Role != "user" || msg.Content == "" {
-							continue
-						}
-						if msg.IsEphemeral {
-							continue
-						}
-						if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
-							continue
-						}
-						name = msg.Content
-						if idx := strings.Index(name, "\n"); idx != -1 {
-							name = name[:idx]
-						}
-						name = strings.TrimSpace(name)
-						if len([]rune(name)) > 30 {
-							name = string([]rune(name)[:27]) + "..."
-						}
-						if name != "" {
-							outerDone = true
-							// Write back to meta so future calls don't rescan the timeline.
-							if group != "" {
-								persistMeta := struct {
-									Name    string   `json:"name"`
-									Group   string   `json:"group"`
-									WorkDir string   `json:"work_dir"`
-									Plans   []string `json:"plans,omitempty"`
-								}{
-									Name:    name,
-									Group:   group,
-									WorkDir: projectPath,
-									Plans:   plans,
-								}
-								if metaBytes, merr := json.Marshal(persistMeta); merr == nil {
-									_ = os.WriteFile(metaFile, metaBytes, 0644)
-								}
-							}
-							break
-						}
-					}
+				if resolved := session.ResolveSessionNameFromTimeline(m.workDir, id); resolved != "" {
+					name = resolved
+					// Write back to meta.json so future calls don't rescan the timeline.
+					// MergeAndSave preserves every other field (group, plans, level, baseline).
+					// Failure is non-fatal: the next list call will re-resolve the name.
+					_ = session.MergeAndSave(m.workDir, id, func(sm *session.SessionMeta) {
+						sm.Name = resolved
+					})
 				}
-			} else {
-				if len([]rune(name)) > 30 {
-					name = string([]rune(name)[:27]) + "..."
-				}
+			} else if len([]rune(name)) > 30 {
+				name = string([]rune(name)[:27]) + "..."
 			}
 			if name == "" {
 				name = fmt.Sprintf("Past session (%s)", group)

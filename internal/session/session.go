@@ -154,7 +154,15 @@ type Session struct {
 	lastLevelMu     sync.RWMutex // protects lastLevel and levelLocked
 	levelLocked     bool         // true when user explicitly locked level via /l0-/l3
 	lastRouteResult RouteResult  // cached route result for locked mode (model params preserved)
-	levelFile       string       // path to persist lastLevel across restarts (empty = not persisted)
+
+	// L2-only: coordinates persistent meta.json writes for level/git_base_ref/baseline.
+	// Empty on L1 sessions; MergeAndSave is only called when metaL2ID is non-empty.
+	metaWorkDir string
+	metaL2ID    string
+	// gitBaseRef captures the HEAD commit hash at session start (git repos).
+	// Persisted in meta.json; read by the Changes tab to diff against this ref.
+	gitBaseRef     string
+	metaBaseline   map[string]string // path→sha256 snapshot, non-git projects only
 
 	memoryHook     MemoryHook           // optional callback for short-term memory (nil = disabled)
 	memoryManager  *memory.Manager      // for dedup cursor; set alongside memoryHook
@@ -965,11 +973,19 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			s.lastRouteResult = result
 			s.lastLevelMu.Unlock()
 
-			// Persist lastLevel to disk so it survives restarts.
+			// Persist lastLevel to meta.json so it survives restarts.
 			// Without this, a restarted session loses its task level context
 			// and follow-up questions get misclassified as L0 conversation.
-			if s.levelFile != "" {
-				_ = os.WriteFile(s.levelFile, []byte(result.Level), 0644)
+			// L1 sessions leave metaL2ID empty and skip this write.
+			if s.metaL2ID != "" {
+				if err := MergeAndSave(s.metaWorkDir, s.metaL2ID, func(m *SessionMeta) {
+					m.Level = result.Level
+				}); err != nil {
+					s.logger.WarnContext(ctx, logger.CatApp, "persist lastLevel to meta.json failed",
+						"session_id", s.ID,
+						"err", err.Error(),
+					)
+				}
 			}
 
 			if result.ContextWindow > 0 {

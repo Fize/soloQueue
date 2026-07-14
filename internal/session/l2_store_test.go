@@ -172,15 +172,15 @@ func TestL2SessionStore_RestoreFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	store := newTestStore(t, dir)
 
-	// Create timeline directory with meta file simulating a past session.
+	// Create timeline directory with meta.json simulating a past session.
 	id := "test-restore-id"
 	tlDir := filepath.Join(dir, "logs", "timelines", "l2-"+id)
 	if err := os.MkdirAll(tlDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	meta := `{"group":"dev","work_dir":"/path/to/project"}`
-	if err := os.WriteFile(filepath.Join(tlDir, "meta"), []byte(meta), 0644); err != nil {
-		t.Fatalf("write meta: %v", err)
+	meta := `{"schema_version":1,"group":"dev","work_dir":"/path/to/project"}`
+	if err := os.WriteFile(filepath.Join(tlDir, MetaFileName), []byte(meta), 0o644); err != nil {
+		t.Fatalf("write %s: %v", MetaFileName, err)
 	}
 
 	// Session should not be in memory yet.
@@ -261,9 +261,9 @@ func TestL2SessionStore_SetName_PersistAndRestore(t *testing.T) {
 	expectedName := "Concise title generation"
 	store.SetName(id, expectedName)
 
-	metaFile := filepath.Join(tlDir, "meta")
+	metaFile := filepath.Join(tlDir, MetaFileName)
 	if _, err := os.Stat(metaFile); os.IsNotExist(err) {
-		t.Fatal("expected meta file to be written to disk, but it does not exist")
+		t.Fatalf("expected %s to be written to disk, but it does not exist", MetaFileName)
 	}
 
 	newStore := newTestStore(t, dir)

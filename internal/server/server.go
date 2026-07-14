@@ -77,10 +77,11 @@ type Mux struct {
 	authConfig       config.AuthConfig
 	effectiveAuthUser string
 	effectiveAuthPass string
-	teamstore     *teamstore.Store // team/agent DB store; nil if not backed by SQLite
+	teamstore      *teamstore.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange func() error     // callback on LLM config update
 	simEngine      *simulation.SimulationEngine
 	sharedDB       *sqlitedb.DB     // for metric reporting
+	distFS         fs.FS
 }
 
 
@@ -197,6 +198,11 @@ func WithSharedDB(db *sqlitedb.DB) MuxOption {
 	return func(m *Mux) { m.sharedDB = db }
 }
 
+// WithDistFS overrides the embedded web assets and skills filesystem (useful for testing).
+func WithDistFS(fsys fs.FS) MuxOption {
+	return func(m *Mux) { m.distFS = fsys }
+}
+
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
 func (m *Mux) SetHub(hub *Hub) {
@@ -234,6 +240,10 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 
 	for _, opt := range opts {
 		opt(m)
+	}
+
+	if m.distFS == nil {
+		m.distFS = distFS()
 	}
 
 	if m.teamstore == nil && m.workDir != "" {
@@ -473,7 +483,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	// Static file server for embedded web UI (catch-all: only unmatched paths).
 	// SPA fallback: if the path does not exist in the embedded FS,
 	// serve index.html so React Router can handle client-side routing.
-	fsys := distFS()
+	fsys := m.distFS
 	fileServer := http.FileServer(http.FS(fsys))
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		// Localhost (127.0.0.1, ::1) bypasses auth.

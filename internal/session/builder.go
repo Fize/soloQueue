@@ -2,9 +2,8 @@ package session
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -785,17 +784,23 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		return nil, fmt.Errorf("build L2 timeline writer: %w", err)
 	}
 
-	// Persist session metadata alongside timeline so past sessions can be
-	// discovered after restart. Includes git_base_ref for the Changes tab.
+	// Persist session metadata (group, work_dir, git_base_ref, baseline) into
+	// the unified meta.json. Subsequent writes (name, plans, level) also go
+	// through metastore.MergeAndSave.
 	baseline := CaptureBaseline(agentWorkDir)
-	metaJSON, _ := json.Marshal(struct {
-		Group      string `json:"group"`
-		WorkDir    string `json:"work_dir"`
-		GitBaseRef string `json:"git_base_ref"`
-	}{group, workDir, baseline.GitBaseRef})
-	_ = os.WriteFile(filepath.Join(tlDir, "meta"), metaJSON, 0644)
-	// Save non-git snapshot to a separate file (git repos only need the ref).
-	SaveBaseline(b.WorkDir, id, baseline)
+	if err := MergeAndSave(b.WorkDir, id, func(m *SessionMeta) {
+		if m.Group == "" {
+			m.Group = group
+			m.WorkDir = workDir
+			m.GitBaseRef = baseline.GitBaseRef
+			if baseline.Snapshot != nil {
+				m.Baseline = baseline.Snapshot
+			}
+		}
+	}); err != nil {
+		sessLog.Warn(logger.CatApp, "BuildL2: initial meta.json write failed",
+			"id", id, "err", err.Error())
+	}
 
 	// Context window model config — use the L2 leader's resolved model.
 	effectiveCW := childAgent.Def.ContextWindow
@@ -887,17 +892,26 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		s.Router = BuildRouterFunc(b.RT)
 	}
 
-	// Restore last task level from disk so follow-up questions after restart
-	// don't lose their task context (e.g., "这个功能做完了吗" staying at L0).
-	s.levelFile = filepath.Join(tlDir, "level")
-	if data, err := os.ReadFile(s.levelFile); err == nil {
-		level := strings.TrimSpace(string(data))
-		if level != "" {
-			s.SetLastLevel(level)
-			sessLog.Debug(logger.CatApp, "BuildL2: restored task level from disk",
-				"level", level,
-			)
-		}
+	// Wire L2 meta.json coordinates so router-driven level writes (and any
+	// other session code path) can persist without re-deriving paths.
+	s.metaWorkDir = b.WorkDir
+	s.metaL2ID = id
+	s.gitBaseRef = baseline.GitBaseRef
+	if baseline.Snapshot != nil {
+		s.metaBaseline = baseline.Snapshot
+	}
+
+	// Restore last task level from meta.json so follow-up questions after
+	// restart don't lose their task context (e.g., "这个功能做完了吗" staying
+	// at L0).
+	if persisted, lerr := LoadMeta(b.WorkDir, id); lerr == nil && persisted.Level != "" {
+		s.SetLastLevel(persisted.Level)
+		sessLog.Debug(logger.CatApp, "BuildL2: restored task level from meta.json",
+			"level", persisted.Level,
+		)
+	} else if lerr != nil && !errors.Is(lerr, ErrNoGroup) {
+		sessLog.Warn(logger.CatApp, "BuildL2: meta.json read failed",
+			"id", id, "err", lerr.Error())
 	}
 
 	sessLog.Info(logger.CatActor, "BuildL2: session created",
