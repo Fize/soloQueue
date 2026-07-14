@@ -10,7 +10,6 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/mark3labs/mcp-go v0.52.0
-	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2

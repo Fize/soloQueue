@@ -354,10 +354,10 @@ Instructions for test catalog skill
 			t.Errorf("unexpected auto-update response: %+v", autoUpdateResp)
 		}
 
-		// Verify state is persisted to skills_update.toml in tempDir
-		tomlPath := filepath.Join(tempDir, "skills_update.toml")
-		if _, err := os.Stat(tomlPath); err != nil {
-			t.Errorf("expected skills_update.toml to exist, got: %v", err)
+		// Verify state is persisted to skills_update.yaml in tempDir
+		yamlPath := filepath.Join(tempDir, "skills_update.yaml")
+		if _, err := os.Stat(yamlPath); err != nil {
+			t.Errorf("expected skills_update.yaml to exist, got: %v", err)
 		}
 	}
 }

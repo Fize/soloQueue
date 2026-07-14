@@ -9,6 +9,10 @@ import (
 )
 
 // buildSkills initializes the global skill registry and registers built-in and user-defined skills.
+//
+// The production catalog is the embedded skill store (see internal/server/dist/skills,
+// built by `make build-web` and embedded via //go:embed). User-installed skills live
+// in <workDir>/skills/ and override embedded entries with the same ID.
 func (bc *buildContext) buildSkills() {
 	skillStart := time.Now()
 	skill.SetPackageLogger(bc.log)
@@ -22,19 +26,6 @@ func (bc *buildContext) buildSkills() {
 	skillDirs := map[string]string{
 		"user": userSkillsDir,
 	}
-
-	// Auto-update local self-created skills at startup
-	var localCatalogs []string
-	if absUser, err := filepath.Abs(userSkillsDir); err == nil {
-		for _, p := range []string{"skills", "../skills", filepath.Join(bc.workDir, "store", "skills")} {
-			if absP, errAbs := filepath.Abs(p); errAbs == nil && absP != absUser {
-				localCatalogs = append(localCatalogs, p)
-			}
-		}
-	} else {
-		localCatalogs = []string{"skills", "../skills", filepath.Join(bc.workDir, "store", "skills")}
-	}
-	skill.AutoUpdateLocalSkills(bc.workDir, skillDirs["user"], localCatalogs)
 
 	if skills, err := skill.LoadSkillsFromDirs(skillDirs); err == nil {
 		for _, s := range skills {

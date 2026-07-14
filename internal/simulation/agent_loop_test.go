@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -165,7 +166,7 @@ func TestGAAgentLoop_Integration(t *testing.T) {
 	engine := NewSimulationEngine(
 		factory, registry, fakeLLM,
 		tools.Config{WorkDir: "/tmp"},
-		SimulationConfigFile{DefaultMaxWallClockMs: 5000},
+		config.SimulationConfig{DefaultMaxWallClockMs: 5000},
 		nil,
 	)
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
@@ -26,7 +27,7 @@ type SimulationEngine struct {
 	llm      agent.LLMClient
 	toolsCfg tools.Config
 	log      *logger.Logger
-	config   SimulationConfigFile
+	config   config.SimulationConfig
 
 	memoryEngine  *memoryengine.Engine  // optional, for KG-based seed processing
 	resolveModel  agent.ModelResolver  // nil = skip model resolution (tests)
@@ -42,26 +43,13 @@ type SimulationEngine struct {
 	pausesMu   sync.Mutex
 }
 
-// SimulationConfigFile mirrors the TOML config section.
-type SimulationConfigFile struct {
-	DefaultModelID        string `toml:"default_model_id"`
-	DefaultProviderID     string `toml:"default_provider_id"`
-	DBPath                string `toml:"db_path,omitempty"`
-	DefaultMaxWallClockMs int    `toml:"default_max_wall_clock_ms"`
-	EnableReflection      bool   `toml:"enable_reflection"`
-	SimulatedHours        int    `toml:"simulated_hours"`
-	TickIntervalMs        int    `toml:"tick_interval_ms"`
-	TimeScale             int    `toml:"time_scale"`
-	Language              string `toml:"language"`
-}
-
 // NewSimulationEngine creates a new engine.
 func NewSimulationEngine(
 	factory agent.AgentFactory,
 	registry *agent.Registry,
 	llm agent.LLMClient,
 	toolsCfg tools.Config,
-	cfg SimulationConfigFile,
+	cfg config.SimulationConfig,
 	log *logger.Logger,
 ) *SimulationEngine {
 	var store Store = NewSimulationStore()

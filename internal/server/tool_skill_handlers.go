@@ -11,7 +11,7 @@ import (
 	"sort"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -551,9 +551,9 @@ func (m *Mux) handleToggleSkillAutoUpdate(w http.ResponseWriter, r *http.Request
 
 	updateCfg.AutoUpdate[id] = req.Enabled
 
-	// Save back to toml
-	path := filepath.Join(m.workDir, "skills_update.toml")
-	data, err := toml.Marshal(updateCfg)
+	// Save back to YAML.
+	path := filepath.Join(m.workDir, "skills_update.yaml")
+	data, err := yaml.Marshal(updateCfg)
 	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to marshal config: " + err.Error()})
 		return

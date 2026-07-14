@@ -49,17 +49,10 @@ func (bc *buildContext) buildSimulationEngine() error {
 		dbPath = filepath.Join(bc.workDir, "simulation.db")
 	}
 
-	simCfg := simulation.SimulationConfigFile{
-		DefaultModelID:        defaultModelID,
-		DefaultProviderID:     defaultProviderID,
-		DBPath:                dbPath,
-		DefaultMaxWallClockMs: bc.settings.Simulation.DefaultMaxWallClockMs,
-		EnableReflection:      bc.settings.Simulation.EnableReflection,
-		SimulatedHours:        bc.settings.Simulation.SimulatedHours,
-		TickIntervalMs:        bc.settings.Simulation.TickIntervalMs,
-		TimeScale:             bc.settings.Simulation.TimeScale,
-		Language:              bc.settings.Simulation.Language,
-	}
+	simCfg := bc.settings.Simulation
+	simCfg.DefaultModelID = defaultModelID
+	simCfg.DefaultProviderID = defaultProviderID
+	simCfg.DBPath = dbPath
 
 	bc.simEngine = simulation.NewSimulationEngine(
 		bc.agentFactory,

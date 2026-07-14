@@ -13,45 +13,47 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 // SkillsUpdateConfig defines which skills are allowed to be auto-updated.
 // By default, if a skill is not listed in AutoUpdate or set to false, auto-update is rejected.
 type SkillsUpdateConfig struct {
-	AutoUpdate map[string]bool `toml:"auto_update"`
+	AutoUpdate map[string]bool `yaml:"auto_update"`
 }
 
-// LoadSkillsUpdateConfig reads the configuration file. If it doesn't exist, it creates a default one.
-func LoadSkillsUpdateConfig(workDir string) (*SkillsUpdateConfig, error) {
-	path := filepath.Join(workDir, "skills_update.toml")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		defaultContent := `# Skills Auto-Update Configuration
-# By default, all skills have auto-update disabled (false).
-# Set a skill's ID to true to enable auto-update for it.
+const skillsUpdateFileName = "skills_update.yaml"
 
-[auto_update]
-# Example:
-# docx = true
-# agent-browser = true
+// LoadSkillsUpdateConfig reads the YAML configuration file. If the file does
+// not exist, it creates a default one.
+func LoadSkillsUpdateConfig(workDir string) (*SkillsUpdateConfig, error) {
+	yamlPath := filepath.Join(workDir, skillsUpdateFileName)
+
+	if _, err := os.Stat(yamlPath); os.IsNotExist(err) {
+		defaultContent := `# Skills Auto-Update Configuration
+# By default, all skills have auto-update disabled.
+# Set a skill's ID to true to enable auto-update for it.
+auto_update:
+  # color-system: true
+  # agent-browser: true
 `
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
 			return nil, fmt.Errorf("failed to create config directory: %w", err)
 		}
-		if err := os.WriteFile(path, []byte(defaultContent), 0o644); err != nil {
+		if err := os.WriteFile(yamlPath, []byte(defaultContent), 0o644); err != nil {
 			return nil, fmt.Errorf("failed to write default config file: %w", err)
 		}
 		return &SkillsUpdateConfig{AutoUpdate: make(map[string]bool)}, nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read skills update config: %w", err)
 	}
 
 	var cfg SkillsUpdateConfig
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse skills update config: %w", err)
 	}
 	if cfg.AutoUpdate == nil {
@@ -60,170 +62,29 @@ func LoadSkillsUpdateConfig(workDir string) (*SkillsUpdateConfig, error) {
 	return &cfg, nil
 }
 
-// computeCatalogSignature calculates a combined checksum of file paths, sizes, and mtimes under catalogDirs.
-func computeCatalogSignature(catalogDirs []string) (string, error) {
-	hasher := sha256.New()
-	for _, dir := range catalogDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			continue
-		}
-		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil // skip errors to avoid blocking
-			}
-			name := info.Name()
-			if strings.HasPrefix(name, ".") {
-				if info.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if info.IsDir() {
-				return nil
-			}
-			relPath, err := filepath.Rel(dir, path)
-			if err != nil {
-				return nil
-			}
-			fmt.Fprintf(hasher, "%s:%d:%d\n", filepath.ToSlash(relPath), info.Size(), info.ModTime().UnixNano())
-			return nil
-		})
-		if err != nil {
-			return "", err
-		}
-	}
-	return hex.EncodeToString(hasher.Sum(nil)), nil
-}
-
-// AutoUpdateLocalSkills compares and updates local self-created skills at startup.
-func AutoUpdateLocalSkills(workDir, userSkillsDir string, catalogDirs []string) {
-	if userSkillsDir == "" {
-		return
-	}
-
-	// 1. Calculate catalog signature
-	currentSig, err := computeCatalogSignature(catalogDirs)
-	if err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Error(logger.CatApp, "failed to compute local skills signature", "err", err.Error())
-		}
-		return
-	}
-
-	hashFilePath := filepath.Join(workDir, "local_skills_state.hash")
-	var oldSig string
-	if data, err := os.ReadFile(hashFilePath); err == nil {
-		oldSig = strings.TrimSpace(string(data))
-	}
-
-	if oldSig == currentSig {
-		if pkgLogger != nil {
-			pkgLogger.Debug(logger.CatApp, "local skills signature unchanged, skipping update check")
-		}
-		return
-	}
-
-	// Load configuration permissions
-	cfg, err := LoadSkillsUpdateConfig(workDir)
-	if err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Error(logger.CatApp, "failed to load skills update config", "err", err.Error())
-		}
-		return
-	}
-
-	// 2. Load installed user skills
-	installed, err := LoadSkillsFromDir(userSkillsDir)
-	if err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Error(logger.CatApp, "failed to load installed skills", "err", err.Error())
-		}
-		return
-	}
-
-	updatedAny := false
-
-	for _, s := range installed {
-		// Only auto-update local self-created skills (no Upstream)
-		if s.Upstream != "" {
-			continue
-		}
-
-		// Check if config allows auto-update
-		if !cfg.AutoUpdate[s.ID] {
-			continue
-		}
-
-		// Search for source in catalogDirs
-		var foundSrc string
-		for _, catDir := range catalogDirs {
-			srcPath := filepath.Join(catDir, s.ID)
-			if info, err := os.Stat(srcPath); err == nil && info.IsDir() {
-				foundSrc = srcPath
-				break
-			}
-		}
-
-		if foundSrc == "" {
-			continue
-		}
-
-		// Compare directory contents
-		equal, _, _, _, err := compareDirectories(foundSrc, s.Dir)
-		if err != nil {
-			if pkgLogger != nil {
-				pkgLogger.Warn(logger.CatApp, "failed to compare local skill directory", "id", s.ID, "err", err.Error())
-			}
-			continue
-		}
-
-		if !equal {
-			// Update local skill: copy everything from foundSrc to s.Dir
-			disabledFile := filepath.Join(s.Dir, ".disabled")
-			hasDisabled := false
-			if _, err := os.Stat(disabledFile); err == nil {
-				hasDisabled = true
-			}
-
-			// Clean the destination first to avoid leaving orphaned files
-			_ = os.RemoveAll(s.Dir)
-
-			if err := copyDir(foundSrc, s.Dir); err != nil {
-				if pkgLogger != nil {
-					pkgLogger.Error(logger.CatApp, "failed to copy local skill files on auto-update", "err", err.Error(), "id", s.ID)
-				}
-				continue
-			}
-
-			// Restore .disabled
-			if hasDisabled {
-				_ = os.WriteFile(disabledFile, []byte(""), 0o644)
-			}
-
-			updatedAny = true
-			if pkgLogger != nil {
-				pkgLogger.Info(logger.CatApp, "auto-updated local self-created skill", "id", s.ID, "source", foundSrc)
-			}
-		}
-	}
-
-	// Save the new signature
-	if err := os.WriteFile(hashFilePath, []byte(currentSig), 0o644); err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Warn(logger.CatApp, "failed to save local skills state hash", "err", err.Error())
-		}
-	}
-
-	if updatedAny && pkgLogger != nil {
-		pkgLogger.Info(logger.CatApp, "local skills auto-update completed")
-	}
-}
-
 // SyncRemoteSkills performs remote sync for Git-linked stub skills.
 // It checks both local installed skills and embedded skills for upstream information.
 func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *SkillRegistry, log *logger.Logger, embeddedFS fs.FS) error {
 	if userSkillsDir == "" {
 		return nil
+	}
+
+	// log / info / debug / warn are no-op when log is nil so this function is
+	// safe to call from tests without a real logger.
+	info := func(msg string, kv ...any) {
+		if log != nil {
+			log.Info(logger.CatApp, msg, kv...)
+		}
+	}
+	debug := func(msg string, kv ...any) {
+		if log != nil {
+			log.Debug(logger.CatApp, msg, kv...)
+		}
+	}
+	warn := func(msg string, kv ...any) {
+		if log != nil {
+			log.Warn(logger.CatApp, msg, kv...)
+		}
 	}
 
 	cfg, err := LoadSkillsUpdateConfig(workDir)
@@ -247,12 +108,17 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 	}
 
 	var toSync []*Skill
+	stats := struct {
+		installed         int
+		withUpstream      int
+		withAutoUpdateOn  int
+	}{installed: len(installed)}
 	for _, s := range installed {
 		// Check if local skill has upstream, or if embedded version has upstream
 		upstream := s.Upstream
 		branch := s.Branch
 		subPath := s.SubPath
-		
+
 		if upstream == "" {
 			// Try to get upstream from embedded skill
 			if embedded, ok := embeddedSkills[s.ID]; ok && embedded.Upstream != "" {
@@ -262,28 +128,60 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 			}
 		}
 
-		if upstream != "" && cfg.AutoUpdate[s.ID] {
-			// Create a copy with the correct upstream info
-			syncSkill := *s
-			syncSkill.Upstream = upstream
-			syncSkill.Branch = branch
-			syncSkill.SubPath = subPath
-			toSync = append(toSync, &syncSkill)
+		if upstream == "" {
+			debug("skipping skill: no upstream", "id", s.ID)
+			continue
 		}
+		stats.withUpstream++
+
+		if !cfg.AutoUpdate[s.ID] {
+			debug("skipping skill: auto_update disabled", "id", s.ID)
+			continue
+		}
+		stats.withAutoUpdateOn++
+
+		// Create a copy with the correct upstream info
+		syncSkill := *s
+		syncSkill.Upstream = upstream
+		syncSkill.Branch = branch
+		syncSkill.SubPath = subPath
+		toSync = append(toSync, &syncSkill)
 	}
 
-	if len(toSync) == 0 {
-		return nil
-	}
-
-	log.Info(logger.CatApp, "syncing remote skills start", "count", len(toSync))
-	updatedAny := false
-
-	// Open/create separate log file
+	// Open log file up front so we can write the no-op summary too.
 	logsDir := filepath.Join(workDir, "logs")
 	_ = os.MkdirAll(logsDir, 0o755)
 	logFilePath := filepath.Join(logsDir, "skill_updates.log")
 	logFile, logErr := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+
+	writeSummary := func(checked, updated int) {
+		timeStr := time.Now().Format("2006-01-02 15:04:05")
+		var entry string
+		if updated > 0 {
+			entry = fmt.Sprintf("[%s] Remote skill sync run: checked=%d updated=%d\n\n", timeStr, checked, updated)
+		} else {
+			entry = fmt.Sprintf("[%s] Remote skill sync run: checked=%d updated=0 (no changes)\n\n", timeStr, checked)
+		}
+		if logErr == nil && logFile != nil {
+			_, _ = logFile.WriteString(entry)
+		}
+	}
+
+	if len(toSync) == 0 {
+		info("remote skill sync: nothing to check",
+			"installed", stats.installed,
+			"with_upstream", stats.withUpstream,
+			"with_auto_update", stats.withAutoUpdateOn)
+		writeSummary(0, 0)
+		if logFile != nil {
+			_ = logFile.Close()
+		}
+		return nil
+	}
+
+	info("syncing remote skills start", "count", len(toSync))
+	updatedAny := false
+	updatedCount := 0
 
 	for _, s := range toSync {
 		if err := ctx.Err(); err != nil {
@@ -293,11 +191,11 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 			return err
 		}
 
-		log.Debug(logger.CatApp, "syncing remote skill", "id", s.ID, "upstream", s.Upstream)
+		debug("syncing remote skill", "id", s.ID, "upstream", s.Upstream)
 
 		tempDir, err := os.MkdirTemp("", "soloqueue-skill-sync-*")
 		if err != nil {
-			log.Warn(logger.CatApp, "failed to create temp dir for skill sync", "id", s.ID, "err", err.Error())
+			warn("failed to create temp dir for skill sync", "id", s.ID, "err", err.Error())
 			continue
 		}
 
@@ -316,7 +214,7 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 			var stderrRetry strings.Builder
 			cmdRetry.Stderr = &stderrRetry
 			if errRetry := cmdRetry.Run(); errRetry != nil {
-				log.Warn(logger.CatApp, "failed to clone remote skill repo", "id", s.ID, "upstream", s.Upstream, "err", errRetry.Error(), "stderr", strings.TrimSpace(stderrRetry.String()))
+				warn("failed to clone remote skill repo", "id", s.ID, "upstream", s.Upstream, "err", errRetry.Error(), "stderr", strings.TrimSpace(stderrRetry.String()))
 				_ = os.RemoveAll(tempDir)
 				continue
 			}
@@ -328,14 +226,14 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 		}
 
 		if _, err := os.Stat(filepath.Join(srcPath, "SKILL.md")); os.IsNotExist(err) {
-			log.Warn(logger.CatApp, "remote repository does not contain SKILL.md for skill", "id", s.ID, "path", srcPath)
+			warn("remote repository does not contain SKILL.md for skill", "id", s.ID, "path", srcPath)
 			_ = os.RemoveAll(tempDir)
 			continue
 		}
 
 		equal, modified, added, removed, compErr := compareDirectories(srcPath, s.Dir)
 		if compErr != nil {
-			log.Warn(logger.CatApp, "failed to compare directories during remote sync", "id", s.ID, "err", compErr.Error())
+			warn("failed to compare directories during remote sync", "id", s.ID, "err", compErr.Error())
 			_ = os.RemoveAll(tempDir)
 			continue
 		}
@@ -349,7 +247,9 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 
 			_ = os.RemoveAll(s.Dir)
 			if err := copyDir(srcPath, s.Dir); err != nil {
-				log.LogError(ctx, logger.CatApp, "failed to copy remote skill files", err, "id", s.ID)
+				if log != nil {
+					log.LogError(ctx, logger.CatApp, "failed to copy remote skill files", err, "id", s.ID)
+				}
 				_ = os.RemoveAll(tempDir)
 				continue
 			}
@@ -359,7 +259,8 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 			}
 
 			updatedAny = true
-			log.Info(logger.CatApp, "updated skill from remote", "id", s.ID, "upstream", s.Upstream)
+			updatedCount++
+			info("updated skill from remote", "id", s.ID, "upstream", s.Upstream)
 
 			if logErr == nil && logFile != nil {
 				timeStr := time.Now().Format("2006-01-02 15:04:05")
@@ -381,6 +282,8 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 		_ = os.RemoveAll(tempDir)
 	}
 
+	writeSummary(len(toSync), updatedCount)
+
 	if logFile != nil {
 		_ = logFile.Close()
 	}
@@ -390,11 +293,11 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 			"user": userSkillsDir,
 		}
 		if err := reg.Rebuild(skillDirs); err != nil {
-			log.Warn(logger.CatApp, "failed to rebuild skill registry after remote sync", "err", err.Error())
+			warn("failed to rebuild skill registry after remote sync", "err", err.Error())
 		}
 	}
 
-	log.Info(logger.CatApp, "syncing remote skills complete")
+	info("remote skill sync done", "checked", len(toSync), "updated_any", updatedAny)
 	return nil
 }
 

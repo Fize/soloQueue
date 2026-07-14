@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -121,7 +122,7 @@ func TestSimulationPauseResumeStepTransitions(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	dbPath := filepath.Join(tmpDir, "sims.db")
-	engine := NewSimulationEngine(nil, nil, nil, tools.Config{}, SimulationConfigFile{DBPath: dbPath}, nil)
+	engine := NewSimulationEngine(nil, nil, nil, tools.Config{}, config.SimulationConfig{DBPath: dbPath}, nil)
 
 	config := SimulationConfig{
 		Topic: "Test Control transitions",

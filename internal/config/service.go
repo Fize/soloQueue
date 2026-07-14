@@ -288,8 +288,8 @@ func Init(workDir string) (*GlobalService, error) {
 	}
 
 	// Note: we do not save defaults here. If settings.yaml does not exist,
-	// MigrateIfNeeded (called after the DB is wired) will create it from defaults
-	// or legacy configuration.
+	// the runtime will surface a one-time notice; operators must create it
+	// before the server can serve config-aware requests.
 
 	return cfg, nil
 }
