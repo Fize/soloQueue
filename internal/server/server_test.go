@@ -229,5 +229,87 @@ func TestHTTP_TeamAgents(t *testing.T) {
 	}
 }
 
+func TestHTTP_ListProviderRemoteModels(t *testing.T) {
+	// 1. Create a mock remote provider server
+	mockRemoteSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer mock-api-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("X-Custom-Test") != "test-val" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"object": "list",
+			"data": [
+				{"id": "gpt-4-turbo", "object": "model"},
+				{"id": "gpt-3.5-turbo", "object": "model"},
+				{"id": "dall-e-3", "object": "model"}
+			]
+		}`))
+	}))
+	defer mockRemoteSrv.Close()
+
+	// 2. Start local test server
+	tempDir := t.TempDir()
+	configSvc, err := config.New(tempDir)
+	if err != nil {
+		t.Fatalf("config.New(): %v", err)
+	}
+	err = configSvc.Watch()
+	if err != nil {
+		t.Fatalf("configSvc.Watch(): %v", err)
+	}
+
+	// Create LLMProvider config that uses the mockRemoteSrv URL
+	p := config.LLMProvider{
+		ID:        "mock-provider",
+		Name:      "Mock Provider",
+		BaseURL:   mockRemoteSrv.URL,
+		APIKey:    "mock-api-key",
+		Enabled:   true,
+		Headers:   map[string]string{"X-Custom-Test": "test-val"},
+	}
+	if err := configSvc.CreateProvider(p); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+
+	mux := NewMux(tempDir, nil, WithConfigService(configSvc))
+	defer mux.Close()
+
+	// 3. Test remote models GET endpoint
+	req := httptest.NewRequest("GET", "/api/config/providers/mock-provider/remote-models", nil)
+	req.Host = "localhost:8765"
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/config/providers/mock-provider/remote-models status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var modelIDs []string
+	if err := json.Unmarshal(rec.Body.Bytes(), &modelIDs); err != nil {
+		t.Fatalf("Unmarshal response: %v, body = %s", err, rec.Body.String())
+	}
+
+	expected := []string{"dall-e-3", "gpt-3.5-turbo", "gpt-4-turbo"}
+	if len(modelIDs) != len(expected) {
+		t.Fatalf("expected %d models, got %d: %+v", len(expected), len(modelIDs), modelIDs)
+	}
+	for i, id := range expected {
+		if modelIDs[i] != id {
+			t.Errorf("at index %d: expected %s, got %s", i, id, modelIDs[i])
+		}
+	}
+}
+
 
 

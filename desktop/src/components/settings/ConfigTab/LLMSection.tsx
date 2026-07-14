@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { Database, Plus, Settings, X, Eye, EyeOff } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Database, Plus, Settings, X, Eye, EyeOff, ChevronDown, Loader2 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
+import { listProviderRemoteModels } from '@/lib/api/config-api'
 
 function parseHeadersJson(json: string): Record<string, string> {
   try {
@@ -73,6 +74,46 @@ export function LLMSection({
     generation: { temperature: 0.7, maxTokens: 4096 },
     thinking: { enabled: false, reasoningEffort: 'medium' },
   })
+  const [remoteModels, setRemoteModels] = useState<string[]>([])
+  const [isLoadingRemoteModels, setIsLoadingRemoteModels] = useState(false)
+  const [remoteModelsError, setRemoteModelsError] = useState<string | null>(null)
+  const [isComboboxOpen, setIsComboboxOpen] = useState(false)
+
+
+  useEffect(() => {
+    const providerId = modelForm.providerId
+    if (!providerId) {
+      setRemoteModels([])
+      setRemoteModelsError(null)
+      return
+    }
+
+    let active = true
+    const fetchModels = async () => {
+      setIsLoadingRemoteModels(true)
+      setRemoteModelsError(null)
+      try {
+        const data = await listProviderRemoteModels(providerId)
+        if (active) {
+          setRemoteModels(data || [])
+        }
+      } catch (err) {
+        if (active) {
+          setRemoteModelsError((err as Error).message)
+        }
+      } finally {
+        if (active) {
+          setIsLoadingRemoteModels(false)
+        }
+      }
+    }
+
+    fetchModels()
+
+    return () => {
+      active = false
+    }
+  }, [modelForm.providerId])
 
   const startAddProvider = () => {
     setIsAddingProvider(true)
@@ -493,15 +534,82 @@ export function LLMSection({
                   ]}
                 />
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1 relative">
                 <label className="text-xs font-semibold text-muted-foreground">
                   {t('config.llmApiModelName')}
                 </label>
-                <Input
-                  value={modelForm.apiModel || ''}
-                  placeholder={t('config.llmApiModelNamePlaceholder')}
-                  onChange={(e) => setModelForm({ ...modelForm, apiModel: e.target.value })}
-                />
+                <div className="relative">
+                  <Input
+                    value={modelForm.apiModel || ''}
+                    placeholder={t('config.llmSelectRemoteModel')}
+                    onChange={(e) => setModelForm({ ...modelForm, apiModel: e.target.value })}
+                    onFocus={() => setIsComboboxOpen(true)}
+                    onBlur={() => {
+                      // Delay closing to let onMouseDown trigger first
+                      setTimeout(() => setIsComboboxOpen(false), 200)
+                    }}
+                    className="pr-8"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsComboboxOpen((prev) => !prev)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                  >
+                    {isLoadingRemoteModels ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+
+                {isComboboxOpen && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-lg">
+                    {isLoadingRemoteModels && (
+                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        {t('config.llmLoadingRemoteModels')}
+                      </div>
+                    )}
+                    {remoteModelsError && (
+                      <div className="px-2 py-1.5 text-xs text-destructive">
+                        {t('config.llmFailedToLoadRemoteModels')}: {remoteModelsError}
+                      </div>
+                    )}
+                    {!isLoadingRemoteModels && !remoteModelsError && (
+                      <>
+                        {(() => {
+                          const query = (modelForm.apiModel || '').toLowerCase()
+                          const filtered = remoteModels.filter((model) =>
+                            model.toLowerCase().includes(query)
+                          )
+
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                {query ? t('common.none') : t('config.llmSelectRemoteModel')}
+                              </div>
+                            )
+                          }
+
+                          return filtered.map((model) => (
+                            <button
+                              key={model}
+                              type="button"
+                              onMouseDown={() => {
+                                setModelForm({ ...modelForm, apiModel: model })
+                                setIsComboboxOpen(false)
+                              }}
+                              className="w-full text-left flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none hover:bg-muted focus:bg-muted text-foreground transition-colors"
+                            >
+                              {model}
+                            </button>
+                          ))
+                        })()}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">

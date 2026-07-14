@@ -61,6 +61,10 @@ export async function deleteProvider(id: string): Promise<void> {
   await request(`/config/providers/${id}`, { method: "DELETE" });
 }
 
+export async function listProviderRemoteModels(id: string): Promise<string[]> {
+  return request<string[]>(`/config/providers/${id}/remote-models`);
+}
+
 export async function listModels(): Promise<LLMModel[]> {
   return request<LLMModel[]>("/config/models");
 }

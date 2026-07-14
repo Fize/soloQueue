@@ -361,6 +361,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Route("/{id}", func(r chi.Router) {
 				r.Put("/", m.handleUpdateProvider)
 				r.Delete("/", m.handleDeleteProvider)
+				r.Get("/remote-models", m.handleListProviderRemoteModels)
 			})
 		})
 

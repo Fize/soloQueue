@@ -3,7 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/config"
@@ -102,6 +107,92 @@ func (m *Mux) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
+// GET /api/config/providers/{id}/remote-models
+func (m *Mux) handleListProviderRemoteModels(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider id is required"})
+		return
+	}
+
+	var provider *config.LLMProvider
+	for _, p := range m.configSvc.Get().Providers {
+		if p.ID == id {
+			provider = &p
+			break
+		}
+	}
+	if provider == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+
+	apiKey := provider.ResolveAPIKey()
+	baseURL := strings.TrimRight(provider.BaseURL, "/")
+	if baseURL == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider base URL is empty"})
+		return
+	}
+	url := baseURL + "/models"
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create request: " + err.Error()})
+		return
+	}
+
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	for k, v := range provider.Headers {
+		req.Header.Set(k, v)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "request failed: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		m.writeJSON(w, resp.StatusCode, map[string]string{
+			"error": fmt.Sprintf("provider API returned HTTP %d: %s", resp.StatusCode, string(bodyBytes)),
+		})
+		return
+	}
+
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to decode response: " + err.Error()})
+		return
+	}
+
+	var modelIDs []string
+	for _, model := range result.Data {
+		if model.ID != "" {
+			modelIDs = append(modelIDs, model.ID)
+		}
+	}
+
+	sort.Strings(modelIDs)
+	m.writeJSON(w, http.StatusOK, modelIDs)
 }
 
 // ─── LLM Models ──────────────────────────────────────────────────────────────
