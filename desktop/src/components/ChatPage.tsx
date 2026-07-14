@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useShallow } from "zustand/react/shallow";
 import { ChatMessageView } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
 import { useChatStore } from "@/stores/chatStore";
@@ -33,20 +34,27 @@ import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const {
-    activeSessionId,
-    messages,
-    streamingSessions,
-    delegating,
-    sessions,
-    historyHasMore,
-    historyLoading,
-    loadMoreHistory,
-    setActiveSession,
-    loadHistory,
-    createL2Session,
-    deleteL2Session,
-  } = useChatStore();
+  // Fine-grained subscriptions. The previous useChatStore() form subscribed
+  // to the entire state object and re-rendered on every chat_chunk. We now
+  // split it: useShallow on maps whose top-level value reference does not
+  // change on chunk updates (streamingSessions/historyHasMore/historyLoading/
+  // sessions), and a plain messages selector that re-renders on chunk (this
+  // is unavoidable since the assistant message is growing per token), but
+  // the per-message children short-circuit this cost via React.memo on
+  // ChatMessageView — old messages keep their reference and skip rendering.
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const messages = useChatStore((s) => s.messages)
+  const streamingSessions = useChatStore(useShallow((s) => s.streamingSessions))
+  const delegating = useChatStore((s) => s.delegating)
+  const sessions = useChatStore(useShallow((s) => s.sessions))
+  const historyHasMore = useChatStore(useShallow((s) => s.historyHasMore))
+  const historyLoading = useChatStore(useShallow((s) => s.historyLoading))
+  const loadMoreHistory = useChatStore((s) => s.loadMoreHistory)
+  const setActiveSession = useChatStore((s) => s.setActiveSession)
+  const loadHistory = useChatStore((s) => s.loadHistory)
+  const createL2Session = useChatStore((s) => s.createL2Session)
+  const deleteL2Session = useChatStore((s) => s.deleteL2Session)
+
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -54,7 +62,6 @@ export function ChatPage() {
   const loadingMore = useRef(false);
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
-  const isProgrammaticScrolling = useRef(false);
 
   // macOS Inspector state
   const [showInspector, setShowInspector] = useState(false);
@@ -176,6 +183,10 @@ export function ChatPage() {
     }
   }, [sessionId, activeSessionId, setActiveSession]);
 
+  // currentMessages for the active session. The previous useChatStore()
+  // subscription made this whole component re-render on every chat_chunk;
+  // the per-message React.memo on ChatMessageView now prevents the old
+  // messages from re-rendering, so this re-render is cheap.
   const currentMessages = messages[activeSessionId || ""] || [];
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const hasActiveSession = activeSession != null;
@@ -394,12 +405,9 @@ export function ChatPage() {
     activeAgent,
     isAgentProcessing || streaming || delegating,
     (taskLevel, agent, lastModel) => {
-      if (!taskLevel) {
-        return agent?.model_id || lastModel;
-      }
-      const level = taskLevel.split("-")[0] || "";
-      const roleMap: Record<string, string> = { L0: "fast", L1: "universal", L2: "superior", L3: "expert" };
-      return roleMap[level] || agent?.model_id || lastModel;
+      // agent.model_id is already the effective model set by the router after routing.
+      // No need to re-map via role keys (which would incorrectly show "superior" etc.).
+      return agent?.model_id || lastModel;
     },
   );
 
@@ -495,6 +503,11 @@ export function ChatPage() {
     const el = scrollRef.current;
     if (!el) return;
     let prevScrollTop = el.scrollTop;
+    // Cooldown timer: when history is prepended at the top, scrollHeight
+    // grows which can push the user back into the "scrollTop < 50" trigger
+    // zone a second time before they recover. 200ms of quiet after a load
+    // suppresses the re-trigger.
+    let cooldownTimer: ReturnType<typeof setTimeout> | null = null;
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
       const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
@@ -513,7 +526,13 @@ export function ChatPage() {
         ? historyLoading[activeSessionId]
         : false;
 
-      if (scrollTop < 50 && hasMore && !isLoading && !loadingMore.current) {
+      if (
+        scrollTop < 50 &&
+        hasMore &&
+        !isLoading &&
+        !loadingMore.current &&
+        cooldownTimer === null
+      ) {
         loadingMore.current = true;
         const prevHeight = scrollHeight;
         loadMoreHistory(activeSessionId || "").then(() => {
@@ -522,28 +541,28 @@ export function ChatPage() {
             scrollRef.current.scrollTop = diff;
           }
           loadingMore.current = false;
+          cooldownTimer = setTimeout(() => {
+            cooldownTimer = null;
+          }, 200);
         });
       }
     };
     el.addEventListener("scroll", handleScroll);
-    return () => el.removeEventListener("scroll", handleScroll);
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+      if (cooldownTimer !== null) clearTimeout(cooldownTimer);
+    };
   }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory]);
 
   useEffect(() => {
     if (userScrolledUp.current) return;
-    isProgrammaticScrolling.current = true;
     bottomRef.current?.scrollIntoView({
       behavior: "auto",
     });
-    const timer = setTimeout(() => {
-      isProgrammaticScrolling.current = false;
-    }, 100);
 
     if (finalMessages.length > 0) {
       lastScrolledSessionId.current = activeSessionId;
     }
-
-    return () => clearTimeout(timer);
   }, [contentSum, streaming, activeSessionId, finalMessages]);
 
   const matchedRegAgent = useMemo(() => {
