@@ -44,7 +44,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
@@ -84,73 +83,6 @@ type Mux struct {
 	sharedDB       *sqlitedb.DB     // for metric reporting
 }
 
-// reloadGroups loads groups. If teamstore is available, loads from DB;
-// otherwise falls back to parsing groupsDir.
-func (m *Mux) reloadGroups() map[string]prompt.GroupFile {
-	if m.teamstore != nil {
-		teams, err := m.teamstore.ListTeams(context.Background())
-		if err != nil {
-			if m.log != nil {
-				m.log.Warn(logger.CatApp, "reloadGroups list teams failed", "err", err.Error())
-			}
-			return nil
-		}
-		groups := make(map[string]prompt.GroupFile, len(teams))
-		for _, t := range teams {
-			workspaces := make([]prompt.Workspace, 0, len(t.Workspaces))
-			for _, w := range t.Workspaces {
-				workspaces = append(workspaces, prompt.Workspace{
-					Name: w.Name,
-					Path: w.Path,
-					AutoWork: prompt.AutoWorkConfig{
-						Enabled:                 w.AutoWork.Enabled,
-						InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
-						PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
-						MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
-					},
-				})
-			}
-			groups[t.Name] = prompt.GroupFile{
-				Frontmatter: prompt.GroupFrontmatter{
-					ID:         t.ID,
-					Name:       t.Name,
-					Workspaces: workspaces,
-					Projects:   t.Projects,
-				},
-				Body: t.Description,
-			}
-		}
-		return groups
-	}
-
-	if m.groupsDir == "" {
-		return nil
-	}
-	groups, err := prompt.LoadGroups(m.groupsDir)
-	if err != nil {
-		if m.log != nil {
-			m.log.Warn(logger.CatApp, "reloadGroups failed", "err", err.Error())
-		}
-		return nil
-	}
-	return groups
-}
-
-// reloadTemplates loads agent templates from agentsDir on every call.
-// Returns nil on error (callers treat nil as "not available").
-func (m *Mux) reloadTemplates() []agent.AgentTemplate {
-	if m.agentsDir == "" {
-		return nil
-	}
-	templates, err := agent.LoadAgentTemplates(m.agentsDir)
-	if err != nil {
-		if m.log != nil {
-			m.log.Warn(logger.CatApp, "reloadTemplates failed", "err", err.Error())
-		}
-		return nil
-	}
-	return templates
-}
 
 // MuxOption is a functional option for NewMux.
 type MuxOption func(*Mux)
@@ -302,6 +234,14 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 
 	for _, opt := range opts {
 		opt(m)
+	}
+
+	if m.teamstore == nil && m.workDir != "" {
+		m.teamstore = teamstore.NewStore(
+			filepath.Join(m.workDir, "groups"),
+			filepath.Join(m.workDir, "agents"),
+			m.sharedDB,
+		)
 	}
 
 	// Wire config service hot-reload and on-change callback.

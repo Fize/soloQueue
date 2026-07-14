@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -94,19 +93,8 @@ func agentToResponse(a *teamstore.Agent) AgentResponse {
 // ─── Team Handlers ──────────────────────────────────────────────────────────
 
 // handleListTeams returns all teams and their agents.
-// If teamstore is available, reads from DB; otherwise falls back to
-// file-based template loading (backward-compatible).
 // GET /api/teams
 func (m *Mux) handleListTeams(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore != nil {
-		m.handleListTeamsFromDB(w, r)
-		return
-	}
-	m.handleListTeamsFromFiles(w)
-}
-
-// handleListTeamsFromDB reads teams and agents from the SQLite store.
-func (m *Mux) handleListTeamsFromDB(w http.ResponseWriter, r *http.Request) {
 	teams, err := m.teamstore.ListTeams(r.Context())
 	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -154,89 +142,6 @@ func (m *Mux) handleListTeamsFromDB(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: result})
 }
 
-// handleListTeamsFromFiles falls back to file-based template loading
-// when no teamstore is configured.
-func (m *Mux) handleListTeamsFromFiles(w http.ResponseWriter) {
-	templates := m.reloadTemplates()
-	if templates == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
-		return
-	}
-
-	teamMap := make(map[string]*TeamInfoResponse)
-	groups := m.reloadGroups()
-
-	for _, tmpl := range templates {
-		groupName := tmpl.Group
-		if groupName == "" {
-			groupName = "Default"
-		}
-
-		if _, ok := teamMap[groupName]; !ok {
-			id := strings.ToLower(groupName)
-			var ws []teamstore.Workspace
-			var projs []string
-			var createdAt, updatedAt string
-
-			if group, ok := groups[groupName]; ok {
-				id = group.Frontmatter.ID
-				if id == "" {
-					id = strings.ToLower(groupName)
-				}
-				if len(group.Frontmatter.Workspaces) > 0 {
-					ws = make([]teamstore.Workspace, len(group.Frontmatter.Workspaces))
-					for idx, w := range group.Frontmatter.Workspaces {
-						ws[idx] = teamstore.Workspace{
-							Name: w.Name,
-							Path: w.Path,
-						}
-					}
-				}
-				projs = group.Frontmatter.Projects
-				createdAt = group.Frontmatter.CreatedAt
-				updatedAt = group.Frontmatter.UpdatedAt
-			}
-
-			if ws == nil {
-				ws = []teamstore.Workspace{}
-			}
-			if projs == nil {
-				projs = []string{}
-			}
-
-			teamMap[groupName] = &TeamInfoResponse{
-				ID:          id,
-				Name:        groupName,
-				Description: "",
-				Workspaces:  ws,
-				Projects:    projs,
-				Agents:      []AgentTemplateResponse{},
-				CreatedAt:   createdAt,
-				UpdatedAt:   updatedAt,
-			}
-
-			if group, ok := groups[groupName]; ok {
-				teamMap[groupName].Description = group.Body
-			}
-		}
-
-		teamMap[groupName].Agents = append(teamMap[groupName].Agents, AgentTemplateResponse{
-			ID:          tmpl.ID,
-			Name:        tmpl.Name,
-			Description: tmpl.Description,
-			IsLeader:    tmpl.IsLeader,
-			Group:       tmpl.Group,
-			ModelID:     tmpl.ModelID,
-		})
-	}
-
-	teams := make([]TeamInfoResponse, 0, len(teamMap))
-	for _, team := range teamMap {
-		teams = append(teams, *team)
-	}
-
-	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: teams})
-}
 
 // createTeamRequest is the JSON body for POST /api/teams.
 type createTeamRequest struct {
@@ -249,11 +154,6 @@ type createTeamRequest struct {
 // handleCreateTeam creates a new team.
 // POST /api/teams
 func (m *Mux) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "team store not available"})
-		return
-	}
-
 	var req createTeamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
@@ -283,58 +183,21 @@ func (m *Mux) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 func (m *Mux) handleGetTeam(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
-	if m.teamstore != nil {
-		t, err := m.teamstore.GetTeamByName(r.Context(), name)
-		if err != nil {
-			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
-			return
-		}
-		agents, err := m.teamstore.ListAgentsByTeam(r.Context(), name)
-		if err != nil {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		agtResp := make([]AgentResponse, 0, len(agents))
-		for i := range agents {
-			agtResp = append(agtResp, agentToResponse(&agents[i]))
-		}
-		m.writeJSON(w, http.StatusOK, teamToResponse(t, agtResp))
+	t, err := m.teamstore.GetTeamByName(r.Context(), name)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-
-	// Fallback to file-based: find matching group and its agents
-	groups := m.reloadGroups()
-	templates := m.reloadTemplates()
-	if groups == nil && templates == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "team store and file templates not available"})
+	agents, err := m.teamstore.ListAgentsByTeam(r.Context(), name)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-
-	group, ok := groups[name]
-	if !ok {
-		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": fmt.Sprintf("team %q not found", name)})
-		return
+	agtResp := make([]AgentResponse, 0, len(agents))
+	for i := range agents {
+		agtResp = append(agtResp, agentToResponse(&agents[i]))
 	}
-
-	agtResp := make([]AgentResponse, 0)
-	for _, tmpl := range templates {
-		if tmpl.Group == name {
-			agtResp = append(agtResp, AgentResponse{
-				ID:          tmpl.ID,
-				Name:        tmpl.Name,
-				Description: tmpl.Description,
-				TeamName:    tmpl.Group,
-				IsLeader:    tmpl.IsLeader,
-				Model:       tmpl.ModelID,
-			})
-		}
-	}
-
-	m.writeJSON(w, http.StatusOK, TeamResponse{
-		Name:        name,
-		Description: group.Body,
-		Agents:      agtResp,
-	})
+	m.writeJSON(w, http.StatusOK, teamToResponse(t, agtResp))
 }
 
 // updateTeamRequest is the JSON body for PUT /api/teams/{name}.
@@ -347,10 +210,6 @@ type updateTeamRequest struct {
 // handleUpdateTeam updates an existing team.
 // PUT /api/teams/{name}
 func (m *Mux) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "team store not available"})
-		return
-	}
 
 	name := chi.URLParam(r, "name")
 
@@ -397,10 +256,6 @@ func (m *Mux) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 // handleDeleteTeam removes a team by name.
 // DELETE /api/teams/{name}
 func (m *Mux) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "team store not available"})
-		return
-	}
 
 	name := chi.URLParam(r, "name")
 	if err := m.teamstore.DeleteTeam(r.Context(), name); err != nil {
@@ -418,15 +273,6 @@ func (m *Mux) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 // handleListAgents returns all agents, optionally filtered by team.
 // GET /api/agents?team=<name>
 func (m *Mux) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore != nil {
-		m.handleListAgentsFromDB(w, r)
-		return
-	}
-	m.handleListAgentsFromFiles(w)
-}
-
-// handleListAgentsFromDB reads agents from the SQLite store.
-func (m *Mux) handleListAgentsFromDB(w http.ResponseWriter, r *http.Request) {
 	teamName := r.URL.Query().Get("team")
 
 	var agents []teamstore.Agent
@@ -448,28 +294,6 @@ func (m *Mux) handleListAgentsFromDB(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, map[string]any{"agents": result})
 }
 
-// handleListAgentsFromFiles falls back to file-based template loading.
-func (m *Mux) handleListAgentsFromFiles(w http.ResponseWriter) {
-	templates := m.reloadTemplates()
-	if templates == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent templates not available"})
-		return
-	}
-
-	result := make([]AgentResponse, 0, len(templates))
-	for _, tmpl := range templates {
-		result = append(result, AgentResponse{
-			ID:          tmpl.ID,
-			Name:        tmpl.Name,
-			Description: tmpl.Description,
-			TeamName:    tmpl.Group,
-			IsLeader:    tmpl.IsLeader,
-			Model:       tmpl.ModelID,
-		})
-	}
-	m.writeJSON(w, http.StatusOK, map[string]any{"agents": result})
-}
-
 // createAgentRequest is the JSON body for POST /api/agents.
 type createAgentRequest struct {
 	Name         string   `json:"name"`
@@ -486,11 +310,6 @@ type createAgentRequest struct {
 // handleCreateAgent creates a new agent.
 // POST /api/agents
 func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent store not available"})
-		return
-	}
-
 	var req createAgentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
@@ -531,40 +350,12 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 func (m *Mux) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
-	if m.teamstore != nil {
-		a, err := m.teamstore.GetAgentByName(r.Context(), name)
-		if err != nil {
-			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
-			return
-		}
-		m.writeJSON(w, http.StatusOK, agentToResponse(a))
+	a, err := m.teamstore.GetAgentByName(r.Context(), name)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-
-	// Fallback to file-based
-	templates := m.reloadTemplates()
-	if templates == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent templates not available"})
-		return
-	}
-	for _, tmpl := range templates {
-		if tmpl.Name == name {
-			m.writeJSON(w, http.StatusOK, AgentResponse{
-				ID:           tmpl.ID,
-				Name:         tmpl.Name,
-				Description:  tmpl.Description,
-				TeamName:     tmpl.Group,
-				IsLeader:     tmpl.IsLeader,
-				Model:        tmpl.ModelID,
-				SystemPrompt: tmpl.SystemPrompt,
-				Permission:   tmpl.Permission,
-				MCPServers:   tmpl.MCPServers,
-				SkillIDs:     tmpl.SkillIDs,
-			})
-			return
-		}
-	}
-	m.writeJSON(w, http.StatusNotFound, map[string]string{"error": fmt.Sprintf("agent %q not found", name)})
+	m.writeJSON(w, http.StatusOK, agentToResponse(a))
 }
 
 // updateAgentRequest is the JSON body for PUT /api/agents/{name}.
@@ -582,10 +373,6 @@ type updateAgentRequest struct {
 // handleUpdateAgent updates an existing agent.
 // PUT /api/agents/{name}
 func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent store not available"})
-		return
-	}
 
 	name := chi.URLParam(r, "name")
 
@@ -646,10 +433,6 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 // handleDeleteAgent removes an agent by name.
 // DELETE /api/agents/{name}
 func (m *Mux) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	if m.teamstore == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent store not available"})
-		return
-	}
 
 	name := chi.URLParam(r, "name")
 	if err := m.teamstore.DeleteAgent(r.Context(), name); err != nil {
