@@ -455,6 +455,13 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 		} else {
 			ctxwinLimit = s.DefaultContextLimit()
 		}
+		// Skip sessions that have never been activated (no timeline directory on disk).
+		// These are "phantom" sessions created but never used — they should not
+		// reappear after the window is closed and reopened while the server is still running.
+		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+entry.ID)
+		if _, err := os.Stat(tlDir); err != nil {
+			continue
+		}
 		result = append(result, L2SessionInfo{
 			ID:              entry.ID,
 			Name:            entry.Name,

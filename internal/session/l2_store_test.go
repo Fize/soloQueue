@@ -112,6 +112,15 @@ func TestL2SessionStore_List(t *testing.T) {
 	time.Sleep(1 * time.Millisecond)
 	_, _ = store.Create(context.Background(), "c", "dev", "", "")
 
+	// Simulate activation (BuildL2 creates the timeline directory on first use).
+	// Without the directory, List() treats the session as a phantom and skips it.
+	for _, id := range []string{"a", "b", "c"} {
+		tlDir := filepath.Join(dir, "logs", "timelines", "l2-"+id)
+		if err := os.MkdirAll(tlDir, 0755); err != nil {
+			t.Fatalf("failed to create timeline dir for %q: %v", id, err)
+		}
+	}
+
 	list := store.List()
 	if len(list) != 3 {
 		t.Fatalf("expected 3 sessions, got %d", len(list))
