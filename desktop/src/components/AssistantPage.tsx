@@ -18,6 +18,7 @@ export function AssistantPage() {
     activeSessionId,
     messages,
     streamingSessions,
+    systemCommandSessions,
     delegatingSessions,
     historyHasMore,
     historyLoading,
@@ -27,6 +28,9 @@ export function AssistantPage() {
   } = useChatStore();
 
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false;
+  const isSystemCommandRunning = activeSessionId
+    ? (systemCommandSessions[activeSessionId] ?? false)
+    : false;
 
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -273,7 +277,7 @@ export function AssistantPage() {
   // L1 uses the agent's model_id directly (no level→role mapping).
   const { modelName: inputModelName } = useInputBadges(
     l1Agent,
-    isL1Processing || streaming || delegating,
+    (isL1Processing || streaming || delegating) && !isSystemCommandRunning,
   );
 
   // ── Render ────────────────────────────────────────────────────────────────

@@ -8,6 +8,19 @@ function generateRequestId(): string {
   return `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+const SYSTEM_SLASH_COMMANDS = new Set([
+  '/clear',
+  '/compact',
+  '/cancel',
+  '/help',
+  '/version',
+  '/cron',
+])
+
+function isSystemSlashCommand(prompt: string): boolean {
+  return SYSTEM_SLASH_COMMANDS.has(prompt.trim().toLowerCase())
+}
+
 export function useChatStream() {
   const activeRequestIdRef = useRef<string | null>(null)
 
@@ -21,6 +34,7 @@ export function useChatStream() {
     updateLastAssistantSegment,
     updateToolCallResult,
     setStreaming,
+    setSystemCommandRunning,
     renameSession,
     updateSessionPlans,
     markTitleGenerated,
@@ -44,6 +58,7 @@ export function useChatStream() {
       const trimmedPrompt = prompt.trim().toLowerCase()
       const isClear = trimmedPrompt === '/clear'
       const isCompact = trimmedPrompt === '/compact'
+      const isSystemCommand = isSystemSlashCommand(prompt)
 
       if (isClear) {
         useChatStore.setState((prev) => ({
@@ -96,6 +111,9 @@ export function useChatStream() {
       })
 
       setStreaming(true, sid)
+      if (isSystemCommand) {
+        setSystemCommandRunning(true, sid)
+      }
 
       const isL2 = sid.startsWith('l2:')
       const shouldGenTitle = isL2 && !state.titleGenerated[sid]
@@ -106,6 +124,7 @@ export function useChatStream() {
         if (finished) return
         finished = true
         setStreaming(false, sid)
+        setSystemCommandRunning(false, sid)
         setDelegating(false, sid)
         activeRequestIdRef.current = null
         wsManager.unregisterChat(requestId)
@@ -208,6 +227,7 @@ export function useChatStream() {
       updateLastAssistantSegment,
       updateToolCallResult,
       setStreaming,
+      setSystemCommandRunning,
       renameSession,
       updateSessionPlans,
       markTitleGenerated,

@@ -45,8 +45,10 @@ export function ChatPage() {
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const messages = useChatStore((s) => s.messages)
   const streamingSessions = useChatStore(useShallow((s) => s.streamingSessions))
+  const systemCommandSessions = useChatStore(useShallow((s) => s.systemCommandSessions))
   const delegatingSessions = useChatStore(useShallow((s) => s.delegatingSessions))
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false
+  const isSystemCommandRunning = activeSessionId ? (systemCommandSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
   const historyHasMore = useChatStore(useShallow((s) => s.historyHasMore))
   const historyLoading = useChatStore(useShallow((s) => s.historyLoading))
@@ -407,7 +409,7 @@ export function ChatPage() {
   // useInputBadges' level coupling).
   const { modelName: inputModelName, taskLevel: inputTaskLevel } = useInputBadges(
     activeAgent,
-    isAgentProcessing || streaming || delegating,
+    (isAgentProcessing || streaming || delegating) && !isSystemCommandRunning,
     (_taskLevel, agent, lastModel) => {
       return agent?.model_id || lastModel
     },

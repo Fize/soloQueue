@@ -36,8 +36,9 @@ export function LoadingIndicator() {
 function CompactSegment({ text }: { text: string }) {
   const { t } = useTranslation()
   return (
-    <div className="text-xs text-muted-foreground/50 italic py-0.5">
-      {t('common.contextCompacted')} {text}
+    <div className="text-muted-foreground/50 italic py-0.5">
+      <span className="text-xs">{t('common.contextCompacted')}</span>
+      <StreamdownPreview content={text} className="text-xs compact-preview" />
     </div>
   )
 }
