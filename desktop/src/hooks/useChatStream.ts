@@ -106,7 +106,7 @@ export function useChatStream() {
         if (finished) return
         finished = true
         setStreaming(false, sid)
-        setDelegating(false)
+        setDelegating(false, sid)
         activeRequestIdRef.current = null
         wsManager.unregisterChat(requestId)
       }
@@ -173,10 +173,10 @@ export function useChatStream() {
           finishRequest()
         },
         onDelegationStart: () => {
-          setDelegating(true)
+          setDelegating(true, sid)
         },
         onDelegationDone: (data) => {
-          setDelegating(false)
+          setDelegating(false, sid)
           completeLastDelegation(sid, data.target_agent_id, data.duration_ms, data.result_content)
         },
         onClose: () => {

@@ -45,7 +45,8 @@ export function ChatPage() {
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const messages = useChatStore((s) => s.messages)
   const streamingSessions = useChatStore(useShallow((s) => s.streamingSessions))
-  const delegating = useChatStore((s) => s.delegating)
+  const delegatingSessions = useChatStore(useShallow((s) => s.delegatingSessions))
+  const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
   const historyHasMore = useChatStore(useShallow((s) => s.historyHasMore))
   const historyLoading = useChatStore(useShallow((s) => s.historyLoading))

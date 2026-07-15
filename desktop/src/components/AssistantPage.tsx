@@ -18,13 +18,15 @@ export function AssistantPage() {
     activeSessionId,
     messages,
     streamingSessions,
-    delegating,
+    delegatingSessions,
     historyHasMore,
     historyLoading,
     loadMoreHistory,
     setActiveSession,
     loadHistory,
   } = useChatStore();
+
+  const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false;
 
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);

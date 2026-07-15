@@ -7,7 +7,7 @@ beforeEach(() => {
     activeSessionId: null,
     messages: {},
     streamingSessions: {},
-    delegating: false,
+    delegatingSessions: {},
     titleGenerated: {},
     historyLoading: {},
     historyHasMore: {},
@@ -90,5 +90,31 @@ describe('chatStore', () => {
       durationMs: 200,
       done: true,
     })
+  })
+
+  it('setDelegating scopes delegation status per session', () => {
+    useChatStore.setState({
+      activeSessionId: 'session-1',
+      delegatingSessions: {},
+    })
+
+    // Set delegation for session-1
+    useChatStore.getState().setDelegating(true, 'session-1')
+    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
+    expect(useChatStore.getState().delegatingSessions['session-2']).toBeUndefined()
+
+    // Set delegation for session-2
+    useChatStore.getState().setDelegating(true, 'session-2')
+    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
+    expect(useChatStore.getState().delegatingSessions['session-2']).toBe(true)
+
+    // Reset delegation for session-1
+    useChatStore.getState().setDelegating(false, 'session-1')
+    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(false)
+    expect(useChatStore.getState().delegatingSessions['session-2']).toBe(true)
+
+    // Test default activeSessionId fallback when sessionId is omitted
+    useChatStore.getState().setDelegating(true)
+    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
   })
 })
