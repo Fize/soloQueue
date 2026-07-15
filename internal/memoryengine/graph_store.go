@@ -126,7 +126,7 @@ func (g *GraphStore) GetEdgesFrom(ctx context.Context, nodeID int64, includeHist
 		JOIN kg_nodes tn ON e.target = tn.id
 		WHERE e.source = ?`
 	if !includeHistorical {
-		query += ` AND (e.valid_until IS NULL OR e.valid_until > datetime('now'))`
+		query += ` AND (e.valid_until IS NULL OR e.valid_until = '' OR e.valid_until > datetime('now'))`
 	}
 	query += ` ORDER BY e.weight DESC`
 
@@ -142,7 +142,7 @@ func (g *GraphStore) GetEdgesTo(ctx context.Context, nodeID int64, includeHistor
 		JOIN kg_nodes tn ON e.target = tn.id
 		WHERE e.target = ?`
 	if !includeHistorical {
-		query += ` AND (e.valid_until IS NULL OR e.valid_until > datetime('now'))`
+		query += ` AND (e.valid_until IS NULL OR e.valid_until = '' OR e.valid_until > datetime('now'))`
 	}
 	query += ` ORDER BY e.weight DESC`
 
@@ -157,7 +157,7 @@ func (g *GraphStore) GetAllEdges(ctx context.Context, includeHistorical bool) ([
 		JOIN kg_nodes sn ON e.source = sn.id
 		JOIN kg_nodes tn ON e.target = tn.id`
 	if !includeHistorical {
-		query += ` WHERE e.valid_until IS NULL OR e.valid_until > datetime('now')`
+		query += ` WHERE e.valid_until IS NULL OR e.valid_until = '' OR e.valid_until > datetime('now')`
 	}
 	query += ` ORDER BY e.weight DESC`
 

@@ -152,17 +152,29 @@ func TestEngine_ConnectEntities(t *testing.T) {
 	e := newTestEngine(t)
 	ctx := context.Background()
 
-	e.IndexEntity(ctx, "A", "person")
-	e.IndexEntity(ctx, "B", "person")
+	id1, _ := e.IndexEntity(ctx, "X", "person")
+	id2, _ := e.IndexEntity(ctx, "Y", "person")
 
 	now := time.Now()
-	err := e.ConnectEntities(ctx, "A", "B", "friend", 0.8, "evidence", "hash", now, nil, nil)
+	err := e.ConnectEntities(ctx, "X", "Y", "friend", 0.8, "evidence", "hash123", now, nil, nil)
 	if err != nil {
 		t.Fatalf("ConnectEntities: %v", err)
 	}
 
-	// ConnectEntities upserts nodes internally and creates an edge.
-	// We verify indirectly that the operation succeeded (no error = success).
+	edges, err := e.graph.GetEdgesFrom(ctx, id1, true)
+	if err != nil {
+		t.Fatalf("GetEdgesFrom: %v", err)
+	}
+	if len(edges) == 0 {
+		edges, err = e.graph.GetEdgesTo(ctx, id1, true)
+		if err != nil {
+			t.Fatalf("GetEdgesTo: %v", err)
+		}
+	}
+	if len(edges) == 0 {
+		t.Error("expected at least 1 edge connecting X and Y, got 0")
+	}
+	_ = id2
 }
 
 func TestEngine_Timeline(t *testing.T) {
@@ -253,5 +265,77 @@ func TestEbbinghausSalience(t *testing.T) {
 	s3 := EbbinghausSalience(1.0, 0, 30.0)
 	if s3 != 1.0 {
 		t.Errorf("zero-day recall should return 1.0, got %f", s3)
+	}
+}
+
+func TestEngine_RecallEntity(t *testing.T) {
+	e := newTestEngine(t)
+	ctx := context.Background()
+
+	hash, _, err := e.SaveWithEntities(ctx, "Alice discussed the project",
+		"2026-01-01", "test", "2026-01-01T12:00:00Z",
+		[]EntityExtraction{
+			{Name: "Alice", Type: "person",
+				Relations: []RelationExtraction{
+					{TargetName: "Bob", RelType: "colleague", Weight: 0.9},
+				}},
+			{Name: "Bob", Type: "person"},
+		})
+	if err != nil {
+		t.Fatalf("SaveWithEntities: %v", err)
+	}
+	_ = hash
+
+	results, err := e.RecallEntity(ctx, "Alice", 2, 10)
+	if err != nil {
+		t.Fatalf("RecallEntity: %v", err)
+	}
+	t.Logf("RecallEntity returned %d results", len(results))
+}
+
+func TestEngine_RecallEntity_NotFound(t *testing.T) {
+	e := newTestEngine(t)
+	ctx := context.Background()
+
+	results, err := e.RecallEntity(ctx, "NoSuchEntity", 2, 10)
+	if err != nil {
+		t.Fatalf("RecallEntity: %v", err)
+	}
+	if len(results) != 0 {
+		t.Error("RecallEntity for missing entity should return empty results")
+	}
+}
+
+func TestEngine_ShortestPath(t *testing.T) {
+	e := newTestEngine(t)
+	ctx := context.Background()
+
+	if _, err := e.IndexEntity(ctx, "N1", "node"); err != nil {
+		t.Fatalf("IndexEntity N1: %v", err)
+	}
+	if _, err := e.IndexEntity(ctx, "N2", "node"); err != nil {
+		t.Fatalf("IndexEntity N2: %v", err)
+	}
+	if _, err := e.IndexEntity(ctx, "N3", "node"); err != nil {
+		t.Fatalf("IndexEntity N3: %v", err)
+	}
+
+	now := time.Now()
+	if err := e.ConnectEntities(ctx, "N1", "N2", "link", 1.0, "", "", now, nil, nil); err != nil {
+		t.Fatalf("Connect N1→N2: %v", err)
+	}
+	if err := e.ConnectEntities(ctx, "N2", "N3", "link", 1.0, "", "", now, nil, nil); err != nil {
+		t.Fatalf("Connect N2→N3: %v", err)
+	}
+
+	nodes, pathEdges, err := e.ShortestPath(ctx, "N1", "N3", 3)
+	if err != nil {
+		t.Fatalf("ShortestPath: %v", err)
+	}
+	if len(nodes) == 0 {
+		t.Error("expected nodes in path")
+	}
+	if len(pathEdges) == 0 {
+		t.Error("expected edges in path")
 	}
 }
