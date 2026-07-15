@@ -7,6 +7,7 @@ import {
   Plus,
   ChevronDown,
   List,
+  Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FileInfo } from "@/types";
@@ -388,7 +389,7 @@ export function ChatDesignPanel({
   return (
     <div className="flex flex-col h-full bg-background select-none relative">
       {/* ── Tab Bar ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 bg-background border-b border-border px-3 h-10 overflow-x-auto shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex items-center gap-1 bg-card/20 border-b border-border px-3 h-10 overflow-x-auto shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {/* Permanent Sketch Tab */}
         <button
           onClick={() => {
@@ -396,62 +397,78 @@ export function ChatDesignPanel({
             setStrokes([]);
           }}
           className={cn(
-            "flex items-center gap-1.5 px-3 h-10 text-xs font-semibold border-b-2 transition-colors cursor-pointer -mb-[1px]",
+            "group flex items-center gap-2 px-3.5 h-10 text-xs font-semibold border-x border-t transition-all cursor-pointer rounded-t-md -mb-[1px] relative",
             activeTab === "sketch"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
+              ? "bg-background border-border border-b-transparent text-foreground z-10"
+              : "bg-card/40 border-border/40 border-r-border/60 border-t-transparent border-l-transparent text-muted-foreground hover:text-foreground hover:bg-card/65"
           )}
         >
-          <Palette className="h-3 w-3" />
+          {activeTab === "sketch" && (
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-primary rounded-t-md" />
+          )}
+          <Palette className="h-3.5 w-3.5 shrink-0" />
           <span>{t('common.sketchpad')}</span>
         </button>
 
         {/* HTML File Tabs — only show non-closed ones */}
-        {designFiles.filter((f) => !closedTabs.has(f.path)).map((file) => (
-          <div
-            key={file.path}
-            className={cn(
-              "flex items-center h-10 text-xs font-semibold border-b-2 transition-colors cursor-pointer max-w-[160px] -mb-[1px]",
-              activeTab === file.path
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
-            )}
-          >
-            <button
+        {designFiles.filter((f) => !closedTabs.has(f.path)).map((file) => {
+          const isActive = activeTab === file.path;
+          return (
+            <div
+              key={file.path}
+              className={cn(
+                "group flex items-center h-10 text-xs font-semibold border-x border-t transition-all cursor-pointer max-w-[160px] -mb-[1px] relative rounded-t-md px-3 gap-2",
+                isActive
+                  ? "bg-background border-border border-b-transparent text-foreground z-10"
+                  : "bg-card/40 border-border/40 border-r-border/60 border-t-transparent border-l-transparent text-muted-foreground hover:text-foreground hover:bg-card/65"
+              )}
               onClick={() => {
                 setActiveTab(file.path);
                 setStrokes([]);
               }}
-              className="flex items-center gap-1.5 px-2 h-full min-w-0"
-              title={file.name}
             >
-              <span className="shrink-0">{file.ext === '.sketch' ? "🎨" : "🌐"}</span>
-              <span className="truncate">{file.name}</span>
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const nextClosed = new Set([...closedTabs, file.path]);
-                setClosedTabs(nextClosed);
-                if (activeTab === file.path) {
-                  const remaining = designFiles.filter(
-                    (f) => f.path !== file.path && !nextClosed.has(f.path)
-                  );
-                  if (remaining.length > 0) {
-                    setActiveTab(remaining[0].path);
-                  } else {
-                    setActiveTab('sketch');
+              {isActive && (
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-primary rounded-t-md" />
+              )}
+              
+              {file.ext === '.sketch' ? (
+                <Palette className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+              ) : (
+                <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80 group-hover:text-foreground/80" />
+              )}
+              
+              <span className="truncate max-w-[90px] select-none" title={file.name}>
+                {file.name}
+              </span>
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextClosed = new Set([...closedTabs, file.path]);
+                  setClosedTabs(nextClosed);
+                  if (activeTab === file.path) {
+                    const remaining = designFiles.filter(
+                      (f) => f.path !== file.path && !nextClosed.has(f.path)
+                    );
+                    if (remaining.length > 0) {
+                      setActiveTab(remaining[0].path);
+                    } else {
+                      setActiveTab('sketch');
+                    }
+                    setStrokes([]);
                   }
-                  setStrokes([]);
-                }
-              }}
-              className="shrink-0 pr-2 pl-1 h-full text-muted-foreground/50 hover:text-destructive transition-colors flex items-center justify-center"
-              title="Close preview tab"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        ))}
+                }}
+                className={cn(
+                  "shrink-0 p-0.5 rounded hover:bg-muted-foreground/10 text-muted-foreground/45 hover:text-foreground transition-all opacity-0 group-hover:opacity-100 focus:opacity-100",
+                  isActive && "opacity-100"
+                )}
+                title="Close preview tab"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        })}
 
         {/* All files dropdown — reopen closed tabs */}
         {designFiles.length > 0 && (
@@ -462,15 +479,18 @@ export function ChatDesignPanel({
                 setShowFileDropdown(!showFileDropdown);
               }}
               className={cn(
-                "flex items-center gap-1 px-2 h-10 text-xs font-semibold border-b-2 transition-colors cursor-pointer -mb-[1px]",
+                "flex items-center gap-1 px-2.5 h-10 text-xs font-semibold border-x border-t transition-all cursor-pointer -mb-[1px] rounded-t-md relative",
                 showFileDropdown
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10"
+                  ? "bg-background border-border border-b-transparent text-foreground z-10"
+                  : "bg-card/40 border-border/40 border-t-transparent text-muted-foreground hover:text-foreground hover:bg-card/65"
               )}
               title="All design files"
             >
-              <List className="h-3 w-3" />
-              <ChevronDown className={`h-3 w-3 transition-transform ${showFileDropdown ? 'rotate-180' : ''}`} />
+              {showFileDropdown && (
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-primary rounded-t-md" />
+              )}
+              <List className="h-3.5 w-3.5" />
+              <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${showFileDropdown ? 'rotate-180' : ''}`} />
             </button>
             {showFileDropdown && (
               <div
@@ -511,7 +531,11 @@ export function ChatDesignPanel({
                             : "text-foreground hover:bg-muted/50"
                         )}
                       >
-                        <span className="shrink-0">{file.ext === '.sketch' ? "🎨" : "🌐"}</span>
+                        {file.ext === '.sketch' ? (
+                          <Palette className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+                        ) : (
+                          <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
+                        )}
                         <span className="truncate flex-1">{file.name}</span>
                         {isClosed && (
                           <span className="shrink-0 text-[10px] text-muted-foreground/60 bg-muted px-1.5 py-0.5 rounded">

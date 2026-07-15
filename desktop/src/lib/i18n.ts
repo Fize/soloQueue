@@ -1101,7 +1101,7 @@ export const translations = {
       settings: '设置',
       config: '全局配置',
       connection: '连接管理',
-      profile: '开发者画像',
+      profile: '助手画像',
       skills: '智能体技能',
       mcp: 'MCP 服务',
       teams: '团队管理',
@@ -1201,7 +1201,7 @@ export const translations = {
       restartFailed: '重启后端失败',
     },
     profile: {
-      title: '开发者画像',
+      title: '助手画像',
       soul: 'Soul',
       soulDesc: '定义核心智能体的行为模式、风格及背景指令。',
       rules: 'Rules',
@@ -1474,7 +1474,7 @@ export const translations = {
       teamFilter: '团队',
     },
     chat: {
-      title: '智能助手与会话',
+      title: '会话',
       newChat: '新建会话',
       thinking: '思考中...',
       placeholder: '输入消息，回车发送...',
