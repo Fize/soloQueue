@@ -113,6 +113,23 @@ export function useResizablePanes(isDesignMode: boolean, activeSessionId: string
     useRuntimeStore.getState().setInspectorPanelWidth(targetWidth)
   }, [isDesignMode, containerWidth])
 
+  // Reset panel width when leaving design mode. The width set during design
+  // mode (~60% of container) is way too wide for the normal inspector and
+  // also pushes the right-section header's "Close Panel" button to the
+  // extreme right edge where it visually disappears. Without this reset,
+  // the next `toggleInspector(true)` call inherits the stale width.
+  const prevIsDesignModeRef = useRef(isDesignMode)
+  useEffect(() => {
+    const wasDesignMode = prevIsDesignModeRef.current
+    prevIsDesignModeRef.current = isDesignMode
+    if (wasDesignMode && !isDesignMode) {
+      const DEFAULT_INSPECTOR_WIDTH = 300
+      hasManuallyResized.current = false
+      setPanelWidth(DEFAULT_INSPECTOR_WIDTH)
+      useRuntimeStore.getState().setInspectorPanelWidth(DEFAULT_INSPECTOR_WIDTH)
+    }
+  }, [isDesignMode])
+
   return {
     panelWidth,
     isResizing,

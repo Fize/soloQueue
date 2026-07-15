@@ -438,6 +438,23 @@ body {
   overflow-wrap: break-word;
 }
 
+/* Custom syntax highlighting selectors since Tailwind arbitrary values in node_modules aren't compiled */
+html:not(.light) .markdown-preview [data-streamdown="code-block-body"] pre {
+  color: var(--shiki-dark-fg, var(--sdm-fg, var(--foreground)));
+}
+html.light .markdown-preview [data-streamdown="code-block-body"] pre {
+  color: var(--sdm-fg, var(--foreground));
+}
+
+html:not(.light) .markdown-preview pre code span {
+  color: var(--shiki-dark, var(--sdm-c, inherit));
+  background-color: var(--shiki-dark-bg, var(--sdm-tbg), transparent);
+}
+html.light .markdown-preview pre code span {
+  color: var(--sdm-c, inherit);
+  background-color: var(--sdm-tbg, transparent);
+}
+
 /* Streamdown code block refinements */
 .markdown-preview [data-streamdown="code-block"] {
   background: var(--code-bg);

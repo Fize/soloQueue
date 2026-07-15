@@ -38,7 +38,7 @@ function MarkdownPreviewInner({
       <Streamdown
         parseIncompleteMarkdown={false}
         isAnimating={false}
-        shikiTheme={['github-dark', 'github-light']}
+        shikiTheme={['github-light', 'github-dark']}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         plugins={{ code }}
