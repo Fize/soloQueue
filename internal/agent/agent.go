@@ -351,11 +351,23 @@ func (a *Agent) MailboxDepth() (high, normal int) {
 // Thread-safe (atomic pointer store). Calling with nil clears the override.
 func (a *Agent) SetModelOverride(params *ModelParams) {
 	a.modelOverride.Store(params)
+	a.mu.Lock()
+	fn := a.onStateChange
+	a.mu.Unlock()
+	if fn != nil {
+		fn(a.State())
+	}
 }
 
 // ClearModelOverride removes the per-ask override, reverting to Definition defaults.
 func (a *Agent) ClearModelOverride() {
 	a.modelOverride.Store(nil)
+	a.mu.Lock()
+	fn := a.onStateChange
+	a.mu.Unlock()
+	if fn != nil {
+		fn(a.State())
+	}
 }
 
 // ModelOverride returns the current per-ask model override, or nil if none is active.

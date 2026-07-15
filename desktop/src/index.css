@@ -7,7 +7,7 @@
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical (&[data-orientation="vertical"]);
 
-/* ─── SoloQueue V2 Brand Tokens (Warm Clay) ─────────────────────────── */
+/* ─── SoloQueue V3 Brand Tokens (Deep Signal) ──────────────────────── */
 @theme {
   --color-primary: #2363EA;
   --color-primary-foreground: #FFFFFF;
@@ -34,24 +34,40 @@
   --color-success-foreground: #FFFFFF;
   --color-warning: #D97706;
   --color-warning-foreground: #FFFFFF;
-  --color-surface-secondary: #262523;
+  --color-surface-secondary: #22232B;
   --color-info: #0284C7;
 
-  /* Data Visualization — Charts */
+  /* Signal — 活动指示色 (Activity/Signal Indicator) */
+  /* 场景: Agent 呼吸动画、加载 spinner、进度条填充、活动态脉冲圆点 */
+  /* 与 Primary 区分: Primary=静态品牌标识, Signal=动态进行中 */
+  --color-signal: #0BC5EA;
+  --color-signal-foreground: #0F1117;
+
+  /* Model Identity — 多模型标识色 (Per-model chat badges/avatars) */
+  /* 场景: Chat 消息头像背景、AgentWorkingIndicator 模型标签、模型选择器 */
+  --color-model-deepseek: #2363EA;
+  --color-model-glm:      #7C3AED;
+  --color-model-minimax:  #0D9488;
+  --color-model-kimi:     #D97706;
+
+  /* Data Visualization — Charts (高对比可区分, 仅用于折线图/柱状图) */
+  /* 场景: StatsTab Recharts 折线、柱状、面积图 */
   --color-chart-1: #6366F1;
   --color-chart-2: #14B8A6;
   --color-chart-3: #F59E0B;
   --color-chart-4: #3B82F6;
   --color-chart-5: #8B5CF6;
 
-  /* Data Visualization — Heatmap (GitHub-style green scale) */
+  /* Data Visualization — Heatmap (GitHub-style contribution green scale) */
+  /* 场景: ActivityHeatmap 组件, 0=空 1=低 2=中 3=高 4=极高活跃度 */
   --color-heatmap-0: #EBEDF0;
   --color-heatmap-1: #9BE9A8;
   --color-heatmap-2: #40C463;
   --color-heatmap-3: #30A14E;
   --color-heatmap-4: #216E39;
 
-  /* Domain — Agent Relationship Colors */
+  /* Domain — Agent Relationship Colors (模拟社交关系图着色) */
+  /* 场景: SimulationGraph 力导向图, AgentDetailPanel 关系边 */
   --color-relation-parent:   #EC4899;
   --color-relation-child:    #EC4899;
   --color-relation-sibling:  #A855F7;
@@ -65,7 +81,8 @@
   --color-relation-stranger: #CBD5E1;
   --color-relation-default:  #9E9E9E;
 
-  /* Domain — Simulation Role Colors */
+  /* Domain — Simulation Role Colors (模拟参与者角色着色) */
+  /* 场景: SimulationGraph 节点, 区分 moderator/pro/con/neutral */
   --color-role-moderator: #FF6B00;
   --color-role-mediator:  #FF6B00;
   --color-role-host:      #FF6B00;
@@ -73,13 +90,13 @@
   --color-role-con:       #F43F5E;
   --color-role-neutral:   #3B82F6;
 
-  /* SoloQueue V2 Radii */
+  /* SoloQueue V3 Radii */
   --radius-lg: 8px;
   --radius-md: 6px;
   --radius-sm: 4px;
   --radius-xl: 12px;
 
-  /* SoloQueue V2 Typography */
+  /* SoloQueue V3 Typography */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'Iosevka Custom', ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
 }
@@ -147,6 +164,8 @@
   --color-warning: #D97706;
   --color-warning-foreground: #FFFFFF;
   --color-info: #0284C7;
+  --color-signal: #0891B2;
+  --color-signal-foreground: #FFFFFF;
   --color-surface-secondary: #FFFFFF;
 
   color-scheme: light;
@@ -574,8 +593,31 @@ html.light .markdown-preview pre code span {
   }
 }
 
+@keyframes led-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(3.5);
+    opacity: 0;
+  }
+}
+
 .animate-led-breathing {
   animation: led-breathing 2s ease-in-out infinite;
+}
+
+.animate-led-ping-1 {
+  animation: led-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.animate-led-ping-2 {
+  animation: led-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  animation-delay: 1s;
 }
 
 .agent-working-breathing {

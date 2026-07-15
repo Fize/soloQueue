@@ -81,8 +81,10 @@ function AgentWorkingIndicatorInner({
       )}
     >
       {/* Breathing Light (呼吸灯) */}
-      <span className="relative flex h-2.5 w-2.5 mx-1.5 shrink-0">
-        <span className="animate-led-breathing absolute inset-0 rounded-full bg-primary" />
+      <span className="relative flex h-2.5 w-2.5 mx-1.5 shrink-0 items-center justify-center">
+        <span className="animate-led-breathing absolute h-2 w-2 rounded-full bg-primary" />
+        <span className="animate-led-ping-1 absolute h-2 w-2 rounded-full bg-primary/40" />
+        <span className="animate-led-ping-2 absolute h-2 w-2 rounded-full bg-primary/20" />
       </span>
 
       {/* Left-aligned context chips: model + task level. */}
