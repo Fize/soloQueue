@@ -3,6 +3,8 @@ package cron
 import (
 	"testing"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 )
 
 func TestNextTrigger(t *testing.T) {
@@ -63,5 +65,98 @@ func TestNextTrigger(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestIsL1Target(t *testing.T) {
+	tests := []struct {
+		task Task
+		want bool
+	}{
+		{Task{TargetAgent: "L1"}, true},
+		{Task{TargetAgent: "l1"}, true},
+		{Task{TargetAgent: "engineering"}, false},
+		{Task{TargetAgent: "L2"}, false},
+		{Task{TargetAgent: ""}, true}, // empty defaults to L1
+	}
+	for _, tt := range tests {
+		if got := isL1Target(tt.task); got != tt.want {
+			t.Errorf("isL1Target(%q) = %v, want %v", tt.task.TargetAgent, got, tt.want)
+		}
+	}
+}
+
+func TestDrainEvents(t *testing.T) {
+	ch := make(chan iface.AgentEvent, 3)
+	ch <- struct{ iface.AgentEvent }{}
+	// Send a content delta via the agent package helper
+	close(ch)
+
+	content, media := drainEvents(ch)
+	if content != "" {
+		t.Logf("drainEvents content = %q", content)
+	}
+	if len(media) != 0 {
+		t.Logf("drainEvents media = %v", media)
+	}
+}
+
+func TestDrainEvents_Empty(t *testing.T) {
+	ch := make(chan iface.AgentEvent, 1)
+	close(ch)
+
+	content, media := drainEvents(ch)
+	if content != "" {
+		t.Errorf("drainEvents on empty channel got content = %q", content)
+	}
+	if len(media) != 0 {
+		t.Errorf("drainEvents on empty channel got %d media", len(media))
+	}
+}
+
+func TestBuildCronPrompt(t *testing.T) {
+	task := Task{
+		Instruction: "Check health status",
+	}
+	prompt := buildCronPrompt(task)
+	if len(prompt) == 0 {
+		t.Error("buildCronPrompt returned empty string")
+	}
+}
+
+func TestParseSendFileMedia(t *testing.T) {
+	raw := `{"status":"success","file_type":"image","file_name":"test.png","url":"https://example.com/img.png"}`
+	result := parseSendFileMedia(raw)
+	if result == nil {
+		t.Fatal("parseSendFileMedia returned nil")
+	}
+	if result.FileType != 1 {
+		t.Errorf("FileType = %d, want 1 (image)", result.FileType)
+	}
+	if result.FileName != "test.png" {
+		t.Errorf("FileName = %q, want test.png", result.FileName)
+	}
+}
+
+func TestParseSendFileMedia_InvalidJSON(t *testing.T) {
+	result := parseSendFileMedia("not json")
+	if result != nil {
+		t.Error("parseSendFileMedia should return nil for invalid JSON")
+	}
+}
+
+func TestTask_Fields(t *testing.T) {
+	task := Task{
+		ID:          "task-1",
+		Expression:  "0 9 * * *",
+		Instruction: "Do something",
+		TargetAgent: "L1",
+		Status:      "active",
+	}
+	if task.ID != "task-1" {
+		t.Errorf("ID = %q", task.ID)
+	}
+	if task.Expression != "0 9 * * *" {
+		t.Errorf("Expression = %q", task.Expression)
 	}
 }

@@ -1,0 +1,226 @@
+package sqlitedb
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestOpen_Memory(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) = %v", err)
+	}
+	defer db.Close()
+
+	if db.DB == nil {
+		t.Fatal("db.DB is nil")
+	}
+}
+
+func TestOpen_File(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open(%q) = %v", path, err)
+	}
+	// Verify the file was created.
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Errorf("database file not created: %v", statErr)
+	}
+	db.Close()
+}
+
+func TestOpen_SubdirectoryCreation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sub", "test.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open should create subdirectory: %v", err)
+	}
+	db.Close()
+}
+
+func TestInsertTokenUsage(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	err := db.InsertTokenUsage(context.Background(), "chat", "team-a", "test-model", 10, 5, 15, 0, 0)
+	if err != nil {
+		t.Fatalf("InsertTokenUsage: %v", err)
+	}
+
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "chat")
+	if err != nil {
+		t.Fatalf("GetTokenUsageAggregated: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row, got %d", len(stats))
+	}
+	if stats[0].TotalTokens != 15 {
+		t.Errorf("TotalTokens = %d, want 15", stats[0].TotalTokens)
+	}
+	if stats[0].PromptTokens != 10 {
+		t.Errorf("PromptTokens = %d, want 10", stats[0].PromptTokens)
+	}
+	if stats[0].CompletionTokens != 5 {
+		t.Errorf("CompletionTokens = %d, want 5", stats[0].CompletionTokens)
+	}
+	if stats[0].ModelName != "test-model" {
+		t.Errorf("ModelName = %q, want test-model", stats[0].ModelName)
+	}
+}
+
+func TestInsertTokenUsage_FilterByTeam(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 10, 5, 15, 0, 0)
+	db.InsertTokenUsage(context.Background(), "chat", "team-b", "m1", 20, 10, 30, 0, 0)
+
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "")
+	if err != nil {
+		t.Fatalf("GetTokenUsageAggregated: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row for team-a, got %d", len(stats))
+	}
+	if stats[0].TeamID != "team-a" {
+		t.Errorf("TeamID = %q, want team-a", stats[0].TeamID)
+	}
+}
+
+func TestInsertTokenUsage_MultipleModels(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 10, 5, 15, 0, 0)
+	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 5, 3, 8, 0, 0)
+	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m2", 100, 50, 150, 0, 0)
+
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "", "")
+	if err != nil {
+		t.Fatalf("GetTokenUsageAggregated: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 model groups, got %d", len(stats))
+	}
+	totalTokens := stats[0].TotalTokens + stats[1].TotalTokens
+	if totalTokens != 173 {
+		t.Errorf("total = %d, want 173 (15+8+150)", totalTokens)
+	}
+}
+
+func TestInsertTokenUsage_CacheTokens(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	err := db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 100, 50, 150, 80, 20)
+	if err != nil {
+		t.Fatalf("InsertTokenUsage: %v", err)
+	}
+
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "")
+	if err != nil {
+		t.Fatalf("GetTokenUsageAggregated: %v", err)
+	}
+	if stats[0].CacheHitTokens != 80 {
+		t.Errorf("CacheHitTokens = %d, want 80", stats[0].CacheHitTokens)
+	}
+	if stats[0].CacheMissTokens != 20 {
+		t.Errorf("CacheMissTokens = %d, want 20", stats[0].CacheMissTokens)
+	}
+}
+
+func TestInsertRouterClassification(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	err := db.InsertRouterClassification(context.Background(), "router", "team-a", "L2-MediumMultiFile", "llm")
+	if err != nil {
+		t.Fatalf("InsertRouterClassification: %v", err)
+	}
+
+	stats, err := db.GetRouterStatsAggregated(context.Background(), "daily", "team-a")
+	if err != nil {
+		t.Fatalf("GetRouterStatsAggregated: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row, got %d", len(stats))
+	}
+	if stats[0].Count != 1 {
+		t.Errorf("Count = %d, want 1", stats[0].Count)
+	}
+	if stats[0].ClassificationLevel != "L2-MediumMultiFile" {
+		t.Errorf("Level = %q, want L2-MediumMultiFile", stats[0].ClassificationLevel)
+	}
+}
+
+func TestGetDistinctTeams(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 1, 1, 2, 0, 0)
+	db.InsertTokenUsage(context.Background(), "chat", "team-b", "m1", 1, 1, 2, 0, 0)
+	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 1, 1, 2, 0, 0)
+
+	teams, err := db.GetDistinctTeams(context.Background())
+	if err != nil {
+		t.Fatalf("GetDistinctTeams: %v", err)
+	}
+	if len(teams) != 2 {
+		t.Fatalf("expected 2 teams, got %d: %v", len(teams), teams)
+	}
+}
+
+func TestGetDistinctTeams_Empty(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	teams, err := db.GetDistinctTeams(context.Background())
+	if err != nil {
+		t.Fatalf("GetDistinctTeams: %v", err)
+	}
+	if len(teams) != 0 {
+		t.Errorf("expected 0 teams, got %d", len(teams))
+	}
+}
+
+func TestInsertTokenUsage_Concurrent(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	const n = 10
+	done := make(chan struct{})
+	for i := 0; i < n; i++ {
+		go func(id int) {
+			db.InsertTokenUsage(context.Background(), "chat", "team-c", "mm", 1, 1, 2, 0, 0)
+			done <- struct{}{}
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		<-done
+	}
+
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-c", "")
+	if err != nil {
+		t.Fatalf("GetTokenUsageAggregated: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row, got %d", len(stats))
+	}
+	if stats[0].TotalTokens != n*2 {
+		t.Errorf("TotalTokens = %d, want %d", stats[0].TotalTokens, n*2)
+	}
+}
+
+func openTestDB(t *testing.T) *DB {
+	t.Helper()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) = %v", err)
+	}
+	return db
+}
