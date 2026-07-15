@@ -71,6 +71,7 @@ export interface ChatDesignPanelProps {
   onDesignModeToggle: (enabled: boolean) => void;
   panelWidth: number;
   onResizeStart: (e: React.MouseEvent) => void;
+  isResizing?: boolean;
   selectedProjectPath: string;
   selectedGroup: string;
   /** Reports the currently selected element target back to the parent. */
@@ -84,6 +85,7 @@ export interface ChatDesignPanelProps {
 export function ChatDesignPanel({
   isDesignMode,
   onResizeStart,
+  isResizing,
   selectedProjectPath,
   selectedGroup,
   onSelectedTargetChange,
@@ -527,7 +529,7 @@ export function ChatDesignPanel({
       </div>
 
       {/* ── Design Canvas Preview Area ────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 overflow-hidden relative">
+      <div className="flex-1 min-h-0 overflow-hidden relative ml-1 border-l border-border/30">
         {activeTab === 'sketch' ? (
           <div className="relative w-full h-full bg-background overflow-hidden flex items-center justify-center select-none">
             <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, currentColor 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }} />
@@ -560,6 +562,7 @@ export function ChatDesignPanel({
               setSelectedTarget(t);
             }}
             onResizeStart={onResizeStart}
+            isResizing={isResizing}
           />
         ) : (
           <div className="relative w-full h-full bg-background overflow-hidden flex items-center justify-center select-none">

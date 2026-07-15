@@ -662,6 +662,8 @@ export function ChatPage() {
               showInspector
                 ? "flex-1 justify-between"
                 : "flex-1 justify-between",
+              isResizing ? "transition-none" : "transition-all duration-300",
+              isDesignMode && "min-w-[320px]"
             )}
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -699,8 +701,11 @@ export function ChatPage() {
           {/* Right section: panel header area — aligned to inspector width */}
           {((showInspector && activeSession) || isDesignMode) && (
             <div
-              className="shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3"
-              style={{ width: panelWidth }}
+              className={cn(
+                "shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3",
+                isResizing ? "transition-none" : "transition-all duration-300"
+              )}
+              style={{ width: isDesignMode ? panelWidth + 4 : panelWidth }}
             >
               {isDesignMode ? (
                 <div className="flex items-center justify-between w-full">
@@ -776,7 +781,7 @@ export function ChatPage() {
           <div className={cn(
             "flex flex-col min-w-0 h-full overflow-hidden bg-background",
             isResizing ? "transition-none" : "transition-all duration-300",
-            isDesignMode ? "flex-1 min-w-[320px] border-r border-border/30" : "flex-1 min-w-0"
+            isDesignMode ? "flex-1 min-w-[320px]" : "flex-1 min-w-0"
           )}>
             {finalMessages.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
@@ -910,20 +915,31 @@ export function ChatPage() {
           {((showInspector && activeSession) || isDesignMode) && (
             <>
               {/* Resize handle */}
+              {!isDesignMode && (
+                <div
+                  onMouseDown={handleResizeStart}
+                  className={cn(
+                    "w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors",
+                    isResizing && "bg-primary/40",
+                  )}
+                />
+              )}
               <div
-                onMouseDown={handleResizeStart}
                 className={cn(
-                  "w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors",
-                  isResizing && "bg-primary/40",
-                )}
-              />
-              <div
-                className={cn(
-                  "border-l border-border/30 h-full overflow-hidden bg-card/5 flex flex-col shrink-0",
+                  "border-l border-border/30 h-full overflow-hidden bg-card/5 flex flex-col shrink-0 relative",
                   isResizing ? "transition-none" : "transition-all duration-300",
                 )}
-                style={{ width: panelWidth }}
+                style={{ width: isDesignMode ? panelWidth + 4 : panelWidth }}
               >
+                {isDesignMode && (
+                  <div
+                    onMouseDown={handleResizeStart}
+                    className={cn(
+                      "absolute left-0 top-0 w-1 h-full cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors z-50",
+                      isResizing && "bg-primary/40",
+                    )}
+                  />
+                )}
                 {/* Panel content */}
                 <div className="flex-1 min-h-0 overflow-hidden">
                   {isDesignMode ? (
@@ -932,6 +948,7 @@ export function ChatPage() {
                       onDesignModeToggle={(enabled) => setDesignMode(enabled)}
                       panelWidth={panelWidth}
                       onResizeStart={handleResizeStart}
+                      isResizing={isResizing}
                       selectedProjectPath={selectedProjectPath}
                       selectedGroup={selectedGroup}
                       onSelectedTargetChange={setDesignSelectedTarget}

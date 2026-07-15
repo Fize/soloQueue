@@ -67,6 +67,7 @@ interface DesignPreviewProps {
   strokes?: ColoredStroke[];
   currentColor?: string;
   onResizeStart?: (e: React.MouseEvent) => void;
+  isResizing?: boolean;
 }
 
 export function DesignPreview({
@@ -78,6 +79,7 @@ export function DesignPreview({
   strokes = [],
   currentColor = 'hsl(var(--destructive))',
   onResizeStart,
+  isResizing = false,
 }: DesignPreviewProps) {
   const { t } = useTranslation()
   const [hoveredTarget, setHoveredTarget] = useState<PreviewCommentSnapshot | null>(null);
@@ -339,7 +341,10 @@ export function DesignPreview({
           <iframe
             ref={iframeRef}
             srcDoc={srcDoc}
-            className="w-full h-full border-none"
+            className={cn(
+              "w-full h-full border-none",
+              isResizing && "pointer-events-none"
+            )}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             onLoad={() => {
               const iframeWindow = iframeRef.current?.contentWindow;
