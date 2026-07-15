@@ -200,68 +200,20 @@ func (s *Stack) RebuildPrompt() error {
 //   - [] = explicit empty → load nothing
 //   - ["name"] = whitelist → only load named servers
 func (s *Stack) L1MCPServers() []string {
-	if s.MCPManager == nil {
+	if s.Settings == nil {
 		return nil
 	}
-
-	var names []string
-
-	// External MCP servers (from mcp.json)
-	cfg := s.MCPManager.Loader().Get()
-	externalSet := s.externalMCPSet()
-	for _, srv := range cfg.Servers {
-		if !srv.Enabled {
-			continue
-		}
-		if externalSet == nil || externalSet[srv.Name] {
-			names = append(names, srv.Name)
-		}
-	}
-
-	// Built-in MCP servers (e.g. builtin-lsp)
-	builtinSet := s.builtinMCPSet()
-	if s.LSPManager != nil && (builtinSet == nil || builtinSet["builtin-lsp"]) {
-		names = append(names, "builtin-lsp")
-	}
-
-	return names
+	cfg := s.Settings.Get()
+	return gatherMCPServerNames(s.MCPManager, s.LSPManager, cfg.Agent.ExternalMCPServers, cfg.Agent.BuiltinMCPServers)
 }
 
 // externalMCPSet returns the whitelist for external MCP servers.
 // nil = not configured (load all external servers).
 // non-nil = explicitly configured (empty map = load none, non-empty = whitelist).
-func (s *Stack) externalMCPSet() map[string]bool {
-	if s.Settings == nil {
-		return nil
-	}
-	allowed := s.Settings.Get().Agent.ExternalMCPServers
-	if allowed == nil {
-		return nil
-	}
-	set := make(map[string]bool, len(allowed))
-	for _, name := range allowed {
-		set[name] = true
-	}
-	return set
-}
 
 // builtinMCPSet returns the whitelist for built-in MCP servers.
 // nil = not configured (load all built-in servers).
 // non-nil = explicitly configured (empty map = load none, non-empty = whitelist).
-func (s *Stack) builtinMCPSet() map[string]bool {
-	if s.Settings == nil {
-		return nil
-	}
-	allowed := s.Settings.Get().Agent.BuiltinMCPServers
-	if allowed == nil {
-		return nil
-	}
-	set := make(map[string]bool, len(allowed))
-	for _, name := range allowed {
-		set[name] = true
-	}
-	return set
-}
 
 // OnConfigChange rebuilds the LLM client and updates the stack's cached configurations
 // dynamically when DB settings change.

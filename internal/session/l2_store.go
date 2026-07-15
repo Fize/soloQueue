@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"fmt"
 	"os"
@@ -477,13 +478,9 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 	}
 
 	// Sort by created_at descending (newest first).
-	for i := 0; i < len(result)-1; i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].CreatedAt.After(result[i].CreatedAt) {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
 
 	return result
 }

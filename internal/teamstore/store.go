@@ -510,6 +510,27 @@ func (s *Store) writeAgentFile(path string, a *Agent) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
+
+// WorkspaceFromPrompt converts a prompt.Workspace slice to a teamstore.Workspace slice.
+func WorkspaceFromPrompt(src []prompt.Workspace) []Workspace {
+	if src == nil {
+		return nil
+	}
+	out := make([]Workspace, len(src))
+	for i, w := range src {
+		out[i] = Workspace{
+			Name: w.Name,
+			Path: w.Path,
+			AutoWork: AutoWorkConfig{
+				Enabled:                 w.AutoWork.Enabled,
+				InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
+				PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
+				MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
+			},
+		}
+	}
+	return out
+}
 func parseTeamFile(path string, info os.FileInfo) (*Team, error) {
 	gf, err := prompt.ParseGroupFile(path)
 	if err != nil {
@@ -534,19 +555,7 @@ func parseTeamFile(path string, info os.FileInfo) (*Team, error) {
 
 	var workspaces []Workspace
 	if gf.Frontmatter.Workspaces != nil {
-		workspaces = make([]Workspace, len(gf.Frontmatter.Workspaces))
-		for i, w := range gf.Frontmatter.Workspaces {
-			workspaces[i] = Workspace{
-				Name: w.Name,
-				Path: w.Path,
-				AutoWork: AutoWorkConfig{
-					Enabled:                 w.AutoWork.Enabled,
-					InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
-					PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
-					MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
-				},
-			}
-		}
+		workspaces = WorkspaceFromPrompt(gf.Frontmatter.Workspaces)
 	}
 
 	return &Team{

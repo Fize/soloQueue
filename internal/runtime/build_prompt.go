@@ -77,33 +77,8 @@ func (bc *buildContext) buildPrompt() error {
 	// ── Build L1 System Prompt ───────────────────────────────────────────────
 	var mcpServers []string
 	if bc.mcpMgr != nil {
-		// External MCP servers (from mcp.json)
-		externalAllowed := bc.cfg.Get().Agent.ExternalMCPServers
-		var externalSet map[string]bool
-		if externalAllowed != nil {
-			externalSet = make(map[string]bool, len(externalAllowed))
-			for _, name := range externalAllowed {
-				externalSet[name] = true
-			}
-		}
-		for _, srv := range bc.mcpMgr.Loader().Get().Servers {
-			if srv.Enabled && (externalSet == nil || externalSet[srv.Name]) {
-				mcpServers = append(mcpServers, srv.Name)
-			}
-		}
-
-		// Builtin MCP servers (e.g. builtin-lsp)
-		builtinAllowed := bc.cfg.Get().Agent.BuiltinMCPServers
-		var builtinSet map[string]bool
-		if builtinAllowed != nil {
-			builtinSet = make(map[string]bool, len(builtinAllowed))
-			for _, name := range builtinAllowed {
-				builtinSet[name] = true
-			}
-		}
-		if bc.lspMgr != nil && (builtinSet == nil || builtinSet["builtin-lsp"]) {
-			mcpServers = append(mcpServers, "builtin-lsp")
-		}
+		cfg := bc.cfg.Get()
+		mcpServers = gatherMCPServerNames(bc.mcpMgr, bc.lspMgr, cfg.Agent.ExternalMCPServers, cfg.Agent.BuiltinMCPServers)
 	}
 	bc.mcpServers = mcpServers
 

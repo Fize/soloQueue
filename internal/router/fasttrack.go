@@ -1,6 +1,7 @@
 package router
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -327,18 +328,9 @@ func formatFileCount(n int) string {
 	if n == 1 {
 		return "1 file detected"
 	}
-	return strings.Replace("N files detected", "N", strings.TrimSpace(strings.Repeat(" ", 0)+itoa(n)), 1)
+	return fmt.Sprintf("%d files detected", n)
 }
 
-func itoa(n int) string {
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	if n < 10 {
-		return string(rune('0' + n))
-	}
-	return itoa(n/10) + string(rune('0'+n%10))
-}
 
 // ─── Utility Methods ─────────────────────────────────────────────────────────
 

@@ -135,25 +135,8 @@ var (
 // --- Path extraction ---
 
 // convertWorkspaces converts []prompt.Workspace to []teamstore.Workspace.
-// The types are structurally identical.
 func convertWorkspaces(src []prompt.Workspace) []teamstore.Workspace {
-	if src == nil {
-		return nil
-	}
-	out := make([]teamstore.Workspace, len(src))
-	for i, w := range src {
-		out[i] = teamstore.Workspace{
-			Name: w.Name,
-			Path: w.Path,
-			AutoWork: teamstore.AutoWorkConfig{
-				Enabled:                 w.AutoWork.Enabled,
-				InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
-				PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
-				MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
-			},
-		}
-	}
-	return out
+	return teamstore.WorkspaceFromPrompt(src)
 }
 
 // pathArgs is a generic struct for extracting the "path" field from tool args.

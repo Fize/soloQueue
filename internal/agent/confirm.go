@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
 
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -133,3 +135,37 @@ const (
 )
 
 // Agent does not directly implement tools.Locatable; it is wrapped by locatableAdapter for adaptation.
+
+// routeConfirm creates a ConfirmForwarder closure used by DelegateTool. It
+// registers a proxy confirmSlot, blocks until the user makes a choice, handles
+// denial (empty choice), then forwards the choice to the child agent.
+func (a *Agent) routeConfirm() iface.ConfirmForwarder {
+	return func(fwdCtx context.Context, callID string, child iface.Locatable) (string, error) {
+		slot := &confirmSlot{ch: make(chan string, 1)}
+		a.confirmMu.Lock()
+		a.pendingConfirm[callID] = slot
+		a.confirmMu.Unlock()
+
+		defer func() {
+			a.confirmMu.Lock()
+			delete(a.pendingConfirm, callID)
+			a.confirmMu.Unlock()
+		}()
+
+		select {
+		case choice := <-slot.ch:
+			if choice == "" {
+				a.userDenied.Store(true)
+				if f, ok := a.taskCancel.Load().(context.CancelFunc); ok {
+					f()
+				}
+			}
+			if err := child.Confirm(callID, choice); err != nil {
+				return "", err
+			}
+			return choice, nil
+		case <-fwdCtx.Done():
+			return "", fwdCtx.Err()
+		}
+	}
+}

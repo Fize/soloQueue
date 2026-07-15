@@ -11,6 +11,45 @@ import (
 	lspmcp "github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
 )
 
+// gatherMCPServerNames collects enabled MCP server names, applying the optional
+// external and builtin whitelists. nil or empty slice = no whitelist (load all
+// enabled servers). Empty map = load none. Populated map = whitelist.
+func gatherMCPServerNames(mcpMgr *mcp.Manager, lspMgr *lspmcp.Manager, externalAllowed, builtinAllowed []string) []string {
+	if mcpMgr == nil {
+		return nil
+	}
+
+	var names []string
+
+	// External MCP servers (from mcp.json)
+	var externalSet map[string]bool
+	if externalAllowed != nil {
+		externalSet = make(map[string]bool, len(externalAllowed))
+		for _, name := range externalAllowed {
+			externalSet[name] = true
+		}
+	}
+	for _, srv := range mcpMgr.Loader().Get().Servers {
+		if srv.Enabled && (externalSet == nil || externalSet[srv.Name]) {
+			names = append(names, srv.Name)
+		}
+	}
+
+	// Built-in MCP servers (e.g. builtin-lsp)
+	var builtinSet map[string]bool
+	if builtinAllowed != nil {
+		builtinSet = make(map[string]bool, len(builtinAllowed))
+		for _, name := range builtinAllowed {
+			builtinSet[name] = true
+		}
+	}
+	if lspMgr != nil && (builtinSet == nil || builtinSet["builtin-lsp"]) {
+		names = append(names, "builtin-lsp")
+	}
+
+	return names
+}
+
 // buildMCP initializes the MCP Loader, Manager, and built-in LSP MCP.
 func (bc *buildContext) buildMCP() {
 	mcpConfigPath := filepath.Join(bc.workDir, "mcp.json")

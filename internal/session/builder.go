@@ -41,6 +41,16 @@ func NewBuilder(rt *runtime.Stack, workDir string, cfg *config.GlobalService, co
 	}
 }
 
+// newSessionLogger creates a session-level logger from the current settings.
+func (b *Builder) newSessionLogger() (*logger.Logger, error) {
+	settings := b.Cfg.Get()
+	return logger.System(b.WorkDir,
+		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
+		logger.WithConsole(b.ConsoleLog),
+		logger.WithFile(settings.Log.File),
+	)
+}
+
 // Build creates a new session with its own agent, context window, and
 // timeline writer. Implements AgentFactory signature.
 func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
@@ -77,15 +87,11 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if effectiveTeam == "" {
 		effectiveTeam = "default"
 	}
-	settings := b.Cfg.Get()
-	sessLog, err := logger.System(b.WorkDir,
-		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
-		logger.WithConsole(b.ConsoleLog),
-		logger.WithFile(settings.Log.File),
-	)
+	sessLog, err := b.newSessionLogger()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 	}
+	settings := b.Cfg.Get()
 
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := toolsCfg
@@ -749,11 +755,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	settings := b.Cfg.Get()
-	sessLog, err := logger.System(b.WorkDir,
-		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
-		logger.WithConsole(b.ConsoleLog),
-		logger.WithFile(settings.Log.File),
-	)
+	sessLog, err := b.newSessionLogger()
 	if err != nil {
 		return nil, fmt.Errorf("build L2 session logger: %w", err)
 	}
@@ -957,11 +959,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	}
 
 	settings := b.Cfg.Get()
-	sessLog, err := logger.System(b.WorkDir,
-		logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
-		logger.WithConsole(b.ConsoleLog),
-		logger.WithFile(settings.Log.File),
-	)
+	sessLog, err := b.newSessionLogger()
 	if err != nil {
 		return nil, fmt.Errorf("build L2 cron session logger: %w", err)
 	}

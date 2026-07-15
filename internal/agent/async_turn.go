@@ -175,15 +175,7 @@ func (a *Agent) execToolsWithAsync(
 			asyncCtx = iface.ContextWithAgentName(asyncCtx, a.Def.Name)
 		}
 		if override := a.modelOverride.Load(); override != nil {
-			asyncCtx = iface.ContextWithModelOverride(asyncCtx, &iface.ModelOverrideParams{
-				ProviderID:      override.ProviderID,
-				ModelID:         override.ModelID,
-				ThinkingEnabled: override.ThinkingEnabled,
-				ReasoningEffort: override.ReasoningEffort,
-				ThinkingType:    override.ThinkingType,
-				Level:           override.Level,
-				ContextWindow:   override.ContextWindow,
-			})
+			asyncCtx = iface.ContextWithModelOverride(asyncCtx, override.ToIFaceOverride())
 		}
 
 		// Call ExecuteAsync to get the intent (without starting a goroutine)
@@ -248,34 +240,7 @@ func (a *Agent) execToolsWithAsync(
 			// --- Inject confirm relay (aligned with execToolStream synchronous path) ---
 			relayCh := make(chan iface.AgentEvent, 16)
 
-			forwarder := iface.ConfirmForwarder(func(fwdCtx context.Context, callID string, child iface.Locatable) (string, error) {
-				slot := &confirmSlot{ch: make(chan string, 1)}
-				a.confirmMu.Lock()
-				a.pendingConfirm[callID] = slot
-				a.confirmMu.Unlock()
-
-				defer func() {
-					a.confirmMu.Lock()
-					delete(a.pendingConfirm, callID)
-					a.confirmMu.Unlock()
-				}()
-
-			select {
-			case choice := <-slot.ch:
-				if choice == "" {
-					a.userDenied.Store(true)
-					if f, ok := a.taskCancel.Load().(context.CancelFunc); ok {
-						f()
-					}
-				}
-				if err := child.Confirm(callID, choice); err != nil {
-					return "", err
-				}
-				return choice, nil
-			case <-fwdCtx.Done():
-					return "", fwdCtx.Err()
-				}
-			})
+			forwarder := a.routeConfirm()
 
 			relayDone := make(chan struct{})
 			go func() {

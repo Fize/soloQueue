@@ -2,6 +2,8 @@ package agent
 
 import (
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 )
 
 type Role string
@@ -173,6 +175,22 @@ type ModelParams struct {
 	// Vision indicates the model supports multimodal image_url content parts.
 	// When false, image content is dropped and replaced with text annotations.
 	Vision bool
+}
+
+// ToIFaceOverride converts ModelParams to iface.ModelOverrideParams for context propagation.
+func (m *ModelParams) ToIFaceOverride() *iface.ModelOverrideParams {
+	if m == nil {
+		return nil
+	}
+	return &iface.ModelOverrideParams{
+		ProviderID:      m.ProviderID,
+		ModelID:         m.ModelID,
+		ThinkingEnabled: m.ThinkingEnabled,
+		ReasoningEffort: m.ReasoningEffort,
+		ThinkingType:    m.ThinkingType,
+		Level:           m.Level,
+		ContextWindow:   m.ContextWindow,
+	}
 }
 
 // ─── Runtime observability ───────────────────────────────────────────────

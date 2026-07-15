@@ -997,37 +997,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 
 	// Inject confirm forwarder: when DelegateTool sees a ToolNeedsConfirmEvent
 	// from the child stream, it invokes this closure to route the request.
-	forwarder := iface.ConfirmForwarder(func(fwdCtx context.Context, callID string, child iface.Locatable) (string, error) {
-		// Register proxy confirmSlot on this agent (L2)
-		slot := &confirmSlot{ch: make(chan string, 1)}
-		a.confirmMu.Lock()
-		a.pendingConfirm[callID] = slot
-		a.confirmMu.Unlock()
-
-		defer func() {
-			a.confirmMu.Lock()
-			delete(a.pendingConfirm, callID)
-			a.confirmMu.Unlock()
-		}()
-
-		// Block until Confirm(callID, choice) is called → slot.ch receives choice
-		select {
-		case choice := <-slot.ch:
-			if choice == "" {
-				a.userDenied.Store(true)
-				if f, ok := a.taskCancel.Load().(context.CancelFunc); ok {
-					f()
-				}
-			}
-			// Forward to child agent's (L3) original confirmSlot
-			if err := child.Confirm(callID, choice); err != nil {
-				return "", err
-			}
-			return choice, nil
-		case <-fwdCtx.Done():
-			return "", fwdCtx.Err()
-		}
-	})
+	forwarder := a.routeConfirm()
 	toolCtx = tools.WithConfirmForwarder(toolCtx, forwarder)
 
 	// Start relay goroutine: only forward ToolNeedsConfirmEvent to parent.
@@ -1071,15 +1041,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	// Propagate model override to child agents via context (for delegation chain).
 	// When this tool is a DelegateTool, it reads this from ctx and sets it on the target agent.
 	if override := a.modelOverride.Load(); override != nil {
-		toolCtx = iface.ContextWithModelOverride(toolCtx, &iface.ModelOverrideParams{
-			ProviderID:      override.ProviderID,
-			ModelID:         override.ModelID,
-			ThinkingEnabled: override.ThinkingEnabled,
-			ReasoningEffort: override.ReasoningEffort,
-			ThinkingType:    override.ThinkingType,
-			Level:           override.Level,
-			ContextWindow:   override.ContextWindow,
-		})
+		toolCtx = iface.ContextWithModelOverride(toolCtx, override.ToIFaceOverride())
 	}
 
 	result, err := tool.Execute(toolCtx, args)
