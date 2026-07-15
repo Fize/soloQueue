@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   listTeams,
   createTeam,
@@ -10,7 +11,7 @@ import {
   deleteAgent,
   listProjects,
   listModels,
-  getMCPConfig,
+  getAvailableMCPServers,
   getSkills,
 } from '@/lib/api'
 import type { TeamResponse, AgentResponse, Project, LLMModel } from '@/types'
@@ -45,12 +46,14 @@ interface MultiSelectProps {
   options: string[]
   selected: string[]
   onChange: (selected: string[]) => void
+  builtinNames?: Set<string>
 }
 
-function MultiSelect({ label, placeholder, options, selected, onChange }: MultiSelectProps) {
+function MultiSelect({ label, placeholder, options, selected, onChange, builtinNames }: MultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null)
   
   const handleRemove = (item: string) => {
     onChange(selected.filter(x => x !== item))
@@ -85,17 +88,72 @@ function MultiSelect({ label, placeholder, options, selected, onChange }: MultiS
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [])
 
+  useEffect(() => {
+    if (!isOpen || !containerRef.current) {
+      setDropdownPos(null)
+      return
+    }
+    const updatePos = () => {
+      if (!containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+    }
+    updatePos()
+    window.addEventListener('scroll', updatePos, true)
+    window.addEventListener('resize', updatePos)
+    return () => {
+      window.removeEventListener('scroll', updatePos, true)
+      window.removeEventListener('resize', updatePos)
+    }
+  }, [isOpen])
+
   const filteredOptions = options.filter(
     opt => opt.toLowerCase().includes(search.toLowerCase()) && !selected.includes(opt)
   )
 
+  const dropdown = isOpen && dropdownPos && (filteredOptions.length > 0 || search.trim()) && createPortal(
+    <div
+      className="fixed z-[9999] max-h-48 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100"
+      style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+    >
+      <div className="p-1">
+        {filteredOptions.map(opt => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => handleSelect(opt)}
+            className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none transition-colors flex items-center justify-between"
+          >
+            <span>{opt}</span>
+            {builtinNames?.has(opt) && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 text-muted-foreground">builtin</Badge>
+            )}
+          </button>
+        ))}
+        {search.trim() && !options.includes(search.trim()) && !selected.includes(search.trim()) && (
+          <button
+            type="button"
+            onClick={() => handleSelect(search.trim())}
+            className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none italic text-muted-foreground font-medium transition-colors"
+          >
+            Add "{search.trim()}"...
+          </button>
+        )}
+      </div>
+    </div>,
+    document.body
+  )
+
   return (
-    <div ref={containerRef} className="flex flex-col gap-1.5 text-left relative w-full">
+    <div ref={containerRef} className="flex flex-col gap-1.5 text-left w-full">
       {label && <Label className="text-xs font-semibold text-muted-foreground">{label}</Label>}
       <div className="min-h-10 w-full rounded-md border border-border bg-card px-3 py-1.5 text-xs flex flex-wrap gap-1.5 items-center focus-within:ring-1 focus-within:ring-primary/40 focus-within:border-primary transition-all">
         {selected.map(item => (
           <Badge key={item} variant="secondary" className="flex items-center gap-1 py-0.5 pl-2 pr-1 border border-border">
             <span>{item}</span>
+            {builtinNames?.has(item) && (
+              <span className="text-[9px] text-muted-foreground font-medium">builtin</span>
+            )}
             <button
               type="button"
               onClick={(e) => {
@@ -121,32 +179,7 @@ function MultiSelect({ label, placeholder, options, selected, onChange }: MultiS
           className="flex-1 bg-transparent border-0 outline-none placeholder:text-muted-foreground min-w-[80px] p-0 text-xs text-foreground focus:ring-0 focus:outline-none"
         />
       </div>
-
-      {isOpen && (filteredOptions.length > 0 || search.trim()) && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100">
-          <div className="p-1">
-            {filteredOptions.map(opt => (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => handleSelect(opt)}
-                className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none transition-colors"
-              >
-                {opt}
-              </button>
-            ))}
-            {search.trim() && !options.includes(search.trim()) && !selected.includes(search.trim()) && (
-              <button
-                type="button"
-                onClick={() => handleSelect(search.trim())}
-                className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none italic text-muted-foreground font-medium transition-colors"
-              >
-                Add "{search.trim()}"...
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      {dropdown}
     </div>
   )
 }
@@ -234,8 +267,8 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md w-[95vw] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-md w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <div className="flex items-center gap-2">
             <DialogTitle className="text-sm font-bold text-foreground">
               {isEdit ? t('teams.editTeam') : t('teams.createTeam')}
@@ -249,7 +282,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 my-2 text-left">
+        <div className="flex-1 overflow-y-auto min-h-0 my-2 space-y-4 text-left">
           {!isEdit && (
             <Input
               label={t('common.name')}
@@ -320,9 +353,9 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
           </div>
         </div>
 
-        {error && <p className="text-xs text-destructive text-left">{error}</p>}
+        {error && <p className="text-xs text-destructive text-left shrink-0">{error}</p>}
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving} className="text-xs">
             {t('common.cancel')}
           </Button>
@@ -369,12 +402,14 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const { t } = useTranslation()
 
   const [promptTab, setPromptTab] = useState<'edit' | 'preview'>('preview')
-  const [mcpOptions, setMcpOptions] = useState<string[]>([])
+  const [mcpOptions, setMcpOptions] = useState<{ name: string; source: string; command?: string }[]>([])
+  const [builtinMCPNames, setBuiltinMCPNames] = useState<Set<string>>(new Set())
   const [skillOptions, setSkillOptions] = useState<string[]>([])
   const [modelOptions, setModelOptions] = useState<LLMModel[]>([])
   const [selectedProviderFilter, setSelectedProviderFilter] = useState('all')
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const modelContainerRef = useRef<HTMLDivElement>(null)
+  const [modelDropdownPos, setModelDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null)
 
   const isEdit = !!editAgent
 
@@ -410,8 +445,11 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         .then((res) => setSkillOptions(res.skills.map((s) => s.id)))
         .catch(console.error)
       
-      getMCPConfig()
-        .then((cfg) => setMcpOptions(Object.keys(cfg.mcpServers || {})))
+      getAvailableMCPServers()
+        .then((res) => {
+          setMcpOptions(res.servers.map(s => ({ name: s.name, source: s.source, command: s.command })))
+          setBuiltinMCPNames(new Set(res.servers.filter(s => s.source === 'builtin').map(s => s.name)))
+        })
         .catch(console.error)
 
       listModels()
@@ -429,6 +467,25 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     document.addEventListener('mousedown', handleOutsideClick)
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [])
+
+  useEffect(() => {
+    if (!showModelDropdown || !modelContainerRef.current) {
+      setModelDropdownPos(null)
+      return
+    }
+    const updatePos = () => {
+      if (!modelContainerRef.current) return
+      const rect = modelContainerRef.current.getBoundingClientRect()
+      setModelDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+    }
+    updatePos()
+    window.addEventListener('scroll', updatePos, true)
+    window.addEventListener('resize', updatePos)
+    return () => {
+      window.removeEventListener('scroll', updatePos, true)
+      window.removeEventListener('resize', updatePos)
+    }
+  }, [showModelDropdown])
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
@@ -503,8 +560,8 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <div className="flex items-center gap-2.5">
             <DialogTitle className="text-sm font-bold text-foreground">
               {isEdit ? t('teams.editAgent') : t('teams.createAgent')}
@@ -516,7 +573,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 my-2 text-left">
+        <div className="flex-1 overflow-y-auto min-h-0 my-2 space-y-4 text-left">
           {/* Base Settings */}
           {!isEdit && (
             <Input
@@ -531,9 +588,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select label={t('teams.team')} options={teamOptions} value={teamName} onChange={setTeamName} className="text-xs" />
             
-            <div ref={modelContainerRef} className="flex flex-col gap-1.5 text-left relative w-full">
+            <div ref={modelContainerRef} className="flex flex-col gap-1.5 text-left w-full">
               <Label className="text-xs font-semibold text-muted-foreground">{t('teams.modelOverride')}</Label>
-              <div className="relative">
+              <div>
                 <Input
                   value={model}
                   onChange={(e) => {
@@ -544,61 +601,66 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                   placeholder={t('teams.modelOverridePlaceholder')}
                   className="text-xs"
                 />
-                {showModelDropdown && (filteredModelOptions.length > 0 || providers.length > 1) && (
-                  <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100 flex flex-col">
-                    {providers.length > 2 && (
-                      <div className="flex gap-1 p-1.5 border-b border-border overflow-x-auto bg-muted/20 shrink-0 select-none">
-                        {providers.map(p => {
-                          const isSelected = selectedProviderFilter === p
-                          return (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedProviderFilter(p)
-                              }}
-                              className={`px-2 py-0.5 text-[9px] font-semibold rounded-full border transition-all shrink-0 cursor-pointer ${
-                                isSelected
-                                  ? 'bg-primary border-primary text-white'
-                                  : 'bg-card border-border text-muted-foreground hover:text-foreground'
-                              }`}
-                            >
-                              {p.toUpperCase()}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    <div className="p-1 overflow-y-auto">
-                      {filteredModelOptions.length === 0 ? (
-                        <div className="text-[10px] text-muted-foreground text-center py-2 italic">
-                          No models found
-                        </div>
-                      ) : (
-                        filteredModelOptions.map((opt) => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => {
-                              setModel(opt.id)
-                              setShowModelDropdown(false)
-                            }}
-                            className="w-full px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none transition-colors flex items-center justify-between gap-2"
-                          >
-                            <span className="truncate">{opt.id}</span>
-                            <span className="text-[9px] font-medium text-muted-foreground bg-muted/40 px-1 py-0.2 rounded border border-border/40 shrink-0">
-                              {opt.providerId}
-                            </span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
+
+          {showModelDropdown && modelDropdownPos && (filteredModelOptions.length > 0 || providers.length > 1) && createPortal(
+            <div
+              className="fixed z-[9999] max-h-56 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100 flex flex-col"
+              style={{ top: modelDropdownPos.top, left: modelDropdownPos.left, width: modelDropdownPos.width }}
+            >
+              {providers.length > 2 && (
+                <div className="flex gap-1 p-1.5 border-b border-border overflow-x-auto bg-muted/20 shrink-0 select-none">
+                  {providers.map(p => {
+                    const isSelected = selectedProviderFilter === p
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedProviderFilter(p)
+                        }}
+                        className={`px-2 py-0.5 text-[9px] font-semibold rounded-full border transition-all shrink-0 cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary border-primary text-white'
+                            : 'bg-card border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {p.toUpperCase()}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="p-1 overflow-y-auto">
+                {filteredModelOptions.length === 0 ? (
+                  <div className="text-[10px] text-muted-foreground text-center py-2 italic">
+                    No models found
+                  </div>
+                ) : (
+                  filteredModelOptions.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setModel(opt.id)
+                        setShowModelDropdown(false)
+                      }}
+                      className="w-full px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none transition-colors flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate">{opt.id}</span>
+                      <span className="text-[9px] font-medium text-muted-foreground bg-muted/40 px-1 py-0.2 rounded border border-border/40 shrink-0">
+                        {opt.providerId}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>,
+            document.body
+          )}
 
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs font-semibold text-muted-foreground">{t('teams.agentDescription')}</Label>
@@ -650,12 +712,13 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
           {/* Multi-Select Selectors */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <MultiSelect
+          <MultiSelect
               label={t('teams.selectMcp')}
               placeholder={t('teams.mcpServersPlaceholder')}
-              options={mcpOptions}
+              options={mcpOptions.map(o => o.name)}
               selected={mcpServers}
               onChange={setMcpServers}
+              builtinNames={builtinMCPNames}
             />
             <MultiSelect
               label={t('teams.selectSkills')}
@@ -718,9 +781,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           </div>
         </div>
 
-        {error && <p className="text-xs text-destructive text-left">{error}</p>}
+        {error && <p className="text-xs text-destructive text-left shrink-0">{error}</p>}
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving} className="text-xs">
             {t('common.cancel')}
           </Button>

@@ -203,6 +203,7 @@ func ServeCmd(version string) *cobra.Command {
 			server.WithAgentsDir(filepath.Join(workDir, "agents")),
 			server.WithPromptRebuild(rebuildPrompt),
 			server.WithMCPLoader(MCPLoaderFromRT(rt)),
+			server.WithMCPManager(rt.MCPManager),
 			server.WithTeamStore(rt.TeamStore),
 			server.WithAuthConfig(cfg.Get().Auth),
 			server.WithOnConfigChange(func() error {

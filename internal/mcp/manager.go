@@ -212,6 +212,17 @@ func (m *Manager) Shutdown() {
 	m.virtualTools = make(map[string]func() []tools.Tool)
 }
 
+// VirtualServerNames returns the names of all registered virtual servers.
+func (m *Manager) VirtualServerNames() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	names := make([]string, 0, len(m.virtualTools))
+	for name := range m.virtualTools {
+		names = append(names, name)
+	}
+	return names
+}
+
 // Loader returns the underlying config loader.
 func (m *Manager) Loader() *Loader {
 	return m.loader

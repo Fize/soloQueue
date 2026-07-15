@@ -60,6 +60,16 @@ export interface MCPConfig {
   mcpServers: Record<string, MCPServerWire>;
 }
 
+export interface MCPServerInfo {
+  name: string;
+  source: 'builtin' | 'external';
+  command?: string;
+}
+
+export interface MCPAvailableResponse {
+  servers: MCPServerInfo[];
+}
+
 // ─── File Types ─────────────────────────────────────────────────────────────────
 
 export interface FileInfo {

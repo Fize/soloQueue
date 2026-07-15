@@ -72,6 +72,7 @@ type Mux struct {
 	rebuildPrompt func() error     // rebuilds L1 system prompt after soul/rules edit
 	agentsDir     string           // path to ~/.soloqueue/agents directory
 	mcpLoader     *mcp.Loader      // MCP config loader for /api/mcp endpoints
+	mcpManager    *mcp.Manager     // MCP server manager for /api/mcp/available endpoint
 	sessionMgr    *session.SessionManager
 	l2Store       *session.L2SessionStore // L2 multi-session store (nil if not configured)
 	authConfig       config.AuthConfig
@@ -156,6 +157,11 @@ func WithPromptRebuild(fn func() error) MuxOption {
 // WithMCPLoader sets the MCP config loader for /api/mcp endpoints.
 func WithMCPLoader(loader *mcp.Loader) MuxOption {
 	return func(m *Mux) { m.mcpLoader = loader }
+}
+
+// WithMCPManager sets the MCP server manager for /api/mcp/available endpoint.
+func WithMCPManager(mgr *mcp.Manager) MuxOption {
+	return func(m *Mux) { m.mcpManager = mgr }
 }
 
 // WithAuthConfig sets the auth configuration.
@@ -474,6 +480,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	// MCP config routes
 	r.Get("/api/mcp", m.handleGetMCPConfig)
 	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
+	r.Get("/api/mcp/available", m.handleGetAvailableMCPServers)
 
 	// File routes (read-only access to plan directory and team workspaces)
 	r.Get("/api/files/content", m.handleGetFileContent)

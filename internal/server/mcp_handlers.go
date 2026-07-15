@@ -22,6 +22,44 @@ func (m *Mux) handleGetMCPConfig(w http.ResponseWriter, _ *http.Request) {
 	m.writeJSON(w, http.StatusOK, cfg)
 }
 
+// availableMCPServer represents an MCP server available for agent selection.
+type availableMCPServer struct {
+	Name    string `json:"name"`
+	Source  string `json:"source"` // "builtin" or "external"
+	Command string `json:"command,omitempty"`
+}
+
+// handleGetAvailableMCPServers returns all MCP servers (both external and built-in)
+// that can be selected for agents.
+// GET /api/mcp/available
+func (m *Mux) handleGetAvailableMCPServers(w http.ResponseWriter, _ *http.Request) {
+	var servers []availableMCPServer
+
+	if m.mcpManager != nil {
+		for _, name := range m.mcpManager.VirtualServerNames() {
+			servers = append(servers, availableMCPServer{
+				Name:   name,
+				Source: "builtin",
+			})
+		}
+	}
+
+	if m.mcpLoader != nil {
+		cfg, err := m.mcpLoader.ReadFromDisk()
+		if err == nil {
+			for _, s := range cfg.Servers {
+				servers = append(servers, availableMCPServer{
+					Name:    s.Name,
+					Source:  "external",
+					Command: s.Command,
+				})
+			}
+		}
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]any{"servers": servers})
+}
+
 // handleUpdateMCPConfig replaces the full MCP server list.
 // PATCH /api/mcp
 func (m *Mux) handleUpdateMCPConfig(w http.ResponseWriter, r *http.Request) {

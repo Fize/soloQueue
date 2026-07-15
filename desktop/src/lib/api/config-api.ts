@@ -13,6 +13,7 @@ import type {
   SkillListResponse,
   SkillInfo,
   MCPConfig,
+  MCPAvailableResponse,
 } from "@/types";
 import { request, API_BASE } from "./core";
 import { useConnectionStore } from "@/stores/connectionStore";
@@ -204,6 +205,10 @@ export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
     method: "PATCH",
     body: JSON.stringify(config),
   });
+}
+
+export async function getAvailableMCPServers(): Promise<MCPAvailableResponse> {
+  return request<MCPAvailableResponse>("/mcp/available");
 }
 
 // ─── Skill Management & Store APIs ──────────────────────────────────────────
