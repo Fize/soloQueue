@@ -86,6 +86,7 @@ export function DesignPreview({
   const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null);
   const [scrollOffset, setScrollOffset] = useState({ x: 0, y: 0 });
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeKey, setIframeKey] = useState(0);
 
   // Device preview state
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
@@ -162,20 +163,14 @@ export function DesignPreview({
 
   const navigate = (action: 'back' | 'forward' | 'reload') => {
     try {
+      if (action === 'reload') {
+        setIframeKey(k => k + 1);
+        return;
+      }
       const win = iframeRef.current?.contentWindow;
       if (!win) return;
       if (action === 'back') win.history.back();
       else if (action === 'forward') win.history.forward();
-      else if (action === 'reload') {
-        const iframe = iframeRef.current;
-        if (iframe) {
-          const current = iframe.srcdoc;
-          iframe.srcdoc = '';
-          requestAnimationFrame(() => {
-            if (iframe) iframe.srcdoc = current;
-          });
-        }
-      }
     } catch {
       // sandboxed iframe may block navigation
     }
@@ -218,14 +213,7 @@ export function DesignPreview({
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
         <button
-          onClick={() => {
-            const iframe = iframeRef.current;
-            if (iframe) {
-              const current = iframe.srcdoc;
-              iframe.srcdoc = '';
-              requestAnimationFrame(() => { iframe.srcdoc = current; });
-            }
-          }}
+          onClick={() => setIframeKey(k => k + 1)}
           onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           title={t('common.resetHome')}
@@ -339,6 +327,7 @@ export function DesignPreview({
           style={selectedDevice ? { width: selectedDevice.width, height: selectedDevice.height } : undefined}
         >
           <iframe
+            key={iframeKey}
             ref={iframeRef}
             srcDoc={srcDoc}
             className={cn(
