@@ -443,51 +443,6 @@ func LSPTools(mgr *Manager) []tools.Tool {
 	}
 }
 
-// ToolActionNames returns the tool action names, used for display.
-func ToolActionNames() []string {
-	return []string{
-		"goto_definition",
-		"find_references",
-		"hover",
-		"document_symbols",
-		"workspace_symbols",
-		"find_implementations",
-		"diagnostics",
-		"call_hierarchy_incoming",
-		"call_hierarchy_outgoing",
-		"rename_symbol",
-		"document_outline",
-		"get_code_item",
-		"goto_definition_by_name",
-		"format_file",
-	}
-}
-
-// toolNames returns full tool names, used for display.
-func toolNames() []string {
-	return []string{
-		"lsp__goto_definition",
-		"lsp__find_references",
-		"lsp__hover",
-		"lsp__document_symbols",
-		"lsp__workspace_symbols",
-		"lsp__find_implementations",
-		"lsp__diagnostics",
-		"lsp__call_hierarchy_incoming",
-		"lsp__call_hierarchy_outgoing",
-		"lsp__rename_symbol",
-		"lsp__document_outline",
-		"lsp__get_code_item",
-		"lsp__goto_definition_by_name",
-		"lsp__format_file",
-	}
-}
-
-// toolNames is used by manager for display.
-func ToolNames() string {
-	return strings.Join(toolNames(), ", ")
-}
-
 // ── New Tool Constructors ───────────────────────────────────────────────────
 
 func newRenameSymbolTool(mgr *Manager) tools.Tool {

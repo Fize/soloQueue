@@ -511,20 +511,6 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 // Returns nil for events that should not be forwarded (e.g., IterationDoneEvent).
 func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 	switch e := ev.(type) {
-	case agent.ContentDeltaEvent:
-		return &WSMessage{
-			Type:      "chat_chunk",
-			RequestID: requestID,
-			Delta:     e.Delta,
-		}
-
-	case agent.ReasoningDeltaEvent:
-		return &WSMessage{
-			Type:      "reasoning_chunk",
-			RequestID: requestID,
-			Delta:     e.Delta,
-		}
-
 	case agent.ToolExecStartEvent:
 		return &WSMessage{
 			Type:          "tool_start",

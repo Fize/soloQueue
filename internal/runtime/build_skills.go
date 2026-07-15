@@ -18,9 +18,6 @@ func (bc *buildContext) buildSkills() {
 	skill.SetPackageLogger(bc.log)
 	skillReg := skill.NewSkillRegistry()
 
-	// 1. Register builtin skills first (lower priority)
-	skill.RegisterBuiltinSkills(skillReg)
-
 	// Load user skills from workDir/skills/
 	userSkillsDir := filepath.Join(bc.workDir, "skills")
 	skillDirs := map[string]string{

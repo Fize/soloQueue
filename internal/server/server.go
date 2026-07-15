@@ -232,16 +232,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Use(middleware.RealIP)
 	r.Use(m.corsMiddleware)
 
-	// Logging middleware
-	r.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if m.accessLogger != nil {
-				m.accessLogger.Middleware(next).ServeHTTP(w, r)
-			} else {
-				next.ServeHTTP(w, r)
-			}
-		})
-	})
 	r.Use(middleware.Recoverer)
 
 	for _, opt := range opts {

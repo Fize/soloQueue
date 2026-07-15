@@ -719,18 +719,6 @@ func TestDelegateTool_ExecuteAsync_NoLocatorOrSpawnFn(t *testing.T) {
 	}
 }
 
-func TestAsyncAction_TargetID(t *testing.T) {
-	action := &tools.AsyncAction{Target: nil}
-	if action.TargetID() != "" {
-		t.Errorf("TargetID() = %q, want empty", action.TargetID())
-	}
-
-	action2 := &tools.AsyncAction{Target: &mockLocatable{}}
-	if action2.TargetID() != "" {
-		t.Logf("TargetID() = %q (expected empty until Locatable has ID)", action2.TargetID())
-	}
-}
-
 func TestDelegationEvents_AreAgentEvents(t *testing.T) {
 	var _ AgentEvent = DelegationStartedEvent{}
 	var _ AgentEvent = DelegationCompletedEvent{}

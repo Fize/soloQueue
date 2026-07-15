@@ -24,12 +24,9 @@ func newRecallMemoryTool(cfg Config) *recallMemoryTool {
 func (recallMemoryTool) Name() string { return "RecallMemory" }
 
 func (recallMemoryTool) Description() string {
-	desc := "Search long-term memory using hybrid search (BM25 keyword matching + Knowledge Graph traversal). "
-	if desc != "" {
-		desc += "Use this when the user refers to past conversations, asks about previously discussed topics, " +
-			"or when you need historical context. Returns matching entries sorted by relevance."
-	}
-	return desc
+	return "Search long-term memory using hybrid search (BM25 keyword matching + Knowledge Graph traversal). " +
+		"Use this when the user refers to past conversations, asks about previously discussed topics, " +
+		"or when you need historical context. Returns matching entries sorted by relevance."
 }
 
 func (recallMemoryTool) Parameters() json.RawMessage {

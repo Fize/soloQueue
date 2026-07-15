@@ -782,17 +782,6 @@ func LoadSkillAgentTemplate(skillDir string, agentName string) (AgentTemplate, b
 	return AgentTemplate{}, false
 }
 
-// workspacePaths returns absolute paths for all workspaces in the group config.
-func workspacePaths(gf prompt.GroupFile) []string {
-	paths := make([]string, 0, len(gf.Frontmatter.Workspaces))
-	for _, ws := range gf.Frontmatter.Workspaces {
-		if ws.Path != "" {
-			paths = append(paths, ws.Path)
-		}
-	}
-	return paths
-}
-
 // visibleWorkers returns the merged list of global agent templates in the same group as tmpl + project-level agent templates.
 // Project-level agents override global agents with the same ID.
 // Used to inject delegate_* tools for L2 leaders.

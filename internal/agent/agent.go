@@ -123,7 +123,7 @@ type confirmSlot struct {
 // Option is a functional option for NewAgent
 type Option func(*Agent)
 
-// WithMailboxCap sets the mailbox capacity (default DefaultMailboxCap = 8)
+// WithMailboxCap sets the mailbox capacity (default DefaultMailboxCap = 16)
 // cap <= 0 will be ignored (uses default value)
 func WithMailboxCap(cap int) Option {
 	return func(a *Agent) {

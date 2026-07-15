@@ -340,13 +340,6 @@ func (s *Stack) rebuildMemoryEngine(cfg config.EmbeddingConfig) {
 		return
 	}
 
-	for _, prov := range cfg.Providers {
-		_ = prov
-	}
-	for _, model := range cfg.Models {
-		_ = model
-	}
-
 	var emb embedding.Embedder
 	var vecStore vectorstore.VectorStore
 

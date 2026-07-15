@@ -11,8 +11,6 @@ package session
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -1555,14 +1553,6 @@ func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed")
 }
 
-// newSessionID returns a 32-char hex id (16 random bytes).
-func newSessionID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
-	}
-	return strings.ToLower(hex.EncodeToString(b[:]))
-}
 
 // ─── Level lock helpers ─────────────────────────────────────────────────────
 
@@ -1602,13 +1592,8 @@ func formatPayloadForMemory(payload []ctxwin.PayloadMessage) string {
 	var b strings.Builder
 	var lastTS time.Time
 	for _, m := range payload {
-		switch m.Role {
-		case "system":
+		if m.Role == "system" {
 			continue
-		case "user":
-		case "assistant":
-		case "tool":
-		default:
 		}
 		// Emit timestamp when it changes (new turn boundary), regardless of role.
 		if !m.Timestamp.IsZero() && !m.Timestamp.Equal(lastTS) {
@@ -1681,12 +1666,6 @@ func groupPayloadByDate(payload []ctxwin.PayloadMessage) []payloadDateGroup {
 	return result
 }
 
-// messageDateGroup is a group of ctxwin.Message sharing the same date.
-type messageDateGroup struct {
-	date time.Time
-	msgs []ctxwin.Message
-}
-
 // filterMessagesSince returns messages whose Timestamp is strictly after cursor.
 func filterMessagesSince(msgs []ctxwin.Message, cursor time.Time) []ctxwin.Message {
 	if cursor.IsZero() {
@@ -1699,22 +1678,6 @@ func filterMessagesSince(msgs []ctxwin.Message, cursor time.Time) []ctxwin.Messa
 		}
 	}
 	return out
-}
-
-// groupMessagesByDate groups ctxwin.Message by the calendar date of their Timestamp.
-func groupMessagesByDate(msgs []ctxwin.Message) []messageDateGroup {
-	byDate := make(map[string][]ctxwin.Message)
-	for _, m := range msgs {
-		date := m.Timestamp.Format("2006-01-02")
-		byDate[date] = append(byDate[date], m)
-	}
-	result := make([]messageDateGroup, 0, len(byDate))
-	for dateStr, msgs := range byDate {
-		t, _ := time.Parse("2006-01-02", dateStr)
-		result = append(result, messageDateGroup{date: t, msgs: msgs})
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].date.Before(result[j].date) })
-	return result
 }
 
 func (s *Session) handleCronCommand(ctx context.Context, command string) (<-chan iface.AgentEvent, error) {

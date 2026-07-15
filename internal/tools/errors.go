@@ -53,9 +53,6 @@ var (
 	// ErrSchemeNotAllowed indicates the WebFetch URL scheme is not http/https.
 	ErrSchemeNotAllowed = errors.New("tools: scheme not allowed")
 
-	// ErrCommandNotAllowed indicates the Bash command did not match the allowlist (deprecated, kept for compatibility).
-	ErrCommandNotAllowed = errors.New("tools: command not allowed")
-
 	// ErrCommandBlocked indicates the Bash command hit the blocklist.
 	ErrCommandBlocked = errors.New("tools: command blocked by security policy")
 

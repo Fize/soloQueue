@@ -362,25 +362,6 @@ func (s *DBStore) ResetStaleRunning(ctx context.Context, beforeTime time.Time) (
 	return int(n), nil
 }
 
-// MarkFailed sets status of a task to 'failed'.
-func (s *DBStore) MarkFailed(ctx context.Context, id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().Format(time.RFC3339)
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE scheduled_tasks SET status = 'failed', last_run_at = ?, updated_at = ? WHERE id = ?`,
-		now, now, id)
-	if err != nil {
-		return fmt.Errorf("cron store: mark failed: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("cron store: task %q not found", id)
-	}
-	return nil
-}
-
 // MarkCompleted sets status of one-time tasks to completed.
 func (s *DBStore) MarkCompleted(ctx context.Context, id string) error {
 	s.mu.Lock()

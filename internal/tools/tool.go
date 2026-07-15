@@ -107,13 +107,6 @@ type AsyncAction struct {
 	Timeout time.Duration   // delegation timeout
 }
 
-// TargetID returns the target agent's identifier for logging and tracing.
-// The current Locatable interface does not expose an ID method, so this
-// returns an empty string. Record targetID externally if needed.
-func (a *AsyncAction) TargetID() string {
-	return ""
-}
-
 // AsyncTool is an optional interface that tools may implement to declare an asynchronous execution intent.
 //
 // Tools that do not implement this interface use the normal Execute path.

@@ -166,10 +166,13 @@ func (a *Agent) execToolsWithAsync(
 			}
 		}
 
-		// Inject model override + workDir into the context so DelegateTool can propagate to child Agents
+		// Inject model override + workDir + agent name into the context
 		asyncCtx := ctx
 		if a.WorkDir != "" {
 			asyncCtx = iface.ContextWithWorkDir(asyncCtx, a.WorkDir)
+		}
+		if a.Def.Name != "" {
+			asyncCtx = iface.ContextWithAgentName(asyncCtx, a.Def.Name)
 		}
 		if override := a.modelOverride.Load(); override != nil {
 			asyncCtx = iface.ContextWithModelOverride(asyncCtx, &iface.ModelOverrideParams{
@@ -219,7 +222,7 @@ func (a *Agent) execToolsWithAsync(
 		// Assemble delegatedTask (turnState is 100% ready at this point)
 		task := &delegatedTask{
 			correlationID: generateCorrID(),
-			targetAgentID: action.TargetID(),
+			targetAgentID: "",
 			replyCh:       replyCh,
 			callID:        tc.ID,
 			callIndex:     i,
@@ -257,13 +260,19 @@ func (a *Agent) execToolsWithAsync(
 					a.confirmMu.Unlock()
 				}()
 
-				select {
-				case choice := <-slot.ch:
-					if err := child.Confirm(callID, choice); err != nil {
-						return "", err
+			select {
+			case choice := <-slot.ch:
+				if choice == "" {
+					a.userDenied.Store(true)
+					if f, ok := a.taskCancel.Load().(context.CancelFunc); ok {
+						f()
 					}
-					return choice, nil
-				case <-fwdCtx.Done():
+				}
+				if err := child.Confirm(callID, choice); err != nil {
+					return "", err
+				}
+				return choice, nil
+			case <-fwdCtx.Done():
 					return "", fwdCtx.Err()
 				}
 			})

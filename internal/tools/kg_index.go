@@ -83,7 +83,7 @@ func (t *kgIndexTool) Execute(ctx context.Context, raw string) (string, error) {
 			conf = 1.0
 		}
 
-		srcID, err := t.cfg.MemoryEngine.IndexEntity(ctx, entity.Name, nodeType)
+		_, err := t.cfg.MemoryEngine.IndexEntity(ctx, entity.Name, nodeType)
 		if err != nil {
 			if t.logger != nil {
 				t.logger.WarnContext(ctx, logger.CatTool, "kg_index: upsert node failed", "name", entity.Name, "err", err)
@@ -101,7 +101,7 @@ func (t *kgIndexTool) Execute(ctx context.Context, raw string) (string, error) {
 				weight = 1.0
 			}
 
-			tgtID, err := t.cfg.MemoryEngine.IndexEntity(ctx, rel.TargetName, "entity")
+			_, err := t.cfg.MemoryEngine.IndexEntity(ctx, rel.TargetName, "entity")
 			if err != nil {
 				continue
 			}
@@ -115,8 +115,6 @@ func (t *kgIndexTool) Execute(ctx context.Context, raw string) (string, error) {
 				}
 				continue
 			}
-			_ = srcID
-			_ = tgtID
 			relCount++
 		}
 	}

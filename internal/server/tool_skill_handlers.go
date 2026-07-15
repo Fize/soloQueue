@@ -99,7 +99,6 @@ func (m *Mux) handleListTools(w http.ResponseWriter, _ *http.Request) {
 // GET /api/skills
 func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 	tmpReg := skill.NewSkillRegistry()
-	skill.RegisterBuiltinSkills(tmpReg)
 
 	if len(m.skillDirs) > 0 {
 		if userSkills, err := skill.LoadSkillsFromDirs(m.skillDirs); err == nil {

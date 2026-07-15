@@ -1671,7 +1671,6 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 		// Take snapshot of final state for the context
 		finalState := ws.Snapshot()
 		for k := range finalState {
-			_ = k // use entity name; value not stored in KG
 			entities = append(entities, memoryengine.EntityExtraction{
 				Name:       "world_" + k,
 				Type:       "world_state",

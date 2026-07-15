@@ -23,16 +23,7 @@ type Persona struct {
 	Persona      string            `json:"persona,omitempty"`
 	ModelID      string            `json:"model_id,omitempty"`
 	ProviderID   string            `json:"provider_id,omitempty"`
-	Temperature  float64           `json:"temperature,omitempty"`
 }
-
-// InteractionMode is deprecated; all simulations now use event-driven mode.
-// Kept for API compatibility; ignored by the engine.
-type InteractionMode string
-
-const (
-	ModeEventDriven InteractionMode = "event-driven"
-)
 
 // RelationKind defines the type of social relationship between two agents.
 type RelationKind string

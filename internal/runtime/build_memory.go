@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -101,6 +100,3 @@ func (bc *buildContext) createOpenAIEmbedder() embedding.Embedder {
 	}
 	return client
 }
-
-// Ensure unused imports are used
-var _ = context.Background

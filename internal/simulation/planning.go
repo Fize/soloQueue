@@ -108,7 +108,7 @@ func (pg *PlanGenerator) RevisePlan(
 	}
 
 	// Preserve already completed items
-	for i, item := range currentPlan.Schedule {
+	for _, item := range currentPlan.Schedule {
 		if item.Status == "completed" {
 			found := false
 			for j := range revised.Schedule {
@@ -118,11 +118,10 @@ func (pg *PlanGenerator) RevisePlan(
 					break
 				}
 			}
-			if !found {
-				revised.Schedule = append(revised.Schedule, item)
-			}
-			_ = i
+		if !found {
+			revised.Schedule = append(revised.Schedule, item)
 		}
+	}
 	}
 
 	return revised, nil

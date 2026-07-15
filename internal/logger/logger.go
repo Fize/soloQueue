@@ -224,12 +224,6 @@ func (l *Logger) Close() error {
 	return l.handler.close()
 }
 
-// CloseAndCleanup closes the file handler.
-// Deprecated: Use Close instead.
-func (l *Logger) CloseAndCleanup() error {
-	return l.Close()
-}
-
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
 // logCtx is the internal implementation for all log methods.

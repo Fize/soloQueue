@@ -562,21 +562,3 @@ func (s *L2SessionStore) FindActiveSessionByAgentID(agentID string) *Session {
 	}
 	return nil
 }
-
-// expandTilde replaces a leading ~ or ~user with the home directory.
-func expandTilde(path string) string {
-	if !strings.HasPrefix(path, "~") {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	if path == "~" {
-		return home
-	}
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(home, path[2:])
-	}
-	return path
-}

@@ -399,7 +399,7 @@ func (s *Sandbox) Grep(ctx context.Context, dir string, pattern string, opts Gre
 
 		head := make([]byte, 512)
 		n, _ := f.Read(head)
-		if isBinaryExec(head[:n]) {
+		if looksBinary(head[:n]) {
 			return nil
 		}
 		if _, serr := f.Seek(0, 0); serr != nil {
@@ -571,18 +571,4 @@ func (lw *limitedWriterExec) Write(p []byte) (int, error) {
 	n, err := lw.w.Write(p)
 	lw.written += int64(n)
 	return n, err
-}
-
-// isBinaryExec checks whether the data contains a NUL byte (a binary detection heuristic).
-func isBinaryExec(data []byte) bool {
-	n := len(data)
-	if n > 512 {
-		n = 512
-	}
-	for i := 0; i < n; i++ {
-		if data[i] == 0 {
-			return true
-		}
-	}
-	return false
 }

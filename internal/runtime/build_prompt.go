@@ -64,12 +64,6 @@ func (bc *buildContext) buildPrompt() error {
 
 	// ── DB-backed override (teamstore) ────────────────────────────────────
 	if bc.teamstore != nil {
-		groupsDir := filepath.Join(bc.workDir, "groups")
-		agentsDir := filepath.Join(bc.workDir, "agents")
-		if err := bc.teamstore.MigrateFromFiles(groupsDir, agentsDir); err != nil {
-			bc.log.Warn(logger.CatApp, "migrate teams/agents to DB failed", "err", err.Error())
-		}
-		// Override with DB data
 		dbGroups, dbLeaders, dbTemplates, err := loadFromTeamStore(bc.teamstore)
 		if err != nil {
 			bc.log.Warn(logger.CatApp, "load from teamstore failed", "err", err.Error())

@@ -104,7 +104,7 @@ func (s State) String() string {
 
 // DefaultMailboxCap is the default mailbox capacity
 //
-// Value choice: 8 is sufficient to absorb short-term bursts; a full Ask will block (with ctx fallback), no messages are lost.
+// Value choice: 16 is sufficient to absorb short-term bursts; a full Ask will block (with ctx fallback), no messages are lost.
 // For scenarios requiring larger capacity, specify via WithMailboxCap(N).
 const DefaultMailboxCap = 16
 

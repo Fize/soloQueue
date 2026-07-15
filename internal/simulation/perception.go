@@ -12,7 +12,6 @@ type PerceptionSystem struct {
 	env   *Environment
 	bus   *MessageBus
 	clock *SimClock
-	logFn func(format string, args ...any)
 }
 
 // NewPerceptionSystem creates a perception system.
@@ -22,11 +21,6 @@ func NewPerceptionSystem(env *Environment, bus *MessageBus, clock *SimClock) *Pe
 		bus:   bus,
 		clock: clock,
 	}
-}
-
-// SetLogFunc sets a logging function for diagnostic output.
-func (ps *PerceptionSystem) SetLogFunc(fn func(format string, args ...any)) {
-	ps.logFn = fn
 }
 
 // CollectObservations gathers all new observations for an agent since their last tick.
@@ -59,10 +53,6 @@ func (ps *PerceptionSystem) CollectObservations(agentID, personaName string) []O
 		Source:  "",
 		At:      now,
 	})
-
-	if ps.logFn != nil {
-		ps.logFn("perception: %s received %d observations", agentID, len(observations))
-	}
 
 	return observations
 }
@@ -143,14 +133,6 @@ func FormatObservations(observations []Observation, language string) string {
 	}
 
 	return result
-}
-
-// FormatObservationsForCW renders observations as context window content.
-func FormatObservationsForCW(observations []Observation, language string) string {
-	if len(observations) == 0 {
-		return ""
-	}
-	return FormatObservations(observations, language)
 }
 
 // formatMessageObservation converts a bus message into an observation type and content string.

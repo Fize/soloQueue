@@ -26,10 +26,6 @@ var englishStopwords = map[string]bool{
 	"up": true, "down": true, "out": true,
 }
 
-var chineseStopwords = map[string]bool{
-	// Map previously used for Chinese stopwords, emptied for English-only mode
-}
-
 func isStopword(word string) bool {
-	return englishStopwords[word] || chineseStopwords[word]
+	return englishStopwords[word]
 }

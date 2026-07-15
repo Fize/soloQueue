@@ -74,11 +74,6 @@ LSP tools understand language semantics (AST, types, symbols). They are **strict
 - Safe rename: **lsp__find_references** (assess impact) → **lsp__rename_symbol** (execute) → **lsp__diagnostics** (verify no errors)
 - Formatting edits: Make code modifications → **lsp__format_file** (format code) → **lsp__diagnostics** (verify no errors)`
 
-// GetBuiltinLeaderPrompt returns the builtin prompt.
-func (s *Store) GetBuiltinLeaderPrompt() string {
-	return BuiltinLeaderPrompt
-}
-
 // BuiltinExplorerPrompt is the fallback prompt for the code explorer agent.
 const BuiltinExplorerPrompt = `# Code Explorer Agent
 
@@ -174,21 +169,6 @@ LSP tools help you quickly find and understand the code that needs testing. **Us
 3. **lsp__hover** or **lsp__get_code_item** → understand signatures and behavior
 4. Write tests using Edit/Write
 5. Use Bash to run the tests`
-
-// GetBuiltinExplorerPrompt returns the builtin explorer prompt.
-func (s *Store) GetBuiltinExplorerPrompt() string {
-	return BuiltinExplorerPrompt
-}
-
-// GetBuiltinEditorPrompt returns the builtin editor prompt.
-func (s *Store) GetBuiltinEditorPrompt() string {
-	return BuiltinEditorPrompt
-}
-
-// GetBuiltinTesterPrompt returns the builtin tester prompt.
-func (s *Store) GetBuiltinTesterPrompt() string {
-	return BuiltinTesterPrompt
-}
 
 // EnsureBuiltinTechTeam checks if the engineering team and architect agent exist,
 // creating or restoring them if missing or modified.
