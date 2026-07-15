@@ -20,7 +20,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
 
 import { cn } from "@/lib/utils";
-import type { AgentInfo, Project, AgentResponse, SkillInfo } from "@/types";
+import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
 import { useInputBadges } from "@/hooks/useInputBadges";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
@@ -30,6 +30,7 @@ import {
 } from "@/lib/api";
 import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
+import { StickyToolConfirmPanel } from "@/components/chat";
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -400,6 +401,16 @@ export function ChatPage() {
     streaming,
     streamChatSegments,
   ]);
+
+  const pendingConfirm = useMemo(() => {
+    const lastMessage = finalMessages[finalMessages.length - 1];
+    if (lastMessage && lastMessage.role === "assistant") {
+      return lastMessage.segments.find(
+        (seg) => seg.type === "tool_confirm" && !seg.resolved
+      ) as Extract<ChatSegment, { type: "tool_confirm" }> | undefined;
+    }
+    return undefined;
+  }, [finalMessages]);
 
   // Hide model and task-level badges when agent is not actively processing.
   // L2 reads the routed model from `agent.model_id` directly: the backend's
@@ -919,6 +930,10 @@ export function ChatPage() {
                   </div>
                 </div>
 
+                {pendingConfirm && (
+                  <StickyToolConfirmPanel pendingConfirm={pendingConfirm} />
+                )}
+
                 <ChatInput
                   {...sharedInputProps}
                   activeSessionId={activeSessionId || undefined}
@@ -927,7 +942,7 @@ export function ChatPage() {
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  processing={isAgentProcessing || streaming || delegating}
+                  processing={isAgentProcessing || streaming || delegating || !!pendingConfirm}
                 />
               </>
             )}

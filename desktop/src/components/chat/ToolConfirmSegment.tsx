@@ -4,6 +4,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { confirmSessionTool } from '@/lib/api'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
+import { Button } from '@/components/ui/button'
 import type { ChatMessage } from '@/types'
 
 export function ToolConfirmSegment({
@@ -37,16 +38,24 @@ export function ToolConfirmSegment({
 
   return (
     <div
-      className={`p-4 rounded-xl border flex flex-col gap-3 text-xs leading-relaxed w-full max-w-md my-2 ${
-        isUser
+      className={`p-4 rounded-xl border flex flex-col gap-3 text-xs leading-relaxed w-full max-w-md my-2 transition-colors ${
+        resolved
+          ? 'border-border/40 bg-muted/10 text-muted-foreground/80'
+          : isUser
           ? 'border-primary-foreground/15 bg-primary-foreground/5 text-primary-foreground'
-          : 'border-amber-500/25 bg-amber-500/5 text-foreground'
+          : 'border-amber-500/25 bg-amber-500/5 text-foreground shadow-sm'
       }`}
     >
       {/* Title */}
       <div className="flex items-center gap-2">
         <ShieldAlert
-          className={`h-4 w-4 shrink-0 ${isUser ? 'text-primary-foreground' : 'text-amber-500'}`}
+          className={`h-4 w-4 shrink-0 ${
+            resolved
+              ? 'text-muted-foreground/60'
+              : isUser
+              ? 'text-primary-foreground'
+              : 'text-amber-500'
+          }`}
         />
         <span className="font-semibold uppercase tracking-wider text-[10px]">
           {t('common.executionPermissionRequired', { name: segment.name })}
@@ -54,13 +63,17 @@ export function ToolConfirmSegment({
       </div>
 
       {/* Prompt / Message */}
-      <div
-        className={`p-3 rounded-lg font-mono text-[11px] whitespace-pre-wrap break-words ${
-          isUser ? 'bg-primary-foreground/10' : 'bg-muted/40'
+      <pre
+        className={`p-3 rounded-lg font-mono text-[11px] whitespace-pre-wrap break-all border overflow-x-auto max-h-[120px] overflow-y-auto ${
+          isUser
+            ? 'bg-primary-foreground/10 border-primary-foreground/10'
+            : resolved
+            ? 'bg-muted/30 border-border/20 text-muted-foreground/75'
+            : 'bg-muted/40 border-border/40'
         }`}
       >
         {segment.prompt}
-      </div>
+      </pre>
 
       {resolved ? (
         <div className="flex items-center gap-2 mt-1">
@@ -73,7 +86,8 @@ export function ToolConfirmSegment({
             <>
               <div className="h-2 w-2 rounded-full bg-success" />
               <span className="font-medium text-success">
-                {t('common.approved')} {choice === 'allow-in-session' ? t('common.alwaysAllowInChat') : ''}
+                {t('common.approved')}{' '}
+                {choice === 'allow-in-session' ? `(${t('common.alwaysAllowInChat')})` : ''}
               </span>
             </>
           )}
@@ -82,47 +96,52 @@ export function ToolConfirmSegment({
         <div className="flex flex-col gap-3 mt-1">
           {/* Action buttons */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="success"
+              size="xs"
               onClick={() => handleConfirm('yes')}
               disabled={submitting}
-              className="px-3 py-1.5 rounded-lg font-medium bg-success text-white hover:bg-success disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
+              className="cursor-pointer"
             >
               {submitting ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <Check className="h-3.5 w-3.5" />
+                <Check className="h-3 w-3" />
               )}
               {t('common.approve')}
-            </button>
+            </Button>
             {segment.allowInSession && (
-              <button
+              <Button
+                variant="outline"
+                size="xs"
                 onClick={() => handleConfirm('allow-in-session')}
                 disabled={submitting}
-                className={`px-3 py-1.5 rounded-lg font-medium border disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer ${
+                className={`cursor-pointer ${
                   isUser
                     ? 'border-primary-foreground/25 hover:bg-primary-foreground/10 text-primary-foreground'
                     : 'border-border hover:bg-muted text-foreground'
                 }`}
               >
-                <Check className="h-3.5 w-3.5" />
+                <Check className="h-3 w-3" />
                 {t('common.approveInSession')}
-              </button>
+              </Button>
             )}
-            <button
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() => handleConfirm('')}
               disabled={submitting}
-              className={`px-3 py-1.5 rounded-lg font-medium border disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer ${
-                isUser
-                  ? 'border-primary-foreground/25 hover:bg-primary-foreground/10 text-primary-foreground'
-                  : 'border-border hover:bg-muted text-foreground'
+              className={`cursor-pointer text-destructive border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20 ${
+                isUser ? 'border-primary-foreground/25 text-primary-foreground hover:bg-primary-foreground/10' : ''
               }`}
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3 w-3" />
               {t('common.deny')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
     </div>
   )
 }
+

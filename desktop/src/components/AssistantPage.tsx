@@ -11,7 +11,8 @@ import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
 import { getSkills } from "@/lib/api";
-import type { SkillInfo } from "@/types";
+import type { SkillInfo, ChatSegment } from "@/types";
+import { StickyToolConfirmPanel } from "@/components/chat";
 
 export function AssistantPage() {
   const {
@@ -271,6 +272,16 @@ export function AssistantPage() {
     streamChatSegments,
   ]);
 
+  const pendingConfirm = useMemo(() => {
+    const lastMessage = finalMessages[finalMessages.length - 1];
+    if (lastMessage && lastMessage.role === "assistant") {
+      return lastMessage.segments.find(
+        (seg) => seg.type === "tool_confirm" && !seg.resolved
+      ) as Extract<ChatSegment, { type: "tool_confirm" }> | undefined;
+    }
+    return undefined;
+  }, [finalMessages]);
+
   const isHistoryLoading = historyLoading["l1"] ?? false;
 
   // Hide model badge when agent is not actively processing.
@@ -360,6 +371,10 @@ export function AssistantPage() {
           <div ref={bottomRef} className="h-2" />
         </div>
 
+        {pendingConfirm && (
+          <StickyToolConfirmPanel pendingConfirm={pendingConfirm} />
+        )}
+
         {/* Input — same ChatInput as ChatPage */}
         <ChatInput
           onSend={handleSend}
@@ -370,7 +385,7 @@ export function AssistantPage() {
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
-          processing={isL1Processing || streaming || delegating}
+          processing={isL1Processing || streaming || delegating || !!pendingConfirm}
           skillNames={filteredSkillNames}
           activeSessionId="l1"
         />
