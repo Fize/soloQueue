@@ -132,7 +132,7 @@ function SegmentViewInner({
         />
       )
     case 'tool_confirm':
-      return <ToolConfirmSegment segment={segment} isUser={isUser} />
+      return null
     case 'delegation':
       return <SubagentCard segment={segment} />
     case 'error':

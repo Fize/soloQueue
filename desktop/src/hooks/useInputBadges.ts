@@ -122,7 +122,7 @@ export function useInputBadges(
     if (deriveModel) {
       const derived = deriveModel(stableTaskLevel, agent, lastModelRef.current)
       if (derived) lastModelRef.current = derived
-      return derived
+      return derived || ''
     }
     // Level is known. Read the routed model from `agent.model_id` —
     // for non-explicit agents this is the override's ModelID; for
@@ -141,7 +141,7 @@ export function useInputBadges(
       lastModelRef.current = agentModel
       return agentModel
     }
-    return lastModelRef.current
+    return lastModelRef.current || ''
   }, [isProcessing, stableTaskLevel, agent?.model_id, deriveModel])
 
   return {

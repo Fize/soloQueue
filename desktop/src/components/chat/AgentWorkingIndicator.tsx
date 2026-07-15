@@ -101,7 +101,7 @@ function AgentWorkingIndicatorInner({
                   ? // Subdued, dimmer styling while waiting — clearly
                     // "not yet known" rather than "L0 is the level".
                     'text-muted-foreground/60 bg-muted/20 border-border/25 animate-pulse tracking-widest'
-                  : 'text-signal-foreground bg-signal/10 border-signal/20',
+                  : 'text-signal bg-signal/10 border-signal/20',
               )}
             >
               {levelIsPending ? '…' : levelLabel}
@@ -122,7 +122,7 @@ function AgentWorkingIndicatorInner({
                   ? undefined
                   : {
                       backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
-                      color: modelColorVar,
+                      color: `color-mix(in srgb, ${modelColorVar} 75%, var(--foreground))`,
                       borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
                     }
               }

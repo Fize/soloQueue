@@ -422,7 +422,7 @@ export function ChatPage() {
     activeAgent,
     (isAgentProcessing || streaming || delegating) && !isSystemCommandRunning,
     (_taskLevel, agent, lastModel) => {
-      return agent?.model_id || lastModel
+      return agent?.model_id || lastModel || ""
     },
   );
 
