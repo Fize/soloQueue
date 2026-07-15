@@ -722,6 +722,13 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 				lastLevel = sess.CurrentLevel()
 			}
 		}
+		if lastLevel == "" && m.l2Store != nil {
+			if sess := m.l2Store.FindActiveSessionByAgentID(a.Def.ID); sess != nil {
+				isQBot = sess.IsQBot()
+				levelLocked = sess.LevelLocked()
+				lastLevel = sess.CurrentLevel()
+			}
+		}
 		mp := a.ModelOverride()
 		te := mp != nil && mp.ThinkingEnabled
 		var re string

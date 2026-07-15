@@ -553,11 +553,29 @@ html.light .markdown-preview pre code span {
     box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
   }
   50% {
-    transform: scale(1.012);
+    transform: scale(1.02); /* Increased scale for more obvious breathing */
     opacity: 1;
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.06),
-                0 0 18px 0 hsl(var(--primary) / 0.12);
+    box-shadow: 0 0 0 5px hsl(var(--primary) / 0.08),
+                0 0 20px 0 hsl(var(--primary) / 0.16);
   }
+}
+
+/* Custom smooth breathing glowing LED light keyframes */
+@keyframes led-breathing {
+  0%, 100% {
+    transform: scale(0.9);
+    opacity: 0.65;
+    box-shadow: 0 0 3px 0.5px hsl(var(--primary) / 0.5);
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    box-shadow: 0 0 9px 3.5px hsl(var(--primary) / 0.85);
+  }
+}
+
+.animate-led-breathing {
+  animation: led-breathing 2s ease-in-out infinite;
 }
 
 .agent-working-breathing {
@@ -568,9 +586,9 @@ html.light .markdown-preview pre code span {
   margin-right: -0.5rem;
   background: linear-gradient(
     90deg,
-    hsl(var(--primary) / 0.04),
-    hsl(var(--primary) / 0.08),
-    hsl(var(--primary) / 0.04)
+    hsl(var(--primary) / 0.05),
+    hsl(var(--primary) / 0.12),
+    hsl(var(--primary) / 0.05)
   );
   background-size: 200% 100%;
   animation:

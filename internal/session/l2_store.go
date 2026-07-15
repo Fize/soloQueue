@@ -551,6 +551,18 @@ func (s *L2SessionStore) UpdatePlanStatus(id, path string) {
 	}
 }
 
+// FindActiveSessionByAgentID searches all active L2 sessions for one whose leader agent ID matches the target.
+func (s *L2SessionStore) FindActiveSessionByAgentID(agentID string) *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, entry := range s.sessions {
+		if entry.Session != nil && entry.Session.Agent != nil && entry.Session.Agent.Def.ID == agentID {
+			return entry.Session
+		}
+	}
+	return nil
+}
+
 // expandTilde replaces a leading ~ or ~user with the home directory.
 func expandTilde(path string) string {
 	if !strings.HasPrefix(path, "~") {
