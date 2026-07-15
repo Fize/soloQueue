@@ -4,7 +4,7 @@
 //   - Underlying storage is an ever-extending JSONL log stream
 //   - Message events record conversational content
 //   - Control events record state interventions (e.g., /clear)
-//   - /clear does not destroy data; it only appends a control event and clears active memory.
+//   - /clear does not destroy data; it only appends a control event and clears active conversationlog.
 package timeline
 
 import "time"

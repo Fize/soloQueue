@@ -551,7 +551,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// L2 sessions in memory.
+	// L2 sessions in conversationlog.
 	if m.l2Store != nil {
 		for _, info := range m.l2Store.List() {
 			name := info.Name
@@ -575,7 +575,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Scan disk for past L2 sessions not currently in memory.
+	// Scan disk for past L2 sessions not currently in conversationlog.
 	seenInMemory := map[string]bool{}
 	for _, s := range sessions {
 		if strings.HasPrefix(s.ID, "l2:") {

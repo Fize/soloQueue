@@ -8,13 +8,13 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	lspmcp "github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
+	lsp "github.com/xiaobaitu/soloqueue/internal/lsp"
 )
 
 // gatherMCPServerNames collects enabled MCP server names, applying the optional
 // external and builtin whitelists. nil or empty slice = no whitelist (load all
 // enabled servers). Empty map = load none. Populated map = whitelist.
-func gatherMCPServerNames(mcpMgr *mcp.Manager, lspMgr *lspmcp.Manager, externalAllowed, builtinAllowed []string) []string {
+func gatherMCPServerNames(mcpMgr *mcp.Manager, lspMgr *lsp.Manager, externalAllowed, builtinAllowed []string) []string {
 	if mcpMgr == nil {
 		return nil
 	}
@@ -72,8 +72,8 @@ func (bc *buildContext) buildMCP() {
 
 	// ── LSP MCP (built-in LSP-based MCP) ─────────────────────────────────────
 	rootPath, _ := os.Getwd()
-	lspMgr := lspmcp.NewManager(rootPath, bc.log)
-	defs := lspmcp.BuiltinServers()
+	lspMgr := lsp.NewManager(rootPath, bc.log)
+	defs := lsp.BuiltinServers()
 
 	// Apply user overrides from settings if present.
 	if len(bc.settings.LSPMCP.Servers) > 0 {

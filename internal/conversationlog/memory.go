@@ -15,7 +15,7 @@
 //	- Discussed memory system design
 //
 // Files older than 7 days are removed on each write.
-package memory
+package conversationlog
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
@@ -148,8 +149,8 @@ func (m *Manager) mergeAndSummarize(ctx context.Context, existing, conversationT
 		MaxTokens:   2048,
 		Temperature: 0.0,
 	}
-	teamID, _ := agent.TelemetryFromContext(ctx)
-	memCtx := agent.WithTelemetryContext(ctx, teamID, agent.UsageMemory)
+	teamID, _ := telemetry.TelemetryFromContext(ctx)
+	memCtx := telemetry.WithTelemetryContext(ctx, teamID, telemetry.UsageMemory)
 
 	resp, err := m.llm.Chat(memCtx, req)
 	if err != nil {

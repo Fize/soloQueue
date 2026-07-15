@@ -1,4 +1,6 @@
-package agent
+// Package telemetry provides context helpers and an LLM-client decorator
+// for capturing token usage statistics to the shared database.
+package telemetry
 
 import "context"
 

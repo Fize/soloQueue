@@ -1220,7 +1220,7 @@ Call ConsolidateMemories periodically to clean up stale edges and decayed memori
 - **RecallEntity(entity, max_hops=2)**: Explore KG from a specific entity.
 - **ConnectEntities(source, target)**: Find paths between two entities.
 - **MemoryTimeline(from, to, limit=50)**: Chronological review over a date range.
-- **Remember(content, entities[], event_time)**: Save findings to long-term memory.
+- **Remember(content, entities[], event_time)**: Save findings to long-term conversationlog.
 - **KGIndex(entities[])**: Bulk-index entities and relationships into the KG.
 - **ConsolidateMemories()**: Run maintenance (edge decay, stale cleanup).
 `

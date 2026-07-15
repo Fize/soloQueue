@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 )
 
 // AgentChatClient adapts agent.LLMClient to the compactor.ChatClient interface.
@@ -42,8 +43,8 @@ func (a *AgentChatClient) Chat(ctx context.Context, req ChatRequest) (*ChatRespo
 		})
 	}
 
-	teamID, _ := agent.TelemetryFromContext(ctx)
-	compactorCtx := agent.WithTelemetryContext(ctx, teamID, agent.UsageCompactor)
+	teamID, _ := telemetry.TelemetryFromContext(ctx)
+	compactorCtx := telemetry.WithTelemetryContext(ctx, teamID, telemetry.UsageCompactor)
 
 	resp, err := a.Client.Chat(compactorCtx, agent.LLMRequest{
 		ProviderID: req.ProviderID,

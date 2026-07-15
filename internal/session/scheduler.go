@@ -60,7 +60,7 @@ func (f *DailyMemoryFlusher) doFlush(ctx context.Context) {
 		}
 	}()
 
-	// Step 1: Flush unpersisted messages to short-term memory.
+	// Step 1: Flush unpersisted messages to short-term conversationlog.
 	s := f.sessionMgr.Session()
 	if s != nil {
 		s.FlushMemory(ctx)

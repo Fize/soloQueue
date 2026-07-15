@@ -14,7 +14,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 )
 
@@ -305,11 +305,11 @@ type L2QQBotAdapter struct {
 	l2Store       *L2SessionStore
 	botAppID      string
 	bindAgent     string
-	memoryManager *memory.Manager
+	memoryManager *conversationlog.Manager
 }
 
 // NewL2QQBotAdapter creates a SessionProvider backed by an L2 session.
-func NewL2QQBotAdapter(l2Store *L2SessionStore, botAppID, bindAgent string, log *logger.Logger, mm *memory.Manager) *L2QQBotAdapter {
+func NewL2QQBotAdapter(l2Store *L2SessionStore, botAppID, bindAgent string, log *logger.Logger, mm *conversationlog.Manager) *L2QQBotAdapter {
 	return &L2QQBotAdapter{
 		qqbotAdapterBase: qqbotAdapterBase{log: log},
 		l2Store:          l2Store,

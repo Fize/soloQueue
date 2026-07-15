@@ -10,7 +10,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
-// recallMemoryTool lets the LLM search long-term memory.
+// recallMemoryTool lets the LLM search long-term conversationlog.
 type recallMemoryTool struct {
 	cfg    Config
 	logger *logger.Logger

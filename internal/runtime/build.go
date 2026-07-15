@@ -16,6 +16,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
@@ -23,8 +24,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	lspmcp "github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/memory"
+	lsp "github.com/xiaobaitu/soloqueue/internal/lsp"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
@@ -307,14 +308,14 @@ type buildContext struct {
 	toolsCfg          tools.Config
 	mcpLoader         *mcp.Loader
 	mcpMgr            *mcp.Manager
-	lspMgr            *lspmcp.Manager
+	lspMgr            *lsp.Manager
 	promptCfg         *prompt.PromptConfig
 	rulesCreated      bool
 	groups            map[string]prompt.GroupFile
 	leaders           []prompt.LeaderInfo
 	allTemplates      []agent.AgentTemplate
 	memoryDir         string
-	memoryMgr         *memory.Manager
+	memoryMgr         *conversationlog.Manager
 	sharedDB          *sqlitedb.DB
 	memoryEngine      *memoryengine.Engine
 	planDir           string
@@ -380,7 +381,7 @@ func (bc *buildContext) buildLLMClient() error {
 		if err != nil {
 			return fmt.Errorf("build llm client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = agent.NewTelemetryClient(client, bc.sharedDB)
+		clients[prov.ID] = telemetry.NewTelemetryClient(client, bc.sharedDB)
 	}
 
 	if len(clients) == 0 {

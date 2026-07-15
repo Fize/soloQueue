@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -599,13 +600,13 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 		}
 
 		if rt.SharedDB != nil {
-			teamID, _ := agent.TelemetryFromContext(ctx)
+			teamID, _ := telemetry.TelemetryFromContext(ctx)
 			bgCtx := context.Background()
 
 			go func() {
 				_ = rt.SharedDB.InsertRouterClassification(
 					bgCtx,
-					agent.UsageRouter, // usageType
+					telemetry.UsageRouter, // usageType
 					teamID,
 					decision.Level.String(),
 					decision.Classification.Source,

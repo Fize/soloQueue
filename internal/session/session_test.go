@@ -12,7 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -585,7 +585,7 @@ func TestSession_FlushMemory_PersistsUnrecordedMessages(t *testing.T) {
 	cw.Push(ctxwin.RoleAssistant, "hi there", ctxwin.WithTimestamp(time.Now()))
 
 	memDir := t.TempDir()
-	memMgr := memory.NewManager(memDir, fake, "deepseek", "fast", nil)
+	memMgr := conversationlog.NewManager(memDir, fake, "deepseek", "fast", nil)
 	s.SetMemoryManager(memMgr)
 
 	var hookCalled bool
@@ -614,7 +614,7 @@ func TestSession_FlushMemory_SkipsWhenNoNewMessages(t *testing.T) {
 	s := NewSession("s1", "t1", a, cw, nil, nil)
 
 	memDir := t.TempDir()
-	memMgr := memory.NewManager(memDir, fake, "deepseek", "fast", nil)
+	memMgr := conversationlog.NewManager(memDir, fake, "deepseek", "fast", nil)
 	// Set cursor to now so no messages pass the filter
 	memMgr.AdvanceLastRecordedAt(time.Now())
 	s.SetMemoryManager(memMgr)

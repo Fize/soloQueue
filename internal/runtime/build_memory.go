@@ -8,7 +8,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
@@ -18,7 +18,7 @@ import (
 // and the memory engine (BM25 + KG + optional vector embedding).
 func (bc *buildContext) buildMemory() error {
 	// Short-term Memory Manager
-	bc.memoryMgr = memory.NewManager(bc.memoryDir, bc.llmClient, bc.fastModelProviderID, bc.fastModelID, bc.log)
+	bc.memoryMgr = conversationlog.NewManager(bc.memoryDir, bc.llmClient, bc.fastModelProviderID, bc.fastModelID, bc.log)
 
 	// Shared SQLite DB (already opened in buildMemory() or opened now)
 	embStart := time.Now()

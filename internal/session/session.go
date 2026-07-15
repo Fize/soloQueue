@@ -22,11 +22,12 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
@@ -163,7 +164,7 @@ type Session struct {
 	metaBaseline   map[string]string // path→sha256 snapshot, non-git projects only
 
 	memoryHook     MemoryHook           // optional callback for short-term memory (nil = disabled)
-	memoryManager  *memory.Manager      // for dedup cursor; set alongside memoryHook
+	memoryManager  *conversationlog.Manager      // for dedup cursor; set alongside memoryHook
 	memoryEngine   *memoryengine.Engine // for pre-query memory recall (nil = disabled)
 	recalledHashes map[string]struct{}  // hashes of recalled memories injected in this context window
 	cronHandler    CronHandler          // optional callback to execute /cron command
@@ -343,7 +344,7 @@ func (s *Session) CW() *ctxwin.ContextWindow {
 // All system logs (actor/llm/tool) are still written normally.
 func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	// Inject telemetry context
-	ctx = agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageChat)
+	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 
 	if s.closed.Load() {
 		return nil, ErrSessionClosed
@@ -383,7 +384,7 @@ func (s *Session) SetMemoryHook(hook MemoryHook) {
 
 // SetMemoryManager sets the memory manager for dedup cursor tracking.
 // Must be set alongside SetMemoryHook for dedup to work.
-func (s *Session) SetMemoryManager(mm *memory.Manager) {
+func (s *Session) SetMemoryManager(mm *conversationlog.Manager) {
 	s.memoryManager = mm
 }
 
@@ -458,7 +459,7 @@ func (s *Session) Clear() error {
 
 // Compact compacts the context window by summarizing older messages
 // into a condensed representation using the compactor. Unlike Clear,
-// it preserves the recent context and does NOT save to memory.
+// it preserves the recent context and does NOT save to conversationlog.
 func (s *Session) Compact(ctx context.Context) (string, error) {
 	compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -654,7 +655,7 @@ func (s *Session) checkAutoClear() {
 //   - ctx cancellation propagates to agent; Session does not manage timeout.
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	// Inject telemetry context
-	ctx = agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageChat)
+	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session closed")
@@ -759,7 +760,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	lowerTrimmed := strings.ToLower(trimmed)
 
 	// Inject telemetry context
-	ctx = agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageChat)
+	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 
 	// ── Pre-inFlight slash command intercept (always immediate, never queued) ──
 	switch lowerTrimmed {
@@ -837,7 +838,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				out <- agent.ContentDeltaEvent{Delta: "Clear failed: " + err.Error()}
 				out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
 			} else {
-				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared and saved to memory."}
+				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared and saved to conversationlog."}
 				out <- agent.DoneEvent{Content: "Session history cleared."}
 			}
 		}()
@@ -939,7 +940,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				"level", result.Level,
 			)
 		} else {
-			routerCtx := agent.WithTelemetryContext(ctx, s.TeamID, agent.UsageRouter)
+			routerCtx := telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageRouter)
 			result, err = s.Router(routerCtx, prompt, priorLevel, s.cw.BuildPayload())
 			if err != nil {
 				s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
@@ -1385,7 +1386,7 @@ type SessionManager struct {
 	factory       AgentFactory
 	routerFunc    TaskRouterFunc
 	memoryHook    MemoryHook
-	memoryManager *memory.Manager
+	memoryManager *conversationlog.Manager
 	memoryEngine  *memoryengine.Engine
 	cronHandler   CronHandler
 	logger        *logger.Logger
@@ -1427,7 +1428,7 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 
 // SetMemoryManager sets the memory manager for dedup cursor tracking.
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
-func (m *SessionManager) SetMemoryManager(mm *memory.Manager) {
+func (m *SessionManager) SetMemoryManager(mm *conversationlog.Manager) {
 	m.memoryManager = mm
 }
 

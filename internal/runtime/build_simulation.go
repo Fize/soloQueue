@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 )
@@ -14,12 +15,12 @@ type simChatClient struct {
 }
 
 func (s *simChatClient) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResponse, error) {
-	simCtx := agent.WithTelemetryContext(ctx, "unknown", agent.UsageSimulation)
+	simCtx := telemetry.WithTelemetryContext(ctx, "unknown", telemetry.UsageSimulation)
 	return s.inner.Chat(simCtx, req)
 }
 
 func (s *simChatClient) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan llm.Event, error) {
-	simCtx := agent.WithTelemetryContext(ctx, "unknown", agent.UsageSimulation)
+	simCtx := telemetry.WithTelemetryContext(ctx, "unknown", telemetry.UsageSimulation)
 	return s.inner.ChatStream(simCtx, req)
 }
 

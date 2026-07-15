@@ -12,7 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -68,14 +68,14 @@ func StartQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store
 		if qqCfgBase.BindType == "l2" {
 			if qqCfgBase.BindAgent != "" {
 				// L2 bound bot uses dedicated L2QQBotAdapter and its own memory manager
-				var mm *memory.Manager
+				var mm *conversationlog.Manager
 				if rt.LLMClient != nil {
 					l2MemoryDir := filepath.Join(workDir, "memory", qqCfgBase.BindAgent)
 					if err := os.MkdirAll(l2MemoryDir, 0o755); err != nil {
 						qqLog.Warn(logger.CatApp, "failed to create l2 memory dir", "dir", l2MemoryDir, "err", err)
 					}
 					defModel := rt.ReadDefaultModel()
-					mm = memory.NewManager(l2MemoryDir, rt.LLMClient, defModel.ProviderID, defModel.ID, qqLog)
+					mm = conversationlog.NewManager(l2MemoryDir, rt.LLMClient, defModel.ProviderID, defModel.ID, qqLog)
 				}
 				l2Adapter := session.NewL2QQBotAdapter(l2Store, qqCfg.AppID, qqCfgBase.BindAgent, qqLog, mm)
 				l2Adapter.SetSupervisorsFn(supervisorsFn)

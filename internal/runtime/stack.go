@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/mcp/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/memory"
+	"github.com/xiaobaitu/soloqueue/internal/lsp"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
@@ -49,7 +50,7 @@ type Stack struct {
 	RulesCreated  bool
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
-	MemoryManager *memory.Manager          // Short-term memory manager
+	MemoryManager *conversationlog.Manager          // Short-term memory manager
 	MemoryEngine  *memoryengine.Engine     // Memory engine (BM25 + KG + optional vector)
 	SharedDB      *sqlitedb.DB             // Shared SQLite connection
 	MCPManager    *mcp.Manager       // MCP server manager
@@ -232,7 +233,7 @@ func (s *Stack) OnConfigChange() error {
 		if err != nil {
 			return fmt.Errorf("failed to rebuild LLM client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = agent.NewTelemetryClient(client, s.SharedDB)
+		clients[prov.ID] = telemetry.NewTelemetryClient(client, s.SharedDB)
 	}
 
 	if len(clients) == 0 {

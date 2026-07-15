@@ -10,7 +10,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
-// rememberTool lets the LLM save important information to permanent memory.
+// rememberTool lets the LLM save important information to permanent conversationlog.
 type rememberTool struct {
 	cfg    Config
 	logger *logger.Logger
@@ -24,7 +24,7 @@ func newRememberTool(cfg Config) *rememberTool {
 func (rememberTool) Name() string { return "Remember" }
 
 func (rememberTool) Description() string {
-	return "Save important information to long-term memory. " +
+	return "Save important information to long-term conversationlog. " +
 		"Use this when the user explicitly asks you to remember something, " +
 		"or when you encounter information likely to be useful in future conversations. " +
 		"Optionally include extracted entities and their relationships to build the knowledge graph."
