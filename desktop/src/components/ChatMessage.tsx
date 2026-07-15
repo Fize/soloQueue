@@ -27,6 +27,10 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
   // do not change the structural shape of the segments.
   const grouped = useMemo(() => groupSegments(message.segments), [message.segments])
 
+  if (!isUser && isEmpty) {
+    return null
+  }
+
   return (
     <div className={`group/message ${compact ? 'px-2 py-2' : 'px-4 py-3'} ${isUser ? 'flex justify-end' : ''}`}>
       <div

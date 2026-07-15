@@ -419,6 +419,7 @@ export function ChatPage() {
     projectPath?: string,
     selectedElement?: any,
   ) => {
+    userScrolledUp.current = false;
     let targetSessionId = activeSessionId || undefined;
 
     if (!isL1Session && group) {
@@ -525,6 +526,18 @@ export function ChatPage() {
     };
   }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory]);
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (!userScrolledUp.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Track the structural key of the last-rendered tail. The auto-scroll
   // effect (below) uses this so it only fires when a NEW message or
   // segment is added, not on every chat_chunk inside an existing segment.
@@ -538,10 +551,18 @@ export function ChatPage() {
     if (finalMessages.length === 0) return;
     const last = finalMessages[finalMessages.length - 1];
     const lastSeg = last.segments[last.segments.length - 1];
-    // Use a structural fingerprint (length + last-segment-type) so that
-    // appending characters to an existing content/thinking segment does
-    // NOT trigger scrolling.
-    const key = `${finalMessages.length}:${last.segments.length}:${lastSeg?.type ?? ""}`;
+    // Use a fingerprint containing the last segment's text length so that
+    // appending characters to an existing text/thinking segment triggers scrolling
+    // (but only when following the bottom of the conversation stream).
+    const lastSegTextLength =
+      lastSeg &&
+      (lastSeg.type === "content" ||
+        lastSeg.type === "thinking" ||
+        lastSeg.type === "error" ||
+        lastSeg.type === "compact")
+        ? (lastSeg.text || "").length
+        : 0;
+    const key = `${finalMessages.length}:${last.segments.length}:${lastSeg?.type ?? ""}:${lastSegTextLength}`;
     if (key === lastAutoScrolledKey.current) return;
     lastAutoScrolledKey.current = key;
 

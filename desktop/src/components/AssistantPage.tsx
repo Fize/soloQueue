@@ -149,6 +149,18 @@ export function AssistantPage() {
     return () => el.removeEventListener("scroll", handleScroll);
   }, [hasMore, isLoadingMore, loadMoreHistory]);
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (!userScrolledUpRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Auto-scroll to bottom
   const currentMessages = messages["l1"] || [];
   const contentSum = currentMessages.reduce((acc, msg) => {
@@ -195,6 +207,7 @@ export function AssistantPage() {
   // ── Send & Cancel ─────────────────────────────────────────────────────────
   const handleSend = useCallback(
     (text: string, files?: { name: string; path: string }[]) => {
+      userScrolledUpRef.current = false;
       send(text, files);
     },
     [send],
