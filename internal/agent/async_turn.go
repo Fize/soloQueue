@@ -242,42 +242,13 @@ func (a *Agent) execToolsWithAsync(
 
 			forwarder := a.routeConfirm()
 
-			relayDone := make(chan struct{})
-			go func() {
-				defer close(relayDone)
-				defer func() {
-					if r := recover(); r != nil {
-						a.RecordError(fmt.Errorf("relay goroutine panic: %v", r))
-					}
-				}()
-				for ev := range relayCh {
-					if a.Log != nil {
-						a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: received event from relayCh",
-							"event_type", fmt.Sprintf("%T", ev),
-						)
-					}
-					if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
-						if a.Log != nil {
-							a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: forwarding confirm event to L1 output")
-						}
-						if agentEv, ok := ev.(AgentEvent); ok {
-							ok := a.emit(turnState.callerCtx, turnState.out, agentEv)
-							if a.Log != nil {
-								a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: emit confirm result",
-									"ok", ok,
-								)
-							}
-						} else if a.Log != nil {
-							a.Log.WarnContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: confirm event failed AgentEvent assertion",
-								"event_type", fmt.Sprintf("%T", ev),
-							)
-						}
-					}
-					if ee, isError := ev.(ErrorEvent); isError {
-						a.emit(turnState.callerCtx, turnState.out, ee)
-					}
+			relayDone := a.startRelayGoroutine(turnState.callerCtx, relayCh, turnState.out, func(ev iface.AgentEvent) {
+				if a.Log != nil {
+					a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: received event from relayCh",
+						"event_type", fmt.Sprintf("%T", ev),
+					)
 				}
-			}()
+			})
 
 			// --- Use AskStream + manual consumption instead of Ask ---
 			start := time.Now()

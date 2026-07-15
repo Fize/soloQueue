@@ -163,6 +163,39 @@ func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
 	}
 }
 
+
+// startRelayGoroutine launches a goroutine that forwards ToolNeedsConfirmEvent
+// and ErrorEvent from relayCh to out, with panic recovery. Returns a channel
+// that is closed when the goroutine exits after relayCh is closed.
+// If onEvent is non-nil, it is called for each event before forwarding.
+func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.AgentEvent, out chan<- AgentEvent, onEvent func(iface.AgentEvent)) <-chan struct{} {
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		defer func() {
+			if r := recover(); r != nil {
+				a.RecordError(fmt.Errorf("relay goroutine panic: %v", r))
+				if a.Log != nil {
+					a.Log.ErrorContext(ctx, logger.CatTool, "relay goroutine panic recovered",
+						"panic", fmt.Sprintf("%v", r))
+				}
+			}
+		}()
+		for ev := range relayCh {
+			if onEvent != nil {
+				onEvent(ev)
+			}
+			if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
+				a.emit(ctx, out, ev.(AgentEvent))
+			}
+			if ee, isError := ev.(ErrorEvent); isError {
+				a.emit(ctx, out, ee)
+			}
+		}
+	}()
+	return relayDone
+}
+
 // streamLoop is the unified LLM tool-use loop.
 //
 // GOROUTINE SAFETY CONTRACT:
@@ -1001,32 +1034,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	toolCtx = tools.WithConfirmForwarder(toolCtx, forwarder)
 
 	// Start relay goroutine: only forward ToolNeedsConfirmEvent to parent.
-	// IMPORTANT: Only relay ToolNeedsConfirmEvent and ErrorEvent! Relaying
-	// ContentDeltaEvent or DoneEvent would pollute the parent out channel,
-	// causing Session to mistake L3 DoneEvent for L2's → ContextWindow
-	// sequence corruption → LLM API HTTP 400. ErrorEvent is safe because
-	// it carries no content/done signals.
-	relayDone := make(chan struct{})
-	go func() {
-		defer close(relayDone)
-		defer func() {
-			if r := recover(); r != nil {
-				if a.Log != nil {
-					a.Log.ErrorContext(ctx, logger.CatTool, "stream tool relay goroutine panic recovered",
-						"panic", fmt.Sprintf("%v", r),
-					)
-				}
-			}
-		}()
-		for ev := range relayCh {
-			if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
-				a.emit(ctx, out, ev.(AgentEvent))
-			}
-			if ee, isError := ev.(ErrorEvent); isError {
-				a.emit(ctx, out, ee)
-			}
-		}
-	}()
+	relayDone := a.startRelayGoroutine(ctx, relayCh, out, nil)
 
 	// Propagate working directory to child agents via context (for L2→L3 passthrough).
 	if a.WorkDir != "" {
