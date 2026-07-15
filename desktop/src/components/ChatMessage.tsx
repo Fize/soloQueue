@@ -251,6 +251,14 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
+
+    // Skip empty thinking segments unless it's the last segment in the entire message
+    if (seg.type === 'thinking' && !seg.text.trim()) {
+      if (i !== segments.length - 1) {
+        continue
+      }
+    }
+
     // Delegation segments (active subagent sessions) and delegate_* tool calls
     // are rendered as standalone cards — keep them outside the worked group.
     const isStandalone =
