@@ -24,7 +24,7 @@
   --color-sidebar: #22232B;
   --color-sidebar-foreground: #EDEDF0;
   --color-accent: #6366F1;
-  --color-accent-foreground: #6366F1;
+  --color-accent-foreground: #FFFFFF;
   --color-destructive: #DC2626;
   --color-destructive-foreground: #FFFFFF;
   --color-border: #2E2F38;
@@ -136,7 +136,7 @@
   --color-sidebar-foreground: #111827;
   --code-bg: #F4F6F9;
   --color-accent: #4F46E5;
-  --color-accent-foreground: #4F46E5;
+  --color-accent-foreground: #FFFFFF;
   --color-destructive: #DC2626;
   --color-destructive-foreground: #FFFFFF;
   --color-border: #E2E5EB;

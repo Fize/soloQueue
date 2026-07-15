@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   listTeams,
   createTeam,
@@ -9,8 +9,11 @@ import {
   updateAgent,
   deleteAgent,
   listProjects,
+  listModels,
+  getMCPConfig,
+  getSkills,
 } from '@/lib/api'
-import type { TeamResponse, AgentResponse, CreateTeamRequest, Project } from '@/types'
+import type { TeamResponse, AgentResponse, Project, LLMModel } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -29,10 +32,124 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon } from 'lucide-react'
+import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon, X } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
+
+// ─── MultiSelect Component ──────────────────────────────────────────────────
+
+interface MultiSelectProps {
+  label?: string
+  placeholder?: string
+  options: string[]
+  selected: string[]
+  onChange: (selected: string[]) => void
+}
+
+function MultiSelect({ label, placeholder, options, selected, onChange }: MultiSelectProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
+  
+  const handleRemove = (item: string) => {
+    onChange(selected.filter(x => x !== item))
+  }
+  
+  const handleSelect = (item: string) => {
+    if (!selected.includes(item)) {
+      onChange([...selected, item])
+    }
+    setSearch('')
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && search.trim()) {
+      e.preventDefault()
+      e.stopPropagation()
+      const newItem = search.trim()
+      if (!selected.includes(newItem)) {
+        onChange([...selected, newItem])
+      }
+      setSearch('')
+    }
+  }
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [])
+
+  const filteredOptions = options.filter(
+    opt => opt.toLowerCase().includes(search.toLowerCase()) && !selected.includes(opt)
+  )
+
+  return (
+    <div ref={containerRef} className="flex flex-col gap-1.5 text-left relative w-full">
+      {label && <Label className="text-xs font-semibold text-muted-foreground">{label}</Label>}
+      <div className="min-h-10 w-full rounded-md border border-border bg-card px-3 py-1.5 text-xs flex flex-wrap gap-1.5 items-center focus-within:ring-1 focus-within:ring-primary/40 focus-within:border-primary transition-all">
+        {selected.map(item => (
+          <Badge key={item} variant="secondary" className="flex items-center gap-1 py-0.5 pl-2 pr-1 border border-border">
+            <span>{item}</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleRemove(item)
+              }}
+              className="rounded-full outline-none hover:bg-muted p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </Badge>
+        ))}
+        <input
+          type="text"
+          placeholder={selected.length === 0 ? placeholder : ''}
+          value={search}
+          onChange={e => {
+            setSearch(e.target.value)
+            setIsOpen(true)
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={handleKeyDown}
+          className="flex-1 bg-transparent border-0 outline-none placeholder:text-muted-foreground min-w-[80px] p-0 text-xs text-foreground focus:ring-0 focus:outline-none"
+        />
+      </div>
+
+      {isOpen && (filteredOptions.length > 0 || search.trim()) && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100">
+          <div className="p-1">
+            {filteredOptions.map(opt => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => handleSelect(opt)}
+                className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none transition-colors"
+              >
+                {opt}
+              </button>
+            ))}
+            {search.trim() && !options.includes(search.trim()) && !selected.includes(search.trim()) && (
+              <button
+                type="button"
+                onClick={() => handleSelect(search.trim())}
+                className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none italic text-muted-foreground font-medium transition-colors"
+              >
+                Add "{search.trim()}"...
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Team Dialog ────────────────────────────────────────────────────────────
 
@@ -46,57 +163,34 @@ interface TeamDialogProps {
 function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [workspacesJson, setWorkspacesJson] = useState('')
   const [allProjects, setAllProjects] = useState<Project[]>([])
   const [associatedProjects, setAssociatedProjects] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
 
-  const [teamTab, setTeamTab] = useState<'edit' | 'preview'>('preview')
-
   const isEdit = !!editTeam
 
   useEffect(() => {
     if (open) {
-      setTeamTab('preview')
       listProjects().then(setAllProjects).catch(console.error)
       if (editTeam) {
         setName(editTeam.name)
         setDescription(editTeam.description || '')
-        setWorkspacesJson(
-          editTeam.workspaces?.length ? JSON.stringify(editTeam.workspaces, null, 2) : ''
-        )
         setAssociatedProjects(editTeam.projects || [])
       } else {
         setName('')
         setDescription('')
-        setWorkspacesJson('')
         setAssociatedProjects([])
       }
       setError(null)
     }
   }, [open, editTeam])
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!name.trim()) {
       setError(t('teams.teamNameRequired'))
       return
-    }
-
-    // Parse workspaces JSON if provided
-    let workspaces: CreateTeamRequest['workspaces'] = undefined
-    if (workspacesJson.trim()) {
-      try {
-        workspaces = JSON.parse(workspacesJson)
-        if (!Array.isArray(workspaces)) {
-          setError(t('teams.workspacesMustBeArray'))
-          return
-        }
-      } catch {
-        setError(t('teams.invalidWorkspacesJSON'))
-        return
-      }
     }
 
     setSaving(true)
@@ -105,14 +199,12 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       if (isEdit) {
         await updateTeam(editTeam!.name, {
           description: description || undefined,
-          workspaces,
           projects: associatedProjects,
         })
       } else {
         await createTeam({
           name: name.trim(),
           description: description || undefined,
-          workspaces,
           projects: associatedProjects,
         })
       }
@@ -123,171 +215,121 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
     } finally {
       setSaving(false)
     }
-  }
+  }, [name, description, associatedProjects, isEdit, editTeam, t, onSave, onOpenChange])
 
-  // Generate workspaces Markdown preview
-  let workspacesPreviewMD = '### ' + t('teams.workspacesConfigured') + '\n\n'
-  if (workspacesJson.trim()) {
-    try {
-      const parsed = JSON.parse(workspacesJson)
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        parsed.forEach((ws: any, idx: number) => {
-          const wsName = ws.name || `${t('teams.workspacesConfig')} #${idx + 1}`
-          const wsPath = ws.path || '*No path set*'
-          workspacesPreviewMD += `- **${wsName}**: \`${wsPath}\`\n`
-          if (ws.autoWork?.enabled) {
-            workspacesPreviewMD += `  - *AutoWork*: ` + t('teams.cooldown', { cooldown: ws.autoWork.initialCooldownMinutes, max: ws.autoWork.maxIntervalsPerDay }) + '\n'
-          }
-        })
-      } else {
-        workspacesPreviewMD += '*' + t('teams.noWorkspacesConfiguredDesc') + '*'
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        handleSave()
       }
-    } catch {
-      workspacesPreviewMD =
-        '⚠️ **' + t('teams.invalidJSONFormat') + '**\n\n' + t('teams.switchToEdit')
     }
-  } else {
-    workspacesPreviewMD += '*' + t('teams.noWorkspacesConfigured') + '*'
-  }
+    if (open) {
+      window.addEventListener('keydown', handleKeyDown)
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open, handleSave])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-md w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <DialogTitle>{isEdit ? t('teams.editTeam') : t('teams.createTeam')}</DialogTitle>
+            <DialogTitle className="text-sm font-bold text-foreground">
+              {isEdit ? t('teams.editTeam') : t('teams.createTeam')}
+            </DialogTitle>
             {isEdit && <Badge variant="outline">{editTeam?.name}</Badge>}
           </div>
-          <DialogDescription>
+          <DialogDescription className="text-xs">
             {isEdit
               ? t('teams.updateTeamDesc', { name: editTeam?.name })
               : t('teams.createTeamDesc')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col md:flex-row gap-6 my-2 text-left">
-          {/* Left Column: Info */}
-          <div className="flex-1 space-y-4">
-            {!isEdit && (
-              <Input
-                label={t('common.name')}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t('teams.teamDescPlaceholder')}
-              />
-            )}
+        <div className="space-y-4 my-2 text-left">
+          {!isEdit && (
+            <Input
+              label={t('common.name')}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('teams.teamDescPlaceholder')}
+              className="text-xs"
+            />
+          )}
 
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('teams.teamDescription')}</Label>
-              <Textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={4}
-                placeholder={t('teams.teamDescPlaceholder')}
-              />
-            </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground">{t('teams.teamDescription')}</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder={t('teams.teamDescPlaceholder')}
+              className="text-xs"
+            />
+          </div>
 
-            <div className="flex flex-col gap-1.5 pt-2">
-              <Label className="font-semibold">{t('teams.associatedProjects')}</Label>
-              <div className="border border-border rounded-md p-3 max-h-[180px] overflow-y-auto space-y-2 bg-muted/10">
-                {allProjects.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">
-                    {t('teams.noProjects')}
-                  </p>
-                ) : (
-                  allProjects.map((p) => {
+          <div className="flex flex-col gap-1.5 pt-1">
+            <Label className="text-xs font-semibold text-muted-foreground">{t('teams.associatedProjects')}</Label>
+            <div className="border border-border rounded-md p-2.5 max-h-[200px] overflow-y-auto space-y-2 bg-muted/10">
+              {allProjects.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic p-2 text-center">
+                  {t('teams.noProjects')}
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {allProjects.map((p) => {
                     const checked = associatedProjects.includes(p.id)
                     return (
-                      <label
+                      <div
                         key={p.id}
-                        className="flex items-start gap-2.5 text-xs text-foreground cursor-pointer select-none"
+                        onClick={() => {
+                          if (checked) {
+                            setAssociatedProjects((prev) => prev.filter((id) => id !== p.id))
+                          } else {
+                            setAssociatedProjects((prev) => [...prev, p.id])
+                          }
+                        }}
+                        className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer select-none transition-all ${
+                          checked
+                            ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                            : 'border-border bg-card hover:bg-muted/40'
+                        }`}
                       >
                         <Checkbox
                           checked={checked}
-                          onCheckedChange={(val) => {
-                            if (val) {
-                              setAssociatedProjects((prev) => [...prev, p.id])
-                            } else {
-                              setAssociatedProjects((prev) => prev.filter((id) => id !== p.id))
-                            }
-                          }}
+                          onCheckedChange={() => {}} // Controlled by parent div click
+                          className="mt-0.5"
                         />
-                        <div className="flex flex-col">
-                          <span className="font-medium">{p.name}</span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-medium text-foreground truncate">{p.name}</span>
                           {p.description && (
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-[10px] text-muted-foreground truncate mt-0.5 leading-tight">
                               {p.description}
                             </span>
                           )}
                         </div>
-                      </label>
+                      </div>
                     )
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Workspaces JSON + Preview */}
-          <div className="flex-1 flex flex-col gap-3 min-h-[300px]">
-            <Tabs
-              value={teamTab}
-              onValueChange={(v: string) => setTeamTab(v as 'edit' | 'preview')}
-            >
-              <div className="flex items-center justify-between">
-                <Label className="font-semibold">{t('teams.workspacesConfig')}</Label>
-                <TabsList className="bg-muted/60 p-0.5 rounded-md border border-border">
-                  <TabsTrigger
-                    value="edit"
-                    className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
-                  >
-                    <FileTextIcon className="h-3 w-3" />
-                    {t('teams.editJSON')}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="preview"
-                    className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
-                  >
-                    <Eye className="h-3 w-3" />
-                    {t('teams.preview')}
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-
-              <TabsContent value="edit" className="flex-1 flex flex-col min-h-[220px]">
-                <div className="flex flex-col gap-1.5 h-full">
-                  <Textarea
-                    value={workspacesJson}
-                    onChange={(e) => setWorkspacesJson(e.target.value)}
-                    className="flex-1 min-h-[220px] font-mono text-xs"
-                    placeholder={t('teams.editJSONPlaceholder')}
-                    spellCheck={false}
-                  />
-                  <p className="text-[10px] text-muted-foreground/80 leading-normal">
-                    {t('teams.jsonArrayHelp')}
-                  </p>
+                  })}
                 </div>
-              </TabsContent>
-              <TabsContent
-                value="preview"
-                className="flex-1 min-h-[220px] max-h-[300px] overflow-y-auto rounded-md border border-border bg-muted/5 p-3 text-sm text-foreground prose prose-sm dark:prose-invert"
-              >
-                <MarkdownPreview content={workspacesPreviewMD} />
-              </TabsContent>
-            </Tabs>
+              )}
+            </div>
           </div>
         </div>
 
         {error && <p className="text-xs text-destructive text-left">{error}</p>}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving} className="text-xs">
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} size="sm" disabled={saving} className="text-xs">
             {saving ? (
               <>
-                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                 {t('common.saving')}
               </>
             ) : isEdit ? (
@@ -320,19 +362,26 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [model, setModel] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
   const [permission, setPermission] = useState(true)
-  const [mcpServersInput, setMcpServersInput] = useState('')
-  const [skillIdsInput, setSkillIdsInput] = useState('')
+  const [mcpServers, setMcpServers] = useState<string[]>([])
+  const [skillIds, setSkillIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
 
   const [promptTab, setPromptTab] = useState<'edit' | 'preview'>('preview')
+  const [mcpOptions, setMcpOptions] = useState<string[]>([])
+  const [skillOptions, setSkillOptions] = useState<string[]>([])
+  const [modelOptions, setModelOptions] = useState<LLMModel[]>([])
+  const [selectedProviderFilter, setSelectedProviderFilter] = useState('all')
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const modelContainerRef = useRef<HTMLDivElement>(null)
 
   const isEdit = !!editAgent
 
   useEffect(() => {
     if (open) {
       setPromptTab('preview')
+      setSelectedProviderFilter('all')
       if (editAgent) {
         setName(editAgent.name)
         setDescription(editAgent.description || '')
@@ -341,8 +390,8 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setModel(editAgent.model || '')
         setSystemPrompt(editAgent.system_prompt || '')
         setPermission(editAgent.permission)
-        setMcpServersInput((editAgent.mcp_servers || []).join(', '))
-        setSkillIdsInput((editAgent.skill_ids || []).join(', '))
+        setMcpServers(editAgent.mcp_servers || [])
+        setSkillIds(editAgent.skill_ids || [])
       } else {
         setName('')
         setDescription('')
@@ -351,14 +400,37 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setModel('')
         setSystemPrompt('')
         setPermission(true)
-        setMcpServersInput('')
-        setSkillIdsInput('')
+        setMcpServers([])
+        setSkillIds([])
       }
       setError(null)
+
+      // Fetch autocomplete options
+      getSkills()
+        .then((res) => setSkillOptions(res.skills.map((s) => s.id)))
+        .catch(console.error)
+      
+      getMCPConfig()
+        .then((cfg) => setMcpOptions(Object.keys(cfg.mcpServers || {})))
+        .catch(console.error)
+
+      listModels()
+        .then(setModelOptions)
+        .catch(console.error)
     }
   }, [open, editAgent, teams])
 
-  const handleSave = async () => {
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (modelContainerRef.current && !modelContainerRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [])
+
+  const handleSave = useCallback(async () => {
     if (!name.trim()) {
       setError(t('teams.agentNameRequired'))
       return
@@ -367,15 +439,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
       setError(t('teams.teamRequired'))
       return
     }
-
-    const mcpServers = mcpServersInput
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-    const skillIds = skillIdsInput
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
 
     setSaving(true)
     setError(null)
@@ -411,118 +474,207 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     } finally {
       setSaving(false)
     }
-  }
+  }, [name, description, teamName, isLeader, model, systemPrompt, permission, mcpServers, skillIds, isEdit, editAgent, t, onSave, onOpenChange])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    if (open) {
+      window.addEventListener('keydown', handleKeyDown)
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open, handleSave])
 
   const teamOptions = teams.map((team) => ({ value: team.name, label: team.name }))
+  const providers = ['all', ...Array.from(new Set(modelOptions.map(m => m.providerId)))]
+  const filteredModelOptions = modelOptions.filter(opt => {
+    const matchesSearch = opt.id.toLowerCase().includes(model.toLowerCase()) || 
+                          opt.name.toLowerCase().includes(model.toLowerCase()) ||
+                          opt.providerId.toLowerCase().includes(model.toLowerCase())
+    const matchesProvider = selectedProviderFilter === 'all' || opt.providerId === selectedProviderFilter
+    return matchesSearch && matchesProvider
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2.5">
-            <DialogTitle>{isEdit ? t('teams.editAgent') : t('teams.createAgent')}</DialogTitle>
+            <DialogTitle className="text-sm font-bold text-foreground">
+              {isEdit ? t('teams.editAgent') : t('teams.createAgent')}
+            </DialogTitle>
             {isEdit && <Badge variant="outline">{editAgent?.name}</Badge>}
           </div>
-          <DialogDescription>
-            {isEdit
-              ? t('teams.editAgentDesc')
-              : t('teams.createAgentDesc')}
+          <DialogDescription className="text-xs">
+            {isEdit ? t('teams.editAgentDesc') : t('teams.createAgentDesc')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col md:flex-row gap-6 my-2 text-left">
-          {/* Left Column: Settings */}
-          <div className="flex-1 space-y-4">
-            {!isEdit && (
-              <Input
-                label={t('common.name')}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t('teams.agentNamePlaceholder')}
-              />
-            )}
+        <div className="space-y-4 my-2 text-left">
+          {/* Base Settings */}
+          {!isEdit && (
+            <Input
+              label={t('common.name')}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('teams.agentNamePlaceholder')}
+              className="text-xs"
+            />
+          )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Select label={t('teams.team')} options={teamOptions} value={teamName} onChange={setTeamName} />
-              <Input
-                label={t('teams.modelOverride')}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={t('teams.modelOverridePlaceholder')}
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('teams.agentDescription')}</Label>
-              <Textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                placeholder={t('teams.agentDescPlaceholder')}
-              />
-            </div>
-
-            {/* Switches in visual cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/10">
-                <div className="flex items-center justify-between">
-                  <Label
-                    className="text-xs font-semibold cursor-pointer"
-                    htmlFor="is-leader-switch"
-                  >
-                    {t('teams.isAgentLeader')}
-                  </Label>
-                  <Switch id="is-leader-switch" checked={isLeader} onCheckedChange={setIsLeader} />
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-normal">
-                  {t('teams.isAgentLeaderDesc')}
-                </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Select label={t('teams.team')} options={teamOptions} value={teamName} onChange={setTeamName} className="text-xs" />
+            
+            <div ref={modelContainerRef} className="flex flex-col gap-1.5 text-left relative w-full">
+              <Label className="text-xs font-semibold text-muted-foreground">{t('teams.modelOverride')}</Label>
+              <div className="relative">
+                <Input
+                  value={model}
+                  onChange={(e) => {
+                    setModel(e.target.value)
+                    setShowModelDropdown(true)
+                  }}
+                  onFocus={() => setShowModelDropdown(true)}
+                  placeholder={t('teams.modelOverridePlaceholder')}
+                  className="text-xs"
+                />
+                {showModelDropdown && (filteredModelOptions.length > 0 || providers.length > 1) && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100 flex flex-col">
+                    {providers.length > 2 && (
+                      <div className="flex gap-1 p-1.5 border-b border-border overflow-x-auto bg-muted/20 shrink-0 select-none">
+                        {providers.map(p => {
+                          const isSelected = selectedProviderFilter === p
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedProviderFilter(p)
+                              }}
+                              className={`px-2 py-0.5 text-[9px] font-semibold rounded-full border transition-all shrink-0 cursor-pointer ${
+                                isSelected
+                                  ? 'bg-primary border-primary text-white'
+                                  : 'bg-card border-border text-muted-foreground hover:text-foreground'
+                              }`}
+                            >
+                              {p.toUpperCase()}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <div className="p-1 overflow-y-auto">
+                      {filteredModelOptions.length === 0 ? (
+                        <div className="text-[10px] text-muted-foreground text-center py-2 italic">
+                          No models found
+                        </div>
+                      ) : (
+                        filteredModelOptions.map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setModel(opt.id)
+                              setShowModelDropdown(false)
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none transition-colors flex items-center justify-between gap-2"
+                          >
+                            <span className="truncate">{opt.id}</span>
+                            <span className="text-[9px] font-medium text-muted-foreground bg-muted/40 px-1 py-0.2 rounded border border-border/40 shrink-0">
+                              {opt.providerId}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-
-              <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/10">
-                <div className="flex items-center justify-between">
-                  <Label
-                    className="text-xs font-semibold cursor-pointer"
-                    htmlFor="permission-switch"
-                  >
-                    {t('teams.bypassConfirm')}
-                  </Label>
-                  <Switch
-                    id="permission-switch"
-                    checked={permission}
-                    onCheckedChange={setPermission}
-                  />
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-normal">
-                  {t('teams.bypassConfirmDesc')}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
-                label={t('teams.mcpServers')}
-                value={mcpServersInput}
-                onChange={(e) => setMcpServersInput(e.target.value)}
-                placeholder={t('teams.mcpServersPlaceholder')}
-              />
-              <Input
-                label={t('teams.skillIds')}
-                value={skillIdsInput}
-                onChange={(e) => setSkillIdsInput(e.target.value)}
-                placeholder={t('teams.skillIdsPlaceholder')}
-              />
             </div>
           </div>
 
-          {/* Right Column: System Prompt & Markdown Preview */}
-          <div className="flex-1 flex flex-col gap-3 min-h-[350px]">
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground">{t('teams.agentDescription')}</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder={t('teams.agentDescPlaceholder')}
+              className="text-xs"
+            />
+          </div>
+
+          {/* Switches in visual cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/5">
+              <div className="flex items-center justify-between">
+                <Label
+                  className="text-xs font-semibold cursor-pointer text-foreground"
+                  htmlFor="is-leader-switch"
+                >
+                  {t('teams.isAgentLeader')}
+                </Label>
+                <Switch id="is-leader-switch" checked={isLeader} onCheckedChange={setIsLeader} />
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-normal">
+                {t('teams.isAgentLeaderDesc')}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/5">
+              <div className="flex items-center justify-between">
+                <Label
+                  className="text-xs font-semibold cursor-pointer text-foreground"
+                  htmlFor="permission-switch"
+                >
+                  {t('teams.bypassConfirm')}
+                </Label>
+                <Switch
+                  id="permission-switch"
+                  checked={permission}
+                  onCheckedChange={setPermission}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-normal">
+                {t('teams.bypassConfirmDesc')}
+              </p>
+            </div>
+          </div>
+
+          {/* Multi-Select Selectors */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <MultiSelect
+              label={t('teams.selectMcp')}
+              placeholder={t('teams.mcpServersPlaceholder')}
+              options={mcpOptions}
+              selected={mcpServers}
+              onChange={setMcpServers}
+            />
+            <MultiSelect
+              label={t('teams.selectSkills')}
+              placeholder={t('teams.skillIdsPlaceholder')}
+              options={skillOptions}
+              selected={skillIds}
+              onChange={setSkillIds}
+            />
+          </div>
+
+          {/* System Prompt & Markdown Preview */}
+          <div className="flex flex-col gap-3 min-h-[300px] pt-2">
             <Tabs
               value={promptTab}
               onValueChange={(v: string) => setPromptTab(v as 'edit' | 'preview')}
+              className="flex-grow flex flex-col"
             >
               <div className="flex items-center justify-between">
-                <Label className="font-semibold">{t('teams.systemPrompt')}</Label>
+                <Label className="text-xs font-semibold text-muted-foreground">{t('teams.systemPrompt')}</Label>
                 <TabsList className="bg-muted/60 p-0.5 rounded-md border border-border">
                   <TabsTrigger
                     value="edit"
@@ -541,18 +693,18 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                 </TabsList>
               </div>
 
-              <TabsContent value="edit" className="flex-1 min-h-[300px]">
+              <TabsContent value="edit" className="flex-1 flex flex-col min-h-[260px] mt-2">
                 <Textarea
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
-                  className="min-h-[300px] font-mono text-xs w-full"
+                  className="flex-grow min-h-[260px] font-mono text-xs w-full"
                   placeholder={t('teams.systemPromptPlaceholder')}
                   spellCheck={false}
                 />
               </TabsContent>
               <TabsContent
                 value="preview"
-                className="flex-1 min-h-[300px] max-h-[400px] overflow-y-auto rounded-md border border-border bg-muted/5 p-3 text-sm text-foreground prose prose-sm dark:prose-invert"
+                className="flex-1 mt-2 min-h-[260px] max-h-[350px] overflow-y-auto rounded-md border border-border bg-muted/5 p-3 text-xs text-foreground prose prose-sm dark:prose-invert"
               >
                 {systemPrompt.trim() ? (
                   <MarkdownPreview content={systemPrompt} />
@@ -568,14 +720,14 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
         {error && <p className="text-xs text-destructive text-left">{error}</p>}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving} className="text-xs">
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} size="sm" disabled={saving} className="text-xs">
             {saving ? (
               <>
-                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                 {t('common.saving')}
               </>
             ) : isEdit ? (

@@ -782,12 +782,12 @@ export function LLMSection({
                     </span>
                     {m.thinking?.enabled && (
                       <span className="text-[9px] bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-1 py-0.5 rounded font-medium">
-                        🧠 {t('config.llmThinkingBadge')}
+                        {t('config.llmThinkingBadge')}
                       </span>
                     )}
                     {m.vision && (
                       <span className="text-[9px] bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/20 px-1 py-0.5 rounded font-medium">
-                        📷 {t('config.llmVisionBadge')}
+                        {t('config.llmVisionBadge')}
                       </span>
                     )}
                   </div>
