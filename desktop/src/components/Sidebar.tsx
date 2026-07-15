@@ -6,11 +6,8 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
-  FileText,
   User,
   Sparkles,
-  Server,
-  Users,
   Clock,
   Sun,
   Moon,
@@ -21,6 +18,9 @@ import {
   Plus,
   Wifi,
   BarChart2,
+  Cpu,
+  Brain,
+  Shield,
 } from 'lucide-react'
 import { cycleTheme } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
@@ -34,15 +34,22 @@ const mainNav = [
   { to: '/stats', icon: BarChart2, key: 'sidebar.usageStats' as const },
 ]
 
-const settingsChildren = [
+const systemSettings = [
   { to: '/settings/general', icon: Settings, key: 'sidebar.general' as const },
-  { to: '/settings/config', icon: FileText, key: 'sidebar.config' as const },
   { to: '/settings/connection', icon: Wifi, key: 'sidebar.connection' as const },
-  { to: '/settings/profile', icon: User, key: 'sidebar.profile' as const },
-  { to: '/settings/skills', icon: Sparkles, key: 'sidebar.skills' as const },
-  { to: '/settings/mcp', icon: Server, key: 'sidebar.mcp' as const },
-  { to: '/settings/teams', icon: Users, key: 'sidebar.teams' as const },
   { to: '/settings/projects', icon: FolderOpen, key: 'sidebar.projects' as const },
+]
+
+const engineSettings = [
+  { to: '/settings/models', icon: Cpu, key: 'sidebar.models' as const },
+  { to: '/settings/memory', icon: Brain, key: 'sidebar.memory' as const },
+  { to: '/settings/safety', icon: Shield, key: 'sidebar.safety' as const },
+]
+
+const agentSettings = [
+  { to: '/settings/agents', icon: User, key: 'sidebar.agents' as const },
+  { to: '/settings/capabilities', icon: Sparkles, key: 'sidebar.capabilities' as const },
+  { to: '/settings/qqbot', icon: MessageSquare, key: 'sidebar.qqbot' as const },
 ]
 
 interface SidebarProps {
@@ -100,7 +107,6 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
 
       {viewMode === 'settings' ? (
         <SettingsView
-          settingsChildren={settingsChildren}
           location={location}
           onNav={handleNav}
           onBack={() => setViewMode('nav')}
@@ -274,13 +280,11 @@ function NavView({
 /* ---------- Settings mode (full settings sidebar) ---------- */
 
 function SettingsView({
-  settingsChildren,
   location,
   onNav,
   onBack,
   narrow,
 }: {
-  settingsChildren: { to: string; icon: typeof FileText; key: string }[]
   location: ReturnType<typeof useLocation>
   onNav: (to: string) => void
   onBack: () => void
@@ -288,6 +292,39 @@ function SettingsView({
 }) {
   const showText = !narrow
   const { t } = useTranslation()
+
+  const renderSection = (titleKey: string, items: { to: string; icon: any; key: any }[]) => {
+    return (
+      <div className="space-y-1">
+        {showText && (
+          <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+            {t(titleKey)}
+          </div>
+        )}
+        {items.map((item) => {
+          const active = location.pathname === item.to
+          return (
+            <button
+              key={item.to}
+              onClick={() => onNav(item.to)}
+              className={cn(
+                'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer w-full',
+                narrow ? 'justify-center px-0 py-2' : 'gap-2.5 px-2.5 py-1.5',
+                active
+                  ? 'bg-primary text-white shadow-sm font-semibold'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+              )}
+              title={narrow ? t(item.key) : undefined}
+            >
+              <item.icon className="h-3.5 w-3.5 shrink-0" />
+              {showText && <span className="whitespace-nowrap">{t(item.key)}</span>}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <>
       {/* Header: gray "back to app" button */}
@@ -311,27 +348,12 @@ function SettingsView({
       </div>
 
       {/* Settings items */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
-        {settingsChildren.map((item) => {
-          const active = location.pathname === item.to
-          return (
-            <button
-              key={item.to}
-              onClick={() => onNav(item.to)}
-              className={cn(
-                'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer',
-                narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2.5 px-2.5 py-1.5',
-                active
-                  ? 'bg-primary text-white shadow-sm font-semibold'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
-              )}
-              title={narrow ? t(item.key) : undefined}
-            >
-              <item.icon className="h-3.5 w-3.5 shrink-0" />
-              {showText && <span className="whitespace-nowrap">{t(item.key)}</span>}
-            </button>
-          )
-        })}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-4">
+        {renderSection('sidebar.groupSystem', systemSettings)}
+        {showText ? <div className="border-t border-border/10 my-1" /> : <div className="border-t border-border/30 my-1" />}
+        {renderSection('sidebar.groupEngine', engineSettings)}
+        {showText ? <div className="border-t border-border/10 my-1" /> : <div className="border-t border-border/30 my-1" />}
+        {renderSection('sidebar.groupAgents', agentSettings)}
       </nav>
     </>
   )

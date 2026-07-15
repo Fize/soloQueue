@@ -10,13 +10,14 @@ export function SettingsLayout() {
   
   const tabLabels: Record<string, string> = {
     '/settings/general': t('sidebar.general'),
-    '/settings/config': t('config.title'),
     '/settings/connection': t('connection.title'),
-    '/settings/profile': t('profile.title'),
-    '/settings/skills': t('skills.title'),
-    '/settings/mcp': t('mcp.title'),
-    '/settings/teams': t('teams.title'),
     '/settings/projects': t('projects.title'),
+    '/settings/models': t('sidebar.models'),
+    '/settings/memory': t('sidebar.memory'),
+    '/settings/safety': t('sidebar.safety'),
+    '/settings/agents': t('sidebar.agents'),
+    '/settings/capabilities': t('sidebar.capabilities'),
+    '/settings/qqbot': t('sidebar.qqbot'),
   }
 
   const activeLabel = tabLabels[location.pathname] || t('sidebar.settings')

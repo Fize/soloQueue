@@ -19,11 +19,12 @@ const CronPage = lazy(() => import('@/components/CronPage').then(m => ({ default
 const SimulationListPage = lazy(() => import('@/components/SimulationListPage').then(m => ({ default: m.SimulationListPage })))
 const SimulationDetailPage = lazy(() => import('@/components/SimulationDetailPage').then(m => ({ default: m.SimulationDetailPage })))
 const SettingsLayout = lazy(() => import('@/components/SettingsLayout').then(m => ({ default: m.SettingsLayout })))
-const ConfigTab = lazy(() => import('@/components/settings/ConfigTab/index').then(m => ({ default: m.ConfigTab })))
-const ProfileTab = lazy(() => import('@/components/settings/ProfileTab').then(m => ({ default: m.ProfileTab })))
-const SkillsTab = lazy(() => import('@/components/settings/SkillsTab').then(m => ({ default: m.SkillsTab })))
-const MCPTab = lazy(() => import('@/components/settings/MCPTab').then(m => ({ default: m.MCPTab })))
-const TeamsTab = lazy(() => import('@/components/settings/TeamsTab').then(m => ({ default: m.default })))
+const ModelsTab = lazy(() => import('@/components/settings/ModelsTab').then(m => ({ default: m.ModelsTab })))
+const MemoryTab = lazy(() => import('@/components/settings/MemoryTab').then(m => ({ default: m.MemoryTab })))
+const SafetyTab = lazy(() => import('@/components/settings/SafetyTab').then(m => ({ default: m.SafetyTab })))
+const AgentsTab = lazy(() => import('@/components/settings/AgentsTab').then(m => ({ default: m.AgentsTab })))
+const CapabilitiesTab = lazy(() => import('@/components/settings/CapabilitiesTab').then(m => ({ default: m.CapabilitiesTab })))
+const QQBotTab = lazy(() => import('@/components/settings/QQBotTab').then(m => ({ default: m.QQBotTab })))
 const ProjectsTab = lazy(() => import('@/components/settings/ProjectsTab').then(m => ({ default: m.ProjectsTab })))
 const ConnectionTab = lazy(() => import('@/components/settings/ConnectionTab').then(m => ({ default: m.ConnectionTab })))
 const StatsTab = lazy(() => import('@/components/settings/StatsTab').then(m => ({ default: m.StatsTab })))
@@ -325,13 +326,14 @@ function App() {
                 <Route path="/settings" element={<SettingsLayout />}>
                   <Route index element={<Navigate to="general" replace />} />
                   <Route path="general" element={<GeneralTab />} />
-                  <Route path="config" element={<ConfigTab />} />
                   <Route path="connection" element={<ConnectionTab />} />
-                  <Route path="profile" element={<ProfileTab />} />
-                  <Route path="skills" element={<SkillsTab />} />
-                  <Route path="mcp" element={<MCPTab />} />
-                  <Route path="teams" element={<TeamsTab />} />
                   <Route path="projects" element={<ProjectsTab />} />
+                  <Route path="models" element={<ModelsTab />} />
+                  <Route path="memory" element={<MemoryTab />} />
+                  <Route path="safety" element={<SafetyTab />} />
+                  <Route path="agents" element={<AgentsTab />} />
+                  <Route path="capabilities" element={<CapabilitiesTab />} />
+                  <Route path="qqbot" element={<QQBotTab />} />
                   <Route path="stats" element={<StatsTab />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
