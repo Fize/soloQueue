@@ -39,7 +39,7 @@ function DiffLineView({ line }: { line: DiffLine }) {
   return (
     <div
       className={cn(
-        "flex font-mono text-[11px] leading-[1.5] whitespace-pre overflow-hidden",
+        "flex font-mono text-[11px] leading-[1.5] whitespace-pre",
         isAdd && "bg-success/10",
         isDel && "bg-red-500/10",
         isCtx && "bg-transparent",
@@ -63,7 +63,7 @@ function DiffLineView({ line }: { line: DiffLine }) {
       </span>
       <span
         className={cn(
-          "flex-1 px-1 overflow-hidden",
+          "flex-1 px-1",
           isAdd && "text-success",
           isDel && "text-red-700 dark:text-red-400",
           isCtx && "text-foreground/70",

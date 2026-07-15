@@ -164,7 +164,7 @@
   --color-border: #E2E5EB;
   --color-input: #E2E5EB;
   --color-ring: rgba(35,99,234, 0.25);
-  --color-success: #3D8C5E;
+  --color-success: #059669;
   --color-success-foreground: #FFFFFF;
   --color-warning: #D97706;
   --color-warning-foreground: #FFFFFF;
@@ -474,9 +474,8 @@ body {
 
 /* Code blocks */
 .markdown-preview pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: break-word;
+  overflow-x: auto;
+  white-space: pre;
 }
 .markdown-preview code {
   word-break: break-word;
@@ -632,21 +631,6 @@ html.light .markdown-preview pre code span {
   padding-right: 0.5rem;
   margin-left: -0.5rem;
   margin-right: -0.5rem;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--color-signal) 5%, transparent),
-    color-mix(in srgb, var(--color-signal) 12%, transparent),
-    color-mix(in srgb, var(--color-signal) 5%, transparent)
-  );
-  background-size: 200% 100%;
-  animation: agent-working-shimmer 3.2s ease-in-out infinite;
-  will-change: background-position;
-}
-
-/* Subtle horizontal sheen sweep across the pill — the "alive" feel. */
-@keyframes agent-working-shimmer {
-  0%   { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
 }
 
 /* Three bouncing dots — the dots themselves are the same "..." pattern
