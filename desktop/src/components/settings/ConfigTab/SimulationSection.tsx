@@ -127,9 +127,9 @@ export function SimulationSection({
             <span>{t('config.simMaxClock')}</span>
             <span className="text-primary font-mono font-bold">
               {config.defaultMaxWallClockMs ? Math.round(config.defaultMaxWallClockMs / 60000) : 18}{' '}
-              min
+              {t('config.simMinUnit')}
               {config.defaultMaxWallClockMs && config.defaultMaxWallClockMs >= 3600000
-                ? ` (${(config.defaultMaxWallClockMs / 3600000).toFixed(1)} hours)`
+                ? ` (${(config.defaultMaxWallClockMs / 3600000).toFixed(1)} ${t('config.simHoursUnit')})`
                 : ''}
             </span>
           </label>
@@ -169,7 +169,7 @@ export function SimulationSection({
             />
           </div>
           <p className="text-[10px] text-muted-foreground leading-normal">
-            Physical clock timeout limit during simulation runs (1 minute to 24 hours).
+            {t('config.simMaxClockDesc')}
           </p>
         </div>
         <div className="flex flex-col gap-1.5">
