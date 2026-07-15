@@ -485,14 +485,30 @@ function createMenu() {
 app.whenReady().then(async () => {
   createWindow()
   createMenu()
-
-  try {
-    await spawnGoBackend()
-  } catch (err) {
-    console.error('[Electron] Failed to start backend on startup:', err)
-  }
-
   loadWindowContent()
+
+  // Check remote mode in localStorage before spawning local backend.
+  // localStorage lives in the renderer process, so we must wait for the
+  // page to finish loading before we can read it.
+  mainWindow.webContents.on('did-finish-load', async () => {
+    try {
+      const mode = await mainWindow.webContents.executeJavaScript(
+        'localStorage.getItem("soloqueue_connection_mode")'
+      )
+      if (mode !== 'remote') {
+        await spawnGoBackend()
+      } else {
+        console.log('[Electron] Remote mode detected. Skipping local backend startup.')
+      }
+    } catch (err) {
+      console.error('[Electron] Failed to read connection mode, starting backend anyway:', err)
+      try {
+        await spawnGoBackend()
+      } catch (e2) {
+        console.error('[Electron] Failed to start backend on startup:', e2)
+      }
+    }
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

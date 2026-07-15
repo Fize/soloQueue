@@ -25,7 +25,9 @@ export async function getConfig(): Promise<AppConfig> {
 }
 
 export async function getConfigToml(): Promise<string> {
-  const res = await fetch(`${API_BASE}/config/toml`, {
+  const base = useConnectionStore.getState().getEffectiveBaseUrl();
+  const url = base ? `${base}${API_BASE}/config/toml` : `${API_BASE}/config/toml`;
+  const res = await fetch(url, {
     headers: useConnectionStore.getState().getAuthHeaders(),
   });
   if (!res.ok) {

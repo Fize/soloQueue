@@ -111,11 +111,13 @@ export async function uploadFile(
     formData.append("session_id", sessionId);
   }
 
+  const base = useConnectionStore.getState().getEffectiveBaseUrl();
+  const url = base ? `${base}${API_BASE}/session/upload` : `${API_BASE}/session/upload`;
   const headers = {
     ...useConnectionStore.getState().getAuthHeaders(),
   };
 
-  const res = await fetch(`${API_BASE}/session/upload`, {
+  const res = await fetch(url, {
     method: "POST",
     headers,
     body: formData,
@@ -141,7 +143,9 @@ export async function getSessionChanges(
 // ─── Misc ────────────────────────────────────────────────────────────────────
 
 export async function getHealthInfo(): Promise<{ status: string; work_dir?: string }> {
-  const res = await fetch("/healthz");
+  const base = useConnectionStore.getState().getEffectiveBaseUrl();
+  const url = base ? `${base}/healthz` : "/healthz";
+  const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to fetch health info");
   return res.json();
 }

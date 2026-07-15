@@ -321,6 +321,13 @@ export function ConnectionTab() {
     }
     try {
       await saveConfig()
+      // When switching to remote mode, stop the local Go backend
+      if (mode === 'remote' && isElectron) {
+        try {
+          const ea = (window as any).electronAPI
+          await ea.stopBackend()
+        } catch { /* backend may not be running, ignore */ }
+      }
       toast.success(t('connection.saveSuccess'))
     } catch {
       toast.error(t('connection.saveFail'))
