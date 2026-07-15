@@ -82,6 +82,15 @@ type Confirmable interface {
 // ConfirmChoice is the user's choice in the confirmation dialog.
 type ConfirmChoice string
 
+// defaultConfirmable provides default implementations for the three optional
+// Confirmable methods. Tools that embed it get binary-only confirmation with
+// session-whitelist support and no-op ConfirmArgs.
+type defaultConfirmable struct{}
+
+func (defaultConfirmable) ConfirmationOptions(_ string) []string             { return nil }
+func (defaultConfirmable) ConfirmArgs(original string, _ ConfirmChoice) string { return original }
+func (defaultConfirmable) SupportsSessionWhitelist() bool                      { return true }
+
 const (
 	// ChoiceDeny means deny/cancel execution.
 	ChoiceDeny ConfirmChoice = ""

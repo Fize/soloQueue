@@ -1086,42 +1086,28 @@ func (gal *GAAgentLoop) getFactionStrength(agentID string, zoneAgents []string) 
 }
 
 func getAgentStrength(p *Persona) float64 {
-	if p == nil {
-		return 50.0
-	}
-	keys := []string{"combat_strength", "strength", "power", "martial_arts", "capability", "force_value", "combat_effectiveness", "martial_force", "influence", "status", "wealth", "fortune"}
-	for _, k := range keys {
-		if valStr, ok := p.Traits[k]; ok {
-			return parseTraitValue(valStr)
-		}
-	}
-	return 50.0
+	return traitLookup(p, []string{"combat_strength", "strength", "power", "martial_arts", "capability", "force_value", "combat_effectiveness", "martial_force", "influence", "status", "wealth", "fortune"}, 50.0)
 }
 
 func getAgentPerception(p *Persona) float64 {
-	if p == nil {
-		return 50.0
-	}
-	keys := []string{"perception", "detection", "insight", "discovery", "reconnaissance", "spiritual_sense"}
-	for _, k := range keys {
-		if valStr, ok := p.Traits[k]; ok {
-			return parseTraitValue(valStr)
-		}
-	}
-	return getAgentStrength(p)
+	return traitLookup(p, []string{"perception", "detection", "insight", "discovery", "reconnaissance", "spiritual_sense"}, getAgentStrength(p))
 }
 
 func getAgentStealth(p *Persona) float64 {
+	return traitLookup(p, []string{"stealth", "stealth_level", "stealthing", "hiding", "concealment", "secrecy"}, getAgentStrength(p))
+}
+
+// traitLookup searches p.Traits for the first matching key and returns its parsed value.
+func traitLookup(p *Persona, keys []string, fallback float64) float64 {
 	if p == nil {
 		return 50.0
 	}
-	keys := []string{"stealth", "stealth_level", "stealthing", "hiding", "concealment", "secrecy"}
 	for _, k := range keys {
 		if valStr, ok := p.Traits[k]; ok {
 			return parseTraitValue(valStr)
 		}
 	}
-	return getAgentStrength(p)
+	return fallback
 }
 
 func parseTraitValue(valStr string) float64 {

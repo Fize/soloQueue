@@ -29,6 +29,7 @@ import (
 //     a single-file failure only affects that entry (status=error), and the others continue.
 //   - Returns {files:[{path,status,size,created,err}], summary:{total,ok,error}}
 type multiWriteTool struct {
+	defaultConfirmable
 	cfg Config
 }
 
@@ -207,18 +208,6 @@ func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 }
 
 // ConfirmationOptions implements Confirmable: binary confirmation.
-func (t *multiWriteTool) ConfirmationOptions(_ string) []string { return nil }
-
-// ConfirmArgs implements Confirmable: no args modification needed.
-func (t *multiWriteTool) ConfirmArgs(original string, choice ConfirmChoice) string {
-	if choice != ChoiceApprove {
-		return original
-	}
-	return original
-}
-
-// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
-func (t *multiWriteTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
 var _ Tool = (*multiWriteTool)(nil)

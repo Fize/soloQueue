@@ -26,6 +26,7 @@ import (
 //   - The parent directory must already exist (no automatic MkdirAll to avoid the LLM accidentally creating directory trees)
 //   - Atomicity: atomicWrite(tmp + rename); failures leave no temporary file behind.
 type writeFileTool struct {
+	defaultConfirmable
 	cfg    Config
 	logger *logger.Logger
 }
@@ -171,11 +172,8 @@ func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 	}
 
 	// Bypass confirmation for plan files
-	if t.cfg.PlanDir != "" {
-		abs, err := absPath(a.Path)
-		if err == nil && strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
-			return false, ""
-		}
+	if isPlanDirFile(a.Path, t.cfg.PlanDir) {
+		return false, ""
 	}
 
 	size := len(a.Content)
@@ -189,18 +187,6 @@ func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
 }
 
 // ConfirmationOptions implements Confirmable: binary confirmation.
-func (t *writeFileTool) ConfirmationOptions(_ string) []string { return nil }
-
-// ConfirmArgs implements Confirmable: no args modification needed.
-func (t *writeFileTool) ConfirmArgs(original string, choice ConfirmChoice) string {
-	if choice != ChoiceApprove {
-		return original
-	}
-	return original
-}
-
-// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
-func (t *writeFileTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
 var _ Tool = (*writeFileTool)(nil)

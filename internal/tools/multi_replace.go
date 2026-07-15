@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -29,6 +28,7 @@ import (
 //   - edits count > MaxReplaceEdits → ErrTooManyEdits
 //   - edits empty → ErrEmptyInput
 type multiReplaceTool struct {
+	defaultConfirmable
 	cfg    Config
 	logger *logger.Logger
 }
@@ -175,29 +175,14 @@ func (t *multiReplaceTool) CheckConfirmation(raw string) (bool, string) {
 	}
 
 	// Bypass confirmation for plan files
-	if t.cfg.PlanDir != "" {
-		abs, err := absPath(a.Path)
-		if err == nil && strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
-			return false, ""
-		}
+	if isPlanDirFile(a.Path, t.cfg.PlanDir) {
+		return false, ""
 	}
 
 	return true, fmt.Sprintf("Apply %d edit(s) to %q. Allow?", len(a.Edits), a.Path)
 }
 
 // ConfirmationOptions implements Confirmable: binary confirmation.
-func (t *multiReplaceTool) ConfirmationOptions(_ string) []string { return nil }
-
-// ConfirmArgs implements Confirmable: no args modification needed.
-func (t *multiReplaceTool) ConfirmArgs(original string, choice ConfirmChoice) string {
-	if choice != ChoiceApprove {
-		return original
-	}
-	return original
-}
-
-// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
-func (t *multiReplaceTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
 var _ Tool = (*multiReplaceTool)(nil)

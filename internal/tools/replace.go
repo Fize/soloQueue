@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -30,6 +29,7 @@ import (
 //
 // Atomicity: read file → strings.Replace completes in memory → atomicWrite writes back in one operation
 type replaceTool struct {
+	defaultConfirmable
 	cfg    Config
 	logger *logger.Logger
 }
@@ -152,11 +152,8 @@ func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 	}
 
 	// Bypass confirmation for plan files
-	if t.cfg.PlanDir != "" {
-		abs, err := absPath(a.Path)
-		if err == nil && strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
-			return false, ""
-		}
+	if isPlanDirFile(a.Path, t.cfg.PlanDir) {
+		return false, ""
 	}
 
 	oldPreview := truncateString(a.OldString, 40)
@@ -165,18 +162,6 @@ func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 }
 
 // ConfirmationOptions implements Confirmable: binary confirmation.
-func (t *replaceTool) ConfirmationOptions(_ string) []string { return nil }
-
-// ConfirmArgs implements Confirmable: no args modification needed.
-func (t *replaceTool) ConfirmArgs(original string, choice ConfirmChoice) string {
-	if choice != ChoiceApprove {
-		return original
-	}
-	return original
-}
-
-// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
-func (t *replaceTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
 var _ Tool = (*replaceTool)(nil)

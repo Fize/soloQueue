@@ -29,6 +29,7 @@ import (
 //   - Body size is limited via http.MaxBytesReader using HTTPMaxBody.
 //   - Timeout uses HTTPTimeout first, or the context deadline if present.
 type httpFetchTool struct {
+	defaultConfirmable
 	cfg    Config
 	logger *logger.Logger
 	// allow override of DNS for testing
@@ -202,18 +203,6 @@ func (t *httpFetchTool) CheckConfirmation(raw string) (bool, string) {
 }
 
 // ConfirmationOptions implements Confirmable: binary confirmation.
-func (t *httpFetchTool) ConfirmationOptions(_ string) []string { return nil }
-
-// ConfirmArgs implements Confirmable: no args modification needed.
-func (t *httpFetchTool) ConfirmArgs(original string, choice ConfirmChoice) string {
-	if choice != ChoiceApprove {
-		return original
-	}
-	return original
-}
-
-// SupportsSessionWhitelist implements Confirmable: supports allow-in-session.
-func (t *httpFetchTool) SupportsSessionWhitelist() bool { return true }
 
 // Compile-time checks
 var _ Tool = (*httpFetchTool)(nil)
