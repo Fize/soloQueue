@@ -52,6 +52,17 @@ func (b *Builder) newSessionLogger() (*logger.Logger, error) {
 	)
 }
 
+// newTimelineWriter creates a timeline writer for the given directory.
+func (b *Builder) newTimelineWriter(dir string, sessLog *logger.Logger) (*timeline.Writer, error) {
+	settings := b.Cfg.Get()
+	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
+	if tlMaxFileMB > 50 {
+		tlMaxFileMB = 50
+	}
+	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
+	return timeline.NewWriter(dir, "timeline", tlMaxBytes, 15, timeline.WithWriterLogger(sessLog))
+}
+
 // Build creates a new session with its own agent, context window, and
 // timeline writer. Implements AgentFactory signature.
 func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
@@ -92,7 +103,6 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 	}
-	settings := b.Cfg.Get()
 
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := toolsCfg
@@ -422,13 +432,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 	// Timeline writer + push hook
 	tlDir := filepath.Join(b.WorkDir, "logs", "timelines", effectiveTeam)
-	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
-	if tlMaxFileMB > 50 {
-		tlMaxFileMB = 50
-	}
-	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
-	tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, 15,
-		timeline.WithWriterLogger(sessLog))
+	tl, err := b.newTimelineWriter(tlDir, sessLog)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
@@ -755,7 +759,6 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		return nil, fmt.Errorf("no leader template found for group %q", group)
 	}
 
-	settings := b.Cfg.Get()
 	sessLog, err := b.newSessionLogger()
 	if err != nil {
 		return nil, fmt.Errorf("build L2 session logger: %w", err)
@@ -786,13 +789,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 
 	// Timeline writer.
 	tlDir := filepath.Join(b.WorkDir, "logs", "timelines", "l2-"+id)
-	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
-	if tlMaxFileMB > 50 {
-		tlMaxFileMB = 50
-	}
-	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
-	tl, err := timeline.NewWriter(tlDir, "timeline", tlMaxBytes, 15,
-		timeline.WithWriterLogger(sessLog))
+	tl, err := b.newTimelineWriter(tlDir, sessLog)
 	if err != nil {
 		childAgent.Stop(5 * time.Second)
 		return nil, fmt.Errorf("build L2 timeline writer: %w", err)
@@ -959,7 +956,6 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 		return nil, fmt.Errorf("no leader template found for group %q", group)
 	}
 
-	settings := b.Cfg.Get()
 	sessLog, err := b.newSessionLogger()
 	if err != nil {
 		return nil, fmt.Errorf("build L2 cron session logger: %w", err)
@@ -983,13 +979,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	}
 
 	// Timeline writer — use the caller-supplied cronLogDir.
-	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
-	if tlMaxFileMB > 50 {
-		tlMaxFileMB = 50
-	}
-	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
-	tl, err := timeline.NewWriter(cronLogDir, "timeline", tlMaxBytes, 15,
-		timeline.WithWriterLogger(sessLog))
+	tl, err := b.newTimelineWriter(cronLogDir, sessLog)
 	if err != nil {
 		childAgent.Stop(5 * time.Second)
 		return nil, fmt.Errorf("build L2 cron timeline writer: %w", err)

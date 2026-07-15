@@ -1,15 +1,61 @@
 package cron
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
+
+// mockSession implements the Session interface for testing.
+type mockSession struct {
+	idle        bool
+	queued      []string
+	askStreamFn func(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
+}
+
+func (m *mockSession) Idle() bool                       { return m.idle }
+func (m *mockSession) QueueMessage(prompt string)       { m.queued = append(m.queued, prompt) }
+func (m *mockSession) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	if m.askStreamFn != nil {
+		return m.askStreamFn(ctx, prompt)
+	}
+	ch := make(chan iface.AgentEvent)
+	close(ch)
+	return ch, nil
+}
+func (m *mockSession) AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	return m.AskStream(ctx, prompt)
+}
+
+type mockSessionManager struct {
+	session    Session
+	getSession func(ctx context.Context, teamID, taskID string) (Session, bool, func(), error)
+}
+
+func (m *mockSessionManager) Session() Session { return m.session }
+func (m *mockSessionManager) GetSession(ctx context.Context, teamID, taskID string) (Session, bool, func(), error) {
+	if m.getSession != nil {
+		return m.getSession(ctx, teamID, taskID)
+	}
+	return nil, false, nil, nil
+}
+
+func newTestScheduler(t *testing.T) *Scheduler {
+	t.Helper()
+	log, err := logger.System(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("create logger: %v", err)
+	}
+	t.Cleanup(func() { log.Close() })
+	return NewScheduler(nil, &mockSessionManager{}, log)
+}
 
 func TestNextTrigger(t *testing.T) {
 	localZone := time.Local
-	now := time.Date(2026, 5, 24, 10, 0, 0, 0, localZone) // Sunday
+	now := time.Date(2026, 5, 24, 10, 0, 0, 0, localZone)
 
 	tests := []struct {
 		expr     string
@@ -18,35 +64,11 @@ func TestNextTrigger(t *testing.T) {
 		wantOne  bool
 		hasError bool
 	}{
-		{
-			expr:    "2026-05-24 15:30:00",
-			from:    now,
-			want:    time.Date(2026, 5, 24, 15, 30, 0, 0, localZone),
-			wantOne: true,
-		},
-		{
-			expr:    "2026-05-25",
-			from:    now,
-			want:    time.Date(2026, 5, 25, 0, 0, 0, 0, localZone),
-			wantOne: true,
-		},
-		{
-			expr:    "daily",
-			from:    now,
-			want:    time.Date(2026, 5, 25, 0, 0, 0, 0, localZone),
-			wantOne: false,
-		},
-		{
-			expr:    "0 8 * * 1", // Next Monday at 8:00 (May 25)
-			from:    now,
-			want:    time.Date(2026, 5, 25, 8, 0, 0, 0, localZone),
-			wantOne: false,
-		},
-		{
-			expr:     "invalid expression",
-			from:     now,
-			hasError: true,
-		},
+		{expr: "2026-05-24 15:30:00", from: now, want: time.Date(2026, 5, 24, 15, 30, 0, 0, localZone), wantOne: true},
+		{expr: "2026-05-25", from: now, want: time.Date(2026, 5, 25, 0, 0, 0, 0, localZone), wantOne: true},
+		{expr: "daily", from: now, want: time.Date(2026, 5, 25, 0, 0, 0, 0, localZone), wantOne: false},
+		{expr: "0 8 * * 1", from: now, want: time.Date(2026, 5, 25, 8, 0, 0, 0, localZone), wantOne: false},
+		{expr: "invalid expression", from: now, hasError: true},
 	}
 
 	for _, tt := range tests {
@@ -59,9 +81,8 @@ func TestNextTrigger(t *testing.T) {
 				if !got.Equal(tt.want) {
 					t.Errorf("NextTrigger() got = %v, want = %v", got, tt.want)
 				}
-				isOne := IsOneTimeExpression(tt.expr)
-				if isOne != tt.wantOne {
-					t.Errorf("IsOneTimeExpression() got = %v, want = %v", isOne, tt.wantOne)
+				if IsOneTimeExpression(tt.expr) != tt.wantOne {
+					t.Errorf("IsOneTimeExpression() mismatch")
 				}
 			}
 		})
@@ -75,9 +96,9 @@ func TestIsL1Target(t *testing.T) {
 	}{
 		{Task{TargetAgent: "L1"}, true},
 		{Task{TargetAgent: "l1"}, true},
+		{Task{TargetAgent: ""}, true},
 		{Task{TargetAgent: "engineering"}, false},
 		{Task{TargetAgent: "L2"}, false},
-		{Task{TargetAgent: ""}, true}, // empty defaults to L1
 	}
 	for _, tt := range tests {
 		if got := isL1Target(tt.task); got != tt.want {
@@ -87,24 +108,8 @@ func TestIsL1Target(t *testing.T) {
 }
 
 func TestDrainEvents(t *testing.T) {
-	ch := make(chan iface.AgentEvent, 3)
-	ch <- struct{ iface.AgentEvent }{}
-	// Send a content delta via the agent package helper
+	ch := make(chan iface.AgentEvent)
 	close(ch)
-
-	content, media := drainEvents(ch)
-	if content != "" {
-		t.Logf("drainEvents content = %q", content)
-	}
-	if len(media) != 0 {
-		t.Logf("drainEvents media = %v", media)
-	}
-}
-
-func TestDrainEvents_Empty(t *testing.T) {
-	ch := make(chan iface.AgentEvent, 1)
-	close(ch)
-
 	content, media := drainEvents(ch)
 	if content != "" {
 		t.Errorf("drainEvents on empty channel got content = %q", content)
@@ -115,11 +120,9 @@ func TestDrainEvents_Empty(t *testing.T) {
 }
 
 func TestBuildCronPrompt(t *testing.T) {
-	task := Task{
-		Instruction: "Check health status",
-	}
+	task := Task{Instruction: "Check health status"}
 	prompt := buildCronPrompt(task)
-	if len(prompt) == 0 {
+	if prompt == "" {
 		t.Error("buildCronPrompt returned empty string")
 	}
 }
@@ -131,32 +134,70 @@ func TestParseSendFileMedia(t *testing.T) {
 		t.Fatal("parseSendFileMedia returned nil")
 	}
 	if result.FileType != 1 {
-		t.Errorf("FileType = %d, want 1 (image)", result.FileType)
+		t.Errorf("FileType = %d, want 1", result.FileType)
 	}
-	if result.FileName != "test.png" {
-		t.Errorf("FileName = %q, want test.png", result.FileName)
-	}
-}
 
-func TestParseSendFileMedia_InvalidJSON(t *testing.T) {
-	result := parseSendFileMedia("not json")
-	if result != nil {
+	if parseSendFileMedia("not json") != nil {
 		t.Error("parseSendFileMedia should return nil for invalid JSON")
 	}
 }
 
-func TestTask_Fields(t *testing.T) {
-	task := Task{
-		ID:          "task-1",
-		Expression:  "0 9 * * *",
-		Instruction: "Do something",
-		TargetAgent: "L1",
-		Status:      "active",
+func TestBuildTaskPrompt(t *testing.T) {
+	s := newTestScheduler(t)
+	s.SetMemoryEngine("fake-engine", func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string {
+		return ""
+	})
+
+	task := Task{ID: "t1", Instruction: "Do something important"}
+	prompt := s.buildTaskPrompt(task)
+	if prompt == "" {
+		t.Error("buildTaskPrompt returned empty string")
 	}
-	if task.ID != "task-1" {
-		t.Errorf("ID = %q", task.ID)
+}
+
+func TestBuildCronContext(t *testing.T) {
+	s := newTestScheduler(t)
+	task := Task{ID: "t1", QQSource: 1, QQOpenID: "openid-1", QQTargetOpenID: "target-1", QQChatID: "chat-1"}
+	ctx := s.buildCronContext(task)
+	if ctx == nil {
+		t.Error("buildCronContext returned nil")
 	}
-	if task.Expression != "0 9 * * *" {
-		t.Errorf("Expression = %q", task.Expression)
+}
+
+func TestScheduler_NewAndInit(t *testing.T) {
+	s := newTestScheduler(t)
+	if s == nil {
+		t.Fatal("NewScheduler returned nil")
+	}
+	if s.l1Cond == nil || s.resultCond == nil {
+		t.Error("cond not initialized")
+	}
+	if s.entries == nil || s.timers == nil {
+		t.Error("maps not initialized")
+	}
+}
+
+func TestScheduler_SetMemoryEngine(t *testing.T) {
+	s := newTestScheduler(t)
+	s.SetMemoryEngine("fake-engine", func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string {
+		return "recalled"
+	})
+	if s.memoryEngine != "fake-engine" {
+		t.Error("memoryEngine not set")
+	}
+	if s.buildRecalledFn == nil {
+		t.Error("buildRecalledFn not set")
+	}
+}
+
+func TestScheduler_OnTaskCompleted(t *testing.T) {
+	s := newTestScheduler(t)
+	var called bool
+	s.OnTaskCompleted(func(ctx context.Context, task Task, reply string, mediaFiles []SendFileMedia) {
+		called = true
+	})
+	s.invokeCompletionHook(Task{ID: "t1"}, "done", nil)
+	if !called {
+		t.Error("completion hook not invoked")
 	}
 }

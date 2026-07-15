@@ -65,53 +65,14 @@ func (g *PersonaGenerator) SetMaxTokens(n int) {
 // chatWithJSONRetry calls the LLM and, if JSON parsing fails, retries once with
 // a fix instruction. Returns the raw content on success (caller still parses).
 func (g *PersonaGenerator) chatWithJSONRetry(ctx context.Context, prompt string, maxTokens int) (string, error) {
-	resp, err := g.llm.Chat(ctx, agent.LLMRequest{
-		Model:        g.model,
-		ProviderID:   g.providerID,
-		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    maxTokens,
-		ResponseJSON: true,
-	})
-	if err != nil {
-		return "", err
-	}
-	if resp.FinishReason == llm.FinishLength {
-		if g.log != nil {
-			g.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: LLM response truncated (max_tokens)",
-				"content_len", len(resp.Content), "usage", resp.Usage)
-		}
-	}
-
-	// Try parsing; on failure, retry once with a fix instruction
-	_, parseErr := parsePersonaGenResult(resp.Content)
-	if parseErr == nil {
-		return resp.Content, nil
-	}
-
-	if g.log != nil {
-		g.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: first parse failed, retrying",
-			"err", parseErr.Error())
-	}
-
-	retryPrompt := prompt + fmt.Sprintf("\n\n[SYSTEM] Your previous JSON response was invalid: %s\nPlease fix the JSON syntax and output ONLY valid JSON. Common issues to check:\n- Every object key-value pair must be separated by a comma\n- No trailing commas before closing ] or }\n- All strings must be properly quoted with double quotes\n- All brackets and braces must be balanced\n", parseErr.Error())
-
-	retryResp, retryErr := g.llm.Chat(ctx, agent.LLMRequest{
-		Model:        g.model,
-		ProviderID:   g.providerID,
-		Messages:     []agent.LLMMessage{{Role: "user", Content: retryPrompt}},
-		MaxTokens:    maxTokens,
-		ResponseJSON: true,
-	})
-	if retryErr != nil {
-		return "", fmt.Errorf("retry after parse error: %w (original: %w)", retryErr, parseErr)
-	}
-	if retryResp.FinishReason == llm.FinishLength {
-		if g.log != nil {
-			g.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: retry response truncated",
-				"content_len", len(retryResp.Content))
-		}
-	}
-	return retryResp.Content, nil
+	return chatWithJSONRetry(ctx, g.llm, g.model, g.providerID, g.log, prompt, maxTokens,
+		func(content string) error {
+			_, err := parsePersonaGenResult(content)
+			return err
+		},
+		"Common issues to check:\n- Every object key-value pair must be separated by a comma\n- No trailing commas before closing ] or }\n- All strings must be properly quoted with double quotes\n- All brackets and braces must be balanced",
+		true,
+	)
 }
 
 const defaultPersonaGenMaxTokens = 16384

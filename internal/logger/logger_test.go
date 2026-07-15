@@ -70,9 +70,9 @@ func TestSystemLogger_WritesJSONL(t *testing.T) {
 		t.Fatalf("Close(): %v", err)
 	}
 
-	checkJSONLFile(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"), 1)
-	checkJSONLFile(t, filepath.Join(dir, "logs", "system", "config-"+today()+".jsonl"), 1)
-	checkJSONLFile(t, filepath.Join(dir, "logs", "system", "http-"+today()+".jsonl"), 1)
+	checkJSONLFile(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"), 1)
+	checkJSONLFile(t, filepath.Join(dir, "logs", "system", "config-"+time.Now().Format("2006-01-02")+".jsonl"), 1)
+	checkJSONLFile(t, filepath.Join(dir, "logs", "system", "http-"+time.Now().Format("2006-01-02")+".jsonl"), 1)
 }
 
 func TestTeamLogger_NowSystemPath(t *testing.T) {
@@ -90,10 +90,10 @@ func TestTeamLogger_NowSystemPath(t *testing.T) {
 	_ = log.Close()
 
 	// Verify the directory is logs/system/
-	teamFile := filepath.Join(dir, "logs", "system", "team-"+today()+".jsonl")
+	teamFile := filepath.Join(dir, "logs", "system", "team-"+time.Now().Format("2006-01-02")+".jsonl")
 	checkJSONLFile(t, teamFile, 1)
 
-	agentFile := filepath.Join(dir, "logs", "system", "agent-"+today()+".jsonl")
+	agentFile := filepath.Join(dir, "logs", "system", "agent-"+time.Now().Format("2006-01-02")+".jsonl")
 	checkJSONLFile(t, agentFile, 1)
 
 	// Verify the layer field no longer appears
@@ -116,7 +116,7 @@ func TestSessionLogger_NowSystemPath(t *testing.T) {
 	log.Debug(CatActor, "actor message")
 	time.Sleep(20 * time.Millisecond)
 
-	llmFile := filepath.Join(dir, "logs", "system", "llm-"+today()+".jsonl")
+	llmFile := filepath.Join(dir, "logs", "system", "llm-"+time.Now().Format("2006-01-02")+".jsonl")
 	checkJSONLFile(t, llmFile, 1)
 	entry := readFirstEntry(t, llmFile)
 	// session_id/team_id should not appear by default (only if explicitly passed as attrs)
@@ -146,7 +146,7 @@ func TestLogger_LevelFilter_Warn(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
+	appFile := filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	entries := readAllEntries(t, appFile)
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries (Warn+Error), got %d", len(entries))
@@ -171,7 +171,7 @@ func TestLogger_LevelFilter_Debug_AllThrough(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if len(entries) != 4 {
 		t.Errorf("expected 4 entries at Debug level, got %d", len(entries))
 	}
@@ -191,7 +191,7 @@ func TestLogger_LevelFilter_Error_OnlyError(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
+	appFile := filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	entries := readAllEntries(t, appFile)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry (Error only), got %d", len(entries))
@@ -222,7 +222,7 @@ func TestLogger_InvalidCategory_FallbackAndNoPanic(t *testing.T) {
 	_ = log.Close()
 
 	// No fallback: logs are written to the corresponding file based on the original category
-	bogusFile := filepath.Join(dir, "logs", "system", "bogus-"+today()+".jsonl")
+	bogusFile := filepath.Join(dir, "logs", "system", "bogus-"+time.Now().Format("2006-01-02")+".jsonl")
 	if _, err := os.Stat(bogusFile); err != nil {
 		t.Errorf("expected log in bogus-*.jsonl (category used as-is), stat err: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestLogger_EmptyCategory_Fallback(t *testing.T) {
 	_ = log.Close()
 
 	// Should fallback to app (the first category in the system layer)
-	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
+	appFile := filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	if _, err := os.Stat(appFile); err != nil {
 		t.Errorf("empty category should fallback to app; stat err: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestChildLogger_InheritsTraceID(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if entry["trace_id"] != "abc123" {
 		t.Errorf("trace_id = %v, want abc123", entry["trace_id"])
 	}
@@ -277,7 +277,7 @@ func TestChildLogger_NestedInheritance(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if entry["actor_id"] != "worker-1" {
 		t.Errorf("actor_id = %v, want worker-1", entry["actor_id"])
 	}
@@ -298,7 +298,7 @@ func TestNewTraceID_RandomHex(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if len(entries) != 5 {
 		t.Fatalf("want 5 entries, got %d", len(entries))
 	}
@@ -330,7 +330,7 @@ func TestLogger_FieldPlacement(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 
 	// Top-level reserved fields
 	if entry["trace_id"] != "t1" {
@@ -370,7 +370,7 @@ func TestLogger_NoCustomFields_NoCtxKey(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if _, has := entry["ctx"]; has {
 		t.Errorf("ctx should be absent when no custom fields, got: %v", entry["ctx"])
 	}
@@ -387,7 +387,7 @@ func TestLogError_IncludesErrField(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if entry["level"] != "ERROR" {
 		t.Errorf("level = %v, want ERROR", entry["level"])
 	}
@@ -419,7 +419,7 @@ func TestLogDuration_Success(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if entry["level"] != "INFO" {
 		t.Errorf("level = %v, want INFO", entry["level"])
 	}
@@ -444,7 +444,7 @@ func TestLogDuration_Error_RecordsBoth(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if entry["level"] != "ERROR" {
 		t.Errorf("level = %v, want ERROR", entry["level"])
 	}
@@ -474,7 +474,7 @@ func TestRotateWriter_SizeRollover(t *testing.T) {
 	}
 	_ = rw.Close()
 
-	base := filepath.Join(dir, "test-"+today())
+	base := filepath.Join(dir, "test-"+time.Now().Format("2006-01-02"))
 	if _, err := os.Stat(base + ".jsonl"); err != nil {
 		t.Errorf("main file missing: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestRotateWriter_ByDate_FileNameFormat(t *testing.T) {
 	}
 	_ = rw.Close()
 
-	expected := filepath.Join(dir, "app-"+today()+".jsonl")
+	expected := filepath.Join(dir, "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	if _, err := os.Stat(expected); err != nil {
 		t.Errorf("expected by-date file %s, err: %v", expected, err)
 	}
@@ -505,7 +505,7 @@ func TestRotateWriter_Cleanup_OldFiles(t *testing.T) {
 
 	// Create an old file from 40 days ago + a new file from 1 day ago
 	oldFile := filepath.Join(dir, "app-2020-01-01.jsonl")
-	newFile := filepath.Join(dir, "app-"+today()+".jsonl")
+	newFile := filepath.Join(dir, "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	if err := os.WriteFile(oldFile, []byte("{}"), 0o644); err != nil {
 		t.Fatalf("create old: %v", err)
 	}
@@ -568,7 +568,7 @@ func TestRotateWriter_ReopenAppends(t *testing.T) {
 	_, _ = rw2.Write([]byte(`{"b":2}`))
 	_ = rw2.Close()
 
-	file := filepath.Join(dir, "test-"+today()+".jsonl")
+	file := filepath.Join(dir, "test-"+time.Now().Format("2006-01-02")+".jsonl")
 	data, _ := os.ReadFile(file)
 	if !strings.Contains(string(data), `"a":1`) || !strings.Contains(string(data), `"b":2`) {
 		t.Errorf("reopen should append, got: %s", data)
@@ -600,7 +600,7 @@ func TestLogger_ConcurrentWrites_SingleCategory(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	_ = log.Close()
 
-	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if len(entries) != goroutines*perGoroutine {
 		t.Errorf("expected %d entries, got %d (lost writes or corruption)", goroutines*perGoroutine, len(entries))
 	}
@@ -627,7 +627,7 @@ func TestLogger_ConcurrentWrites_MultipleCategories(t *testing.T) {
 	_ = log.Close()
 
 	for _, cat := range cats {
-		file := filepath.Join(dir, "logs", "system", string(cat)+"-"+today()+".jsonl")
+		file := filepath.Join(dir, "logs", "system", string(cat)+"-"+time.Now().Format("2006-01-02")+".jsonl")
 		entries := readAllEntries(t, file)
 		if len(entries) != n {
 			t.Errorf("category %s: expected %d entries, got %d", cat, n, len(entries))
@@ -655,7 +655,7 @@ func TestLogger_ConcurrentChildLogger(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	_ = log.Close()
 
-	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entries := readAllEntries(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if len(entries) != 200 {
 		t.Errorf("expected 200 entries, got %d", len(entries))
 	}
@@ -673,7 +673,7 @@ func TestLogger_ConsoleDisabled_FileOnly(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
+	appFile := filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	if _, err := os.Stat(appFile); err != nil {
 		t.Errorf("file should exist, err: %v", err)
 	}
@@ -690,7 +690,7 @@ func TestLogger_FileDisabled_NoFileCreated(t *testing.T) {
 	_ = log.Close()
 
 	// No file should be created
-	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
+	appFile := filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	if _, err := os.Stat(appFile); !os.IsNotExist(err) {
 		t.Errorf("file should NOT exist when WithFile(false), err: %v", err)
 	}
@@ -723,7 +723,7 @@ func TestLogger_SlogWith_PropagatesAttrs(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	if entry["actor_id"] != "worker-7" {
 		t.Errorf("actor_id = %v, want worker-7 (WithAttrs broken)", entry["actor_id"])
 	}
@@ -741,7 +741,7 @@ func TestLogger_SlogWith_CategoryInjected(t *testing.T) {
 	_ = log.Close()
 
 	// Explicit parameter CatApp should win (record attrs take precedence)
-	appFile := filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl")
+	appFile := filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl")
 	if _, err := os.Stat(appFile); err != nil {
 		t.Errorf("app file missing: %v", err)
 	}
@@ -775,7 +775,7 @@ func TestLogger_TimestampISO8601(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	_ = log.Close()
 
-	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+today()+".jsonl"))
+	entry := readFirstEntry(t, filepath.Join(dir, "logs", "system", "app-"+time.Now().Format("2006-01-02")+".jsonl"))
 	tsStr, _ := entry["ts"].(string)
 	ts, err := time.Parse(time.RFC3339Nano, tsStr)
 	if err != nil {

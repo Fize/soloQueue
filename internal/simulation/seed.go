@@ -61,41 +61,14 @@ func (s *SeedExtractor) SetMaxTokens(n int) {
 // chatWithJSONRetry calls the LLM and, if JSON parsing fails, retries once with
 // a fix instruction.
 func (s *SeedExtractor) chatWithJSONRetry(ctx context.Context, prompt string, maxTokens int) (string, error) {
-	resp, err := s.llm.Chat(ctx, agent.LLMRequest{
-		Model:        s.model,
-		ProviderID:   s.providerID,
-		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
-		MaxTokens:    maxTokens,
-		ResponseJSON: true,
-	})
-	if err != nil {
-		return "", err
-	}
-
-	// Try parsing; on failure, retry once
-	_, parseErr := parseExtraction(resp.Content)
-	if parseErr == nil {
-		return resp.Content, nil
-	}
-
-	if s.log != nil {
-		s.log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: first parse failed, retrying",
-			"err", parseErr.Error())
-	}
-
-	retryPrompt := prompt + fmt.Sprintf("\n\n[SYSTEM] Your previous JSON response was invalid: %s\nPlease fix the JSON syntax and output ONLY valid JSON. Check for missing commas, unbalanced brackets, and unescaped characters.\n", parseErr.Error())
-
-	retryResp, retryErr := s.llm.Chat(ctx, agent.LLMRequest{
-		Model:        s.model,
-		ProviderID:   s.providerID,
-		Messages:     []agent.LLMMessage{{Role: "user", Content: retryPrompt}},
-		MaxTokens:    maxTokens,
-		ResponseJSON: true,
-	})
-	if retryErr != nil {
-		return "", fmt.Errorf("retry after parse error: %w (original: %w)", retryErr, parseErr)
-	}
-	return retryResp.Content, nil
+	return chatWithJSONRetry(ctx, s.llm, s.model, s.providerID, s.log, prompt, maxTokens,
+		func(content string) error {
+			_, err := parseExtraction(content)
+			return err
+		},
+		"Check for missing commas, unbalanced brackets, and unescaped characters.",
+		false,
+	)
 }
 
 const defaultSeedMaxTokens = 16384

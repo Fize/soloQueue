@@ -1,6 +1,14 @@
 package simulation
 
-import "strings"
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
+)
 
 func cleanJSONResponse(content string) string {
 	cleaned := strings.TrimSpace(content)
@@ -84,4 +92,71 @@ func escapeControlCharsInStrings(s string) string {
 	}
 
 	return b.String()
+}
+
+// chatWithJSONRetry is a shared helper that calls the LLM, tries to parse the
+// JSON response, and retries once with a fix instruction on parse failure.
+// parseFn validates the JSON content; retryNote adds provider-specific hints
+// to the retry prompt. logTruncation controls FinishLength warnings.
+func chatWithJSONRetry(
+	ctx context.Context,
+	llmClient agent.LLMClient,
+	model, providerID string,
+	log *logger.Logger,
+	prompt string,
+	maxTokens int,
+	parseFn func(string) error,
+	retryNote string,
+	logTruncation bool,
+) (string, error) {
+	resp, err := llmClient.Chat(ctx, agent.LLMRequest{
+		Model:        model,
+		ProviderID:   providerID,
+		Messages:     []agent.LLMMessage{{Role: "user", Content: prompt}},
+		MaxTokens:    maxTokens,
+		ResponseJSON: true,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if logTruncation && resp.FinishReason == llm.FinishLength {
+		if log != nil {
+			log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: LLM response truncated",
+				"content_len", len(resp.Content))
+		}
+	}
+
+	parseErr := parseFn(resp.Content)
+	if parseErr == nil {
+		return resp.Content, nil
+	}
+
+	if log != nil {
+		log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: first parse failed, retrying",
+			"err", parseErr.Error())
+	}
+
+	retryPrompt := prompt + fmt.Sprintf("\n\n[SYSTEM] Your previous JSON response was invalid: %s\nPlease fix the JSON syntax and output ONLY valid JSON. %s\n",
+		parseErr.Error(), retryNote)
+
+	retryResp, retryErr := llmClient.Chat(ctx, agent.LLMRequest{
+		Model:        model,
+		ProviderID:   providerID,
+		Messages:     []agent.LLMMessage{{Role: "user", Content: retryPrompt}},
+		MaxTokens:    maxTokens,
+		ResponseJSON: true,
+	})
+	if retryErr != nil {
+		return "", fmt.Errorf("retry after parse error: %w (original: %w)", retryErr, parseErr)
+	}
+
+	if logTruncation && retryResp.FinishReason == llm.FinishLength {
+		if log != nil {
+			log.WarnContext(ctx, logger.CatSimulation, "chatWithJSONRetry: retry response truncated",
+				"content_len", len(retryResp.Content))
+		}
+	}
+
+	return retryResp.Content, nil
 }

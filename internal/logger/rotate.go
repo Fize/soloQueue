@@ -3,7 +3,6 @@ package logger
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/rotating"
 )
@@ -36,8 +35,4 @@ func (rw *rotateWriter) Write(p []byte) (int, error) {
 // Close closes the current file.
 func (rw *rotateWriter) Close() error {
 	return rw.writer.Close()
-}
-
-func today() string {
-	return time.Now().Format("2006-01-02")
 }
