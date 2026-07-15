@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Sparkles, Cpu } from 'lucide-react'
+import { Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface AgentWorkingIndicatorProps {
@@ -59,10 +59,8 @@ export interface AgentWorkingIndicatorProps {
  * `isAgentProcessing || streaming || delegating` is true.
  */
 function AgentWorkingIndicatorInner({
-  agentName = 'Assistant',
   modelName,
   taskLevel,
-  delegating = false,
   compact = false,
 }: AgentWorkingIndicatorProps) {
   // `taskLevel` and `modelName` are intentionally string-or-undefined:
@@ -82,70 +80,15 @@ function AgentWorkingIndicatorInner({
         compact ? 'py-1.5' : 'py-2',
       )}
     >
-      {/* Avatar (matches the assistant message avatar) */}
-      <div
-        className={cn(
-          'shrink-0 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center',
-          compact ? 'h-5 w-5' : 'h-7 w-7',
-        )}
-      >
-        <Sparkles
-          className={cn(
-            'text-primary agent-working-spark',
-            compact ? 'h-3 w-3' : 'h-3.5 w-3.5',
-          )}
-        />
-      </div>
+      {/* Breathing Light (呼吸灯) */}
+      <span className="relative flex h-2 w-2 mx-1 shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+      </span>
 
-      {/* Label + animated dots */}
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span
-          className={cn(
-            'font-semibold text-foreground/80 truncate',
-            compact ? 'text-[11px]' : 'text-xs',
-          )}
-        >
-          {delegating ? `${agentName} delegating` : `${agentName} working`}
-        </span>
-        <span className="inline-flex items-end gap-[2px] shrink-0" aria-hidden="true">
-          <span
-            className={cn(
-              'agent-working-dot rounded-full bg-primary',
-              compact ? 'h-1 w-1' : 'h-1.5 w-1.5',
-            )}
-            style={{ animationDelay: '0ms' }}
-          />
-          <span
-            className={cn(
-              'agent-working-dot rounded-full bg-primary',
-              compact ? 'h-1 w-1' : 'h-1.5 w-1.5',
-            )}
-            style={{ animationDelay: '180ms' }}
-          />
-          <span
-            className={cn(
-              'agent-working-dot rounded-full bg-primary',
-              compact ? 'h-1 w-1' : 'h-1.5 w-1.5',
-            )}
-            style={{ animationDelay: '360ms' }}
-          />
-        </span>
-      </div>
-
-      {/* Right-aligned context chips: model + task level.
-          Both chips share the same visibility/shape contract:
-          - `undefined`  → chip hidden
-          - `""`         → pulsing "…" placeholder (router not classified)
-          - real value   → normal chip with the value
-          They transition together when the WebSocket `state` push
-          arrives, so the user never sees a level chip with a stale or
-          pre-classification model. */}
-      {/* Right-side group is shown if either chip would render. Since
-          taskLevel/modelName are coupled, levelIsPending implies
-          modelNameIsPending and vice versa, so the level term is
-          sufficient to gate the placeholder case. */}
+      {/* Left-aligned context chips: model + task level. */}
       {(levelLabel || levelIsPending || (modelName !== undefined && modelName.length > 0)) && (
-        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* Task level chip — show real value, or a pulsing "…" while
               the router is still classifying the prompt. */}
           {(levelLabel || levelIsPending) && (

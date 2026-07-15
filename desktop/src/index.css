@@ -9,33 +9,33 @@
 
 /* ─── SoloQueue V2 Brand Tokens (Warm Clay) ─────────────────────────── */
 @theme {
-  --color-primary: #B85C4A;
-  --color-primary-foreground: #EBE8E3;
+  --color-primary: #2363EA;
+  --color-primary-foreground: #FFFFFF;
   --color-secondary: rgba(255,255,255, 0.04);
   --color-secondary-foreground: #EBE8E3;
-  --color-background: #1B1A18;
-  --color-foreground: #EBE8E3;
-  --color-card: #262523;
+  --color-background: #0F1117;
+  --color-foreground: #EDEDF0;
+  --color-card: #22232B;
   --color-card-foreground: #EBE8E3;
-  --color-popover: #262523;
+  --color-popover: #22232B;
   --color-popover-foreground: #EBE8E3;
   --color-muted: rgba(255,255,255, 0.04);
-  --color-muted-foreground: #96938E;
-  --color-sidebar: #262523;
-  --color-sidebar-foreground: #EBE8E3;
-  --color-accent: rgba(184,92,74, 0.12);
-  --color-accent-foreground: #B85C4A;
-  --color-destructive: #B03A32;
-  --color-destructive-foreground: #EBE8E3;
-  --color-border: rgba(255,255,255, 0.07);
-  --color-input: rgba(255,255,255, 0.07);
-  --color-ring: rgba(184,92,74, 0.30);
-  --color-success: #3D8C5E;
-  --color-success-foreground: #EBE8E3;
-  --color-warning: #C4883D;
-  --color-warning-foreground: #EBE8E3;
+  --color-muted-foreground: #9CA3AF;
+  --color-sidebar: #22232B;
+  --color-sidebar-foreground: #EDEDF0;
+  --color-accent: #6366F1;
+  --color-accent-foreground: #6366F1;
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #2E2F38;
+  --color-input: #2E2F38;
+  --color-ring: rgba(35,99,234, 0.30);
+  --color-success: #059669;
+  --color-success-foreground: #FFFFFF;
+  --color-warning: #D97706;
+  --color-warning-foreground: #FFFFFF;
   --color-surface-secondary: #262523;
-  --color-info: #60A5FA;
+  --color-info: #0284C7;
 
   /* Data Visualization — Charts */
   --color-chart-1: #6366F1;
@@ -103,7 +103,7 @@
   --muted-foreground: var(--color-muted-foreground);
   --sidebar: var(--color-sidebar);
   --sidebar-foreground: var(--color-sidebar-foreground);
-  --code-bg: #2D2A27;
+  --code-bg: #1A1B23;
   --accent: var(--color-accent);
   --accent-foreground: var(--color-accent-foreground);
   --destructive: var(--color-destructive);
@@ -120,35 +120,56 @@
 }
 
 .light {
-  --color-primary: #A04D3E;
+  --color-primary: #2363EA;
   --color-primary-foreground: #FFFFFF;
   --color-secondary: rgba(0,0,0, 0.03);
   --color-secondary-foreground: #1F1E1B;
-  --color-background: #F2EFEA;
-  --color-foreground: #1F1E1B;
+  --color-background: #F4F6F9;
+  --color-foreground: #111827;
   --color-card: #FFFFFF;
   --color-card-foreground: #1F1E1B;
   --color-popover: #FFFFFF;
   --color-popover-foreground: #1F1E1B;
   --color-muted: rgba(0,0,0, 0.03);
-  --color-muted-foreground: #787570;
+  --color-muted-foreground: #6B7280;
   --color-sidebar: #FFFFFF;
-  --color-sidebar-foreground: #1F1E1B;
-  --code-bg: #F5F5F5;
-  --color-accent: rgba(160,77,62, 0.08);
-  --color-accent-foreground: #A04D3E;
-  --color-destructive: #B03A32;
+  --color-sidebar-foreground: #111827;
+  --code-bg: #F4F6F9;
+  --color-accent: #4F46E5;
+  --color-accent-foreground: #4F46E5;
+  --color-destructive: #DC2626;
   --color-destructive-foreground: #FFFFFF;
-  --color-border: rgba(0,0,0, 0.10);
-  --color-input: rgba(0,0,0, 0.10);
-  --color-ring: rgba(160,77,62, 0.25);
+  --color-border: #E2E5EB;
+  --color-input: #E2E5EB;
+  --color-ring: rgba(35,99,234, 0.25);
   --color-success: #3D8C5E;
   --color-success-foreground: #FFFFFF;
-  --color-warning: #B8782E;
+  --color-warning: #D97706;
   --color-warning-foreground: #FFFFFF;
+  --color-info: #0284C7;
   --color-surface-secondary: #FFFFFF;
 
   color-scheme: light;
+}
+
+/* ─── Sonner Toast Overrides (brand colors, auto-switch dark/light) ──── */
+[data-sonner-toaster][data-sonner-theme='dark'],
+[data-sonner-toaster][data-sonner-theme='light'] {
+  --normal-bg: var(--color-card);
+  --normal-border: var(--color-border);
+  --normal-text: var(--color-foreground);
+  --success-bg: color-mix(in srgb, var(--color-success) 15%, var(--color-card));
+  --success-border: color-mix(in srgb, var(--color-success) 30%, var(--color-card));
+  --success-text: var(--color-success);
+  --warning-bg: color-mix(in srgb, var(--color-warning) 15%, var(--color-card));
+  --warning-border: color-mix(in srgb, var(--color-warning) 30%, var(--color-card));
+  --warning-text: var(--color-warning);
+  --info-bg: color-mix(in srgb, var(--color-info) 15%, var(--color-card));
+  --info-border: color-mix(in srgb, var(--color-info) 30%, var(--color-card));
+  --info-text: var(--color-info);
+  --error-bg: color-mix(in srgb, var(--color-destructive) 15%, var(--color-card));
+  --error-border: color-mix(in srgb, var(--color-destructive) 30%, var(--color-card));
+  --error-text: var(--color-destructive);
 }
 
 /* ─── Global Electron Shell Rules ───────────────────────────────────── */

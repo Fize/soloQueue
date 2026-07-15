@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import { ChatMessageView } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
+import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 import { Sparkles, Loader2 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
@@ -325,6 +326,17 @@ export function AssistantPage() {
               ))}
             </div>
           )}
+          {(isL1Processing || streaming || delegating) && (
+            <div className="mx-auto max-w-3xl px-4 w-full">
+              <AgentWorkingIndicator
+                agentName={agentName}
+                modelName={inputModelName}
+                taskLevel={undefined}
+                delegating={delegating}
+                compact={false}
+              />
+            </div>
+          )}
           <div ref={bottomRef} className="h-2" />
         </div>
 
@@ -338,7 +350,6 @@ export function AssistantPage() {
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
-          modelName={inputModelName}
           processing={isL1Processing || streaming || delegating}
           skillNames={filteredSkillNames}
           activeSessionId="l1"

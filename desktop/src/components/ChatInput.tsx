@@ -3,7 +3,7 @@ import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo }
 import { toast } from 'sonner'
 import {
   ArrowUp, StopCircle, Plus, ChevronDown,
-  Check, Laptop, GitBranch, Users, Cpu, Palette
+  Check, Laptop, GitBranch, Users, Palette
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
@@ -40,8 +40,6 @@ export interface ChatInputProps {
   ctxwinUsed?: number
   ctxwinLimit?: number
 
-  // Model name shown next to the send button (purely informational)
-  modelName?: string
 
   // Autocomplete: skill names fetched from /api/skills
   skillNames?: string[]
@@ -73,7 +71,6 @@ export function ChatInput({
   readOnlySelectors = false,
   ctxwinUsed = 0,
   ctxwinLimit = 0,
-  modelName,
   skillNames = [],
   atRootDir = '',
   selectedTarget,
@@ -719,18 +716,7 @@ export function ChatInput({
 
               {/* Right actions: model badge, context window ring, send/stop */}
               <div className="flex items-center gap-2">
-                {/* Model badge (left of context ring) — only when known */}
-                {modelName && (
-                  <div className="flex items-center gap-1.5 shrink-0 select-none">
-                    <span
-                      className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground/70 bg-muted/30 border border-border/20 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap max-w-[220px] truncate"
-                      title={modelName}
-                    >
-                      <Cpu className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
-                      <span className="truncate">{modelName}</span>
-                    </span>
-                  </div>
-                )}
+
 
                 {ctxwinLimit > 0 && (
                   <div className="relative group/cw flex items-center">

@@ -634,7 +634,6 @@ export function ChatPage() {
               ctxwinUsed={0}
               ctxwinLimit={0}
               atRootDir={selectedProjectPath || ""}
-              modelName={inputModelName}
               processing={false}
             />
           </div>
@@ -820,7 +819,6 @@ export function ChatPage() {
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
-                      modelName={inputModelName}
                       processing={isAgentProcessing || streaming || delegating}
                     />
                   </div>
@@ -904,7 +902,6 @@ export function ChatPage() {
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  modelName={inputModelName}
                   processing={isAgentProcessing || streaming || delegating}
                 />
               </>
