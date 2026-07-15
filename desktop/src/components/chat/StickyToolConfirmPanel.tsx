@@ -27,6 +27,7 @@ export function StickyToolConfirmPanel({
     } catch (err) {
       console.error('Failed to confirm tool:', err)
       toast.error(t('common.failedToConfirmTool'))
+      resolveToolConfirm(activeSessionId, pendingConfirm.callId, 'error')
     } finally {
       setSubmitting(false)
     }

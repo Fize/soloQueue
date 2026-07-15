@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-d
 import { cn } from '@/lib/utils'
 import { PanelLeftClose, PanelRightOpen, Server } from 'lucide-react'
 import { Sidebar } from '@/components/Sidebar'
+import { useUIStore } from '@/stores/uiStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
 import { wsManager } from '@/lib/websocket'
@@ -153,6 +154,7 @@ function ConnectionStatusBar() {
 
 function App() {
   const location = useLocation()
+  const theme = useUIStore((s) => s.theme)
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const inspectorPanelWidth = useRuntimeStore((s) => s.inspectorPanelWidth)
@@ -239,6 +241,7 @@ function App() {
   return (
     <TooltipProvider>
       <Toaster
+        theme={theme}
         position="top-center"
         toastOptions={{
           className: 'text-sm font-medium bg-card border border-border text-foreground rounded-lg shadow-lg',

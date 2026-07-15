@@ -91,56 +91,41 @@ function AgentWorkingIndicatorInner({
       {/* Left-aligned context chips: model + task level. */}
       {(levelLabel || levelIsPending || (modelName !== undefined && modelName.length > 0)) && (
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Task level chip — show real value, or a pulsing "…" while
+          {/* Task level chip — show real value, or a pulsing skeleton while
               the router is still classifying the prompt. */}
           {(levelLabel || levelIsPending) && (
-            <span
-              className={cn(
-                'text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border',
-                levelIsPending
-                  ? // Subdued, dimmer styling while waiting — clearly
-                    // "not yet known" rather than "L0 is the level".
-                    'text-muted-foreground/60 bg-muted/20 border-border/25 animate-pulse tracking-widest'
-                  : 'text-signal bg-signal/10 border-signal/20',
-              )}
-            >
-              {levelIsPending ? '…' : levelLabel}
-            </span>
+            levelIsPending ? (
+              <div className="h-[22px] w-[28px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
+            ) : (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border text-foreground/80 bg-signal/10 border-signal/20"
+              >
+                {levelLabel}
+              </span>
+            )
           )}
-          {/* Model chip — also uses the `""` placeholder when the level
+          {/* Model chip — also uses a skeleton placeholder when the level
               isn't classified yet, so the two chips stay in lockstep. */}
           {modelName !== undefined && (
-            <span
-              className={cn(
-                'flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate',
-                modelNameIsPending
-                  ? 'text-muted-foreground/60 bg-muted/20 border-border/25 animate-pulse tracking-widest'
-                  : '',
-              )}
-              style={
-                modelNameIsPending
-                  ? undefined
-                  : {
-                      backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
-                      color: `color-mix(in srgb, ${modelColorVar} 75%, var(--foreground))`,
-                      borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
-                    }
-              }
-              title={modelNameIsPending ? 'Router is classifying…' : modelName}
-            >
-              <Cpu
-                className={cn(
-                  'h-2.5 w-2.5 shrink-0',
-                  modelNameIsPending ? 'text-muted-foreground/40' : '',
-                )}
-                style={
-                  modelNameIsPending
-                    ? undefined
-                    : { color: `color-mix(in srgb, ${modelColorVar} 60%, transparent)` }
-                }
-              />
-              <span className="truncate">{modelNameIsPending ? '…' : modelName}</span>
-            </span>
+            modelNameIsPending ? (
+              <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
+            ) : (
+              <span
+                className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate"
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
+                  color: `var(--foreground)`,
+                  borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
+                }}
+                title={modelName}
+              >
+                <Cpu
+                  className="h-2.5 w-2.5 shrink-0"
+                  style={{ color: `color-mix(in srgb, ${modelColorVar} 80%, var(--foreground))` }}
+                />
+                <span className="truncate opacity-90">{modelName}</span>
+              </span>
+            )
           )}
         </div>
       )}

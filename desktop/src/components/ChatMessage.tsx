@@ -259,11 +259,16 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
       }
     }
 
+    // Skip tool_confirm segments entirely for rendering, they are handled by the StickyToolConfirmPanel
+    if (seg.type === 'tool_confirm') {
+      continue
+    }
+
     // Delegation segments (active subagent sessions) and delegate_* tool calls
     // are rendered as standalone cards — keep them outside the worked group.
     const isStandalone =
       seg.type === 'delegation' || (seg.type === 'tool_call' && seg.name.startsWith('delegate_'))
-    if (!isStandalone && (seg.type === 'thinking' || seg.type === 'tool_call')) {
+    if (!isStandalone && (seg.type === 'thinking' || seg.type === 'tool_call' || seg.type === 'compact')) {
       currentGroup.push({ segment: seg, originalIndex: i })
     } else {
       flush()
