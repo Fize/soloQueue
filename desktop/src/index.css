@@ -498,7 +498,7 @@ html.light .markdown-preview pre code span {
 /* Streamdown code block refinements */
 .markdown-preview [data-streamdown="code-block"] {
   background: var(--code-bg);
-  border: none !important;
+  border: 1px solid var(--color-border) !important;
   border-radius: 0.75rem;
   position: relative !important;
 }
@@ -562,9 +562,10 @@ html.light .markdown-preview pre code span {
 }
 
 /* ─── Agent Working Indicator (bottom-of-stream) ────────────────────── */
-/* Soft "breathing" pulse — the whole pill expands and contracts on a
- * 2.4s cycle, paired with a soft halo glow. Modeled after Claude Cowork's
- * subtle working affordance. */
+/* The "breathing" effect is reserved for the front LED dot
+ * (.animate-led-breathing). The outer pill keeps a static gradient
+ * with a soft horizontal shimmer so the chip reads as "alive" without
+ * scaling/oscillating the level + model text inside it. */
 @keyframes agent-working-breathe {
   0%, 100% {
     transform: scale(1);
@@ -572,7 +573,7 @@ html.light .markdown-preview pre code span {
     box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
   }
   50% {
-    transform: scale(1.02); /* Increased scale for more obvious breathing */
+    transform: scale(1.02);
     opacity: 1;
     box-shadow: 0 0 0 5px hsl(var(--primary) / 0.08),
                 0 0 20px 0 hsl(var(--primary) / 0.16);
@@ -633,10 +634,8 @@ html.light .markdown-preview pre code span {
     hsl(var(--primary) / 0.05)
   );
   background-size: 200% 100%;
-  animation:
-    agent-working-breathe 2.4s ease-in-out infinite,
-    agent-working-shimmer 3.2s ease-in-out infinite;
-  will-change: transform, opacity, background-position;
+  animation: agent-working-shimmer 3.2s ease-in-out infinite;
+  will-change: background-position;
 }
 
 /* Subtle horizontal sheen sweep across the pill — the "alive" feel. */
