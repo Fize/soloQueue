@@ -486,3 +486,27 @@ func TestStripRecalledMemoryBlocks(t *testing.T) {
 		t.Errorf("stripped[2] content = %q, want %q", stripped[2].Content, "plain user message")
 	}
 }
+
+func TestStripPriorSummaryMessages(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleSystem, Content: "Real system prompt"},
+		{Role: RoleSystem, Content: "[Previous Conversation Summary]\nold summary"},
+		{Role: RoleSystem, Content: "[Conversation Summary]\nold async summary"},
+		{Role: RoleUser, Content: "hi"},
+		{Role: RoleAssistant, Content: "hello"},
+	}
+
+	stripped := stripPriorSummaryMessages(msgs)
+	if len(stripped) != 3 {
+		t.Fatalf("len = %d, want 3 (real system + user + assistant)", len(stripped))
+	}
+	if stripped[0].Content != "Real system prompt" {
+		t.Errorf("stripped[0] content = %q, want %q", stripped[0].Content, "Real system prompt")
+	}
+	if stripped[1].Content != "hi" {
+		t.Errorf("stripped[1] content = %q, want %q", stripped[1].Content, "hi")
+	}
+	if stripped[2].Content != "hello" {
+		t.Errorf("stripped[2] content = %q, want %q", stripped[2].Content, "hello")
+	}
+}

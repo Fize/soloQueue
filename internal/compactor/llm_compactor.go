@@ -9,6 +9,8 @@ package compactor
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
@@ -120,6 +122,12 @@ func NewLLMCompactor(client ChatClient, providerID, modelID string, opts ...Comp
 //
 // It converts ctxwin.Message to ChatMessage, prepends a compression system
 // prompt, and calls the LLM. Returns the summary content on success.
+//
+// Reasoning content is intentionally dropped from the compactor's input: the
+// compactor only needs the user-visible surface of the conversation. The
+// previous behaviour of inlining reasoning as "[Reasoning]: ..." caused the
+// LLM to echo the same marker into the summary, leaking internal chain-of-
+// thought into the timeline and the chat UI.
 func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (string, error) {
 	if len(msgs) == 0 {
 		return "", nil
@@ -139,13 +147,9 @@ func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (stri
 	})
 
 	for _, m := range msgs {
-		content := m.Content
-		if m.ReasoningContent != "" {
-			content = fmt.Sprintf("%s\n\n[Reasoning]: %s", content, m.ReasoningContent)
-		}
 		chatMsgs = append(chatMsgs, ChatMessage{
 			Role:    string(m.Role),
-			Content: content,
+			Content: m.Content,
 		})
 	}
 
@@ -162,12 +166,27 @@ func (c *LLMCompactor) Compact(ctx context.Context, msgs []ctxwin.Message) (stri
 		return "", fmt.Errorf("compactor: chat failed: %w", err)
 	}
 
+	// Defensive: the LLM may still emit "[Reasoning]: ..." blocks even though
+	// the input no longer contains them. Strip them before persisting so the
+	// chat UI never shows internal chain-of-thought to the user.
+	cleaned := stripReasoningBlocks(resp.Content)
+
 	if c.logger != nil {
 		c.logger.InfoContext(ctx, logger.CatLLM, "compactor: completed",
 			"input_msgs", len(msgs),
-			"output_len", len(resp.Content),
+			"output_len", len(cleaned),
 			"duration_ms", time.Since(start).Milliseconds())
 	}
 
-	return resp.Content, nil
+	return cleaned, nil
+}
+
+// reasoningBlockPattern matches a "[Reasoning]: ..." block (possibly multi-line)
+// that an LLM may emit in its response. Non-greedy and case-insensitive.
+var reasoningBlockPattern = regexp.MustCompile(`(?is)\[reasoning\]:\s*.*?(?:\n\s*\n|\z)`)
+
+// stripReasoningBlocks removes any "[Reasoning]: ..." block from the LLM
+// response. It is a no-op if no such block is present.
+func stripReasoningBlocks(s string) string {
+	return strings.TrimSpace(reasoningBlockPattern.ReplaceAllString(s, ""))
 }

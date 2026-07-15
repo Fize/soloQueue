@@ -371,7 +371,7 @@ func TestAsyncCompact_MultiSegment(t *testing.T) {
 
 	var hookCalled bool
 	var hookSegments []SummarySegment
-	cw.summaryHook = func(segments []SummarySegment) {
+	cw.summaryHook = func(segments []SummarySegment, _ string) {
 		hookCalled = true
 		hookSegments = segments
 	}

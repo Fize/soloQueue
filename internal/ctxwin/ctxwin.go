@@ -128,9 +128,18 @@ type SummarySegment struct {
 	Date    time.Time // the calendar date of the messages (for routing to short vs permanent memory)
 }
 
-// SummaryHook is called after compression completes, receiving all segments (including expired and recent ones).
-// The caller is responsible for deciding whether to store in short-term memory, long-term memory, or timeline based on Date.
-type SummaryHook func(segments []SummarySegment)
+// SummaryHook is called after compression completes, receiving all segments
+// (including expired and recent ones) plus the merged finalSummary that was
+// written into the context window as the new system message.
+//
+// Hooks should emit at most one "summary" timeline control event per
+// compaction, using finalSummary — the per-date segments are kept so the hook
+// can route aged-out content to long-term memory, but the visible UI summary
+// must match the single merged string stored in the CW.
+//
+// The caller is responsible for deciding whether to store in short-term
+// memory, long-term memory, or timeline based on Date.
+type SummaryHook func(segments []SummarySegment, finalSummary string)
 
 // ─── Option ─────────────────────────────────────────────────────────────────
 
@@ -799,7 +808,7 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 	cw.Unlock()
 
 	if cw.summaryHook != nil && len(segments) > 0 {
-		cw.summaryHook(segments)
+		cw.summaryHook(segments, finalSummary)
 	}
 
 	return finalSummary, nil
@@ -899,7 +908,7 @@ func (cw *ContextWindow) asyncCompact() {
 
 	// Persist all segments (outside lock)
 	if cw.summaryHook != nil && len(segments) > 0 {
-		cw.summaryHook(segments)
+		cw.summaryHook(segments, finalSummary)
 	}
 }
 
@@ -918,6 +927,9 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 	// 1. Drop oversized tool messages (memory only needs "what tool was called")
 	filtered := filterOversizedToolMessages(msgs[1:]) // skip system prompt
 	filtered = stripRecalledMemoryBlocks(filtered)
+	// Drop prior compaction summaries so the LLM summarizes the actual
+	// turn-by-turn conversation, not a re-merge of earlier summaries.
+	filtered = stripPriorSummaryMessages(filtered)
 
 	// 2. Group by calendar date
 	byDate := groupMessagesByDate(filtered)
@@ -1057,6 +1069,29 @@ func filterOversizedToolMessages(msgs []Message) []Message {
 	for _, m := range msgs {
 		if m.Role == RoleTool && len([]rune(m.Content)) > maxToolContentLen {
 			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// stripPriorSummaryMessages removes any "[Previous Conversation Summary]" /
+// "[Conversation Summary]" system messages from msgs. The compactor's job is
+// to summarize the current turn-by-turn conversation, not to re-merge with
+// earlier summaries — letting them through causes the LLM to echo unrelated
+// earlier context (e.g. topics from a previous session that were recalled
+// into the CW) and produce a summary that no longer reflects the active
+// dialogue.
+func stripPriorSummaryMessages(msgs []Message) []Message {
+	const prefix = "[Previous Conversation Summary]"
+	const altPrefix = "[Conversation Summary]"
+	out := make([]Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == RoleSystem {
+			trimmed := strings.TrimSpace(m.Content)
+			if strings.HasPrefix(trimmed, prefix) || strings.HasPrefix(trimmed, altPrefix) {
+				continue
+			}
 		}
 		out = append(out, m)
 	}

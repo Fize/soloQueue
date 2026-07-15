@@ -425,13 +425,32 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
-	summaryHook := func(segments []ctxwin.SummarySegment) {
+	summaryHook := func(segments []ctxwin.SummarySegment, finalSummary string) {
 		cutoff := time.Now().AddDate(0, 0, -7)
 		cursor := time.Time{}
 		if b.RT.MemoryManager != nil {
 			cursor = b.RT.MemoryManager.LastRecordedAt()
 		}
 		var latest time.Time
+
+		// Strip <memories> from the merged final summary once, so the timeline
+		// record matches what the CW now stores. Per-segment memory routing
+		// below still works off the per-segment summaries (their memories).
+		_, finalClean := extractMemoriesFromSummary(finalSummary)
+
+		// Emit a single timeline summary event from the merged finalSummary.
+		// Per-segment summaries are still routed to long-term / short-term
+		// memory below, but the chat UI now sees one consolidated segment.
+		if finalClean != "" {
+			if err := tl.AppendControl(&timeline.ControlPayload{
+				Action:  "summary",
+				Reason:  "auto_compact",
+				Content: finalClean,
+			}); err != nil {
+				sessLog.Error(logger.CatActor, "timeline summary append failed",
+					"err", err.Error(), "agent_id", agentID)
+			}
+		}
 
 		for _, seg := range segments {
 			// Dedup: skip messages already recorded by cursor
@@ -440,7 +459,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				continue
 			}
 
-			// Extract <memories> block from the summary and save separately
+			// Extract <memories> block from the per-segment summary and save
+			// separately to the long-term memory engine.
 			memories, cleanSummary := extractMemoriesFromSummary(seg.Summary)
 			for _, mem := range memories {
 				if b.RT.MemoryEngine != nil {
@@ -457,28 +477,19 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				if b.RT.MemoryEngine != nil {
 					_, _, _ = b.RT.MemoryEngine.Save(context.Background(), cleanSummary, seg.Date.Format("2006-01-02"), "auto-compact", seg.Date.Format("2006-01-02")+"T00:00:00Z")
 				}
-			} else {
-				// ≤7 days: timeline control event + short-term memory
-				if err := tl.AppendControl(&timeline.ControlPayload{
-					Action:  "summary",
-					Reason:  "auto_compact",
-					Content: cleanSummary,
-				}); err != nil {
-					sessLog.Error(logger.CatActor, "timeline summary append failed",
-						"err", err.Error(), "agent_id", agentID)
-				}
-				if b.RT.MemoryManager != nil {
-					go func(date time.Time, msgs []ctxwin.Message) {
-						defer func() {
-							if r := recover(); r != nil {
-								sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
-									"panic", fmt.Sprintf("%v", r))
-							}
-						}()
-						text := FormatCtxwinMessages(msgs)
-						_ = b.RT.MemoryManager.RecordAt(context.Background(), text, date)
-					}(seg.Date, filtered)
-				}
+			} else if b.RT.MemoryManager != nil {
+				// ≤7 days: short-term memory only (timeline event already
+				// emitted above from the merged finalSummary).
+				go func(date time.Time, msgs []ctxwin.Message) {
+					defer func() {
+						if r := recover(); r != nil {
+							sessLog.Error(logger.CatApp, "memory record goroutine panic recovered",
+								"panic", fmt.Sprintf("%v", r))
+						}
+					}()
+					text := FormatCtxwinMessages(msgs)
+					_ = b.RT.MemoryManager.RecordAt(context.Background(), text, date)
+				}(seg.Date, filtered)
 			}
 
 			for _, m := range filtered {
@@ -809,16 +820,17 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	// Summary hook (timeline-only, no memory writes).
-	summaryHook := func(segments []ctxwin.SummarySegment) {
-		for _, seg := range segments {
-			if err := tl.AppendControl(&timeline.ControlPayload{
-				Action:  "summary",
-				Reason:  "auto_compact",
-				Content: seg.Summary,
-			}); err != nil {
-				sessLog.Error(logger.CatActor, "timeline summary append failed",
-					"err", err.Error(), "agent_id", agentID)
-			}
+	summaryHook := func(_ []ctxwin.SummarySegment, finalSummary string) {
+		if finalSummary == "" {
+			return
+		}
+		if err := tl.AppendControl(&timeline.ControlPayload{
+			Action:  "summary",
+			Reason:  "auto_compact",
+			Content: finalSummary,
+		}); err != nil {
+			sessLog.Error(logger.CatActor, "timeline summary append failed",
+				"err", err.Error(), "agent_id", agentID)
 		}
 	}
 
@@ -991,16 +1003,17 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	}
 
 	// Summary hook (timeline-only).
-	summaryHook := func(segments []ctxwin.SummarySegment) {
-		for _, seg := range segments {
-			if err := tl.AppendControl(&timeline.ControlPayload{
-				Action:  "summary",
-				Reason:  "auto_compact",
-				Content: seg.Summary,
-			}); err != nil {
-				sessLog.Error(logger.CatActor, "timeline summary append failed",
-					"err", err.Error(), "agent_id", agentID)
-			}
+	summaryHook := func(_ []ctxwin.SummarySegment, finalSummary string) {
+		if finalSummary == "" {
+			return
+		}
+		if err := tl.AppendControl(&timeline.ControlPayload{
+			Action:  "summary",
+			Reason:  "auto_compact",
+			Content: finalSummary,
+		}); err != nil {
+			sessLog.Error(logger.CatActor, "timeline summary append failed",
+				"err", err.Error(), "agent_id", agentID)
 		}
 	}
 

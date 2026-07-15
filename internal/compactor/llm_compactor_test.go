@@ -49,16 +49,17 @@ func TestLLMCompactorCompact(t *testing.T) {
 }
 
 func TestLLMCompactorCompactWithReasoning(t *testing.T) {
-	var sawReasoning bool
+	var sawReasoningInInput bool
 	mc := &mockChatClient{
 		chatFn: func(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-			// Verify reasoning content is included in assistant messages
+			// Reasoning must NOT leak into the compactor's input — internal
+			// chain-of-thought belongs to the agent, not the summary.
 			for _, m := range req.Messages {
 				if m.Role == "assistant" && strings.Contains(m.Content, "[Reasoning]") {
-					sawReasoning = true
+					sawReasoningInInput = true
 				}
 			}
-			return &ChatResponse{Content: "Compressed with reasoning."}, nil
+			return &ChatResponse{Content: "Compressed summary."}, nil
 		},
 	}
 	c := NewLLMCompactor(mc, "deepseek", "test-model")
@@ -72,11 +73,36 @@ func TestLLMCompactorCompactWithReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compact failed: %v", err)
 	}
-	if summary != "Compressed with reasoning." {
+	if summary != "Compressed summary." {
 		t.Errorf("Unexpected summary: %q", summary)
 	}
-	if !sawReasoning {
-		t.Error("Expected reasoning content to be included in compacted messages")
+	if sawReasoningInInput {
+		t.Error("Reasoning content must not leak into the compactor's input messages")
+	}
+}
+
+func TestLLMCompactorStripsReasoningFromOutput(t *testing.T) {
+	mc := &mockChatClient{
+		chatFn: func(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+			return &ChatResponse{Content: "Header summary.\n\n[Reasoning]: This is internal chain of thought that must not leak.\n\nTrailing summary."}, nil
+		},
+	}
+	c := NewLLMCompactor(mc, "deepseek", "test-model")
+
+	summary, err := c.Compact(context.Background(), []ctxwin.Message{
+		{Role: ctxwin.RoleUser, Content: "Hi"},
+	})
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+	if strings.Contains(summary, "[Reasoning]") {
+		t.Errorf("Summary must not contain [Reasoning] block, got: %q", summary)
+	}
+	if !strings.Contains(summary, "Header summary.") {
+		t.Errorf("Summary must keep non-reasoning content, got: %q", summary)
+	}
+	if !strings.Contains(summary, "Trailing summary.") {
+		t.Errorf("Summary must keep trailing content, got: %q", summary)
 	}
 }
 

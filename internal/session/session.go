@@ -776,6 +776,10 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			return nil, ErrQueued
 		}
 		s.touch()
+		// Record the "/compact" prompt in CW + timeline so it survives the
+		// post-completion loadHistory. Without this the user's prompt is
+		// silently dropped from the chat UI.
+		s.cw.Push(ctxwin.RoleUser, prompt)
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
