@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -482,7 +482,63 @@ function createMenu() {
 }
 
 // ── App lifecycle ──────────────────────────────────────────
+
+// ── Remote Auth Header Injection ──────────────────────────
+// Chromium strips the Authorization header from fetch requests originating
+// from file:// (null origin). As a workaround, we register a permanent
+// webRequest.onBeforeSendHeaders filter that conditionally injects the
+// Basic Auth header based on the current remote config state.
+
+let remoteAuthHeader = null  // "Basic <base64>" or null
+
+async function refreshRemoteAuthConfig() {
+  try {
+    const [remoteUrl, username, password] = await Promise.all([
+      mainWindow.webContents.executeJavaScript(
+        'localStorage.getItem("soloqueue_remote_url")'
+      ),
+      mainWindow.webContents.executeJavaScript(
+        'localStorage.getItem("soloqueue_remote_username")'
+      ),
+      mainWindow.webContents.executeJavaScript(
+        'localStorage.getItem("soloqueue_remote_password")'
+      ),
+    ])
+
+    if (remoteUrl && username && password) {
+      remoteAuthHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
+      console.log('[Electron] Remote auth header configured for', remoteUrl)
+    } else {
+      remoteAuthHeader = null
+      console.log('[Electron] Remote auth header cleared')
+    }
+  } catch (err) {
+    console.error('[Electron] Failed to refresh remote auth config:', err)
+  }
+}
+
+// The webRequest filter is registered inside app.whenReady()
+// because session is only available after the app is ready.
+
+// Listen for connection config changes from the renderer to update auth headers
+ipcMain.on('remote:config-changed', async () => {
+  console.log('[Electron] Remote config changed, refreshing auth header...')
+  await refreshRemoteAuthConfig()
+})
+
 app.whenReady().then(async () => {
+  // Register the webRequest filter for remote auth header injection.
+  // Must be inside app.whenReady() because session is only available then.
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['https://*/*', 'http://*/*'] },
+    (details, callback) => {
+      if (remoteAuthHeader) {
+        details.requestHeaders['Authorization'] = remoteAuthHeader
+      }
+      callback({ requestHeaders: details.requestHeaders })
+    }
+  )
+
   createWindow()
   createMenu()
   loadWindowContent()
@@ -499,6 +555,11 @@ app.whenReady().then(async () => {
         await spawnGoBackend()
       } else {
         console.log('[Electron] Remote mode detected. Skipping local backend startup.')
+        // Chromium strips the Authorization header from fetch requests
+        // originating from file:// (null origin). As a workaround, we inject
+        // the Authorization header via webRequest.onBeforeSendHeaders in the
+        // main process, which bypasses the renderer's CORS restrictions.
+        await refreshRemoteAuthConfig()
       }
     } catch (err) {
       console.error('[Electron] Failed to read connection mode, starting backend anyway:', err)

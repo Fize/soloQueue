@@ -22,4 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Native directory picker
   selectDirectory: () => ipcRenderer.invoke('dialog:select-directory'),
+
+  // Notify main process when remote connection config changes
+  // so it can update webRequest auth header injection.
+  notifyRemoteConfigChanged: () => ipcRenderer.send('remote:config-changed'),
 })

@@ -112,6 +112,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     localStorage.setItem(USERNAME_KEY, username)
     localStorage.setItem(PASSWORD_KEY, password)
     set({ saving: false })
+    // Notify Electron main process to update webRequest auth header injection
+    try {
+      const ea = (window as any).electronAPI
+      if (ea?.notifyRemoteConfigChanged) {
+        ea.notifyRemoteConfigChanged()
+      }
+    } catch { /* not in Electron */ }
   },
 
   loadConfig: () => {
