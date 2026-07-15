@@ -36,6 +36,7 @@
   --color-warning-foreground: #FFFFFF;
   --color-surface-secondary: #22232B;
   --color-info: #0284C7;
+  --color-info-foreground: #FFFFFF;
 
   /* Signal — 活动指示色 (Activity/Signal Indicator) */
   /* 场景: Agent 呼吸动画、加载 spinner、进度条填充、活动态脉冲圆点 */
@@ -132,6 +133,10 @@
   --success-foreground: var(--color-success-foreground);
   --warning: var(--color-warning);
   --warning-foreground: var(--color-warning-foreground);
+  --signal: var(--color-signal);
+  --signal-foreground: var(--color-signal-foreground);
+  --info: var(--color-info);
+  --info-foreground: var(--color-info-foreground);
 
   color-scheme: dark;
 }
@@ -570,13 +575,13 @@ html.light .markdown-preview pre code span {
   0%, 100% {
     transform: scale(1);
     opacity: 0.92;
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    box-shadow: 0 0 0 0 transparent;
   }
   50% {
     transform: scale(1.02);
     opacity: 1;
-    box-shadow: 0 0 0 5px hsl(var(--primary) / 0.08),
-                0 0 20px 0 hsl(var(--primary) / 0.16);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-signal) 8%, transparent),
+                0 0 20px 0 color-mix(in srgb, var(--color-signal) 16%, transparent);
   }
 }
 
@@ -585,12 +590,12 @@ html.light .markdown-preview pre code span {
   0%, 100% {
     transform: scale(0.9);
     opacity: 0.65;
-    box-shadow: 0 0 3px 0.5px hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 3px 0.5px color-mix(in srgb, var(--color-signal) 50%, transparent);
   }
   50% {
     transform: scale(1.15);
     opacity: 1;
-    box-shadow: 0 0 9px 3.5px hsl(var(--primary) / 0.85);
+    box-shadow: 0 0 9px 3.5px color-mix(in srgb, var(--color-signal) 85%, transparent);
   }
 }
 
@@ -629,9 +634,9 @@ html.light .markdown-preview pre code span {
   margin-right: -0.5rem;
   background: linear-gradient(
     90deg,
-    hsl(var(--primary) / 0.05),
-    hsl(var(--primary) / 0.12),
-    hsl(var(--primary) / 0.05)
+    color-mix(in srgb, var(--color-signal) 5%, transparent),
+    color-mix(in srgb, var(--color-signal) 12%, transparent),
+    color-mix(in srgb, var(--color-signal) 5%, transparent)
   );
   background-size: 200% 100%;
   animation: agent-working-shimmer 3.2s ease-in-out infinite;

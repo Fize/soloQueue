@@ -21,7 +21,7 @@ export function AgentPlanTab({ plan, planLoading, planError }: AgentPlanTabProps
   if (planLoading) {
     return (
       <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> {t('common.loading')}
+        <Loader2 className="mr-2 h-4 w-4 animate-spin text-signal" /> {t('common.loading')}
       </div>
     )
   }
@@ -58,7 +58,7 @@ export function AgentPlanTab({ plan, planLoading, planError }: AgentPlanTabProps
 
           let statusColor = 'bg-muted-foreground/30 border-muted-foreground/40'
           if (item.status === 'in_progress') {
-            statusColor = 'bg-primary border-primary animate-pulse'
+            statusColor = 'bg-signal border-signal animate-pulse'
           } else if (item.status === 'completed') {
             statusColor = 'bg-success border-success'
           } else if (item.status === 'cancelled') {

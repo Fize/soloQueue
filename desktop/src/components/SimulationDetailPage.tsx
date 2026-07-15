@@ -821,7 +821,7 @@ export function SimulationDetailPage() {
   if (loading && !state) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-8 w-8 animate-spin text-signal" />
       </div>
     )
   }
@@ -1700,7 +1700,7 @@ export function SimulationDetailPage() {
                           {idx < currentPhaseIdx ? (
                             <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
                           ) : idx === currentPhaseIdx ? (
-                            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-signal" />
                           ) : (
                             <div className="h-3 w-3 shrink-0 rounded-full border border-muted-foreground/30" />
                           )}
@@ -1789,14 +1789,14 @@ export function SimulationDetailPage() {
                             "px-2.5 py-1 rounded-full text-[10px] font-mono border transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap",
                             !isActive && "opacity-50 line-through bg-muted/5 border-border text-muted-foreground",
                             isActive && isSelected && "bg-primary/15 border-primary/30 text-primary font-bold",
-                            isActive && !isSelected && isThinking && "border-primary/30 bg-primary/5 text-primary hover:border-primary/50 animate-pulse",
+                            isActive && !isSelected && isThinking && "border-signal/30 bg-signal/5 text-signal hover:border-signal/50 animate-pulse",
                             isActive && !isSelected && !isThinking && "border-border hover:bg-muted/40 text-muted-foreground"
                           )}
                         >
                           {isActive && isThinking ? (
                             <span className="relative flex h-1.5 w-1.5 shrink-0">
-                              <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-60" />
-                              <span className="absolute inset-0.5 rounded-full bg-primary" />
+                              <span className="absolute inset-0 rounded-full bg-signal animate-ping opacity-60" />
+                              <span className="absolute inset-0.5 rounded-full bg-signal" />
                             </span>
                           ) : isActive && agentState?.status === 'spoke' ? (
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
@@ -1984,7 +1984,7 @@ export function SimulationDetailPage() {
                                   </div>
                                 </div>
                                 {agentState?.status === 'thinking' && (
-                                  <span className="text-[8px] text-primary/85 font-mono animate-pulse border border-primary/20 bg-primary/5 rounded px-1 py-0.2 shrink-0">THINKING</span>
+                                  <span className="text-[8px] text-signal/85 font-mono animate-pulse border border-signal/20 bg-signal/5 rounded px-1 py-0.2 shrink-0">THINKING</span>
                                 )}
                               </div>
                               {p.bio && (

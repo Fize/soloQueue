@@ -194,3 +194,13 @@ export function formatToolCallHeader(name: string, argsStr: string): string {
   }
 }
 
+export function getModelColorVar(modelName?: string): string {
+  if (!modelName) return 'var(--color-primary)'
+  const lower = modelName.toLowerCase()
+  if (lower.includes('deepseek')) return 'var(--color-model-deepseek)'
+  if (lower.includes('glm')) return 'var(--color-model-glm)'
+  if (lower.includes('minimax')) return 'var(--color-model-minimax)'
+  if (lower.includes('kimi')) return 'var(--color-model-kimi)'
+  return 'var(--color-primary)'
+}
+

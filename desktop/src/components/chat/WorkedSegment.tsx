@@ -199,11 +199,11 @@ export function SubagentCard({
           <div
             className={cn(
               'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
-              running ? 'bg-primary/15' : failed ? 'bg-destructive/10' : 'bg-success/10'
+              running ? 'bg-signal/15' : failed ? 'bg-destructive/10' : 'bg-success/10'
             )}
           >
             {running ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-signal" />
             ) : failed ? (
               <AlertCircle className="h-3.5 w-3.5 text-destructive" />
             ) : (

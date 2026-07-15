@@ -4,6 +4,7 @@ import { useTranslation } from '@/lib/i18n'
 import { useState, useMemo, memo } from 'react'
 import { toast } from 'sonner'
 import { getFileUrl } from '@/lib/api'
+import { getModelColorVar } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { SegmentView, LoadingIndicator } from './chat/SegmentView'
 import { WorkedSegment } from './chat/WorkedSegment'
@@ -14,13 +15,15 @@ export interface ChatMessageProps {
   agentName?: string
   isStreaming?: boolean
   onUserInteraction?: () => void
+  modelName?: string
 }
 
-function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = false, onUserInteraction }: ChatMessageProps) {
+function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = false, onUserInteraction, modelName }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
+  const modelColorVar = useMemo(() => getModelColorVar(isUser ? undefined : modelName), [isUser, modelName])
   // Memoize the grouping so that re-renders caused by stable references
   // (e.g. parent re-render that didn't change segments) skip the work, and
   // the resulting `grouped` array reference is stable across renders that
@@ -43,8 +46,16 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
               <User className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-primary/70`} />
             </div>
           ) : (
-            <div className={`${compact ? 'h-5 w-5' : 'h-7 w-7'} rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center`}>
-              <Sparkles className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-primary`} />
+            <div
+              className={`${compact ? 'h-5 w-5' : 'h-7 w-7'} rounded-full flex items-center justify-center`}
+              style={{
+                background: `linear-gradient(135deg, color-mix(in srgb, ${modelColorVar} 20%, transparent), color-mix(in srgb, ${modelColorVar} 30%, transparent))`,
+              }}
+            >
+              <Sparkles
+                className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'}`}
+                style={{ color: modelColorVar }}
+              />
             </div>
           )}
         </div>

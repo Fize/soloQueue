@@ -99,7 +99,7 @@ function ConnectionStatusBar() {
     return (
       <div
         className="h-[4px] w-full shrink-0 transition-colors duration-500"
-        style={{ backgroundColor: hasUrl ? 'var(--md-primary)' : 'var(--md-warning)' }}
+        style={{ backgroundColor: hasUrl ? 'var(--color-signal)' : 'var(--color-warning)' }}
       />
     )
   }
@@ -111,7 +111,7 @@ function ConnectionStatusBar() {
           className="h-full animate-indeterminate-bar"
           style={{
             width: '60%',
-            background: 'linear-gradient(90deg, var(--md-primary) 0%, color-mix(in srgb, var(--md-primary) 60%, var(--md-tertiary)) 100%)',
+            background: 'linear-gradient(90deg, var(--color-signal) 0%, color-mix(in srgb, var(--color-signal) 60%, var(--color-accent)) 100%)',
             borderRadius: '2px',
           }}
         />
@@ -126,7 +126,7 @@ function ConnectionStatusBar() {
   if (connectionError) {
     return (
       <div className="h-[28px] w-full shrink-0 flex items-center gap-2 px-4 text-xs font-medium text-white"
-        style={{ backgroundColor: 'var(--md-error)' }}
+        style={{ backgroundColor: 'var(--color-destructive)' }}
       >
         <Server className="h-3.5 w-3.5" />
         <span className="flex-1 truncate">{connectionError}</span>

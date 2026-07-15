@@ -102,6 +102,8 @@ export function SimulationGraph({
     cardColor: 'var(--color-card)',
     fgColor: 'var(--color-foreground)',
     mutedFgColor: 'var(--color-muted-foreground)',
+    proColor: '#10B981',
+    conColor: '#F43F5E',
     isDark: false,
   })
   const transformRef = useRef(zoomIdentity)
@@ -157,6 +159,9 @@ export function SimulationGraph({
 
     // Detect dark mode
     themeRef.current.isDark = !document.documentElement.classList.contains('light')
+    const cs = getComputedStyle(document.documentElement)
+    themeRef.current.proColor = cs.getPropertyValue('--color-role-pro').trim() || '#10B981'
+    themeRef.current.conColor = cs.getPropertyValue('--color-role-con').trim() || '#F43F5E'
 
     const simulation = d3force
       .forceSimulation<GraphNode>(nodes)
@@ -345,13 +350,13 @@ export function SimulationGraph({
           const linkType = link.type.toLowerCase()
           let edgeColor: string
           if (linkType.includes('agree') || linkType.includes('support')) {
-            edgeColor = 'rgba(16, 185, 129, 0.4)'
+            edgeColor = t.proColor + '66'
           } else if (
             linkType.includes('rebut') ||
             linkType.includes('disagree') ||
             linkType.includes('oppose')
           ) {
-            edgeColor = 'rgba(244, 63, 94, 0.4)'
+            edgeColor = t.conColor + '66'
           } else {
             edgeColor = 'rgba(94, 106, 210, 0.25)'
           }

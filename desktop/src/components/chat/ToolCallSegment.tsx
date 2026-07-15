@@ -34,7 +34,7 @@ export function ToolCallSegment({
       >
         {running ? (
           <Loader2
-            className={`h-3.5 w-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-primary'}`}
+            className={`h-3.5 w-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-signal'}`}
           />
         ) : segment.error ? (
           <AlertCircle className="h-3.5 w-3.5 text-destructive" />

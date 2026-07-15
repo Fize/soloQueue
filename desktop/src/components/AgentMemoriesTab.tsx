@@ -32,7 +32,7 @@ export function AgentMemoriesTab({
   if (memoriesLoading) {
     return (
       <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> Loading memories...
+        <Loader2 className="mr-2 h-4 w-4 animate-spin text-signal" /> Loading memories...
       </div>
     )
   }
@@ -159,7 +159,7 @@ export function AgentReflectionsTab({
   if (reflectionsLoading) {
     return (
       <div className="flex h-32 items-center justify-center text-xs text-muted-foreground font-mono">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> Loading higher-order reflections...
+        <Loader2 className="mr-2 h-4 w-4 animate-spin text-signal" /> Loading higher-order reflections...
       </div>
     )
   }

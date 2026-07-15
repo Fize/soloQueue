@@ -88,11 +88,11 @@ export function DelegationCard({
             <div
               className={cn(
                 'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
-                running ? 'bg-primary/15' : error ? 'bg-destructive/10' : 'bg-success/10'
+                running ? 'bg-signal/15' : error ? 'bg-destructive/10' : 'bg-success/10'
               )}
             >
               {running ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-signal" />
               ) : error ? (
                 <XCircle className="h-3.5 w-3.5 text-destructive" />
               ) : (
@@ -110,7 +110,7 @@ export function DelegationCard({
                   className={cn(
                     'text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md',
                     running
-                      ? 'bg-primary/15 text-primary'
+                      ? 'bg-signal/15 text-signal'
                       : error
                         ? 'bg-destructive/10 text-destructive'
                         : 'bg-success/10 text-success'

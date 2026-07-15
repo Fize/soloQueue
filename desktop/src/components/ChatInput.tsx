@@ -741,7 +741,7 @@ export function ChatInput({
                         strokeLinecap="round"
                         strokeDasharray={cwCircum}
                         strokeDashoffset={cwOffset}
-                        className="text-primary transition-all duration-500 ease-out"
+                        className="text-signal transition-all duration-500 ease-out"
                       />
                     </svg>
                     {/* Hover tooltip */}

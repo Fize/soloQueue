@@ -7,9 +7,9 @@ const stateConfig: Record<
 > = {
   processing: {
     label: 'Running',
-    dotColor: 'bg-[var(--primary)]',
-    bgColor: 'bg-[var(--primary)]/10 dark:bg-[var(--primary)]/15',
-    textColor: 'text-[var(--primary)]',
+    dotColor: 'bg-[var(--color-signal)]',
+    bgColor: 'bg-[var(--color-signal)]/10 dark:bg-[var(--color-signal)]/15',
+    textColor: 'text-[var(--color-signal)]',
   },
   idle: {
     label: 'Idle',

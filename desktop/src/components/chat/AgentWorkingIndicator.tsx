@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import { Cpu } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, getModelColorVar } from '@/lib/utils'
 
 export interface AgentWorkingIndicatorProps {
   /** Display name of the active agent (e.g. "L1 Agent", "Engineering Team"). */
@@ -72,6 +72,7 @@ function AgentWorkingIndicatorInner({
   const levelIsPending = taskLevel !== undefined && taskLevel === ''
   const modelNameIsPending = modelName !== undefined && modelName === ''
   const levelLabel = taskLevel && taskLevel.length > 0 ? taskLevel.split('-')[0] : null
+  const modelColorVar = getModelColorVar(modelName)
 
   return (
     <div
@@ -82,9 +83,9 @@ function AgentWorkingIndicatorInner({
     >
       {/* Breathing Light (呼吸灯) */}
       <span className="relative flex h-2.5 w-2.5 mx-1.5 shrink-0 items-center justify-center">
-        <span className="animate-led-breathing absolute h-2 w-2 rounded-full bg-primary" />
-        <span className="animate-led-ping-1 absolute h-2 w-2 rounded-full bg-primary/40" />
-        <span className="animate-led-ping-2 absolute h-2 w-2 rounded-full bg-primary/20" />
+        <span className="animate-led-breathing absolute h-2 w-2 rounded-full bg-signal" />
+        <span className="animate-led-ping-1 absolute h-2 w-2 rounded-full bg-signal/40" />
+        <span className="animate-led-ping-2 absolute h-2 w-2 rounded-full bg-signal/20" />
       </span>
 
       {/* Left-aligned context chips: model + task level. */}
@@ -100,7 +101,7 @@ function AgentWorkingIndicatorInner({
                   ? // Subdued, dimmer styling while waiting — clearly
                     // "not yet known" rather than "L0 is the level".
                     'text-muted-foreground/60 bg-muted/20 border-border/25 animate-pulse tracking-widest'
-                  : 'text-primary bg-primary/10 border-primary/20',
+                  : 'text-signal-foreground bg-signal/10 border-signal/20',
               )}
             >
               {levelIsPending ? '…' : levelLabel}
@@ -114,15 +115,29 @@ function AgentWorkingIndicatorInner({
                 'flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate',
                 modelNameIsPending
                   ? 'text-muted-foreground/60 bg-muted/20 border-border/25 animate-pulse tracking-widest'
-                  : 'text-muted-foreground/70 bg-muted/30 border-border/20',
+                  : '',
               )}
+              style={
+                modelNameIsPending
+                  ? undefined
+                  : {
+                      backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
+                      color: modelColorVar,
+                      borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
+                    }
+              }
               title={modelNameIsPending ? 'Router is classifying…' : modelName}
             >
               <Cpu
                 className={cn(
                   'h-2.5 w-2.5 shrink-0',
-                  modelNameIsPending ? 'text-muted-foreground/40' : 'text-muted-foreground/50',
+                  modelNameIsPending ? 'text-muted-foreground/40' : '',
                 )}
+                style={
+                  modelNameIsPending
+                    ? undefined
+                    : { color: `color-mix(in srgb, ${modelColorVar} 60%, transparent)` }
+                }
               />
               <span className="truncate">{modelNameIsPending ? '…' : modelName}</span>
             </span>

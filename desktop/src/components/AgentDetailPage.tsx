@@ -323,7 +323,7 @@ export function AgentDetailPage() {
                   <div className="max-w-3xl mx-auto">
                     {profileLoading ? (
                       <div className="flex justify-center py-10">
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <Loader2 className="h-5 w-5 animate-spin text-signal" />
                       </div>
                     ) : (
                       <InlineContent content={localSoul} type="markdown" />
@@ -337,7 +337,7 @@ export function AgentDetailPage() {
                   <div className="max-w-3xl mx-auto">
                     {profileLoading ? (
                       <div className="flex justify-center py-10">
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <Loader2 className="h-5 w-5 animate-spin text-signal" />
                       </div>
                     ) : (
                       <InlineContent content={localRules} type="markdown" />
@@ -487,7 +487,7 @@ export function AgentDetailPage() {
                   <div className="max-w-3xl mx-auto">
                     {configLoading ? (
                       <div className="flex justify-center py-10">
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <Loader2 className="h-5 w-5 animate-spin text-signal" />
                       </div>
                     ) : config ? (
                       <InlineContent content={config.raw_config || ''} type="yaml" />
@@ -505,7 +505,7 @@ export function AgentDetailPage() {
                   <div className="max-w-3xl mx-auto">
                     {configLoading ? (
                       <div className="flex justify-center py-10">
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <Loader2 className="h-5 w-5 animate-spin text-signal" />
                       </div>
                     ) : config ? (
                       <InlineContent content={config.system_prompt || ''} type="markdown" />

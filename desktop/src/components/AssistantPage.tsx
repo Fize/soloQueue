@@ -304,7 +304,7 @@ export function AssistantPage() {
         >
           {finalMessages.length === 0 && isHistoryLoading ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 select-none">
-              <Loader2 className="h-7 w-7 animate-spin text-primary/70" />
+              <Loader2 className="h-7 w-7 animate-spin text-signal/70" />
               <p className="text-xs text-muted-foreground font-mono">
                 Loading history...
               </p>
@@ -337,6 +337,7 @@ export function AssistantPage() {
                   message={msg}
                   agentName={agentName}
                   onUserInteraction={handleUserInteraction}
+                  modelName={msg.role === 'assistant' ? inputModelName : undefined}
                 />
               ))}
             </div>

@@ -731,7 +731,7 @@ export function ChatPage() {
               {isDesignMode ? (
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-2">
-                    <Palette className="h-4 w-4 text-primary animate-pulse" />
+                    <Palette className="h-4 w-4 text-signal animate-pulse" />
                     <span className="text-xs font-bold text-foreground font-mono">DESIGN PREVIEW</span>
                   </div>
                 </div>
@@ -885,12 +885,13 @@ export function ChatPage() {
                         agentName={agentDisplayName}
                         isStreaming={streaming}
                         onUserInteraction={handleUserInteraction}
+                        modelName={inputModelName}
                       />
                     ))}
 
                     {delegating && (
                       <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">
-                        <Activity className="h-3.5 w-3.5 text-primary animate-spin" />
+                        <Activity className="h-3.5 w-3.5 text-signal animate-spin" />
                         <span>
                           Team is collaborating and delegating, please wait...
                         </span>

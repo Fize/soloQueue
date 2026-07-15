@@ -592,7 +592,7 @@ export function ChatDesignPanel({
           <div className="relative w-full h-full bg-background overflow-hidden flex items-center justify-center select-none">
             <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, currentColor 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }} />
             <div className="text-center z-10 p-6 max-w-sm rounded-2xl border border-border/40 bg-card/60 backdrop-blur-xl shadow-xl mx-4">
-              <Palette className="h-8 w-8 text-primary mx-auto mb-3 animate-pulse" />
+              <Palette className="h-8 w-8 text-signal mx-auto mb-3 animate-pulse" />
               <h3 className="text-sm font-bold text-foreground">Infinite Design Canvas</h3>
               <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
                 {designError || "No active HTML page found. Start chatting to generate UI code, then select and annotate it here."}

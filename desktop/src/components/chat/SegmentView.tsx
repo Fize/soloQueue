@@ -15,13 +15,13 @@ export function LoadingIndicator() {
     <div className="flex items-center gap-2 py-1">
       <span className="inline-flex gap-0.5">
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:0ms] bg-primary`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:0ms] bg-signal`}
         />
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:150ms] bg-primary`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:150ms] bg-signal`}
         />
         <span
-          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:300ms] bg-primary`}
+          className={`h-1.5 w-1.5 rounded-full animate-bounce [animation-delay:300ms] bg-signal`}
         />
       </span>
       <span

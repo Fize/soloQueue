@@ -71,7 +71,7 @@ export function ActivityHeatmap({ data, days = 365, loading = false }: ActivityH
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-signal/30 border-t-signal" />
         <span className="text-xs text-muted-foreground font-mono ml-2">Loading…</span>
       </div>
     )
