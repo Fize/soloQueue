@@ -22,16 +22,16 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 build-web: ## Build lightweight web portal (for Go embed)
-	pnpm --prefix portal approve-builds esbuild
-	pnpm --prefix portal install
-	pnpm --prefix portal build
+	cd portal && pnpm approve-builds esbuild
+	cd portal && pnpm install
+	cd portal && pnpm build
 	rm -rf internal/server/dist && cp -r portal/dist internal/server/dist
 	cp -r skills internal/server/dist/skills
 
 build-desktop: ## Build rich web UI (for Electron desktop client)
-	pnpm --prefix desktop approve-builds
-	pnpm --prefix desktop install
-	pnpm --prefix desktop build
+	cd desktop && pnpm approve-builds
+	cd desktop && pnpm install
+	cd desktop && pnpm build
 
 build: build-web ## Build Go binary with web portal embedded (Default binary build)
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o soloqueue ./cmd/soloqueue
