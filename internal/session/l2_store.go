@@ -50,9 +50,10 @@ type L2SessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*L2SessionEntry // key: UUID
 
-	builder  *Builder
-	logger   *logger.Logger
-	workDir  string
+	builder       *Builder
+	logger        *logger.Logger
+	workDir       string
+	activeSession *Session
 }
 
 // NewL2SessionStore creates a new L2SessionStore.
@@ -558,4 +559,20 @@ func (s *L2SessionStore) FindActiveSessionByAgentID(agentID string) *Session {
 		}
 	}
 	return nil
+}
+
+// ActiveSession returns the currently active L2 session, or nil.
+func (s *L2SessionStore) ActiveSession() *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.activeSession
+}
+
+// SetActiveSession marks a session as the currently active L2 session.
+func (s *L2SessionStore) SetActiveSession(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.sessions[id]; ok {
+		s.activeSession = entry.Session
+	}
 }

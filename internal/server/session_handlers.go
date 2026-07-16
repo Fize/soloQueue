@@ -635,7 +635,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			}
 
 
-			ctxwinLimit := 0
+			ctxwinUsed, ctxwinLimit := 0, 0
 			if m.l2Store != nil {
 				ctxwinLimit = m.l2Store.DefaultContextLimit()
 			}
@@ -649,6 +649,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				ProjectPath: projectPath,
 				DesignDir:   resolveDesignDir(projectPath, group),
 				CreatedAt:   createdAt,
+				CtxwinUsed:  ctxwinUsed,
 				CtxwinLimit: ctxwinLimit,
 				Plans:       plans,
 			})
@@ -945,6 +946,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			sess, err := m.l2Store.Get(r.Context(), id)
 			if err == nil && sess != nil && sess.CW() != nil {
 				ctxwinUsed, ctxwinLimit, _ = sess.CW().TokenUsage()
+				m.l2Store.SetActiveSession(id)
 			} else {
 				// Fallback if activation fails or is not yet initialized
 				ctxwinLimit = m.l2Store.DefaultContextLimit()

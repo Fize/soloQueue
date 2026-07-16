@@ -246,12 +246,15 @@ func ServeCmd(version string) *cobra.Command {
 				case <-rootCtx.Done():
 					return
 				case <-ticker.C:
-					s := mgr.Session()
-					if s == nil {
-						continue
+					cur, maxTokens := 0, 0
+					if l2Active := l2Store.ActiveSession(); l2Active != nil && l2Active.CW() != nil {
+						cur, maxTokens, _ = l2Active.CW().TokenUsage()
+					} else if s := mgr.Session(); s != nil && s.CW() != nil {
+						cur, maxTokens, _ = s.CW().TokenUsage()
 					}
-					cur, maxTokens, _ := s.CW().TokenUsage()
-					runtimeMetrics.SetCtxwin(cur, maxTokens)
+					if maxTokens > 0 {
+						runtimeMetrics.SetCtxwin(cur, maxTokens)
+					}
 				}
 			}
 		}()
