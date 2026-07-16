@@ -93,23 +93,25 @@ type AggregatedTokenUsage struct {
 	CacheMissTokens  int    `json:"cache_miss_tokens"`
 }
 
-// GetTokenUsageAggregated returns aggregated token stats grouped by the specified timeframe (daily, weekly, monthly).
+// GetTokenUsageAggregated returns aggregated token stats grouped by the specified timeframe (minutely, hourly, daily, weekly, monthly).
 // If teamID is non-empty, it filters by that team. If usageType is non-empty, it filters by usage type.
-func (db *DB) GetTokenUsageAggregated(ctx context.Context, timeframe string, teamID string, usageType string) ([]AggregatedTokenUsage, error) {
-	var dateModifier string
+// If fromDate or toDate is non-empty, it filters the timestamp column accordingly (format: "YYYY-MM-DD HH:MM:SS").
+func (db *DB) GetTokenUsageAggregated(ctx context.Context, timeframe string, teamID string, usageType string, fromDate string, toDate string) ([]AggregatedTokenUsage, error) {
+	var periodExpr string
 	switch timeframe {
+	case "minutely":
+		periodExpr = "strftime('%Y-%m-%d %H:%M:00', timestamp)"
+	case "hourly":
+		periodExpr = "strftime('%Y-%m-%d %H:00:00', timestamp)"
 	case "daily":
-		dateModifier = "start of day"
+		periodExpr = "datetime(timestamp, 'start of day')"
 	case "weekly":
-		dateModifier = "weekday 1" // Start of week (Monday)
+		periodExpr = "datetime(timestamp, 'weekday 1')" // Start of week (Monday)
 	case "monthly":
-		dateModifier = "start of month"
+		periodExpr = "datetime(timestamp, 'start of month')"
 	default:
-		dateModifier = "start of day"
+		periodExpr = "datetime(timestamp, 'start of day')"
 	}
-
-	// SQLite datetime grouping
-	periodExpr := fmt.Sprintf("datetime(timestamp, '%s')", dateModifier)
 
 	query := fmt.Sprintf(`
 		SELECT 
@@ -137,6 +139,14 @@ func (db *DB) GetTokenUsageAggregated(ctx context.Context, timeframe string, tea
 	if usageType != "" {
 		query += " AND usage_type = ?"
 		args = append(args, usageType)
+	}
+	if fromDate != "" {
+		query += " AND timestamp >= ?"
+		args = append(args, fromDate)
+	}
+	if toDate != "" {
+		query += " AND timestamp <= ?"
+		args = append(args, toDate)
 	}
 
 	query += ` GROUP BY period, usage_type, team_id, model_name ORDER BY period DESC`
@@ -180,22 +190,25 @@ type AggregatedRouterStats struct {
 	Count                int    `json:"count"`
 }
 
-// GetRouterStatsAggregated returns aggregated router stats grouped by timeframe.
+// GetRouterStatsAggregated returns aggregated router stats grouped by timeframe (minutely, hourly, daily, weekly, monthly).
 // If teamID is non-empty, it filters by that team.
-func (db *DB) GetRouterStatsAggregated(ctx context.Context, timeframe string, teamID string) ([]AggregatedRouterStats, error) {
-	var dateModifier string
+// If fromDate or toDate is non-empty, it filters the timestamp column accordingly (format: "YYYY-MM-DD HH:MM:SS").
+func (db *DB) GetRouterStatsAggregated(ctx context.Context, timeframe string, teamID string, fromDate string, toDate string) ([]AggregatedRouterStats, error) {
+	var periodExpr string
 	switch timeframe {
+	case "minutely":
+		periodExpr = "strftime('%Y-%m-%d %H:%M:00', timestamp)"
+	case "hourly":
+		periodExpr = "strftime('%Y-%m-%d %H:00:00', timestamp)"
 	case "daily":
-		dateModifier = "start of day"
+		periodExpr = "datetime(timestamp, 'start of day')"
 	case "weekly":
-		dateModifier = "weekday 1" // Start of week (Monday)
+		periodExpr = "datetime(timestamp, 'weekday 1')" // Start of week (Monday)
 	case "monthly":
-		dateModifier = "start of month"
+		periodExpr = "datetime(timestamp, 'start of month')"
 	default:
-		dateModifier = "start of day"
+		periodExpr = "datetime(timestamp, 'start of day')"
 	}
-
-	periodExpr := fmt.Sprintf("datetime(timestamp, '%s')", dateModifier)
 
 	whereClause := "WHERE metric_category = ?"
 	args := []any{MetricCategoryRouterClassification}
@@ -205,6 +218,14 @@ func (db *DB) GetRouterStatsAggregated(ctx context.Context, timeframe string, te
 	} else if teamID != "" {
 		whereClause += " AND team_id = ?"
 		args = append(args, teamID)
+	}
+	if fromDate != "" {
+		whereClause += " AND timestamp >= ?"
+		args = append(args, fromDate)
+	}
+	if toDate != "" {
+		whereClause += " AND timestamp <= ?"
+		args = append(args, toDate)
 	}
 
 	query := fmt.Sprintf(`

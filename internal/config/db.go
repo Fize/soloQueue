@@ -258,12 +258,16 @@ func LoadDefaultModels(ctx context.Context, db *sqlitedb.DB) (DefaultModelsConfi
 			return c, fmt.Errorf("config db: scan default model: %w", err)
 		}
 		switch role {
-		case "expert":
-			c.Expert = modelRef
-		case "superior":
-			c.Superior = modelRef
+		case "basic":
+			c.Basic = modelRef
 		case "universal":
 			c.Universal = modelRef
+		case "superior":
+			c.Superior = modelRef
+		case "expert":
+			c.Expert = modelRef
+		case "apex":
+			c.Apex = modelRef
 		case "fast":
 			c.Fast = modelRef
 		case "fallback":
@@ -279,9 +283,11 @@ func SaveDefaultModels(ctx context.Context, db *sqlitedb.DB, c DefaultModelsConf
 	}
 
 	roles := map[string]string{
-		"expert":    c.Expert,
-		"superior":  c.Superior,
+		"basic":     c.Basic,
 		"universal": c.Universal,
+		"superior":  c.Superior,
+		"expert":    c.Expert,
+		"apex":      c.Apex,
 		"fast":      c.Fast,
 		"fallback":  c.Fallback,
 	}

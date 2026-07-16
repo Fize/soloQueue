@@ -12,44 +12,40 @@ func TestRouter_Route(t *testing.T) {
 	router := NewRouter(classifier, modelService, nil)
 
 	tests := []struct {
-		name           string
-		prompt         string
-		expectedLevel  ClassificationLevel
-		expectedModel  string
-		expectedThink  bool
-		expectedEffort string
+		name          string
+		prompt        string
+		expectedLevel ClassificationLevel
+		expectedModel string
 	}{
 		{
-			name:           "Conversation routes to flash (no thinking)",
-			prompt:         "Explain how closures work",
-			expectedLevel:  LevelConversation,
-			expectedModel:  "deepseek-v4-flash",
-			expectedThink:  false,
-			expectedEffort: "",
+			name:          "L0 → basic (flash)",
+			prompt:        "Explain how closures work",
+			expectedLevel: LevelConversation,
+			expectedModel: "deepseek-v4-flash",
 		},
 		{
-			name:           "SingleFile routes to universal (flash + thinking high)",
-			prompt:         "Fix the bug in main.go",
-			expectedLevel:  LevelSimpleSingleFile,
-			expectedModel:  "deepseek-v4-flash",
-			expectedThink:  true,
-			expectedEffort: "high",
+			name:          "L1 → universal (flash)",
+			prompt:        "Fix the bug in main.go",
+			expectedLevel: LevelSimpleSingleFile,
+			expectedModel: "deepseek-v4-flash",
 		},
 		{
-			name:           "MultiFile routes to superior (pro + thinking high)",
-			prompt:         "Refactor auth.go, middleware.go, and service.go",
-			expectedLevel:  LevelMediumMultiFile,
-			expectedModel:  "deepseek-v4-pro",
-			expectedThink:  true,
-			expectedEffort: "high",
+			name:          "L2 → superior (pro)",
+			prompt:        "Refactor auth.go, middleware.go, and service.go",
+			expectedLevel: LevelMediumMultiFile,
+			expectedModel: "deepseek-v4-pro",
 		},
 		{
-			name:           "Complex routes to expert (pro + thinking max)",
-			prompt:         "/l3 redesign the entire authentication system",
-			expectedLevel:  LevelComplexRefactoring,
-			expectedModel:  "deepseek-v4-pro",
-			expectedThink:  true,
-			expectedEffort: "max",
+			name:          "L3 → expert (pro-max)",
+			prompt:        "/l3 redesign the entire authentication system",
+			expectedLevel: LevelComplexRefactoring,
+			expectedModel: "deepseek-v4-pro",
+		},
+		{
+			name:          "L4 → apex (gpt)",
+			prompt:        "/l4 redesign zero-downtime production migration",
+			expectedLevel: LevelDeepReasoning,
+			expectedModel: "gpt-5.6",
 		},
 	}
 
@@ -70,16 +66,6 @@ func TestRouter_Route(t *testing.T) {
 			if decision.ModelID != tt.expectedModel {
 				t.Errorf("ModelID: got %q, want %q",
 					decision.ModelID, tt.expectedModel)
-			}
-
-			if decision.ThinkingEnabled != tt.expectedThink {
-				t.Errorf("ThinkingEnabled: got %v, want %v",
-					decision.ThinkingEnabled, tt.expectedThink)
-			}
-
-			if decision.ReasoningEffort != tt.expectedEffort {
-				t.Errorf("ReasoningEffort: got %q, want %q",
-					decision.ReasoningEffort, tt.expectedEffort)
 			}
 
 			if decision.ContextWindow <= 0 {

@@ -161,11 +161,13 @@ func DefaultSettings() Settings {
 			},
 		},
 		DefaultModels: DefaultModelsConfig{
-			Expert:    "deepseek:deepseek-v4-pro-max",
-			Superior:  "deepseek:deepseek-v4-flash-thinking-max",
+			Basic:     "",
 			Universal: "deepseek:deepseek-v4-flash-thinking",
+			Superior:  "deepseek:deepseek-v4-flash-thinking-max",
+			Expert:    "deepseek:deepseek-v4-pro-max",
+			Apex:      "",
 			Fast:      "deepseek:deepseek-v4-flash",
-			Fallback:  "",
+			Fallback:  "deepseek:deepseek-v4-flash",
 		},
 		Agent: AgentConfig{},
 		Simulation: SimulationConfig{

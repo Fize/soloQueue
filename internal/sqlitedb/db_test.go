@@ -52,7 +52,7 @@ func TestInsertTokenUsage(t *testing.T) {
 		t.Fatalf("InsertTokenUsage: %v", err)
 	}
 
-	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "chat")
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "chat", "", "")
 	if err != nil {
 		t.Fatalf("GetTokenUsageAggregated: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestInsertTokenUsage_FilterByTeam(t *testing.T) {
 	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 10, 5, 15, 0, 0)
 	db.InsertTokenUsage(context.Background(), "chat", "team-b", "m1", 20, 10, 30, 0, 0)
 
-	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "")
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "", "", "")
 	if err != nil {
 		t.Fatalf("GetTokenUsageAggregated: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestInsertTokenUsage_MultipleModels(t *testing.T) {
 	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m1", 5, 3, 8, 0, 0)
 	db.InsertTokenUsage(context.Background(), "chat", "team-a", "m2", 100, 50, 150, 0, 0)
 
-	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "", "")
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetTokenUsageAggregated: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestInsertTokenUsage_CacheTokens(t *testing.T) {
 		t.Fatalf("InsertTokenUsage: %v", err)
 	}
 
-	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "")
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-a", "", "", "")
 	if err != nil {
 		t.Fatalf("GetTokenUsageAggregated: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestInsertRouterClassification(t *testing.T) {
 		t.Fatalf("InsertRouterClassification: %v", err)
 	}
 
-	stats, err := db.GetRouterStatsAggregated(context.Background(), "daily", "team-a")
+	stats, err := db.GetRouterStatsAggregated(context.Background(), "daily", "team-a", "", "")
 	if err != nil {
 		t.Fatalf("GetRouterStatsAggregated: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestInsertTokenUsage_Concurrent(t *testing.T) {
 		<-done
 	}
 
-	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-c", "")
+	stats, err := db.GetTokenUsageAggregated(context.Background(), "daily", "team-c", "", "", "")
 	if err != nil {
 		t.Fatalf("GetTokenUsageAggregated: %v", err)
 	}

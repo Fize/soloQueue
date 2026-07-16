@@ -15,18 +15,20 @@ func (m *Mux) handleGetTokenStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeframe := r.URL.Query().Get("timeframe") // "daily", "weekly", "monthly"
+	timeframe := r.URL.Query().Get("timeframe") // "hourly", "daily", "weekly", "monthly"
 	if timeframe == "" {
 		timeframe = "daily"
 	}
 	teamID := r.URL.Query().Get("team_id")
 	usageType := r.URL.Query().Get("usage_type")
+	fromDate := r.URL.Query().Get("from")
+	toDate := r.URL.Query().Get("to")
 
 	// Create a short timeout context
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	stats, err := m.sharedDB.GetTokenUsageAggregated(ctx, timeframe, teamID, usageType)
+	stats, err := m.sharedDB.GetTokenUsageAggregated(ctx, timeframe, teamID, usageType, fromDate, toDate)
 	if err != nil {
 		m.log.Error(logger.CatApp, "failed to get token stats", "err", err)
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
@@ -43,16 +45,18 @@ func (m *Mux) handleGetRouterStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeframe := r.URL.Query().Get("timeframe") // "daily", "weekly", "monthly"
+	timeframe := r.URL.Query().Get("timeframe") // "hourly", "daily", "weekly", "monthly"
 	if timeframe == "" {
 		timeframe = "daily"
 	}
 	teamID := r.URL.Query().Get("team_id")
+	fromDate := r.URL.Query().Get("from")
+	toDate := r.URL.Query().Get("to")
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	stats, err := m.sharedDB.GetRouterStatsAggregated(ctx, timeframe, teamID)
+	stats, err := m.sharedDB.GetRouterStatsAggregated(ctx, timeframe, teamID, fromDate, toDate)
 	if err != nil {
 		m.log.Error(logger.CatApp, "failed to get router stats", "err", err)
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})

@@ -25,9 +25,11 @@ export function ModelsTab() {
   const [deleteProviderTarget, setDeleteProviderTarget] = useState<LLMProvider | null>(null)
   const [deleteModelTarget, setDeleteModelTarget] = useState<LLMModel | null>(null)
   const [defaultModels, setDefaultModels] = useState<DefaultModelsConfig>({
-    expert: '',
-    superior: '',
+    basic: '',
     universal: '',
+    superior: '',
+    expert: '',
+    apex: '',
     fast: '',
     fallback: '',
   })
@@ -43,7 +45,7 @@ export function ModelsTab() {
       setProviders(dbProviders || [])
       setModels(dbModels || [])
       setDefaultModels(
-        dbDefaults || { expert: '', superior: '', universal: '', fast: '', fallback: '' }
+        dbDefaults || { basic: '', universal: '', superior: '', expert: '', apex: '', fast: '', fallback: '' }
       )
     } catch (err) {
       toast.error((err as Error).message)

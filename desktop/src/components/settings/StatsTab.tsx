@@ -1,7 +1,9 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -15,6 +17,90 @@ import { TrendingUp, GitCommitHorizontal } from 'lucide-react'
 import { Select } from '@/components/ui/select'
 import { GlassCard } from '@/components/ui/glass-card'
 import { useTranslation } from '@/lib/i18n'
+
+const DATE_FMT = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+type RangeOffset = { from: Date; to: Date }
+
+const PRESETS = [
+  { labelKey: 'stats.presetAll' as const, suggestedTimeframe: '', offset: (): RangeOffset | null => null },
+  { labelKey: 'stats.presetToday' as const, suggestedTimeframe: 'hourly', offset: (): RangeOffset | null => {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    return { from: start, to: now }
+  }},
+  { labelKey: 'stats.preset24h' as const, suggestedTimeframe: 'hourly', offset: (): RangeOffset | null => {
+    const now = new Date()
+    return { from: new Date(now.getTime() - 24 * 3600_000), to: now }
+  }},
+  { labelKey: 'stats.preset3d' as const, suggestedTimeframe: 'hourly', offset: (): RangeOffset | null => {
+    const now = new Date()
+    return { from: new Date(now.getTime() - 3 * 24 * 3600_000), to: now }
+  }},
+  { labelKey: 'stats.preset7d' as const, suggestedTimeframe: 'daily', offset: (): RangeOffset | null => {
+    const now = new Date()
+    return { from: new Date(now.getTime() - 7 * 24 * 3600_000), to: now }
+  }},
+  { labelKey: 'stats.preset30d' as const, suggestedTimeframe: 'daily', offset: (): RangeOffset | null => {
+    const now = new Date()
+    return { from: new Date(now.getTime() - 30 * 24 * 3600_000), to: now }
+  }},
+]
+
+const DEFAULT_PRESETS: Record<string, string> = {
+  minutely: 'stats.preset24h',
+  hourly: 'stats.presetToday',
+  daily: 'stats.preset30d',
+}
+
+function toInputVal(dateStr: string) {
+  return dateStr.replace(' ', 'T').slice(0, 16)
+}
+
+function alignToBucket(d: Date, timeframe: string): Date {
+  const a = new Date(d)
+  a.setSeconds(0, 0)
+  if (timeframe === 'minutely') {
+    return a
+  }
+  a.setMinutes(0)
+  if (timeframe === 'hourly') {
+    return a
+  }
+  a.setHours(0)
+  if (timeframe === 'daily') {
+    return a
+  }
+  if (timeframe === 'weekly') {
+    const dow = a.getDay() || 7
+    a.setDate(a.getDate() - dow + 1)
+    return a
+  }
+  if (timeframe === 'monthly') {
+    a.setDate(1)
+    return a
+  }
+  return a
+}
+
+function generateBuckets(timeframe: string, from: Date, to: Date): string[] {
+  const buckets: string[] = []
+  const cur = alignToBucket(from, timeframe)
+  const end = to
+  while (cur <= end) {
+    buckets.push(DATE_FMT(cur))
+    if (timeframe === 'minutely') cur.setMinutes(cur.getMinutes() + 1)
+    else if (timeframe === 'hourly') cur.setHours(cur.getHours() + 1)
+    else if (timeframe === 'daily') cur.setDate(cur.getDate() + 1)
+    else if (timeframe === 'weekly') cur.setDate(cur.getDate() + 7)
+    else if (timeframe === 'monthly') cur.setMonth(cur.getMonth() + 1)
+    else break
+  }
+  return buckets
+}
 
 /* ── custom tooltip ─────────────────────────────────────────── */
 
@@ -48,6 +134,46 @@ export function StatsTab() {
   const [error, setError] = useState('')
   const { t } = useTranslation()
 
+  const [activePreset, setActivePreset] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const mounted = useRef(false)
+
+  const applyPreset = useCallback((key: string) => {
+    setActivePreset(key)
+    const preset = PRESETS.find(p => p.labelKey === key)
+    if (!preset) return
+    if (preset.suggestedTimeframe) {
+      setTimeframe(preset.suggestedTimeframe)
+    }
+    const range = preset.offset()
+    if (!range) {
+      setFromDate('')
+      setToDate('')
+      return
+    }
+    setFromDate(DATE_FMT(range.from))
+    setToDate(DATE_FMT(range.to))
+  }, [])
+
+  const handleCustomFrom = useCallback((val: string) => {
+    setActivePreset('')
+    const d = val ? new Date(val) : new Date(0)
+    setFromDate(isNaN(d.getTime()) ? '' : DATE_FMT(d))
+  }, [])
+
+  const handleCustomTo = useCallback((val: string) => {
+    setActivePreset('')
+    const d = val ? new Date(val) : new Date(0)
+    setToDate(isNaN(d.getTime()) ? '' : DATE_FMT(d))
+  }, [])
+
+  useEffect(() => {
+    if (mounted.current) return
+    mounted.current = true
+    applyPreset(DEFAULT_PRESETS[timeframe] || 'stats.preset30d')
+  }, [])
+
   useEffect(() => {
     let active = true
     const fetchData = async () => {
@@ -55,8 +181,8 @@ export function StatsTab() {
       try {
         const teamParam = teamFilter === 'all' ? undefined : teamFilter
         const [tokenData, routerData, teamsData] = await Promise.all([
-          getTokenStats(timeframe, teamParam),
-          getRouterStats(timeframe, teamParam),
+          getTokenStats(timeframe, teamParam, fromDate || undefined, toDate || undefined),
+          getRouterStats(timeframe, teamParam, fromDate || undefined, toDate || undefined),
           getStatTeams(),
         ])
         if (!active) return
@@ -71,32 +197,48 @@ export function StatsTab() {
     }
     fetchData()
     return () => { active = false }
-  }, [timeframe, teamFilter, t])
+  }, [timeframe, teamFilter, fromDate, toDate, t])
 
   const tokenChartData = useMemo(() => {
     const grouped = new Map<string, { period: string; prompt: number; completion: number; cache: number }>()
     for (const row of tokenStats) {
-      const p = row.period.split(' ')[0]
+      const p = row.period
       if (!grouped.has(p)) grouped.set(p, { period: p, prompt: 0, completion: 0, cache: 0 })
       const g = grouped.get(p)!
       g.prompt += row.prompt_tokens
       g.completion += row.completion_tokens
       g.cache += row.cache_hit_tokens
     }
+    if (fromDate && toDate) {
+      const fromD = new Date(fromDate.replace(' ', 'T'))
+      const toD = new Date(toDate.replace(' ', 'T'))
+      const buckets = generateBuckets(timeframe, fromD, toD)
+      for (const b of buckets) {
+        if (!grouped.has(b)) grouped.set(b, { period: b, prompt: 0, completion: 0, cache: 0 })
+      }
+    }
     return Array.from(grouped.values()).sort((a, b) => a.period.localeCompare(b.period))
-  }, [tokenStats])
+  }, [tokenStats, timeframe, fromDate, toDate])
 
   const routerChartData = useMemo(() => {
     const grouped = new Map<string, { period: string; local: number; remote: number }>()
     for (const row of routerStats) {
-      const p = row.period.split(' ')[0]
+      const p = row.period
       if (!grouped.has(p)) grouped.set(p, { period: p, local: 0, remote: 0 })
       const g = grouped.get(p)!
       if (row.classification_source === 'local') g.local += row.count
       else g.remote += row.count
     }
+    if (fromDate && toDate) {
+      const fromD = new Date(fromDate.replace(' ', 'T'))
+      const toD = new Date(toDate.replace(' ', 'T'))
+      const buckets = generateBuckets(timeframe, fromD, toD)
+      for (const b of buckets) {
+        if (!grouped.has(b)) grouped.set(b, { period: b, local: 0, remote: 0 })
+      }
+    }
     return Array.from(grouped.values()).sort((a, b) => a.period.localeCompare(b.period))
-  }, [routerStats])
+  }, [routerStats, timeframe, fromDate, toDate])
 
   const [heatmapData, setHeatmapData] = useState<ActivityDay[]>([])
   const [heatmapLoading, setHeatmapLoading] = useState(true)
@@ -148,8 +290,15 @@ export function StatsTab() {
   }, [teams, t])
 
   const fmtLabel = (p: string) => {
-    const parts = p.split('-')
-    return parts.length === 3 ? `${parts[1]}/${parts[2]}` : p
+    const [date, time] = p.split(' ')
+    const parts = date.split('-')
+    const dateStr = parts.length === 3 ? `${parts[1]}/${parts[2]}` : p
+    if (time) {
+      const h = time.slice(0, 2), m = time.slice(3, 5)
+      if (m !== '00') return `${dateStr} ${h}:${m}`
+      if (h !== '00') return `${dateStr} ${h}:00`
+    }
+    return dateStr
   }
 
   const fmtTick = (v: number) => {
@@ -174,14 +323,48 @@ export function StatsTab() {
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">{t('stats.timeFrame')}</span>
           <Select value={timeframe} onChange={setTimeframe} options={[
+            { value: 'minutely', label: t('stats.minutely') },
+            { value: 'hourly', label: t('stats.hourly') },
             { value: 'daily', label: t('stats.daily') },
             { value: 'weekly', label: t('stats.weekly') },
             { value: 'monthly', label: t('stats.monthly') },
-          ]} className="w-[126px]" />
+          ]} className="w-[116px]" />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">{t('stats.teamFilter')}</span>
-          <Select value={teamFilter} onChange={setTeamFilter} options={teamOptions} className="w-[150px]" />
+          <Select value={teamFilter} onChange={setTeamFilter} options={teamOptions} className="w-[140px]" />
+        </div>
+        <span className="h-5 w-px bg-border/70" />
+        {PRESETS.map(p => (
+          <button
+            key={p.labelKey}
+            className={`px-2 py-1 text-xs rounded-md transition-colors ${
+              activePreset === p.labelKey
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            onClick={() => applyPreset(p.labelKey)}
+          >
+            {t(p.labelKey as any)}
+          </button>
+        ))}
+        <span className="h-5 w-px bg-border/70" />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="datetime-local"
+            key={`from-${fromDate}`}
+            value={fromDate ? toInputVal(fromDate) : ''}
+            onChange={e => handleCustomFrom(e.target.value)}
+            className="h-7 w-[160px] text-[11px] bg-muted/50 border border-border rounded-md px-1.5 text-foreground [color-scheme:dark]"
+          />
+          <span className="text-[10px] text-muted-foreground">-</span>
+          <input
+            type="datetime-local"
+            key={`to-${toDate}`}
+            value={toDate ? toInputVal(toDate) : ''}
+            onChange={e => handleCustomTo(e.target.value)}
+            className="h-7 w-[160px] text-[11px] bg-muted/50 border border-border rounded-md px-1.5 text-foreground [color-scheme:dark]"
+          />
         </div>
       </div>
 
@@ -217,16 +400,16 @@ export function StatsTab() {
             ) : (
               <div className="flex-1 h-[250px] text-muted-foreground">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={tokenChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
+                  <BarChart data={tokenChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.15} />
                     <XAxis dataKey="period" tickFormatter={fmtLabel} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
                     <YAxis width={56} tickFormatter={fmtTick} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                    <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
+                    <RechartsTooltip content={<ChartTooltip />} cursor={{ fill: 'currentColor', fillOpacity: 0.08 }} />
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    <Line type="monotone" dataKey="prompt" name={t('stats.prompt')} stroke="var(--color-chart-1)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="completion" name={t('stats.completion')} stroke="var(--color-chart-2)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="cache" name={t('stats.cacheHits')} stroke="var(--color-chart-3)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  </LineChart>
+                    <Bar dataKey="prompt" name={t('stats.prompt')} fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="completion" name={t('stats.completion')} fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="cache" name={t('stats.cacheHits')} fill="var(--color-chart-3)" radius={[3, 3, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             )}

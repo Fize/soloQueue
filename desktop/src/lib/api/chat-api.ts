@@ -185,17 +185,21 @@ export interface RouterStat {
   count: number
 }
 
-export async function getTokenStats(timeframe: string, teamId?: string): Promise<TokenStat[]> {
+export async function getTokenStats(timeframe: string, teamId?: string, fromDate?: string, toDate?: string): Promise<TokenStat[]> {
   const query = new URLSearchParams()
   query.append('timeframe', timeframe)
   if (teamId) query.append('team_id', teamId)
+  if (fromDate) query.append('from', fromDate)
+  if (toDate) query.append('to', toDate)
   return request<TokenStat[]>(`/stats/tokens?${query.toString()}`)
 }
 
-export async function getRouterStats(timeframe: string, teamId?: string): Promise<RouterStat[]> {
+export async function getRouterStats(timeframe: string, teamId?: string, fromDate?: string, toDate?: string): Promise<RouterStat[]> {
   const query = new URLSearchParams()
   query.append('timeframe', timeframe)
   if (teamId) query.append('team_id', teamId)
+  if (fromDate) query.append('from', fromDate)
+  if (toDate) query.append('to', toDate)
   return request<RouterStat[]>(`/stats/router?${query.toString()}`)
 }
 

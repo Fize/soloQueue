@@ -1,5 +1,5 @@
 import { useTranslation } from '@/lib/i18n'
-import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo } from 'react'
+import { type KeyboardEvent, useRef, useEffect, useLayoutEffect, useCallback, useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
   ArrowUp, StopCircle, Plus, ChevronDown,
@@ -97,7 +97,7 @@ export function ChatInput({
 
   // Selectors State
   const [activeDropdown, setActiveDropdown] = useState<'group' | 'project' | 'branch' | null>(null)
-  const [dropdownPos, setDropdownPos] = useState<{ bottom: number; left: number } | null>(null)
+  const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null)
   const [branch, setBranch] = useState<string>('main')
   const [branches, setBranches] = useState<string[]>(['main'])
 
@@ -187,20 +187,46 @@ export function ChatInput({
   const cwOffset = cwCircum - (cwPct / 100) * cwCircum
 
   // Compute fixed position for dropdown menus (must break out of overflow-x-auto clipping)
-  useEffect(() => {
-    if (activeDropdown) {
-      const ref = activeDropdown === 'group' ? groupRef : activeDropdown === 'project' ? projectRef : branchRef
-      const rect = ref.current?.getBoundingClientRect()
-      if (rect) {
-        setDropdownPos({
-          bottom: window.innerHeight - rect.top + 4,
-          left: rect.left,
-        })
-      }
-    } else {
-      setDropdownPos(null)
+  const computeDropdownPos = useCallback(() => {
+    if (!activeDropdown) return null
+    const ref = activeDropdown === 'group' ? groupRef
+              : activeDropdown === 'project' ? projectRef
+              : branchRef
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return null
+
+    const dropdownWidth = activeDropdown === 'project' ? 208
+                        : activeDropdown === 'group' ? 176
+                        : 128
+    const margin = 4
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const estimatedHeight = 240
+
+    let left = rect.left
+    if (left + dropdownWidth > vw - 8) left = vw - dropdownWidth - 8
+    if (left < 8) left = 8
+
+    if (rect.bottom + margin + estimatedHeight > vh) {
+      return { top: undefined, bottom: vh - rect.top + margin, left }
     }
+    return { top: rect.bottom + margin, bottom: undefined, left }
   }, [activeDropdown])
+
+  useLayoutEffect(() => {
+    setDropdownPos(computeDropdownPos())
+  }, [computeDropdownPos])
+
+  useEffect(() => {
+    if (!activeDropdown) return
+    const update = () => setDropdownPos(computeDropdownPos())
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [activeDropdown, computeDropdownPos])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -442,10 +468,10 @@ export function ChatInput({
 
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-2">
+    <div className="@container mx-auto w-full max-w-3xl px-4 py-2">
       {/* Input card */}
       <div className={cn(
-        "relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
+        "relative flex flex-col rounded-xl border border-border/40 bg-background p-1.5 @3xs:p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
       )}>
           {/* Attachments preview & Selected Element Badge */}
           <ChatInputAttachments
@@ -553,13 +579,13 @@ export function ChatInput({
             </div>
 
             {/* Inner action buttons row */}
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/15">
+            <div className="flex items-center justify-between mt-1 pt-1 @3xs:mt-2 @3xs:pt-2 border-t border-border/15">
               {/* Left actions: plus and selectors */}
-              <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className="flex items-center gap-1 @sm:gap-2 flex-1 min-w-0">
                 <button
                   type="button"
                   onClick={() => toast.info(t('common.dragDropImages'))}
-                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0"
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0 hidden @2xs:block"
                   title="Add context"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -573,7 +599,7 @@ export function ChatInput({
                     setSidebarCollapsed(nextMode)
                   }}
                   className={cn(
-                    "p-1.5 rounded-lg transition-colors cursor-pointer shrink-0",
+                    "p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 hidden @2xs:block",
                     isDesignMode 
                       ? "bg-primary/20 text-primary border border-primary/20" 
                       : "hover:bg-muted text-muted-foreground/70"
@@ -608,7 +634,7 @@ export function ChatInput({
                       {activeDropdown === 'group' && groups.length > 0 && (
                         <div
                           className="fixed z-50 w-44 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
-                          style={dropdownPos ? { bottom: `${dropdownPos.bottom}px`, left: `${dropdownPos.left}px` } : undefined}
+                          style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
                         >
                           {groups.map((g) => (
                             <button
@@ -656,7 +682,7 @@ export function ChatInput({
                           {activeDropdown === 'project' && (
                             <div
                               className="fixed z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
-                              style={dropdownPos ? { bottom: `${dropdownPos.bottom}px`, left: `${dropdownPos.left}px` } : undefined}
+                              style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
                             >
                               {filteredProjects.map((p) => (
                                 <button
@@ -704,7 +730,7 @@ export function ChatInput({
                           {activeDropdown === 'branch' && (
                             <div
                               className="fixed z-50 w-32 rounded-xl border border-border bg-popover p-1 shadow-lg"
-                              style={dropdownPos ? { bottom: `${dropdownPos.bottom}px`, left: `${dropdownPos.left}px` } : undefined}
+                              style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
                             >
                               {branches.map((b) => (
                                 <button
@@ -730,7 +756,7 @@ export function ChatInput({
               </div>
 
               {/* Right actions: model badge, context window ring, send/stop */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 @sm:gap-2">
 
 
                 {ctxwinLimit > 0 && (
@@ -777,10 +803,10 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="flex items-center gap-1 px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
+                    className="flex items-center gap-1 px-2 @sm:px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
                   >
                     <StopCircle className="h-3.5 w-3.5" />
-                    <span>{t('common.stopped')}</span>
+                    <span className="hidden @sm:inline">{t('common.stopped')}</span>
                   </button>
                 ) : (
                   <button

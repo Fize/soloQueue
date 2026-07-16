@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, Tray, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -102,6 +102,151 @@ const MAX_RESTART_ATTEMPTS = 5
 let restartTimer = null
 const isDev = !app.isPackaged && !process.env.ELECTRON_PROD
 const BACKEND_PORT = isDev ? 8765 : 57647
+
+// ── macOS Menu Bar Tray (Connection Status) ──────────────────
+// Connection state lives in the renderer (Zustand store backed by localStorage +
+// Electron backend status). The renderer pushes the current state to the main
+// process via `tray:update-status` IPC; main process updates the tray icon,
+// tooltip, and context menu accordingly.
+//
+// Why this design: HIG has no in-window "top status bar" component. macOS apps
+// surface ambient state (network, sync, availability) in the system menu bar
+// (see Slack/Discord/Spotify). This matches the platform idiom and removes
+// the in-app 4px strip that was creating a 4px baseline misalignment with the
+// sidebar's traffic-light spacer.
+
+let tray = null
+let pendingTrayStatus = null
+
+// 16x16 monochrome template PNGs (base64). macOS auto-recolors template images
+// to match the menu-bar appearance (light/dark). Three states: ok / warn / err.
+const TRAY_ICONS = {
+  ok:   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKklEQVR4nGNgGBHgP7macGGKNBNlyMAaQIxmqhgyiMOAGENIBmRpoh8AAJfUULCLnTuwAAAAAElFTkSuQmCC',
+  warn: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKElEQVR4nGNgGLbgPw5MkWaiDMGnkChDCCkYSQaQHYjoCqmeFoYjAAAFQzfJHJQvAQAAAABJRU5ErkJggg==',
+  err:  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMElEQVR4nGNgGHbgP4XyeBURpRmXYpI0o2siSzNFNlPFBRSFAUWxQJV0QKklQw0AAGmyEe8LI08gAAAAAElFTkSuQmCC',
+}
+
+function makeTrayImage(name) {
+  const buf = Buffer.from(TRAY_ICONS[name] || TRAY_ICONS.ok, 'base64')
+  const img = nativeImage.createFromBuffer(buf)
+  // Mark as template image so macOS handles dark/light mode recoloring
+  // and so the icon does not "stick out" from the menu bar.
+  if (process.platform === 'darwin') {
+    img.setTemplateImage(true)
+  }
+  return img
+}
+
+function pickTrayIconKey(status) {
+  if (!status) return 'ok'
+  if (status.connectionError) return 'err'
+  if (status.mode === 'remote' && !status.hasUrl) return 'warn'
+  if (status.mode === 'local' && status.isChecking && !status.backendRunning) return 'warn'
+  return 'ok'
+}
+
+function buildTrayTooltip(status) {
+  if (!status) return 'SoloQueue'
+  if (status.connectionError) {
+    return `SoloQueue — Error: ${status.connectionError.slice(0, 50)}`
+  }
+  if (status.mode === 'remote') {
+    if (status.hasUrl) return `SoloQueue — Remote: ${status.remoteUrl}`
+    return 'SoloQueue — Remote (no URL configured)'
+  }
+  if (status.isChecking && !status.backendRunning) {
+    return 'SoloQueue — Starting backend...'
+  }
+  if (status.backendRunning) {
+    const sec = Math.floor((status.uptime || 0) / 1000)
+    return `SoloQueue — Local backend running (${sec}s)`
+  }
+  return 'SoloQueue — Backend not running'
+}
+
+function focusOrCreateWindow() {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    if (!mainWindow.isVisible()) mainWindow.show()
+    mainWindow.focus()
+  } else {
+    createWindow()
+    loadWindowContent()
+  }
+}
+
+function buildTrayMenu(status) {
+  const lines = []
+  if (status?.connectionError) {
+    lines.push({ label: `⚠ ${status.connectionError.slice(0, 60)}`, enabled: false })
+  } else if (status?.mode === 'remote') {
+    if (status.hasUrl) {
+      lines.push({ label: `🔗 ${status.remoteUrl}`, enabled: false })
+    } else {
+      lines.push({ label: '⚠ Remote mode — no URL configured', enabled: false })
+    }
+  } else if (status?.isChecking && !status.backendRunning) {
+    lines.push({ label: '⏳ Starting local backend...', enabled: false })
+  } else if (status?.backendRunning) {
+    lines.push({ label: '✓ Local backend running', enabled: false })
+  } else {
+    lines.push({ label: '○ Backend not running', enabled: false })
+  }
+
+  return Menu.buildFromTemplate([
+    ...lines,
+    { type: 'separator' },
+    { label: 'Show SoloQueue', click: focusOrCreateWindow },
+    { type: 'separator' },
+    { role: 'quit' },
+  ])
+}
+
+function updateTray(status) {
+  if (!tray) return
+  try {
+    tray.setImage(makeTrayImage(pickTrayIconKey(status)))
+    tray.setToolTip(buildTrayTooltip(status))
+    tray.setContextMenu(buildTrayMenu(status))
+  } catch (err) {
+    console.error('[Electron] Failed to update tray:', err)
+  }
+}
+
+function createTray() {
+  if (tray) return
+  try {
+    tray = new Tray(makeTrayImage('ok'))
+    // macOS: left-click focuses window, right-click shows menu (default)
+    // Windows/Linux: left-click shows menu
+    tray.on('click', focusOrCreateWindow)
+    if (pendingTrayStatus) {
+      updateTray(pendingTrayStatus)
+      pendingTrayStatus = null
+    }
+  } catch (err) {
+    console.error('[Electron] Failed to create tray icon:', err)
+    tray = null
+  }
+}
+
+function destroyTray() {
+  if (tray) {
+    try { tray.destroy() } catch { /* ignore */ }
+    tray = null
+  }
+}
+
+// Renderer pushes connection state here. We buffer the latest status if the
+// tray hasn't been created yet (e.g., early messages during app startup).
+ipcMain.on('tray:update-status', (_event, status) => {
+  if (tray) {
+    updateTray(status)
+  } else {
+    pendingTrayStatus = status
+  }
+})
+
 
 // ── Go binary path resolution ──────────────────────────────
 function getGoBinaryPath() {
@@ -542,6 +687,7 @@ app.whenReady().then(async () => {
   createWindow()
   createMenu()
   loadWindowContent()
+  createTray()
 
   // Check remote mode in localStorage before spawning local backend.
   // localStorage lives in the renderer process, so we must wait for the
@@ -586,5 +732,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  destroyTray()
   killGoProcess()
 })

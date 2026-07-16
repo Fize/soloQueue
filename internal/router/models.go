@@ -13,29 +13,29 @@ package router
 // ClassificationLevel represents the routing level for a user task
 type ClassificationLevel int
 
-const (
+	const (
 	// LevelUnknown indicates classification failed
 	LevelUnknown ClassificationLevel = iota
 
-	// LevelConversation (L0): General discussion, no tools
-	// Model: flash (fast, low-cost)
-	// Thinking: disabled
+	// LevelConversation (L0): Basic interaction, shallow reasoning, info retrieval
+	// Model: basic (lightweight + thinking)
 	LevelConversation
 
 	// LevelSimpleSingleFile (L1): Single file modification or analysis
-	// Model: flash-thinking (fast + reasoning)
-	// Thinking: high
+	// Model: universal (general purpose + thinking high)
 	LevelSimpleSingleFile
 
 	// LevelMediumMultiFile (L2): 2-5 files across related modules
-	// Model: pro (balanced capability/cost)
-	// Thinking: high
+	// Model: superior (coordinated + thinking high)
 	LevelMediumMultiFile
 
 	// LevelComplexRefactoring (L3): 5+ files or architectural changes
-	// Model: pro-max (expert capability)
-	// Thinking: max
+	// Model: expert (complex orchestration + thinking max)
 	LevelComplexRefactoring
+
+	// LevelDeepReasoning (L4): frontier-scale, long-chain agent, must-not-fail
+	// Model: apex (highest capability + thinking max)
+	LevelDeepReasoning
 )
 
 // String returns the human-readable name of the classification level
@@ -49,6 +49,8 @@ func (cl ClassificationLevel) String() string {
 		return "L2-MediumMultiFile"
 	case LevelComplexRefactoring:
 		return "L3-ComplexRefactoring"
+	case LevelDeepReasoning:
+		return "L4-DeepReasoning"
 	default:
 		return "Unknown"
 	}
@@ -107,6 +109,9 @@ type ClassifierConfig struct {
 
 	// L3ConfidenceThreshold is the minimum confidence for L3 (complex) classification
 	L3ConfidenceThreshold int
+
+	// L4ConfidenceThreshold is the minimum confidence for L4 (deep reasoning) classification
+	L4ConfidenceThreshold int
 }
 
 // DefaultClassifierConfig returns reasonable default configuration
@@ -118,6 +123,7 @@ func DefaultClassifierConfig() ClassifierConfig {
 		L0ConfidenceThreshold:        95,
 		L1ConfidenceThreshold:        75,
 		L2ConfidenceThreshold:        70,
-		L3ConfidenceThreshold:        60,
+		L3ConfidenceThreshold:        55,
+		L4ConfidenceThreshold:        85,
 	}
 }

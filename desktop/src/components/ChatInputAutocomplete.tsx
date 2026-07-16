@@ -27,6 +27,7 @@ export const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
   { label: 'l1',        description: 'chat.slashL1',    type: 'command' },
   { label: 'l2',        description: 'chat.slashL2',            type: 'command' },
   { label: 'l3',        description: 'chat.slashL3',           type: 'command' },
+  { label: 'l4',        description: 'chat.slashL4',           type: 'command' },
 ]
 
 // ─── Component types ─────────────────────────────────────────────────────────

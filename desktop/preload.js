@@ -26,4 +26,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Notify main process when remote connection config changes
   // so it can update webRequest auth header injection.
   notifyRemoteConfigChanged: () => ipcRenderer.send('remote:config-changed'),
+
+  // Push the current connection state to the macOS menu bar Tray.
+  // See main.js: `tray:update-status` handler. Safe to call before the
+  // tray is created — main process will buffer the latest status.
+  notifyTrayStatus: (status) => ipcRenderer.send('tray:update-status', status),
 })

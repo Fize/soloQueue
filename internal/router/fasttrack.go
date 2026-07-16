@@ -9,7 +9,7 @@ import (
 // ─── Weighted Pattern Scoring Classifier ─────────────────────────────────────
 //
 // FastTrackClassifier uses multi-pattern matching with weighted scoring to
-// classify user prompts into processing levels (L0-L3).
+// classify user prompts into processing levels (L0-L4).
 //
 // Architecture:
 //   - Each level has a dictionary of weighted phrases (Chinese + English)
@@ -135,7 +135,7 @@ func (ftc *FastTrackClassifier) Classify(prompt string) ClassificationResult {
 	// Apply escalation
 	finalLevel := int(maxLevel) + escalation
 	finalLevel = max(finalLevel, int(LevelConversation))
-	finalLevel = min(finalLevel, int(LevelComplexRefactoring))
+	finalLevel = min(finalLevel, int(LevelDeepReasoning))
 	result.Level = ClassificationLevel(finalLevel)
 
 	// ── Phase 7: Compute confidence ──
@@ -175,7 +175,9 @@ func (ftc *FastTrackClassifier) classifySlashCommand(cmd string, fullPrompt stri
 	case "l3":
 		result.Level = LevelComplexRefactoring
 		result.Reason = "Explicit /l3: force complex refactoring level"
-	// ── Contextual slash commands (confidence < 100, scored by heuristic) ──
+	case "l4":
+		result.Level = LevelDeepReasoning
+		result.Reason = "Explicit /l4: force deep reasoning level"
 
 	default:
 		return ClassificationResult{}, false
@@ -194,6 +196,7 @@ func (ftc *FastTrackClassifier) scorePrompt(normalized string) map[Classificatio
 		LevelSimpleSingleFile:   0,
 		LevelMediumMultiFile:    0,
 		LevelComplexRefactoring: 0,
+		LevelDeepReasoning:      0,
 	}
 
 	for _, rule := range ftc.rules {
@@ -231,6 +234,7 @@ func (ftc *FastTrackClassifier) pickTopLevel(scores map[ClassificationLevel]floa
 		{LevelSimpleSingleFile, scores[LevelSimpleSingleFile]},
 		{LevelMediumMultiFile, scores[LevelMediumMultiFile]},
 		{LevelComplexRefactoring, scores[LevelComplexRefactoring]},
+		{LevelDeepReasoning, scores[LevelDeepReasoning]},
 	}
 
 	// Find max and second max
@@ -308,7 +312,9 @@ func (ftc *FastTrackClassifier) buildReason(level ClassificationLevel, _ float64
 	case LevelMediumMultiFile:
 		parts = append(parts, "Multi-step coordination task")
 	case LevelComplexRefactoring:
-		parts = append(parts, "Complex deep-reasoning task")
+		parts = append(parts, "Complex orchestration task")
+	case LevelDeepReasoning:
+		parts = append(parts, "Frontier / deep-reasoning task")
 	}
 
 	if fileCount > 0 {
@@ -718,6 +724,26 @@ func buildPatternRules() []PatternRule {
 		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelComplexRefactoring, Weight: p.w, re: compilePattern(p.p)})
 	}
 
+	// ── L4: Frontier / Critical Tasks ──
+	// Long agent chains (>10 tool calls), must-not-fail, unprecedented design.
+	// Uses weak weights (0.5-1.0) — L4 classification is primarily LLM-driven.
+	l4 := []struct {
+		p string
+		w float64
+	}{
+		{"zero-downtime", 1.0},
+		{"unprecedented", 0.8},
+		{"novel", 0.5},
+		{"no existing pattern", 0.8},
+		{"must not break", 1.0},
+		{"production migration", 1.0},
+		{"mission critical", 1.0},
+		{"lives depend on", 0.8},
+	}
+	for _, p := range l4 {
+		rules = append(rules, PatternRule{Pattern: p.p, Level: LevelDeepReasoning, Weight: p.w, re: compilePattern(p.p)})
+	}
+
 	return rules
 }
 
@@ -758,6 +784,11 @@ func buildEscalationRules() []EscalationRule {
 		{"exhaustive", 1},
 		{"take your time", 1},
 		{"no rush", 1},
+		{"production", 1},
+		{"critical", 1},
+		{"guarantee", 1},
+		{"must not fail", 1},
+		{"zero downtime", 1},
 	}
 	for _, e := range escalation {
 		rules = append(rules, EscalationRule{Pattern: e.p, Delta: e.d, Weight: 1.5, re: compilePattern(e.p)})

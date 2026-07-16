@@ -143,7 +143,7 @@ func (s *GlobalService) ModelByProviderID(providerID, modelID string) *LLMModel 
 
 // DefaultModelByRole resolves the default model by role
 //
-// role supports: "expert", "superior", "universal", "fast".
+// role supports: "basic", "universal", "superior", "expert", "apex", "fast".
 //
 // Resolution priority: role config value -> Fallback -> hardcoded default value.
 // Config value format is "provider:id"; both provider and id must exist in the config file.
@@ -179,12 +179,16 @@ func (s *GlobalService) DefaultModelByRole(role string) *LLMModel {
 // roleField returns the config value corresponding to the role
 func roleField(dm DefaultModelsConfig, role string) string {
 	switch role {
-	case "expert":
-		return dm.Expert
-	case "superior":
-		return dm.Superior
+	case "basic":
+		return dm.Basic
 	case "universal":
 		return dm.Universal
+	case "superior":
+		return dm.Superior
+	case "expert":
+		return dm.Expert
+	case "apex":
+		return dm.Apex
 	case "fast":
 		return dm.Fast
 	default:
@@ -195,10 +199,13 @@ func roleField(dm DefaultModelsConfig, role string) string {
 // roleDefault returns the hardcoded default value for the role
 func roleDefault(role string) string {
 	defaults := map[string]string{
-		"expert":    "deepseek:deepseek-v4-pro-max",
-		"superior":  "deepseek:deepseek-v4-flash-thinking-max",
+		"basic":     "",
 		"universal": "deepseek:deepseek-v4-flash-thinking",
+		"superior":  "deepseek:deepseek-v4-flash-thinking-max",
+		"expert":    "deepseek:deepseek-v4-pro-max",
+		"apex":      "",
 		"fast":      "deepseek:deepseek-v4-flash",
+		"fallback":  "deepseek:deepseek-v4-flash",
 	}
 	return defaults[role]
 }

@@ -257,9 +257,11 @@ type EmbeddingConfig struct {
 //
 // Resolution priority: role field value → Fallback → hardcoded default value.
 type DefaultModelsConfig struct {
-	Expert    string `json:"expert"    yaml:"expert,omitempty"`
-	Superior  string `json:"superior"  yaml:"superior,omitempty"`
+	Basic     string `json:"basic"     yaml:"basic,omitempty"`
 	Universal string `json:"universal" yaml:"universal,omitempty"`
+	Superior  string `json:"superior"  yaml:"superior,omitempty"`
+	Expert    string `json:"expert"    yaml:"expert,omitempty"`
+	Apex      string `json:"apex"      yaml:"apex,omitempty"`
 	Fast      string `json:"fast"      yaml:"fast,omitempty"`
 	Fallback  string `json:"fallback"  yaml:"fallback,omitempty"`
 }

@@ -5,7 +5,7 @@ import { PanelLeftClose, PanelRightOpen, Server } from 'lucide-react'
 import { Sidebar } from '@/components/Sidebar'
 import { useUIStore } from '@/stores/uiStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { Toaster } from 'sonner'
+import { Toaster, toast } from 'sonner'
 import { wsManager } from '@/lib/websocket'
 import { useConnectionStore, type BackendStatus } from '@/stores/connectionStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
@@ -44,7 +44,10 @@ function getLastChatRoute() {
   try {
     const route = localStorage.getItem(LAST_CHAT_ROUTE_KEY)
     if (route?.startsWith('/chat/')) return route
-  } catch {}
+  } catch {
+    // localStorage may be unavailable (private mode, disabled storage).
+    // Intentional silent fallback to '/chat'.
+  }
   return '/chat'
 }
 
@@ -95,6 +98,47 @@ function ConnectionStatusBar() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── Tray sync: push connection state to macOS menu bar Tray ──
+  useEffect(() => {
+    if (!isElectron) return
+    const ea = (window as any).electronAPI
+    ea?.notifyTrayStatus?.({
+      mode,
+      remoteUrl,
+      hasUrl: !!remoteUrl,
+      backendRunning: backendStatus.running,
+      uptime: backendStatus.uptime,
+      isChecking,
+      connectionError,
+    })
+  }, [mode, remoteUrl, backendStatus.running, backendStatus.uptime, isChecking, connectionError])
+
+  // ── Electron mode: connection status is surfaced via the macOS menu bar Tray.
+  //    See `tray:update-status` in main.js. The in-app bar would conflict with
+  //    HIG (macOS has no in-window "top status bar" component) and was creating
+  //    a 4px baseline misalignment with the sidebar's traffic-light spacer.
+  //    We still fire a toast on errors so the user gets visible feedback.
+  useEffect(() => {
+    if (!isElectron) return
+    if (!connectionError) return
+    toast.error(connectionError, {
+      id: 'connection-error',
+      duration: Infinity,
+      action: {
+        label: 'Retry',
+        onClick: () => {
+          const ea = (window as any).electronAPI
+          setConnectionError(null)
+          setIsChecking(true)
+          ea?.startBackend?.()
+        },
+      },
+    })
+    return () => { toast.dismiss('connection-error') }
+  }, [connectionError, setConnectionError, setIsChecking])
+
+  if (isElectron) return null
 
   if (mode === 'remote') {
     const hasUrl = !!remoteUrl
@@ -196,7 +240,9 @@ function App() {
         LAST_CHAT_ROUTE_KEY,
         `${location.pathname}${location.search}${location.hash}`,
       )
-    } catch {}
+    } catch {
+      // localStorage may be unavailable; persistence is best-effort.
+    }
   }, [location.pathname, location.search, location.hash])
 
   useEffect(() => {

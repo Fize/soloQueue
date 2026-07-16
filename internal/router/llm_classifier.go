@@ -39,7 +39,7 @@ const llmClassifierSystemPrompt = `You are a task complexity classifier. Analyze
 
 Classification rules:
 - "intent": "chat" (explanation, question, discussion, greeting) or "action" (requires executing commands, modifying files, or producing artifacts)
-- "level": 0 (pure conversation, no action needed), 1 (single clear action with clear target), 2 (multiple steps, cross-concern coordination, needs planning), 3 (architecture changes, deep investigation, high uncertainty, system-wide impact)
+- "level": 0 (basic interaction, shallow reasoning, info retrieval, simple Q&A), 1 (single clear action with clear target), 2 (multiple steps, cross-concern coordination, needs planning), 3 (architecture changes, deep investigation, high uncertainty, system-wide impact), 4 (long agent chains >10 tool calls, must-not-fail correctness, unprecedented design, production-critical migration)
 - "reason": one short English sentence explaining your decision
 
 IMPORTANT OVERRIDE & HISTORY RULES:
@@ -47,6 +47,7 @@ IMPORTANT OVERRIDE & HISTORY RULES:
 - Simple single-target actions (fix a bug, add a field, rename something) are level 1.
 - Multi-target changes, migrations, integrations are level 2.
 - Rewrites, architectural decisions, complex debugging, system design are level 3.
+- Level 4 is reserved for tasks that combine high complexity with critical stakes: production migrations with zero downtime, unprecedented design problems, tasks requiring exhaustive multi-step agent orchestration, or systems where failure is unacceptable.
 - If user explicitly requests deep thinking or careful analysis (e.g., "think carefully", "thorough"), raise level by 1.
 - CONTEXT & HISTORY: If the user's message is a follow-up (e.g., asking for tweaks, additions, continuation, or asking questions about a previously established task in the history), maintain the level of that task (level 1, 2, or 3) rather than downgrading to 0. Treat follow-up modifications or corrections as action tasks, not chitchat.
 
@@ -232,6 +233,8 @@ func parseLLMClassifyResponse(content string) ClassificationResult {
 		level = LevelMediumMultiFile
 	case 3:
 		level = LevelComplexRefactoring
+	case 4:
+		level = LevelDeepReasoning
 	default:
 		level = LevelSimpleSingleFile // safety fallback
 	}

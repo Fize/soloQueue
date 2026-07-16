@@ -119,9 +119,11 @@ export interface EmbeddingConfig {
 }
 
 export interface DefaultModelsConfig {
-  expert: string;
-  superior: string;
+  basic: string;
   universal: string;
+  superior: string;
+  expert: string;
+  apex: string;
   fast: string;
   fallback: string;
 }

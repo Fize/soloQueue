@@ -15,7 +15,7 @@ func (m *MockModelService) DefaultModelByRole(role string) *config.LLMModel {
 }
 
 // NewMockModelService creates a mock with default models that match the
-// default configuration (fast/universal/superior/expert roles)
+// default configuration (basic/universal/superior/expert/apex/fast roles)
 func NewMockModelService() *MockModelService {
 	return &MockModelService{
 		models: map[string]*config.LLMModel{
@@ -23,10 +23,19 @@ func NewMockModelService() *MockModelService {
 				ID:            "deepseek-v4-flash",
 				ProviderID:    "deepseek",
 				ContextWindow: 131072,
-				// APIModel empty = use ID
+			},
+			"basic": {
+				ID:            "deepseek-v4-flash",
+				ProviderID:    "deepseek",
+				APIModel:      "deepseek-v4-flash",
+				ContextWindow: 131072,
+				Thinking: config.ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "high",
+				},
 			},
 			"universal": {
-				ID:            "deepseek-v4-flash-thinking",
+				ID:            "deepseek-v4-flash",
 				ProviderID:    "deepseek",
 				APIModel:      "deepseek-v4-flash",
 				ContextWindow: 131072,
@@ -49,6 +58,15 @@ func NewMockModelService() *MockModelService {
 				ProviderID:    "deepseek",
 				APIModel:      "deepseek-v4-pro",
 				ContextWindow: 1048576,
+				Thinking: config.ThinkingConfig{
+					Enabled:         true,
+					ReasoningEffort: "max",
+				},
+			},
+			"apex": {
+				ID:            "gpt-5.6",
+				ProviderID:    "openai",
+				ContextWindow: 2097152,
 				Thinking: config.ThinkingConfig{
 					Enabled:         true,
 					ReasoningEffort: "max",

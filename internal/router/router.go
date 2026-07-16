@@ -151,10 +151,11 @@ func (r *Router) Route(ctx context.Context, prompt string, priorLevel Classifica
 //
 // Mapping:
 //
-//	L0 → fast     (flash, no thinking)
-//	L1 → universal (flash-thinking, high)
-//	L2 → superior (pro, high)
-//	L3 → expert   (pro-max, max)
+//	L0 → basic     (basic interaction, thinking)
+//	L1 → universal (general purpose, thinking high)
+//	L2 → superior  (coordinated, thinking high)
+//	L3 → expert    (complex orchestration, thinking max)
+//	L4 → apex      (frontier / critical, thinking max)
 //
 // thinking and effort are read from the model's ThinkingConfig in settings,
 // NOT hardcoded — this allows per-model overrides (e.g., MiniMax M3 with thinking disabled).
@@ -163,15 +164,17 @@ func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, mode
 
 	switch level {
 	case LevelConversation:
-		role = "fast"
+		role = "basic"
 	case LevelSimpleSingleFile:
 		role = "universal"
 	case LevelMediumMultiFile:
 		role = "superior"
 	case LevelComplexRefactoring:
 		role = "expert"
+	case LevelDeepReasoning:
+		role = "apex"
 	default:
-		role = "fast"
+		role = "basic"
 	}
 
 	// Look up the actual model ID from model service
