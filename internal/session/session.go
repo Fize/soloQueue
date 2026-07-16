@@ -514,6 +514,106 @@ func (s *Session) ShouldClearContext(idleTimeout time.Duration, minTokens int) b
 // ClearSilent performs a "silent" clear of the context window.
 // Unlike Clear(), it does NOT write a control event to the timeline.
 // It triggers the memory hook (if set) for short-term memory storage.
+// Rewind truncates the context window and timeline from the target timestamp onwards.
+func (s *Session) Rewind(targetTs time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var closest time.Time
+	var minDiff time.Duration = 2 * time.Second
+	for i := 0; i < s.cw.Len(); i++ {
+		msg, ok := s.cw.MessageAt(i)
+		if !ok || msg.Timestamp.IsZero() {
+			continue
+		}
+		diff := msg.Timestamp.Sub(targetTs)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff < minDiff {
+			minDiff = diff
+			closest = msg.Timestamp
+		}
+	}
+	
+	resolvedTs := targetTs
+	if !closest.IsZero() {
+		resolvedTs = closest
+	}
+
+	// Append /rewind control event to timeline
+	if s.tl != nil {
+		if err := s.tl.AppendControl(&timeline.ControlPayload{
+			Action:   "rewind",
+			TargetTs: []string{resolvedTs.Format(time.RFC3339Nano)},
+		}); err != nil {
+			s.logger.LogError(context.Background(), logger.CatApp, "session rewind failed", err)
+			return fmt.Errorf("session: rewind: %w", err)
+		}
+	}
+
+	// Truncate in-memory ContextWindow
+	s.cw.Rewind(resolvedTs)
+	return nil
+}
+
+// DeleteMessages drops specific messages from the context window and timeline.
+func (s *Session) DeleteMessages(targetTsList []time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(targetTsList) == 0 {
+		return nil
+	}
+
+	// Resolve fuzzy matching for targetTsList
+	var resolvedTsList []time.Time
+	for _, ts := range targetTsList {
+		var closest time.Time
+		var minDiff time.Duration = 2 * time.Second
+		for i := 0; i < s.cw.Len(); i++ {
+			msg, ok := s.cw.MessageAt(i)
+			if !ok || msg.Timestamp.IsZero() {
+				continue
+			}
+			diff := msg.Timestamp.Sub(ts)
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff < minDiff {
+				minDiff = diff
+				closest = msg.Timestamp
+			}
+		}
+		if !closest.IsZero() {
+			resolvedTsList = append(resolvedTsList, closest)
+		} else {
+			// fallback to original if not found
+			resolvedTsList = append(resolvedTsList, ts)
+		}
+	}
+
+	var strList []string
+	for _, ts := range resolvedTsList {
+		strList = append(strList, ts.Format(time.RFC3339Nano))
+	}
+
+	// Append /delete control event to timeline
+	if s.tl != nil {
+		if err := s.tl.AppendControl(&timeline.ControlPayload{
+			Action:   "delete",
+			TargetTs: strList,
+		}); err != nil {
+			s.logger.LogError(context.Background(), logger.CatApp, "session delete failed", err)
+			return fmt.Errorf("session: delete: %w", err)
+		}
+	}
+
+	// Remove from in-memory ContextWindow
+	s.cw.DeleteMessages(resolvedTsList)
+	return nil
+}
+
+// ClearSilent performs a silent clear (resets ContextWindow without appending timeline event)
 func (s *Session) ClearSilent() error {
 	s.mu.Lock()
 

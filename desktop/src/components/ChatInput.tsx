@@ -259,6 +259,21 @@ export function ChatInput({
     }
   }, [streaming])
 
+  useEffect(() => {
+    const handleFill = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      const text = customEvent.detail;
+      if (inputRef.current) {
+        inputRef.current.value = text;
+        setInputValue(text);
+        autoResize();
+        inputRef.current.focus();
+      }
+    };
+    window.addEventListener('fill-chat-input', handleFill);
+    return () => window.removeEventListener('fill-chat-input', handleFill);
+  }, []);
+
   // Cleanup object URLs on unmount
   const attachmentsRef = useRef<Attachment[]>([])
   useEffect(() => {

@@ -106,19 +106,35 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 	var rev []collected
 	userCount := 0
 	hasSummary := false
+	validThreshold := ""
+	deletedSet := make(map[string]bool)
 
 	for i := len(lastSegmentEvents) - 1; i >= 0 && (maxTurns <= 0 || userCount < maxTurns); i-- {
 		evt := lastSegmentEvents[i]
-		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "summary" {
-			if evt.Control.Content != "" {
-				msg := MessagePayload{
-					Role:      "system",
-					Content:   "[Conversation Summary]\n" + evt.Control.Content,
-					Timestamp: evt.Timestamp,
+		if evt.EventType == EventControl && evt.Control != nil {
+			switch evt.Control.Action {
+			case "summary":
+				if evt.Control.Content != "" {
+					msg := MessagePayload{
+						Role:      "system",
+						Content:   "[Conversation Summary]\n" + evt.Control.Content,
+						Timestamp: evt.Timestamp,
+					}
+					rev = append(rev, collected{msg: msg, role: msg.Role})
 				}
-				rev = append(rev, collected{msg: msg, role: msg.Role})
+				hasSummary = true
+			case "rewind":
+				if len(evt.Control.TargetTs) > 0 {
+					ts := evt.Control.TargetTs[0]
+					if validThreshold == "" || ts < validThreshold {
+						validThreshold = ts
+					}
+				}
+			case "delete":
+				for _, ts := range evt.Control.TargetTs {
+					deletedSet[ts] = true
+				}
 			}
-			hasSummary = true
 			continue
 		}
 
@@ -129,6 +145,16 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 				break
 			}
 			msg := *evt.Message
+
+			// Backward traversal logic for rewind and delete
+			if msg.Timestamp != "" {
+				if validThreshold != "" && msg.Timestamp >= validThreshold {
+					continue
+				}
+				if deletedSet[msg.Timestamp] {
+					continue
+				}
+			}
 
 			// Pagination: skip messages at or after the cursor (already loaded).
 			if !since.IsZero() && msg.Timestamp != "" {

@@ -186,10 +186,15 @@ export function useChatStream() {
             markTitleGenerated(sid)
           }
           finishRequest()
+          // Reload history to ensure local timestamps match the server-generated ones
+          // This prevents issues where newly created local messages have client-side
+          // timestamps that fail to match backend timestamps during operations like deletion.
+          useChatStore.getState().loadHistory(sid)
         },
         onError: (error) => {
           updateLastAssistantSegment(sid, { type: 'error', text: error })
           finishRequest()
+          useChatStore.getState().loadHistory(sid)
         },
         onDelegationStart: () => {
           setDelegating(true, sid)
@@ -200,6 +205,7 @@ export function useChatStream() {
         },
         onClose: () => {
           finishRequest()
+          useChatStore.getState().loadHistory(sid)
         },
       }
 

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatSession, ChatMessage, ChatSegment } from '@/types'
-import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory } from '@/lib/api'
+import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory, rewindSession as apiRewindSession, deleteSessionMessages as apiDeleteSessionMessages } from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 
 interface ChatState {
@@ -44,6 +44,9 @@ interface ChatState {
   addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => void
   completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => void
   resolveToolConfirm: (sessionId: string, callId: string, choice: string) => void
+  
+  rewindSession: (sessionId: string, targetTs: string) => Promise<void>
+  deleteSessionMessages: (sessionId: string, targetTsList: string[]) => Promise<void>
 }
 
 const PAGE_SIZE = 30 // number of messages to load per page
@@ -535,6 +538,61 @@ export const useChatStore = create<ChatState>((set) => ({
         messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
       }
     })
+  },
+
+  rewindSession: async (sessionId: string, targetTs: string) => {
+    try {
+      await apiRewindSession(sessionId, targetTs)
+      set((s) => {
+        const msgs = s.messages[sessionId] || []
+        const filtered = msgs.filter((m) => {
+          if (!m.timestamp) return true
+          return m.timestamp < targetTs
+        })
+        return {
+          messages: { ...s.messages, [sessionId]: filtered },
+        }
+      })
+    } catch (e) {
+      console.error('Failed to rewind session', e)
+      throw e
+    }
+  },
+
+  deleteSessionMessages: async (sessionId: string, targetTsList: string[]) => {
+    try {
+      // Expand targetTsList to include paired assistant messages
+      const msgs = useChatStore.getState().messages[sessionId] || []
+      const expandedSet = new Set(targetTsList)
+      
+      targetTsList.forEach(ts => {
+        const idx = msgs.findIndex((m: ChatMessage) => m.timestamp === ts)
+        if (idx !== -1 && msgs[idx].role === 'user') {
+          // Find subsequent assistant messages until the next user message
+          for (let i = idx + 1; i < msgs.length; i++) {
+            if (msgs[i].role === 'user') break
+            if (msgs[i].timestamp) expandedSet.add(msgs[i].timestamp)
+          }
+        }
+      })
+      
+      const expandedTsList = Array.from(expandedSet)
+
+      await apiDeleteSessionMessages(sessionId, expandedTsList)
+      set((s) => {
+        const sMsgs = s.messages[sessionId] || []
+        const filtered = sMsgs.filter((m: ChatMessage) => {
+          if (!m.timestamp) return true
+          return !expandedSet.has(m.timestamp)
+        })
+        return {
+          messages: { ...s.messages, [sessionId]: filtered },
+        }
+      })
+    } catch (e) {
+      console.error('Failed to delete messages', e)
+      throw e
+    }
   },
 }))
 

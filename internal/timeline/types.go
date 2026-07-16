@@ -58,9 +58,10 @@ type MessagePayload struct {
 
 // ControlPayload represents the payload for a control event.
 type ControlPayload struct {
-	Action  string `json:"action"`            // "clear" | "summary"
-	Reason  string `json:"reason,omitempty"`  // Reason for trigger
-	Content string `json:"content,omitempty"` // Summary text (when action="summary")
+	Action   string   `json:"action"`              // "clear" | "summary" | "rewind" | "delete"
+	Reason   string   `json:"reason,omitempty"`    // Reason for trigger
+	Content  string   `json:"content,omitempty"`   // Summary text (when action="summary")
+	TargetTs []string `json:"target_ts,omitempty"` // Target message timestamps for rewind/delete
 }
 
 // ─── ToolCallRec ────────────────────────────────────────────────────────────

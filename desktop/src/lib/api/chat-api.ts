@@ -71,6 +71,20 @@ export async function deleteL2Session(id: string): Promise<void> {
   await request(`/session/l2/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+export async function rewindSession(sessionId: string, targetTs: string): Promise<void> {
+  await request("/session/rewind", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, target_ts: targetTs }),
+  });
+}
+
+export async function deleteSessionMessages(sessionId: string, targetTsList: string[]): Promise<void> {
+  await request("/session/delete", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, target_ts_list: targetTsList }),
+  });
+}
+
 export async function listL2Groups(): Promise<string[]> {
   const data = await request<{ groups: string[] }>("/session/groups");
   return data.groups ?? [];

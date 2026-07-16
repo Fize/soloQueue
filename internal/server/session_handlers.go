@@ -774,7 +774,12 @@ func (m *Mux) handleListL2Groups(w http.ResponseWriter, r *http.Request) {
 // ─── Cancel / Clear (with session_id support) ──────────────────────────────
 
 func (m *Mux) handleCancelSession(w http.ResponseWriter, r *http.Request) {
-	sess := m.resolveSessionForModify(r)
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	sess := m.resolveSession(r.Context(), req.SessionID)
 	if sess == nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active session"})
 		return
@@ -786,7 +791,12 @@ func (m *Mux) handleCancelSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Mux) handleClearSession(w http.ResponseWriter, r *http.Request) {
-	sess := m.resolveSessionForModify(r)
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	sess := m.resolveSession(r.Context(), req.SessionID)
 	if sess == nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active session"})
 		return
@@ -798,6 +808,70 @@ func (m *Mux) handleClearSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
+func (m *Mux) handleRewindSession(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID string `json:"session_id"`
+		TargetTs  string `json:"target_ts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	sess := m.resolveSession(r.Context(), req.SessionID)
+	if sess == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active session"})
+		return
+	}
+
+	ts, err := time.Parse(time.RFC3339Nano, req.TargetTs)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid timestamp format"})
+		return
+	}
+
+	if err := sess.Rewind(ts); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "rewound"})
+}
+
+func (m *Mux) handleDeleteSessionMessages(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID  string   `json:"session_id"`
+		TargetTs   []string `json:"target_ts_list"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	sess := m.resolveSession(r.Context(), req.SessionID)
+	if sess == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active session"})
+		return
+	}
+
+	var tsList []time.Time
+	for _, tsStr := range req.TargetTs {
+		ts, err := time.Parse(time.RFC3339Nano, tsStr)
+		if err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid timestamp format"})
+			return
+		}
+		tsList = append(tsList, ts)
+	}
+
+	if err := sess.DeleteMessages(tsList); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (m *Mux) handleConfirmSession(w http.ResponseWriter, r *http.Request) {
@@ -916,6 +990,28 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	var msgs []historyMsg
 	var pendingToolCalls []pendingToolCall
 
+	validThreshold := ""
+	deletedSet := make(map[string]bool)
+
+	// Pre-process rewind and delete events going backwards
+	for i := len(events) - 1; i >= 0; i-- {
+		evt := events[i]
+		if evt.EventType == timeline.EventControl && evt.Control != nil {
+			if evt.Control.Action == "rewind" {
+				if len(evt.Control.TargetTs) > 0 {
+					ts := evt.Control.TargetTs[0]
+					if validThreshold == "" || ts < validThreshold {
+						validThreshold = ts
+					}
+				}
+			} else if evt.Control.Action == "delete" {
+				for _, ts := range evt.Control.TargetTs {
+					deletedSet[ts] = true
+				}
+			}
+		}
+	}
+
 	for _, evt := range events {
 		if evt.EventType == timeline.EventControl && evt.Control != nil && evt.Control.Action == "summary" {
 			msgID := fmt.Sprintf("hist-%d", len(msgs))
@@ -951,6 +1047,13 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		msgTimestamp := msg.Timestamp
 		if msgTimestamp == "" {
 			msgTimestamp = evt.Timestamp
+		}
+
+		if validThreshold != "" && msgTimestamp >= validThreshold {
+			continue
+		}
+		if deletedSet[msgTimestamp] {
+			continue
 		}
 
 		msgID := fmt.Sprintf("hist-%d", len(msgs))
@@ -1231,24 +1334,26 @@ func readTimelineFile(path string) ([]timeline.Event, error) {
 }
 
 
-// resolveSessionForModify resolves a session from an optional session_id field.
-func (m *Mux) resolveSessionForModify(r *http.Request) *session.Session {
-	var req struct {
-		SessionID string `json:"session_id"`
-	}
-	// Best-effort parse; if body is empty, defaults to L1.
-	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	if strings.HasPrefix(req.SessionID, "l2:") && m.l2Store != nil {
-		id := strings.TrimPrefix(req.SessionID, "l2:")
-		sess, _ := m.l2Store.Get(r.Context(), id)
+// resolveSession resolves a session from an optional session_id string.
+func (m *Mux) resolveSession(ctx context.Context, sessionID string) *session.Session {
+	if strings.HasPrefix(sessionID, "l2:") {
+		if m.l2Store == nil {
+			return nil
+		}
+		id := strings.TrimPrefix(sessionID, "l2:")
+		sess, _ := m.l2Store.Get(ctx, id)
 		return sess
 	}
 
-	if m.sessionMgr == nil {
-		return nil
+	// Only return L1 session if explicitly requested or implicitly default.
+	if sessionID == "" || sessionID == "default" || sessionID == "l1" {
+		if m.sessionMgr == nil {
+			return nil
+		}
+		return m.sessionMgr.Session()
 	}
-	return m.sessionMgr.Session()
+
+	return nil
 }
 
 // ─── SSE helpers ───────────────────────────────────────────────────────────

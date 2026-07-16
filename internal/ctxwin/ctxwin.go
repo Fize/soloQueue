@@ -714,6 +714,59 @@ func (cw *ContextWindow) Recalculate() int {
 	return total
 }
 
+// Rewind drops all messages with a timestamp at or after targetTs.
+// It keeps system messages intact.
+func (cw *ContextWindow) Rewind(targetTs time.Time) {
+	cw.Lock()
+	defer cw.Unlock()
+
+	var kept []Message
+	newTokens := 0
+	for _, m := range cw.messages {
+		if m.Role == RoleSystem {
+			kept = append(kept, m)
+			newTokens += m.Tokens
+			continue
+		}
+		if !m.Timestamp.IsZero() && !m.Timestamp.Before(targetTs) { // >= targetTs
+			continue
+		}
+		kept = append(kept, m)
+		newTokens += m.Tokens
+	}
+	cw.messages = kept
+	cw.currentTokens = newTokens
+	if cw.currentTokens < 0 {
+		cw.currentTokens = 0
+	}
+}
+
+// DeleteMessages drops all messages whose timestamps are in the provided list.
+func (cw *ContextWindow) DeleteMessages(targetTs []time.Time) {
+	cw.Lock()
+	defer cw.Unlock()
+
+	delSet := make(map[time.Time]bool)
+	for _, ts := range targetTs {
+		delSet[ts] = true
+	}
+
+	var kept []Message
+	newTokens := 0
+	for _, m := range cw.messages {
+		if !m.Timestamp.IsZero() && delSet[m.Timestamp] {
+			continue
+		}
+		kept = append(kept, m)
+		newTokens += m.Tokens
+	}
+	cw.messages = kept
+	cw.currentTokens = newTokens
+	if cw.currentTokens < 0 {
+		cw.currentTokens = 0
+	}
+}
+
 // ─── Compression ──────────────────────────────────────────────────────────
 
 // constMaxToolContentLen is the max content length (runes) for a tool

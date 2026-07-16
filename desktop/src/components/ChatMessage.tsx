@@ -1,11 +1,12 @@
 import type { ChatMessage } from '@/types'
-import { User, Sparkles, Copy, Check } from 'lucide-react'
+import { User, Sparkles, Copy, Check, RotateCcw, Trash2 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
 import { useState, useMemo, memo } from 'react'
 import { toast } from 'sonner'
 import { getFileUrl } from '@/lib/api'
 import { getModelColorVar } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useChatStore } from '@/stores/chatStore'
 import { SegmentView, LoadingIndicator } from './chat/SegmentView'
 import { WorkedSegment } from './chat/WorkedSegment'
 import { MessageImageGallery } from './chat/ToolCallSegment'
@@ -16,12 +17,18 @@ export interface ChatMessageProps {
   isStreaming?: boolean
   onUserInteraction?: () => void
   modelName?: string
+  sessionId?: string
 }
 
-function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = false, onUserInteraction, modelName }: ChatMessageProps) {
+function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = false, onUserInteraction, modelName, sessionId }: ChatMessageProps) {
+  const { t } = useTranslation()
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const rewindSession = useChatStore((s) => s.rewindSession)
+  const deleteSessionMessages = useChatStore((s) => s.deleteSessionMessages)
+  const currentSessionId = sessionId || activeSessionId
   const compact = isDesignMode
   const modelColorVar = useMemo(() => getModelColorVar(isUser ? undefined : modelName), [isUser, modelName])
   // Memoize the grouping so that re-renders caused by stable references
@@ -29,6 +36,34 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
   // the resulting `grouped` array reference is stable across renders that
   // do not change the structural shape of the segments.
   const grouped = useMemo(() => groupSegments(message.segments), [message.segments])
+
+  const handleRewind = async () => {
+    if (!currentSessionId || !message.timestamp) return
+    const text = extractFullContent(message)
+    const confirmMsg = t('chat.confirmRewind') || 'Are you sure you want to rewind the session to this point? The text will be moved to the input box for editing, but history after this point will be truncated.'
+    if (!window.confirm(confirmMsg)) return
+
+    try {
+      await rewindSession(currentSessionId, message.timestamp)
+      window.dispatchEvent(new CustomEvent('fill-chat-input', { detail: text }))
+      toast.success(t('chat.rewindSuccess') || 'Session rewound successfully')
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to rewind session')
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!currentSessionId || !message.timestamp) return
+    const confirmMsg = t('chat.confirmDelete') || 'Are you sure you want to delete this message? The AI response pair will also be deleted.'
+    if (!window.confirm(confirmMsg)) return
+
+    try {
+      await deleteSessionMessages(currentSessionId, [message.timestamp])
+      toast.success(t('chat.deleteSuccess') || 'Message deleted successfully')
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete message')
+    }
+  }
 
   if (!isUser && isEmpty) {
     return null
@@ -174,6 +209,26 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
           {/* Actions bar */}
           {!isEmpty && (
             <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover/message:opacity-100 transition-opacity">
+              {isUser && message.timestamp && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRewind}
+                    className="p-1 rounded text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                    title={t('chat.rewindAndEdit') || 'Rewind & Edit'}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                    title={t('chat.deleteMessage') || 'Delete'}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </>
+              )}
               <CopyButton text={extractFullContent(message)} label={isUser ? 'Copy message' : 'Copy response'} />
             </div>
           )}

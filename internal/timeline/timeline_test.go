@@ -433,6 +433,128 @@ func TestReadTail_AllowsLegacyEmptyAgentID(t *testing.T) {
 	}
 }
 
+func TestReadTail_Rewind(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A"})
+	time.Sleep(1 * time.Millisecond) // Ensure unique timestamps
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "turn A reply"})
+	time.Sleep(1 * time.Millisecond)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
+	
+	events := readEventsFromFile(t, timelineFile(dir))
+	targetTs := events[2].Timestamp // turn B
+
+	// Rewind to turn B
+	w.AppendControl(&ControlPayload{Action: "rewind", TargetTs: []string{targetTs}})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	// turn B should be skipped. Only A and A reply remain.
+	if len(segs[0].Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(segs[0].Messages))
+	}
+	if segs[0].Messages[0].Content != "turn A" {
+		t.Errorf("msg[0] = %q", segs[0].Messages[0].Content)
+	}
+}
+
+func TestReadTail_ConsecutiveRewinds(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "A"})
+	time.Sleep(1 * time.Millisecond)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
+	time.Sleep(1 * time.Millisecond)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
+	
+	events := readEventsFromFile(t, timelineFile(dir))
+	tsA := events[0].Timestamp
+	tsB := events[1].Timestamp
+
+	// First rewind to B
+	w.AppendControl(&ControlPayload{Action: "rewind", TargetTs: []string{tsB}})
+	// Then rewind to A
+	w.AppendControl(&ControlPayload{Action: "rewind", TargetTs: []string{tsA}})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	// A and everything after it should be skipped (because tsA is older, so validThreshold = tsA).
+	// We should get 0 messages.
+	if len(segs) != 0 && len(segs[0].Messages) != 0 {
+		t.Fatalf("expected 0 messages, got %d", len(segs[0].Messages))
+	}
+}
+
+func TestReadTail_SinglePairDeletion(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply A"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply B"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn C"})
+	
+	events := readEventsFromFile(t, timelineFile(dir))
+	tsB_user := events[2].Timestamp
+	tsB_ai := events[3].Timestamp
+
+	w.AppendControl(&ControlPayload{Action: "delete", TargetTs: []string{tsB_user, tsB_ai}})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	msgs := segs[0].Messages
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(msgs))
+	}
+	if msgs[0].Content != "turn A" || msgs[1].Content != "reply A" || msgs[2].Content != "turn C" {
+		t.Errorf("Unexpected messages content")
+	}
+}
+
+func TestReadTail_InterleavedDeleteAndRewind(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(dir, "timeline", 0, 0)
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "A"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "D"})
+	
+	events := readEventsFromFile(t, timelineFile(dir))
+	tsB := events[1].Timestamp
+	tsD := events[3].Timestamp
+
+	// Delete B
+	w.AppendControl(&ControlPayload{Action: "delete", TargetTs: []string{tsB}})
+	// Rewind to D (so D is dropped, only A and C should remain since B is deleted)
+	w.AppendControl(&ControlPayload{Action: "rewind", TargetTs: []string{tsD}})
+	w.Close()
+
+	segs, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	msgs := segs[0].Messages
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if msgs[0].Content != "A" || msgs[1].Content != "C" {
+		t.Errorf("Unexpected messages content: %s, %s", msgs[0].Content, msgs[1].Content)
+	}
+}
+
 // ─── ReplayInto ──────────────────────────────────────────────────────────────
 
 func TestReplayInto_SystemMessagesPassedThrough(t *testing.T) {
