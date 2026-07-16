@@ -297,7 +297,12 @@ export function ChatPage() {
     }
 
     return team.agents.map((tmpl) => {
-      const live = agentsData?.agents.find((a) => a.id === tmpl.id);
+      let live = undefined;
+      if (tmpl.is_leader && activeSession?.agent_instance_id) {
+        live = agentsData?.agents.find((a) => a.instance_id === activeSession.agent_instance_id);
+      }
+
+      
       const placeholder: AgentInfo = {
         id: tmpl.id,
         instance_id: "",
