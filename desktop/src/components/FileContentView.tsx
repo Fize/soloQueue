@@ -78,7 +78,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
 
     setLoading(true)
     setError(null)
-    fetch(getFileUrl(path))
+    fetch(getFileUrl(path), { cache: 'no-store' })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.arrayBuffer()

@@ -145,7 +145,7 @@ export async function getSessionChanges(
 export async function getHealthInfo(): Promise<{ status: string; work_dir?: string }> {
   const base = useConnectionStore.getState().getEffectiveBaseUrl();
   const url = base ? `${base}/healthz` : "/healthz";
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch health info");
   return res.json();
 }

@@ -29,6 +29,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   const { headers: _, body: __, mode: ___, credentials: ____, ...restOptions } = options || {};
 
   const res = await fetch(url, {
+    cache: "no-store",
     ...restOptions,
     headers,
     ...(hasBody ? { body: options!.body } : {}),

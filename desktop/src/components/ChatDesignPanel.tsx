@@ -195,7 +195,7 @@ export function ChatDesignPanel({
         if (activeTab.endsWith('.sketch')) {
           await saveFile(activeTab, JSON.stringify(newStrokes));
         } else {
-          const res = await fetch(getFileUrl(activeTab));
+          const res = await fetch(getFileUrl(activeTab), { cache: 'no-store' });
           if (!res.ok) return;
           const text = await res.text();
           const updatedHtml = updateStrokesInHtml(text, newStrokes);
@@ -350,7 +350,7 @@ export function ChatDesignPanel({
     async function fetchHtml() {
       try {
         if (activeTab.endsWith('.sketch')) {
-          const res = await fetch(getFileUrl(activeTab));
+          const res = await fetch(getFileUrl(activeTab), { cache: 'no-store' });
           if (cancelled) return;
           if (!res.ok) throw new Error('Failed to load sketch content.');
           const text = await res.text();
@@ -360,7 +360,7 @@ export function ChatDesignPanel({
           setDesignHtmlContent(BLANK_HTML);
           setDesignError(null);
         } else {
-          const res = await fetch(getFileUrl(activeTab));
+          const res = await fetch(getFileUrl(activeTab), { cache: 'no-store' });
           if (cancelled) return;
           if (!res.ok) throw new Error('Failed to load HTML content.');
           const text = await res.text();

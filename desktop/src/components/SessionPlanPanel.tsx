@@ -28,7 +28,7 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
     setError("");
     try {
       const url = getFileUrl(path);
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) {
         throw new Error(`Failed to load plan file: ${res.statusText}`);
       }
