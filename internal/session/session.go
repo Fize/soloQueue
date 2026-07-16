@@ -1035,6 +1035,16 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		if locked && !isLevelLockCommand(prompt) {
 			// Locked: skip routing, reuse cached model params
 			result = cachedResult
+			if result.ModelID == "" {
+				// If we have a locked level but no cached result (e.g. restart),
+				// fallback to the agent's default model and the locked level.
+				result.Level = s.lastLevel
+				result.ProviderID = s.Agent.Def.ProviderID
+				result.ModelID = s.Agent.Def.ModelID
+				result.ThinkingEnabled = s.Agent.Def.ThinkingEnabled
+				result.ReasoningEffort = s.Agent.Def.ReasoningEffort
+				result.ContextWindow = s.Agent.Def.ContextWindow
+			}
 			s.logger.DebugContext(ctx, logger.CatApp, "task routing skipped (level locked)",
 				"session_id", s.ID,
 				"level", result.Level,

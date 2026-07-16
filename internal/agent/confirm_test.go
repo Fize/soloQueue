@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -541,53 +540,18 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 
 	a := startedAgentWithTools(t, fake, readTool, writeTool, delegateTool, skillTool)
 
-	// 1. Verify filtering under L0-Conversation
-	// At L0 (conversation-only), only a whitelist of read-only tools is allowed.
-	// delegate_* tools are not in this whitelist — they remain pruned at L0.
+	// 1. Verify filtering under L0-Conversation (all tools retained)
 	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
 	specsL0 := a.ToolSpecs()
-	hasRead := false
-	hasWrite := false
-	hasDelegate := false
-	for _, spec := range specsL0 {
-		switch spec.Function.Name {
-		case "Read":
-			hasRead = true
-		case "Write":
-			hasWrite = true
-		case "delegate_task":
-			hasDelegate = true
-		}
-	}
-	if !hasRead || hasWrite || hasDelegate || len(specsL0) != 1 {
-		t.Errorf("L0 filter failed: specs count = %d, hasRead = %v, hasWrite = %v, hasDelegate = %v",
-			len(specsL0), hasRead, hasWrite, hasDelegate)
+	if len(specsL0) != 4 {
+		t.Errorf("L0 filter failed: specs count = %d, want 4", len(specsL0))
 	}
 
-	// 2. Verify filtering under L1-SimpleSingleFile
-	// delegate_* tools are always preserved for supervisors.
-	// Skill is still pruned for L1 level.
+	// 2. Verify filtering under L1-SimpleSingleFile (all tools retained)
 	a.modelOverride.Store(&ModelParams{Level: "L1-SimpleSingleFile"})
 	specsL1 := a.ToolSpecs()
-	hasDelegate = false
-	hasSkill := false
-	hasRead = false
-	hasWrite = false
-	for _, spec := range specsL1 {
-		switch spec.Function.Name {
-		case "Read":
-			hasRead = true
-		case "Write":
-			hasWrite = true
-		case "delegate_task":
-			hasDelegate = true
-		case "Skill":
-			hasSkill = true
-		}
-	}
-	if !hasRead || !hasWrite || !hasDelegate || hasSkill || len(specsL1) != 3 {
-		t.Errorf("L1 filter failed: specs count = %d, hasRead = %v, hasWrite = %v, hasDelegate = %v, hasSkill = %v",
-			len(specsL1), hasRead, hasWrite, hasDelegate, hasSkill)
+	if len(specsL1) != 4 {
+		t.Errorf("L1 filter failed: specs count = %d, want 4", len(specsL1))
 	}
 
 	// 3. Verify filtering under L2 (all should be retained)
@@ -604,8 +568,7 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 		t.Errorf("empty level filter failed: specs count = %d, want 4", len(specsEmpty))
 	}
 
-	// 5. Verify that execToolStream intercepts filtered tool calls and returns errors
-	// We set the level to L0-Conversation and call Write (should be intercepted)
+	// 5. Verify that Write tool executes normally at L0 (same tool chain as L1-L3)
 	a.modelOverride.Store(&ModelParams{Level: "L0-Conversation"})
 
 	ch, err := a.AskStream(context.Background(), "write file")
@@ -618,8 +581,6 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 	var (
 		foundStart bool
 		foundDone  bool
-		doneErr    error
-		doneResult string
 	)
 
 	for _, ev := range events {
@@ -631,29 +592,20 @@ func TestAgent_ToolPruningAndInterception(t *testing.T) {
 		case ToolExecDoneEvent:
 			if e.Name == "Write" {
 				foundDone = true
-				doneErr = e.Err
-				doneResult = e.Result
 			}
 		}
 	}
 
 	if !foundStart {
-		t.Error("expected ToolExecStartEvent for intercepted tool")
+		t.Error("expected ToolExecStartEvent for Write tool")
 	}
 	if !foundDone {
-		t.Error("expected ToolExecDoneEvent for intercepted tool")
-	}
-	if doneErr == nil || !strings.Contains(doneErr.Error(), "not available under the current classification level") {
-		t.Errorf("unexpected done error: %v", doneErr)
-	}
-	expectedResult := "error: tool Write is not available under the current classification level L0-Conversation"
-	if doneResult != expectedResult {
-		t.Errorf("doneResult = %q, want %q", doneResult, expectedResult)
+		t.Error("expected ToolExecDoneEvent for Write tool")
 	}
 
-	// Ensure the tool never actually executed
-	if writeTool.CallCount() != 0 {
-		t.Errorf("writeTool should not have been executed, got callCount = %d", writeTool.CallCount())
+	// Ensure the tool actually executed (no longer pruned at L0)
+	if writeTool.CallCount() != 1 {
+		t.Errorf("writeTool should have been executed at L0, got callCount = %d", writeTool.CallCount())
 	}
 }
 

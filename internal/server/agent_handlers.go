@@ -769,6 +769,50 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 		if sv == nil {
 			continue
 		}
+		if a := sv.Agent(); a != nil && !registeredIDs[a.InstanceID] {
+			high, normal := a.MailboxDepth()
+			mp := a.ModelOverride()
+			te := mp != nil && mp.ThinkingEnabled
+			var re string
+			if mp != nil {
+				re = mp.ReasoningEffort
+			}
+			
+			isQBot := false
+			levelLocked := false
+			lastLevel := ""
+			if m.l2Store != nil {
+				if sess := m.l2Store.FindActiveSessionByAgentID(a.Def.ID); sess != nil {
+					isQBot = sess.IsQBot()
+					levelLocked = sess.LevelLocked()
+					lastLevel = sess.CurrentLevel()
+				}
+			}
+
+			info := AgentInfoResponse{
+				ID:                 a.Def.ID,
+				InstanceID:         a.InstanceID,
+				Name:               a.Def.Name,
+				State:              a.State().String(),
+				ModelID:            a.EffectiveModelID(),
+				ProviderID:         a.EffectiveProviderID(),
+				Group:              agentGroup[a.InstanceID],
+				IsLeader:           agentLeader[a.InstanceID],
+				TaskLevel:          a.EffectiveTaskLevel(),
+				ThinkingEnabled:    te,
+				ReasoningEffort:    re,
+				LevelLocked:        levelLocked,
+				LastLevel:          lastLevel,
+				ErrorCount:         int(a.ErrorCount()),
+				LastError:          a.LastError(),
+				PendingDelegations: a.PendingDelegations(),
+				MailboxHigh:        high,
+				MailboxNormal:      normal,
+				IsQBot:             isQBot,
+				Iteration:          a.CurrentWork().Iteration,
+			}
+			agents = append(agents, info)
+		}
 		for _, child := range sv.Children() {
 			if registeredIDs[child.InstanceID] {
 				continue

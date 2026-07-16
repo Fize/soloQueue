@@ -108,22 +108,14 @@ func isToolPruned(level string, name string) bool {
 	}
 	lvl := strings.ToUpper(strings.TrimSpace(level))
 	if strings.HasPrefix(lvl, "L0") {
-		// L0-Conversation: only allow Read, Grep, Glob, WebSearch, RecallMemory, inspect_agent
-		switch name {
-		case "Read", "Grep", "Glob", "WebSearch", "RecallMemory", "inspect_agent":
-			return false
-		default:
-			return true
-		}
+		// L0-Conversation: full tool chain (same as L1-L3)
+		return false
 	}
 	if strings.HasPrefix(lvl, "L1") {
-		// L1-SimpleSingleFile: prune Skill and todo tools only.
-		// delegate_* tools are NOT pruned here — the system prompt controls
+		// L1-SimpleSingleFile: full tool chain (same as L0/L2/L3)
+		// delegate_* tools are NOT pruned — the system prompt controls
 		// delegation behavior. Pruning delegate tools breaks L2 supervisors
 		// that receive L1 task classifications from direct user queries.
-		if name == "Skill" {
-			return true
-		}
 		return false
 	}
 	return false
