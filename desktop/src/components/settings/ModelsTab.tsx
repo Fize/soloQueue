@@ -33,6 +33,7 @@ export function ModelsTab() {
     fast: '',
     fallback: '',
   })
+  const [providerFilter, setProviderFilter] = useState('all')
 
   const loadData = async () => {
     setLoading(true)
@@ -123,20 +124,20 @@ export function ModelsTab() {
   }
 
   const handleUpdateModelAction = async (id: string, payload: LLMModel) => {
-    await updateModel(id, payload)
+    await updateModel(payload.providerId, id, payload)
     toast.success(t('config.toastModelCreated', { name: payload.name }))
     loadData()
   }
 
-  const handleDeleteModelAction = (id: string) => {
-    const m = models.find((m) => m.id === id)
+  const handleDeleteModelAction = (providerId: string, id: string) => {
+    const m = models.find((m) => m.providerId === providerId && m.id === id)
     if (m) setDeleteModelTarget(m)
   }
 
   const confirmDeleteModel = async () => {
     if (!deleteModelTarget) return
     try {
-      await deleteModel(deleteModelTarget.id)
+      await deleteModel(deleteModelTarget.providerId, deleteModelTarget.id)
       setDeleteModelTarget(null)
       loadData()
       toast.success(t('config.toastModelDeleted'))
@@ -148,7 +149,7 @@ export function ModelsTab() {
 
   const handleToggleModelStatus = async (m: LLMModel) => {
     try {
-      await updateModel(m.id, { ...m, enabled: !m.enabled })
+      await updateModel(m.providerId, m.id, { ...m, enabled: !m.enabled })
       loadData()
     } catch (err) {
       toast.error((err as Error).message)
@@ -169,6 +170,8 @@ export function ModelsTab() {
         providers={providers}
         models={models}
         defaultModels={defaultModels}
+        providerFilter={providerFilter}
+        onProviderFilterChange={setProviderFilter}
         onSaveDefaults={handleSaveDefaults}
         onDefaultModelsChange={setDefaultModels}
         onCreateProvider={handleCreateProvider}

@@ -83,17 +83,18 @@ export async function createModel(data: LLMModel): Promise<LLMModel> {
 }
 
 export async function updateModel(
+  providerId: string,
   id: string,
   data: LLMModel,
 ): Promise<LLMModel> {
-  return request<LLMModel>(`/config/models/${id}`, {
+  return request<LLMModel>(`/config/models/${providerId}/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
-export async function deleteModel(id: string): Promise<void> {
-  await request(`/config/models/${id}`, { method: "DELETE" });
+export async function deleteModel(providerId: string, id: string): Promise<void> {
+  await request(`/config/models/${providerId}/${id}`, { method: "DELETE" });
 }
 
 export async function getDefaultModels(): Promise<DefaultModelsConfig> {

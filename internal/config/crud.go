@@ -85,10 +85,13 @@ func (s *GlobalService) CreateModel(m LLMModel) error {
 	if m.ID == "" {
 		return fmt.Errorf("model id is required")
 	}
+	if m.ProviderID == "" {
+		return fmt.Errorf("model provider id is required")
+	}
 	settings := s.Get()
 	for _, existing := range settings.Models {
-		if existing.ID == m.ID {
-			return fmt.Errorf("model %q already exists", m.ID)
+		if existing.ProviderID == m.ProviderID && existing.ID == m.ID {
+			return fmt.Errorf("model %q already exists under provider %q", m.ID, m.ProviderID)
 		}
 	}
 	_, err := s.Set(func(st *Settings) {
@@ -97,15 +100,16 @@ func (s *GlobalService) CreateModel(m LLMModel) error {
 	return err
 }
 
-// UpdateModel updates an existing LLM model.
-func (s *GlobalService) UpdateModel(id string, m LLMModel) error {
-	if id == "" {
-		return fmt.Errorf("model id is required")
+// UpdateModel updates an existing LLM model identified by (providerID, id).
+func (s *GlobalService) UpdateModel(providerID, id string, m LLMModel) error {
+	if id == "" || providerID == "" {
+		return fmt.Errorf("model id and provider id are required")
 	}
 	var found bool
 	_, err := s.Set(func(st *Settings) {
 		for i := range st.Models {
-			if st.Models[i].ID == id {
+			if st.Models[i].ProviderID == providerID && st.Models[i].ID == id {
+				m.ProviderID = providerID
 				m.ID = id
 				st.Models[i] = m
 				found = true
@@ -117,24 +121,24 @@ func (s *GlobalService) UpdateModel(id string, m LLMModel) error {
 		return err
 	}
 	if !found {
-		return fmt.Errorf("model %q not found", id)
+		return fmt.Errorf("model %q under provider %q not found", id, providerID)
 	}
 	return nil
 }
 
-// DeleteModel removes an LLM model by ID.
-func (s *GlobalService) DeleteModel(id string) error {
-	if id == "" {
-		return fmt.Errorf("model id is required")
+// DeleteModel removes an LLM model identified by (providerID, id).
+func (s *GlobalService) DeleteModel(providerID, id string) error {
+	if id == "" || providerID == "" {
+		return fmt.Errorf("model id and provider id are required")
 	}
 	var deleted bool
 	_, err := s.Set(func(st *Settings) {
 		var models []LLMModel
 		for _, m := range st.Models {
-			if m.ID != id {
-				models = append(models, m)
-			} else {
+			if m.ProviderID == providerID && m.ID == id {
 				deleted = true
+			} else {
+				models = append(models, m)
 			}
 		}
 		st.Models = models
@@ -143,7 +147,7 @@ func (s *GlobalService) DeleteModel(id string) error {
 		return err
 	}
 	if !deleted {
-		return fmt.Errorf("model %q not found", id)
+		return fmt.Errorf("model %q under provider %q not found", id, providerID)
 	}
 	return nil
 }

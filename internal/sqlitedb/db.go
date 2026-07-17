@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 4
+const schemaVersion = 6
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -80,7 +80,10 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 	qq_source INTEGER DEFAULT -1,
 	qq_openid TEXT,
 	qq_target_openid TEXT,
-	qq_chat_id TEXT
+	qq_chat_id TEXT,
+	source_channel TEXT NOT NULL DEFAULT '',
+	source_user_id TEXT NOT NULL DEFAULT '',
+	source_conv_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
 
@@ -374,6 +377,62 @@ func (d *DB) migrate() error {
 		`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migrate scheduled_tasks v4: %w", err)
+		}
+	}
+
+	// v5: add generic channel source metadata columns for cross-channel cron notifications.
+	{
+		hasCol, err := tableHasColumn(tx, "scheduled_tasks", "source_channel")
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect scheduled_tasks source_channel column: %w", err)
+		}
+		if !hasCol {
+			if _, err := tx.Exec(`
+				ALTER TABLE scheduled_tasks ADD COLUMN source_channel TEXT NOT NULL DEFAULT '';
+				ALTER TABLE scheduled_tasks ADD COLUMN source_user_id TEXT NOT NULL DEFAULT '';
+				ALTER TABLE scheduled_tasks ADD COLUMN source_conv_id TEXT NOT NULL DEFAULT '';
+			`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate scheduled_tasks v5: %w", err)
+			}
+		}
+	}
+
+	// v6: change llm_models PRIMARY KEY from id to (provider_id, id) composite
+	// so model IDs only need to be unique within each provider.
+	{
+		var pkSQL string
+		if err := tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_models'`).Scan(&pkSQL); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect llm_models schema: %w", err)
+		}
+		if !strings.Contains(pkSQL, "PRIMARY KEY (provider_id, id)") {
+			if _, err := tx.Exec(`
+				CREATE TABLE llm_models_v6 (
+					provider_id TEXT NOT NULL REFERENCES llm_providers(id) ON DELETE CASCADE,
+					id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					api_model TEXT NOT NULL DEFAULT '',
+					context_window INTEGER NOT NULL DEFAULT 0,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					temperature REAL NOT NULL DEFAULT 0.0,
+					max_tokens INTEGER NOT NULL DEFAULT 0,
+					thinking_enabled INTEGER NOT NULL DEFAULT 0,
+					reasoning_effort TEXT NOT NULL DEFAULT '',
+					vision INTEGER NOT NULL DEFAULT 0,
+					created_at TEXT NOT NULL DEFAULT (datetime('now')),
+					updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+					PRIMARY KEY (provider_id, id)
+				);
+				INSERT INTO llm_models_v6 SELECT * FROM llm_models;
+				DROP TABLE llm_models;
+				ALTER TABLE llm_models_v6 RENAME TO llm_models;
+				CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON llm_models(provider_id);
+			`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate llm_models v6: %w", err)
+			}
 		}
 	}
 

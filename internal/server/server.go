@@ -370,9 +370,11 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/models", func(r chi.Router) {
 			r.Get("/", m.handleListModels)
 			r.Post("/", m.handleCreateModel)
-			r.Route("/{id}", func(r chi.Router) {
-				r.Put("/", m.handleUpdateModel)
-				r.Delete("/", m.handleDeleteModel)
+			r.Route("/{providerId}", func(r chi.Router) {
+				r.Route("/{modelId}", func(r chi.Router) {
+					r.Put("/", m.handleUpdateModel)
+					r.Delete("/", m.handleDeleteModel)
+				})
 			})
 		})
 

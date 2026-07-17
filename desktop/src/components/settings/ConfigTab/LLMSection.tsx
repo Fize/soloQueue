@@ -30,6 +30,8 @@ interface LLMSectionProps {
   providers: LLMProvider[]
   models: LLMModel[]
   defaultModels: DefaultModelsConfig
+  providerFilter: string
+  onProviderFilterChange: (value: string) => void
   onSaveDefaults: () => void
   onDefaultModelsChange: (config: DefaultModelsConfig) => void
   onCreateProvider: (provider: LLMProvider) => Promise<void>
@@ -39,7 +41,7 @@ interface LLMSectionProps {
   onSetProviderAsDefault: (provider: LLMProvider) => Promise<void>
   onCreateModel: (model: LLMModel) => Promise<void>
   onUpdateModel: (id: string, model: LLMModel) => Promise<void>
-  onDeleteModel: (id: string) => void
+  onDeleteModel: (providerId: string, id: string) => void
   onToggleModelStatus: (model: LLMModel) => Promise<void>
 }
 
@@ -47,6 +49,8 @@ export function LLMSection({
   providers,
   models,
   defaultModels,
+  providerFilter,
+  onProviderFilterChange,
   onSaveDefaults,
   onDefaultModelsChange,
   onCreateProvider,
@@ -70,6 +74,7 @@ export function LLMSection({
   // Model form state
   const [isAddingModel, setIsAddingModel] = useState(false)
   const [editingModel, setEditingModel] = useState<LLMModel | null>(null)
+  const [modelError, setModelError] = useState<string | null>(null)
   const [modelForm, setModelForm] = useState<Partial<LLMModel>>({
     generation: { temperature: 0.7, maxTokens: 4096 },
     thinking: { enabled: false, reasoningEffort: 'medium' },
@@ -173,6 +178,7 @@ export function LLMSection({
   const startAddModel = () => {
     setIsAddingModel(true)
     setEditingModel(null)
+    setModelError(null)
     setModelForm({
       id: '',
       providerId: providers[0]?.id || '',
@@ -189,12 +195,14 @@ export function LLMSection({
   const startEditModel = (m: LLMModel) => {
     setEditingModel(m)
     setIsAddingModel(false)
+    setModelError(null)
     setModelForm({ ...m })
   }
 
   const cancelModelForm = () => {
     setIsAddingModel(false)
     setEditingModel(null)
+    setModelError(null)
   }
 
   const saveModelForm = async () => {
@@ -217,14 +225,18 @@ export function LLMSection({
       vision: !!modelForm.vision,
     }
 
-    if (isAddingModel) {
-      await onCreateModel(payload)
-    } else if (editingModel) {
-      await onUpdateModel(editingModel.id, payload)
+    setModelError(null)
+    try {
+      if (isAddingModel) {
+        await onCreateModel(payload)
+      } else if (editingModel) {
+        await onUpdateModel(editingModel.id, payload)
+      }
+      setIsAddingModel(false)
+      setEditingModel(null)
+    } catch (err) {
+      setModelError((err as Error).message)
     }
-
-    setIsAddingModel(false)
-    setEditingModel(null)
   }
 
   return (
@@ -521,15 +533,26 @@ export function LLMSection({
 
       {/* ─── LLM Models ─── */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-primary" />
             <h3 className="font-semibold text-foreground">{t('config.llmModels')}</h3>
           </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={providerFilter}
+              onChange={onProviderFilterChange}
+              className="w-[160px]"
+              options={[
+                { value: 'all', label: t('config.llmAllProviders') },
+                ...providers.map((p) => ({ value: p.id, label: p.name })),
+              ]}
+            />
             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddModel}>
               <Plus className="h-3.5 w-3.5" />
               {t('config.llmAddModel')}
             </Button>
+          </div>
         </div>
 
         {/* Model Form (modal dialog) */}
@@ -550,12 +573,16 @@ export function LLMSection({
                   : t('config.llmEditModelDesc')}
               </DialogDescription>
             </DialogHeader>
+            {modelError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                {modelError}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">{t('config.llmModelId')}</label>
                 <Input
                   value={modelForm.id || ''}
-                  disabled={!!editingModel}
                   placeholder={t('config.llmModelIdPlaceholder')}
                   onChange={(e) => setModelForm({ ...modelForm, id: e.target.value })}
                 />
@@ -739,25 +766,28 @@ export function LLMSection({
                   <div className="flex flex-col gap-1">
                     <Select
                       label={t('config.llmReasoningEffort')}
-                      value={modelForm.thinking?.reasoningEffort || 'medium'}
+                      value={modelForm.thinking?.reasoningEffort === '' ? '__none__' : (modelForm.thinking?.reasoningEffort || 'medium')}
                       onChange={(v) =>
                         setModelForm({
                           ...modelForm,
                           thinking: {
                             ...(modelForm.thinking || { enabled: false }),
-                            reasoningEffort: v,
+                            reasoningEffort: v === '__none__' ? '' : v,
                           },
                         })
                       }
                       options={[
-                        { value: '', label: t('config.llmReasoningNone') },
-                        { value: 'low', label: t('config.llmReasoningLow') },
-                        { value: 'medium', label: t('config.llmReasoningMedium') },
-                        { value: 'high', label: t('config.llmReasoningHigh') },
-                        { value: 'xhigh', label: t('config.llmReasoningXHigh') },
-                        { value: 'max', label: t('config.llmReasoningMax') },
+                        { value: '__none__', label: t('config.llmReasoningNone') },
+                        { value: 'low', label: 'low' },
+                        { value: 'medium', label: 'medium' },
+                        { value: 'high', label: 'high' },
+                        { value: 'xhigh', label: 'xhigh' },
+                        { value: 'max', label: 'max' },
                       ]}
                     />
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      {t('config.llmReasoningEffortHint')}
+                    </p>
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-muted-foreground">
@@ -813,7 +843,11 @@ export function LLMSection({
 
         {/* Model List */}
         <div className="space-y-2">
-          {models.map((m) => (
+          {(() => {
+            const filteredModels = providerFilter === 'all'
+              ? models
+              : models.filter((m) => m.providerId === providerFilter)
+            return filteredModels.map((m) => (
             <div
               key={m.id}
               className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-card/40 hover:bg-muted/20 transition-colors"
@@ -823,8 +857,8 @@ export function LLMSection({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-foreground truncate">{m.name}</span>
                     <span className="text-[10px] font-mono text-muted-foreground">{m.id}</span>
-                    <span className="text-[10px] font-mono text-muted-foreground/50">
-                      {m.providerId}
+                    <span className="text-[9px] font-medium bg-muted-foreground/10 text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                      {providers.find((p) => p.id === m.providerId)?.name || m.providerId}
                     </span>
                     {m.thinking?.enabled && (
                       <span className="text-[9px] bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-1 py-0.5 rounded font-medium">
@@ -847,17 +881,22 @@ export function LLMSection({
                 <Button size="xs" variant="ghost" onClick={() => startEditModel(m)}>
                   {t('common.edit')}
                 </Button>
-                <Button size="xs" variant="ghost" onClick={() => onDeleteModel(m.id)}>
+                <Button size="xs" variant="ghost" onClick={() => onDeleteModel(m.providerId, m.id)}>
                   <X className="h-3 w-3" />
                 </Button>
               </div>
             </div>
-          ))}
-          {models.length === 0 && !isAddingModel && (
+            ))
+          })()}
+          {(() => {
+            const filteredModels = providerFilter === 'all'
+              ? models
+              : models.filter((m) => m.providerId === providerFilter)
+            return filteredModels.length === 0 && !isAddingModel && (
             <div className="text-center p-8 border border-dashed rounded-xl text-sm text-muted-foreground">
               {t('config.llmNoModels')}
             </div>
-          )}
+          )})()}
         </div>
       </div>
     </div>

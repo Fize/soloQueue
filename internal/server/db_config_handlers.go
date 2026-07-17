@@ -222,6 +222,10 @@ func (m *Mux) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "model id is required"})
 		return
 	}
+	if model.ProviderID == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "model provider id is required"})
+		return
+	}
 
 	if err := m.configSvc.CreateModel(model); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -232,16 +236,17 @@ func (m *Mux) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusCreated, model)
 }
 
-// PUT /api/config/models/{id}
+// PUT /api/config/models/{providerId}/{modelId}
 func (m *Mux) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "model id is required"})
+	providerID := chi.URLParam(r, "providerId")
+	modelID := chi.URLParam(r, "modelId")
+	if providerID == "" || modelID == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider id and model id are required"})
 		return
 	}
 
@@ -250,9 +255,10 @@ func (m *Mux) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	model.ID = id
+	model.ID = modelID
+	model.ProviderID = providerID
 
-	if err := m.configSvc.UpdateModel(id, model); err != nil {
+	if err := m.configSvc.UpdateModel(providerID, modelID, model); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -261,26 +267,27 @@ func (m *Mux) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, model)
 }
 
-// DELETE /api/config/models/{id}
+// DELETE /api/config/models/{providerId}/{modelId}
 func (m *Mux) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "model id is required"})
+	providerID := chi.URLParam(r, "providerId")
+	modelID := chi.URLParam(r, "modelId")
+	if providerID == "" || modelID == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider id and model id are required"})
 		return
 	}
 
-	if err := m.configSvc.DeleteModel(id); err != nil {
+	if err := m.configSvc.DeleteModel(providerID, modelID); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	m.triggerOnConfigChange()
-	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": modelID, "provider": providerID})
 }
 
 // ─── Default Models ──────────────────────────────────────────────────────────

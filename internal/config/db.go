@@ -197,7 +197,7 @@ func SaveModel(ctx context.Context, db *sqlitedb.DB, m LLMModel) error {
 		                         temperature, max_tokens, thinking_enabled, reasoning_effort,
 		                         vision, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET
+		 ON CONFLICT(provider_id, id) DO UPDATE SET
 		 	provider_id = excluded.provider_id,
 		 	name = excluded.name,
 		 	api_model = excluded.api_model,
@@ -219,7 +219,7 @@ func SaveModel(ctx context.Context, db *sqlitedb.DB, m LLMModel) error {
 	return nil
 }
 
-func DeleteModel(ctx context.Context, db *sqlitedb.DB, id string) error {
+func DeleteModel(ctx context.Context, db *sqlitedb.DB, providerID, modelID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -227,13 +227,13 @@ func DeleteModel(ctx context.Context, db *sqlitedb.DB, id string) error {
 	db.WMu.Lock()
 	defer db.WMu.Unlock()
 
-	result, err := db.ExecContext(ctx, `DELETE FROM llm_models WHERE id = ?`, id)
+	result, err := db.ExecContext(ctx, `DELETE FROM llm_models WHERE provider_id = ? AND id = ?`, providerID, modelID)
 	if err != nil {
-		return fmt.Errorf("config db: delete model %q: %w", id, err)
+		return fmt.Errorf("config db: delete model %q/%q: %w", providerID, modelID, err)
 	}
 	n, _ := result.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("config db: model %q not found", id)
+		return fmt.Errorf("config db: model %q under provider %q not found", modelID, providerID)
 	}
 	return nil
 }
