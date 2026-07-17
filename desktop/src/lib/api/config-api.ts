@@ -7,6 +7,9 @@ import type {
   ToolsConfig,
   EmbeddingConfig,
   QQBotConfig,
+  WeChatAccountView,
+  WeChatLoginSnapshot,
+  StartWeChatLoginRequest,
   LSPMCPConfig,
   SimulationConfig,
   ToolListResponse,
@@ -132,6 +135,50 @@ export async function updateQQBotsConfig(
     method: "PUT",
     body: JSON.stringify(data),
   });
+}
+
+export async function getWeChatBotsConfig(): Promise<WeChatAccountView[]> {
+  return request<WeChatAccountView[]>("/config/wechat-bots");
+}
+
+export async function updateWeChatBotsConfig(
+  data: WeChatAccountView[],
+): Promise<WeChatAccountView[]> {
+  return request<WeChatAccountView[]>("/config/wechat-bots", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteWeChatBot(accountId: string): Promise<void> {
+  return request<void>(`/config/wechat-bots/${encodeURIComponent(accountId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmAccountId: accountId }),
+  });
+}
+
+export async function startWeChatLogin(
+  data: StartWeChatLoginRequest,
+): Promise<WeChatLoginSnapshot> {
+  return request<WeChatLoginSnapshot>("/channels/wechat/login", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getWeChatLogin(sessionId: string): Promise<WeChatLoginSnapshot> {
+  return request<WeChatLoginSnapshot>(`/channels/wechat/login/${encodeURIComponent(sessionId)}`);
+}
+
+export async function submitWeChatVerification(sessionId: string, code: string): Promise<void> {
+  return request<void>(`/channels/wechat/login/${encodeURIComponent(sessionId)}/verification`, {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function cancelWeChatLogin(sessionId: string): Promise<void> {
+  return request<void>(`/channels/wechat/login/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
 }
 
 export async function getLSPMCPConfig(): Promise<LSPMCPConfig> {

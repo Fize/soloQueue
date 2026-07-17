@@ -136,5 +136,5 @@ Data paths under `~/.soloqueue/`: timeline JSONL in `logs/timelines/`, shared SQ
 - **Platform-specific RunCommand**: `exec_unix.go` (`/bin/sh -c`, Setpgid+SIGKILL) vs `exec_windows.go` (auto-detects powershell.exe/cmd.exe). Build tags handle selection.
 - **Environment info in prompts**: `internal/prompt/environment.go` injects `<environment>` (L1) / `# Environment` (L2/L3) into system prompts with OS, arch, shell, working directory, explore directory.
 - **Test conventions**: no `TestMain` or shared fixtures. Self-contained per package.
-- **QQ bot**: `internal/qqbot/` — QQ access token response returns `expires_in` as a string (not int). Do not parse as integer.
+- **QQ bot**: `internal/channel/qq/` — QQ access token response returns `expires_in` as a string (not int). Do not parse as integer.
 - **Logger categories**: `logger.CatApp`, `logger.CatActor`, `logger.CatMessages`, `logger.CatConfig`, `logger.CatTool`, `logger.CatLLM`, `logger.CatMCP`.

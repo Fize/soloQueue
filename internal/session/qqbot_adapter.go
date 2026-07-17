@@ -12,32 +12,31 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/channel"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
-	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 )
 
-// qqbotAdapterBase provides shared logic for QQ Bot session adapters.
-// Both SessionAskAdapter and L2QQBotAdapter embed it to avoid code duplication.
-type qqbotAdapterBase struct {
+// channelAdapterBase provides shared logic for messaging channel adapters.
+type channelAdapterBase struct {
 	log           *logger.Logger
 	supervisorsFn func() []*agent.Supervisor
 	registry      *agent.Registry
 }
 
 // SetSupervisorsFn sets the supervisor accessor for reaping child agents on cancel.
-func (b *qqbotAdapterBase) SetSupervisorsFn(fn func() []*agent.Supervisor) {
+func (b *channelAdapterBase) SetSupervisorsFn(fn func() []*agent.Supervisor) {
 	b.supervisorsFn = fn
 }
 
 // SetRegistry sets the agent registry for agent lifecycle management on cancel.
-func (b *qqbotAdapterBase) SetRegistry(reg *agent.Registry) {
+func (b *channelAdapterBase) SetRegistry(reg *agent.Registry) {
 	b.registry = reg
 }
 
 // reapSupervisorChildren stops any orphaned supervisor children still in Processing state.
-func (b *qqbotAdapterBase) reapSupervisorChildren(tag string) {
+func (b *channelAdapterBase) reapSupervisorChildren(tag string) {
 	if b.supervisorsFn == nil {
 		return
 	}
@@ -56,7 +55,7 @@ func (b *qqbotAdapterBase) reapSupervisorChildren(tag string) {
 }
 
 // cancelAndRestart force-kills the session, stops the agent, and restarts it to idle.
-func (b *qqbotAdapterBase) cancelAndRestart(sess *Session, reason string) {
+func (b *channelAdapterBase) cancelAndRestart(sess *Session, reason string) {
 	sess.ForceKill(reason)
 	_ = sess.Agent.Stop(5 * time.Second)
 	if err := sess.Agent.Start(context.Background()); err != nil {
@@ -69,7 +68,7 @@ func (b *qqbotAdapterBase) cancelAndRestart(sess *Session, reason string) {
 }
 
 // compactAndReap compacts the session and reaps orphaned supervisor children.
-func (b *qqbotAdapterBase) compactAndReap(ctx context.Context, sess *Session) error {
+func (b *channelAdapterBase) compactAndReap(ctx context.Context, sess *Session) error {
 	_, err := sess.Compact(ctx)
 	if err != nil {
 		return err
@@ -79,18 +78,18 @@ func (b *qqbotAdapterBase) compactAndReap(ctx context.Context, sess *Session) er
 }
 
 // consumeAskStreamEvents drains the event channel and builds the AskStreamResult.
-// This is the shared event loop used by both SessionAskAdapter and L2QQBotAdapter.
-func (b *qqbotAdapterBase) consumeAskStreamEvents(
+// This is the shared event loop used by both L1 and L2 channel adapters.
+func (b *channelAdapterBase) consumeAskStreamEvents(
 	ctx context.Context,
 	sess *Session,
 	eventCh <-chan iface.AgentEvent,
-	onIntermediate qqbot.OnIntermediateFunc,
-) (*qqbot.AskStreamResult, error) {
+	onIntermediate channel.OnIntermediateFunc,
+) (*channel.AskStreamResult, error) {
 	var contentBuf strings.Builder
 	var sentLen int
 	var reasoningContent string
 	var imageURLs []string
-	var mediaList []qqbot.PendingMedia
+	var mediaList []channel.PendingMedia
 
 	for ev := range eventCh {
 		switch e := ev.(type) {
@@ -105,13 +104,13 @@ func (b *qqbotAdapterBase) consumeAskStreamEvents(
 			}
 
 		case agent.ToolNeedsConfirmEvent:
-			b.log.InfoContext(ctx, logger.CatApp, "qqbot adapter: auto-approving tool",
+			b.log.InfoContext(ctx, logger.CatApp, "channel adapter: auto-approving tool",
 				"session_id", sess.ID,
 				"tool_name", e.Name,
 				"call_id", e.CallID,
 			)
 			if err := sess.Agent.Confirm(e.CallID, "approve"); err != nil {
-				b.log.WarnContext(ctx, logger.CatApp, "qqbot adapter: auto-approve failed",
+				b.log.WarnContext(ctx, logger.CatApp, "channel adapter: auto-approve failed",
 					"session_id", sess.ID,
 					"call_id", e.CallID,
 					"err", err.Error(),
@@ -124,7 +123,7 @@ func (b *qqbotAdapterBase) consumeAskStreamEvents(
 				if len(urls) > 0 {
 					imageURLs = append(imageURLs, urls...)
 					for _, url := range urls {
-						mediaList = append(mediaList, qqbot.PendingMedia{
+						mediaList = append(mediaList, channel.PendingMedia{
 							FileType: 1,
 							URL:      url,
 						})
@@ -150,7 +149,7 @@ func (b *qqbotAdapterBase) consumeAskStreamEvents(
 							b64 = base64.StdEncoding.EncodeToString(data)
 						}
 					}
-					mediaList = append(mediaList, qqbot.PendingMedia{
+					mediaList = append(mediaList, channel.PendingMedia{
 						FileType:   ftype,
 						URL:        res.URL,
 						Base64Data: b64,
@@ -169,7 +168,7 @@ func (b *qqbotAdapterBase) consumeAskStreamEvents(
 	}
 
 	if sess.isCancelledAndReset() {
-		return nil, qqbot.ErrTaskCancelled
+		return nil, channel.ErrTaskCancelled
 	}
 
 	finalContent := contentBuf.String()[sentLen:]
@@ -177,7 +176,7 @@ func (b *qqbotAdapterBase) consumeAskStreamEvents(
 		finalContent = reasoningContent
 	}
 
-	return &qqbot.AskStreamResult{
+	return &channel.AskStreamResult{
 		Content:          finalContent,
 		ReasoningContent: reasoningContent,
 		ImageURLs:        imageURLs,
@@ -186,7 +185,7 @@ func (b *qqbotAdapterBase) consumeAskStreamEvents(
 }
 
 // saveUploadedFileToSession saves an uploaded file to the session's downloads directory.
-func (b *qqbotAdapterBase) saveUploadedFileToSession(sess *Session, filename string, content []byte) (string, error) {
+func (b *channelAdapterBase) saveUploadedFileToSession(sess *Session, filename string, content []byte) (string, error) {
 	workDir := sess.Agent.WorkDir
 	if workDir == "" {
 		home, err := os.UserHomeDir()
@@ -208,21 +207,26 @@ func (b *qqbotAdapterBase) saveUploadedFileToSession(sess *Session, filename str
 
 // ─── SessionAskAdapter (L1) ──────────────────────────────────────────────────
 
-// SessionAskAdapter adapts *SessionManager to the qqbot.SessionProvider interface.
+// SessionAskAdapter adapts *SessionManager to channel.SessionProvider.
 type SessionAskAdapter struct {
-	qqbotAdapterBase
+	channelAdapterBase
 	mgr *SessionManager
 }
 
 // NewQQBotAdapter creates a SessionProvider backed by the given SessionManager.
 func NewQQBotAdapter(mgr *SessionManager, log *logger.Logger) *SessionAskAdapter {
+	return NewChannelAdapter(mgr, log)
+}
+
+// NewChannelAdapter creates a transport-neutral session adapter.
+func NewChannelAdapter(mgr *SessionManager, log *logger.Logger) *SessionAskAdapter {
 	return &SessionAskAdapter{
-		qqbotAdapterBase: qqbotAdapterBase{log: log},
-		mgr:              mgr,
+		channelAdapterBase: channelAdapterBase{log: log},
+		mgr:                mgr,
 	}
 }
 
-// CancelCurrent implements qqbot.SessionProvider.CancelCurrent.
+// CancelCurrent implements channel.SessionProvider.CancelCurrent.
 func (a *SessionAskAdapter) CancelCurrent(reason string) error {
 	sess := a.mgr.Session()
 	if sess == nil {
@@ -232,7 +236,7 @@ func (a *SessionAskAdapter) CancelCurrent(reason string) error {
 	return nil
 }
 
-// Clear implements qqbot.SessionProvider.Clear.
+// Clear implements channel.SessionProvider.Clear.
 func (a *SessionAskAdapter) Clear(ctx context.Context) error {
 	sess := a.mgr.Session()
 	if sess == nil {
@@ -241,7 +245,7 @@ func (a *SessionAskAdapter) Clear(ctx context.Context) error {
 	return sess.Clear()
 }
 
-// Compact implements qqbot.SessionProvider.Compact.
+// Compact implements channel.SessionProvider.Compact.
 func (a *SessionAskAdapter) Compact(ctx context.Context) error {
 	sess := a.mgr.Session()
 	if sess == nil {
@@ -250,8 +254,8 @@ func (a *SessionAskAdapter) Compact(ctx context.Context) error {
 	return a.compactAndReap(ctx, sess)
 }
 
-// AskStream implements qqbot.SessionProvider.
-func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate qqbot.OnIntermediateFunc) (*qqbot.AskStreamResult, error) {
+// AskStream implements channel.SessionProvider.
+func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
 	sess := a.mgr.Session()
 	if sess == nil {
 		return nil, errors.New("no active session")
@@ -265,7 +269,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	cw := sess.CW()
 	if cw != nil {
 		tokens, _, _ := cw.TokenUsage()
-		a.log.InfoContext(ctx, logger.CatApp, "qqbot adapter: session CW state",
+		a.log.InfoContext(ctx, logger.CatApp, "channel adapter: session CW state",
 			"session_id", sess.ID,
 			"cw_tokens", tokens,
 			"cw_msgs", cw.Len(),
@@ -277,10 +281,10 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	eventCh, err := sess.AskStream(ctx, prompt)
 	if err != nil {
 		if errors.Is(err, ErrSessionBusy) {
-			return nil, qqbot.ErrSessionBusy
+			return nil, channel.ErrSessionBusy
 		}
 		if errors.Is(err, ErrQueued) {
-			return nil, qqbot.ErrQueued
+			return nil, channel.ErrQueued
 		}
 		return nil, err
 	}
@@ -297,31 +301,41 @@ func (a *SessionAskAdapter) SaveUploadedFile(ctx context.Context, filename strin
 	return a.saveUploadedFileToSession(sess, filename, content)
 }
 
-// ─── L2QQBotAdapter (L2) ─────────────────────────────────────────────────────
+// ─── L2ChannelAdapter (L2) ───────────────────────────────────────────────────
 
-// L2QQBotAdapter adapts *L2SessionStore to the qqbot.SessionProvider interface.
-type L2QQBotAdapter struct {
-	qqbotAdapterBase
+// L2ChannelAdapter adapts *L2SessionStore to channel.SessionProvider.
+type L2ChannelAdapter struct {
+	channelAdapterBase
 	l2Store       *L2SessionStore
+	channelID     string
 	botAppID      string
 	bindAgent     string
 	memoryManager *conversationlog.Manager
 }
 
 // NewL2QQBotAdapter creates a SessionProvider backed by an L2 session.
-func NewL2QQBotAdapter(l2Store *L2SessionStore, botAppID, bindAgent string, log *logger.Logger, mm *conversationlog.Manager) *L2QQBotAdapter {
-	return &L2QQBotAdapter{
-		qqbotAdapterBase: qqbotAdapterBase{log: log},
-		l2Store:          l2Store,
-		botAppID:         botAppID,
-		bindAgent:        bindAgent,
-		memoryManager:    mm,
+func NewL2QQBotAdapter(l2Store *L2SessionStore, botAppID, bindAgent string, log *logger.Logger, mm *conversationlog.Manager) *L2ChannelAdapter {
+	return NewL2ChannelAdapter(l2Store, "qqbot", botAppID, bindAgent, log, mm)
+}
+
+// NewL2ChannelAdapter creates an L2 session isolated by channel and account.
+func NewL2ChannelAdapter(l2Store *L2SessionStore, channelID, accountID, bindAgent string, log *logger.Logger, mm *conversationlog.Manager) *L2ChannelAdapter {
+	return &L2ChannelAdapter{
+		channelAdapterBase: channelAdapterBase{log: log},
+		l2Store:            l2Store,
+		channelID:          channelID,
+		botAppID:           accountID,
+		bindAgent:          bindAgent,
+		memoryManager:      mm,
 	}
 }
 
+// L2QQBotAdapter is retained as a source-compatible alias.
+type L2QQBotAdapter = L2ChannelAdapter
+
 // getSession returns the underlying L2 session, creating it if it doesn't exist.
-func (a *L2QQBotAdapter) getSession(ctx context.Context) (*Session, error) {
-	sessionID := "qqbot-" + a.botAppID
+func (a *L2ChannelAdapter) getSession(ctx context.Context) (*Session, error) {
+	sessionID := a.channelID + "-" + a.botAppID
 	sess, err := a.l2Store.Get(ctx, sessionID)
 	if err != nil {
 		_, createErr := a.l2Store.Create(ctx, sessionID, a.bindAgent, "", a.l2Store.WorkDir())
@@ -341,8 +355,8 @@ func (a *L2QQBotAdapter) getSession(ctx context.Context) (*Session, error) {
 	return sess, nil
 }
 
-// CancelCurrent implements qqbot.SessionProvider.CancelCurrent.
-func (a *L2QQBotAdapter) CancelCurrent(reason string) error {
+// CancelCurrent implements channel.SessionProvider.CancelCurrent.
+func (a *L2ChannelAdapter) CancelCurrent(reason string) error {
 	sess, err := a.getSession(context.Background())
 	if err != nil {
 		return err
@@ -351,8 +365,8 @@ func (a *L2QQBotAdapter) CancelCurrent(reason string) error {
 	return nil
 }
 
-// Clear implements qqbot.SessionProvider.Clear.
-func (a *L2QQBotAdapter) Clear(ctx context.Context) error {
+// Clear implements channel.SessionProvider.Clear.
+func (a *L2ChannelAdapter) Clear(ctx context.Context) error {
 	sess, err := a.getSession(ctx)
 	if err != nil {
 		return err
@@ -360,8 +374,8 @@ func (a *L2QQBotAdapter) Clear(ctx context.Context) error {
 	return sess.Clear()
 }
 
-// Compact implements qqbot.SessionProvider.Compact.
-func (a *L2QQBotAdapter) Compact(ctx context.Context) error {
+// Compact implements channel.SessionProvider.Compact.
+func (a *L2ChannelAdapter) Compact(ctx context.Context) error {
 	sess, err := a.getSession(ctx)
 	if err != nil {
 		return err
@@ -369,8 +383,8 @@ func (a *L2QQBotAdapter) Compact(ctx context.Context) error {
 	return a.compactAndReap(ctx, sess)
 }
 
-// AskStream implements qqbot.SessionProvider.
-func (a *L2QQBotAdapter) AskStream(ctx context.Context, prompt string, onIntermediate qqbot.OnIntermediateFunc) (*qqbot.AskStreamResult, error) {
+// AskStream implements channel.SessionProvider.
+func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
 	sess, err := a.getSession(ctx)
 	if err != nil {
 		return nil, err
@@ -384,7 +398,7 @@ func (a *L2QQBotAdapter) AskStream(ctx context.Context, prompt string, onInterme
 	cw := sess.CW()
 	if cw != nil {
 		tokens, _, _ := cw.TokenUsage()
-		a.log.InfoContext(ctx, logger.CatApp, "qqbot L2 adapter: session CW state",
+		a.log.InfoContext(ctx, logger.CatApp, "channel L2 adapter: session CW state",
 			"session_id", sess.ID,
 			"cw_tokens", tokens,
 			"cw_msgs", cw.Len(),
@@ -396,10 +410,10 @@ func (a *L2QQBotAdapter) AskStream(ctx context.Context, prompt string, onInterme
 	eventCh, err := sess.AskStream(ctx, prompt)
 	if err != nil {
 		if errors.Is(err, ErrSessionBusy) {
-			return nil, qqbot.ErrSessionBusy
+			return nil, channel.ErrSessionBusy
 		}
 		if errors.Is(err, ErrQueued) {
-			return nil, qqbot.ErrQueued
+			return nil, channel.ErrQueued
 		}
 		return nil, err
 	}
@@ -408,7 +422,7 @@ func (a *L2QQBotAdapter) AskStream(ctx context.Context, prompt string, onInterme
 }
 
 // SaveUploadedFile saves an uploaded file to the session's workspace downloads folder.
-func (a *L2QQBotAdapter) SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error) {
+func (a *L2ChannelAdapter) SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error) {
 	sess, err := a.getSession(ctx)
 	if err != nil {
 		return "", err
@@ -416,29 +430,40 @@ func (a *L2QQBotAdapter) SaveUploadedFile(ctx context.Context, filename string, 
 	return a.saveUploadedFileToSession(sess, filename, content)
 }
 
-// ─── ErrorQQBotAdapter ───────────────────────────────────────────────────────
+// ─── ErrorChannelAdapter ─────────────────────────────────────────────────────
 
-// ErrorQQBotAdapter adapts a configuration error to the qqbot.SessionProvider interface.
-type ErrorQQBotAdapter struct {
+// ErrorChannelAdapter adapts a configuration error to channel.SessionProvider.
+type ErrorChannelAdapter struct {
 	errMsg string
 }
 
 // NewErrorQQBotAdapter creates a SessionProvider that immediately reports the given error.
-func NewErrorQQBotAdapter(errMsg string) *ErrorQQBotAdapter {
-	return &ErrorQQBotAdapter{errMsg: errMsg}
+func NewErrorQQBotAdapter(errMsg string) *ErrorChannelAdapter {
+	return NewErrorChannelAdapter(errMsg)
 }
 
-func (a *ErrorQQBotAdapter) CancelCurrent(reason string) error { return nil }
-
-func (a *ErrorQQBotAdapter) Clear(ctx context.Context) error { return nil }
-
-func (a *ErrorQQBotAdapter) Compact(ctx context.Context) error { return nil }
-
-func (a *ErrorQQBotAdapter) AskStream(ctx context.Context, prompt string, onIntermediate qqbot.OnIntermediateFunc) (*qqbot.AskStreamResult, error) {
-	return &qqbot.AskStreamResult{Content: a.errMsg}, nil
+// NewErrorChannelAdapter creates a provider that reports a configuration error.
+func NewErrorChannelAdapter(errMsg string) *ErrorChannelAdapter {
+	return &ErrorChannelAdapter{errMsg: errMsg}
 }
 
-func (a *ErrorQQBotAdapter) SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error) {
+// ErrorQQBotAdapter is retained as a source-compatible alias.
+type ErrorQQBotAdapter = ErrorChannelAdapter
+
+// qqbotAdapterBase is retained for package-local compatibility tests.
+type qqbotAdapterBase = channelAdapterBase
+
+func (a *ErrorChannelAdapter) CancelCurrent(reason string) error { return nil }
+
+func (a *ErrorChannelAdapter) Clear(ctx context.Context) error { return nil }
+
+func (a *ErrorChannelAdapter) Compact(ctx context.Context) error { return nil }
+
+func (a *ErrorChannelAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
+	return &channel.AskStreamResult{Content: a.errMsg}, nil
+}
+
+func (a *ErrorChannelAdapter) SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error) {
 	return "", errors.New(a.errMsg)
 }
 

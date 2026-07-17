@@ -59,7 +59,9 @@ SoloQueue uses a hierarchical architecture design. The core systems include Agen
 | **Task Routing**   | `internal/router/`                          | Intelligent task classification and model routing (L0-L3)                 | [routing.md](routing.md)         |
 | **Context Window** | `internal/ctxwin/`                          | Token count calibration, middle-out JSON truncation, FIFO sliding         | [ctxwin.md](ctxwin.md)           |
 | **Memory System**  | `internal/memory/` `internal/memoryengine/` | Short-term daily summaries & long-term BM25 + KG + optional vector engine | [memory.md](memory.md)           |
-| **QQ Bot Client**  | `internal/qqbot/`                           | WebSocket connection loop, active/passive reply queue, media upload       | [qqbot.md](qqbot.md)             |
+| **QQ Bot Client**  | `internal/channel/qq/`                      | WebSocket connection loop, active/passive reply queue, media upload       | [qqbot.md](qqbot.md)             |
+| **Channel Core**   | `internal/channel/`                         | Transport-neutral messages, attachments, reply tokens, and session bridge | [wechat.md](wechat.md)           |
+| **WeChat Client**  | `internal/channel/wechat/`                  | iLink QR login, HTTP API, long polling, text and voice transcripts        | [wechat.md](wechat.md)           |
 | **MCP & LSP**      | `internal/mcp/`                             | Model Context Protocol servers loading, LSP JSON-RPC tool binding         | [mcp.md](mcp.md)                 |
 
 ---

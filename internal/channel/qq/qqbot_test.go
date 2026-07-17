@@ -1,4 +1,4 @@
-package qqbot
+package qq
 
 import (
 	"strings"
@@ -15,9 +15,9 @@ func TestDefaultIntents(t *testing.T) {
 
 func TestConfigEffectiveIntents(t *testing.T) {
 	tests := []struct {
-		name     string
-		cfg      Config
-		want     int
+		name string
+		cfg  Config
+		want int
 	}{
 		{
 			name: "zero intents uses default",
@@ -49,8 +49,6 @@ func TestConfigAPIBaseURL(t *testing.T) {
 		t.Errorf("APIBaseURL() sandbox = %s, want https://sandbox.api.sgroup.qq.com", got)
 	}
 }
-
-
 
 func TestSplitMessage(t *testing.T) {
 	tests := []struct {
@@ -104,5 +102,3 @@ func TestSplitMessage(t *testing.T) {
 		})
 	}
 }
-
-

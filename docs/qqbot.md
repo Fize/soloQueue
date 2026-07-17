@@ -1,6 +1,6 @@
 # QQ Bot Integration
 
-**Location**: `internal/qqbot/` (WebSocket gateway, handler, message queue, markdown utilities)
+**Location**: `internal/channel/qq/` (WebSocket gateway, handler, message queue, markdown utilities)
 
 SoloQueue supports integration with official Tencent QQ Bot APIs. The bot can listen to messages in private C2C chats, groups, and guild channels, forward user requests to the agent runtime, and reply with text, markdown, and generated media attachments.
 

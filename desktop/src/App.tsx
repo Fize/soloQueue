@@ -25,7 +25,7 @@ const MemoryTab = lazy(() => import('@/components/settings/MemoryTab').then(m =>
 const SafetyTab = lazy(() => import('@/components/settings/SafetyTab').then(m => ({ default: m.SafetyTab })))
 const AgentsTab = lazy(() => import('@/components/settings/AgentsTab').then(m => ({ default: m.AgentsTab })))
 const CapabilitiesTab = lazy(() => import('@/components/settings/CapabilitiesTab').then(m => ({ default: m.CapabilitiesTab })))
-const QQBotTab = lazy(() => import('@/components/settings/QQBotTab').then(m => ({ default: m.QQBotTab })))
+const ChannelsTab = lazy(() => import('@/components/settings/ChannelsTab').then(m => ({ default: m.ChannelsTab })))
 const ProjectsTab = lazy(() => import('@/components/settings/ProjectsTab').then(m => ({ default: m.ProjectsTab })))
 const ConnectionTab = lazy(() => import('@/components/settings/ConnectionTab').then(m => ({ default: m.ConnectionTab })))
 const StatsTab = lazy(() => import('@/components/settings/StatsTab').then(m => ({ default: m.StatsTab })))
@@ -406,7 +406,8 @@ function App() {
                   <Route path="safety" element={<SafetyTab />} />
                   <Route path="agents" element={<AgentsTab />} />
                   <Route path="capabilities" element={<CapabilitiesTab />} />
-                  <Route path="qqbot" element={<QQBotTab />} />
+                  <Route path="channels" element={<ChannelsTab />} />
+                  <Route path="qqbot" element={<Navigate to="../channels" replace />} />
                   <Route path="stats" element={<StatsTab />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

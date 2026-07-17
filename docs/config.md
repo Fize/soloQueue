@@ -166,6 +166,19 @@ When `provider = "none"`, the memory engine uses only BM25 and KG — no embeddi
 - `intents` (int): Integer bitmask representing gateway intents.
 - `sandbox` (bool): Use Tencent sandbox environment for testing.
 
+### `wechat_bots` — WeChat iLink Integration
+
+Each list entry configures one official iLink bot account:
+
+- `enabled` (bool): Start long polling for the account.
+- `bot_token` / `bot_id` (string): Credentials issued by Desktop QR login or `soloqueue wechat login`.
+- `base_url` (string): Tencent API base URL returned during login.
+- `bot_agent` (string): Observability identifier sent in `base_info`.
+- `bind_type` (string): `l1` or `l2`; `bind_agent` is required for `l2`.
+- `whitelist_enabled` / `whitelist`: Optional allowed WeChat user IDs.
+
+The legacy `weixin_bots` key is read for one compatibility release and rewritten as `wechat_bots` on save. See [wechat.md](wechat.md) for login, limitations, and security guidance.
+
 ### `[[lspmcp.servers]]` — Built-in LSP Server Configurations
 
 Spawns editor language servers as MCP tools:

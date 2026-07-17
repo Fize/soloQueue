@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +96,53 @@ func TestLoader_Save_WritesCurrent(t *testing.T) {
 	}
 	if settings.Log.Level != "error" {
 		t.Errorf("saved log level = %q, want error", settings.Log.Level)
+	}
+}
+
+func TestLoader_Save_WritesWechatBots(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = loader.Load()
+	if _, err := loader.Set(func(s *Settings) {
+		s.WechatBots = []WechatBotConfig{{ID: "personal", Enabled: true, BotToken: "token", BotID: "bot"}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var saved Settings
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.WechatBots) != 1 || saved.WechatBots[0].BotToken != "token" {
+		t.Fatalf("saved WeChat config = %#v", saved.WechatBots)
+	}
+}
+
+func TestSettingsLoadsLegacyWeixinBots(t *testing.T) {
+	var settings Settings
+	if err := yaml.Unmarshal([]byte("weixin_bots:\n  - id: legacy\n    bot_token: secret\n"), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.WechatBots) != 1 || settings.WechatBots[0].ID != "legacy" || settings.WechatBots[0].BotToken != "secret" {
+		t.Fatalf("legacy WeChat config = %#v", settings.WechatBots)
+	}
+}
+
+func TestWechatCredentialsAreNotSerializedToJSON(t *testing.T) {
+	data, err := json.Marshal(Settings{WechatBots: []WechatBotConfig{{ID: "personal", BotToken: "secret-token", BotID: "secret-id"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "secret-token") || strings.Contains(string(data), "secret-id") {
+		t.Fatalf("credentials leaked in JSON: %s", data)
 	}
 }
 

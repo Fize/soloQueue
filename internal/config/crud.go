@@ -172,6 +172,14 @@ func (s *GlobalService) UpdateQQBots(bots []QQBotConfig) error {
 	return err
 }
 
+// UpdateWechatBots replaces the WeChat bot configuration.
+func (s *GlobalService) UpdateWechatBots(bots []WechatBotConfig) error {
+	_, err := s.Set(func(st *Settings) {
+		st.WechatBots = bots
+	})
+	return err
+}
+
 // UpdateLSPMCP replaces the LSP MCP configuration.
 func (s *GlobalService) UpdateLSPMCP(lspmcp LSPMCPConfig) error {
 	_, err := s.Set(func(st *Settings) {

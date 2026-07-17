@@ -1,4 +1,4 @@
-package qqbot
+package qq
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 // ─── OpCode constants ────────────────────────────────────────────────────────
 
 const (
-	OpDispatch        = 0  // S→C: server push event
+	OpDispatch       = 0  // S→C: server push event
 	OpHeartbeat      = 1  // C→S: client heartbeat
 	OpIdentify       = 2  // C→S: authenticate
 	OpResume         = 6  // C→S: resume session
@@ -22,17 +22,17 @@ const (
 // ─── Intents ─────────────────────────────────────────────────────────────────
 
 const (
-	IntentGuilds              = 1 << 0  // GUILD_CREATE/UPDATE/DELETE, CHANNEL_CREATE/UPDATE/DELETE
-	IntentGuildMembers        = 1 << 1  // GUILD_MEMBER_ADD/UPDATE/REMOVE
-	IntentGuildMessages       = 1 << 9  // MESSAGE_CREATE/DELETE (private bot only)
+	IntentGuilds                = 1 << 0 // GUILD_CREATE/UPDATE/DELETE, CHANNEL_CREATE/UPDATE/DELETE
+	IntentGuildMembers          = 1 << 1 // GUILD_MEMBER_ADD/UPDATE/REMOVE
+	IntentGuildMessages         = 1 << 9 // MESSAGE_CREATE/DELETE (private bot only)
 	IntentGuildMessageReactions = 1 << 10
-	IntentDirectMessage       = 1 << 12 // DIRECT_MESSAGE_CREATE/DELETE
-	IntentGroupAndC2CEvent    = 1 << 25 // C2C_MESSAGE_CREATE, GROUP_AT_MESSAGE_CREATE, etc.
-	IntentInteraction         = 1 << 26
-	IntentMessageAudit        = 1 << 27
-	IntentForumsEvent         = 1 << 28
-	IntentAudioAction         = 1 << 29
-	IntentPublicGuildMessages = 1 << 30 // AT_MESSAGE_CREATE
+	IntentDirectMessage         = 1 << 12 // DIRECT_MESSAGE_CREATE/DELETE
+	IntentGroupAndC2CEvent      = 1 << 25 // C2C_MESSAGE_CREATE, GROUP_AT_MESSAGE_CREATE, etc.
+	IntentInteraction           = 1 << 26
+	IntentMessageAudit          = 1 << 27
+	IntentForumsEvent           = 1 << 28
+	IntentAudioAction           = 1 << 29
+	IntentPublicGuildMessages   = 1 << 30 // AT_MESSAGE_CREATE
 )
 
 // DefaultIntents returns the recommended intents for a typical bot:
@@ -45,11 +45,11 @@ func DefaultIntents() int {
 
 // GatewayPayload is the unified message format for WebSocket uplink/downlink.
 type GatewayPayload struct {
-	Op   int             `json:"op"`
-	S    *int            `json:"s,omitempty"`    // sequence number (downlink only)
-	T    string          `json:"t,omitempty"`    // event type (op=0 only)
-	D    json.RawMessage `json:"d"`              // event data
-	ID   string          `json:"id,omitempty"`   // event id
+	Op int             `json:"op"`
+	S  *int            `json:"s,omitempty"`  // sequence number (downlink only)
+	T  string          `json:"t,omitempty"`  // event type (op=0 only)
+	D  json.RawMessage `json:"d"`            // event data
+	ID string          `json:"id,omitempty"` // event id
 }
 
 // ─── Hello ───────────────────────────────────────────────────────────────────
@@ -63,10 +63,10 @@ type HelloData struct {
 
 // IdentifyData is the data payload for OpCode 2 Identify.
 type IdentifyData struct {
-	Token      string                 `json:"token"`
-	Intents   int                    `json:"intents"`
-	Shard     [2]int                 `json:"shard"`
-	Properties map[string]string     `json:"properties,omitempty"`
+	Token      string            `json:"token"`
+	Intents    int               `json:"intents"`
+	Shard      [2]int            `json:"shard"`
+	Properties map[string]string `json:"properties,omitempty"`
 }
 
 // ─── Resume ──────────────────────────────────────────────────────────────────
@@ -99,7 +99,6 @@ type ReadyData struct {
 }
 
 // ─── Resumed Event ───────────────────────────────────────────────────────────
-
 
 // ─── Attachment ──────────────────────────────────────────────────────────────
 
@@ -146,67 +145,67 @@ func ExtractFiles(atts []QQAttachment) []QQFile {
 
 // EventType constants for dispatch events.
 const (
-	EventC2CMessageCreate       = "C2C_MESSAGE_CREATE"
-	EventGroupAtMessageCreate   = "GROUP_AT_MESSAGE_CREATE"
-	EventDirectMessageCreate    = "DIRECT_MESSAGE_CREATE"
-	EventPublicAtMessageCreate  = "AT_MESSAGE_CREATE" // public guild message
-	EventReady                  = "READY"
-	EventResumed                = "RESUMED"
+	EventC2CMessageCreate      = "C2C_MESSAGE_CREATE"
+	EventGroupAtMessageCreate  = "GROUP_AT_MESSAGE_CREATE"
+	EventDirectMessageCreate   = "DIRECT_MESSAGE_CREATE"
+	EventPublicAtMessageCreate = "AT_MESSAGE_CREATE" // public guild message
+	EventReady                 = "READY"
+	EventResumed               = "RESUMED"
 )
 
 // C2CMessageEvent represents a private chat (C2C) message event.
 type C2CMessageEvent struct {
-	ID        string `json:"id"`
-	Author    struct {
+	ID     string `json:"id"`
+	Author struct {
 		MemberOpenid string `json:"member_openid"`
 		UserOpenid   string `json:"user_openid"`
 	} `json:"author"`
-	Content     string          `json:"content"`
-	Attachments []QQAttachment  `json:"attachments,omitempty"`
-	Timestamp   string          `json:"timestamp"`
-	SeqInChat   int             `json:"seq_in_chat,omitempty"`
+	Content     string         `json:"content"`
+	Attachments []QQAttachment `json:"attachments,omitempty"`
+	Timestamp   string         `json:"timestamp"`
+	SeqInChat   int            `json:"seq_in_chat,omitempty"`
 }
 
 // GroupAtMessageEvent represents a group @bot message event.
 type GroupAtMessageEvent struct {
-	ID        string `json:"id"`
-	Author    struct {
+	ID     string `json:"id"`
+	Author struct {
 		MemberOpenid string `json:"member_openid"`
 		UserOpenid   string `json:"user_openid"`
 	} `json:"author"`
-	Content     string          `json:"content"`
-	Attachments []QQAttachment  `json:"attachments,omitempty"`
-	GroupOpenid string          `json:"group_openid"`
-	Timestamp   string          `json:"timestamp"`
-	SeqInChat   int             `json:"seq_in_chat,omitempty"`
+	Content     string         `json:"content"`
+	Attachments []QQAttachment `json:"attachments,omitempty"`
+	GroupOpenid string         `json:"group_openid"`
+	Timestamp   string         `json:"timestamp"`
+	SeqInChat   int            `json:"seq_in_chat,omitempty"`
 }
 
 // DirectMessageEvent represents a guild direct message event.
 type DirectMessageEvent struct {
-	ID        string `json:"id"`
-	Author    struct {
+	ID     string `json:"id"`
+	Author struct {
 		UserOpenid string `json:"user_openid"`
 	} `json:"author"`
-	Content     string          `json:"content"`
-	Attachments []QQAttachment  `json:"attachments,omitempty"`
-	ChannelID   string          `json:"channel_id"`
-	Timestamp   string          `json:"timestamp"`
-	SeqInChat   int             `json:"seq_in_chat,omitempty"`
+	Content     string         `json:"content"`
+	Attachments []QQAttachment `json:"attachments,omitempty"`
+	ChannelID   string         `json:"channel_id"`
+	Timestamp   string         `json:"timestamp"`
+	SeqInChat   int            `json:"seq_in_chat,omitempty"`
 }
 
 // PublicAtMessageEvent represents a public guild @bot message event.
 type PublicAtMessageEvent struct {
-	ID        string `json:"id"`
-	Author    struct {
+	ID     string `json:"id"`
+	Author struct {
 		MemberOpenid string `json:"member_openid"`
 		UserOpenid   string `json:"user_openid"`
 	} `json:"author"`
-	Content     string          `json:"content"`
-	Attachments []QQAttachment  `json:"attachments,omitempty"`
-	ChannelID   string          `json:"channel_id"`
-	GuildID     string          `json:"guild_id"`
-	Timestamp   string          `json:"timestamp"`
-	SeqInChat   int             `json:"seq_in_chat,omitempty"`
+	Content     string         `json:"content"`
+	Attachments []QQAttachment `json:"attachments,omitempty"`
+	ChannelID   string         `json:"channel_id"`
+	GuildID     string         `json:"guild_id"`
+	Timestamp   string         `json:"timestamp"`
+	SeqInChat   int            `json:"seq_in_chat,omitempty"`
 }
 
 // ─── Unified QQMessage ───────────────────────────────────────────────────────
@@ -215,10 +214,10 @@ type PublicAtMessageEvent struct {
 type MessageSource int
 
 const (
-	SourceC2C       MessageSource = iota // private chat
-	SourceGroup                          // group @bot
-	SourceDirect                         // guild direct message
-	SourcePublicGuild                    // public guild @bot
+	SourceC2C         MessageSource = iota // private chat
+	SourceGroup                            // group @bot
+	SourceDirect                           // guild direct message
+	SourcePublicGuild                      // public guild @bot
 )
 
 // QQMessage is a unified message representation extracted from various QQ events.

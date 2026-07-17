@@ -21,6 +21,7 @@ Detailed system design documents, organized by subsystem:
 | ------------------------- | ----------------------------------------------------------------------------------------- |
 | [Routing](routing.md)     | L0-L3 task classification system, fast track, hybrid sticky logic, explicit level locking |
 | [QQ Bot Client](qqbot.md) | WebSocket gateway loop, bridge active/passive reply queue, rate limiter, media uploads    |
+| [WeChat iLink](wechat.md)  | Official iLink QR login, long polling, channel abstraction, voice transcripts and text    |
 | [MCP & LSP](mcp.md)       | Model Context Protocol servers loading, LSP JSON-RPC tool binding                         |
 
 ## 🎭 Role Definitions

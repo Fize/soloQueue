@@ -41,6 +41,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
@@ -54,37 +55,37 @@ import (
 
 // Mux is the root HTTP handler.
 type Mux struct {
-	log            *logger.Logger
-	mux            chi.Router
-	workDir        string
-	registry       *agent.Registry
-	supervisorsFn  func() []*agent.Supervisor
-	configSvc      *config.GlobalService
-	runtimeMetrics *RuntimeMetrics
-	accessLogger   *httpAccessLogger
-	templates      []agent.AgentTemplate
-	groupsDir      string // if set, groups are reloaded from disk on each request
-	hub            *Hub
-	wsTokens       sync.Map
-	toolsCfg       *tools.Config
-	skillReg       *skill.SkillRegistry
-	skillDirs      map[string]string // skill categories → paths, for on-demand reload
-	rebuildPrompt func() error     // rebuilds L1 system prompt after soul/rules edit
-	agentsDir     string           // path to ~/.soloqueue/agents directory
-	mcpLoader     *mcp.Loader      // MCP config loader for /api/mcp endpoints
-	mcpManager    *mcp.Manager     // MCP server manager for /api/mcp/available endpoint
-	sessionMgr    *session.SessionManager
-	l2Store       *session.L2SessionStore // L2 multi-session store (nil if not configured)
-	authConfig       config.AuthConfig
+	log               *logger.Logger
+	mux               chi.Router
+	workDir           string
+	registry          *agent.Registry
+	supervisorsFn     func() []*agent.Supervisor
+	configSvc         *config.GlobalService
+	wechatLogin       *wechat.LoginManager
+	runtimeMetrics    *RuntimeMetrics
+	accessLogger      *httpAccessLogger
+	templates         []agent.AgentTemplate
+	groupsDir         string // if set, groups are reloaded from disk on each request
+	hub               *Hub
+	wsTokens          sync.Map
+	toolsCfg          *tools.Config
+	skillReg          *skill.SkillRegistry
+	skillDirs         map[string]string // skill categories → paths, for on-demand reload
+	rebuildPrompt     func() error      // rebuilds L1 system prompt after soul/rules edit
+	agentsDir         string            // path to ~/.soloqueue/agents directory
+	mcpLoader         *mcp.Loader       // MCP config loader for /api/mcp endpoints
+	mcpManager        *mcp.Manager      // MCP server manager for /api/mcp/available endpoint
+	sessionMgr        *session.SessionManager
+	l2Store           *session.L2SessionStore // L2 multi-session store (nil if not configured)
+	authConfig        config.AuthConfig
 	effectiveAuthUser string
 	effectiveAuthPass string
-	teamstore      *teamstore.Store // team/agent DB store; nil if not backed by SQLite
-	onConfigChange func() error     // callback on LLM config update
-	simEngine      *simulation.SimulationEngine
-	sharedDB       *sqlitedb.DB     // for metric reporting
-	distFS         fs.FS
+	teamstore         *teamstore.Store // team/agent DB store; nil if not backed by SQLite
+	onConfigChange    func() error     // callback on LLM config update
+	simEngine         *simulation.SimulationEngine
+	sharedDB          *sqlitedb.DB // for metric reporting
+	distFS            fs.FS
 }
-
 
 // MuxOption is a functional option for NewMux.
 type MuxOption func(*Mux)
@@ -102,6 +103,11 @@ func WithSupervisors(fn func() []*agent.Supervisor) MuxOption {
 // WithConfigService sets the config service for /api/config endpoints.
 func WithConfigService(svc *config.GlobalService) MuxOption {
 	return func(m *Mux) { m.configSvc = svc }
+}
+
+// WithWechatLoginManager enables the desktop WeChat QR login endpoints.
+func WithWechatLoginManager(manager *wechat.LoginManager) MuxOption {
+	return func(m *Mux) { m.wechatLogin = manager }
 }
 
 // WithRuntimeMetrics sets the runtime metrics source for /api/runtime.
@@ -313,8 +319,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	// Live agents status endpoint
 	r.Get("/api/agents/live", m.handleGetLiveAgents)
 
-
-
 	// Agent config/profile routes (specific sub-paths registered before {name} catch-all)
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
 	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)
@@ -387,6 +391,18 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Put("/", m.handleUpdateQQBotsConfig)
 		})
 
+		r.Route("/wechat-bots", func(r chi.Router) {
+			r.Get("/", m.handleGetWechatBotsConfig)
+			r.Put("/", m.handleUpdateWechatBotsConfig)
+			r.Delete("/{accountID}", m.handleDeleteWechatBotConfig)
+		})
+
+		// Deprecated compatibility alias for one release.
+		r.Route("/weixin-bots", func(r chi.Router) {
+			r.Get("/", m.handleGetWechatBotsConfig)
+			r.Put("/", m.handleUpdateWechatBotsConfig)
+		})
+
 		r.Route("/lspmcp", func(r chi.Router) {
 			r.Get("/", m.handleGetLSPMCPConfig)
 			r.Put("/", m.handleUpdateLSPMCPConfig)
@@ -406,6 +422,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Get("/", m.handleGetSimulationConfig)
 			r.Put("/", m.handleUpdateSimulationConfig)
 		})
+	})
+
+	r.Route("/api/channels/wechat", func(r chi.Router) {
+		r.Post("/login", m.handleStartWechatLogin)
+		r.Get("/login/{sessionID}", m.handleGetWechatLogin)
+		r.Post("/login/{sessionID}/verification", m.handleSubmitWechatVerification)
+		r.Delete("/login/{sessionID}", m.handleCancelWechatLogin)
 	})
 
 	// Tools & Skills routes
@@ -440,8 +463,8 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/api/simulations", func(r chi.Router) {
 			r.Get("/", m.handleListSimulations)
 			// 50MB body size limit for create endpoints
-			r.With(maxBodyMiddleware(50 << 20)).Post("/", m.handleCreateSimulation)
-			r.With(maxBodyMiddleware(50 << 20)).Post("/from-seed", m.handleCreateFromSeed)
+			r.With(maxBodyMiddleware(50<<20)).Post("/", m.handleCreateSimulation)
+			r.With(maxBodyMiddleware(50<<20)).Post("/from-seed", m.handleCreateFromSeed)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", m.handleGetSimulation)
 				r.Put("/", m.handleUpdateSimulation)
@@ -529,6 +552,9 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Close closes any resources held by the Mux (e.g., the access logger).
 func (m *Mux) Close() error {
+	if m.wechatLogin != nil {
+		m.wechatLogin.Close()
+	}
 	if m.accessLogger != nil {
 		return m.accessLogger.Close()
 	}
@@ -540,8 +566,6 @@ func (m *Mux) Close() error {
 func (m *Mux) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "work_dir": m.workDir})
 }
-
-
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

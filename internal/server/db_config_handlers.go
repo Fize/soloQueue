@@ -51,7 +51,6 @@ func (m *Mux) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusCreated, p)
 }
@@ -81,7 +80,6 @@ func (m *Mux) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, p)
 }
@@ -103,7 +101,6 @@ func (m *Mux) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
@@ -231,7 +228,6 @@ func (m *Mux) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusCreated, model)
 }
@@ -261,7 +257,6 @@ func (m *Mux) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, model)
 }
@@ -283,7 +278,6 @@ func (m *Mux) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
@@ -319,7 +313,6 @@ func (m *Mux) handleUpdateDefaultModels(w http.ResponseWriter, r *http.Request) 
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-
 
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, dm)
@@ -400,6 +393,117 @@ func (m *Mux) handleUpdateQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, cfg)
+}
+
+type wechatAccountView struct {
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	Enabled              bool     `json:"enabled"`
+	Connected            bool     `json:"connected"`
+	CredentialConfigured bool     `json:"credentialConfigured"`
+	BotIDMasked          string   `json:"botIdMasked,omitempty"`
+	BaseURL              string   `json:"baseUrl,omitempty"`
+	BotAgent             string   `json:"botAgent,omitempty"`
+	BindType             string   `json:"bind_type"`
+	BindAgent            string   `json:"bind_agent,omitempty"`
+	WhitelistEnabled     bool     `json:"whitelist_enabled"`
+	Whitelist            []string `json:"whitelist"`
+}
+
+func toWechatAccountView(cfg config.WechatBotConfig) wechatAccountView {
+	return wechatAccountView{
+		ID: cfg.ID, Name: cfg.Name, Enabled: cfg.Enabled,
+		Connected: cfg.BotToken != "" && cfg.BotID != "", CredentialConfigured: cfg.BotToken != "",
+		BotIDMasked: maskChannelID(cfg.BotID), BaseURL: cfg.BaseURL, BotAgent: cfg.BotAgent,
+		BindType: cfg.BindType, BindAgent: cfg.BindAgent,
+		WhitelistEnabled: cfg.WhitelistEnabled, Whitelist: cfg.Whitelist,
+	}
+}
+
+func maskChannelID(value string) string {
+	if len(value) <= 8 {
+		return value
+	}
+	return value[:4] + "…" + value[len(value)-4:]
+}
+
+// GET /api/config/wechat-bots
+func (m *Mux) handleGetWechatBotsConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	bots := m.configSvc.Get().WechatBots
+	views := make([]wechatAccountView, 0, len(bots))
+	for _, bot := range bots {
+		views = append(views, toWechatAccountView(bot))
+	}
+	m.writeJSON(w, http.StatusOK, views)
+}
+
+// PUT /api/config/wechat-bots updates non-secret account settings only.
+func (m *Mux) handleUpdateWechatBotsConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	var cfg []config.WechatBotConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	existing := make(map[string]config.WechatBotConfig)
+	for _, bot := range m.configSvc.Get().WechatBots {
+		existing[bot.ID] = bot
+	}
+	for i := range cfg {
+		if previous, ok := existing[cfg[i].ID]; ok {
+			cfg[i].BotToken = previous.BotToken
+			cfg[i].BotID = previous.BotID
+		}
+	}
+	if err := m.configSvc.UpdateWechatBots(cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	views := make([]wechatAccountView, 0, len(cfg))
+	for _, bot := range cfg {
+		views = append(views, toWechatAccountView(bot))
+	}
+	m.writeJSON(w, http.StatusOK, views)
+}
+
+func (m *Mux) handleDeleteWechatBotConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	accountID := chi.URLParam(r, "accountID")
+	var confirmation struct {
+		ConfirmAccountID string `json:"confirmAccountId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&confirmation); err != nil || confirmation.ConfirmAccountID != accountID {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account confirmation does not match"})
+		return
+	}
+	bots := m.configSvc.Get().WechatBots
+	filtered := bots[:0]
+	for _, bot := range bots {
+		if bot.ID != accountID {
+			filtered = append(filtered, bot)
+		}
+	}
+	if len(filtered) == len(bots) {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "wechat account not found"})
+		return
+	}
+	if err := m.configSvc.UpdateWechatBots(filtered); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ─── LSP MCP Config ──────────────────────────────────────────────────────────

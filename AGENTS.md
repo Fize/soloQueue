@@ -115,7 +115,7 @@ internal/mcp/           MCP server manager + config
 internal/memory/        short-term memory manager (daily .md files)
 internal/memoryengine/  long-term memory: BM25 (FTS5) + KG + optional vector
 internal/prompt/        prompt assembly, templates, team management
-internal/qqbot/         QQ official bot WebSocket integration
+internal/channel/       Shared channel contracts plus QQ and WeChat implementations
 internal/rotating/      size-based rotating file writer (shared by logger & timeline)
 internal/router/        L0-L3 task classification & model routing
 internal/runtime/       shared dependency container (Stack, built once)

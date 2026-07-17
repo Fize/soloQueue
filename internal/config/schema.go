@@ -6,7 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/xiaobaitu/soloqueue/internal/qqbot"
+	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
+	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"gopkg.in/yaml.v3"
 )
 
@@ -62,9 +63,65 @@ type Settings struct {
 	Embedding     EmbeddingConfig     `json:"embedding" yaml:"embedding,omitempty"`
 	DefaultModels DefaultModelsConfig `json:"defaultModels" yaml:"default_models,omitempty"`
 	QQBots        []QQBotConfig       `json:"qqbots" yaml:"qqbots,omitempty"`
+	WechatBots    []WechatBotConfig   `json:"wechatBots" yaml:"wechat_bots,omitempty"`
 	Agent         AgentConfig         `json:"agent" yaml:"agent,omitempty"`
 	LSPMCP        LSPMCPConfig        `json:"lspmcp" yaml:"lspmcp,omitempty"`
 	Simulation    SimulationConfig    `json:"simulation" yaml:"simulation,omitempty"`
+}
+
+// UnmarshalYAML accepts the former weixin_bots key for one compatibility
+// release while keeping a single canonical slice in memory.
+func (s *Settings) UnmarshalYAML(value *yaml.Node) error {
+	type plain Settings
+	decoded := plain(*s)
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	canonicalPresent := false
+	var legacy []WechatBotConfig
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		switch value.Content[i].Value {
+		case "wechat_bots":
+			canonicalPresent = true
+		case "weixin_bots":
+			if err := value.Content[i+1].Decode(&legacy); err != nil {
+				return err
+			}
+		}
+	}
+	if !canonicalPresent && len(legacy) > 0 {
+		decoded.WechatBots = legacy
+	}
+	*s = Settings(decoded)
+	return nil
+}
+
+// ─── WeChat Bot ─────────────────────────────────────────────────────────────
+
+// WechatBotConfig configures an official WeChat iLink bot account.
+type WechatBotConfig struct {
+	ID               string   `json:"id" yaml:"id,omitempty"`
+	Name             string   `json:"name" yaml:"name,omitempty"`
+	Enabled          bool     `json:"enabled" yaml:"enabled,omitempty"`
+	BotToken         string   `json:"-" yaml:"bot_token,omitempty"`
+	BotID            string   `json:"-" yaml:"bot_id,omitempty"`
+	BaseURL          string   `json:"baseUrl" yaml:"base_url,omitempty"`
+	BotAgent         string   `json:"botAgent" yaml:"bot_agent,omitempty"`
+	BindType         string   `json:"bind_type" yaml:"bind_type,omitempty"`
+	BindAgent        string   `json:"bind_agent" yaml:"bind_agent,omitempty"`
+	WhitelistEnabled bool     `json:"whitelist_enabled" yaml:"whitelist_enabled,omitempty"`
+	Whitelist        []string `json:"whitelist" yaml:"whitelist,omitempty"`
+}
+
+func (c WechatBotConfig) ToWechatConfig(version string) wechat.Config {
+	return wechat.Config{
+		Enabled:  c.Enabled,
+		Token:    c.BotToken,
+		BotID:    c.BotID,
+		BaseURL:  c.BaseURL,
+		Version:  version,
+		BotAgent: c.BotAgent,
+	}
 }
 
 // ─── QQ Bot ──────────────────────────────────────────────────────────────────
@@ -350,6 +407,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"default_models", "Default models by role", s.DefaultModels},
 		{"embedding", "Embedding settings", s.Embedding},
 		{"qqbots", "QQ bot integrations", s.QQBots},
+		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},
 		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
 		{"tools", "Tool execution limits", s.Tools},
 		{"simulation", "Simulation engine defaults", s.Simulation},

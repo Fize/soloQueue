@@ -1,4 +1,4 @@
-package qqbot
+package qq
 
 import (
 	"bytes"
@@ -156,7 +156,7 @@ func (a *APIClient) refreshTokenLocked(ctx context.Context) (string, error) {
 	url := "https://bots.qq.com/app/getAppAccessToken"
 
 	reqBody := map[string]string{
-		"appId":     a.appID,
+		"appId":        a.appID,
 		"clientSecret": a.appSecret,
 	}
 	body, err := json.Marshal(reqBody)
@@ -190,9 +190,9 @@ func (a *APIClient) refreshTokenLocked(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("decode token response: %w", err)
 	}
 
-		if tokenResp.Code != 0 {
-			return "", fmt.Errorf("token request failed (code %d): %s", tokenResp.Code, tokenResp.Message)
-		}
+	if tokenResp.Code != 0 {
+		return "", fmt.Errorf("token request failed (code %d): %s", tokenResp.Code, tokenResp.Message)
+	}
 
 	if tokenResp.AccessToken == "" {
 		return "", errors.New("empty access token received")

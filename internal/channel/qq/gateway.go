@@ -1,4 +1,4 @@
-package qqbot
+package qq
 
 import (
 	"context"
@@ -72,11 +72,11 @@ type Gateway struct {
 // NewGateway creates a new Gateway instance.
 func NewGateway(cfg Config, handler EventHandler, tokens TokenProvider, log *logger.Logger) *Gateway {
 	return &Gateway{
-		cfg:           cfg,
-		log:           log,
-		handler:       handler,
-		tokens:        tokens,
-		reconnectCh:   make(chan struct{}, 1),
+		cfg:         cfg,
+		log:         log,
+		handler:     handler,
+		tokens:      tokens,
+		reconnectCh: make(chan struct{}, 1),
 	}
 }
 
@@ -205,20 +205,20 @@ func (g *Gateway) connectAndIdentify(ctx context.Context) error {
 	} else {
 		// Identify
 		identifyData := IdentifyData{
-			Token:    "QQBot " + accessToken,
-			Intents:  g.cfg.EffectiveIntents(),
-			Shard:    [2]int{0, 1},
+			Token:   "QQBot " + accessToken,
+			Intents: g.cfg.EffectiveIntents(),
+			Shard:   [2]int{0, 1},
 			Properties: map[string]string{
-				"$os":       "linux",
-				"$browser":  "soloqueue",
-				"$device":   "soloqueue",
+				"$os":      "linux",
+				"$browser": "soloqueue",
+				"$device":  "soloqueue",
 			},
 		}
 		if err := g.sendOp(ctx, OpIdentify, identifyData); err != nil {
 			return fmt.Errorf("send identify: %w", err)
 		}
 		g.log.DebugContext(ctx, logger.CatApp, "qqbot identify sent",
-				"token_prefix", accessToken[:min(20, len(accessToken))])
+			"token_prefix", accessToken[:min(20, len(accessToken))])
 	}
 
 	return nil

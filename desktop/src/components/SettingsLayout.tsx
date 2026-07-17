@@ -17,7 +17,7 @@ export function SettingsLayout() {
     '/settings/safety': t('sidebar.safety'),
     '/settings/agents': t('sidebar.agents'),
     '/settings/capabilities': t('sidebar.capabilities'),
-    '/settings/qqbot': t('sidebar.qqbot'),
+    '/settings/channels': t('sidebar.channels'),
   }
 
   const activeLabel = tabLabels[location.pathname] || t('sidebar.settings')

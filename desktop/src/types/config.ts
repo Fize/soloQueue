@@ -142,6 +142,49 @@ export interface QQBotConfig {
   whitelist?: string[];
 }
 
+export interface WeChatAccountView {
+  id: string;
+  name: string;
+  enabled: boolean;
+  connected: boolean;
+  credentialConfigured: boolean;
+  botIdMasked?: string;
+  baseUrl?: string;
+  botAgent?: string;
+  bind_type: "l1" | "l2";
+  bind_agent?: string;
+  whitelist_enabled: boolean;
+  whitelist: string[];
+}
+
+export type WeChatLoginStatus =
+  | "creating_qr"
+  | "awaiting_scan"
+  | "scanned"
+  | "awaiting_confirmation"
+  | "awaiting_verification"
+  | "connected"
+  | "already_connected"
+  | "expired"
+  | "cancelled"
+  | "failed";
+
+export interface WeChatLoginSnapshot {
+  sessionId: string;
+  accountId: string;
+  status: WeChatLoginStatus;
+  qrPayload?: string;
+  expiresAt: string;
+  message?: string;
+}
+
+export interface StartWeChatLoginRequest {
+  accountId: string;
+  name: string;
+  bindType: "l1" | "l2";
+  bindAgent?: string;
+}
+
 export interface L1AgentSettings {
   builtinMcpServers?: string[];
   externalMcpServers?: string[];
@@ -168,6 +211,7 @@ export interface AppConfig {
   embedding: EmbeddingConfig;
   defaultModels: DefaultModelsConfig;
   qqbots: QQBotConfig[];
+  wechatBots?: WeChatAccountView[];
   agent: L1AgentSettings;
   lspmcp: LSPMCPConfig;
   simulation: SimulationConfig;

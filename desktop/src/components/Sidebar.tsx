@@ -51,7 +51,7 @@ const engineSettings = [
 const agentSettings = [
   { to: '/settings/agents', icon: User, key: 'sidebar.agents' as const },
   { to: '/settings/capabilities', icon: Sparkles, key: 'sidebar.capabilities' as const },
-  { to: '/settings/qqbot', icon: MessageSquare, key: 'sidebar.qqbot' as const },
+  { to: '/settings/channels', icon: MessageSquare, key: 'sidebar.channels' as const },
 ]
 
 interface SidebarProps {

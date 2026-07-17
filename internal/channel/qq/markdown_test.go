@@ -1,4 +1,4 @@
-package qqbot
+package qq
 
 import (
 	"strings"

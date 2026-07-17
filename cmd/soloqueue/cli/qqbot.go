@@ -3,17 +3,15 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/channel"
+	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
-	"github.com/xiaobaitu/soloqueue/internal/qqbot"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
@@ -64,34 +62,12 @@ func StartQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store
 		qqQueue := qqbot.NewMessageQueue(msgQueueInterval, msgQueueCap)
 		qqAPI := qqbot.NewAPIClient(qqCfg, qqLog)
 
-		var sessionProvider qqbot.SessionProvider
-		if qqCfgBase.BindType == "l2" {
-			if qqCfgBase.BindAgent != "" {
-				// L2 bound bot uses dedicated L2QQBotAdapter and its own memory manager
-				var mm *conversationlog.Manager
-				if rt.LLMClient != nil {
-					l2MemoryDir := filepath.Join(workDir, "memory", qqCfgBase.BindAgent)
-					if err := os.MkdirAll(l2MemoryDir, 0o755); err != nil {
-						qqLog.Warn(logger.CatApp, "failed to create l2 memory dir", "dir", l2MemoryDir, "err", err)
-					}
-					defModel := rt.ReadDefaultModel()
-					mm = conversationlog.NewManager(l2MemoryDir, rt.LLMClient, defModel.ProviderID, defModel.ID, qqLog)
-				}
-				l2Adapter := session.NewL2QQBotAdapter(l2Store, qqCfg.AppID, qqCfgBase.BindAgent, qqLog, mm)
-				l2Adapter.SetSupervisorsFn(supervisorsFn)
-				l2Adapter.SetRegistry(registry)
-				sessionProvider = l2Adapter
-			} else {
-				qqLog.Error(logger.CatApp, "QQ bot configured as L2 but missing bind_agent", "bot_id", qqCfgBase.ID)
-				sessionProvider = session.NewErrorQQBotAdapter("配置错误：该 QQ 机器人被绑定到 L2，但尚未指定目标 Agent。请在后台管理系统中绑定一个有效的 Agent。")
-			}
-		} else {
-			// Default is L1 orchestrator
-			qqAdapter := session.NewQQBotAdapter(mgr, qqLog)
-			qqAdapter.SetSupervisorsFn(supervisorsFn)
-			qqAdapter.SetRegistry(registry)
-			sessionProvider = qqAdapter
-		}
+		var sessionProvider channel.SessionProvider = newChannelSessionProvider(channelBinding{
+			channelID: "qqbot",
+			accountID: qqCfg.AppID,
+			bindType:  qqCfgBase.BindType,
+			bindAgent: qqCfgBase.BindAgent,
+		}, mgr, l2Store, rt, workDir, qqLog, supervisorsFn, registry)
 
 		qqBridge := qqbot.NewSessionBridge(sessionProvider, qqAPI, qqLog,
 			qqbot.WithVersion(version),
@@ -243,4 +219,3 @@ func (m *QQBotManager) Shutdown() {
 	m.queues = nil
 	m.bridges = nil
 }
-
