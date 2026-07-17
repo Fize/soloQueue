@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { getTokenStats, getRouterStats, getStatTeams, type TokenStat, type RouterStat } from '@/lib/api'
+import { getClassifierStats, type ClassifierStat } from '@/lib/api'
 import { ActivityHeatmap, type ActivityDay } from '@/components/ActivityHeatmap'
 import { TrendingUp, GitCommitHorizontal } from 'lucide-react'
 import { Select } from '@/components/ui/select'
@@ -129,6 +130,7 @@ export function StatsTab() {
   const [teamFilter, setTeamFilter] = useState('all')
   const [tokenStats, setTokenStats] = useState<TokenStat[]>([])
   const [routerStats, setRouterStats] = useState<RouterStat[]>([])
+  const [classifierStats, setClassifierStats] = useState<ClassifierStat[]>([])
   const [teams, setTeams] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -180,14 +182,16 @@ export function StatsTab() {
       setLoading(true); setError('')
       try {
         const teamParam = teamFilter === 'all' ? undefined : teamFilter
-        const [tokenData, routerData, teamsData] = await Promise.all([
+        const [tokenData, routerData, classifierData, teamsData] = await Promise.all([
           getTokenStats(timeframe, teamParam, fromDate || undefined, toDate || undefined),
           getRouterStats(timeframe, teamParam, fromDate || undefined, toDate || undefined),
+          getClassifierStats(timeframe, fromDate || undefined, toDate || undefined),
           getStatTeams(),
         ])
         if (!active) return
         setTokenStats(tokenData || [])
         setRouterStats(routerData || [])
+        setClassifierStats(classifierData || [])
         setTeams(teamsData || [])
       } catch (err: any) {
         if (active) setError(err.message || t('common.error'))
@@ -239,6 +243,20 @@ export function StatsTab() {
     }
     return Array.from(grouped.values()).sort((a, b) => a.period.localeCompare(b.period))
   }, [routerStats, timeframe, fromDate, toDate])
+
+  const classifierChartData = useMemo(() => {
+    return classifierStats.map(s => ({
+      period: s.period,
+      ft: s.ft_count,
+      llm: s.llm_count,
+      error: s.llm_error_count,
+      agreed: s.agreed_count,
+      total: s.total_count,
+      agreement: s.llm_count > 0 ? Math.round((s.agreed_count / s.llm_count) * 100) : 0,
+      avgFtConf: s.avg_ft_conf,
+      avgLlmConf: s.avg_llm_conf,
+    })).sort((a, b) => a.period.localeCompare(b.period))
+  }, [classifierStats])
 
   const [heatmapData, setHeatmapData] = useState<ActivityDay[]>([])
   const [heatmapLoading, setHeatmapLoading] = useState(true)
@@ -439,6 +457,53 @@ export function StatsTab() {
                 </ResponsiveContainer>
               </div>
             )}
+          </GlassCard>
+        </div>
+      )}
+
+      {/* Classifier Performance */}
+      {!loading && !error && classifierChartData.length > 0 && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <GlassCard className="flex flex-col gap-4 min-h-[350px]">
+            <div>
+              <h3 className="font-semibold text-foreground">{t('stats.classifierDecisions')}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('stats.classifierDesc')}</p>
+            </div>
+            <div className="flex-1 h-[250px] text-muted-foreground">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={classifierChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.15} />
+                  <XAxis dataKey="period" tickFormatter={fmtLabel} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
+                  <YAxis width={44} tickFormatter={fmtTick} allowDecimals={false} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
+                  <RechartsTooltip content={<ChartTooltip />} cursor={{ fill: 'currentColor', fillOpacity: 0.08 }} />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
+                  <Bar dataKey="ft" name={t('stats.ftOnly')} stackId="a" fill="var(--color-chart-4)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="llm" name={t('stats.llmCall')} stackId="a" fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="error" name={t('stats.llmError')} stackId="a" fill="var(--color-destructive)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="flex flex-col gap-4 min-h-[350px]">
+            <div>
+              <h3 className="font-semibold text-foreground">{t('stats.classifierAgreement')}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('stats.agreementDesc')}</p>
+            </div>
+            <div className="flex-1 h-[250px] text-muted-foreground">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={classifierChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.15} />
+                  <XAxis dataKey="period" tickFormatter={fmtLabel} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
+                  <YAxis domain={[0, 100]} width={44} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
+                  <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
+                  <Line type="monotone" dataKey="agreement" name={t('stats.agreement')} stroke="var(--color-chart-1)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="avgFtConf" name={t('stats.avgFtConf')} stroke="var(--color-warning)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                  <Line type="monotone" dataKey="avgLlmConf" name={t('stats.avgLlmConf')} stroke="var(--color-chart-5)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </GlassCard>
         </div>
       )}

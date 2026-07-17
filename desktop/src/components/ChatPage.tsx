@@ -6,6 +6,7 @@ import { ChatInput } from "@/components/ChatInput";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useAgentStream } from "@/hooks/useAgentStream";
+import { wsManager } from "@/lib/websocket";
 import {
   PanelRight,
   Loader2,
@@ -706,22 +707,37 @@ export function ChatPage() {
             )}
           >
             <div className="flex items-center gap-2 min-w-0">
-              <h1 className="text-xs font-bold text-foreground truncate font-mono">
+              <h1
+                key={activeSession?.name ?? (activeGroup ?? "loading")}
+                className="text-xs font-bold text-foreground truncate font-mono animate-in fade-in duration-200"
+              >
                 {activeSession?.name ||
-                  (isL1Session ? "General Q&A (L1)" : `${activeGroup} Team`)}
+                  (isL1Session
+                    ? "General Q&A (L1)"
+                    : activeGroup
+                      ? `${activeGroup} Team`
+                      : "Loading…")}
               </h1>
               {connectionStatus === "reconnecting" && (
-                <span className="flex items-center gap-1 text-[10px] text-amber-500 font-medium animate-pulse shrink-0">
+                <span
+                  className="flex items-center gap-1 text-[10px] text-amber-500 font-medium animate-pulse shrink-0"
+                  role="status"
+                >
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping absolute inline-flex h-1.5 w-1.5 rounded-full opacity-75" />
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500" />
-                  Connecting...
+                  Reconnecting…
                 </span>
               )}
               {connectionStatus === "disconnected" && (
-                <span className="flex items-center gap-1 text-[10px] text-destructive font-medium animate-pulse shrink-0">
-                  <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-                  Disconnected
-                </span>
+                <button
+                  type="button"
+                  onClick={() => wsManager.connect()}
+                  className="flex items-center gap-1 text-[10px] text-destructive font-medium shrink-0 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-destructive/10 transition-colors"
+                  title="Click to retry the connection"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
+                  Disconnected — retry
+                </button>
               )}
             </div>
             <div className="flex items-center gap-2 electron-no-drag">

@@ -2,10 +2,12 @@ package router
 
 import (
 	"context"
+	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
 // Classifier is the main interface for task classification
@@ -21,6 +23,7 @@ type DefaultClassifier struct {
 	fastTrack *FastTrackClassifier
 	llm       *LLMClassifier // nil when LLM classification is disabled
 	logger    *logger.Logger
+	db        *sqlitedb.DB // nil when DB recording is disabled
 }
 
 // NewDefaultClassifier creates a new classifier with the given configuration.
@@ -68,6 +71,11 @@ func (dc *DefaultClassifier) SetModelAndProvider(provider, model string) {
 	}
 }
 
+// SetDB enables classifier decision recording to the shared SQLite DB for optimization analysis.
+func (dc *DefaultClassifier) SetDB(db *sqlitedb.DB) {
+	dc.db = db
+}
+
 // Classify implements the Classifier interface
 //
 // Classification strategy (dual-channel + session sticky):
@@ -81,24 +89,47 @@ func (dc *DefaultClassifier) SetModelAndProvider(provider, model string) {
 // Fast-track is always preferred when confident because it has
 // zero latency and zero token cost. LLM is the fallback for ambiguous cases.
 func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorLevel ClassificationLevel, history []ctxwin.PayloadMessage) (ClassificationResult, error) {
+	var (
+		ftResult        ClassificationResult
+		llmResult       ClassificationResult
+		llmInvoked      bool
+		llmErr          string
+		finalSource     string
+		hybridApplied   bool
+		priorBeforeHybrid ClassificationLevel
+	)
+
 	if !dc.config.EnableFastTrack {
 		// LLM-only mode (not typical)
 		if dc.llm != nil {
-			result, err := dc.llm.Classify(ctx, prompt, priorLevel, history)
-			if err == nil {
-				result = dc.applyHybrid(result, priorLevel)
+			llmInvoked = true
+			var err error
+			llmResult, err = dc.llm.Classify(ctx, prompt, priorLevel, history)
+			if err != nil {
+				llmErr = err.Error()
 			}
-			return result, err
+			finalResult := llmResult
+			if err == nil {
+				priorBeforeHybrid = finalResult.Level
+				finalResult = dc.applyHybrid(finalResult, priorLevel)
+				hybridApplied = finalResult.Level != priorBeforeHybrid
+			}
+			finalSource = "llm-only"
+			dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, finalResult, finalSource, hybridApplied, priorLevel)
+			return finalResult, err
 		}
-		return ClassificationResult{
+		finalResult := ClassificationResult{
 			Level:      LevelSimpleSingleFile,
 			Reason:     "Fast-track disabled, no LLM available",
 			Confidence: 0,
-		}, nil
+		}
+		finalSource = "none"
+		dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, finalResult, finalSource, hybridApplied, priorLevel)
+		return finalResult, nil
 	}
 
 	// Step 1: Run fast-track classifier
-	ftResult := dc.fastTrack.Classify(prompt)
+	ftResult = dc.fastTrack.Classify(prompt)
 
 	dc.logger.DebugContext(ctx, logger.CatApp, "fast-track classification",
 		"level", ftResult.Level.String(),
@@ -112,7 +143,12 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 			"level", ftResult.Level.String(),
 			"confidence", ftResult.Confidence,
 		)
-		return dc.applyHybrid(ftResult, priorLevel), nil
+		priorBeforeHybrid = ftResult.Level
+		result := dc.applyHybrid(ftResult, priorLevel)
+		hybridApplied = result.Level != priorBeforeHybrid
+		finalSource = "fast-track"
+		dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, result, finalSource, hybridApplied, priorLevel)
+		return result, nil
 	}
 
 	// Step 3: LLM classification as fallback (only when fast-track is uncertain)
@@ -121,7 +157,12 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 			"level", ftResult.Level.String(),
 			"confidence", ftResult.Confidence,
 		)
-		return dc.applyHybrid(ftResult, priorLevel), nil
+		priorBeforeHybrid = ftResult.Level
+		result := dc.applyHybrid(ftResult, priorLevel)
+		hybridApplied = result.Level != priorBeforeHybrid
+		finalSource = "fast-track-low-conf"
+		dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, result, finalSource, hybridApplied, priorLevel)
+		return result, nil
 	}
 
 	dc.logger.DebugContext(ctx, logger.CatApp, "fast-track uncertain, invoking LLM fallback",
@@ -129,13 +170,20 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 		"threshold", dc.config.FastTrackConfidenceThreshold,
 	)
 
-	llmResult, err := dc.llm.Classify(ctx, prompt, priorLevel, history)
-	if err != nil {
-		// LLM error: use fast-track result regardless of confidence
+	llmInvoked = true
+	var llmErrVal error
+	llmResult, llmErrVal = dc.llm.Classify(ctx, prompt, priorLevel, history)
+	if llmErrVal != nil {
+		llmErr = llmErrVal.Error()
 		dc.logger.DebugContext(ctx, logger.CatApp, "LLM classifier error, using fast-track",
-			"err", err.Error(),
+			"err", llmErr,
 		)
-		return dc.applyHybrid(ftResult, priorLevel), nil
+		priorBeforeHybrid = ftResult.Level
+		result := dc.applyHybrid(ftResult, priorLevel)
+		hybridApplied = result.Level != priorBeforeHybrid
+		finalSource = "llm-error"
+		dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, result, finalSource, hybridApplied, priorLevel)
+		return result, nil
 	}
 
 	// Step 4: Use whichever result has higher confidence
@@ -146,12 +194,12 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 			"confidence", llmResult.Confidence,
 			"reason", llmResult.Reason,
 		)
-		// Preserve RequiresConfirmation from fast-track (safety check)
 		if ftResult.RequiresConfirmation {
 			llmResult.RequiresConfirmation = true
 			llmResult.ConfirmationMessage = ftResult.ConfirmationMessage
 		}
 		finalResult = llmResult
+		finalSource = "llm-override"
 	} else {
 		dc.logger.DebugContext(ctx, logger.CatApp, "classification complete (fast-track preferred over LLM)",
 			"level", ftResult.Level.String(),
@@ -159,10 +207,81 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 			"llm_confidence", llmResult.Confidence,
 		)
 		finalResult = ftResult
+		finalSource = "llm-fallback"
 	}
 
 	// Step 5: Apply hybrid sticky logic
-	return dc.applyHybrid(finalResult, priorLevel), nil
+	priorBeforeHybrid = finalResult.Level
+	result := dc.applyHybrid(finalResult, priorLevel)
+	hybridApplied = result.Level != priorBeforeHybrid
+	dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, result, finalSource, hybridApplied, priorLevel)
+	return result, nil
+}
+
+// recordDecision writes a classifier decision to DB and log for optimization analysis.
+// Non-blocking: DB write runs in a goroutine.
+func (dc *DefaultClassifier) recordDecision(
+	ctx context.Context,
+	prompt string,
+	ftResult ClassificationResult,
+	llmResult ClassificationResult,
+	llmInvoked bool,
+	llmErr string,
+	finalResult ClassificationResult,
+	finalSource string,
+	hybridApplied bool,
+	priorLevel ClassificationLevel,
+) {
+	// Truncate prompt for storage
+	promptTrunc := prompt
+	if len(promptTrunc) > 200 {
+		promptTrunc = strings.TrimSpace(prompt[:200]) + "..."
+	}
+
+	llmIn := 0
+	if llmInvoked {
+		llmIn = 1
+	}
+	ha := 0
+	if hybridApplied {
+		ha = 1
+	}
+
+	// Info-level log for immediate visibility
+	dc.logger.InfoContext(ctx, logger.CatClassifier, "classifier decision",
+		"ft_level", ftResult.Level.String(),
+		"ft_conf", ftResult.Confidence,
+		"llm_invoked", llmIn,
+		"llm_level", llmResult.Level.String(),
+		"llm_conf", llmResult.Confidence,
+		"llm_err", llmErr,
+		"final_level", finalResult.Level.String(),
+		"final_source", finalSource,
+		"hybrid", ha,
+		"prior", priorLevel.String(),
+	)
+
+	// Write to DB asynchronously
+	if dc.db != nil {
+		d := sqlitedb.ClassifierDecision{
+			PromptTrunc:   promptTrunc,
+			FTLevel:       ftResult.Level.String(),
+			FTConfidence:  ftResult.Confidence,
+			LLMInvoked:    llmIn,
+			LLMLevel:      llmResult.Level.String(),
+			LLMConfidence: llmResult.Confidence,
+			LLMError:      llmErr,
+			FinalLevel:    finalResult.Level.String(),
+			FinalSource:   finalSource,
+			HybridApplied: ha,
+			PriorLevel:    priorLevel.String(),
+		}
+		go func() {
+			if err := dc.db.InsertClassifierDecision(context.Background(), d); err != nil {
+				dc.logger.Warn(logger.CatClassifier, "failed to record classifier decision", "err", err.Error())
+			}
+		}()
+	}
 }
 
 // applyHybrid is a convenience wrapper that applies hybrid logic only when prior is set.

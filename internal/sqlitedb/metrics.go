@@ -287,3 +287,118 @@ func (db *DB) GetDistinctTeams(ctx context.Context) ([]string, error) {
 	}
 	return teams, nil
 }
+
+// ClassifierDecision is a single classification decision record for optimization analysis.
+type ClassifierDecision struct {
+	PromptTrunc   string
+	FTLevel       string
+	FTConfidence  int
+	LLMInvoked    int
+	LLMLevel      string
+	LLMConfidence int
+	LLMError      string
+	FinalLevel    string
+	FinalSource   string
+	HybridApplied int
+	PriorLevel    string
+}
+
+// InsertClassifierDecision records a classification decision for optimization analysis.
+func (db *DB) InsertClassifierDecision(ctx context.Context, d ClassifierDecision) error {
+	db.WMu.Lock()
+	defer db.WMu.Unlock()
+
+	query := `
+		INSERT INTO classifier_decisions (
+			prompt_trunc, ft_level, ft_confidence,
+			llm_invoked, llm_level, llm_confidence, llm_error,
+			final_level, final_source, hybrid_applied, prior_level
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := db.ExecContext(ctx, query,
+		d.PromptTrunc, d.FTLevel, d.FTConfidence,
+		d.LLMInvoked, d.LLMLevel, d.LLMConfidence, d.LLMError,
+		d.FinalLevel, d.FinalSource, d.HybridApplied, d.PriorLevel,
+	)
+	if err != nil {
+		return fmt.Errorf("insert classifier decision: %w", err)
+	}
+	return nil
+}
+
+// AggregatedClassifierStats represents aggregated classifier decision stats over a time period.
+type AggregatedClassifierStats struct {
+	Period         string `json:"period"`
+	FTCount        int    `json:"ft_count"`
+	LLMCount       int    `json:"llm_count"`
+	LLMErrorCount  int    `json:"llm_error_count"`
+	AgreedCount    int    `json:"agreed_count"`
+	AvgFTConf      int    `json:"avg_ft_conf"`
+	AvgLLMConf     int    `json:"avg_llm_conf"`
+	TotalCount     int    `json:"total_count"`
+}
+
+// GetClassifierStatsAggregated returns aggregated classifier decision stats grouped by timeframe.
+func (db *DB) GetClassifierStatsAggregated(ctx context.Context, timeframe string, fromDate string, toDate string) ([]AggregatedClassifierStats, error) {
+	var periodExpr string
+	switch timeframe {
+	case "minutely":
+		periodExpr = "strftime('%Y-%m-%d %H:%M:00', timestamp)"
+	case "hourly":
+		periodExpr = "strftime('%Y-%m-%d %H:00:00', timestamp)"
+	case "daily":
+		periodExpr = "datetime(timestamp, 'start of day')"
+	case "weekly":
+		periodExpr = "datetime(timestamp, 'weekday 1')"
+	case "monthly":
+		periodExpr = "datetime(timestamp, 'start of month')"
+	default:
+		periodExpr = "datetime(timestamp, 'start of day')"
+	}
+
+	whereClause := "WHERE 1=1"
+	args := []any{}
+	if fromDate != "" {
+		whereClause += " AND timestamp >= ?"
+		args = append(args, fromDate)
+	}
+	if toDate != "" {
+		whereClause += " AND timestamp <= ?"
+		args = append(args, toDate)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			%s as period,
+			SUM(CASE WHEN final_source = 'fast-track' THEN 1 ELSE 0 END) as ft_count,
+			SUM(CASE WHEN llm_invoked = 1 AND llm_error = '' THEN 1 ELSE 0 END) as llm_count,
+			SUM(CASE WHEN llm_error != '' THEN 1 ELSE 0 END) as llm_error_count,
+			SUM(CASE WHEN llm_invoked = 1 AND ft_level = llm_level THEN 1 ELSE 0 END) as agreed_count,
+			COALESCE(AVG(ft_confidence), 0) as avg_ft_conf,
+			COALESCE(AVG(CASE WHEN llm_invoked = 1 THEN llm_confidence ELSE NULL END), 0) as avg_llm_conf,
+			COUNT(*) as total_count
+		FROM classifier_decisions
+		%s
+		GROUP BY period
+		ORDER BY period DESC
+	`, periodExpr, whereClause)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query classifier stats: %w", err)
+	}
+	defer rows.Close()
+
+	var results []AggregatedClassifierStats
+	for rows.Next() {
+		var item AggregatedClassifierStats
+		if err := rows.Scan(
+			&item.Period, &item.FTCount, &item.LLMCount, &item.LLMErrorCount,
+			&item.AgreedCount, &item.AvgFTConf, &item.AvgLLMConf, &item.TotalCount,
+		); err != nil {
+			return nil, fmt.Errorf("scan classifier stats: %w", err)
+		}
+		results = append(results, item)
+	}
+	return results, rows.Err()
+}

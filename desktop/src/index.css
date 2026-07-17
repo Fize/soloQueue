@@ -665,11 +665,17 @@ html.light .markdown-preview pre code span {
 }
 
 /* Respect users who prefer reduced motion — keep the indicator visible
- * but freeze the breathing and dot motion. */
+ * but freeze the breathing and dot motion. Also disable the indeterminate
+ * progress bar, spinners, and pulse animations so the UI remains calm. */
 @media (prefers-reduced-motion: reduce) {
   .agent-working-breathing,
   .agent-working-dot,
-  .agent-working-spark {
+  .agent-working-spark,
+  .animate-indeterminate-bar,
+  .animate-spin,
+  .animate-pulse,
+  .animate-ping,
+  .animate-in {
     animation: none !important;
   }
 }

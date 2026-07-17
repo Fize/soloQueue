@@ -206,3 +206,22 @@ export async function getRouterStats(timeframe: string, teamId?: string, fromDat
 export async function getStatTeams(): Promise<string[]> {
   return request<string[]>("/stats/teams")
 }
+
+export interface ClassifierStat {
+  period: string
+  ft_count: number
+  llm_count: number
+  llm_error_count: number
+  agreed_count: number
+  avg_ft_conf: number
+  avg_llm_conf: number
+  total_count: number
+}
+
+export async function getClassifierStats(timeframe: string, fromDate?: string, toDate?: string): Promise<ClassifierStat[]> {
+  const query = new URLSearchParams()
+  query.append('timeframe', timeframe)
+  if (fromDate) query.append('from', fromDate)
+  if (toDate) query.append('to', toDate)
+  return request<ClassifierStat[]>(`/stats/classifier?${query.toString()}`)
+}

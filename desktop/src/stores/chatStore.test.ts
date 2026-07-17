@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useChatStore } from './chatStore'
+import { listSessions } from '@/lib/api'
+
+vi.mock('@/lib/api', () => ({
+  listSessions: vi.fn(),
+  createL2Session: vi.fn(),
+  deleteL2Session: vi.fn(),
+  fetchSessionHistory: vi.fn(),
+  rewindSession: vi.fn(),
+  deleteSessionMessages: vi.fn(),
+}))
 
 beforeEach(() => {
   useChatStore.setState({
@@ -12,6 +22,7 @@ beforeEach(() => {
     historyLoading: {},
     historyHasMore: {},
     historyCursor: {},
+    sessionsLoading: false,
   })
   vi.clearAllMocks()
 })
@@ -116,5 +127,46 @@ describe('chatStore', () => {
     // Test default activeSessionId fallback when sessionId is omitted
     useChatStore.getState().setDelegating(true)
     expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
+  })
+
+  it('sessionsLoading toggles true→false around loadSessions (drives the tree loading UI)', async () => {
+    // Resolve after a tick so we can observe the in-flight state.
+    let resolveList!: (v: { sessions: any[] }) => void
+    vi.mocked(listSessions).mockImplementationOnce(
+      () => new Promise((res) => { resolveList = res }) as any
+    )
+
+    const promise = useChatStore.getState().loadSessions()
+    expect(useChatStore.getState().sessionsLoading).toBe(true)
+
+    resolveList({ sessions: [] })
+    await promise
+
+    expect(useChatStore.getState().sessionsLoading).toBe(false)
+  })
+
+  it('coalesces concurrent loadSessions() calls (mount + auto-retry dedup)', async () => {
+    let resolveList!: (v: { sessions: any[] }) => void
+    // Use a single shared implementation that increments a counter. We
+    // inspect `mock.calls.length` (vitest's own bookkeeping) to assert
+    // dedup, since `mockResolvedValueOnce` does NOT trigger our side effect.
+    vi.mocked(listSessions).mockImplementation(
+      () => new Promise((res) => { resolveList = res }) as any
+    )
+
+    // Fire three calls back-to-back — only the first should hit the network.
+    const p1 = useChatStore.getState().loadSessions()
+    const p2 = useChatStore.getState().loadSessions()
+    const p3 = useChatStore.getState().loadSessions()
+
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(1)
+
+    resolveList({ sessions: [] })
+    await Promise.all([p1, p2, p3])
+
+    // After the in-flight resolves, a fresh call should be allowed again.
+    vi.mocked(listSessions).mockResolvedValueOnce({ sessions: [] } as any)
+    await useChatStore.getState().loadSessions()
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
   })
 })

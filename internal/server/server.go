@@ -466,6 +466,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Route("/api/stats", func(r chi.Router) {
 		r.Get("/tokens", m.handleGetTokenStats)
 		r.Get("/router", m.handleGetRouterStats)
+		r.Get("/classifier", m.handleGetClassifierStats)
 		r.Get("/teams", m.handleGetTeams)
 	})
 

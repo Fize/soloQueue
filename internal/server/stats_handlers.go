@@ -85,3 +85,30 @@ func (m *Mux) handleGetTeams(w http.ResponseWriter, r *http.Request) {
 
 	m.writeJSON(w, http.StatusOK, teams)
 }
+
+// handleGetClassifierStats returns classifier decision statistics from the DB.
+func (m *Mux) handleGetClassifierStats(w http.ResponseWriter, r *http.Request) {
+	if m.sharedDB == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "database not available"})
+		return
+	}
+
+	timeframe := r.URL.Query().Get("timeframe") // "hourly", "daily", "weekly", "monthly"
+	if timeframe == "" {
+		timeframe = "daily"
+	}
+	fromDate := r.URL.Query().Get("from")
+	toDate := r.URL.Query().Get("to")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	stats, err := m.sharedDB.GetClassifierStatsAggregated(ctx, timeframe, fromDate, toDate)
+	if err != nil {
+		m.log.Error(logger.CatApp, "failed to get classifier stats", "err", err)
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, stats)
+}

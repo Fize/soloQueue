@@ -4,25 +4,26 @@ package logger
 type Category string
 
 const (
-	CatApp      Category = "app"
-	CatConfig   Category = "config"
-	CatHTTP     Category = "http"
-	CatWS       Category = "ws"
-	CatLLM      Category = "llm"
-	CatTeam     Category = "team"
-	CatAgent    Category = "agent"
-	CatActor    Category = "actor"
-	CatTool     Category = "tool"
-	CatMessages Category = "messages"
-	CatMCP      Category = "mcp"
-	CatSimulation Category = "simulation"
+	CatApp         Category = "app"
+	CatConfig      Category = "config"
+	CatHTTP        Category = "http"
+	CatWS          Category = "ws"
+	CatLLM         Category = "llm"
+	CatTeam        Category = "team"
+	CatAgent       Category = "agent"
+	CatActor       Category = "actor"
+	CatTool        Category = "tool"
+	CatMessages    Category = "messages"
+	CatMCP         Category = "mcp"
+	CatSimulation  Category = "simulation"
+	CatClassifier  Category = "classifier"
 )
 
 // systemCategories defines all valid log categories (all written to the 'system' directory)
 var systemCategories = []Category{
 	CatApp, CatConfig, CatHTTP, CatWS, CatLLM,
 	CatTeam, CatAgent,
-	CatActor, CatTool, CatMessages, CatMCP, CatSimulation,
+	CatActor, CatTool, CatMessages, CatMCP, CatSimulation, CatClassifier,
 }
 
 // ValidCategory checks if the category is valid

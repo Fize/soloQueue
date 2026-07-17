@@ -40,6 +40,11 @@ interface AgentState {
   fetchLiveAgents: () => Promise<void>
 }
 
+// Coalesce concurrent fetches across the three callers (ChatPage mount,
+// SessionTree mount, App.tsx auto-retry on backend up).
+let inflightTeamsLoad: Promise<void> | null = null
+let inflightLiveAgentsLoad: Promise<void> | null = null
+
 export const useAgentStore = create<AgentState>((set) => ({
   // Agent list
   agents: null,
@@ -85,20 +90,32 @@ export const useAgentStore = create<AgentState>((set) => ({
   teams: null,
   teamsLoading: false,
   fetchTeams: async () => {
+    if (inflightTeamsLoad) return inflightTeamsLoad
     set({ teamsLoading: true })
-    try {
-      const data = await getTeams()
-      set({ teams: data as TeamListResponse, teamsLoading: false })
-    } catch {
-      set({ teams: null, teamsLoading: false })
-    }
+    inflightTeamsLoad = (async () => {
+      try {
+        const data = await getTeams()
+        set({ teams: data as TeamListResponse, teamsLoading: false })
+      } catch {
+        set({ teams: null, teamsLoading: false })
+      } finally {
+        inflightTeamsLoad = null
+      }
+    })()
+    return inflightTeamsLoad
   },
   fetchLiveAgents: async () => {
-    try {
-      const data = await getLiveAgents()
-      set({ agents: data })
-    } catch (err) {
-      console.error('Failed to fetch live agents:', err)
-    }
+    if (inflightLiveAgentsLoad) return inflightLiveAgentsLoad
+    inflightLiveAgentsLoad = (async () => {
+      try {
+        const data = await getLiveAgents()
+        set({ agents: data })
+      } catch (err) {
+        console.error('Failed to fetch live agents:', err)
+      } finally {
+        inflightLiveAgentsLoad = null
+      }
+    })()
+    return inflightLiveAgentsLoad
   },
 }))

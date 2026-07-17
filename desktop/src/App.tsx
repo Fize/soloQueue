@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import { PanelLeftClose, PanelRightOpen, Server } from 'lucide-react'
+import { PanelLeftClose, PanelRightOpen, Server, Loader2 } from 'lucide-react'
 import { Sidebar } from '@/components/Sidebar'
 import { useUIStore } from '@/stores/uiStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -32,8 +32,13 @@ const StatsTab = lazy(() => import('@/components/settings/StatsTab').then(m => (
 const GeneralTab = lazy(() => import('@/components/settings/GeneralTab').then(m => ({ default: m.GeneralTab })))
 function RouteFallback() {
   return (
-    <div className="flex h-full items-center justify-center bg-background">
-      <div className="text-sm text-muted-foreground font-mono animate-pulse">Loading...</div>
+    <div
+      className="flex h-full items-center justify-center bg-background gap-2"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className="h-4 w-4 animate-spin text-signal" aria-hidden="true" />
+      <span className="text-sm text-muted-foreground font-mono">Loading…</span>
     </div>
   )
 }
@@ -85,9 +90,14 @@ function ConnectionStatusBar() {
       if (s.running) setIsChecking(false)
     })
 
+    // Read latest values from the store inside the timeout instead of
+    // closing over the initial render's `backendStatus`/`mode` — the
+    // previous closure made this always see `{running: false}` and fire
+    // the "did not start in time" toast even when the backend was up.
     const timeout = setTimeout(() => {
       setIsChecking(false)
-      if (!backendStatus.running && mode === 'local') {
+      const { backendStatus: latest, mode: latestMode } = useConnectionStore.getState()
+      if (!latest.running && latestMode === 'local') {
         setConnectionError('Backend did not start in time. Check Settings → Connection.')
       }
     }, 12000)
@@ -96,7 +106,6 @@ function ConnectionStatusBar() {
       unsub()
       clearTimeout(timeout)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Tray sync: push connection state to macOS menu bar Tray ──
@@ -138,7 +147,7 @@ function ConnectionStatusBar() {
     return () => { toast.dismiss('connection-error') }
   }, [connectionError, setConnectionError, setIsChecking])
 
-  if (isElectron) return null
+  if (isElectron && backendStatus.running) return null
 
   if (mode === 'remote') {
     const hasUrl = !!remoteUrl
@@ -283,6 +292,21 @@ function App() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
+
+  // Auto-retry data loads when the backend transitions to running. We track
+  // the previous value with a ref so we only fire on the false→true edge —
+  // the initial mount (handled by SessionTree / ChatPage effects, which are
+  // also dedup'd inside the stores) does not need a second trigger.
+  const backendRunning = useConnectionStore((s) => s.backendStatus.running)
+  const prevBackendRunningRef = useRef(false)
+  useEffect(() => {
+    const wasRunning = prevBackendRunningRef.current
+    prevBackendRunningRef.current = backendRunning
+    if (!backendRunning || wasRunning) return
+    useChatStore.getState().loadSessions()
+    useAgentStore.getState().fetchLiveAgents()
+    useAgentStore.getState().fetchTeams()
+  }, [backendRunning])
 
   return (
     <TooltipProvider>

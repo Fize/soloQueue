@@ -21,10 +21,12 @@ import {
   Cpu,
   Brain,
   Shield,
+  Loader2,
 } from 'lucide-react'
 import { cycleTheme } from '@/lib/theme'
 import { SessionTree } from './SessionTree'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
 import { useTranslation } from '@/lib/i18n'
 
 const mainNav = [
@@ -63,6 +65,7 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { theme: themeMode, setTheme } = useUIStore()
+  const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const { t } = useTranslation()
   const [chatOpen, setChatOpen] = useState(
     location.pathname.startsWith('/chat') || location.pathname === '/new-chat'
@@ -119,6 +122,7 @@ export function Sidebar({ narrow, floating }: SidebarProps) {
           setChatOpen={setChatOpen}
           onNav={handleNav}
           narrow={false}
+          sessionsLoading={sessionsLoading}
         />
       )}
 
@@ -174,12 +178,14 @@ function NavView({
   setChatOpen,
   onNav,
   narrow,
+  sessionsLoading,
 }: {
   location: ReturnType<typeof useLocation>
   chatOpen: boolean
   setChatOpen: (v: boolean) => void
   onNav: (to: string) => void
   narrow: boolean
+  sessionsLoading: boolean
 }) {
   const showText = !narrow
   const { t } = useTranslation()
@@ -217,7 +223,10 @@ function NavView({
 
         {/* Chats tree — toggle only, no navigation. Active on /chat/:id
             (i.e. inside a session) and /agents/*; not active on bare /chat
-            because that route belongs to the "New Chat" button above. */}
+            because that route belongs to the "New Chat" button above.
+            When sessionsLoading is true we swap the chevron for a small
+            spinner so the user gets immediate visual feedback that the
+            data is on its way. */}
         {showText && (
           <div className="space-y-0.5">
             <button
@@ -234,7 +243,13 @@ function NavView({
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
               <span className="flex-1 text-left">{t('chat.title')}</span>
-              {chatOpen ? (
+              {sessionsLoading ? (
+                <Loader2
+                  className="h-3 w-3 shrink-0 text-muted-foreground animate-spin"
+                  aria-label={t('sessionTree.loading')}
+                  role="status"
+                />
+              ) : chatOpen ? (
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
               ) : (
                 <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />

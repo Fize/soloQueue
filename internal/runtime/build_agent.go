@@ -63,5 +63,8 @@ func (bc *buildContext) buildAgentInfra() {
 	}
 	classifierConfig := router.DefaultClassifierConfig()
 	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, bc.defaultModel.ProviderID, classifierModel, bc.log)
+	if bc.sharedDB != nil {
+		classifier.SetDB(bc.sharedDB)
+	}
 	bc.taskRouter = router.NewRouter(classifier, bc.cfg, bc.log)
 }

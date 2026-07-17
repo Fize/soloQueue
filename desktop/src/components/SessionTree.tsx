@@ -9,9 +9,11 @@ import {
   ChevronDown,
   ChevronUp,
   Users,
+  Loader2,
 } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
+import { useConnectionStore } from '@/stores/connectionStore'
 import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 import type { ChatSession, Project } from '@/types'
 import { cn } from '@/lib/utils'
@@ -34,6 +36,7 @@ function pathsMatch(a: string, b: string): boolean {
 export function SessionTree() {
   const navigate = useNavigate()
   const sessions = useChatStore((s) => s.sessions)
+  const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const streamingSessions = useChatStore((s) => s.streamingSessions)
   const loadSessions = useChatStore((s) => s.loadSessions)
@@ -235,6 +238,53 @@ export function SessionTree() {
 
   const isGroupExp = (name: string) => expandedGroups[name] !== false
   const isProjExp = (key: string) => expandedProjects[key] === true
+
+  const backendRunning = useConnectionStore((s) => s.backendStatus.running)
+
+  // Empty-tree loading state: visible when the first load is still in flight
+  // AND we don't have any sessions to show yet. Shown only on the very first
+  // mount — once the user has data, a refresh doesn't show this placeholder
+  // (the Sidebar button spinner handles that case at the toggle level).
+  if (sessionsLoading && sessions.length === 0 && groups.length === 0) {
+    return (
+      <div
+        className="flex items-center gap-2 pl-3 pr-2 py-2 text-[11px] text-muted-foreground/70"
+        role="status"
+        aria-live="polite"
+      >
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-signal/70 shrink-0" />
+        <span>{t('sessionTree.loading')}</span>
+      </div>
+    )
+  }
+
+  // Stale-empty state: the initial load finished but produced no groups AND
+  // the backend isn't running. Without this, the user is left staring at an
+  // empty tree with no explanation. (Backend is up but legitimately empty
+  // groups are rare and would be visible on the next refresh anyway.)
+  if (!sessionsLoading && groups.length === 0 && sessions.length === 0 && !backendRunning) {
+    return (
+      <div
+        className="flex flex-col gap-1.5 pl-3 pr-2 py-2 text-[11px] text-muted-foreground/70"
+        role="status"
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+          <span>Backend not connected</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            loadSessions()
+            loadGroupInfo()
+          }}
+          className="self-start text-foreground/80 hover:text-foreground underline-offset-2 hover:underline cursor-pointer"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col py-1 space-y-1 select-none">

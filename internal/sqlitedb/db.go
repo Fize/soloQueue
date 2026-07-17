@@ -18,7 +18,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 1
+const schemaVersion = 2
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -233,6 +233,24 @@ CREATE TABLE IF NOT EXISTS usage_metrics (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_timestamp ON usage_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_team ON usage_metrics(team_id, usage_type);
+
+-- classifier_decisions (fast-track vs LLM comparison for optimization)
+CREATE TABLE IF NOT EXISTS classifier_decisions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+	prompt_trunc TEXT NOT NULL DEFAULT '',
+	ft_level TEXT NOT NULL DEFAULT '',
+	ft_confidence INTEGER NOT NULL DEFAULT 0,
+	llm_invoked INTEGER NOT NULL DEFAULT 0,
+	llm_level TEXT NOT NULL DEFAULT '',
+	llm_confidence INTEGER NOT NULL DEFAULT 0,
+	llm_error TEXT NOT NULL DEFAULT '',
+	final_level TEXT NOT NULL DEFAULT '',
+	final_source TEXT NOT NULL DEFAULT '',
+	hybrid_applied INTEGER NOT NULL DEFAULT 0,
+	prior_level TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_classifier_decisions_ts ON classifier_decisions(timestamp);
 `
 
 // migrate applies the schema snapshot on every startup.

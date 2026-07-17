@@ -14,6 +14,7 @@ interface ChatState {
   historyLoading: Record<string, boolean> // track which sessions are loading history
   historyHasMore: Record<string, boolean> // track which sessions have more history to load
   historyCursor: Record<string, string | null> // cursor for next load-more page
+  sessionsLoading: boolean // true while loadSessions() is in flight — drives the "Loading sessions…" UI
 
   loadSessions: () => Promise<void>
   createL2Session: (group: string, workDir?: string) => Promise<string | null>
@@ -51,6 +52,12 @@ interface ChatState {
 
 const PAGE_SIZE = 30 // number of messages to load per page
 
+// Coalesce concurrent loadSessions() calls (e.g. App.tsx auto-retry effect
+// AND SessionTree mount AND focus/visibility handler all firing in the same
+// render tick). The first call kicks off the fetch; subsequent callers await
+// the same in-flight promise instead of issuing duplicate requests.
+let inflightSessionsLoad: Promise<void> | null = null
+
 export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   activeSessionId: null,
@@ -62,31 +69,42 @@ export const useChatStore = create<ChatState>((set) => ({
   historyLoading: {},
   historyHasMore: {},
   historyCursor: {},
+  sessionsLoading: false,
 
   loadSessions: async () => {
-    try {
-      const data = await listSessions()
-      const mapped = (data.sessions || []).map((s: any) => ({
-        ...s,
-        createdAt: s.createdAt || s.created_at || new Date().toISOString(),
-      }))
-      set((prev) => {
-        // Preserve the active session if missing from API response
-        // (race: list request sent before create completed).
-        if (prev.activeSessionId) {
-          const hasActive = mapped.some((m) => m.id === prev.activeSessionId)
-          if (!hasActive) {
-            const activeFromStore = prev.sessions.find((ss) => ss.id === prev.activeSessionId)
-            if (activeFromStore) {
-              mapped.push(activeFromStore)
+    if (inflightSessionsLoad) return inflightSessionsLoad
+
+    set({ sessionsLoading: true })
+    inflightSessionsLoad = (async () => {
+      try {
+        const data = await listSessions()
+        const mapped = (data.sessions || []).map((s: any) => ({
+          ...s,
+          createdAt: s.createdAt || s.created_at || new Date().toISOString(),
+        }))
+        set((prev) => {
+          // Preserve the active session if missing from API response
+          // (race: list request sent before create completed).
+          if (prev.activeSessionId) {
+            const hasActive = mapped.some((m) => m.id === prev.activeSessionId)
+            if (!hasActive) {
+              const activeFromStore = prev.sessions.find((ss) => ss.id === prev.activeSessionId)
+              if (activeFromStore) {
+                mapped.push(activeFromStore)
+              }
             }
           }
-        }
-        return { sessions: mapped }
-      })
-    } catch {
-      // Server may not be running; sessions remain empty.
-    }
+          return { sessions: mapped }
+        })
+      } catch {
+        // Server may not be running; sessions remain empty. App.tsx will
+        // re-trigger this when backendStatus.running flips to true.
+      } finally {
+        set({ sessionsLoading: false })
+        inflightSessionsLoad = null
+      }
+    })()
+    return inflightSessionsLoad
   },
 
   createL2Session: async (group: string, workDir?: string) => {
