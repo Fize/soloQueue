@@ -22,10 +22,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement
-    if (theme === 'dark') {
-      root.classList.add('dark')
-    } else {
+    // dark is default — only add .light class for light mode
+    if (theme === 'light') {
+      root.classList.add('light')
       root.classList.remove('dark')
+    } else {
+      root.classList.remove('light')
+      root.classList.add('dark')
     }
     localStorage.setItem('soloqueue-theme', theme)
   }, [theme])
@@ -52,18 +55,18 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       className="relative flex items-center justify-center w-9 h-9 rounded-full
-        bg-[var(--md-surface-container-high)] hover:bg-[var(--md-surface-container-highest)]
-        border border-[var(--md-outline-variant)] cursor-pointer
+        bg-[var(--color-surface-secondary)] hover:brightness-110
+        border border-[var(--color-border)] cursor-pointer
         transition-all duration-200 active:scale-95 shrink-0
-        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--md-primary)]"
+        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
     >
       <Moon
-        className={`absolute h-4 w-4 text-[var(--md-primary)] transition-all duration-300 ${
+        className={`absolute h-4 w-4 text-[var(--color-primary)] transition-all duration-300 ${
           isDark ? 'opacity-100 rotate-0 scale-100' : 'opacity-0 rotate-90 scale-75'
         }`}
       />
       <Sun
-        className={`absolute h-4 w-4 text-[var(--md-primary)] transition-all duration-300 ${
+        className={`absolute h-4 w-4 text-[var(--color-primary)] transition-all duration-300 ${
           isDark ? 'opacity-0 -rotate-90 scale-75' : 'opacity-100 rotate-0 scale-100'
         }`}
       />

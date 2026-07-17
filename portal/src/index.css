@@ -1,134 +1,133 @@
 @import "tailwindcss";
 
-/* ─── Class-based dark mode ─── */
+/* ─── Class-based light mode (dark is default) ─── */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ════════════════════════════════════════════════
-   Material Design 3 — Custom Color Tokens
+   SoloQueue V3 Brand Tokens (Deep Signal)
+   Synced with desktop/src/index.css
    ════════════════════════════════════════════════ */
-:root {
-  /* Primary — Indigo */
-  --md-primary: #5950e8;
-  --md-on-primary: #ffffff;
-  --md-primary-container: #e8e0ff;
-  --md-on-primary-container: #1a0080;
+@theme {
+  --color-primary: #2363EA;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: rgba(255, 255, 255, 0.04);
+  --color-secondary-foreground: #EBE8E3;
+  --color-background: #0F1117;
+  --color-foreground: #EDEDF0;
+  --color-card: #22232B;
+  --color-card-foreground: #EBE8E3;
+  --color-popover: #22232B;
+  --color-popover-foreground: #EBE8E3;
+  --color-muted: rgba(255, 255, 255, 0.04);
+  --color-muted-foreground: #9CA3AF;
+  --color-sidebar: #22232B;
+  --color-sidebar-foreground: #EDEDF0;
+  --color-accent: #6366F1;
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #2E2F38;
+  --color-input: #2E2F38;
+  --color-ring: rgba(35, 99, 234, 0.30);
+  --color-success: #059669;
+  --color-success-foreground: #FFFFFF;
+  --color-warning: #D97706;
+  --color-warning-foreground: #FFFFFF;
+  --color-surface-secondary: #22232B;
+  --color-info: #0284C7;
+  --color-info-foreground: #FFFFFF;
 
-  /* Secondary */
-  --md-secondary: #5a5d72;
-  --md-on-secondary: #ffffff;
-  --md-secondary-container: #e0e0f4;
-  --md-on-secondary-container: #171b2c;
+  /* Signal — 活动指示色 (Activity/Signal Indicator) */
+  --color-signal: #0BC5EA;
+  --color-signal-foreground: #0F1117;
 
-  /* Tertiary — Teal accent for token/metrics */
-  --md-tertiary: #006a6a;
-  --md-on-tertiary: #ffffff;
-  --md-tertiary-container: #6ff7f7;
-  --md-on-tertiary-container: #002020;
+  /* Radii */
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+  --radius-xl: 12px;
 
-  /* Error */
-  --md-error: #ba1a1a;
-  --md-on-error: #ffffff;
-  --md-error-container: #ffdad6;
-  --md-on-error-container: #410002;
-
-  /* Surface */
-  --md-surface: #f9f9fd;
-  --md-on-surface: #1a1b1f;
-  --md-surface-variant: #e4e1ec;
-  --md-on-surface-variant: #47464f;
-  --md-inverse-surface: #2f3033;
-  --md-inverse-on-surface: #f1f0f4;
-
-  /* Surface containers */
-  --md-surface-container-lowest: #ffffff;
-  --md-surface-container-low: #f2f2f7;
-  --md-surface-container: #ececf3;
-  --md-surface-container-high: #e5e5ed;
-  --md-surface-container-highest: #dfdfe7;
-
-  /* Outline */
-  --md-outline: #74777f;
-  --md-outline-variant: #c4c6d0;
-
-  /* Elevation shadows (Material 3) */
-  --md-elevation-1: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
-  --md-elevation-2: 0 3px 6px 0 rgb(0 0 0 / 0.10), 0 1px 3px -1px rgb(0 0 0 / 0.06);
-  --md-elevation-3: 0 6px 12px 0 rgb(0 0 0 / 0.10), 0 2px 6px 0 rgb(0 0 0 / 0.06);
-  --md-elevation-4: 0 8px 16px 0 rgb(0 0 0 / 0.10), 0 4px 8px 0 rgb(0 0 0 / 0.06);
-  --md-elevation-5: 0 12px 24px 0 rgb(0 0 0 / 0.12), 0 6px 12px 0 rgb(0 0 0 / 0.06);
-
-  /* Semantic token colors */
-  --md-success: #2e7d32;
-  --md-on-success: #ffffff;
-  --md-success-container: #a5d6a7;
-  --md-warning: #a64d00;
-  --md-on-warning: #ffffff;
-  --md-warning-container: #ffe2b3;
-  --md-info: #016591;
-  --md-on-info: #ffffff;
-  --md-info-container: #b3e5fc;
-
-  /* Background (body) */
-  --md-background: #f4f4f8;
-  --md-on-background: #1a1b1f;
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Iosevka Custom', ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
 }
 
-/* ─── Dark mode overrides ─── */
-.dark {
-  --md-primary: #b0a8ff;
-  --md-on-primary: #2600d9;
-  --md-primary-container: #4400ff;
-  --md-on-primary-container: #e8e0ff;
+/* ════════════════════════════════════════════════
+   Color Variables — dark is default
+   ════════════════════════════════════════════════ */
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Iosevka Custom', ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
 
-  --md-secondary: #c4c6db;
-  --md-on-secondary: #2d3042;
-  --md-secondary-container: #434659;
-  --md-on-secondary-container: #e0e0f4;
+  /* Fallback aliases */
+  --primary: var(--color-primary);
+  --primary-foreground: var(--color-primary-foreground);
+  --background: var(--color-background);
+  --foreground: var(--color-foreground);
+  --card: var(--color-card);
+  --card-foreground: var(--color-card-foreground);
+  --popover: var(--color-popover);
+  --popover-foreground: var(--color-popover-foreground);
+  --secondary: var(--color-secondary);
+  --secondary-foreground: var(--color-secondary-foreground);
+  --muted: var(--color-muted);
+  --muted-foreground: var(--color-muted-foreground);
+  --sidebar: var(--color-sidebar);
+  --sidebar-foreground: var(--color-sidebar-foreground);
+  --code-bg: #1A1B23;
+  --accent: var(--color-accent);
+  --accent-foreground: var(--color-accent-foreground);
+  --destructive: var(--color-destructive);
+  --destructive-foreground: var(--color-destructive-foreground);
+  --border: var(--color-border);
+  --input: var(--color-input);
+  --ring: var(--color-ring);
+  --success: var(--color-success);
+  --success-foreground: var(--color-success-foreground);
+  --warning: var(--color-warning);
+  --warning-foreground: var(--color-warning-foreground);
+  --signal: var(--color-signal);
+  --signal-foreground: var(--color-signal-foreground);
+  --info: var(--color-info);
+  --info-foreground: var(--color-info-foreground);
 
-  --md-tertiary: #4edbdb;
-  --md-on-tertiary: #003737;
-  --md-tertiary-container: #004f4f;
-  --md-on-tertiary-container: #6ff7f7;
+  color-scheme: dark;
+}
 
-  --md-error: #ffb4ab;
-  --md-on-error: #690005;
-  --md-error-container: #93000a;
-  --md-on-error-container: #ffdad6;
+/* ─── Light mode overrides ─── */
+.light {
+  --color-primary: #2363EA;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: rgba(0, 0, 0, 0.03);
+  --color-secondary-foreground: #1F1E1B;
+  --color-background: #F4F6F9;
+  --color-foreground: #111827;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #1F1E1B;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1F1E1B;
+  --color-muted: rgba(0, 0, 0, 0.03);
+  --color-muted-foreground: #6B7280;
+  --color-sidebar: #FFFFFF;
+  --color-sidebar-foreground: #111827;
+  --code-bg: #F4F6F9;
+  --color-accent: #4F46E5;
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #E2E5EB;
+  --color-input: #E2E5EB;
+  --color-ring: rgba(35, 99, 234, 0.25);
+  --color-success: #059669;
+  --color-success-foreground: #FFFFFF;
+  --color-warning: #D97706;
+  --color-warning-foreground: #FFFFFF;
+  --color-info: #0284C7;
+  --color-signal: #0891B2;
+  --color-signal-foreground: #FFFFFF;
+  --color-surface-secondary: #FFFFFF;
 
-  --md-surface: #121318;
-  --md-on-surface: #e3e2e6;
-  --md-surface-variant: #47464f;
-  --md-on-surface-variant: #cac4d0;
-  --md-inverse-surface: #e3e2e6;
-  --md-inverse-on-surface: #2f3033;
-
-  --md-surface-container-lowest: #0d0e12;
-  --md-surface-container-low: #1a1b20;
-  --md-surface-container: #1e1f25;
-  --md-surface-container-high: #292a30;
-  --md-surface-container-highest: #34353b;
-
-  --md-outline: #8e9099;
-  --md-outline-variant: #44474f;
-
-  --md-elevation-1: 0 1px 3px 0 rgb(0 0 0 / 0.30), 0 1px 2px -1px rgb(0 0 0 / 0.20);
-  --md-elevation-2: 0 3px 6px 0 rgb(0 0 0 / 0.32), 0 1px 3px -1px rgb(0 0 0 / 0.22);
-  --md-elevation-3: 0 6px 12px 0 rgb(0 0 0 / 0.34), 0 2px 6px 0 rgb(0 0 0 / 0.22);
-  --md-elevation-4: 0 8px 16px 0 rgb(0 0 0 / 0.34), 0 4px 8px 0 rgb(0 0 0 / 0.22);
-  --md-elevation-5: 0 12px 24px 0 rgb(0 0 0 / 0.36), 0 6px 12px 0 rgb(0 0 0 / 0.22);
-
-  --md-background: #0a0b0f;
-  --md-on-background: #e3e2e6;
-
-  --md-success: #81c784;
-  --md-on-success: #1b5e20;
-  --md-success-container: #2e7d32;
-  --md-warning: #ffb74d;
-  --md-on-warning: #7c3a00;
-  --md-warning-container: #a85d00;
-  --md-info: #4fc3f7;
-  --md-on-info: #01579b;
-  --md-info-container: #0277bd;
+  color-scheme: light;
 }
 
 /* ════════════════════════════════════════════════
@@ -136,10 +135,9 @@
    ════════════════════════════════════════════════ */
 @layer base {
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans",
-      "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-    background-color: var(--md-background);
-    color: var(--md-on-surface);
+    font-family: var(--font-sans);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
     transition: background-color 0.25s ease, color 0.25s ease;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -154,47 +152,46 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--md-outline-variant);
+    background: var(--color-border);
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--md-outline);
+    background: var(--color-muted-foreground);
   }
 
   /* Selection color */
   ::selection {
-    background-color: color-mix(in srgb, var(--md-primary) 30%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   /* Global focus-visible ring */
   *:focus-visible {
-    outline: 2px solid var(--md-primary);
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 
-  /* Remove focus ring for mouse clicks */
   *:focus:not(:focus-visible) {
     outline: none;
   }
 }
 
 /* ════════════════════════════════════════════════
-   Theme Utility Classes
+   Portal Theme Utility Classes
    ════════════════════════════════════════════════ */
 @utility surface {
-  background-color: var(--md-surface);
+  background-color: var(--color-card);
 }
 @utility surface-container-low {
-  background-color: var(--md-surface-container-low);
+  background-color: var(--color-card);
 }
 @utility surface-container {
-  background-color: var(--md-surface-container);
+  background-color: var(--color-card);
 }
 @utility surface-container-high {
-  background-color: var(--md-surface-container-high);
+  background-color: var(--color-surface-secondary);
 }
 @utility surface-container-highest {
-  background-color: var(--md-surface-container-highest);
+  background-color: color-mix(in srgb, var(--color-surface-secondary) 80%, var(--color-background));
 }
 
 /* ─── Shimmer loading animation ─── */
@@ -205,9 +202,9 @@
 @utility shimmer {
   background: linear-gradient(
     90deg,
-    var(--md-surface-container) 25%,
-    var(--md-surface-container-high) 50%,
-    var(--md-surface-container) 75%
+    var(--color-card) 25%,
+    var(--color-surface-secondary) 50%,
+    var(--color-card) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
@@ -252,4 +249,67 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: 1rem;
+}
+
+/* ════════════════════════════════════════════════
+   Modal Animations
+   ════════════════════════════════════════════════ */
+@keyframes modal-overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-overlay-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes modal-content-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes modal-content-exit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+}
+
+.modal-overlay-entering {
+  animation: modal-overlay-enter 0.2s ease-out both;
+}
+.modal-overlay-exiting {
+  animation: modal-overlay-exit 0.15s ease-in both;
+}
+.modal-content-entering {
+  animation: modal-content-enter 0.2s ease-out both;
+}
+.modal-content-exiting {
+  animation: modal-content-exit 0.15s ease-in both;
+}
+
+/* ─── Bar chart bars ─── */
+@keyframes bar-grow {
+  from { height: 0; }
+  to { height: var(--bar-height, 100%); }
+}
+
+@utility bar-grow {
+  animation: bar-grow 0.5s ease-out both;
+}
+
+/* ─── Prevent body scroll when modal is open ─── */
+body.modal-open {
+  overflow: hidden;
 }
