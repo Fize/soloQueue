@@ -328,14 +328,14 @@ func (db *DB) InsertClassifierDecision(ctx context.Context, d ClassifierDecision
 
 // AggregatedClassifierStats represents aggregated classifier decision stats over a time period.
 type AggregatedClassifierStats struct {
-	Period         string `json:"period"`
-	FTCount        int    `json:"ft_count"`
-	LLMCount       int    `json:"llm_count"`
-	LLMErrorCount  int    `json:"llm_error_count"`
-	AgreedCount    int    `json:"agreed_count"`
-	AvgFTConf      int    `json:"avg_ft_conf"`
-	AvgLLMConf     int    `json:"avg_llm_conf"`
-	TotalCount     int    `json:"total_count"`
+	Period         string  `json:"period"`
+	FTCount        int     `json:"ft_count"`
+	LLMCount       int     `json:"llm_count"`
+	LLMErrorCount  int     `json:"llm_error_count"`
+	AgreedCount    int     `json:"agreed_count"`
+	AvgFTConf      float64 `json:"avg_ft_conf"`
+	AvgLLMConf     float64 `json:"avg_llm_conf"`
+	TotalCount     int     `json:"total_count"`
 }
 
 // GetClassifierStatsAggregated returns aggregated classifier decision stats grouped by timeframe.

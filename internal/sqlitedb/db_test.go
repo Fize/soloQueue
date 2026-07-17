@@ -188,6 +188,30 @@ func TestGetDistinctTeams_Empty(t *testing.T) {
 	}
 }
 
+func TestGetClassifierStatsAggregated_AvgFloat(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// Two decisions with ft_confidence 50 and 60 => avg = 55.0
+	if err := db.InsertClassifierDecision(context.Background(), ClassifierDecision{FTConfidence: 50, LLMInvoked: 0, FinalSource: "fast-track"}); err != nil {
+		t.Fatalf("InsertClassifierDecision: %v", err)
+	}
+	if err := db.InsertClassifierDecision(context.Background(), ClassifierDecision{FTConfidence: 60, LLMInvoked: 0, FinalSource: "fast-track"}); err != nil {
+		t.Fatalf("InsertClassifierDecision: %v", err)
+	}
+
+	stats, err := db.GetClassifierStatsAggregated(context.Background(), "daily", "", "")
+	if err != nil {
+		t.Fatalf("GetClassifierStatsAggregated: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row, got %d", len(stats))
+	}
+	if stats[0].AvgFTConf != 55.0 {
+		t.Errorf("AvgFTConf = %v, want 55.0", stats[0].AvgFTConf)
+	}
+}
+
 func TestInsertTokenUsage_Concurrent(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

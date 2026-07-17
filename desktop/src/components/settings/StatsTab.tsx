@@ -451,8 +451,8 @@ export function StatsTab() {
                     <YAxis width={44} tickFormatter={fmtTick} allowDecimals={false} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
                     <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    <Line type="monotone" dataKey="local" name={t('stats.local')} stroke="var(--color-chart-4)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="remote" name={t('stats.remote')} stroke="var(--color-chart-5)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="local" name={t('stats.local')} stroke="var(--color-chart-4)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="remote" name={t('stats.remote')} stroke="var(--color-chart-5)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -498,7 +498,7 @@ export function StatsTab() {
                   <YAxis domain={[0, 100]} width={44} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
                   <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
                   <Legend wrapperStyle={{ fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="agreement" name={t('stats.agreement')} stroke="var(--color-chart-1)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="agreement" name={t('stats.agreement')} stroke="var(--color-chart-1)" strokeWidth={2} dot={classifierChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
                   <Line type="monotone" dataKey="avgFtConf" name={t('stats.avgFtConf')} stroke="var(--color-warning)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
                   <Line type="monotone" dataKey="avgLlmConf" name={t('stats.avgLlmConf')} stroke="var(--color-chart-5)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
                 </LineChart>

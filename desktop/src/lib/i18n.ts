@@ -1865,7 +1865,7 @@ export const translations = {
       ftOnly: '仅快速匹配',
       llmCall: 'LLM 调用',
       llmError: 'LLM 错误',
-      classifierAgreement: 'FT–LLM 一致率与置信度',
+      classifierAgreement: '分类器一致率与置信度',
       agreementDesc: 'LLM 被调用时与快速匹配的一致率（%），以及平均置信度。',
       agreement: '一致率 %',
       avgFtConf: '平均 FT 置信度',
